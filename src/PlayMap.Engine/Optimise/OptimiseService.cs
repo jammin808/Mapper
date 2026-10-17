@@ -85,8 +85,13 @@ public sealed class OptimiseService : IAsyncDisposable
     private Task _loop = Task.CompletedTask;
     private string? _running;
     /// <summary>The running job its worker says it holds between frames (its "held" line), null when the worker says it goes on or
-    /// another job runs.</summary>
+    /// another job runs; and the frame that line names.</summary>
     private string? _held;
+    private long _heldFrame;
+
+    /// <summary>The held job STATE shows: <see cref="_held"/> once the journal has the row its line made (a reader that sees the job held
+    /// finds the row saying it paused).</summary>
+    private string? _shownHeld;
 
     /// <summary>Running jobs a resume was asked of while their worker held them: journalled as resumed when it goes on.</summary>
     private readonly HashSet<string> _resumeAsked = new(StringComparer.Ordinal);
@@ -106,6 +111,7 @@ public sealed class OptimiseService : IAsyncDisposable
     private readonly HashSet<string> _recording = new(StringComparer.Ordinal);
     private string _gl = "";
     private string _encoder = "";
+    /// <summary>The knobs last handed to the running worker (null: none runs). Written under the gate before they leave.</summary>
     private WorkerKnobs? _sent;
     private GovernorState _lastState = GovernorState.Run;
     private long _version;
@@ -143,7 +149,7 @@ public sealed class OptimiseService : IAsyncDisposable
     }
 
     /// <summary>A job as the node observes it: held while its worker says it holds it. Under the gate.</summary>
-    private OptimiseJob Observed(OptimiseJob j) => j.Id == _held && j.Id == _running ? j with { Held = true } : j;
+    private OptimiseJob Observed(OptimiseJob j) => j.Id == _shownHeld && j.Id == _running ? j with { Held = true } : j;
 
     public OptimiseView View
     {
@@ -287,15 +293,17 @@ public sealed class OptimiseService : IAsyncDisposable
                     continue;
                 _jobs[i] = j with { Paused = paused };
                 changed.Add(j.Id);
-                // A pause of the running job is applied once its worker holds it, a resume of the job it holds once it goes on; a job
-                // its worker holds already (the governor's wait) is paused at once.
+                // A pause of the running job is applied once its worker holds it, a resume once it goes on. A job its worker holds while
+                // the knobs last sent hold it too (the governor's wait) is paused at once, at the frame it held at; knobs on their way
+                // that let it go, or hold it, leave the worker's last word stale, so the change waits for its next.
                 if (j.Id != _running)
                     continue;
-                if (paused && j.Id == _held)
+                var knobsHold = _sent is { Holds: true };
+                if (paused && j.Id == _held && knobsHold)
                 {
-                    heldAlready.Add((j.Name, j.Id, j.FramesDone));
+                    heldAlready.Add((j.Name, j.Id, _heldFrame));
                 }
-                else if (paused || j.Id == _held)
+                else if (paused || j.Id == _held || knobsHold)
                 {
                     pending.Add(j.Id);
                     if (!paused)
@@ -493,11 +501,18 @@ public sealed class OptimiseService : IAsyncDisposable
         lock (_gate)
             held = _running is { } r && _jobs.Any(j => j.Id == r && j.Paused);
         var wire = new WorkerKnobs(held ? "paused" : knobs.State.ToString().ToLowerInvariant(), knobs.GpuDuty, knobs.CpuThreads, knobs.HwDecode);
-        if (_worker.Running && _sent != wire)
+        // The knobs sent are written under the gate before they leave: a pause or a resume weighs the worker's last word against them.
+        var send = false;
+        lock (_gate)
         {
-            _ = _worker.Send(WorkerProtocol.Knobs(wire));
-            _sent = wire;
+            if (_worker.Running && _sent != wire)
+            {
+                _sent = wire;
+                send = true;
+            }
         }
+        if (send)
+            _ = _worker.Send(WorkerProtocol.Knobs(wire));
         OptimiseJob? next = null;
         lock (_gate)
         {
@@ -523,7 +538,8 @@ public sealed class OptimiseService : IAsyncDisposable
         if (_worker.Running && _idleSinceNs != long.MinValue && now - _idleSinceNs >= _settings.IdleExitS * 1_000_000_000L)
         {
             _ = _worker.StopAsync();
-            _sent = null;
+            lock (_gate)
+                _sent = null;
             Changed();
         }
     }
@@ -569,13 +585,14 @@ public sealed class OptimiseService : IAsyncDisposable
                 return;
             }
             _held = null;
+            _shownHeld = null;
             _resumeAsked.Clear();
+            _sent = knobs;
             DeletePartial(job.Id);
             Replace(job.Id, j => j with { State = JobStates.Encoding, FramesDone = 0, Fps = 0, Words = j.Attempts > 0 ? j.Words : "" });
             _store.Save(_jobs);
         }
         var sent = _worker.Send(WorkerProtocol.Knobs(knobs));
-        _sent = knobs;
         sent = sent && _worker.Send(WorkerProtocol.Run(new WorkerJob(job.Id, source!, _store.PartialFor(job.Id), recipe!.To, Recipe.QualityWord(recipe.Quality),
             recipe.Chunks, recipe.SecondStage.ToString().ToLowerInvariant(), recipe.RawBelowGain, recipe.Audio == "copy")));
         if (!sent)
@@ -652,15 +669,23 @@ public sealed class OptimiseService : IAsyncDisposable
                         return;
                     var was = _held == e.Job;
                     _held = e.On ? e.Job : null;
+                    _heldFrame = e.Frames;
                     var job = _jobs.FirstOrDefault(j => j.Id == e.Job);
                     // The pause and the resume are facts once the worker holds or goes on: the journal says so then, not when asked.
                     if (was != e.On && e.On && job is { Paused: true })
                         said = string.Create(CultureInfo.InvariantCulture, $"{job.Name} ({e.Job}) paused at frame {e.Frames}");
                     else if (was != e.On && !e.On && job is not null && _resumeAsked.Remove(e.Job))
                         said = string.Create(CultureInfo.InvariantCulture, $"{job.Name} ({e.Job}) resumed at frame {e.Frames}");
+                    if (said is null)
+                        _shownHeld = _held;
                 }
                 if (said is not null)
+                {
+                    // STATE shows the hold (or its end) once the journal has the row that says so.
                     Said?.Invoke("optimise", said, false);
+                    lock (_gate)
+                        _shownHeld = _held;
+                }
                 Changed();
                 break;
             case "progress":
@@ -720,6 +745,7 @@ public sealed class OptimiseService : IAsyncDisposable
             _sent = null;
             _running = null;
             _held = null;
+            _shownHeld = null;
             _resumeAsked.Clear();
             // The worker is gone and with it the partial file's writer: the file goes before the job reads as queued or failed.
             if (job is not null)

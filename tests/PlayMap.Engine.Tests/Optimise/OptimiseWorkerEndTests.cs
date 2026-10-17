@@ -21,16 +21,16 @@ namespace PlayMap.Engine.Tests.Optimise;
 public sealed class OptimiseWorkerEndTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
-    private const string Hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    internal const string Hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     /// <summary>A worker that reads nothing and never ends by itself.</summary>
-    private static WorkerLaunch Sleeper() => OperatingSystem.IsWindows()
+    internal static WorkerLaunch Sleeper() => OperatingSystem.IsWindows()
         // cmd strips the outer quotes and runs the rest; the worker's own word lands after rem.
         ? new WorkerLaunch(Path.Combine(Environment.SystemDirectory, "cmd.exe"), ["/d", "/c", "ping -n 3600 127.0.0.1 >nul & rem"])
         : new WorkerLaunch("/bin/sh", ["-c", "exec sleep 3600"]);
 
     /// <summary>Ends a sleeper for real: the test's own kill, which the system obeys.</summary>
-    private static void End(int pid)
+    internal static void End(int pid)
     {
         if (pid == 0)
             return;
@@ -50,14 +50,14 @@ public sealed class OptimiseWorkerEndTests
         }
     }
 
-    private static OptimiseJob Job(string id, long created, bool paused)
+    internal static OptimiseJob Job(string id, long created, bool paused)
     {
         var recipe = Recipe.For("hap", EncodeQuality.Fast);
         return new OptimiseJob(id, "md_clip", "Clip", Hash, recipe.Key(Hash), recipe.Canonical(), recipe.To, JobStates.Queued, created) { Paused = paused };
     }
 
     /// <summary>A clip on this node's disk whose bytes nothing reads (the worker is a sleeper).</summary>
-    private static MediaItem Clip(DirectoryInfo dir)
+    internal static MediaItem Clip(DirectoryInfo dir)
     {
         var path = Path.Combine(dir.FullName, "clip.mp4");
         File.WriteAllBytes(path, [0]);
