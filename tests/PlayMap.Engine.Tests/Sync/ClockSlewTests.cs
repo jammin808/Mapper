@@ -16,6 +16,16 @@ public sealed class ClockSlewTests
     private static long Position(HostRig rig, string playlist) =>
         rig.Engine.Snapshot.Playback.Playlists[playlist].Clip.PositionAt(rig.Engine.LeaderNowNs);
 
+    /// <summary>What a playlist that moved across a step would be named by: each lane's item and clip anchor, the clock's steps and the
+    /// last Δ, the count STATE gives and the journal.</summary>
+    private static string Why(HostRig rig)
+    {
+        var lanes = string.Join("; ", rig.Engine.Snapshot.Playback.Playlists.Select(kv =>
+            $"{kv.Key} index {kv.Value.Index} item {kv.Value.ItemId} {kv.Value.Clip.State} media {kv.Value.Clip.Anchor.MediaNs} leader {kv.Value.Clip.Anchor.LeaderNs} seq {kv.Value.Clip.Seq} switch {kv.Value.SwitchAtLeaderNs}"));
+        var clock = rig.Engine.Services.Clock;
+        return $"now {rig.Engine.LeaderNowNs}; {lanes}; clock steps {clock.Steps}, last {clock.LastStepNs}, STATE steps {SyncRig.Sync(rig).GetProperty("steps").GetInt64()}; journal: {rig.Journal()}";
+    }
+
     [Fact]
     public async Task FollowingALeaderThreeHoursTwelveMinutesAheadKeepsEveryPlaylistInPlace()
     {
@@ -35,8 +45,8 @@ public sealed class ClockSlewTests
         await SyncRig.GroupAsync(leader, node);
         Assert.Equal(1, SyncRig.Sync(node).GetProperty("steps").GetInt64());
         Assert.Equal(Ahead, node.Engine.Services.Clock.LastStepNs);
-        Assert.True(Math.Abs(Position(node, "pl_local") - local) <= 1_000_000, $"{Position(node, "pl_local") - local} ns");
-        Assert.True(Math.Abs(Position(node, "pl_show") - show) <= 1_000_000, $"{Position(node, "pl_show") - show} ns");
+        Assert.True(Math.Abs(Position(node, "pl_local") - local) <= 1_000_000, $"{Position(node, "pl_local") - local} ns; {Why(node)}");
+        Assert.True(Math.Abs(Position(node, "pl_show") - show) <= 1_000_000, $"{Position(node, "pl_show") - show} ns; {Why(node)}");
         Assert.True(await Eventually.TrueAsync(() => node.Journal().Contains("followed 0badc0de: show clock stepped +3 h 12 min; 2 playlists kept their place",
             StringComparison.Ordinal)), node.Journal());
         clock.AdvanceMs(1_000);

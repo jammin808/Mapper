@@ -207,17 +207,19 @@ public sealed partial class OutputFixtureTests
         return root.ToJsonString(FixtureJson.Indented) + "\n";
     }
 
-    [GeneratedRegex(@"^(?<node>.+): \k<node> · 1 amber: watchdog — frame p95 [0-9.]+ ms$")]
+    [GeneratedRegex(@"^(?<node>.+): \k<node> · 1 (?<light>amber|red): watchdog — frame p95 [0-9.]+ ms$")]
     private static partial Regex FrameP95Only();
 
     /// <summary>The node's watchdog reads the render loop's frame p95, a time measured on the real clock that this fixture sets to a
-    /// steady 60 Hz: when that measurement alone made the machine amber (the eye's one problem, its words the watchdog's frame p95 and
-    /// nothing else), the node, fleet and eye read as at 60 Hz. Any other cause stays as the engine wrote it.</summary>
+    /// steady 60 Hz: when that measurement alone made the machine amber or red (the eye's one problem, its words the watchdog's frame
+    /// p95 and nothing else), the node, fleet and eye read as at 60 Hz. The machine's words name only its worst light's categories, so
+    /// with the watchdog red an amber elsewhere in the machine is not seen here; everything else the fixture holds (outputs, media,
+    /// sync, faults) is compared in its own block.</summary>
     private static void SteadyWatchdog(JsonObject root)
     {
         if (root["eye"] is not JsonObject eye || root["fleet"] is not JsonObject fleet || eye["problems"] is not JsonArray { Count: 1 } problems
             || (string?)problems[0] is not { } problem || !problem.StartsWith("machine:", StringComparison.Ordinal)
-            || (string?)eye["worstWords"] is not { } words || !FrameP95Only().IsMatch(words))
+            || (string?)eye["worstWords"] is not { } words || FrameP95Only().Match(words) is not { Success: true } match)
             return;
         const string headline = "1 machine · 0 outputs · all green";
         root["light"] = "green";
@@ -230,8 +232,9 @@ public sealed partial class OutputFixtureTests
         eye["problems"] = new JsonArray();
         if (eye["counts"] is JsonObject counts)
         {
+            var light = match.Groups["light"].Value;
             counts["green"] = counts["green"]!.GetValue<int>() + 1;
-            counts["amber"] = counts["amber"]!.GetValue<int>() - 1;
+            counts[light] = counts[light]!.GetValue<int>() - 1;
         }
     }
 

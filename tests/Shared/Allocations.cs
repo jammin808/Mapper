@@ -7,7 +7,9 @@ namespace PlayMap.Tests;
 /// threads). <see cref="GC.GetAllocatedBytesForCurrentThread"/> counts what a thread has used of its allocation contexts; when a
 /// background collection ends its mark it voids every thread's context, and the unused rest of it (up to 8 KB) then reads as allocated
 /// by that thread, though nothing was. A gen0 collection first hands every thread's context back with its rest uncounted, so a window
-/// begun after one reads 0 on any thread that allocates nothing in it, whenever a background collection ends.
+/// begun after one reads 0 on any thread that allocates nothing in it, whenever a background collection ends. A thread that allocates
+/// in the window holds a context again, and a background collection that ends its mark after that can still count its rest: a test
+/// that allows a thread a small allocation allows for that too.
 /// </summary>
 internal static class Allocations
 {
@@ -20,6 +22,8 @@ internal static class Allocations
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static long Start()
     {
+        // Since compiled before the window opens: its first call compiles it on this thread.
+        _ = Since(0);
         Begin();
         return GC.GetAllocatedBytesForCurrentThread();
     }

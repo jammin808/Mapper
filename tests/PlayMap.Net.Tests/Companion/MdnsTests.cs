@@ -91,7 +91,7 @@ public sealed class MdnsTests
 
     /// <summary>The responder under test on the slot's address and a port of its own: 5353 is shared (address reuse) with every other
     /// responder on the machine — another node, Avahi, a parallel suite — and a datagram to a shared port reaches one of them, not
-    /// necessarily this one. What the port changes (a legacy querier is one whose source port is not 5353) is the querier's side.</summary>
+    /// necessarily this one. A legacy querier is still one whose source port is not 5353 (the test's socket's is ephemeral).</summary>
     private static MdnsOptions Options(IPAddress address, Peer group) => new()
     {
         Bind = address,
@@ -108,7 +108,6 @@ public sealed class MdnsTests
         var address = Loopback();
         using var peer = new Peer(address);
         await using var responder = new MdnsResponder(Options(address, peer));
-        Assert.Equal(5353, new MdnsOptions().Port);
         Assert.True(responder.Start(), responder.Fault);
         var port = responder.LocalPort;
         Assert.NotEqual(0, port);
@@ -164,6 +163,19 @@ public sealed class MdnsTests
         // The new name is probed and then announced.
         var announced = await peer.ReceiveAsync(m => m.IsResponse && m.Answers.Any(r => r.Type == DnsType.Ptr));
         Assert.Equal("Stage left (2)._playmap._tcp.local", announced.Message.Answers.Single(r => r.Type == DnsType.Ptr).Target);
+    }
+
+    /// <summary>On its own port by default, 5353, beside another socket that holds it with address reuse (Avahi, another node).</summary>
+    [Fact]
+    public async Task ByDefaultItSharesPort5353WithAnotherResponder()
+    {
+        var address = Loopback();
+        using var other = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        other.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        other.Bind(new IPEndPoint(address, MdnsResponder.MdnsPort));
+        await using var responder = new MdnsResponder(new MdnsOptions { Bind = address });
+        Assert.True(responder.Start(), responder.Fault);
+        Assert.Equal(MdnsResponder.MdnsPort, responder.LocalPort);
     }
 
     [Fact]

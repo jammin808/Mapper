@@ -611,7 +611,7 @@ public sealed partial class EngineCore
         var adopted = new List<string>();
         foreach (var list in targets)
         {
-            if (!WireGrammar.TryParse($"PLAYLIST ANCHOR {list.Id} {json}", out var line, out _) || RefusedAsStopping(session))
+            if (!WireGrammar.TryParse($"PLAYLIST ANCHOR {list.Id} {json}", out var line, out _))
                 continue;
             var id = list.Id;
             CommandReply reply;

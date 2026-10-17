@@ -82,13 +82,14 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
         Assert.Contains("paired by tag", rig.Runner.View!.Pairing!.Words, StringComparison.Ordinal);
     }
 
-    /// <summary>The scan's patience runs on its own clock: a cue the phone leaves unanswered is waited for while that clock stands,
-    /// however long the machine takes, and its pattern goes up again once the clock passes the pattern timeout — once, a retake.</summary>
+    /// <summary>The scan's patience runs on its own clock: with a patience of one millisecond, which every answer of the phone outlasts
+    /// on the wall, no pattern is shown again while that clock stands — a cue the phone leaves unanswered is waited for however long the
+    /// machine takes — and its pattern goes up again once the clock passes the pattern timeout: once, a retake.</summary>
     [Fact]
     public async Task AnUnansweredCueIsWaitedForUntilTheScansClockPassesThePatternTimeout()
     {
         var time = new Fleet.ManualTime();
-        var patience = TimeSpan.FromSeconds(2);
+        var patience = TimeSpan.FromMilliseconds(1);
         await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = patience, Time = time });
         await using var phone = await rig.JoinAsync();
         phone.Unanswered.Add(4);

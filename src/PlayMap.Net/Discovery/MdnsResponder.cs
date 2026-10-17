@@ -25,7 +25,7 @@ public sealed record MdnsOptions
     /// <summary>The address it binds (the node's bind address; any = every interface).</summary>
     public IPAddress Bind { get; init; } = IPAddress.Any;
 
-    public int Port { get; init; } = 5353;
+    public int Port { get; init; } = MdnsResponder.MdnsPort;
 
     /// <summary>Where multicast queries and announcements go (224.0.0.251:5353).</summary>
     public IPEndPoint Group { get; init; } = new(IPAddress.Parse("224.0.0.251"), 5353);
@@ -57,6 +57,9 @@ public sealed record MdnsOptions
 public sealed class MdnsResponder : IServiceAnnouncer
 {
     public const string ServicesName = "_services._dns-sd._udp.local";
+
+    /// <summary>mDNS's port (RFC 6762 §3).</summary>
+    public const int MdnsPort = 5353;
     private const uint LegacyTtl = 10;
 
     private readonly MdnsOptions _o;
@@ -259,7 +262,8 @@ public sealed class MdnsResponder : IServiceAnnouncer
             Conflicts(message);
             return;
         }
-        var legacy = from.Port != _o.Port;
+        // A legacy querier is one whose source port is not mDNS's own (RFC 6762 §6.7), whatever port this responder is on.
+        var legacy = from.Port != MdnsPort;
         var answers = new List<DnsRecord>();
         var additionals = new List<DnsRecord>();
         var unicast = legacy;
