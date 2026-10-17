@@ -730,7 +730,7 @@ per pass on real GPUs (from -2's timings).
 
 ### 3.9 `wp3-stability` — prove what the audience saw (W2)
 
-*Design: `design/stability.md`.*
+*Design: `design/stability.md` Part A (§1–§7).*
 
 **Slice.**
 1. The watermark: `AirWatermark` (Core: a 24-bit frame counter, the low 16 bits of the frame's leader instant in milliseconds and
@@ -740,11 +740,12 @@ per pass on real GPUs (from -2's timings).
    both backends; preflight says where it shows on the air. (5 h)
 2. The observer: `PlayMap observer` (the same exe, its own process, with no GPU device and no render code), started and watched by
    the engine as its workers are, reading a capture source through Media (a capture device, or an OMT or NDI receive of a
-   loop-through), decoding both marks of each captured frame into a verdict — ok, stale (no advance for two frames while STATE
-   says the output plays and is not held), held (STATE says frozen or held: expected), torn (the two marks differ), wrong (the
-   leader instant off by more than a frame), late (lit later than the predicted display time by more than the output's budget),
-   lost (no mark) — on its standard output to the engine and into a status file the supervisor reads, so a wedged engine is still
-   caught; STATE `outputs[].observed`, `OBSERVE`, `OBSERVE STATUS`, a red preflight row, HEALTH's outputs category. (8 h)
+   loop-through), decoding both marks of each captured frame into a verdict — ok; held (the counter runs while STATE says the
+   output holds its picture: expected); stale (the counter stops for two frames: the pipeline froze, whatever the content does);
+   torn (the two marks differ); wrong (the leader instant off by more than a frame); late (lit later than the predicted display
+   time by more than the output's budget); lost (no mark while STATE says the output shows); black (no mark while STATE says it is
+   black: expected) — on its standard output to the engine and into a status file the supervisor reads, so a wedged engine is
+   still caught; STATE `outputs[].observed`, `OBSERVE`, `OBSERVE STATUS`, a red preflight row, HEALTH's outputs category. (8 h)
 3. The heartbeat: HEALTH carries each output's shown-frame count (the present ledger's, from display statistics where there are
    any, swap returns on GL) and observed-frame count; the supervisor's rule reads them. (2 h)
 4. `LATENCY STEP`: a step in the watermark's region (or, through a camera in rehearsal, the whole output) at chosen leader
@@ -791,7 +792,7 @@ loop-through of a real output; an LED processor's monitor out; a photodiode besi
 
 ### 3.10 `wp3-present` — Direct3D 12 flip presenters and the predicted display time (W3)
 
-*Design: `design/present.md` (with framelock).*
+*Design: `design/present.md` Part A (§1–§10).*
 
 **Slice.**
 1. `D3D12Platform : IGpuPlatform` on the outputs' adapter; the display list (`DisplayList`'s `EnumDisplayMonitors` and
@@ -1006,7 +1007,7 @@ stage programs' HLSL.
 
 ### 3.14 `wp3-framelock` — locked where the hardware locks, honest everywhere else (W4)
 
-*Design: `design/present.md` §6–§9.*
+*Design: `design/present.md` Part B (§11–§18).*
 
 **Slice.**
 1. The NVIDIA present-barrier tier on RTX PRO with RTX PRO Sync: `NvAPI_D3D12_QueryPresentBarrierSupport`; a client per output's
@@ -1068,7 +1069,7 @@ the card.
 
 ### 3.15 `wp3-stability-2` — device loss as a rehearsed event (W4, continues stability)
 
-*Design: `design/stability.md` §6–§9.*
+*Design: `design/stability.md` Part B (§8–§13).*
 
 **Slice.**
 1. One rebuild path: a removal seen at `Present`, `ExecuteCommandLists`, `GetDeviceRemovedReason` or a fence at `UINT64_MAX` → the
@@ -1082,8 +1083,10 @@ the card.
 3. Repeated loss governed: rebuilds with backoff; three in ten minutes → the GL fallback where it starts, else the outputs held as
    the show's policy says, with words — never a silent stop; a removal whose breadcrumb sits inside a user effect's pass
    quarantines that kind before the rebuild draws again. (4 h)
-4. The degrade order for a missing frame: the plan walked again at the new time → the last presented picture held → the backup's
-   `FAILOVER` where the policy allows, each said; black only where the policy says. (3 h)
+4. The degrade order for a missing frame: the next frame drawn for its own instant, never a catch-up → the last presented picture
+   held while the render thread stalls, with the stall's cause → an observed stale or lost output red on the attention bar with
+   the backup's `FAILOVER` as its fix line (the takeover's automatic trigger stays the backup's next-round item); black only where
+   the show's policy says. (3 h)
 5. GPU crash evidence: an Aftermath dump on a removal on NVIDIA when its library is present; the dump manifest beside it. (2 h)
 
 ⟂ *(≈ 21 h)*
