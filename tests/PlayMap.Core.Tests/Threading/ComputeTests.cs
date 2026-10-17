@@ -138,12 +138,12 @@ public sealed partial class ComputeTests
         Assert.Empty(missing);
     }
 
-    [GeneratedRegex(@"Task\.Run\(|Task\.Factory\.StartNew\(|ThreadPool\.(Unsafe)?QueueUserWorkItem\(")]
+    [GeneratedRegex(@"Task\.Run(<[^>]+>)?\(|Task\.Factory\.StartNew(<[^>]+>)?\(|ThreadPool\.(Unsafe)?QueueUserWorkItem(<[^>]+>)?\(")]
     private static partial Regex PoolJob();
 
     /// <summary>The work each product file hands the shared pool, read and found to be no CPU job: a loop that waits on sockets, timers
     /// or a queue; awaited file or process I/O; an async run whose CPU parts go to <see cref="Compute"/>; the still decode the air waits
-    /// for (StillAndSequenceTests measures why it stays). A file whose count grows hands the pool something new: review it, and give CPU
+    /// for (StillBesideComputeTests measures why it stays). A file whose count grows hands the pool something new: review it, and give CPU
     /// work to <see cref="Compute.RunAsync{T}"/>.</summary>
     private static readonly Dictionary<string, int> ReviewedPoolJobs = new(StringComparer.Ordinal)
     {
@@ -190,7 +190,6 @@ public sealed partial class ComputeTests
         ["PlayMap.Engine/Site/SiteParts.cs"] = 1, // watch loop
         ["PlayMap.Engine/Sync/SyncNode.cs"] = 1, // settings written
         ["PlayMap.Engine/Timecode/EngineCore.Timecode.cs"] = 1, // devices listed
-        ["PlayMap.Media/MediaProbe.cs"] = 2, // files probed
         ["PlayMap.Media/Sources/ImageSource.cs"] = 1, // the still the air waits for
         ["PlayMap.Net/Bus/HelloService.cs"] = 3, // socket loops
         ["PlayMap.Net/Common/LineWriter.cs"] = 1, // write loop
@@ -222,6 +221,9 @@ public sealed partial class ComputeTests
             var text = File.ReadAllText(file);
             foreach (Match m in PoolJob().Matches(text))
             {
+                var lineStart = text.LastIndexOf('\n', m.Index) + 1;
+                if (text.AsSpan(lineStart, m.Index - lineStart).TrimStart().StartsWith("//", StringComparison.Ordinal))
+                    continue;
                 var line = text[..m.Index].Count(c => c == '\n') + 1;
                 var call = text.AsSpan(m.Index, Math.Min(160, text.Length - m.Index)).ToString().Split('\n')[0].Trim();
                 if (!found.TryGetValue(rel, out var list))

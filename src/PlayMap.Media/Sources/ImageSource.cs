@@ -29,7 +29,7 @@ public sealed unsafe class ImageSource : IVideoSource
         _path = path;
         Key = key ?? path;
         // On the pool, not the compute threads: the air waits for this picture, and a job queued on the compute threads waits behind
-        // a solve that holds them all for its whole length (StillAndSequenceTests measures it).
+        // a solve that holds them all for its whole length (StillBesideComputeTests measures it).
         _ = Task.Run(Decode);
     }
 

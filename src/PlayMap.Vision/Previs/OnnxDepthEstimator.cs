@@ -85,6 +85,7 @@ public sealed class OnnxDepthEstimator : IDepthEstimator, IDisposable
     private async Task<DepthEstimate> EstimateCoreAsync(ImageRgb8 image, CancellationToken cancellationToken)
     {
         await PlayMap.Core.Threading.Compute.Hop();
+        cancellationToken.ThrowIfCancellationRequested();
         ImageToModel map;
         IReadOnlyDictionary<string, TensorData> outputs;
         using (var tensor = new TensorBuffer(_inputName, 1, 3, _input.Height, _input.Width))

@@ -159,6 +159,7 @@ public sealed class SamSegmenter : ISegmenter, IDisposable
     private async Task<SegmentationResult> SegmentCoreAsync(VisionFrame frame, SegmentationPrompt prompt, CancellationToken cancellationToken)
     {
         await PlayMap.Core.Threading.Compute.Hop();
+        cancellationToken.ThrowIfCancellationRequested();
         if (prompt.PositivePoints.IsEmpty && !prompt.HasBox)
             return SegmentationResult.Refused(prompt.HasText
                 ? Id + " cannot read a phrase; click on the surface, or install a text-prompt model"

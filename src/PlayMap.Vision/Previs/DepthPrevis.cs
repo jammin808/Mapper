@@ -43,6 +43,7 @@ public static class DepthPrevis
     private static async Task<PrevisResult> BuildCoreAsync(ImageRgb8 photo, IDepthEstimator? estimator, PrevisOptions options, CancellationToken cancellationToken)
     {
         await PlayMap.Core.Threading.Compute.Hop();
+        cancellationToken.ThrowIfCancellationRequested();
         if (estimator is null)
             return Flat(photo, options, string.Create(CultureInfo.InvariantCulture, $"no depth model installed: a flat plane at {options.DistanceMetres:0.##} m"));
         DepthEstimate depth;
