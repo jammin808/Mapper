@@ -107,7 +107,10 @@ public class DrawerTests
     [AvaloniaFact]
     public void ThePreviewSurfaceShowsTheEnginesPictureFromItsRing()
     {
-        var path = Path.Combine(PreviewRing.DefaultFolder(), $"playmap-test{Environment.ProcessId}-view.preview");
+        var node = $"test{Environment.ProcessId}";
+        var path = PreviewRing.PathFor(node, "view", 1);
+        if (File.Exists(path))
+            File.Delete(path);
         using (var writer = new PreviewRingWriter(path, 64, 36))
         {
             var pixels = new byte[64 * 36 * 4];
@@ -117,7 +120,7 @@ public class DrawerTests
                 pixels[i + 3] = 255;
             }
             Assert.True(writer.Write(pixels, 64, 36, 64 * 4, 1));
-            using var source = new RingPreviewSource(() => new PreviewRingName(path, null));
+            using var source = new RingPreviewSource(node, "view", () => new PreviewRingName(path, null));
             var frame = source.Poll();
             Assert.NotNull(frame);
             Assert.Equal(new PixelSize(64, 36), frame.PixelSize);
@@ -125,16 +128,19 @@ public class DrawerTests
             Assert.True(writer.Write(pixels, 32, 18, 64 * 4, 2));
             Assert.Equal(new PixelSize(32, 18), source.Poll()!.PixelSize);
         }
-        using var gone = new RingPreviewSource(() => new PreviewRingName(path, null));
+        using var gone = new RingPreviewSource(node, "view", () => new PreviewRingName(path, null));
         Assert.Null(gone.Poll());
     }
 
     [AvaloniaFact]
     public void ARingTheEngineTookAwayIsLetGoAndANewRingAtTheNamedPathIsRead()
     {
-        var path = Path.Combine(PreviewRing.DefaultFolder(), $"playmap-test{Environment.ProcessId}-replaced.preview");
+        var node = $"test{Environment.ProcessId}";
+        var path = PreviewRing.PathFor(node, "replaced", 1);
+        if (File.Exists(path))
+            File.Delete(path);
         var pixels = new byte[64 * 36 * 4];
-        using var source = new RingPreviewSource(() => new PreviewRingName(path, null), TimeSpan.Zero);
+        using var source = new RingPreviewSource(node, "replaced", () => new PreviewRingName(path, null), TimeSpan.Zero);
         using (var first = new PreviewRingWriter(path, 64, 36))
         {
             Assert.True(first.Write(pixels, 64, 36, 64 * 4, 1));

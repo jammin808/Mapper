@@ -16,9 +16,13 @@ public sealed class DeskPreviewTests
 {
     private const string View = "op-op_1";
 
-    /// <summary>With rings at the view's old fixed path and at a generation the node did not name, the view opens only the rings the
-    /// node names, in turn: the reply's, then the one STATE names (the first reader disposed), then none (the stand-in), then a refusal
-    /// (the node's words), then a ring that is not there (words naming it).</summary>
+    /// <summary>The demo node's id (its rings carry it).</summary>
+    private const string DemoNode = "demo0001";
+
+    /// <summary>With rings at the view's unnumbered path (<c>PreviewRing.PathFor(node, view)</c>, which the node never names) and at a
+    /// generation the node did not name, the view opens only the rings the node names, in turn: the reply's, then the one STATE names (the
+    /// first reader disposed), then none (the stand-in), then a refusal (the node's words), then a ring that is not there (words naming
+    /// it).</summary>
     [AvaloniaFact]
     public void AViewOpensOnlyTheRingTheNodeNamesAndFollowsTheName()
     {
@@ -91,15 +95,138 @@ public sealed class DeskPreviewTests
         Assert.Null(surface.Source);
     }
 
+    /// <summary>A name that is not one of the node's rings for the view in this machine's preview folder opens nothing, and a named file
+    /// that is not a whole ring never throws out of a poll: an empty file and a header-only file at a ring's name, a device, a relative
+    /// path, a path that climbs out of the folder, a whole ring in another folder, and the rings of another view and of another node each
+    /// leave the stand-in up with words and nothing opened; the node's own ring for the view then opens.</summary>
+    [AvaloniaFact]
+    public void ANameThatIsNotTheNodesRingForTheViewHereOpensNothingAndNeverThrows()
+    {
+        var node = $"t{Environment.ProcessId}x";
+        var empty = PreviewRing.PathFor(node, View, 3);
+        var headerOnly = PreviewRing.PathFor(node, View, 4);
+        var good = PreviewRing.PathFor(node, View, 5);
+        var otherView = PreviewRing.PathFor(node, "op-op_2", 6);
+        var otherNode = PreviewRing.PathFor(node + "y", View, 7);
+        var elsewhere = Directory.CreateTempSubdirectory("playmap-rings-");
+        var outside = Path.Combine(elsewhere.FullName, Path.GetFileName(PreviewRing.PathFor(node, View, 8)));
+        Gone(empty);
+        File.WriteAllBytes(empty, []);
+        Gone(headerOnly);
+        var header = new byte[PreviewRing.HeaderBytes];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header, PreviewRing.Magic);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 1920);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(8), 1080);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(header.AsSpan(16), -1);
+        File.WriteAllBytes(headerOnly, header);
+        using var view2 = Ring(otherView, 40, 30);
+        using var node2 = Ring(otherNode, 40, 30);
+        using var away = Ring(outside, 40, 30);
+        using var mine = Ring(good, 64, 36);
+        try
+        {
+            var names = new PreviewNames();
+            var surface = new PreviewSurface { NodeId = node, ViewId = View, Label = "Main" };
+            var window = new Window { Content = surface, Width = 480, Height = 270 };
+            PreviewSurface.SetNames(window, names);
+            window.Show();
+            DeskHarness.Pump();
+            var source = Assert.IsType<RingPreviewSource>(surface.Source);
+
+            var refused = new List<string>
+            {
+                empty,
+                headerOnly,
+                "playmap-" + node + "-" + View + "~9.preview",
+                Path.Combine(PreviewRing.DefaultFolder(), "..", Path.GetFileName(good)),
+                outside,
+                otherView,
+                otherNode,
+            };
+            if (!OperatingSystem.IsWindows())
+                refused.Add("/dev/zero");
+            foreach (var name in refused)
+            {
+                names.Shown(View, new WireReply(true, ShowReply(name)));
+                surface.PollFrame();
+                surface.PollFrame();
+                Assert.False(surface.HasFrame, name);
+                Assert.Null(source.Reader);
+                Assert.Empty(source.Opened);
+                Assert.False(string.IsNullOrEmpty(surface.StandInWords), name);
+            }
+
+            names.Shown(View, new WireReply(true, ShowReply(good)));
+            surface.PollFrame();
+            Assert.True(surface.HasFrame);
+            Assert.Equal([good], source.Opened);
+            window.Close();
+        }
+        finally
+        {
+            Gone(empty);
+            Gone(headerOnly);
+            elsewhere.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>A preview attached but off screen (the MAP's 3D view while the projector view shows) lets go of a ring the node names
+    /// no more on its next tick: the reader is disposed at once, not when the view shows again.</summary>
+    [AvaloniaFact]
+    public void AHiddenPreviewLetsGoOfARingTheNodeNamesNoMore()
+    {
+        var node = $"t{Environment.ProcessId}h";
+        var ringA = PreviewRing.PathFor(node, View, 1);
+        var ringB = PreviewRing.PathFor(node, View, 2);
+        using var a = Ring(ringA, 64, 36);
+        using var b = Ring(ringB, 32, 18);
+        var names = new PreviewNames();
+        var surface = new PreviewSurface { NodeId = node, ViewId = View, Label = "Main" };
+        var window = new Window { Content = surface, Width = 480, Height = 270 };
+        PreviewSurface.SetNames(window, names);
+        window.Show();
+        DeskHarness.Pump();
+        var source = Assert.IsType<RingPreviewSource>(surface.Source);
+        names.Shown(View, new WireReply(true, ShowReply(ringA)));
+        surface.PollFrame();
+        var readerA = Assert.IsType<PreviewRingReader>(source.Reader);
+
+        // Hidden, and the node names another generation: the old ring is let go, the new one is not opened while off screen.
+        surface.IsVisible = false;
+        DeskHarness.Pump();
+        names.Shown(View, new WireReply(true, ShowReply(ringB)));
+        surface.PollFrame();
+        Assert.True(readerA.IsDisposed);
+        Assert.Null(source.Reader);
+        Assert.Equal([ringA], source.Opened);
+
+        // Shown again: the ring named now opens.
+        surface.IsVisible = true;
+        DeskHarness.Pump();
+        surface.PollFrame();
+        Assert.Equal([ringA, ringB], source.Opened);
+        var readerB = Assert.IsType<PreviewRingReader>(source.Reader);
+
+        // Hidden, and the desk lets the view go (HIDE): the reader goes with the name.
+        surface.IsVisible = false;
+        DeskHarness.Pump();
+        names.Hidden(View);
+        surface.PollFrame();
+        Assert.True(readerB.IsDisposed);
+        Assert.Null(source.Reader);
+        window.Close();
+    }
+
     /// <summary>Through the desk itself: the demo node names a ring in its SHOW reply and the Play view's preview opens it; the node
     /// makes the view's ring again (a new generation, STATE moving) and the preview reopens it, the old reader disposed; the node names
     /// none and the stand-in is up.</summary>
     [AvaloniaFact]
     public async Task TheDeskOpensTheRingTheNodesReplyAndStateName()
     {
-        var node = $"t{Environment.ProcessId}d";
-        var ringA = PreviewRing.PathFor(node, View, 1);
-        var ringB = PreviewRing.PathFor(node, View, 2);
+        // The demo node's own rings, at generations of this test process's own.
+        var first = Environment.ProcessId * 1000L;
+        var ringA = PreviewRing.PathFor(DemoNode, View, first + 1);
+        var ringB = PreviewRing.PathFor(DemoNode, View, first + 2);
         using var a = Ring(ringA, 64, 36);
         using var b = Ring(ringB, 32, 18);
         await using var desk = new DeskHarness(l => l.SetRing(View, ringA));

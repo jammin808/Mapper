@@ -41,6 +41,38 @@ public static class PreviewRing
     public static string PathFor(string nodeId, string viewId, long generation) =>
         PathFor(nodeId, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{viewId}~{generation}"));
 
+    /// <summary>True when <paramref name="path"/> is one generation of the ring of view <paramref name="viewId"/> on node
+    /// <paramref name="nodeId"/> in this machine's preview folder: a full path, normal as it stands, directly in
+    /// <see cref="DefaultFolder"/>, named "playmap-&lt;node&gt;-&lt;view&gt;~&lt;digits&gt;.preview" (<see cref="PathFor(string, string, long)"/>).
+    /// Decided from the words alone, before anything on the disk is touched: a reader opens no other file a node names (a relative
+    /// path, another folder, a share, a device).</summary>
+    public static bool IsGenerationOf(string? path, string? nodeId, string? viewId)
+    {
+        if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(nodeId) || string.IsNullOrEmpty(viewId) || !Path.IsPathFullyQualified(path))
+            return false;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (ArgumentException)
+        {
+            // Not a path at all (a character no path holds): no ring.
+            return false;
+        }
+        if (!string.Equals(full, path, comparison)
+            || !string.Equals(Path.GetDirectoryName(full), Path.TrimEndingDirectorySeparator(Path.GetFullPath(DefaultFolder())), comparison))
+            return false;
+        var name = Path.GetFileName(full);
+        var prefix = $"playmap-{nodeId}-{viewId}~";
+        const string suffix = ".preview";
+        if (name.Length <= prefix.Length + suffix.Length || !name.StartsWith(prefix, comparison) || !name.EndsWith(suffix, comparison))
+            return false;
+        var generation = name.AsSpan(prefix.Length, name.Length - prefix.Length - suffix.Length);
+        return generation.Length <= 19 && !generation.ContainsAnyExceptInRange('0', '9');
+    }
+
     public static long SlotBytes(int maxWidth, int maxHeight) => SlotHeaderBytes + (long)maxWidth * maxHeight * 4;
 
     public static long FileBytes(int maxWidth, int maxHeight) => HeaderBytes + Slots * SlotBytes(maxWidth, maxHeight);
@@ -166,19 +198,52 @@ public sealed class PreviewRingReader : IDisposable
     private readonly MemoryMappedViewAccessor _view;
     private readonly long _slotBytes;
 
+    /// <summary>No ring's picture has a side longer than this (a header that says more is not a ring's).</summary>
+    private const int MaxSide = 1 << 20;
+
+    /// <summary>Maps the ring at <paramref name="path"/>. A file that is not a whole ring — a pipe or a device, a file shorter than a
+    /// header, a header that is not a ring's or that claims more slots than the file holds — is an <see cref="InvalidDataException"/>,
+    /// and nothing of it is kept open.</summary>
     public PreviewRingReader(string path)
     {
-        _map = MemoryMappedFile.CreateFromFile(new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete),
-            null, 0, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
-        _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
-        if (_view.ReadInt32(0) != PreviewRing.Magic)
+        var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+        long length;
+        try
+        {
+            // A ring's writer sizes its file before it maps it: anything else is not one, and is never mapped.
+            if (!file.CanSeek)
+                throw new InvalidDataException("Not a PlayMap preview ring (not a file).");
+            length = file.Length;
+            if (length < PreviewRing.HeaderBytes)
+                throw new InvalidDataException("Not a PlayMap preview ring (shorter than its header).");
+            _map = MemoryMappedFile.CreateFromFile(file, null, 0, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: false);
+        }
+        catch
+        {
+            // The map owns the stream only once it is made.
+            file.Dispose();
+            throw;
+        }
+        try
+        {
+            _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.ReadWrite);
+        }
+        catch
+        {
+            _map.Dispose();
+            throw;
+        }
+        var maxWidth = _view.ReadInt32(4);
+        var maxHeight = _view.ReadInt32(8);
+        if (_view.ReadInt32(0) != PreviewRing.Magic || maxWidth is < 1 or > MaxSide || maxHeight is < 1 or > MaxSide
+            || length < PreviewRing.FileBytes(maxWidth, maxHeight))
         {
             _view.Dispose();
             _map.Dispose();
             throw new InvalidDataException("Not a PlayMap preview ring.");
         }
-        MaxWidth = _view.ReadInt32(4);
-        MaxHeight = _view.ReadInt32(8);
+        MaxWidth = maxWidth;
+        MaxHeight = maxHeight;
         _slotBytes = PreviewRing.SlotBytes(MaxWidth, MaxHeight);
     }
 
@@ -212,10 +277,11 @@ public sealed class PreviewRingReader : IDisposable
                 var stamp = BinaryPrimitives.ReadInt64LittleEndian(new ReadOnlySpan<byte>(header + 32, 8));
                 if (seq <= haveSequence)
                     return false;
-                var bytes = stride * height;
-                if (width < 1 || height < 1 || width > MaxWidth || height > MaxHeight || destination.Length < bytes)
+                var bytes = (long)stride * height;
+                if (width < 1 || height < 1 || width > MaxWidth || height > MaxHeight || stride < width * 4 || stride > MaxWidth * 4
+                    || destination.Length < bytes)
                     return false;
-                new ReadOnlySpan<byte>(header + PreviewRing.SlotHeaderBytes, bytes).CopyTo(destination);
+                new ReadOnlySpan<byte>(header + PreviewRing.SlotHeaderBytes, (int)bytes).CopyTo(destination);
                 if (Volatile.Read(ref *(long*)header) != before)
                     continue;
                 info = new PreviewFrameInfo(width, height, stride, seq, stamp);

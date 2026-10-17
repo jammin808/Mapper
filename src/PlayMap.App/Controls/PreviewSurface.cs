@@ -131,12 +131,18 @@ public class PreviewSurface : Control
         InvalidateVisual();
     }
 
-    /// <summary>One poll of the source (the view's timer, while it is on screen): a new picture is drawn; a source with nothing to read
-    /// takes the picture down for the stand-in and its words.</summary>
+    /// <summary>One tick of the view's timer. On screen: a new picture is drawn, and a source with nothing to read takes the picture
+    /// down for the stand-in and its words. Off screen (attached, hidden): nothing is read, but the source lets go of a ring the node no
+    /// longer names at once.</summary>
     internal void PollFrame()
     {
-        if (!IsEffectivelyVisible || _source is null)
+        if (_source is null)
             return;
+        if (!IsEffectivelyVisible)
+        {
+            _source.Idle();
+            return;
+        }
         if (_source.Poll() is { } bitmap)
         {
             _frame = bitmap;
