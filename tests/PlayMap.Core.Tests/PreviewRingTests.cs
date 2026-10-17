@@ -50,6 +50,19 @@ public class PreviewRingTests
         }
     }
 
+    /// <summary>A ring that cannot be made (here larger than any disk or address space) leaves no file behind: a writer that
+    /// failed never fills the folder with files no one maps.</summary>
+    [Fact]
+    public void AWriterThatCannotMakeItsRingLeavesNoFile()
+    {
+        var path = PreviewRing.PathFor("test", $"{Guid.NewGuid():N}", 1);
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            using var writer = new PreviewRingWriter(path, 1 << 29, 1 << 29);
+        });
+        Assert.False(File.Exists(path));
+    }
+
     [Fact]
     public void RepliesParseWithAndWithoutAnId()
     {

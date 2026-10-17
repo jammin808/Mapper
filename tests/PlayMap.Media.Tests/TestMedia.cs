@@ -14,7 +14,7 @@ namespace PlayMap.Media.Tests;
 /// <para>The clips are made with LGPL-compatible encoders: H.264 by OpenH264 (BSD; Constrained Baseline, no B-frames), 8-bit HEVC by
 /// Kvazaar (BSD; B-frames), MPEG-4 part 2 (FFmpeg's own; the B-frame clips <c>mpeg4_bf_25.mp4</c> and <c>mpeg4_bf_long.mp4</c>, so
 /// the frame-exact acquire, seek and preroll are proven on reordered streams), HAP, ProRes, MJPEG, VP9, AV1, PCM and AAC by FFmpeg's
-/// own or BSD libraries. No LGPL-compatible encoder here writes H.264 with B-frames, CABAC or the High profile. The one exception is
+/// own or BSD libraries. No LGPL-compatible encoder here writes H.264 with B-frames (OpenH264 makes none). The one exception is
 /// <c>hevc10.mp4</c>: no 10-bit HEVC encoder here is LGPL-compatible (Kvazaar is built 8-bit), so it is made by libx265 (GPL) at
 /// test time and never committed, as the owner decided.</para></summary>
 public static class TestMedia

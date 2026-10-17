@@ -119,9 +119,8 @@ Round 2 W1 notes:
   count from the engine's start), so `PreviewSource`'s `PreviewRing.PathFor(node, view)` finds nothing and shows the stand-in.
   Owner: the desk merge.
 - `hevc10.mp4` is the one test clip a GPL encoder makes (libx265 at test time, never committed): no LGPL-compatible encoder in
-  this FFmpeg writes 10-bit HEVC. The owner decided to keep it. No LGPL-compatible encoder here writes
-  H.264 with B-frames, CABAC or the High
-  profile either; the reordered-stream tests play MPEG-4 part 2 and Kvazaar's HEVC.
+  this FFmpeg writes 10-bit HEVC. The owner decided to keep it. No LGPL-compatible encoder here writes H.264 with B-frames
+  either (OpenH264 makes none); the reordered-stream tests play MPEG-4 part 2 and Kvazaar's HEVC.
 - The node's settings file has three read-modify-write paths: `NetworkHost.PersistSettings` (under its gate), present's
   `SavePresent` and decode's policy write (outside it). Each read and write is one at a time per file (`NodeHome`), but two
   edits of different sections landing together can lose one. Owner: output and decode, through `PersistSettings`.

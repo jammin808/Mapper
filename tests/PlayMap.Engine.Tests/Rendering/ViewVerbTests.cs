@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
@@ -116,6 +117,9 @@ public sealed class ViewVerbTests
         var first = await Run(engine, "VIEW scan-camera SHOW camera:cm_1 960x540");
         Assert.True(first.Ok, first.Payload);
         var ringA = Ring(first);
+        // Generations count from the engine's start (its wall-clock milliseconds × 1000): a ring made after a restart never takes
+        // the name of one an earlier run made.
+        Assert.EndsWith("~" + (engine.Services.Wall.UnixMs * 1000).ToString(CultureInfo.InvariantCulture) + ".preview", ringA, StringComparison.Ordinal);
         Assert.Equal(ringA, engine.Previews.RingOf("scan-camera"));
         Assert.Equal([("scan-camera", "camera:cm_1", ringA)], StateViews(engine));
         using var old = new PreviewRingReader(ringA);
