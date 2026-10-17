@@ -22,8 +22,8 @@ public sealed class NdiFakeRuntimeTests : IDisposable
 
     public NdiFakeRuntimeTests() => _fake?.Reset();
 
-    private NdiProvider Provider(string discovery = "", string groups = "", string? folder = null) =>
-        new(new NdiOptions(folder ?? FakeNdi.Folder63, discovery, groups, _config), MonoClock.Instance);
+    private NdiProvider Provider(string discovery = "", string groups = "", string? folder = null, IMonoClock? clock = null) =>
+        new(new NdiOptions(folder ?? FakeNdi.Folder63, discovery, groups, _config), clock ?? MonoClock.Instance);
 
     private static async Task Until(Func<bool> condition, string what)
     {
@@ -134,7 +134,11 @@ public sealed class NdiFakeRuntimeTests : IDisposable
     [NdiFact]
     public async Task AReceiverDeliversTimestampedFramesInTheirOwnLayoutWithTheirColour()
     {
-        using var ndi = Provider();
+        // The receiver's state is a function of its clock: frames arrive a 60 Hz period apart on it, and it is read at the instant the
+        // last one arrived, however long the machine took between.
+        var clock = new ManualClock(1_000_000_000);
+        const long Period = 16_666_667;
+        using var ndi = Provider(clock: clock);
         Assert.True(_fake!.InjectSource("STUDIO (Cam 1)", "10.0.0.5:5961"));
         using var source = ndi.Open("STUDIO (Cam 1)", byUrl: false, LiveSettings.Default with { Proxy = true }, "md_cam");
         Assert.Equal(0, _fake.Stats().LastRecvBandwidth);
@@ -154,6 +158,7 @@ public sealed class NdiFakeRuntimeTests : IDisposable
         {
             var frame = PackReference.Pack(c.Layout, rgba, w, h);
             var ts = 1_000_000L * (n + 1);
+            clock.Advance(Period);
             Assert.True(_fake.InjectFrame("STUDIO (Cam 1)", c.FourCc, w, h, frame, LivePlanes.Stride(c.Layout, 0, w), ts, c.Meta));
             n++;
             await Until(() => source.Live.Received == n, $"{c.Layout} received");
@@ -170,7 +175,12 @@ public sealed class NdiFakeRuntimeTests : IDisposable
             Assert.Equal(frame, got.ToArray());
         }
         Assert.Equal(LiveState.Ok, source.Live.State);
-        Assert.Equal(1, source.Live.Connections);
+        // Three periods with no frame on its clock, and it says so.
+        clock.Advance(3 * Period + 2_000_000);
+        Assert.Equal(LiveState.Stale, source.Live.State);
+        // The connections are asked for every quarter second of the same clock.
+        clock.Advance(250_000_000);
+        await Until(() => source.Live.Connections == 1, "one connection");
     }
 
     [NdiFact]
