@@ -6628,7 +6628,7 @@
   {
     "name": "MEDIA OPTIMISE",
     "syntax": "MEDIA OPTIMISE \u003Cmedia\u003E\u2026|ALL [TO hap|hap-alpha|hap-q|hap-q-alpha] [QUALITY FAST|SHOW] | MEDIA OPTIMISE CANCEL|PAUSE|RESUME [\u003Cjob\u003E|ALL]",
-    "words": "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs",
+    "words": "Makes a version of clips that plays on the GPU here, in the background, never disturbing playback and never touching the source; CANCEL, PAUSE and RESUME steer jobs (a running job\u0027s pause or resume is accepted, pending, until its worker holds or goes on: the job\u0027s held in STATE)",
     "category": "media",
     "risk": "review",
     "mutates": true,
