@@ -55,9 +55,7 @@ The lab checks still to do:
 - The desk's throttle sends what it coalesced to the link it holds when it flushes, so a line queued just before the desk attaches
   to another node goes to that node.
 - CALIBRATION HISTORY names no `standsAs` per row, so the desk offers a Recall the node refuses.
-- On Windows the survey import's lane slice is timed by the stopwatch (`ThreadTime.Precise` is false there), so a loaded machine
-  counts other threads' time into it; whether the Windows job's Spout test takes the real WARP round trip or its fallback is not
-  verified.
+- Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, one `FanoutTests`
   failure, `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
   and `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.

@@ -20,10 +20,17 @@ EPSG system to another is refused (that is a reprojection).
 ## Survey import
 
 `SURVEY IMPORT` answers at once and works on its own thread below the lane's priority; the lane is touched twice (to accept and to
-apply), each slice timed into the import's view by the work the lane thread did in it (`ThreadTime`: its processor time — to the nanosecond on
-Linux and macOS, in Windows' clock ticks of about 15.6 ms on Windows, the stopwatch elsewhere — the time a loaded machine gave others
-is not the import's); how long the lane answers meanwhile is
-measured as such (SITE's latency). The result lands as one edit, so one UNDO takes the whole import back.
+apply), each slice timed into the import's view by the work the lane thread did in it, beside the step that measure moves in
+(`ThreadTime`: the thread's own processor time, never the time a loaded machine gave others). Linux and macOS read the thread's CPU
+clock. x64 Windows, where the processor says its time-stamp counter is invariant, reads the thread's cycles (`QueryThreadCycleTime`:
+the counter's ticks while the thread ran, user and kernel mode) at the counter's rate, measured once as the node starts, off the
+control lane and the render thread: the highest rate any of 16 spins of about a millisecond counts against the stopwatch around it.
+A preemption or an interrupt can only lower a spin's rate, so a slice reads at least its work, never less. Both are precise (steps
+of 1 ns on Linux and x64 Windows). Other Windows reads the thread's kernel and user time, which Windows charges in whole clock ticks
+(15.625 ms by default), and the view says so: an ARM64 kernel counts a thread's cycles of the core's own clock, whose rate moves
+with the core's speed, and a counter the processor does not call invariant may change rate with it. The slice budget's tests refuse
+a measure too coarse to read the 10 ms budget, by name. How long the lane answers meanwhile is measured as such (SITE's latency).
+The result lands as one edit, so one UNDO takes the whole import back.
 
 - **Meshes** (OBJ, PLY, glTF): rebased as read, then decimated to the triangle budget by quadric edge collapse. A collapse keeps one of
   its edge's own vertices, so no vertex moves; boundary, seam and non-manifold vertices are never removed; a collapse that would make

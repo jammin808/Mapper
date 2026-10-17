@@ -267,7 +267,7 @@ Round 2 W1 notes:
   once its runner has let go of its slot, and only while it is the latest run started
   (`ScanEngineTests.TheNextScanStartedTheMomentOneEndsIsNotRefusedAsRunning`); the phone camera's 5 s and 10 s waits run on the
   hub's clock (`PhoneAlignTests`, `ResolveCameraTests`); the survey import's lane slice is the work the lane thread did in it, its
-  own processor time on Linux and macOS (`ThreadTime`, `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`).
+  own processor time to the nanosecond on Linux, macOS and x64 Windows (`ThreadTime`, `ThreadTimeTests`).
 - Done, off the CPU jobs fix-tests3 left on the pool: the stage's automatic blend, thumbnails' conversion and
   encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' still and scan pictures, a probe's first-frame
   decode, the site preflight check and ONNX inference with its pixel work run on the compute threads (`Compute.RunAsync`;
@@ -304,9 +304,14 @@ Round 2 W1 notes:
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
   holds, and the pause stays pending with no "paused at frame" row while STATE says held (the fact). A worker that says every let-go
   it takes, even one taken back before its thread ran, closes it.
-- Open on Windows: the survey slice is timed by the stopwatch there (`ThreadTime.Precise` is false), so a loaded Windows machine
-  still counts the time other threads took into the slice; whether the Windows job's Spout test takes the real WARP round trip or
-  its fallback is not verified.
+- Done: on x64 Windows the survey slice is the lane thread's cycles of the invariant time-stamp counter (`QueryThreadCycleTime`), at
+  the counter's rate measured once as the node starts, off the lane and the render thread (the highest of 16 millisecond spins
+  against the stopwatch, which a preemption only lowers, so a slice reads at least its work); it reads to the nanosecond, as Linux's
+  CPU clock does. Windows on an ARM64 kernel, or on a processor that does not say its counter is invariant, reads the thread's
+  kernel and user time in 15.625 ms ticks and says so (`ThreadTime.Clock`, `ResolutionNs`, `Basis`; the survey view's
+  `LaneResolutionMs`); the slice budget's tests refuse a measure that coarse by name (`SurveyImportTests`), and
+  `ThreadTimeTests` fails a tick-charged read by its own assertions. The Windows reads are proven only where the Windows job runs them.
+- Open on Windows: whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - The desk-2 notes' open calls stand (the code settles none): the desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at
   every press and presses a card's `APPROVE` once; the throttle sends what it coalesced to the link it holds when it flushes, across
   a link change; CALIBRATION HISTORY names no `standsAs` per row.
