@@ -32,6 +32,9 @@ public sealed partial class FakeEngineLink : IEngineLink
     /// <summary>The ring file this demo node names for a view (a test's ring); a view with none is named no ring: the demo draws no
     /// pictures, so the desk draws its stand-in.</summary>
     private readonly Dictionary<string, string> _rings = new(StringComparer.Ordinal);
+
+    /// <summary>The view ids that have drawn the air (an editor, output or projector view): none of them becomes a draft view.</summary>
+    private readonly HashSet<string> _drewAir = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
     private readonly CancellationTokenSource _life = new();
     private readonly Task _ticker = Task.CompletedTask;
@@ -832,12 +835,15 @@ public sealed partial class FakeEngineLink : IEngineLink
                 return Ok();
             case "SHOW":
             {
-                // A draft view shows this session's own blind draft; the node keeps it to the draft's owner.
+                // A draft view draws the node's blind draft, whoever holds it, and the air while none is open; a view id that has drawn
+                // the air stays the air's (the node keeps its ring mapped), so a draft view takes an id of its own.
                 var draft = line.Count > 4 && line.WordUpper(4) == "DRAFT";
-                if (draft && _draft is null)
-                    return Err("this session holds no blind draft — BLIND ON first");
+                if (draft && _drewAir.Contains(view))
+                    return Err($"{view} has drawn the air — a draft view takes a view id of its own (VIEW {view}-draft SHOW editor DRAFT)");
                 // The node's shape: what the view shows as STATE names it, and the reply naming the view's ring.
                 var what = draft ? line.Word(3) + " DRAFT" : line.Word(3);
+                if (!draft && what.Split(':')[0].ToUpperInvariant() is "EDITOR" or "OUTPUT" or "PROJECTOR")
+                    _drewAir.Add(view);
                 _views[view] = what;
                 if (!_shown.TryGetValue(view, out var had) || had != what)
                 {
@@ -856,11 +862,10 @@ public sealed partial class FakeEngineLink : IEngineLink
                 return _shown.ContainsKey(view) ? Ok() : Err($"no view {view} is shown — VIEW {view} SHOW <what> first");
             case "HIDE":
             {
-                var shown = _shown.Remove(view);
-                var had = _views.Remove(view);
-                if (!shown && !had)
-                    return Err($"no view '{view}'");
-                _extraMoved |= shown;
+                _views.Remove(view);
+                if (!_shown.Remove(view))
+                    return Err($"no view {view} is shown");
+                _extraMoved = true;
                 return Ok();
             }
             default:

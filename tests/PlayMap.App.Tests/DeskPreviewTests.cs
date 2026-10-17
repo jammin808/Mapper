@@ -400,6 +400,86 @@ public sealed class DeskPreviewTests
         window.Close();
     }
 
+    /// <summary>The blind chip's draft view goes through the views' SHOW path like every other view: its reply's ring is the one MAP's 3D
+    /// view opens (a STATE naming a new generation reopens it), hiding the draft view sends HIDE, forgets its name and disposes its
+    /// reader, and a new link that holds this desk's draft is asked for it at once, its own ring opened.</summary>
+    [AvaloniaFact]
+    public async Task TheDraftViewTakesTheRingItsReplyNamesLetsItGoWhenHiddenAndIsAskedOfANewLink()
+    {
+        const string draftView = "editor-draft";
+        var first = Environment.ProcessId * 1000L;
+        var ringA = PreviewRing.PathFor(DemoNode, draftView, first + 31);
+        var ringB = PreviewRing.PathFor(DemoNode, draftView, first + 32);
+        var ringC = PreviewRing.PathFor(DemoNode, draftView, first + 33);
+        using var a = Ring(ringA, 64, 36);
+        using var b = Ring(ringB, 32, 18);
+        using var c = Ring(ringC, 48, 27);
+        await using var desk = new DeskHarness(l => l.SetRing(draftView, ringA));
+        Assert.True((await desk.Session.SendAsync("BLIND ON", Ct)).Ok);
+        DeskHarness.Pump();
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Workspace = ViewModels.Workspace.Map;
+        DeskHarness.Pump();
+        var blind = desk.Main.ShowModule.Strip.Blind;
+        Assert.True(blind.DraftView.IsEnabled);
+
+        desk.Link.ClearSent();
+        await DeskHarness.Settle(blind.DraftView.Command.ExecuteAsync());
+        DeskHarness.Pump();
+        var viewport = MainWindowTests.Find<MapViewport>(window, "Viewport");
+        Assert.Equal(draftView, viewport.ViewId);
+        Assert.Equal(["VIEW editor HIDE", $"VIEW {draftView} SHOW editor DRAFT"], desk.Link.SentLines.Where(l => l.StartsWith("VIEW ", StringComparison.Ordinal) && !l.Contains(" CAMERA ", StringComparison.Ordinal)));
+        Assert.Equal(new PreviewRingName(ringA, null), desk.Session.Previews.Of(draftView));
+        viewport.PollFrame();
+        var source = Assert.IsType<RingPreviewSource>(viewport.Source);
+        Assert.Equal([ringA], source.Opened);
+        var readerA = source.Reader!;
+
+        // The node makes the draft view's ring again: STATE names it, and the 3D view reopens it.
+        desk.Link.SetRing(draftView, ringB);
+        DeskHarness.Pump();
+        viewport.PollFrame();
+        Assert.True(readerA.IsDisposed);
+        Assert.Equal([ringA, ringB], source.Opened);
+        var readerB = source.Reader!;
+
+        // Hidden: HIDE goes, the name is forgotten and the reader goes with it.
+        desk.Link.ClearSent();
+        await DeskHarness.Settle(blind.DraftView.Command.ExecuteAsync());
+        DeskHarness.Pump();
+        Assert.Contains($"VIEW {draftView} HIDE", desk.Link.SentLines);
+        Assert.Null(desk.Session.Previews.Of(draftView));
+        Assert.True(readerB.IsDisposed);
+        Assert.DoesNotContain(desk.Session.State.Views, v => v.Id == draftView);
+
+        // Shown again, then another node holding this desk's draft is linked: it is asked for the draft view at once, and its ring opens.
+        await DeskHarness.Settle(blind.DraftView.Command.ExecuteAsync());
+        DeskHarness.Pump();
+        await using var other = new FakeEngineLink(clock: desk.Clock);
+        Assert.True((await other.SendAsync("BLIND ON")).Ok);
+        other.SetRing(draftView, ringC);
+        desk.Main.Attach(other, "Demo node B");
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        Assert.True(desk.Main.Map.ShowDraft);
+        Assert.Contains($"VIEW {draftView} SHOW editor DRAFT", other.SentLines);
+        Assert.Equal(new PreviewRingName(ringC, null), desk.Session.Previews.Of(draftView));
+        viewport = MainWindowTests.Find<MapViewport>(window, "Viewport");
+        viewport.PollFrame();
+        Assert.Equal(ringC, Assert.IsType<RingPreviewSource>(viewport.Source).Opened[^1]);
+
+        // A node whose draft is another session's: once it names this desk's session, the draft view goes (HIDE) with its name.
+        await using var third = new FakeEngineLink(clock: desk.Clock);
+        third.SetSection("show", JsonSerializer.Serialize(new { blind = new { on = true, owner = "Patterns", session = "p1", transport = "bus", changes = 1 } }));
+        desk.Main.Attach(third, "Demo node C");
+        DeskHarness.Pump();
+        DeskHarness.Pump();
+        Assert.False(desk.Main.Map.ShowDraft);
+        Assert.Contains($"VIEW {draftView} HIDE", third.SentLines);
+        Assert.Null(desk.Session.Previews.Of(draftView));
+        window.Close();
+    }
+
     /// <summary>A ring with one picture of its own size, made fresh at the path.</summary>
     private static PreviewRingWriter Ring(string path, int width, int height)
     {

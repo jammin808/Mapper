@@ -56,6 +56,7 @@ public sealed class BlindChipViewModel : ObservableObject
     private readonly Action<bool> _showDraft;
     private BlindState? _blind;
     private bool _owns;
+    private bool _ownerKnown = true;
     private bool _isOpen;
     private int _fetchedChanges = -1;
     private Task _fetch = Task.CompletedTask;
@@ -142,14 +143,17 @@ public sealed class BlindChipViewModel : ObservableObject
         }
     }
 
-    /// <summary>Takes STATE.show.blind and whether it names this desk's session.</summary>
-    public void Update(BlindState? blind, bool owns)
+    /// <summary>Takes STATE.show.blind and whether it names this desk's session; <paramref name="ownerKnown"/> is false while the node
+    /// has not yet said which session is this desk's on the link (a new link, before WHOAMI), and a draft view shown is kept until it has:
+    /// the new link is asked for it with every other view, and it goes once the node says the draft is not this desk's.</summary>
+    public void Update(BlindState? blind, bool owns, bool ownerKnown = true)
     {
         var had = _blind;
-        if (blind == had && owns == _owns)
+        if (blind == had && owns == _owns && ownerKnown == _ownerKnown)
             return;
         _blind = blind;
         _owns = owns;
+        _ownerKnown = ownerKnown;
         if (blind is null)
         {
             IsOpen = false;
@@ -158,7 +162,7 @@ public sealed class BlindChipViewModel : ObservableObject
             if (_draftShown())
                 _showDraft(false);
         }
-        else if (!owns && _draftShown())
+        else if (!owns && ownerKnown && _draftShown())
             _showDraft(false);
         else if (_isOpen && blind.Changes != _fetchedChanges)
             _fetch = FetchDiffAsync();

@@ -9,6 +9,7 @@ using PlayMap.App.ViewModels.Show;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
 using PlayMap.Engine;
+using PlayMap.Engine.Rendering;
 
 namespace PlayMap.App.Tests;
 
@@ -264,6 +265,85 @@ public class BlindChipTests
         Assert.False(desk.Main.Map.ShowDraft);
         Assert.Equal("editor", desk.Main.Map.EditorViewId);
         window.Close();
+    }
+
+    /// <summary>The views a real engine draws on a machine with pictures: the render host's views take every request, and its draft feed
+    /// runs every draft view (it starts at once and stops when the view goes).</summary>
+    private sealed class Drawing : IViewRenderer, IPreviewFeed
+    {
+        public string? Show(PlayMap.Engine.Rendering.ViewRequest request) => null;
+
+        public string? RingOf(string viewId) => null;
+
+        public string? Camera(string viewId, PlayMap.Render.Projection.EditorCamera camera) => null;
+
+        public bool Hide(string viewId) => true;
+
+        public IDisposable? Start(PlayMap.Engine.Rendering.ViewRequest request, PlayMap.Engine.Rendering.PreviewSink sink, out string why)
+        {
+            why = "";
+            return new CancellationTokenSource();
+        }
+    }
+
+    /// <summary>The demo answers a draft view as a real engine that draws pictures does, line by line: a draft view is shown with no
+    /// draft open (the node draws the air in it), with this session's draft and with another's; a view id that has drawn the air is
+    /// refused one with the node's words; KEEP and HIDE of a view not shown are refused alike.</summary>
+    [Fact]
+    public async Task TheDemoAnswersADraftViewAsARealEngineThatDrawsDoes()
+    {
+        await using var demo = new Link.FakeEngineLink(clock: new PlayMap.Core.Time.ManualClock(1_000_000_000));
+        await using var engine = new EngineCore(EngineServices.ForTests(new PlayMap.Core.Time.ManualClock(5_000_000_000)), demo.CurrentProject);
+        var drawing = new Drawing();
+        engine.Previews.AttachRenderer(drawing);
+        engine.Previews.Register("draft", drawing);
+        string[] lines =
+        [
+            "VIEW editor SHOW editor 640x360",
+            "VIEW editor SHOW editor DRAFT",
+            "VIEW editor-draft SHOW editor DRAFT",
+            "VIEW editor-draft KEEP",
+            "VIEW editor-draft HIDE",
+            "VIEW editor-draft HIDE",
+            "VIEW editor-draft KEEP",
+            "VIEW op-op_1 SHOW output:op_1 480x270",
+            "VIEW op-op_1 SHOW editor DRAFT",
+            "BLIND ON",
+            "VIEW editor-draft SHOW editor DRAFT",
+            "BLIND DISCARD",
+            "VIEW editor-draft SHOW editor DRAFT",
+        ];
+        var real = new List<(bool, string)>();
+        var fake = new List<(bool, string)>();
+        foreach (var text in lines)
+        {
+            var r = await Run(engine, text, QuadToolTests.DeskOnNode);
+            var f = await demo.SendAsync(text, Ct);
+            // A VIEW line's answer is compared whole (the view its reply names, or the words why not); a BLIND line's by whether it ran.
+            var view = text.StartsWith("VIEW ", StringComparison.Ordinal);
+            real.Add((r.Ok, !view ? "" : r.Ok ? ViewOf(r.Payload) : r.Payload ?? ""));
+            fake.Add((f.Ok, !view ? "" : f.Ok ? ViewOf(f.Text) : f.Text));
+        }
+        Assert.Equal(real, fake);
+        Assert.Equal((false, "editor has drawn the air — a draft view takes a view id of its own (VIEW editor-draft SHOW editor DRAFT)"), fake[1]);
+        Assert.Equal((true, "editor-draft"), fake[2]);
+
+        // Another session's draft: the draft view is shown all the same (one draft per node; the node draws it).
+        Assert.True((await Run(engine, "BLIND ON", Patterns)).Ok);
+        demo.SetSection("show", JsonSerializer.Serialize(new { blind = new { on = true, owner = "Patterns", session = "p1", transport = "bus", changes = 0 } }));
+        var realOther = await Run(engine, "VIEW other-draft SHOW editor DRAFT", QuadToolTests.DeskOnNode);
+        var fakeOther = await demo.SendAsync("VIEW other-draft SHOW editor DRAFT", Ct);
+        Assert.Equal((true, "other-draft"), (realOther.Ok, ViewOf(realOther.Payload)));
+        Assert.Equal((true, "other-draft"), (fakeOther.Ok, ViewOf(fakeOther.Text)));
+    }
+
+    /// <summary>The view a SHOW reply names ("" for a reply that is not a view's).</summary>
+    private static string ViewOf(string? reply)
+    {
+        if (reply is not { Length: > 0 } || !reply.TrimStart().StartsWith('{'))
+            return reply ?? "";
+        using var doc = JsonDocument.Parse(reply);
+        return doc.RootElement.TryGetProperty("view", out var v) ? v.GetString() ?? "" : reply;
     }
 
     [AvaloniaFact]

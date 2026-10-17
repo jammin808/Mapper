@@ -293,6 +293,8 @@ public sealed class ShowStripModule : DeskModule
         // panic fade leaves its buttons (and an open fade menu) where they are.
         _panicActions = [_clear, _clearMenu];
         _rehearsalActions = [_armNow];
+        // Which session is this desk's on a link is known once the node answers WHOAMI: whether the draft is the desk's is read then.
+        session.VerbsUpdated += () => Strip.Blind.Update(_show.Blind, OwnsDraft, DraftOwnerKnown);
     }
 
     public ShowStripViewModel Strip { get; }
@@ -306,7 +308,7 @@ public sealed class ShowStripModule : DeskModule
         _door = state.Section("fleet", FleetDoor.Read);
         _airDark = state.Air.Blackout;
         Strip.Update(_show, Health.Readiness.Of(state));
-        Strip.Blind.Update(_show.Blind, OwnsDraft);
+        Strip.Blind.Update(_show.Blind, OwnsDraft, DraftOwnerKnown);
     }
 
     public override void RefreshActions()
@@ -399,6 +401,9 @@ public sealed class ShowStripModule : DeskModule
         }
         return LockWords(line, spec, draft) is { } words ? new GateRefusal(words, "locked") : null;
     }
+
+    /// <summary>True once the node has named this desk's session on the link (WHOAMI): until then no draft is known to be another's.</summary>
+    private bool DraftOwnerKnown => _session.SessionId.Length > 0;
 
     /// <summary>True when STATE.show.blind names this desk's own session as the draft's owner.</summary>
     private bool OwnsDraft => _show.Blind is { } b && _session.SessionId.Length > 0
