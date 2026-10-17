@@ -1,79 +1,40 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
+using System.Globalization;
 
 namespace PlayMap.Core.Time;
 
-/// <summary>The processor time the calling thread has run, in nanoseconds: the work a thread did between two reads, never the time
-/// the machine gave other threads meanwhile (a preemption, a loaded machine). Linux and macOS read the thread's CPU clock; Windows
-/// counts the thread's cycles and converts them at the processor's cycle rate, measured once against the stopwatch. Where none can
-/// be read, <see cref="Precise"/> is false and the reads are the stopwatch's (wall time).</summary>
-public static partial class ThreadTime
+/// <summary>How long the calling thread has held its place, in nanoseconds: the stopwatch's time less the time the thread waited
+/// runnable for a processor (the scheduler gave the processor to other threads — a preemption on a loaded machine). Time the thread
+/// spends blocked of its own accord (a lock, a read, a page fault) counts: it holds what it holds meanwhile. Linux reads the waits
+/// from the thread's scheduler statistics (<see cref="Precise"/>); elsewhere none are read and the reads are the stopwatch's.</summary>
+public static class ThreadTime
 {
-    private const int LinuxThreadCpu = 3;
-    private const int MacThreadCpu = 16;
+    /// <summary>True when the thread's run-queue waits are read (Linux with scheduler statistics): a preempted span counts only
+    /// what the thread held.</summary>
+    public static bool Precise { get; } = OperatingSystem.IsLinux() && RunQueueWaitNs() >= 0;
 
-    private static readonly Lazy<double> CycleNs = new(MeasureCycleNs, LazyThreadSafetyMode.ExecutionAndPublication);
-
-    /// <summary>True when <see cref="NowNs"/> counts the thread's own time on this platform.</summary>
-    public static bool Precise { get; } = OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsWindows();
-
-    /// <summary>Measures what the first read would (Windows' cycle rate, a few milliseconds' spin) on the calling thread: called off any
-    /// lane before the first read on one, so no lane spins for it.</summary>
-    public static void Warm() => _ = NowNs();
-
-    /// <summary>The calling thread's processor time now (ns); only differences of two reads on one thread mean anything.</summary>
+    /// <summary>The calling thread's held time now (ns); only differences of two reads on one thread mean anything.</summary>
     public static long NowNs()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            // The rate first: its one measuring spin is never inside a span two reads take.
-            var ns = CycleNs.Value;
-            return (long)(Cycles() * ns);
-        }
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-        {
-            var t = default(Timespec);
-            if (ClockGetTime(OperatingSystem.IsLinux() ? LinuxThreadCpu : MacThreadCpu, ref t) == 0)
-                return t.Seconds * 1_000_000_000L + t.Nanoseconds;
-        }
-        return (long)(Stopwatch.GetTimestamp() * (1e9 / Stopwatch.Frequency));
+        var wall = (long)(Stopwatch.GetTimestamp() * (1e9 / Stopwatch.Frequency));
+        if (!Precise)
+            return wall;
+        var waited = RunQueueWaitNs();
+        return waited >= 0 ? wall - waited : wall;
     }
 
-    [SupportedOSPlatform("windows")]
-    private static ulong Cycles() => QueryThreadCycleTime(-2, out var cycles) ? cycles : 0;
-
-    /// <summary>Nanoseconds a cycle, Windows only: the cycles a spin on this thread counts against the stopwatch over the same span,
-    /// the fastest of a few spins (a spin the machine interrupted counts fewer cycles for its span, never more).</summary>
-    private static double MeasureCycleNs()
+    /// <summary>The calling thread's total wait on the run queue (ns, the second field of /proc/thread-self/schedstat), or −1.</summary>
+    private static long RunQueueWaitNs()
     {
-        if (!OperatingSystem.IsWindows())
-            return 0;
-        var best = 0.0;
-        for (var i = 0; i < 5; i++)
+        try
         {
-            var c0 = Cycles();
-            var t0 = Stopwatch.GetTimestamp();
-            while (Stopwatch.GetElapsedTime(t0).Ticks < TimeSpan.TicksPerMillisecond * 2)
-            {
-                // Spinning: the thread runs the whole span unless the machine takes it away.
-            }
-            var cycles = Cycles() - c0;
-            var ns = Stopwatch.GetElapsedTime(t0).Ticks * 100.0;
-            best = Math.Max(best, cycles / ns);
+            var fields = File.ReadAllText("/proc/thread-self/schedstat").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return fields.Length >= 2 && long.TryParse(fields[1], NumberStyles.None, CultureInfo.InvariantCulture, out var ns) ? ns : -1;
         }
-        return best > 0 ? 1 / best : 0;
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // No scheduler statistics here: the stopwatch alone.
+            return -1;
+        }
     }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private record struct Timespec(long Seconds, long Nanoseconds);
-
-    [LibraryImport("libc", EntryPoint = "clock_gettime")]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
-    private static partial int ClockGetTime(int clock, ref Timespec time);
-
-    [LibraryImport("kernel32.dll")]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool QueryThreadCycleTime(nint thread, out ulong cycles);
 }

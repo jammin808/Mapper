@@ -125,8 +125,6 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(services);
         Services = services;
-        // The lane's work is timed on its thread's own clock: read once here, never first on the lane (Windows measures its rate then).
-        Core.Time.ThreadTime.Warm();
         // The undo window counts on the node's clock, as the control gestures that close inside it do.
         Store = new ProjectStore(project ?? Project.CreateDefault(services.Settings.Name), () => services.Mono.NowNs / 1_000_000);
         Journal = new Journal(services.JournalPath, () => services.Wall.UnixMs);

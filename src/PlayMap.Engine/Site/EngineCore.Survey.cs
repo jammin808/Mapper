@@ -9,8 +9,8 @@ using PlayMap.Engine.Site;
 namespace PlayMap.Engine;
 
 /// <summary>A survey import as the node sees it while it runs and after: its id and name, the file, importing / ready / failed with
-/// the progress and words, and the most work the import did on the control lane in one slice (ms of the lane thread's own processor
-/// time, from its own instrumentation: a slice the machine preempted holds the lane no longer for it).</summary>
+/// the progress and words, and the longest the import held the control lane in one slice (ms, from its own instrumentation, on the lane
+/// thread's held time: a wait of its own, a lock or a read, counts; the time a loaded machine gave the processor to others does not).</summary>
 public sealed record SurveyJobView(string Id, string Name, SurveyFormat Format, string Path, string State, double Progress, string Words,
     double LaneMaxMs, int LaneSlices);
 
@@ -191,7 +191,7 @@ public sealed partial class EngineCore
         _surveyStop.Dispose();
     }
 
-    /// <summary>The most work the import did on the lane in one slice (the lane thread's processor time), kept on its view.</summary>
+    /// <summary>The longest the import held the lane in one slice (the lane thread's held time), kept on its view.</summary>
     private void NoteSurveySlice(double ms)
     {
         lock (_surveyGate)
