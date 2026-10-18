@@ -9,15 +9,18 @@ namespace PlayMap.Core.Tests.Time;
 /// own reading of the platform, never the measure's word: on Linux and macOS the thread's CPU clock, precise, and no read is
 /// allowed a tick; on Windows the thread's kernel and user time in clock ticks, not precise, and each read is allowed the tick it
 /// states. A thread blocked while the test's thread spins 50 ms counts a fiftieth of that span at most (and, where the measure is
-/// precise, the little it ran); a thread that spins counts half to 1.1 times the span it spun, in each 10 ms of it and in the whole
-/// 20 ms, within the measure's step. On Windows each bound is a tick wider, and the reads still refuse the stopwatch: the blocked
-/// thread counts at most one tick (a fiftieth of its span is under one), never the 50 ms the stopwatch reads. A spinning thread's
-/// ticks fall inside its bounds, for each clock interrupt charges a tick to the thread it finds running, so a stretch spun unbroken
-/// is charged within a tick of its length (a 20 ms read of three ticks or more, past its bounds, is not a tick clock's). A tick
-/// read on Linux or macOS fails by the measure's word (it is not precise) and by its reads: the blocked thread runs microseconds,
-/// so it reads nothing ("the little it ran") or, when the clock interrupt lands in them, a whole tick (fifteen times a fiftieth of
-/// its span); and a 10 ms stretch holds at most one tick, so it reads nothing or a tick, never between half and 1.1 times its span.
-/// The spins are timed by the stopwatch, so they run alone.</summary>
+/// precise, the little it ran); a thread that spins counts half to 1.1 times the span it spun, in each 10 ms of it, in the whole
+/// 20 ms and in a spin of 125 ms or eight of the measure's steps, whichever is longer, within the measure's step. On Windows each
+/// bound is a tick wider, and the reads still refuse the stopwatch: the blocked thread counts at most one tick (a fiftieth of its
+/// span is under one), never the 50 ms the stopwatch reads. A clock interrupt charges a tick to the thread it finds running, so a
+/// stretch spun unbroken is charged at most a tick over its length and the 10 ms and 20 ms reads stay under their upper bounds (a
+/// 20 ms read of three ticks or more is not a tick clock's); their lower bounds are below zero there, so the long spin is what shows
+/// that a spinning thread is charged its work: half its span less a tick is three of the eight ticks it spins, which a measure that
+/// charged the spin nothing, or only its kernel time, never reads, and a tick an interrupt or a DPC takes costs one of the five to
+/// spare. A tick read on Linux or macOS fails by the measure's word (it is not precise) and by its reads: the blocked thread runs
+/// microseconds, so it reads nothing ("the little it ran") or, when the clock interrupt lands in them, a whole tick (fifteen times a
+/// fiftieth of its span); and a 10 ms stretch holds at most one tick, so it reads nothing or a tick, never between half and 1.1
+/// times its span. The spins are timed by the stopwatch, so they run alone.</summary>
 [Collection(ThreadClockCollection.Name)]
 public sealed class ThreadTimeTests(ITestOutputHelper log)
 {
@@ -66,11 +69,19 @@ public sealed class ThreadTimeTests(ITestOutputHelper log)
         spun += Spin(10);
         var t2 = ThreadTime.NowNs();
         var w2 = Stopwatch.GetTimestamp();
+        // Eight steps or more: on Windows half the span less a tick is three of the ticks spun.
+        var longMs = (int)Math.Max(125, Math.Ceiling(8.0 * step / 1e6));
+        var w3 = Stopwatch.GetTimestamp();
+        var t3 = ThreadTime.NowNs();
+        spun += Spin(longMs);
+        var t4 = ThreadTime.NowNs();
+        var w4 = Stopwatch.GetTimestamp();
         Assert.True(spun > 0);
-        log.WriteLine(Words($"blocked {waitedWall / 1e6:0.0} ms, counted {waitedCpu / 1e3:0.0} µs; spun {(w1 - w0) * 1e3 / Stopwatch.Frequency:0.00} + {(w2 - w1) * 1e3 / Stopwatch.Frequency:0.00} ms, counted {(t1 - t0) / 1e6:0.00} + {(t2 - t1) / 1e6:0.00} ms"));
+        log.WriteLine(Words($"blocked {waitedWall / 1e6:0.0} ms, counted {waitedCpu / 1e3:0.0} µs; spun {(w1 - w0) * 1e3 / Stopwatch.Frequency:0.00} + {(w2 - w1) * 1e3 / Stopwatch.Frequency:0.00} ms, counted {(t1 - t0) / 1e6:0.00} + {(t2 - t1) / 1e6:0.00} ms; spun {(w4 - w3) * 1e3 / Stopwatch.Frequency:0.00} ms, counted {(t4 - t3) / 1e6:0.00} ms"));
         AboutItsSpan("the first 10 ms", t1 - t0, Stopwatch.GetElapsedTime(w0, w1).Ticks * 100, step);
         AboutItsSpan("the second 10 ms", t2 - t1, Stopwatch.GetElapsedTime(w1, w2).Ticks * 100, step);
         AboutItsSpan("the whole 20 ms", t2 - t0, Stopwatch.GetElapsedTime(w0, w2).Ticks * 100, step);
+        AboutItsSpan(Words($"the {longMs} ms spin"), t4 - t3, Stopwatch.GetElapsedTime(w3, w4).Ticks * 100, step);
     }
 
     /// <summary>A read moves in steps no finer than the step the measure states. Where the thread's time can be read precisely the

@@ -20,13 +20,15 @@ public enum ThreadClock
 /// <summary>The work the calling thread has done, in nanoseconds of its own processor time: what it did between two reads, never the
 /// time the machine gave other threads meanwhile (a preemption, a loaded machine) nor the time it was stopped (a collection, a page
 /// brought in). <see cref="Clock"/> says what a read is here, <see cref="ResolutionNs"/> the finest step it moves in and
-/// <see cref="Basis"/> both in words. Linux and macOS read the thread's CPU clock, which is <see cref="Precise"/>. Windows reads the
-/// thread's kernel and user time, which it charges in whole clock ticks (15.625 ms by default), a tick to the thread a clock interrupt
-/// finds running, so a read there is not precise: each stretch the thread ran unbroken reads within a tick of the work done in it.
-/// Windows' count of a thread's cycles is not converted: Windows leaves interrupt time out of it, so its rate against the stopwatch
-/// moves with the machine's interrupts and load (by more than a tenth on a Hyper-V guest), and no rate measured once converts it to
-/// the work done. Elsewhere the reads are the stopwatch's. What a read is is fixed when the type is first touched, so every read is
-/// thread-safe.</summary>
+/// <see cref="Basis"/> both in words. Linux and macOS read the thread's CPU clock, which is <see cref="Precise"/>: a span's work is
+/// within its read and the step. Windows reads the thread's kernel and user time, which it charges in whole clock ticks (15.625 ms
+/// by default), a tick to the thread a clock interrupt finds running, so a read there is not precise and bounds no span's work from
+/// above: a stretch the thread ran unbroken reads at most a tick over its work and at most a tick under it, and a tick further under
+/// for each clock interrupt that found the processor in an interrupt handler or a DPC (Windows charges that tick to the processor,
+/// not the thread); a span broken into stretches reads within a tick of the work of each. Windows' count of a thread's cycles is not
+/// converted: Windows leaves interrupt time out of it, so its rate against the stopwatch moves with the machine's interrupts and load
+/// (by more than a tenth on a Hyper-V guest), and no rate measured once converts it to the work done. Elsewhere the reads are the
+/// stopwatch's. What a read is is fixed when the type is first touched, so every read is thread-safe.</summary>
 public static partial class ThreadTime
 {
     private const int LinuxThreadCpu = 3;
@@ -50,9 +52,10 @@ public static partial class ThreadTime
     /// <summary>True when a read is the thread's own processor time at all (precisely, or in Windows' ticks), not the stopwatch.</summary>
     public static bool Counted => Chosen.Clock != ThreadClock.Stopwatch;
 
-    /// <summary>The step a read moves in (ns), at most: a read tells nothing finer, and the work done in a span is within the span's
-    /// read plus this step. In Windows' ticks (<see cref="ThreadClock.Ticks"/>) that holds for a span the thread ran in one stretch,
-    /// and a span the machine broke into stretches reads within a tick of the work of each.</summary>
+    /// <summary>The step a read moves in (ns), at most: a read tells nothing finer. Where the read is <see cref="Precise"/> the work
+    /// done in a span is within the span's read plus this step. In Windows' ticks (<see cref="ThreadClock.Ticks"/>) that holds only
+    /// for a span the thread ran in one stretch with no tick charged to an interrupt or a DPC, and a span the machine broke into
+    /// stretches reads within a tick of the work of each.</summary>
     public static long ResolutionNs => Chosen.ResolutionNs;
 
     /// <summary>What a read is here, its resolution and, where it is not precise, why.</summary>
@@ -92,7 +95,7 @@ public static partial class ThreadTime
             return StopwatchChoice("the thread's times could not be read");
         var tick = WindowsTickNs();
         return new Choice(ThreadClock.Ticks, tick, string.Create(CultureInfo.InvariantCulture,
-            $"the thread's kernel and user time, which Windows charges in whole {tick / 1e6:0.###} ms clock ticks, so a read is not precise: the thread's cycles are not converted, for Windows leaves interrupt time out of them and their rate against the stopwatch moves with the machine's load (by more than a tenth on a Hyper-V guest), so no rate measured once converts them"));
+            $"the thread's kernel and user time, which Windows charges in whole {tick / 1e6:0.###} ms clock ticks, so a read is not precise and is within a tick of the work of each stretch the thread ran, less any tick an interrupt or a DPC took: the thread's cycles are not converted, for Windows leaves interrupt time out of them and their rate against the stopwatch moves with the machine's load (by more than a tenth on a Hyper-V guest), so no rate measured once converts them"));
     }
 
     private static Choice StopwatchChoice(string why) =>
