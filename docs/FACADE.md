@@ -20,24 +20,21 @@ EPSG system to another is refused (that is a reprojection).
 ## Survey import
 
 `SURVEY IMPORT` answers at once and works on its own thread below the lane's priority; the lane is touched twice (to accept and to
-apply), each slice timed into the import's view by the work the lane thread did in it, beside the step that measure moves in
-(`ThreadTime`: the thread's own processor time, never the time a loaded machine gave others). Linux and macOS read the thread's CPU
-clock. x64 Windows, where the processor says its time-stamp counter is invariant, reads the thread's cycles (`QueryThreadCycleTime`:
-the counter's ticks while the thread ran, user and kernel mode) at the counter's rate, measured once as the node starts, off the
-control lane and the render thread: the highest rate any of 16 spins of about a millisecond counts against the stopwatch around it.
-A preemption, an interrupt or a stop can only lower a spin's rate, or leave a spin stopped for most of its millisecond unjudged, so
-a slice reads at least its work, never less, as long as the count is brought up to date at each read. Each spin reads the count on
-every pass; a spin that reads it 1000 times or more is judged, and the rate stands only where the count moves on at least half of
-every judged spin's passes (a count brought up to date at each read moves on nearly every one, now and then finding the count where
-the read before left it; one brought up to date at a tick or an interval, on well under 1%; one brought up to date at an interval
-short enough to pass gives a rate at most 0.2% above the counter's, the bound `Basis` states for the fewest passes judged), and a
-quarter of the spins are judged. The rate is the fastest judged spin's: a loaded machine only slows a spin, so spins that scatter below
-it (2 of 16 within 1% on the windows-latest runner beside the suite) leave it standing, and `Basis` says how many agree. Both are precise, in the step the clock states (1 ns on Linux;
-`clock_getres` on macOS; on x64 Windows a cycle rounded up to a whole nanosecond). Other Windows reads the thread's kernel and user
-time, which Windows charges in whole clock ticks (15.625 ms by default), and the view says why: an ARM64 kernel counts a thread's
-cycles of the core's own clock, whose rate moves with the core's speed, a counter the processor does not call invariant may change
-rate with it, and a count the spins do not find brought up to date at each read is not converted. The slice budget's tests refuse a measure too coarse to read
-the 10 ms budget, by name. How long the lane answers meanwhile is measured as such (SITE's latency).
+apply), each slice timed into the import's view by two measures. One is the work the lane thread did in it (`ThreadTime`: the
+thread's own processor time, never the time a loaded machine gave others; the view's `LaneMaxMs`, the longest slice by it) beside
+the step that clock moves in (`LaneResolutionMs`). Linux and macOS read the thread's CPU clock, precise in the step it states (1 ns
+on Linux; `clock_getres` on macOS). Windows reads the thread's kernel and user time (`GetThreadTimes`), which it charges in whole
+clock ticks (15.625 ms by default), a tick to the thread a clock interrupt finds running, so a stretch the thread runs unbroken
+reads within a tick of its work; it is not precise, and `Basis` says so and why the thread's cycles are not converted: Windows
+leaves interrupt time out of them, so their rate against the stopwatch moves with the machine's load (by more than a tenth on a
+Hyper-V guest), and no rate measured once converts them. The other is the stopwatch (`LaneMaxWallMs`): the slice's span, which holds
+its work and whatever else the machine did meanwhile, and never reads below the work. Each bounds a slice's work from above
+(Windows' ticks to a tick for each stretch the thread ran the slice in), so a slice held the lane for no more than a budget where
+its thread time plus the step, or its stopwatch time, is within it. The slice budget's tests prove their budgets so, and a slice
+proven by neither fails with both readings, the step and `Basis`: on Linux the CPU clock proves them; on Windows a slice read as no
+tick or one, plus a tick, is within the regular test's 4 × 10 ms, and the Perf twin's 10 ms, shorter than a tick, is proven by the
+stopwatch, which in a test run alone reads the slice's work and little else. How long the lane answers meanwhile is measured as such
+(SITE's latency).
 The result lands as one edit, so one UNDO takes the whole import back.
 
 - **Meshes** (OBJ, PLY, glTF): rebased as read, then decimated to the triangle budget by quadric edge collapse. A collapse keeps one of

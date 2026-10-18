@@ -32,9 +32,11 @@ its dmabuf import half runs on Mesa; a sync group's nodes run in one process on 
 The lab checks still to do:
 - GPUs and Windows: a DXGI start, its frame statistics and independent flip on NVIDIA, AMD and Intel GPUs; D3D11VA and VAAPI
   decode imported on real GPUs (and the device lock under a decoder's load); Spout with Resolume and TouchDesigner; HAP layer
-  counts per GPU; per-output latency on displays of different lag; `ThreadTime.Basis` on a Windows 11 24H2 machine with Memory
-  Integrity on (Windows then runs as Hyper-V's root partition), to see whether a shipped node reads the thread's cycles or the
-  ticks.
+  counts per GPU; per-output latency on displays of different lag; a precise Windows thread time — the time-stamp counter's
+  frequency from the platform, never a rate measured against the stopwatch, and a thread's cycles at it against its work — on bare
+  metal and on a Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), with round 3's platform
+  package (until then a Windows thread time is its clock ticks, and the survey slice's budget is proven by the ticks or the
+  stopwatch, docs/FACADE.md).
 - Runtimes and SDKs loaded at run time: a real NDI runtime (the user's own install); the NVAPI tier on a sync board.
 - Devices: a real projector, and a Panasonic's answers to the double-correction guard's reads; a real camera scan (from one place
   or many, through a capture camera, a phone or a tethered camera's folder), a camera re-solve and a colour match through a real
@@ -57,9 +59,6 @@ The lab checks still to do:
 - The desk's throttle sends what it coalesced to the link it holds when it flushes, so a line queued just before the desk attaches
   to another node goes to that node.
 - CALIBRATION HISTORY names no `standsAs` per row, so the desk offers a Recall the node refuses.
-- On Windows the survey import's lane slice is not yet observed on the Windows job: x64 Windows reads the lane thread's cycles
-  where CPUID says the time-stamp counter is invariant, and a guest that hides the bit (a Hyper-V guest that has not opted in, the
-  runner perhaps) reads 15.625 ms ticks, which the slice budget's tests refuse by name.
 - Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - `PANIC REWIND` publishes its lane as Cued before it writes the panic's journal row, so a reader that sees Cued can read the
   journal without it; `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads it at once and failed one gate run on that.
