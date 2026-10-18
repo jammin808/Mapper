@@ -135,7 +135,9 @@ real GPUs, a real NDI runtime and sync board, real projectors, cameras, phones a
 encoders, surveys from real scanners and total stations, and a group or a backup across machines — is the lab's list in
 `docs/ROADMAP.md` ("Lab only"), with the fixes still open.
 
-**Next:** an installed, Windows-native show node on Direct3D 12, planned in `docs/round3/PLAN.md`.
+**Next:** an installed, Windows-native show node on Direct3D 12 for every edition of Windows 11, Home included, with the desk's
+guided workflows, every mapping step by hand or with the assistant, and capture cards passed through to the air, planned in
+`docs/round3/PLAN.md`; the owner has made its decisions.
 
 ## What it is made of
 
@@ -199,8 +201,8 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
   spine its parts build on
 - `docs/XR.md` — phones, smart glasses and headsets: look at a surface and control it
 - `docs/ROADMAP.md` — what is built, what only the lab can prove, the fixes still open, and the prioritised rounds
-- `docs/round2/CARRYOVER.md` — the open fixes in detail, and the owner's open calls in one place
-- `docs/round3/PLAN.md` — the plan for the installed, Windows-native node
+- `docs/round2/CARRYOVER.md` — the open fixes in detail, and the owner's calls with their answers in one place
+- `docs/round3/PLAN.md` — the plan for the installed, Windows-native node and the desk's workflows, with the owner's answers
 - `THIRD-PARTY-NOTICES.md` — what PlayMap ships or loads from others, with their licences
 
 ## Build

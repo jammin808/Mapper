@@ -9,8 +9,9 @@ given a source, a blind commit, a re-solve, LIGHT WALL, PAIRING NEW among them):
 ring, and in a menu it is pressed twice — the first press arms the entry, which then reads "Press again to send <line>" and sends
 nothing; a second press of it within 3 s of the desk's clock sends that line once (a line a push moved in between arms the entry
 afresh, naming the new line); another entry, the menu closing or made again, or the 3 s passing lets it go. Three such rows the
-desk sends at every press wherever they are, with the air's controls: the transport's Stop (`VIDEO STOP`), the panic banner's Clear
-(`PANIC CLEAR`) and the master (`MASTER`); PANIC, Blackout, GO, NEXT, PREV, Play and Pause are held nowhere. An inspector's field
+desk sends at every press wherever they are, with the air's controls, by the owner's decision: the transport's Stop (`VIDEO STOP`),
+the panic banner's Clear (`PANIC CLEAR`) and the master (`MASTER`); PANIC, Blackout, GO, NEXT, PREV, Play and Pause are held nowhere.
+A card's `APPROVE`, which a Companion key presses twice, the desk presses once, also by the owner's decision. An inspector's field
 and a drag send their line as they change. Menu entries show their words as they are (underscores and all; a menu has no access
 keys).
 
@@ -42,8 +43,7 @@ keys).
 Not built yet: a confirmation before closing while armed, PANIC's pulse, the master's level bar, the PLAY bin as a panel of its own;
 the blind panel's ON GO and AT boundaries (they run over the wire), its row selecting the entity, the commit's countdown and the
 violet frame; the fleet's alarm banner (STATE.fleet.alarm is always null); Check all and Re-solve moved on Health ▸ Calibration
-(the catalogue has no such rows); a second press for a line a Companion key presses twice (a card's `APPROVE`), which the desk
-sends on one press. The readiness light's
+(the catalogue has no such rows). The readiness light's
 sync part is the node's own light for the group, `sync.light` (a leader's from its board, a follower's from its feed and clock), in
 the node's words; only a node whose STATE.sync carries no `light` has it read from its keys. A Recall of a kept result the target already stands as exactly (just after
 it was recalled) is offered, and the node refuses it with its words: CALIBRATION HISTORY marks a row current by its id, while the

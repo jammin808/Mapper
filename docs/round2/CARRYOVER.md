@@ -2,34 +2,56 @@
 
 **Round 2 is merged:** every package of [`PLAN.md`](PLAN.md) is on main. This file keeps what each integration found, from the
 round-1 integration's carry-overs to the last fix batch's notes, oldest first. What stays open of it is in
-[`docs/ROADMAP.md`](../ROADMAP.md) ("Open fixes", with "Lab only" for what only real hardware proves); the owner's open calls are
-here, in one place.
+[`docs/ROADMAP.md`](../ROADMAP.md) ("Open fixes", with "Lab only" for what only real hardware proves); the owner's calls and their
+answers are here, in one place.
 
-## The owner's open calls
+## The owner's calls, answered
 
-Round 3 ([`docs/round3/PLAN.md`](../round3/PLAN.md)) starts once the owner has made six decisions:
+The owner answered every call on 18 October 2026. Round 3's plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a
+decision taken (its §1.2 and §9) and what it changes.
 
-1. **The show nodes' Windows edition** (the plan's D4).
-2. **The hardware lock's hardware:** whether RTX PRO cards with RTX PRO Sync are what the hardware lock is built for (D5).
-3. **The signing identity:** the identity that signs builds and the installer (§9 decision 2).
-4. **The WiX maintenance fee** (§9 decision 3).
-5. **The lab:** its machines and who runs it (§9 decision 11, §7).
-6. **The round's size:** all sixteen sessions, or fewer in §9's deferral order (§9 decision 1).
+1. **The show nodes' Windows edition** (the plan's D4). *Answered:* "PlayMap also needs to run on Windows 11 Home as well." Every
+   Windows 11 edition from build 26100 is supported — Home, Pro, Pro for Workstations, Enterprise, Education, IoT Enterprise — with IoT
+   Enterprise LTSC 2024 recommended for permanent show nodes; on Home the supervisor starts the engine in an auto-logged-on local show
+   account in place of a kiosk, and preflight names each layer Home lacks.
+2. **The hardware lock's hardware** (D5). *Answered:* "Use hardware lock where possible, fall back to software lock." The present
+   barrier joins outputs wherever the adapter answers it (NVIDIA's professional GPUs with RTX PRO Sync), a capture card's reference
+   input locks where the card has one, and every other output is in the software lock: the same frame, its phase measured, never a
+   locked state.
+3. **The signing identity** (§9 decision 2). *Answered:* "Leave unsigned for now." Builds and installers are unsigned and named so,
+   each with a SHA-256 list; signing is next round's.
+4. **The WiX maintenance fee** (§9 decision 3). *Answered:* "Do not use WIX paid services." The WiX toolset is built from its source
+   in CI, so no official binary, package, fee or paid service is used; Inno Setup is the fallback if that build fails.
+5. **The lab: its machines and who runs it** (§9 decision 11, §7). *Answered:* "Full physical hardware testing is not available yet."
+   Every lab line keeps its script and pass mark and is reported not run; every question only the lab answers stands on its "if no"
+   branch, said in STATE.
+6. **The round's size** (§9 decision 1). *Answered:* "All 16." The sixteen packages stay in their waves; the plan proposes five more
+   for the owner's requirements of the same day, and §9 decision 1 says how they go to the next round if the round stays at sixteen.
 
 The desk's held-line exemptions (the desk-2 notes, below):
 
 7. The desk sends `VIDEO STOP` (the transport's Stop), `PANIC CLEAR` (the panic banner's Clear and its fade menu) and `MASTER` at
-   every press, though a Companion key holds each to confirm (`DeskAction.SentAtOnce`).
-8. A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk.
+   every press, though a Companion key holds each to confirm (`DeskAction.SentAtOnce`). *Answered:* "Keep." The desk's menu bar,
+   palette and console keep the rule.
+8. A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk. *Answered:* "Approve." It stays one press, on the
+   cards and in the assistant's pane.
 
 The other calls the notes below leave with the owner:
 
 9. The controllers preflight rows carry no fix line: no verb pairs a client or restarts the network announcement (wp2-companion,
-   in the fx merge's notes).
+   in the fx merge's notes). *Answered:* "Leave rows as information for now." They stay information rows.
 10. `/api/context` sits behind the token, so Patterns reads PlayMap's context over the wire (`SUBSCRIBE CONTEXT`); opening it is
-    the owner's call (wp2-fleet).
-11. Which 64 commands Patterns' Eye sees: the context lists the verbs that move a panic, the air, a transport or Show Mode first,
-    the rest in catalogue order, and the Eye keeps the first 64 (wp2-control).
+    the owner's call (wp2-fleet). *Answered:* "Keep it closed."
+11. Which commands Patterns' Eye sees: the context lists the verbs that move a panic, the air, a transport or Show Mode first,
+    the rest in catalogue order, and the Eye keeps the first 64 (wp2-control). *The owner asked:* "If PlayMap uses up to 128 commands,
+    shouldn't Patterns use 128 too?" PlayMap's context lists every mutating verb with no cap — 195 in the busy golden
+    (`tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json`), the 65th of them `MOVE <id> <index>` — and the Show Bus contract keeps
+    64: Patterns' reader takes the first 64 (Patterns' `src/Patterns.Core/Services/ShowContext.cs:99`), and PlayMap's own reader of a
+    peer's context keeps the contract's 64 (`src/PlayMap.Core/Bus/ShowContext.cs`, `Parse`). Changing the contract is Patterns' to do,
+    so it is **a request to Patterns' maintainers**: raise the Show Bus context's command cap from 64 to at least 128 — or read every
+    command a node lists — knowing PlayMap's commands are already ordered most-useful first (the panic, air, transport and Show Mode
+    rows lead); PlayMap's reader follows once the contract says so, and round 3's integration pass adds `ContextOrderTests`, which keep
+    the air's verbs first whatever rows the round adds.
 
 ## Carry-over from the round-1 integration
 
@@ -103,7 +125,8 @@ Round 2 W1 notes:
   for engine modules. Open for others: AssistantTools does not ask IShowDecisions (McpTools does) → assistant owner;
   ShowPolicy.RoleOf makes any client whose HELLO name is in Operators an operator (claim-based, like the old desk rule) →
   show/blind owner, harden like the desk (proof + address); the controllers preflight has no row with a fix line (no verb pairs
-  a client or restarts the announcement) → owner decision. A remote desk now needs Companion.DeskAddresses.
+  a client or restarts the announcement) → the owner's call 9, answered: the rows stay information. A remote desk now needs
+  Companion.DeskAddresses.
 - Integrator (after companion): the web port refuses foreign Origins on /api, /ws, /mcp and, for tokenless admission, hosts
   that are not the node's (WebSettings.Hosts lists venue names). Render-thread facts go through FactsSignal (its own thread and
   a semaphore; never the thread pool from the render thread — queueing there can add a worker and allocate). Preflight runner
@@ -123,8 +146,8 @@ Round 2 W1 notes:
   OpsHostTests.ARealNodeWithTheOperationsPartsScansTheSimulatedCameraEndToEnd failed once under load (watch it).
 - wp2-fleet: reads at /health and /fleet (web modules, Open, GET/HEAD only, nothing secret; HttpHost refuses modules under
   /api). The hello carries caps eye and show; the context's command list puts panic, air, transport and Show Mode verbs first
-  (the Eye keeps the first 64). Open for the owner: /api/context sits behind the token, so Patterns reads PlayMap's context
-  over the wire (SUBSCRIBE CONTEXT); opening it is the owner's call. No verb accepts a changed fleet pin (the preflight row
+  (the Eye keeps the first 64). /api/context sits behind the token, so Patterns reads PlayMap's context over the wire (SUBSCRIBE
+  CONTEXT); the owner's call 10 keeps it closed. No verb accepts a changed fleet pin (the preflight row
   names keys/fleet-pins.json). The Patterns-side Eye patch is prepared for Patterns' maintainers and not applied (kept outside
   this tree).
 - wp2-control (merged): LTC readers open and close off the control loop through audio's capture hub ("<device>@<channel>");
@@ -133,7 +156,8 @@ Round 2 W1 notes:
   a device whose open never returns holds the hub's lock, so ControlService.DisposeAsync and the hub's Dispose wait on it
   (needs a bounded open in audio's hub); an engine built without the audio part (tests only) has no hub, so LTC and TIMECODE
   DEVICES say so. The context's command list sorts TIMECODE CHASE, ENGAGE and INTERNAL with the transport verbs, which moves
-  SYNC LEAD, SYNC FOLLOW and LINK PATTERNS out of the Eye's first 64 — which 64 the Eye sees is the owner's call.
+  SYNC LEAD, SYNC FOLLOW and LINK PATTERNS out of the Eye's first 64 — which commands the Eye sees is the owner's call 11, now a
+  request to Patterns (above).
 - wp2-align (merged): ALIGN NEW/RUN/STATUS/CANCEL/ACCEPT/REVERT/CORNERS/CLEAR, run folders, STATE.align and outputs[].measured,
   the measured warp, blend and pedestal drawn by the output stage; AlignLedgerRoundTripTests is the wall × align test. Open: the
   phone camera hooks in at AlignRunnerOptions.OpenCamera (set in AlignExtension) once phonescan merges; SCAN START does not
@@ -193,8 +217,8 @@ Round 2 W1 notes:
   desk sends at every press with the air's controls (`DeskAction.SentAtOnce`; `HeldMenuTests`, over every action the desk offers);
   a menu entry shows its words as they are (no access keys).
 - Done: the views' leases (`VIEW <view> KEEP`) are renewed on the desk's clock, as the overlay's are (`KeepViewsEveryMs`).
-- Open (owner's call): the transport's Stop, the panic banner's Clear and fade menu and the master are sent at every press though a
-  Companion key holds them; a card's `APPROVE` (pressed twice on a key) is pressed once.
+- Decided (the owner's calls 7 and 8): the transport's Stop, the panic banner's Clear and fade menu and the master are sent at every
+  press though a Companion key holds them; a card's `APPROVE` (pressed twice on a key) is pressed once.
 - Open: the throttle (drags, fields, a view's camera) sends what it coalesced in its last 16 ms to the link the desk holds when it
   flushes, so a line queued just before the desk attaches to another node goes to that node (seen as a `VIEW editor-draft CAMERA` in
   `DeskPreviewTests`); it should let go of what it held for the link it was queued on.
@@ -361,9 +385,9 @@ Round 2 W1 notes:
   the int-tests4 gate on that ordering. A row written before the lane is published, or a test that
   waits for the row as it waits for the lane, closes it.
 - Open on Windows: whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
-- The desk-2 notes' open calls stand (the code settles none): the desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at
-  every press and presses a card's `APPROVE` once; the throttle sends what it coalesced to the link it holds when it flushes, across
-  a link change; CALIBRATION HISTORY names no `standsAs` per row.
+- Of the desk-2 notes: the desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at every press and presses a card's `APPROVE` once,
+  as the owner decided (calls 7 and 8); still open, the throttle sends what it coalesced to the link it holds when it flushes, across
+  a link change, and CALIBRATION HISTORY names no `standsAs` per row.
 - Commit 00477fa carries the line sessions' change (the table joined before the session runs, the registrations one at a time)
   under the reseat test's subject; 085deb3, with the same subject, holds the reseat test alone and does not compile without 00477fa
   (`StageResources.BlendInUseFor`), so a bisect skips it.
