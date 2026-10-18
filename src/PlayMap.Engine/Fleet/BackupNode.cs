@@ -878,10 +878,12 @@ public sealed class BackupNode : IAsyncDisposable
         try
         {
             var (servedRev, body) = await puller.ProjectAsync(ct).ConfigureAwait(false);
-            var project = ProjectJson.Deserialize(body);
+            var read = ProjectJson.Read(body);
+            var project = read.Project;
             // The files the show names beside it land before the show does, so its stage is the primary's from its first frame.
             var landed = await PullShowFilesAsync(engine, puller, project, ct).ConfigureAwait(false);
-            var label = string.Create(CultureInfo.InvariantCulture, $"mirrored {_primaryName} rev {servedRev}");
+            var label = string.Create(CultureInfo.InvariantCulture, $"mirrored {_primaryName} rev {servedRev}")
+                + (read.Note.Length > 0 ? " — " + read.Note : "");
             var result = await engine.MirrorEditAsync(label, _ => project).ConfigureAwait(false);
             if (!result.Changed && !result.Effect.EndsWith("nothing to change", StringComparison.Ordinal))
                 return CommandReply.Fail($"{_primaryName}'s show (rev {servedRev}) could not be applied here: {result.Effect}");

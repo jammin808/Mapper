@@ -534,18 +534,20 @@ public sealed partial class EngineCore
     private static readonly QualityScore AsItStandsScore = QualityScore.None with { Source = "manual" };
 
     /// <summary>The output's current result when it stands as that result; otherwise the output as it stands recorded (a kept
-    /// result, applied) — so whatever ACCEPT, CLEAR or REVERT replaces can be returned to.</summary>
+    /// result, applied) — so whatever ACCEPT, CLEAR or REVERT replaces can be returned to. A result records the blend γ the output
+    /// draws, so returning to it draws that γ again.</summary>
     private static (Project Project, string Id) KeepAsItStands(Project p, Output o, string who, long now)
     {
+        var drawn = o.DrawnBlendGamma();
         if (o.CalibrationId is { } cid && p.FindCalibration(cid) is { } cur && Equals(cur.Output, o.Measured)
-            && (cur.BlendGamma <= 0 || cur.BlendGamma == o.Blend.Gamma))
+            && (cur.BlendGamma <= 0 || cur.BlendGamma == drawn))
             return (p, cid);
         var id = p.NewId(Ids.Calibration);
         var snap = new CalibrationSnapshot(id, o.Measured is null ? "No measured correction" : "As it stood", CalibrationTarget.Output, o.Id, now,
             CalibrationSource.Manual, null, o.CalibrationId, AsItStandsScore, who, false)
         {
             Output = o.Measured,
-            BlendGamma = o.Blend.Gamma,
+            BlendGamma = drawn,
         };
         return (CalibrationLedger.Record(p, snap, apply: true).Project, id);
     }

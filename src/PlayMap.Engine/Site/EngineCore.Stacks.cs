@@ -572,7 +572,7 @@ public sealed partial class EngineCore
                     throw new EditRefusedException(ForeignLatticeWords(member.Projector, other, stack, source.Scan));
                 var was = o.Measured ?? new MeasuredCorrection(null, null, null, null, 0, "", "", "", 0);
                 var colour = new MeasuredColor(Math.Round(g.R, 4), Math.Round(g.G, 4), Math.Round(g.B, 4),
-                    was.Color is { Gamma: > 0 } wc ? wc.Gamma : o.Blend.Gamma, was.Color is { Level: > 0 } lc ? lc.Level : 1);
+                    was.Color is { Gamma: > 0 } wc ? wc.Gamma : o.DrawnBlendGamma(), was.Color is { Level: > 0 } lc ? lc.Level : 1);
                 var measured = was with { Color = colour, ScanId = source.Scan.Id, StackId = stack.Id, MeasuredUnixMs = now };
                 var term = new ScoreTerm(ScoreTermCodes.ColourMatch,
                     string.Create(CultureInfo.InvariantCulture, $"{member.Projector.Name}'s white was Δu′v′ {g.DuvBefore:0.0000} from the master's; gains {g.R:0.000} {g.G:0.000} {g.B:0.000}"),

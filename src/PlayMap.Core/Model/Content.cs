@@ -158,4 +158,26 @@ public sealed record Canvas(string Id, string Name, int Width, int Height, strin
 {
     /// <summary>Effects on the composed canvas (wp2-fx).</summary>
     public FxChain Fx { get; init; } = FxChain.Empty;
+
+    /// <summary>How CANVAS SPAN laid outputs across this canvas and what it wrote, or null when no span did (wp3-canvas).</summary>
+    public CanvasSpan? Span { get; init; }
 }
+
+/// <summary>What a span's overlap is measured in.</summary>
+public enum SpanOverlapUnit
+{
+    /// <summary>Output pixels.</summary>
+    Px,
+    /// <summary>A percentage of a position's width or height.</summary>
+    Percent,
+}
+
+/// <summary>One output as a span placed it: the canvas rectangle it shows, its inner edges and its plan rectangle.</summary>
+public sealed record SpanPlacement(string OutputId, RectD SourceRect, EdgeBlend Edges, RectD Plan);
+
+/// <summary>A span of outputs across one canvas: the outputs position by position (a position's stacked outputs together, its first
+/// the stack's reference), <see cref="Columns"/> × <see cref="Rows"/> positions (<c>SIDE</c>), <see cref="Stack"/> outputs at each
+/// (<c>STACK</c>, 1 for none), the overlap between neighbouring positions, and what it wrote — the canvas's size and each output's
+/// placement — so a later span tells an edit by hand since from its own values.</summary>
+public sealed record CanvasSpan(ImmutableArray<string> Outputs, int Columns, int Rows, int Stack, double Overlap, SpanOverlapUnit OverlapUnit,
+    int Width, int Height, ImmutableArray<SpanPlacement> Wrote);

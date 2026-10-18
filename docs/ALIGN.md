@@ -15,7 +15,7 @@ it replaced kept as its fallback (`docs/CALIBRATION.md`). The verbs are in `docs
 3. `ALIGN RUN <group> [COLOR WHITE] [ONLY <output>…]` measures and stages: progress, the step and the time left are in `STATE.align.run`. The run never writes
    the project. Its files go under `align/<run>/` beside the project and are never written again.
 4. `ALIGN ACCEPT <run>` applies every output's correction as one edit (one undo step); `ALIGN REVERT <group>` goes back to each
-   output's fallback; `ALIGN CLEAR` takes a correction off.
+   output's fallback, drawing the blend γ the output drew when that result was kept; `ALIGN CLEAR` takes a correction off.
 
 ## Identify and scan (`Core/Align/AlignSequence.cs`)
 
@@ -57,7 +57,12 @@ Per output, at a quarter of its raster, three floats a pixel: the **weight** (fr
 of where it reaches on the canvas, over `EdgeWidth` 0.15 of the raster side, through the cosine curve, normalised so the outputs'
 light sums to one), the **black pedestal** (the black lifted to the deepest overlap's floor, shared by weight, as a share of each
 output's own white) and the **uniformity gain** (the white evened out toward the dimmest by `Uniformity`, 0.6 by default: a camera's
-vignetting and a gain screen's angle bias what it measures). Each output's γ from its grey ramp is written to its `Blend.Gamma`.
+vignetting and a gain screen's angle bias what it measures). Each output's γ from its grey ramp is its measured γ
+(`Measured.Color.Gamma`), and ACCEPT also writes it into `Blend.Gamma`. `Blend.Gamma` is the hand's override of the γ the blend's
+fades are drawn through: 0 draws the output's measured γ where it has one, else 2.2, and every renderer, the 3D blend, the audit and
+the MPCDI export read it so (`Output.DrawnBlendGamma`). A project file of schema 1 is read by that rule: a stored 2.2, or the γ the
+output's current calibration result recorded, reads as 0 wherever 0 draws the same γ, any other γ stays the hand's, and PROJECT
+OPEN's answer and journal row name each output it moved.
 
 ## On the air (`Render/Passes/MeasuredStage.cs`, the `output` program)
 

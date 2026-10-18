@@ -468,6 +468,14 @@ public sealed partial class EngineCore
                     throw new EditRefusedException(op);
                 if (o.Warp.Lattice is { } lat && lat.Offsets.Length != lat.Columns * lat.Rows)
                     throw new EditRefusedException("a lattice has one offset per node");
+                if (o.ColorBits is not (8 or 10))
+                    throw new EditRefusedException("colorBits is 8 or 10");
+                if (o.FramesInFlight is < 0 or > 2)
+                    throw new EditRefusedException("framesInFlight is 0 (the node decides), 1 or 2");
+                if (o.NitTarget is not (> 0 and <= 10_000))
+                    throw new EditRefusedException("nitTarget is above 0 and at most 10000 cd/m²");
+                if (o.Watermark is { } marks && (marks.Size is < 4 or > 32 || marks.X < 0 || marks.Y < 0))
+                    throw new EditRefusedException("a watermark's blocks are 4 to 32 pixels, placed at an x and y of 0 or more");
                 break;
             case Surface s:
                 if (s.MeshId.Length > 0 && p.FindMesh(s.MeshId) is null)
@@ -688,19 +696,21 @@ public sealed partial class EngineCore
         if (args.Count < 1)
             return CommandReply.Fail("PROJECT OPEN <path>");
         var path = string.Join(' ', args);
-        Project project;
+        ProjectRead read;
         try
         {
-            project = ProjectFile.Deserialize(DurableFile.ReadAllText(path));
+            read = ProjectFile.Read(DurableFile.ReadAllText(path));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException or ArgumentException)
         {
             return CommandReply.Fail($"could not open {Path.GetFileName(path)}: {ex.Message}");
         }
-        Store.Replace(project, $"opened {project.Name}");
+        var project = read.Project;
+        var opened = read.Note.Length > 0 ? $"opened {project.Name} — {read.Note}" : $"opened {project.Name}";
+        Store.Replace(project, opened);
         _projectPath = Path.GetFullPath(path);
         _dirty = false;
-        return CommandReply.Success(effect: $"opened {project.Name}");
+        return CommandReply.Success(effect: opened);
     }
 
     private CommandReply ProjectNew(List<string> args)

@@ -40,7 +40,9 @@ public sealed record Project(
     ImmutableArray<Output> Outputs,
     ProjectSettings Settings)
 {
-    public const int CurrentSchema = 1;
+    /// <summary>The file form this build writes. 2: <see cref="BlendSettings.Gamma"/> is the hand's override, 0 meaning the measured γ
+    /// (<see cref="ProjectJson.Read"/> reads a file of schema 1 by <see cref="ProjectJson.ReadGammaAsTheHands"/>).</summary>
+    public const int CurrentSchema = 2;
 
     /// <summary>Show Mode rules, panic plans and locks (wp2-show).</summary>
     public ShowPlan Show { get; init; } = ShowPlan.Default;
@@ -74,6 +76,9 @@ public sealed record Project(
 
     /// <summary>Optimise-on-import mode and this show's own rules (wp2-optimise).</summary>
     public OptimiseSettings Optimise { get; init; } = OptimiseSettings.Default;
+
+    /// <summary>The guides begun on this project, oldest first (wp3-workflows).</summary>
+    public ImmutableArray<GuideRecord> Guides { get; init; } = [];
 
     /// <summary>A new project as a fresh install comes up: one 1920×1080 canvas showing the test card,
     /// one output showing that canvas — something on the wall before anything is configured.</summary>

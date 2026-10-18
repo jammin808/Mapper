@@ -357,7 +357,8 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
 
     private EdgeEntry? EdgeFor(Output output, Tables prev)
     {
-        var s = output.Blend;
+        // The map is made through the γ the output draws (the hand's, else its measured one, else 2.2), and kept while that holds.
+        var s = output.Blend.Gamma > 0 ? output.Blend : output.Blend with { Gamma = output.DrawnBlendGamma() };
         if (BlendInputs.Blends(output) || (s.Edges == EdgeBlend.None && s.BlackLevel <= 0))
             return null;
         var w = Math.Max(16, (int)Math.Round(output.Width * _options.EdgeMapScale));

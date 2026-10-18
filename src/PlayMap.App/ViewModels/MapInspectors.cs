@@ -1078,7 +1078,7 @@ public sealed class OutputInspector : InspectorViewModel
         Auto3D = o.Blend.Auto3D;
         Curve = o.Blend.Curve;
         if (Settled("blend.gamma"))
-            Gamma = o.Blend.Gamma;
+            Gamma = o.DrawnBlendGamma();
         if (Settled("blend.blackLevel"))
             BlackLevel = o.Blend.BlackLevel;
         if (Settled("blend.edges"))

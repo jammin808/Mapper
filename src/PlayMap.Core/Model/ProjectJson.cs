@@ -9,6 +9,10 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace PlayMap.Core.Model;
 
+/// <summary>A project file as <see cref="ProjectJson.Read"/> read it: the project, the outputs whose blend γ it read as the measured one,
+/// and its load note naming them ("" when it moved nothing).</summary>
+public sealed record ProjectRead(Project Project, ImmutableArray<string> MovedOutputs, string Note);
+
 /// <summary>The project's file and wire form: camel-case JSON, enums as words, every list written (empty as
 /// []), read leniently — an older or hand-written file with a list missing reads as empty, never as a
 /// broken model. The same options serialise one entity for GET and read one back for SET, so the field
@@ -60,8 +64,58 @@ public static class ProjectJson
 
     public static string Serialize(Project project) => JsonSerializer.Serialize(project, Options);
 
+    /// <summary>The model a text holds, as it holds it: no reading rule of an older schema applied (the node's own project, a test's).
+    /// A file being opened into a store is read by <see cref="Read"/>.</summary>
     public static Project Deserialize(string json) =>
         Sanitize(Read<Project>(ParseTree(json), refuseNulls: false) ?? throw new JsonException("The file holds no project."));
+
+    /// <summary>A project file read as this build reads it: the model the text holds and, for a file of a schema before
+    /// <see cref="Project.CurrentSchema"/>, that schema's reading rules applied (<see cref="ReadGammaAsTheHands"/>) and the schema
+    /// raised, so the project means what the file meant and saves as this build writes. The note names every output the rules moved
+    /// ("" when none did).</summary>
+    public static ProjectRead Read(string json)
+    {
+        var project = Deserialize(json);
+        if (project.Schema >= Project.CurrentSchema)
+            return new ProjectRead(project, [], "");
+        var (read, moved) = ReadGammaAsTheHands(project);
+        return new ProjectRead(read with { Schema = Project.CurrentSchema }, moved, GammaNote(read, moved));
+    }
+
+    /// <summary>Schema 1's blend γ as schema 2 reads it. Schema 1 stored a γ in every output, 2.2 unless a person typed another or an
+    /// accept wrote the measured one; schema 2 stores the hand's override, 0 meaning the measured γ (else 2.2). A stored γ of 2.2, or
+    /// one equal to the γ the output's current calibration result recorded, reads as 0 wherever 0 draws that same γ, so no pixel moves;
+    /// every other γ is the hand's override and stays. Answers the project and the ids of the outputs it moved, in project order.</summary>
+    public static (Project Project, ImmutableArray<string> Moved) ReadGammaAsTheHands(Project project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        var moved = ImmutableArray.CreateBuilder<string>();
+        var outputs = project.Outputs;
+        for (var i = 0; i < outputs.Length; i++)
+        {
+            var o = outputs[i];
+            var stored = o.Blend.Gamma;
+            if (stored <= 0)
+                continue;
+            var recorded = o.CalibrationId is { } id && project.FindCalibration(id) is { BlendGamma: > 0 } current ? current.BlendGamma : 0;
+            var asZero = o.Blend with { Gamma = 0 };
+            if (!(Same(stored, BlendSettings.AssumedGamma) || Same(stored, recorded)) || !Same(asZero.DrawnGamma(o.Measured), stored))
+                continue;
+            outputs = outputs.SetItem(i, o with { Blend = asZero });
+            moved.Add(o.Id);
+        }
+        return moved.Count == 0 ? (project, []) : (project with { Outputs = outputs }, moved.ToImmutable());
+    }
+
+    private static bool Same(double a, double b) => Math.Abs(a - b) < 1e-9;
+
+    private static string GammaNote(Project project, ImmutableArray<string> moved)
+    {
+        if (moved.IsEmpty)
+            return "";
+        var names = string.Join(", ", moved.Select(id => $"{project.FindOutput(id)?.Name} ({id})"));
+        return $"{names}: the blend γ the file stored reads as 0, the measured γ (else 2.2), which draws the same γ";
+    }
 
     public static string SerializeEntity<T>(T entity, bool indented = false) =>
         JsonSerializer.Serialize(entity, indented ? Options : Compact);

@@ -5,11 +5,20 @@ using PlayMap.Core.Show;
 
 namespace PlayMap.Core.Tests.Model;
 
-/// <summary>Round 2's model against round 1's files: a file written before it loads unchanged, re-saves with every new key, reads
-/// a null new key as its default, and every new entity kind survives the file.</summary>
+/// <summary>The model against earlier rounds' files: a file written before it loads unchanged (round 3 reading only its blend γ
+/// differently), re-saves with every new key, reads a null new key as its default, and every new entity kind and field survives the
+/// file.</summary>
 public sealed class ModelCompatTests
 {
-    /// <summary>Every key round 2 adds, as a path ("[]" for every element of a list).</summary>
+    /// <summary>Every key round 3 adds, as a path (declared first: the list below takes it in).</summary>
+    private static readonly string[] RoundThreeKeys =
+    [
+        "$.guides", "$.canvases[].span", "$.stage.viewpoints[].fit",
+        "$.outputs[].colorBits", "$.outputs[].hdr", "$.outputs[].nitTarget", "$.outputs[].framesInFlight", "$.outputs[].watermark",
+        "$.outputs[].passThrough",
+    ];
+
+    /// <summary>Every key round 2 and round 3 add, as a path ("[]" for every element of a list).</summary>
     private static readonly string[] NewKeys =
     [
         "$.show", "$.fleet", "$.control", "$.timecode", "$.sends", "$.fxAssets", "$.generatorPresets", "$.audio", "$.tempo", "$.leds",
@@ -27,6 +36,7 @@ public sealed class ModelCompatTests
         "$.stage.site", "$.stage.controls", "$.stage.surveys", "$.stage.stacks", "$.stage.aligns", "$.stage.calibrations",
         "$.outputs[].latencyMs", "$.outputs[].fx", "$.outputs[].measured", "$.outputs[].calibrationId", "$.outputs[].fallbackId",
         "$.outputs[].stagedId",
+        .. RoundThreeKeys,
     ];
 
     [Fact]
@@ -304,6 +314,186 @@ public sealed class ModelCompatTests
         Assert.Equal("AB", store.Project.Name);
         Assert.True(store.Undo().Changed);
         Assert.Equal("Untitled", store.Project.Name);
+    }
+
+    /// <summary>Each project file an earlier round wrote, frozen as that round's model wrote it: the outputs whose blend γ round 3
+    /// reads as 0, and the keys a re-save adds.</summary>
+    public static TheoryData<string, string[], string[]> OlderFiles => new()
+    {
+        // Round 1: both outputs stored the default 2.2 and have no measured layer.
+        { "round1.playmap.json", ["op_1", "op0a0b0c02"], NewKeys },
+        // Round 2: op_1 stores the γ its current result recorded (an accept wrote it, the measured γ 2.31); op0a0b0c02 a hand's 1.8;
+        // op0a0b0c03 the default 2.2; op0a0b0c04 a 2.2 typed over a measured 2.4, which 0 would not draw.
+        { "round2.playmap.json", ["op_1", "op0a0b0c03"], RoundThreeKeys },
+    };
+
+    [Theory]
+    [MemberData(nameof(OlderFiles))]
+    public void AnOlderFileReadsUnchangedButForItsBlendGammaAndItsLoadNoteNamesEveryOutputMoved(string file, string[] moved, string[] added)
+    {
+        var text = File.ReadAllText(Path.Combine(RoundTwoSample.RepoRoot(), "tests", "fixtures", "projects", file));
+        var stored = ProjectJson.Deserialize(text);
+        Assert.Equal(1, stored.Schema);
+
+        var read = ProjectJson.Read(text);
+
+        Assert.Equal(moved, read.MovedOutputs);
+        // Every key and value of the file is held, but the schema, raised, and each moved output's γ, now 0.
+        var expected = JsonNode.Parse(text)!;
+        expected["schema"] = Project.CurrentSchema;
+        foreach (var o in expected["outputs"]!.AsArray())
+        {
+            if (moved.Contains((string)o!["id"]!))
+                o["blend"]!["gamma"] = 0;
+        }
+        var extras = new SortedSet<string>(StringComparer.Ordinal);
+        AssertHolds(expected, JsonNode.Parse(ProjectJson.Serialize(read.Project))!, "$", extras);
+        Assert.Equal(added.Order(StringComparer.Ordinal), extras);
+        // No output draws another γ than the file drew.
+        Assert.Equal(stored.Outputs.Select(o => o.Blend.Gamma), read.Project.Outputs.Select(o => o.DrawnBlendGamma()));
+        Assert.All(read.Project.Outputs, o => Assert.Equal(moved.Contains(o.Id), o.Blend.Gamma == 0));
+        // The load note names every output moved, and only those.
+        foreach (var o in read.Project.Outputs)
+            Assert.Equal(moved.Contains(o.Id), read.Note.Contains($"{o.Name} ({o.Id})", StringComparison.Ordinal));
+        Assert.Contains("reads as 0", read.Note, StringComparison.Ordinal);
+
+        // What this build saves it reads as it wrote it: nothing moves again.
+        var again = ProjectJson.Read(ProjectJson.Serialize(read.Project));
+        Assert.Empty(again.MovedOutputs);
+        Assert.Equal("", again.Note);
+        Assert.Equal(ProjectJson.Serialize(read.Project), ProjectJson.Serialize(again.Project));
+    }
+
+    [Fact]
+    public void ARoundThreeFileIsReadAsItIsWrittenAndA22TypedByHandStays()
+    {
+        var p = Project.CreateDefault("Hand");
+        var one = p.Outputs[0];
+        p = p with
+        {
+            Outputs =
+            [
+                one with { Blend = one.Blend with { Gamma = 2.2 } },
+                one with { Id = "op_2", Name = "Output 2" },
+                one with { Id = "op_3", Name = "Output 3", Blend = one.Blend with { Gamma = 1.8 } },
+            ],
+        };
+        var text = ProjectJson.Serialize(p);
+
+        var read = ProjectJson.Read(text);
+
+        Assert.Equal(Project.CurrentSchema, read.Project.Schema);
+        Assert.Empty(read.MovedOutputs);
+        Assert.Equal("", read.Note);
+        Assert.Equal(text, ProjectJson.Serialize(read.Project));
+        Assert.Equal(new[] { 2.2, 0, 1.8 }, read.Project.Outputs.Select(o => o.Blend.Gamma));
+        Assert.Equal(new[] { 2.2, 2.2, 1.8 }, read.Project.Outputs.Select(o => o.DrawnBlendGamma()));
+    }
+
+    [Fact]
+    public void TheGammaRuleMovesAStored22OrTheRecordedGammaOnlyWhereZeroDrawsTheSame()
+    {
+        var p = Project.CreateDefault("Gamma");
+        var o = p.Outputs[0];
+        static MeasuredCorrection Measured(double gamma) =>
+            new(null, null, null, new MeasuredColor(1, 1, 1, gamma, 1), 0, "", "", "", 1);
+        var result = new CalibrationSnapshot("cs00000001", "Align", CalibrationTarget.Output, "op_b", 1, CalibrationSource.Align, null, null,
+            QualityScore.None, "desk", false) { Output = Measured(2.31), BlendGamma = 2.31 };
+        Output Out(string id, double gamma, MeasuredCorrection? measured = null, string? calibration = null) =>
+            o with { Id = id, Name = id, Blend = o.Blend with { Gamma = gamma }, Measured = measured, CalibrationId = calibration };
+        p = p with
+        {
+            Outputs =
+            [
+                Out("op_a", 2.2),                                              // the old default, nothing measured → 0
+                Out("op_b", 2.31, Measured(2.31), result.Id),                  // the γ its result recorded, drawn by 0 → 0
+                Out("op_c", 2.31, Measured(2.2), result.Id),                   // the recorded γ, but 0 would draw 2.2 → stays
+                Out("op_d", 1.8, Measured(2.31), result.Id),                   // the hand's → stays
+                Out("op_e", 2.31, Measured(2.31)),                             // no current result: not a recorded γ → stays
+                Out("op_f", 2.2, Measured(2.4)),                               // 2.2 typed over a measured 2.4 → stays
+                Out("op_g", 2.2, Measured(2.2) with { Color = null }),         // a measured layer with no γ: 0 draws 2.2 → 0
+                Out("op_h", 0),                                                // 0 already → not moved
+            ],
+            Stage = p.Stage with { Calibrations = [result] },
+        };
+
+        var (read, moved) = ProjectJson.ReadGammaAsTheHands(p);
+
+        Assert.Equal(new[] { "op_a", "op_b", "op_g" }, moved);
+        Assert.Equal(new[] { 0, 0, 2.31, 1.8, 2.31, 2.2, 0, 0 }, read.Outputs.Select(x => x.Blend.Gamma));
+        Assert.Equal(p.Outputs.Select(x => x.DrawnBlendGamma()), read.Outputs.Select(x => x.DrawnBlendGamma()));
+        // A project with nothing to move comes back as it was.
+        var untouched = p with { Outputs = [p.Outputs[3], p.Outputs[7]] };
+        Assert.Same(untouched, ProjectJson.ReadGammaAsTheHands(untouched).Project);
+        Assert.Empty(ProjectJson.ReadGammaAsTheHands(untouched).Moved);
+    }
+
+    [Fact]
+    public void TheDrawnGammaIsTheHandsElseTheMeasuredElseTwoPointTwo()
+    {
+        Assert.Equal(0, BlendSettings.Default.Gamma);
+        var measured = new MeasuredCorrection(null, null, null, new MeasuredColor(1, 1, 1, 2.4, 1), 0, "", "", "", 1);
+        Assert.Equal(2.2, BlendSettings.Default.DrawnGamma(null));
+        Assert.Equal(2.4, BlendSettings.Default.DrawnGamma(measured));
+        Assert.Equal(2.2, BlendSettings.Default.DrawnGamma(measured with { Color = new MeasuredColor(1, 1, 1, 0, 1) }));
+        Assert.Equal(1.8, (BlendSettings.Default with { Gamma = 1.8 }).DrawnGamma(measured));
+        var output = Project.CreateDefault().Outputs[0] with { Measured = measured };
+        Assert.Equal(2.4, output.DrawnBlendGamma());
+    }
+
+    [Fact]
+    public void EveryRoundThreeFieldHoldsItsDefaultAndRoundTripsThroughTheFile()
+    {
+        var p = ProjectJson.Read(RoundTwoSample.RoundOneFile()).Project;
+        var o = p.Outputs[0];
+        Assert.Equal((8, HdrMode.Off, 203.0, 0, false), (o.ColorBits, o.Hdr, o.NitTarget, o.FramesInFlight, o.PassThrough));
+        Assert.Null(o.Watermark);
+        Assert.Null(p.Canvases[0].Span);
+        Assert.Null(p.Stage.Viewpoints[0].Fit);
+        Assert.Empty(p.Guides);
+
+        var span = new CanvasSpan(["op_1", "op0a0b0c02"], 2, 1, 1, 15, SpanOverlapUnit.Percent, 3552, 1080,
+            [new SpanPlacement("op_1", new RectD(0, 0, 1920, 1080), new EdgeBlend(0, 0, 288, 0), new RectD(0, 0, 1920, 1080)),
+             new SpanPlacement("op0a0b0c02", new RectD(1632, 0, 1920, 1080), new EdgeBlend(288, 0, 0, 0), new RectD(1920, 0, 1920, 1080))]);
+        var view = p.Stage.Viewpoints[0];
+        var fit = new ViewpointFit(["sf0a0b0c01"], 5, new Vec3d(0, 0.1, 3.1), view.Intrinsics with { Fx = 1400, Fy = 1400 });
+        var guide = new GuideRecord(GuideKind.Flat, "cv_main", "desk", 1_760_000_000_000,
+            [new GuideCheck("corners", "sha256:" + new string('e', 64), "desk", 1_760_000_000_001)]);
+        var set = p with
+        {
+            Outputs = p.Outputs.SetItem(0, o with
+            {
+                ColorBits = 10, Hdr = HdrMode.Hdr10, NitTarget = 300, FramesInFlight = 1, PassThrough = true,
+                Watermark = new OutputWatermark(WatermarkPlace.Both, 16, 8, 12),
+            }),
+            Canvases = p.Canvases.SetItem(0, p.Canvases[0] with { Span = span }),
+            Stage = p.Stage with { Viewpoints = p.Stage.Viewpoints.SetItem(0, view with { Fit = fit }) },
+            Guides = [guide],
+        };
+        var json = ProjectJson.Serialize(set);
+        var back = ProjectJson.Read(json).Project;
+
+        Assert.Equal(json, ProjectJson.Serialize(back));
+        var b = back.Outputs[0];
+        Assert.Equal((10, HdrMode.Hdr10, 300.0, 1, true), (b.ColorBits, b.Hdr, b.NitTarget, b.FramesInFlight, b.PassThrough));
+        Assert.Equal(new OutputWatermark(WatermarkPlace.Both, 16, 8, 12), b.Watermark);
+        Assert.Contains("\"hdr\": \"hdr10\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"place\": \"both\"", json, StringComparison.Ordinal);
+        Assert.Equal(span.Wrote.AsEnumerable(), back.Canvases[0].Span!.Wrote);
+        Assert.Equal((2, 1, 1, 15.0, SpanOverlapUnit.Percent, 3552, 1080),
+            (back.Canvases[0].Span!.Columns, back.Canvases[0].Span!.Rows, back.Canvases[0].Span!.Stack, back.Canvases[0].Span!.Overlap,
+             back.Canvases[0].Span!.OverlapUnit, back.Canvases[0].Span!.Width, back.Canvases[0].Span!.Height));
+        Assert.Equal(span.Outputs.AsEnumerable(), back.Canvases[0].Span!.Outputs);
+        Assert.Equal(fit.Surfaces.AsEnumerable(), back.Stage.Viewpoints[0].Fit!.Surfaces);
+        Assert.Equal((fit.MarginPercent, fit.Aim, fit.FieldOfView), (back.Stage.Viewpoints[0].Fit!.MarginPercent, back.Stage.Viewpoints[0].Fit!.Aim,
+            back.Stage.Viewpoints[0].Fit!.FieldOfView));
+        Assert.Equal((GuideKind.Flat, "cv_main", "desk", 1_760_000_000_000L), (back.Guides[0].Kind, back.Guides[0].Subject, back.Guides[0].Who,
+            back.Guides[0].BegunUnixMs));
+        Assert.Equal(guide.Checks.AsEnumerable(), back.Guides[0].Checks);
+        // A field's path is the one a SET line names.
+        Assert.Equal(10, ProjectJson.SetPath(o, "colorBits", "10").ColorBits);
+        Assert.Equal(HdrMode.Scrgb, ProjectJson.SetPath(o, "hdr", "\"scrgb\"").Hdr);
+        Assert.Equal(2.4, ProjectJson.SetPath(o, "blend.gamma", "2.4").Blend.Gamma);
     }
 
     private static string Json<T>(T value) => ProjectJson.SerializeEntity(value);

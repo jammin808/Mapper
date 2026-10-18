@@ -259,7 +259,16 @@ public sealed record CameraRig(
 }
 
 /// <summary>A viewpoint content can be projected from (<see cref="SurfaceMapping.Projection"/>).</summary>
-public sealed record Viewpoint(string Id, string Name, Intrinsics Intrinsics, Pose Pose) : IEntity;
+public sealed record Viewpoint(string Id, string Name, Intrinsics Intrinsics, Pose Pose) : IEntity
+{
+    /// <summary>What VIEWPOINT FIT wrote, or null when no fit did (wp3-workflows).</summary>
+    public ViewpointFit? Fit { get; init; }
+}
+
+/// <summary>A viewpoint fitted to surfaces from its eye: the surfaces, the margin around them (a percentage of the view), and what the
+/// fit wrote — the pose's rotation (its aim; the eye's position is always the person's) and the intrinsics (its field of view) — so a
+/// later fit tells an aim or a field of view typed since from its own.</summary>
+public sealed record ViewpointFit(ImmutableArray<string> Surfaces, double MarginPercent, Vec3d Aim, Intrinsics FieldOfView);
 
 public enum ScanKind
 {

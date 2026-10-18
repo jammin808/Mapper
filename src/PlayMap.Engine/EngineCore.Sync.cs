@@ -120,14 +120,15 @@ public sealed partial class EngineCore
     public Task<string> RestoreAsync(RecoveryRecord record) => _lane.RunAsync(() =>
     {
         ArgumentNullException.ThrowIfNull(record);
-        Project? project = null;
+        Core.Model.ProjectRead? read = null;
         if (record.UnsavedProjectJson is not null)
-            project = Core.Model.ProjectJson.Deserialize(record.UnsavedProjectJson);
+            read = Core.Model.ProjectJson.Read(record.UnsavedProjectJson);
         else if (record.ProjectPath is not null && File.Exists(record.ProjectPath))
-            project = Core.Model.ProjectJson.Deserialize(Core.Storage.DurableFile.ReadAllText(record.ProjectPath));
-        if (project is null)
+            read = Core.Model.ProjectJson.Read(Core.Storage.DurableFile.ReadAllText(record.ProjectPath));
+        if (read is null)
             return "nothing to recover";
-        Store.Replace(project, "recovered after a restart");
+        var project = read.Project;
+        Store.Replace(project, read.Note.Length > 0 ? "recovered after a restart — " + read.Note : "recovered after a restart");
         _projectPath = record.ProjectPath;
         _dirty = record.UnsavedProjectJson is not null;
         SetAir(a => a with { Blackout = record.Blackout, PatternKind = record.Pattern });

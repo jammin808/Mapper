@@ -134,7 +134,7 @@ public static class MpcdiExport
         warpSamplesX = Math.Clamp(warpSamplesX, 2, 4096);
         warpSamplesY = Math.Clamp(warpSamplesY, 2, 4096);
         files[$"{region}_warp.pfm"] = WarpPfm(output.Warp, warpSamplesX, warpSamplesY, pins);
-        var gamma = Math.Clamp(output.Blend.Gamma, BlendMath.MinGamma, BlendMath.MaxGamma);
+        var gamma = Math.Clamp(output.DrawnBlendGamma(), BlendMath.MinGamma, BlendMath.MaxGamma);
         if (blend is not null)
         {
             files[$"{region}_alpha.png"] = PngWriter.Gray16(blend.Weights, blend.Width, blend.Height);
