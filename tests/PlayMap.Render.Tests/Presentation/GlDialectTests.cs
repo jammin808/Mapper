@@ -132,7 +132,7 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
             // Offscreen, the output is counted against its own refresh.
             var present = engine.Present("op1");
             Assert.NotNull(present);
-            Assert.Equal(Platform.PresentPath.Offscreen, present.Value.Path);
+            Assert.Equal(Core.Presentation.PresentPath.Offscreen, present.Value.Path);
             Assert.Equal(2, present.Value.Presented);
             Assert.Empty(c.Device.TakeErrors());
         });

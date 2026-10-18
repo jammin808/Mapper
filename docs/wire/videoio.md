@@ -30,7 +30,12 @@ domain suffix ignored); `ndi://ip:port` and `omt://host:port` name one by addres
 an FFmpeg URL ("ndi:HOST (Name), ndi://ip:port, omt:HOST (Name), omt://host:port, spout:Name, or an FFmpeg URL (rtsp://…)"), a
 source already in the library ("… is already in the library as md… (Cam 1)") and a protocol this node cannot receive (the
 runtime's words; for NDI they name `PLAYMAP_NDI_DIR` and https://ndi.video). `PROXY` asks NDI's lowest bandwidth or OMT's 1/8
-preview; `COLD` connects at the first consumer instead of when the input enters the show.
+preview; `COLD` connects at the first consumer instead of when the input enters the show. A `capture:` URI is read by the one
+capture grammar (`CaptureUri`: `capture:<provider>/<device>[/<input>]`, the providers `dshow`, `v4l2`, `mf`, `decklink`, `aja`
+and `magewell`), never as an FFmpeg location: one the grammar refuses — an unknown provider, user information, a query — is
+answered with the grammar's words, which repeat nothing of it, and every line written down (the journal's rows among them) shows
+it as `capture:‹refused›`; a well-formed one answers "INPUT ADD capture: is not available on this node yet" with the sources that
+are.
 
 **Loss.** `INPUT FALLBACK` sets `live.onLoss` and `live.fallback`: `HOLD` (the last picture stays), `BLACK`, or a source the node
 always has — `media:`, `generator:`, `canvas:`, `playlist:`, `color:#RRGGBB`. Refused: unchanged ("Cam 1 already holds its last

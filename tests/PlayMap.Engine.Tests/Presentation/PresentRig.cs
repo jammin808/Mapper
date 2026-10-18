@@ -2,13 +2,12 @@ using System.Collections.Frozen;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Show;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Presentation;
-using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
-using PlayMap.Render.Timing;
 
 namespace PlayMap.Engine.Tests.Presentation;
 

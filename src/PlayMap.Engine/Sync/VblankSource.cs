@@ -2,7 +2,6 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Sync;
 using PlayMap.Engine.Presentation;
 using PlayMap.Net.Sync;
-using PlayMap.Render.Platform;
 
 namespace PlayMap.Engine.Sync;
 
@@ -39,12 +38,7 @@ public sealed class PresentVblankSource(EngineCore engine) : IVblankSource
             if (p.LastVblankNs < 0 || p.RefreshHz is <= 20 or > 1000 || !double.IsFinite(p.RefreshHz))
                 continue;
             var state = locks is not null && locks.TryGetValue(o.Id, out var l) ? l.State : p.Settled ? LockState.FreeMeasured : LockState.FreeUnknown;
-            var path = p.Path switch
-            {
-                PresentPath.GlWindow => VblankReport.PathGl,
-                PresentPath.DxgiFlip => VblankReport.PathDxgiFlip,
-                _ => VblankReport.PathOffscreen,
-            };
+            var path = VblankReport.PathOf(p.Path);
             list.Add(new OutputVblank(o.Id, state, path, (long)Math.Round(1e12 / p.RefreshHz), p.LastVblankNs, (ulong)Math.Max(0, p.Presented),
                 (uint)Math.Clamp(p.Missed60s, 0, VblankReport.MaxMissed60s), p.Settled, AirLatencyUs(o), 0));
         }

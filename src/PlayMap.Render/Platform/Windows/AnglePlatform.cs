@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using PlayMap.Core.Media;
+using PlayMap.Core.Presentation;
 using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Platform.Windows;

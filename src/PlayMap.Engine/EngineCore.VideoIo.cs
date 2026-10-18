@@ -75,8 +75,12 @@ public sealed partial class EngineCore
         if (args.Count < 1)
             return CommandReply.Fail("INPUT ADD <uri> [<name>] [PROXY] [COLD]");
         var uri = args[0];
-        if (uri.StartsWith("capture:", StringComparison.OrdinalIgnoreCase))
-            return CommandReply.Fail(VerbCatalog.NotAvailableYet("INPUT ADD capture:") + " — ndi:, omt:, spout: and FFmpeg URLs are");
+        // A capture: URI is read by the capture grammar alone, never as an FFmpeg location: one it refuses is answered with its
+        // words (which repeat nothing of it), a well-formed one with what this node can open instead.
+        if (CaptureUri.Claims(uri))
+            return CommandReply.Fail(CaptureUri.TryParse(uri, out _, out var refused)
+                ? VerbCatalog.NotAvailableYet("INPUT ADD capture:") + " — ndi:, omt:, spout: and FFmpeg URLs are"
+                : refused);
         if (CaptureMode(args) is { } keyword)
             return CommandReply.Fail(VerbCatalog.NotAvailableYet("INPUT ADD … " + keyword) + " — a live input takes its sender's mode and format");
         var proxy = false;

@@ -89,7 +89,8 @@ leader's `PANIC-LEAD` added, and a member adds no lead of its own): a package mu
 ## PMVB (member → leader, UDP, the clock-sync port)
 
 64 bytes, little-endian: `"PMVB"`, version 1, lock state (0–7, `LockState`), flags (settled, board…), path (0 offscreen, 1 gl,
-2 dxgi-flip), node id (u32, its eight hex), output id hash (FNV-1a 32 of the UTF-8 id), sequence, board count (24 bits), period
+2 dxgi-flip, 3 dedicated; 4 and above are not a report; a Direct3D 12 flip output reports 2, as a D3D11 one does: the presentation
+model both share), node id (u32, its eight hex), output id hash (FNV-1a 32 of the UTF-8 id), sequence, board count (24 bits), period
 (ps on the leader's time base, 1 000 000 000 … 50 000 000 000), last vblank (leader ns, ≥ 0), refresh index, missed in 60 s (≤ 60 000), house sync
 (milli-Hz), air latency (µs, 0 … 500 000), the sender's clock uncertainty (µs, ≤ 1 000 000: half its best round trip plus any correction still being slewed). Any other length, magic, version or
 an out-of-range field is dropped and counted (`Refused` on the responder).

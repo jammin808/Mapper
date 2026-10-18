@@ -210,11 +210,12 @@ public sealed record ZeroCopyFacts(string Api, string Describe, bool Ready, bool
 {
     public static readonly ZeroCopyFacts None = new("none", "", false, false, "no render context", null, "no render context");
 
-    /// <summary>"dmabuf", "d3d11", "opengl", "none".</summary>
+    /// <summary>"dmabuf", "d3d11", "d3d12", "opengl", "iosurface", "cuda", "none".</summary>
     public static string ApiWord(GpuApi api) => api switch
     {
         GpuApi.DmaBuf => "dmabuf",
         GpuApi.D3D11 => "d3d11",
+        GpuApi.D3D12 => "d3d12",
         GpuApi.OpenGl => "opengl",
         GpuApi.IoSurface => "iosurface",
         GpuApi.Cuda => "cuda",

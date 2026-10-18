@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
@@ -11,9 +12,7 @@ using PlayMap.Engine.Presentation;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Engine.Tests.Spine;
-using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
-using PlayMap.Render.Timing;
 
 namespace PlayMap.Engine.Tests.Presentation;
 

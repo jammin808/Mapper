@@ -108,7 +108,7 @@ At most six frames: an input lag that would need more is refused with the words.
 
 ## Vblank truth and the present ledger
 
-Every output keeps a **present clock** (`src/PlayMap.Render/Timing`):
+Every output keeps a **present clock** (`src/PlayMap.Core/Presentation`, pure, so any backend's presenter feeds it):
 
 - **`VblankClock`** fits `t = a + b·k` over its samples: the period from a long window (3 600 samples, 60 s at 60 Hz), the phase
   from a short one (240) with the period fixed; two-pass, centred, with samples more than a quarter period off refitted out.
@@ -126,6 +126,9 @@ Every output keeps a **present clock** (`src/PlayMap.Render/Timing`):
   refresh: amber only when more than 0.5 % of the last 10 s of refreshes came late; green again once the last 10 s are clean.
   `outputs[].dropped` is those late presents (0 within the budget). Totals stay in `present.missedVblanks`.
 - `PRESENT RESET` zeroes the counters and restarts the fit; the old totals go to the journal.
+- **The path's word** (`outputs[].present.path`): `offscreen`, `gl-window`, `dxgi-flip` (the DXGI flip path below) or
+  `d3d12-flip` (a Direct3D 12 flip presenter; no build presents through one yet). On the wire both flip paths report PMVB path 2,
+  `dxgi-flip`, the presentation model they share (docs/wire/sync.md).
 
 ## The frame lock
 

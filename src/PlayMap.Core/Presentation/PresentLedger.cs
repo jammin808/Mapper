@@ -1,4 +1,4 @@
-namespace PlayMap.Render.Timing;
+namespace PlayMap.Core.Presentation;
 
 /// <summary>Missed vblanks counted from the display's side, against the output's own refresh: every present records the refresh
 /// it was meant for (<see cref="OnPresent"/>), and when the display says which refresh first showed it (<see cref="OnShown"/>)

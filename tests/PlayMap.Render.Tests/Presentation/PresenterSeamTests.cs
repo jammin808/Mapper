@@ -1,9 +1,9 @@
 using PlayMap.Core.Model;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
-using PlayMap.Render.Timing;
 
 namespace PlayMap.Render.Tests.Presentation;
 

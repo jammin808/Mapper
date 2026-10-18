@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Render.Gpu;
-using PlayMap.Render.Timing;
 
 namespace PlayMap.Render.Platform.Windows;
 

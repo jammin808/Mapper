@@ -1,4 +1,4 @@
-namespace PlayMap.Render.Timing;
+namespace PlayMap.Core.Presentation;
 
 /// <summary>Vblank truth for one display: a least-squares fit of <c>t = a + b·k</c> over samples (refresh index k, monotonic
 /// instant t in ns), so the refresh period, its ppm against the nominal rate, and the instant of any refresh index are known to

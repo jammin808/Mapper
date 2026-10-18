@@ -1,8 +1,7 @@
 using System.Globalization;
 using PlayMap.Core.Bus;
-using PlayMap.Render.Platform;
 
-namespace PlayMap.Render.Timing;
+namespace PlayMap.Core.Presentation;
 
 /// <summary>What the display shows of an output, in one word: a GL window's swap ("gl"), composed by a compositor, an
 /// independent flip, or no display at all ("offscreen").</summary>
@@ -66,6 +65,7 @@ public readonly record struct PresentSnapshot(
     {
         PresentPath.GlWindow => "gl-window",
         PresentPath.DxgiFlip => "dxgi-flip",
+        PresentPath.D3D12Flip => "d3d12-flip",
         _ => "offscreen",
     };
 

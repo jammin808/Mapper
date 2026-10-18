@@ -916,7 +916,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         var me = _network.Settings.NodeId;
         var u = Clock.UncertaintyNs / 1000;
         return [.. (_source?.Read() ?? []).Select(v => new SyncOutputRow(me, v.OutputId, Core.Sync.FrameLockMachine.Word(v.State),
-            v.Path switch { VblankReport.PathGl => "gl", VblankReport.PathDxgiFlip => "dxgi-flip", _ => "offscreen" },
+            VblankReport.Word(v.Path),
             Math.Round(1e12 / v.PeriodPs, 6), Math.Round((v.PeriodPs / 1000.0 - 1e9 / SyncBoard.Nominal(1e12 / v.PeriodPs)) / (1e9 / SyncBoard.Nominal(1e12 / v.PeriodPs)) * 1e6, 2),
             0, Math.Round(u, 3), null, v.Missed60s, v.FrameCount, true, true, v.AirLatencyUs / 1000.0))];
     }

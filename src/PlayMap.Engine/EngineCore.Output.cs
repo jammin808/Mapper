@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Presentation;
@@ -413,7 +414,7 @@ public sealed partial class EngineCore
         w.WriteString("words", p.Words());
         w.WriteNumber("presented", p.Presented);
         w.WriteNumber("late10s", p.Late10s);
-        w.WriteString("phase", p.Path == Render.Platform.PresentPath.Offscreen ? "nominal" : p.Measured ? "approximate" : "unknown");
+        w.WriteString("phase", p.Path == PresentPath.Offscreen ? "nominal" : p.Measured ? "approximate" : "unknown");
         w.WriteString("light", ShowContext.LightWord(p.Light));
         w.WriteEndObject();
     }
