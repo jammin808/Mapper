@@ -85,7 +85,9 @@ amber in preflight with the reason DXGI's report and the statistics give ("compo
 
 **Frames in flight per output.** `Output.FramesInFlight`: 0 (auto) is 1 when the output shows a live input, else 2; it sets the
 swap chain's latency and enters the output's latency in the latency plan, so the delay rings still make every display light the
-same picture together; a node whose outputs all carry live inputs runs at one frame.
+same picture together; a node whose outputs all carry live inputs runs at one frame. On a node with any two-frame output the plan
+would delay a live output back by the frame it saved; an output marked pass-through (`OUTPUT PASSTHROUGH`, wp3-capture) leaves the
+delay ring for that reason and says so (`design/capture.md` §5).
 
 **The frame block.**
 
@@ -116,7 +118,9 @@ public sealed class FrameBlockRing
 1. Wait on the pacing output's waitable (bounded at three periods; a timeout is counted and said).
 2. Sample: now; the vblank the frame will scan out on (`VblankClock` and the frames in flight); `PredictedDisplayNs` = that
    instant + the air latency; `LeaderNs` = the leader's time at it (or the lock anchor's count when locked, as today).
-3. Take the newest live frame at or before `LeaderNs` for each live input.
+3. Take, for each live input, the newest frame published by the sample instant on the machine's monotonic clock (arrival and show
+   time are different clocks, and `LeaderNs` lies a display latency ahead, so the newest is always the one), and stamp its age at
+   draw (sample less arrival).
 4. Record the frame (the plan's walk) for `LeaderNs`: every pass, generator, transition and effect reads that one instant.
 5. Submit; present each output; observe.
 
@@ -266,7 +270,8 @@ pending — output 2 is composed: a window overlaps it").
 
 Without a board or a barrier, every output is in a free state (`free-measured`, or `free-unknown` before its clock settles).
 STATE gives its measured phase against the group's reference from the leader's board, with its uncertainty and the next slip
-("same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min"), and never a locked state. `SoftwareLockWordsTests` assert the fields
+("software lock: same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min"), `lock.tier` "software", and never a locked state —
+"software" is a tier, not a state, and the retired `soft-locked` stays retired. `SoftwareLockWordsTests` assert the fields
 first — every output without barrier statistics has a free `lock.state` and `IsLocked` false — and then scan the whole of STATE for
 a locked state's word (`framelocked`, `house-locked`, `grouped`) in any value of a free output; words such as "not locked: the
 barrier is pending" are allowed. The content is still the same frame on every node (frame =
@@ -303,8 +308,9 @@ sit behind `LockCounter`'s source, so the lock machine does not know which.
 - **Synchronized Mosaic**: one swap chain over the Mosaic surface, PlayMap's outputs as its viewports, one client in the barrier.
   It stays a stretch whatever M4 answers, because it changes the presenter model. Until M4 is measured, a multi-output node joins one
   swap chain per machine to the barrier (the pacing output's) and reports its other outputs free with their phase against it;
-  `SYNC APPLY` says so ("op_2 and op_3 stay free on this machine until several swap chains are measured to join"). M4 measured is
-  W4's entry condition (`PLAN.md` §1.5, §5.1).
+  `SYNC APPLY` says so ("op_2 and op_3 stay free on this machine until several swap chains are measured to join"). With no lab this
+  round (`PLAN.md` D15), M4 is not measured, so this one-swap-chain shape is what framelock builds, proven against the fake NVAPI and
+  said "built, not proven on hardware".
 - **Warp and blend at scanout** (`NvAPI_GPU_SetScanoutWarping`, `SetScanoutIntensity`) behind PlayMap's shader warp, reported
   applied only after the state is read back (a GeForce driver reportedly answered success and did nothing).
 
@@ -314,8 +320,8 @@ sit behind `LockCounter`'s source, so the lock machine does not know which.
 "outputs": [ { "id": "op_1", "lock": {
   "state": "framelocked", "words": "framelocked: cluster, 98012 presents in sync", "reason": "", "fellOut": 0, "rejoins": 0,
   "tier": "present-barrier", "mode": "cluster", "presentInSync": 98012, "flipInSync": 98012, "phaseMs": 0.0 } },
-  { "id": "op_2", "lock": { "state": "free-measured", "words": "same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min",
-  "reason": "", "fellOut": 0, "rejoins": 0, "tier": "none", "phaseMs": 6.2, "phaseUncertaintyMs": 0.3 } } ]
+  { "id": "op_2", "lock": { "state": "free-measured", "words": "software lock: same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min",
+  "reason": "", "fellOut": 0, "rejoins": 0, "tier": "software", "phaseMs": 6.2, "phaseUncertaintyMs": 0.3 } } ]
 ```
 
 The published keys and words stay (`state`, `words`, `reason`, `fellOut`, `rejoins`); `tier`, `mode`, `presentInSync`,

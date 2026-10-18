@@ -95,7 +95,7 @@ The spine lands `ThreadRole`, `IThreadClaim` and `ThreadClaims` (Core/Machine) w
 | Background pools | EcoQoS: `SetThreadInformation(ThreadPowerThrottling)` with `EXECUTION_SPEED` in both masks; below-normal priority | `GetThreadInformation` | on | documented: EcoQoS is the explicit level for background work, which Windows may confine to a subset of processors on a hybrid CPU | — | — |
 | CPU sets | `SetThreadSelectedCpuSets`: the critical pool (render, present, decode) on the highest `EfficiencyClass`, background pools on the rest; never a hard affinity | `GetThreadSelectedCpuSets` | AUTO | documented: Intel and Microsoft advise CPU sets, never affinity, on hybrid processors; a single efficiency class leaves it a no-op | `CPUSETS AUTO\|OFF` | one efficiency class only (nothing to separate), said |
 | Keep awake | `SetThreadExecutionState(ES_CONTINUOUS \| ES_DISPLAY_REQUIRED \| ES_SYSTEM_REQUIRED)` while an output is open | the previous state it returns | on | documented: the display and the system otherwise sleep on their timeouts | `AWAKE ON\|OFF` | — |
-| GC while armed | `GCSettings.LatencyMode = SustainedLowLatency` on `SHOW ARM`, back on `SHOW DISARM` (through `IShowArmHook`) | `GCSettings.LatencyMode` | **DEFAULT** until L10 | Microsoft names rendering animations as its case, but it grows an uncompacted heap; the research itself asks for a pause histogram first | `GC SHOW\|DEFAULT` | the runtime refuses (server GC), said |
+| GC while armed *(the package's stretch, with the pause histogram it waits for)* | `GCSettings.LatencyMode = SustainedLowLatency` on `SHOW ARM`, back on `SHOW DISARM` (through `IShowArmHook`) | `GCSettings.LatencyMode` | **DEFAULT** until L10 | Microsoft names rendering animations as its case, but it grows an uncompacted heap; the research itself asks for a pause histogram first | `GC SHOW\|DEFAULT` | the runtime refuses (server GC), said |
 
 A default is on only where its cause is documented, as the table says; the two without one (the GPU class and the GC mode) are
 built, settable and off. L10 measures every claim's effect on p99.9 frame time on each vendor's node, and a default changes — on or
@@ -113,6 +113,7 @@ doctrine asks.
 | audio capture and `AudioOut`'s feeder | Audio | Media |
 | timecode readers | Timecode | the control part |
 | decode workers, HAP's Snappy pool | Decode | Media |
+| capture threads, one per capture input (MMCSS's Capture task, the critical CPU set) | Capture | wp3-capture's providers (`design/capture.md` §3) |
 | the plan thread (`graph.md`), thumbnails, media scans, survey import | Background | their owners |
 
 Each calls `ClaimThread(role)` once at its start and disposes the claim at its end (one line, the hunks of `PLAN.md` §4). The thread
@@ -143,12 +144,13 @@ namespace PlayMap.Core.Machine;
 
 public sealed record NodeIdentity(
     BuildIdentity Build,                         // BuildInfo: SemVer, file version, MSI version, commit
-    OsIdentity Os,                               // edition, version, build, revision, LTSC, IoT
+    OsIdentity Os,                               // edition, family, version, build, revision, LTSC, IoT
     CpuIdentity Cpu,                             // model, logical processors by efficiency class, vector widths accelerated
     ImmutableArray<AdapterIdentity> Adapters,
     RuntimeIdentity Runtimes);                   // the Agility runtime loaded, FFmpeg's build, the sync board's firmware
 
-public sealed record OsIdentity(string Edition, string Version, int Build, int Revision, bool Ltsc, bool Iot);
+public sealed record OsIdentity(string Edition, EditionFamily Family, string Version, int Build, int Revision, bool Ltsc, bool Iot);
+public enum EditionFamily { Home, Pro, Workstation, Enterprise, Education, Iot, Server, Unknown }
 public sealed record CpuIdentity(string Model, int Logical, ImmutableArray<int> ByEfficiencyClass, int VectorBits, bool Avx512,
     bool Avx10);
 public sealed record AdapterIdentity(long Luid, int VendorId, int DeviceId, string Name, string Driver, string Branch,
@@ -165,7 +167,7 @@ public readonly record struct CapabilityProbe(string Feature, long AdapterLuid, 
 
 | Field | Read from |
 |---|---|
-| OS | `RtlGetVersion`; `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` (`EditionID` — `IoTEnterpriseS` is IoT Enterprise LTSC, `EnterpriseS` Enterprise LTSC — `DisplayVersion`, `UBR`) |
+| OS | `RtlGetVersion`; `GetProductInfo` (`PRODUCT_CORE` 0x65 and the Home variants 0x62–0x64 are Home); `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` (`EditionID` — `Core` and `CoreSingleLanguage` Home, `Professional`, `ProfessionalWorkstation`, `Enterprise`, `Education`, `IoTEnterpriseS` IoT Enterprise LTSC, `EnterpriseS` Enterprise LTSC — `DisplayVersion`, `UBR`); the support tier the family gives (`PLAN.md` D4) |
 | CPU | the processor's name string; `GetSystemCpuSetInformation` (efficiency classes); `Vector512.IsHardwareAccelerated`, `Avx512F.IsSupported`, `Avx10v1.IsSupported` |
 | GPUs | DXGI 1.6 `EnumAdapterByGpuPreference` (LUID, vendor and device ids, name, memory); the driver's user-mode version (`CheckInterfaceSupport`); on NVIDIA `NvAPI_SYS_GetDriverAndBranchVersion` and `NvAPI_GPU_QueryWorkstationFeatureSupport(PROVIZ)` (RTX PRO). These are read-only probes with their own minimal declarations in `PlayMap.Platform.Windows/Interop/` — `CreateDXGIFactory2` and the three vtable slots used (`IDXGIFactory6::EnumAdapterByGpuPreference`, `IDXGIAdapter1::GetDesc1`, `CheckInterfaceSupport`), NVAPI's `nvapi_QueryInterface` and the two calls' ids — each structure pinned by a layout golden (`PlatformLayoutTests`), so the platform project references Core alone and never TerraFX or Render |
 | Vendor tier | the policy published in `docs/INSTALL.md` and carried in `machine.identity.adapters[].tier` with `support`: NVIDIA RTX and RTX PRO tier 1 (validated); AMD RDNA 3 and 4 tier 2 (validated per driver: a driver outside the validated list is amber); Intel Arc best effort (said); anything else unsupported, said |
@@ -186,14 +188,19 @@ person does (and wp3-installer's stretch adds the show-machine policies that wri
 | Row | Light | Words / fix |
 |---|---|---|
 | OS build below 26100 | red | "Windows 11 24H2 or later is required (this is build 22631)" |
-| OS edition | grey (fact) | "Windows 11 IoT Enterprise LTSC 2024 · build 26100.4061" |
-| Power plan not High or Ultimate Performance | amber | the plan's name and how to set it |
+| OS edition | grey (fact) | "Windows 11 IoT Enterprise LTSC 2024 · build 26100.4061"; on Home "Windows 11 Home 26H2 · supported, unmanaged" |
+| A layer this edition lacks | grey, **i** (information, as the owner's call 9 sets rows) | on Home: "updates cannot be deferred on this edition: pause them past the show in Settings ▸ Windows Update"; "no kiosk on this edition: the supervisor starts the engine"; "outputs are desktop monitors on this edition: keep the desk's monitor primary"; "Remote Desktop cannot reach this node" |
+| Smart App Control enforcing while the build is unsigned | red | from `CI\Policy\VerifiedAndReputablePolicyState` (1); evaluating (2): amber, "it may start blocking this unsigned build" |
+| A projector output that is the primary display | amber | "notifications, UAC and setup screens open on op_1: make the desk's monitor primary" |
+| The show adapter on the Public firewall profile with no rule for Public | amber | the adapter and the Settings path to Private |
+| Power plan not High or Ultimate Performance | amber | the plan's name and how to set it; on a machine that offers only Balanced (Modern Standby), the power mode and the settings that matter (sleep, display, USB suspend, PCIe link-state) instead |
 | USB selective suspend on; PCIe link-state power management on *(stretch)* | amber | the setting's name |
 | Display or sleep timeout set | amber | "the display sleeps after 10 min on mains" — fix `MACHINE SET AWAKE ON` when it is off |
 | Screen saver on | amber | "keeping the display awake does not stop the screen saver" |
 | Notifications on *(stretch)* | amber | the setting |
 | A reboot pending | amber | from `RebootRequired`, `RebootPending`, `PendingFileRenameOperations` |
-| Windows Update not deferred *(stretch)* | amber | the policy values read |
+| Windows Update not deferred *(stretch)* | amber on the editions with Update client policies; on Home the information row above | the policy values read |
+| Memory Integrity, Game Mode, each media volume's encryption *(stretch)* | grey (facts) | on or off; never changed |
 | HAGS *(stretch)* | grey (fact) | on or off; never changed |
 | A claim of §2 refused | amber | the claim's words |
 | The timer's p99 lateness over 1 ms | amber | the measured value |
@@ -209,7 +216,8 @@ after its present keys (`renderer`, `memMb`, `gcPauseMsTotal`, `present`, `gl`);
 "machine": {
   "identity": {
     "build": { "version": "0.2.0", "informational": "0.2.0+17.abc1234", "fileVersion": "0.2.0.17", "msi": "0.2.17" },
-    "os": { "edition": "IoTEnterpriseS", "version": "24H2", "build": 26100, "revision": 4061, "ltsc": true, "iot": true },
+    "os": { "edition": "IoTEnterpriseS", "family": "iot", "version": "24H2", "build": 26100, "revision": 4061, "ltsc": true,
+            "iot": true, "tier": "ltsc" },
     "cpu": { "model": "AMD Ryzen 9 9950X3D", "logical": 32, "byEfficiencyClass": [32], "vectorBits": 512 },
     "adapters": [ { "luid": "0x…", "vendorId": 4318, "name": "NVIDIA RTX PRO 4000 Blackwell", "driver": "582.16",
                     "tier": "nvidiaRtxPro", "drivesOutputs": true } ],
@@ -242,7 +250,8 @@ The context's machine item carries the build, the OS line, the tier and the drif
 | `PlatformCallsTests` | Windows | every claim answers what it asked and what Windows said (on the runner's Server SKU and Basic Render Driver, a refusal with its named words passes — M14 records which); the throttling state read back equals what was set where Windows answers; MMCSS taken and reverted where the service runs; 1 000 waits of 1 ms on today's wait and on the timer: both lateness distributions recorded, no ceiling (a shared runner), the order of the calls and the claims' fields asserted |
 | `PlatformLayoutTests` | both | the platform's own DXGI and NVAPI probe structures against the headers' sizes and offsets |
 | `CpuSetTests` | both | a fake topology of 8 performance and 16 efficiency cores → the critical pool on the 8, background on the 16; one class → nothing set, said |
-| `IdentityTests` | both | keys and types from a fake platform; `machine.json`; a changed driver against the lock → the amber row with both versions and `MACHINE LOCK` |
+| `IdentityTests` | both | keys and types from a fake platform; every edition family from a fake `GetProductInfo` and `EditionID` with its tier; `machine.json`; a changed driver against the lock → the amber row with both versions and `MACHINE LOCK` |
+| `EditionRowTests` | both | a fake Home: the information rows with their Settings paths, no Update policy written; Smart App Control enforcing on an unsigned build → red, evaluating → amber; a projector output primary → amber; Public with no rule → amber; a fake IoT Enterprise LTSC: none of Home's rows |
 | `MachineVerbTests` | both | REALTIME without the privilege; armed; at its value; `MACHINE LOCK` on the locked set and `CLEAR` with none, each refused with its reason |
 | `PreflightMachineTests` | both | each row fails on an injected fake fact and passes once fixed; fix lines parse |
 | `NullPlatformTests` | Linux | the words in STATE and preflight; no claim attempted |
