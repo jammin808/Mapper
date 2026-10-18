@@ -61,10 +61,10 @@ internal static class SurveyFacade
 
 /// <summary>SURVEY IMPORT end to end on one engine: a 2 M-triangle PLY comes in as ≤ 300 k triangles whose deviation from the survey,
 /// measured here independently (brute force one way, exact local windows the other), is within the bound the reply reports; the
-/// whole import is one undo step; the lane is never held by it (its own slices ≤ 10 ms, from the import's instrumentation) and
-/// answers SITE throughout; the times are recorded with 4× ceilings (the 15 s and 50 ms budgets are the Perf twin's). LAS, OBJ and
-/// E57 come in with their coordinate systems and stations; a failure leaves the project as it was and says why; one import at a time;
-/// a stopping node starts none.</summary>
+/// whole import is one undo step; the lane is never held by it (its own slices, from the import's instrumentation, proven within
+/// 4 × 10 ms here and 10 ms by the Perf twin) and answers SITE throughout; the times are recorded with 4× ceilings (the 15 s and
+/// 50 ms budgets are the Perf twin's). LAS, OBJ and E57 come in with their coordinate systems and stations; a failure leaves the
+/// project as it was and says why; one import at a time; a stopping node starts none.</summary>
 [Collection(SurveyPerfCollection.Name)]
 public sealed class SurveyImportTests(ITestOutputHelper log)
 {
@@ -73,15 +73,22 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
     /// <summary>The longest the import may hold the control lane in one slice (ms).</summary>
     internal const double LaneSliceBudgetMs = 10;
 
-    /// <summary>A slice is the lane thread's own time, read to the measure's resolution (the job's view carries it): a step of more
-    /// than a tenth of the budget could not tell a slice inside the budget from one over it, so where the measure is that coarse, or is
-    /// the stopwatch, the budget is not held by luck but refused here with what the measure is.</summary>
-    internal static void AssertTheSliceMeasureResolvesTheBudget(SurveyJobView job)
+    /// <summary>Every lane slice of the import held the lane for no more work than <paramref name="budgetMs"/>, proven by a measure
+    /// that bounds a slice's work from above: its thread time plus the step that clock moves in (the lane thread's own processor
+    /// time, which the CPU clock reads to its step; in Windows' ticks a slice the lane thread ran in one stretch reads within a tick
+    /// of its work, and one the machine broke into stretches within a tick of each), or its stopwatch time (the slice's span, which
+    /// holds its work and whatever else the machine did meanwhile). It stands where the longest slice by either measure is within the
+    /// budget; where neither is, it fails with both readings, the step and what the thread's measure is.</summary>
+    internal static void AssertTheSlicesAreProvenWithin(SurveyJobView job, double budgetMs)
     {
-        Assert.True(ThreadTime.Counted, $"the lane slice is timed by the stopwatch here, other threads' turns included ({ThreadTime.Basis})");
-        Assert.True(job.LaneResolutionMs * 10 <= LaneSliceBudgetMs, string.Create(CultureInfo.InvariantCulture,
-            $"the lane slice is measured in steps of {job.LaneResolutionMs} ms here ({ThreadTime.Basis}): the {LaneSliceBudgetMs} ms budget cannot be read"));
+        var byThread = job.LaneMaxMs + job.LaneResolutionMs;
+        Assert.True(byThread <= budgetMs || job.LaneMaxWallMs <= budgetMs, string.Create(CultureInfo.InvariantCulture,
+            $"no measure proves the import's lane slices within {budgetMs} ms: the longest by the lane thread's time {job.LaneMaxMs:0.00} ms in steps of {job.LaneResolutionMs:0.######} ms, so {byThread:0.00} ms of work at most; the longest by the stopwatch {job.LaneMaxWallMs:0.00} ms; over {job.LaneSlices} slices ({ThreadTime.Basis})"));
     }
+
+    /// <summary>The import's lane slices by both measures, for the log.</summary>
+    internal static string Slices(SurveyJobView job) => string.Create(CultureInfo.InvariantCulture,
+        $"lane max slice {job.LaneMaxMs:0.00} ms of the lane thread's time in steps of {job.LaneResolutionMs:0.######} ms, {job.LaneMaxWallMs:0.00} ms by the stopwatch, over {job.LaneSlices} slices ({ThreadTime.Basis})");
 
     internal static double ToSurvey(Vec3d stage, SiteFrame site, MeshData original, int cols, int rows)
     {
@@ -162,17 +169,22 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 
         var (job, seconds, answer, asked) = await ImportWhileAsking(rig, file);
         log.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices ({ThreadTime.Basis}); {asked} lane queries, worst {answer:0.0} ms; {job.Words}"));
+            $"2 M triangles imported in {seconds:0.0} s; {Slices(job)}; {asked} lane queries, worst {answer:0.0} ms; {job.Words}"));
         Assert.Equal("ready", job.State);
         Assert.True(seconds <= 15 * 4, $"{seconds:0.0} s");
         // The lane answers SITE throughout: held here to the 4× ceiling of its 50 ms budget (the Perf twin, run alone, holds the budget).
         Assert.True(asked >= 2, $"{asked}");
         Assert.True(answer <= 4 * LaneAnswerBudgetMs, string.Create(CultureInfo.InvariantCulture, $"{answer:0.0} ms"));
         Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
-        // The 10 ms slice is a budget on real work, read to the measure's resolution: here it is held to its 4× ceiling (the suite
-        // runs beside it); the Perf twin, run alone, holds it to 10 ms.
-        AssertTheSliceMeasureResolvesTheBudget(job);
-        Assert.True(job.LaneMaxMs <= 4 * LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
+        // The 10 ms slice is a budget on real work: here it is proven within its 4× ceiling (the suite runs beside it); the Perf
+        // twin, run alone, proves it within 10 ms. On Linux and macOS the CPU clock reads a slice's work to its step (1 ns on
+        // Linux), so the thread's time proves it whatever the machine's load stretched the slice's stopwatch time to. On Windows a
+        // slice read as no tick or one, plus a tick (31.25 ms at the default 15.625 ms), is within 40 ms, so the thread's time
+        // proves a slice the lane thread ran in one stretch, however far the machine's load stretched its stopwatch time; a slice
+        // read as two ticks or more is proven by its stopwatch time or not at all. A tick read bounds the work stretch by stretch:
+        // a slice the machine broke into k stretches reads within k ticks of it. A slice proven by neither fails with both
+        // readings.
+        AssertTheSlicesAreProvenWithin(job, 4 * LaneSliceBudgetMs);
         // One edit: the revision moved once.
         Assert.Equal(revision + 1, rig.Engine.Store.Current.Revision);
 
@@ -425,7 +437,12 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 
 /// <summary>The import's budgets, measured on this machine and run serially at integration: 2 M triangles in 15 s, and the control lane
 /// answering within 50 ms throughout (PING is the transport's own word, so the lane is probed with SITE, a query it answers). Both are
-/// budgets for optimised code: a Debug build of the solvers (the JIT's optimiser off) records its times against their 4× ceilings.</summary>
+/// budgets for optimised code: a Debug build of the solvers (the JIT's optimiser off) records its times against their 4× ceilings.
+/// The import never holds the lane for more than 10 ms of work in a slice, proven by a measure that bounds a slice's work from above:
+/// on Linux and macOS the lane thread's CPU clock, read to its step; on Windows, whose clock tick (15.625 ms by default) is longer
+/// than the budget, so no tick read proves it, the slice's stopwatch time, which holds its work and whatever else the machine did
+/// meanwhile, and is its work and little else here, where the twin runs alone and makes nothing beside the import. A slice proven
+/// by neither fails with both readings.</summary>
 [Trait("Category", "Perf")]
 [Collection(SurveyPerfCollection.Name)]
 public sealed class SurveyImportPerfTests(ITestOutputHelper log)
@@ -451,11 +468,10 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
         await using var rig = new SiteRig();
         var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);
         var (job, seconds) = await SurveyImportTests.ImportBig(rig, file);
-        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles imported in {seconds:0.0} s; lane max slice {job.LaneMaxMs:0.00} ms over {job.LaneSlices} slices ({ThreadTime.Basis})"));
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles imported in {seconds:0.0} s; {SurveyImportTests.Slices(job)}"));
         Assert.Equal("ready", job.State);
         Assert.True(job.LaneSlices >= 2, $"{job.LaneSlices}");
-        SurveyImportTests.AssertTheSliceMeasureResolvesTheBudget(job);
-        Assert.True(job.LaneMaxMs <= SurveyImportTests.LaneSliceBudgetMs, $"the import held the lane {job.LaneMaxMs:0.00} ms in one slice");
+        SurveyImportTests.AssertTheSlicesAreProvenWithin(job, SurveyImportTests.LaneSliceBudgetMs);
     }
 }
 

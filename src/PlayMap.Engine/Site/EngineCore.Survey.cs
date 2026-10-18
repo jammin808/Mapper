@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Geometry;
@@ -9,12 +10,16 @@ using PlayMap.Engine.Site;
 namespace PlayMap.Engine;
 
 /// <summary>A survey import as the node sees it while it runs and after: its id and name, the file, importing / ready / failed with
-/// the progress and words, and the most work the import did on the control lane in one slice (ms of the lane thread's processor time,
-/// from its own instrumentation: the time a loaded machine gave others is not the import's; how long the lane answers while it runs is
-/// measured as such, SITE's latency in SurveyImportTests) beside the step that measure moves in here (<see cref="Core.Time.ThreadTime.ResolutionNs"/>,
-/// ms), so a reader knows what <see cref="LaneMaxMs"/> can tell.</summary>
+/// the progress and words, and the longest the import held the control lane in one slice by two measures, from its own
+/// instrumentation: the lane thread's own time (<see cref="LaneMaxMs"/>, ms of its processor time from
+/// <see cref="Core.Time.ThreadTime"/>: the work it did, never the time a loaded machine gave others) in the step that clock moves in
+/// here (<see cref="LaneResolutionMs"/>, ms), and the stopwatch (<see cref="LaneMaxWallMs"/>, ms: the slice's span, the work done in
+/// it and whatever else the machine ran meanwhile, never below the work); and how many slices it took (<see cref="LaneSlices"/>). A
+/// slice's work is within its stopwatch time, and within its thread time plus that step (in Windows' ticks, a step for each stretch
+/// the lane thread ran the slice in: <see cref="Core.Time.ThreadTime.ResolutionNs"/>), so either bounds it. How long the lane answers
+/// while it runs is measured as such (SITE's latency in SurveyImportTests).</summary>
 public sealed record SurveyJobView(string Id, string Name, SurveyFormat Format, string Path, string State, double Progress, string Words,
-    double LaneMaxMs, int LaneSlices, double LaneResolutionMs);
+    double LaneMaxMs, double LaneResolutionMs, double LaneMaxWallMs, int LaneSlices);
 
 /// <summary>SURVEY IMPORT and SURVEY LIST. The lane checks the line and the node and answers accepted at once; a worker reads,
 /// places, thins, decimates and writes (<see cref="SurveyImporter"/>); the lane then applies the result as one edit — the mesh asset,
@@ -65,7 +70,7 @@ public sealed partial class EngineCore
 
     private CommandReply SurveyImport(VerbCall call)
     {
-        var held = Core.Time.ThreadTime.NowNs();
+        var held = LaneSlice.Start();
         const string Usage = "SURVEY IMPORT <path> [CRS <code>|LOCAL] [UNITS m|cm|mm|ft|usft] [UP Z|Y] [VOXEL <m>] [DECIMATE <triangles>|OFF] [NAME <name>]";
         var args = call.Args;
         if (args.Count < 1)
@@ -158,8 +163,8 @@ public sealed partial class EngineCore
         {
             if (Volatile.Read(ref _survey) is { State: "importing" } running)
                 return CommandReply.Fail(string.Create(SiteInv, $"{running.Name} is importing ({running.Progress:P0}) — one survey at a time; STATE.stage.surveys follows it"));
-            view = new SurveyJobView(id, name, format, path, "importing", 0, $"importing {Path.GetFileName(path)}", 0, 1,
-                Core.Time.ThreadTime.ResolutionNs / 1e6);
+            view = new SurveyJobView(id, name, format, path, "importing", 0, $"importing {Path.GetFileName(path)}", 0,
+                Core.Time.ThreadTime.ResolutionNs / 1e6, 0, 1);
             Volatile.Write(ref _survey, view);
             _surveyShown = 0;
         }
@@ -179,7 +184,7 @@ public sealed partial class EngineCore
             w.WriteString("effect", words);
             w.WriteEndObject();
         });
-        NoteSurveySlice((Core.Time.ThreadTime.NowNs() - held) / 1e6);
+        NoteSurveySlice(held);
         return CommandReply.Success(payload, words) with { Applied = false };
     }
 
@@ -194,13 +199,32 @@ public sealed partial class EngineCore
         _surveyStop.Dispose();
     }
 
-    /// <summary>The most work the import did on the lane in one slice (the lane thread's processor time), kept on its view.</summary>
-    private void NoteSurveySlice(double ms)
+    /// <summary>A lane slice's start by both its measures. The stopwatch is read before the thread's time here and after it at the
+    /// end (<see cref="NoteSurveySlice"/>), so the slice's stopwatch span holds the span its thread time reads.</summary>
+    private readonly record struct LaneSlice(long Timestamp, long ThreadNs)
     {
+        public static LaneSlice Start()
+        {
+            var timestamp = Stopwatch.GetTimestamp();
+            return new LaneSlice(timestamp, Core.Time.ThreadTime.NowNs());
+        }
+    }
+
+    /// <summary>The slice that began at <paramref name="start"/> has ended: the longest the import held the lane in one slice, by the
+    /// lane thread's time and by the stopwatch, kept on its view. A stopwatch read is the tick it falls in, so a span is taken one
+    /// tick longer than its reads, never shorter than it lasted.</summary>
+    private void NoteSurveySlice(LaneSlice start)
+    {
+        var threadMs = (Core.Time.ThreadTime.NowNs() - start.ThreadNs) / 1e6;
+        var wallMs = (Stopwatch.GetTimestamp() - start.Timestamp + 1) * 1e3 / Stopwatch.Frequency;
         lock (_surveyGate)
         {
             if (Volatile.Read(ref _survey) is { } v)
-                Volatile.Write(ref _survey, v with { LaneMaxMs = Math.Max(v.LaneMaxMs, ms) });
+                Volatile.Write(ref _survey, v with
+                {
+                    LaneMaxMs = Math.Max(v.LaneMaxMs, threadMs),
+                    LaneMaxWallMs = Math.Max(v.LaneMaxWallMs, wallMs),
+                });
         }
     }
 
@@ -287,7 +311,7 @@ public sealed partial class EngineCore
     /// the reason it was not. The slice is timed into the job's view.</summary>
     private string ApplySurvey(SurveyRequest request, SurveyProduct product, SessionInfo session)
     {
-        var held = Core.Time.ThreadTime.NowNs();
+        var held = LaneSlice.Start();
         try
         {
             var meshId = "";
@@ -343,7 +367,7 @@ public sealed partial class EngineCore
         }
         finally
         {
-            NoteSurveySlice((Core.Time.ThreadTime.NowNs() - held) / 1e6);
+            NoteSurveySlice(held);
             SetSurvey(v => v with { LaneSlices = v.LaneSlices + 1 }, shown: true);
         }
     }
