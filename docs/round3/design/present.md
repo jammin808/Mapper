@@ -304,7 +304,8 @@ context without the extension (ANGLE, Mesa, a GeForce driver) has no tier, and t
 
 **The DXGI path** (`PRESENT PATH DXGI`, D3D11 through ANGLE) joins nothing this round: NVAPI's `NvAPI_D3D1x_JoinSwapGroup` would join
 its swap chains, but the path retires next round with GL's other paths and the Direct3D 12 flip presenter is its successor on the same
-flip model (`PLAN.md` §9 decision 21). Its `Join` keeps today's words, and a node with a board on it is amber with the fix line.
+flip model; the owner accepted the amber (`PLAN.md` §9 decision 21). Its `Join` keeps today's words, and a node with a board on it is
+amber with the fix line.
 
 
 

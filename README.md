@@ -137,8 +137,8 @@ encoders, surveys from real scanners and total stations, and a group or a backup
 
 **Next:** an installed, Windows-native show node on Direct3D 12 for every edition of Windows 11, Home included, with the desk's
 guided workflows, every mapping step by hand or with the assistant, and capture cards passed through to the air, planned in
-`docs/round3/PLAN.md`. The owner answered the round's decisions; whether the round carries the five proposed packages, and a few
-smaller calls, are open (its §9).
+`docs/round3/PLAN.md`. The owner answered every decision it put to them (its §9): twenty-one packages, the five for their
+workflow, desk and capture requirements among them.
 
 ## What it is made of
 

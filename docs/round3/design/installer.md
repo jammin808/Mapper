@@ -73,9 +73,11 @@ the last fee-free binary line, has had no community security fixes since Februar
   WiX issue is filed.
 - The first day is M17's time-box: the tag built, a test MSI with a `ServiceInstall`, a `MajorUpgrade` and a firewall rule installed,
   upgraded and uninstalled quietly on the runner, the build's minutes and the cache's size recorded, and whether the self-built tool
-  still asks for the EULA gesture (if it does, the owner decides, `PLAN.md` §9 decision 3).
-- If the toolset does not build within the day, Inno Setup 7.1 (its licence allows any use; a commercial user above US$5 000 revenue is
-  asked, not required, to buy a licence — a request the owner decides on, `PLAN.md` §9 decision 3) builds a 64-bit installer instead:
+  still asks for the EULA gesture (if it does, the gesture is never passed — accepting the EULA makes the fee due on revenue of
+  US$10 000 or more — and the fallback below builds the installer, `PLAN.md` §9 decision 3).
+- If the toolset does not build within the day, or asks for the gesture, Inno Setup 7.1 (its licence allows any use; a commercial user
+  above US$5 000 revenue is asked, not required, to buy a licence — a request the owner may meet, and nothing in the build depends on
+  it, `PLAN.md` §9 decision 3) builds a 64-bit installer instead:
   every machine-level action of §3 through the supervisor's own commands (`install`, `uninstall`, `grant`, `revoke`,
   `preinstall-check`), the downgrade and armed checks in its `InitializeSetup`, §1's version rules restated for an EXE (ordered by the
   four-part file version). It loses MSI's transactional rollback of service and registry changes, repair and `msiexec`.
@@ -280,7 +282,9 @@ edition cannot defer updates"); the build unsigned (grey, **i**).
   for every decode test, so the tests run on the libraries the MSI carries, and `LicenceTests` check the MSI's copy against that
   hash.
 - **WiX from its source** may not build on the runner within its day, or may still ask for the fee's EULA gesture (M17): Inno Setup
-  is the measured fallback, the gesture the owner's call (`PLAN.md` §9 decision 3).
+  is the measured fallback, and the gesture is never passed (`PLAN.md` §9 decision 3). No free installer is cheaper than the self-built
+  toolset, and none of them builds an MSI: Inno Setup and NSIS build EXEs, MSIX needs a signature, Velopack and Squirrel install no
+  services (`research/installer_tools.md` §3).
 - **Unsigned builds** meet SmartScreen's prompt on every download and Smart App Control's block where it enforces (`PLAN.md` R23),
   which no word of PlayMap's can reach: the release page and `docs/INSTALL.md` say so before the download and give the steps, and in
   evaluation the MSI's warning page and preflight say it on the machine.

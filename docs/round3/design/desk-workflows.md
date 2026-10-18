@@ -66,7 +66,8 @@ target (layer, canvas, surface, output or playlist item: kinds from `FX KINDS`, 
 BYPASS`, each parameter scrubbed and typed through `FX SET`, `FX IMPORT` and `FX CHECK`'s report by line) and **modulation and
 bindings** (a parameter's `MOD BIND` with its source, amount, curve and smoothing; `BIND LEARN` from the parameter; the bindings list
 with `BIND ENABLE` and `BIND FORGET`). What the round does not build — engine-side macros a Companion key or Patterns could run by name,
-an ISF source editor, cue programming on a timeline — is said to the owner as an open decision (`PLAN.md` §9 decision 22).
+an ISF source editor, cue programming on a timeline — is not planned: the owner keeps the console and asks that every command and
+feature be reachable from the UI or the menus (`PLAN.md` §9 decision 22, §9.4 here).
 
 **Simple hides; it never disables.** Simple hides Pro fields and panes; the show strip (Ready, the blind chip, ARM, PANIC,
 Blackout), the attention bar, the mode frame and every control of the air are the same in both, as `docs/DESK.md` already rules,
@@ -76,8 +77,8 @@ and menus are the same in both. "Open in Pro" on any guide step shows the whole 
 blind draft, Show Mode, the locks) and then to the node as the same line a button sends; the desk has no private API, so nothing
 typed there can do what a button cannot. A row that carries a secret (`CREDENTIAL SET`, `LINK PATTERNS` with a token, `PAIRING`)
 is refused in the console and in the palette with "type secrets in Network ▸ Links", and nothing of what was typed is kept in the
-history. Typing a line by hand is new on the desk (`docs/DESK.md` says "the desk has no line typed by hand"): the owner's "programming
-areas" asks for it, and the plan records it as decided (`PLAN.md` D11).
+history. Typing a line by hand is new on the desk (`docs/DESK.md` says "the desk has no line typed by hand"): the owner keeps the console
+(`PLAN.md` D11, §9 decision 22), and nothing is reached only through it.
 
 | Test (App, headless) | Holds |
 |---|---|
@@ -216,8 +217,9 @@ The guides are the assistant's way into every workflow, as they are the desk's:
   a person approves.
 - STATE `guides` lists every guide begun (kind, subject, the next step, how many of how many, its light); the context carries one
   item per guide (kind `guide`, "Flat blend · Front: corners, 4 of 7"), so Patterns' Eye and a peer's assistant see where a
-  setup stands. The Eye keeps the first 64 of a context's commands, which are the air's, so it sees a guide's state but cannot
-  propose its lines until Patterns reads more (`PLAN.md` §9 decision 18); an assistant on the node, or over MCP, reaches them all.
+  setup stands. The Eye keeps the first 64 of a context's commands today, which are the air's, so it sees a guide's state but
+  cannot propose its lines until Patterns keeps the 256 the owner asks for, which hold every command PlayMap lists (`PLAN.md` §9
+  decision 18); an assistant on the node, or over MCP, reaches them all.
 
 The planners are pure functions of the project and the node's facts (`Core/Workflows`), so the same project gives the same steps on
 the desk, over MCP and in a test; they write nothing, and the guide's progress is the project itself, with the begun guides and the
@@ -246,8 +248,11 @@ What the assistant sees is facts, not guesses: STATE, the context, the project, 
 card's terms with their fix lines, the hand and automatic layers (`HAND`), and the journal's recent lines. "Explain" on a step asks
 the assistant to say, from those, why the step stands as it does ("P2's top-right corner is 3.2 px off the canvas corner the camera
 found; the seam's misregistration is 0.8 px at p95; the blend is automatic from the 288 px overlap"); with the assistant off, the
-desk shows the step's own words and `StateExplainer`'s, which need no model. A picture is not sent to a model this round; a still of
-a view for a model that reads pictures, off by default and named in the assistant's settings, is workflows' stretch.
+desk shows the step's own words and `StateExplainer`'s, which need no model. No picture is sent to a model in the must; a still of a
+view for a model that reads pictures, on the machine or off it (`PLAN.md` §9 decision 19), is workflows' stretch: off by default,
+turned on by a person in the assistant's settings with the provider it goes to named; one view's picture (an output, the stage, a
+projector or a scan view, never the desk's window, so no form, token or invite is in it) at the preview's size; each still journalled
+by view, size, time and provider, never its pixels (`AssistantStillTests`).
 
 ### 4.5 In every panel
 
@@ -522,11 +527,13 @@ radial menu in MAP (at most eight entries: quad, select, pin, lattice, mask, on 
 ### 9.4 The rule's test
 
 `MenuCoverageTests` (App, headless, every fixture loaded): every catalogue row the desk may send — not internal, not node-to-node —
-is reachable from a right-click menu of the kind its first placeholder names, or, for a row with no entity placeholder, from the menu
-bar or the palette; a secret-bearing row is reached as a menu entry that opens its form (Network ▸ Links, the credential form), never
+is reachable without typing: from the menu bar, acting on the selection where the row names an object, and from a right-click menu
+of the kind its first placeholder names, the palette searching the same entries (the owner: "all commands and features should be
+available through the UI or menu system", `PLAN.md` §9 decision 22); a secret-bearing row is reached as a menu entry that opens its form (Network ▸ Links, the credential form), never
 as a line, and the test asserts that door for each; every right-click entry, every `DeskAction` and every shortcut of `ShortcutMap`
-(the loupe's L, zoom, Keep quad tool, Reset layout, Simple/Pro, dim among them) is also in the menu bar or the palette ("never only in a
-context menu", nor only on a key); no top-level menu over 15 entries; every entry's line parses (`VerbSyntax`) and passes
+(the loupe's L, zoom, Keep quad tool, Reset layout, Simple/Pro, dim among them) is also in the menu bar ("never only in a
+context menu", nor only on a key, in the palette or in the console); every STATE block's cards open from a menu entry (Window ▸ its
+pane, or its object's right-click); no top-level menu over 15 entries; every entry's line parses (`VerbSyntax`) and passes
 `DeskVerbRuleTests`' rules; a held row is held wherever it is pressed but for the three the owner's call keeps. It lets off no row: a
 row no menu reaches fails the merge that adds it, unless the owner signs it off by name in `docs/DESK.md`'s list, which the test reads
 and which starts empty.
@@ -651,8 +658,8 @@ spine's `ShowingWords` hook, the outputs' `showing` words.
 
 ## 15. Risks
 
-- **Scope.** Five packages beside the sixteen the owner kept: the plan proposes them (`PLAN.md` §9, decision 1), and if they wait they
-  go to the next round as one block, desk-ux's quad parts staying in this one.
+- **Scope.** Five packages beside the sixteen, which the owner added to the round (`PLAN.md` §9, decision 1): about 122 hours, each at
+  its cut line with its stretch below it.
 - **Dock for Avalonia** has essentially one maintainer and frequent releases [ux §3.1]: pinned exactly, behind a seam, M18 on the first
   day, the desk's own splitters, rails and drag-to-dock as the measured fallback, only floating lost.
 - **Generated menus grow long.** The 15-entry cap and category groups are tested; hand-built entries keep their order where they read

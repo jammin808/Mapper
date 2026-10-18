@@ -6,7 +6,7 @@
 
 **Round 2 is merged.** Every package of its plan (docs/round2/PLAN.md) is on main, built and tested on CI's Linux and Windows
 jobs. What it does is below and in each item's **Built** note; what only real hardware or a real show can prove is under **Lab
-only**; the fixes it leaves open are under **Open fixes**; its integrator's notes, with the owner's open calls in one place, are in
+only**; the fixes it leaves open are under **Open fixes**; its integrator's notes, with the owner's calls and their answers in one place, are in
 docs/round2/CARRYOVER.md.
 
 **Merged and tested:**
@@ -73,8 +73,7 @@ The lab checks still to do:
   and `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 
 **Next:** round 3 (below), the Windows-native node of docs/round3/PLAN.md, with the desk's guided workflows and capture-card
-pass-through. The owner answered the round's decisions; whether the round carries the five proposed packages, and a few smaller
-calls, are open (the plan's §9).
+pass-through. The owner answered every decision the plan put to them (its §9), so the round carries twenty-one packages.
 
 **The rule:** **Round 0** on real hardware is the gate. Every lens agreed: it is the cheapest way to learn which design assumptions are wrong.
 
@@ -106,9 +105,12 @@ packages. The owner's requirements of the same day — the four-click quad that 
 pixel, what each screen shows, simple workflows beside advanced and programming areas, one canvas across outputs, menus and right-click
 menus for every feature, draggable and collapsible panels, colour for areas and stages, every mapping step by hand, the assistant in
 every step, and fast capture-card pass-through — are designed in docs/round3/design/desk-workflows.md and docs/round3/design/capture.md
-and planned as small items inside the sixteen packages and as five proposed packages, twenty-one packages and about 518 hours in all;
-whether the round carries the five is the owner's call (§9 decision 1), with a few smaller calls (§9). The request to Patterns that its
-Eye read every command a node lists, and that the Show Bus contract state its cap, is in docs/round2/CARRYOVER.md (call 11).
+and planned as small items inside the sixteen packages and as five more packages the owner added, twenty-one packages and about 518
+hours in all. The owner's later answers keep the self-built WiX toolset, which no free installer undercuts, with Inno Setup as the
+fallback; load NVIDIA's Aftermath library from wherever the user puts it, never shipped; let a still of a view go to an assistant model
+off the machine once a person turns it on; accept the DXGI path's amber with no hardware tier; and keep the typed console, with every
+command and feature reachable from the menus and right-click menus (§9). The request to Patterns that its Eye keep at least 256 of a
+node's commands where it keeps a cap, and that the Show Bus contract state the cap, is in docs/round2/CARRYOVER.md (call 11).
 
 **Today.** PlayMap is one portable exe. It renders through OpenGL 3.3 core or ES 3.00 on GLFW windows, EGL or a surfaceless context;
 on Windows the Direct3D 11 flip model through ANGLE is an explicit, experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no
@@ -121,7 +123,7 @@ hides nothing, the panels are fixed columns and about a third of the catalogue's
 capture card is read through FFmpeg, outside the video I/O hub, with three CPU copies (docs/round3/research/desk-today.md and
 video-today.md).
 
-**Next** (the plan's packages will build these in four waves after a spine — the fifteen of the Windows move and the five proposed
+**Next** (the plan's packages will build these in four waves after a spine — the fifteen of the Windows move and the five
 for the owner's requirements; GL will stay the reference backend through the round and retire once the pixel and timing evidence
 agrees; at the round's end the integration pass will update the statuses of the items in the last column):
 

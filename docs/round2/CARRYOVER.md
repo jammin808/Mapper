@@ -7,8 +7,8 @@ answers are here, in one place.
 
 ## The owner's calls, answered
 
-The owner answered calls 1–10 on 18 October 2026 and answered call 11 with a question, which round 3's plan answers back (its §9
-decision 18). The plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a decision taken (its §1.2 and §9) and what
+The owner answered calls 1–10 on 18 October 2026 and call 11 with a question, which round 3's plan answered back (its §9 decision
+18); the owner then set the figure. The plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a decision taken (its §1.2 and §9) and what
 it changes.
 
 1. **The show nodes' Windows edition** (the plan's D4). *Answered:* "PlayMap also needs to run on Windows 11 Home as well." Every
@@ -23,13 +23,14 @@ it changes.
    each with a SHA-256 list; signing is next round's.
 4. **The WiX maintenance fee** (§9 decision 3). *Answered:* "Do not use WIX paid services." The WiX toolset is built from its source
    in CI, so no official binary, package, fee or paid service is used; Inno Setup is the fallback if that build fails (its author asks
-   commercial users to buy a licence, a request the owner decides on).
+   commercial users to buy a licence, a request the owner may meet). *Then:* "Use WIX if no cheaper alternative. Are there no other
+   free installer packages?" There are — Inno Setup and NSIS — and both build EXEs; none is cheaper than WiX built from its source,
+   which costs nothing, so WiX stays, and a self-built tool that asks for the fee's EULA gesture is never given it: Inno Setup instead.
 5. **The lab: its machines and who runs it** (§9 decision 11, §7). *Answered:* "Full physical hardware testing is not available yet."
    Every lab line keeps its script and pass mark and is reported not run; every question only the lab answers stands on its "if no"
    branch, said in STATE.
-6. **The round's size** (§9 decision 1). *Answered:* "All 16." The sixteen packages stay in their waves; the plan proposes five more
-   for the owner's requirements of the same day, and §9 decision 1 says what the round keeps if they go to the next round as one
-   block.
+6. **The round's size** (§9 decision 1). *Answered:* "All 16." The sixteen packages stay in their waves; for the owner's requirements of the
+   same day the plan proposed five more, and the owner answered "Yes": twenty-one packages, about 518 hours.
 
 The desk's held-line exemptions (the desk-2 notes, below):
 
@@ -53,11 +54,12 @@ The other calls the notes below leave with the owner:
     them `MOVE <id> <index>`, and about 215 once round 3's rows are routed — so a cap of 128 would still drop about 87. The Show Bus
     contract (Patterns' `docs/SHOWBUS.md` §6) names no command cap; the 64 lives only in the two readers' code, Patterns'
     `src/Patterns.Core/Services/ShowContext.cs:99` (`.Take(64)`) and PlayMap's own `src/PlayMap.Core/Bus/ShowContext.cs` (`Parse`).
-    PlayMap's reader is PlayMap's, and round 3's integration pass makes it read every command up to the context's 512 KB bound. Changing
-    Patterns' reader is Patterns' to do, so it is **a request to Patterns' maintainers**: read every command a node lists (or, if a cap
-    is kept, at least 256), and state the cap in `SHOWBUS.md` §6, knowing PlayMap's commands are ordered most-useful first (the panic,
+    *The owner answered:* "Use at least 256, but only where necessary." A cap lives only where a reader bounds what it holds: PlayMap's
+    context lists every command, as today, and round 3's integration pass makes PlayMap's reader keep up to 256 within the context's
+    512 KB bound. Changing Patterns' reader is Patterns' to do, so it is **a request to Patterns' maintainers**: where the Eye keeps a
+    cap, at least 256 — which holds every command PlayMap lists — and the cap stated in `SHOWBUS.md` §6, knowing PlayMap's commands are ordered most-useful first (the panic,
     air, transport and Show Mode rows lead). Round 3's integration pass adds `ContextOrderTests`, which keep the air's verbs first
-    whatever rows the round adds; until Patterns reads more, its Eye proposes the air's verbs and not the guides', canvases' or
+    whatever rows the round adds; until Patterns keeps 256, its Eye proposes the air's verbs and not the guides', canvases' or
     capture's rows, which sort after them.
 
 ## Carry-over from the round-1 integration
