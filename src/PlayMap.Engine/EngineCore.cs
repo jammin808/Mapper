@@ -121,12 +121,20 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// <summary>The store this line's document edits go to while it runs on the lane (a session's blind draft), else null.</summary>
     private ProjectStore? _lineStore;
 
+    /// <summary>Who the line running on the lane is from (its session's name), else null: the node's own work.</summary>
+    private string? _lineWho;
+
     public EngineCore(EngineServices services, Project? project = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         Services = services;
-        // The undo window counts on the node's clock, as the control gestures that close inside it do.
-        Store = new ProjectStore(project ?? Project.CreateDefault(services.Settings.Name), () => services.Mono.NowNs / 1_000_000);
+        // The undo window counts on the node's clock, as the control gestures that close inside it do; each step records who made it
+        // (the line's session, else the node) and when on the show's wall clock.
+        Store = new ProjectStore(project ?? Project.CreateDefault(services.Settings.Name), () => services.Mono.NowNs / 1_000_000)
+        {
+            Who = EditorNow,
+            WallMs = () => services.Wall.UnixMs,
+        };
         Journal = new Journal(services.JournalPath, () => services.Wall.UnixMs);
         Playback = new PlaybackLanes(MediaDurationNs);
         Playback.Reconcile(Store.Project);
@@ -154,6 +162,24 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// cleared inside the router on the lane only; transport, air, show state and runtime facts use <see cref="Store"/>.</summary>
     internal ProjectStore Edits => _lineStore ?? Store;
 
+    /// <summary>Who an edit applied now is by, as its undo step records it: the line's session on the lane, else the node itself.</summary>
+    private string EditorNow() => _lineWho ?? SystemSession.ClientName;
+
+    /// <summary>On the lane: <paramref name="run"/> with <see cref="EditorNow"/> naming <paramref name="session"/> for its length.</summary>
+    private T By<T>(SessionInfo session, Func<T> run)
+    {
+        var outer = _lineWho;
+        _lineWho = session.ClientName;
+        try
+        {
+            return run();
+        }
+        finally
+        {
+            _lineWho = outer;
+        }
+    }
+
     /// <summary>An off-lane verb's document edit: posted to the lane, applied to the session's blind draft or the live store, answered
     /// with the store's own result (refusals included). An edit whose turn on the lane comes once the node has begun to stop is
     /// refused with <see cref="StoppingWords"/> and changes nothing, unless it is the node's own.</summary>
@@ -162,7 +188,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(session);
         return _lane.RunAsync(() => RefusedAsStopping(session)
             ? EditResult.Refused(StoppingWords, Store.Current.Revision)
-            : (DraftOf(session) ?? Store).Apply(label, edit, coalesceKey));
+            : By(session, () => (DraftOf(session) ?? Store).Apply(label, edit, coalesceKey)));
     }
 
     /// <summary>On the lane, for a line answered off it: the store its document edits go to (the session's blind draft, else live).
@@ -196,7 +222,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         _lineStore = DraftOf(session);
         try
         {
-            return handler();
+            return By(session, handler);
         }
         finally
         {

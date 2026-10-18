@@ -175,13 +175,16 @@ public static class ShowPolicy
     private static readonly ShowDecision Draft = new(ShowVerdict.BlindOnly, null);
 
     /// <summary>A line whose edits a blind draft takes: content, the running order, mapping, layout, media, and the draft's own
-    /// UNDO and REDO.</summary>
+    /// UNDO (UNDO TO is UNDO taken further) and REDO.</summary>
     public static bool Draftable(VerbSpec spec, ShowClass cls)
     {
         ArgumentNullException.ThrowIfNull(spec);
         return cls is ShowClass.Content or ShowClass.Playlists or ShowClass.Mapping or ShowClass.Layout or ShowClass.Media
-            || (cls == ShowClass.Project && (Is(spec, "UNDO") || Is(spec, "REDO")));
+            || (cls == ShowClass.Project && (IsUndo(spec) || Is(spec, "REDO")));
     }
+
+    /// <summary>UNDO, or UNDO TO: a run of steps taken back as one action, which the show treats exactly as UNDO.</summary>
+    private static bool IsUndo(VerbSpec spec) => Is(spec, "UNDO") || Is(spec, "UNDO TO");
 
     /// <summary>True for PANIC itself: the stop, never refused for a person.</summary>
     private static bool IsStop(VerbSpec spec) => string.Equals(spec.Name, "PANIC", StringComparison.Ordinal);
@@ -222,7 +225,7 @@ public static class ShowPolicy
                 return !HasWord(line, spec, "OFF") || HasWord(line, spec, "CONFIRM") ? Allowed
                     : Refuse(Armed(spec, "puts a projector into standby", "Add CONFIRM to the line to do it anyway"));
             case ShowClass.Project:
-                return Is(spec, "PROJECT SAVE") || Is(spec, "UNDO") || Is(spec, "REDO") ? Allowed
+                return Is(spec, "PROJECT SAVE") || IsUndo(spec) || Is(spec, "REDO") ? Allowed
                     : Refuse(Armed(spec, What(cls), "SHOW DISARM first"));
             case ShowClass.Fleet:
                 return !Is(spec, "FAILBACK") || HasWord(line, spec, "CONFIRM") ? Allowed

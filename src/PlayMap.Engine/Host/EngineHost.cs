@@ -29,6 +29,10 @@ public sealed record EngineHostOptions
 
     /// <summary>How often the recovery record is brought up to date when something it holds has moved.</summary>
     public TimeSpan RecoveryEvery { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>The supervisor's folder the node writes its pid record into, where that folder exists (null: none; the process's
+    /// entry passes the machine's, <see cref="Core.Machine.EnginePidRecord.MachineFolder"/>).</summary>
+    public string? SupervisorFolder { get; init; }
 }
 
 /// <summary>The composition root of a node process. <see cref="StartAsync"/> loads the node's settings (with the
@@ -58,6 +62,7 @@ public sealed class EngineHost : IAsyncDisposable
     private IScanBackend? _scan;
     private EngineCore? _engine;
     private Task _recovery = Task.CompletedTask;
+    private Core.Machine.EnginePidRecord? _pid;
     private int _phase;
 
     public EngineHost(EngineOptions options, NodeHome home, EngineHostOptions? host = null)
@@ -90,6 +95,7 @@ public sealed class EngineHost : IAsyncDisposable
         _log = logs.CreateLogger("PlayMap.Engine.Host");
         var mono = _host.Mono ?? MonoClock.Instance;
         var wall = new ShowWallClock(mono, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var startedUnixMs = wall.UnixMs;
 
         // The node's own: its settings (this run's name and ports over the stored ones), its certificate, its pins.
         var stored = _home.LoadSettings(_options.Name ?? Environment.MachineName);
@@ -189,6 +195,7 @@ public sealed class EngineHost : IAsyncDisposable
             }
         }
         await _network.StartAsync(engine, ct);
+        WritePidRecord(startedUnixMs);
         _recovery = Task.Run(() => KeepRecoveryAsync(engine, _stop.Token), CancellationToken.None);
         engine.Journal.Add("node", $"{running.Name} is up: wire {Port(_network.WirePort)}, web {Port(_network.HttpPort)}, renderer {outputs.RendererName} · {engine.Services.Build.Display}");
         _log.LogInformation("{Name} ({Id}) is up: wire {Wire}, web {Web}, renderer {Renderer}.", running.Name, running.NodeId,
@@ -197,6 +204,40 @@ public sealed class EngineHost : IAsyncDisposable
     }
 
     private static string Port(int port) => port > 0 ? port.ToString(System.Globalization.CultureInfo.InvariantCulture) : "closed";
+
+    /// <summary>The pid record, once the doors are open (its port is the wire's as it listens), into the supervisor's folder where it
+    /// exists. A folder that exists but takes no record is a fault: the supervisor cannot adopt this engine, nor the installer ask it.</summary>
+    private void WritePidRecord(long startedUnixMs)
+    {
+        if (_host.SupervisorFolder is not { Length: > 0 } folder)
+            return;
+        var record = new Core.Machine.EnginePidRecord(Environment.ProcessId, _network?.WirePort ?? 0, startedUnixMs);
+        try
+        {
+            if (record.TryWrite(folder))
+                _pid = record;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Fault("supervisor", $"the pid record could not be written in {folder}: {ex.Message} — the supervisor cannot adopt this engine", ex);
+        }
+    }
+
+    /// <summary>The pid record taken back on a clean stop, while it still names this process.</summary>
+    private void RemovePidRecord()
+    {
+        if (_pid is not { } record || _host.SupervisorFolder is not { Length: > 0 } folder)
+            return;
+        try
+        {
+            record.TryRemove(folder);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The supervisor reads a record whose process is gone as no engine: a record left behind misleads nothing.
+            _log.LogWarning(ex, "The pid record in {Folder} could not be removed.", folder);
+        }
+    }
 
     private TlsIdentity? LoadTls(NodeSettings settings, ILoggerFactory logs)
     {
@@ -386,6 +427,7 @@ public sealed class EngineHost : IAsyncDisposable
             if (_media is not null)
                 await _media.DisposeAsync();
         });
+        RemovePidRecord();
         _tls?.Dispose();
         _stop.Dispose();
         _log.LogInformation("The node host has stopped{Render}.", _renderStarted ? "" : " (it ran no render host)");

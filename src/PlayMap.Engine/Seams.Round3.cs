@@ -166,6 +166,16 @@ public interface IShowArmHook
     Task<string> DisarmingAsync(CancellationToken ct) => Task.FromResult("");
 }
 
+/// <summary>The arm hooks a node is composed with, and the timers their deadlines run on.</summary>
+public sealed partial record EngineServices
+{
+    /// <summary>The hooks SHOW ARM and SHOW DISARM run before they answer, each named in the answer (none: the mode's answer alone).</summary>
+    public ImmutableArray<IShowArmHook> ArmHooks { get; init; } = [];
+
+    /// <summary>The timers an arm hook's deadline runs on: the system's, or a test's clock moved by hand.</summary>
+    public TimeProvider ArmTimers { get; init; } = TimeProvider.System;
+}
+
 /// <summary>A hook with nothing to prepare: it answers at once, saying so.</summary>
 public sealed class NothingToArm : IShowArmHook
 {

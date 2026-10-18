@@ -43,6 +43,8 @@ public sealed partial class EngineCore
         if (refused is not null)
             return refused;
         _lineStore = lineStore ?? DraftForTests?.Invoke(session);
+        var outerWho = _lineWho;
+        _lineWho = session.ClientName;
         try
         {
             if (_routes.TryLane(spec.Name, out var handler))
@@ -52,6 +54,7 @@ public sealed partial class EngineCore
         finally
         {
             _lineStore = null;
+            _lineWho = outerWho;
         }
     }
 

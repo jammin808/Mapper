@@ -31,8 +31,12 @@ second GO on the same playlist inside the window — "double GO protection: 0.20
 
 - `SHOW` — the `STATE.show` object below.
 - `SHOW ARM` — `{"armed":true,"by":"Desk","since":<unix ms>}` (`"members":n` with `ALL` on a group's leader); refused "already armed
-  by … since HH:mm".
-- `SHOW DISARM` — `{"armed":false,"landed":0,"setAside":0}`; refused "not armed — the show is in rehearsal".
+  by … since HH:mm". On a node composed with arm hooks the answer comes once each hook has answered or passed its deadline, and adds
+  `"hooks":[{"name","outcome":"done"|"cancelled"|"failed","words"}]` in the hooks' order; the effect names each hook that said
+  something ("armed by Desk · plans: 12 plans compiled; pipelines: missed its 2000 ms deadline and was cancelled: the show is armed
+  without it").
+- `SHOW DISARM` — `{"armed":false,"landed":0,"setAside":0}` (and `hooks`, as ARM's, from each hook's disarming half); refused "not
+  armed — the show is in rehearsal".
 - `PANIC` — `{"outcome":"black","hard":false,"since":…,"outputs":[{"id","outcome","fadeMs","until"}],"devices":[{"id","stage"}],
   "released":[{"playlist","done","atLeaderNs","words"}],"notes"?}` (`released`: each chased playlist whose chase the panic's step
   disengages — `done:true` when it already has, `false` while the step waits for its fade's end; its words are in `notes` too; a

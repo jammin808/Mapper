@@ -200,7 +200,7 @@ public sealed partial class EngineCore : IShowDecisions
             return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — SHOW ARM arms this node only"));
         var words = string.Join(' ', rest);
         return ShowGroupAsync(c, all, () => ShowArm(c.Session, words), words.Length > 0 ? "SHOW ARM " + Quote(words) : "SHOW ARM",
-            "already armed by ");
+            "already armed by ", arming: true);
     }
 
     /// <summary>SHOW DISARM [ALL], as ARM.</summary>
@@ -214,17 +214,20 @@ public sealed partial class EngineCore : IShowDecisions
         // The group's members run the line as a peer of this node, past their own remote rules: only an operator here may send it.
         if (all && ShowRoleOf(c.Session) is not (ShowRole.Operator or ShowRole.System))
             return Task.FromResult(RefuseAtGate(c.Spec, c.Line, c.Session, "SHOW DISARM ALL disarms every node of the group: the desk's (an operator's) only"));
-        return ShowGroupAsync(c, all, () => ShowDisarm(c.Session), "SHOW DISARM", "not armed");
+        return ShowGroupAsync(c, all, () => ShowDisarm(c.Session), "SHOW DISARM", "not armed", arming: false);
     }
 
-    /// <summary>This node's half on the lane, then (ALL) the group's at the leader instant this node's half ran: a node already in the
-    /// asked mode still sends the line on, so ALL brings every member to it. The reply lists this node and then each member with its
-    /// receipt. A line still waiting for the lane when the node began to stop is refused there, as every line is, and the group is
-    /// sent nothing.</summary>
-    private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords)
+    /// <summary>This node's half on the lane, then its arm hooks once its mode changed (<see cref="RunArmHooksAsync"/>: the answer names
+    /// what each did), then (ALL) the group's at the leader instant this node's half ran: a node already in the asked mode still sends
+    /// the line on, so ALL brings every member to it. The reply lists this node and then each member with its receipt. A line still
+    /// waiting for the lane when the node began to stop is refused there, as every line is, and the group is sent nothing.</summary>
+    private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords, bool arming)
     {
         var (local, at) = await _lane.RunAsync(() => RefusedAsStopping(c.Session) ? (CommandReply.Fail(StoppingWords), 0L) : (here(), LeaderNowNs))
             .ConfigureAwait(false);
+        // The mode has changed already; the hooks prepare for it, each bounded by its own deadline, and no caller leaving cuts them short.
+        if (local.Ok)
+            local = WithArmHooks(local, await RunArmHooksAsync(arming, CancellationToken.None).ConfigureAwait(false));
         if (!all)
             return local;
         var already = !local.Ok && (local.Payload ?? "").StartsWith(alreadyWords, StringComparison.Ordinal);

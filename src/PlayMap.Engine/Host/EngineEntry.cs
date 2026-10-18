@@ -124,7 +124,12 @@ public static partial class EngineEntry
         {
             log.LogInformation("{Build}: the engine starts{Headless} in {Home} (process {Pid}).", build, options.Headless ? " headless" : "", home.Folder,
                 Environment.ProcessId);
-            await using var host = new EngineHost(options, home, new EngineHostOptions { Parts = parts, Logs = logs });
+            await using var host = new EngineHost(options, home, new EngineHostOptions
+            {
+                Parts = parts,
+                Logs = logs,
+                SupervisorFolder = Core.Machine.EnginePidRecord.MachineFolder(),
+            });
             try
             {
                 await host.StartAsync(stop);

@@ -16,6 +16,12 @@ undo step.
 **Armed is the safe side**, so it survives a restart: the recovery record keeps who armed it, when and why, and a node that comes
 back comes back armed (a panic in force comes back too, at its outcome at once).
 
+**The arm hooks.** Work a part of the node does as the show arms or disarms (plans compiled, pipelines warmed, the collector's mode)
+is an `IShowArmHook` the node is composed with (`EngineServices.ArmHooks`). `SHOW ARM` and `SHOW DISARM` change the mode first,
+then run every hook together, each until it answers or its own deadline passes, and answer once each has: a hook past its deadline
+is cancelled and named ("pipelines: missed its 2000 ms deadline and was cancelled: the show is armed without it"), one that fails is
+named with its words, and the show is armed either way. A node with no hook answers as before.
+
 **Roles** come from the session's transport, never from words a client sends: the desk is the **operator**; any other paired
 client (wire, HTTP, WebSocket, Companion, OSC, bindings, Patterns, Stagewatch) is a **remote** — an **operator** when the node's
 settings list it (`show.operators`) *and* it proved the node's token on its own connection (a session paired only because its
@@ -50,7 +56,7 @@ an unknown prefix counts as mapping, the cautious side).
 | Heavy, Setup | R | R | R | R | R | A |
 | Device (shutter, input, freeze) | A | SHUTTER … CLOSE only | P | R | A | A |
 | Device power | ON; OFF with CONFIRM | R | P | R | R | A |
-| Project | SAVE, UNDO, REDO | R | P | R | R | A |
+| Project | SAVE, UNDO (and UNDO TO), REDO | R | P | R | R | A |
 | Network | R | R | P | R | A | A |
 | Fleet | FAILBACK with CONFIRM | FAILOVER only | P | R | A | A |
 | Admin (credentials) | A | R | R | R | R | A |
@@ -62,7 +68,9 @@ or not, under a lock or not; from an assistant it waits for a person.
 first." Refusals are journalled and counted in `STATE.show.refused` (last minute, and the last one in words).
 
 **The blind draft's owner** (below) gets a fourth answer for content, playlists, mapping, layout, media and its own UNDO/REDO, armed
-or not: the line runs *into its draft*, off the air. Every other class keeps the table's answer.
+or not: the line runs *into its draft*, off the air. Every other class keeps the table's answer. `UNDO TO <step>` — a run of steps
+taken back as one action — is decided exactly as `UNDO` for every role; `FX RELEASE` is set-up work, refused while armed and never
+taken into a draft (an effect's quarantine is the node's, not the project's).
 
 **An assistant asks first.** MCP's tools and the assistant's `propose_commands` ask this table (`IShowDecisions`) before they run or
 queue a line: a refused line is neither run nor queued (and stops the lines after it), a held line waits for a person whatever the

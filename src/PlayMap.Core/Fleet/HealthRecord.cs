@@ -9,7 +9,51 @@ namespace PlayMap.Core.Fleet;
 
 /// <summary>One output as a machine's health shows it: its light, its measured rate, what it dropped and missed, and the path it
 /// presents by. A number not measured is −1.</summary>
-public sealed record HealthOutput(string Id, string Name, bool Open, double Fps, long Dropped, long Missed60s, string Path);
+public sealed record HealthOutput(string Id, string Name, bool Open, double Fps, long Dropped, long Missed60s, string Path)
+{
+    /// <summary>The frames the output's display has shown, by the present ledger's count (−1 unknown): a supervisor reads a count that
+    /// has stopped while the GPU runs as a frozen picture.</summary>
+    public long ShownFrames { get; init; } = -1;
+
+    /// <summary>The frames the output's independent observer decoded off the air (−1 unknown, or no observer).</summary>
+    public long ObservedFrames { get; init; } = -1;
+}
+
+/// <summary>What a node's GPU device is doing: being made, drawing, or being made again after a loss. Unknown from a node that says
+/// none, so no rule that waits for frames reads it as drawing.</summary>
+public enum GpuPhase
+{
+    Unknown,
+    Starting,
+    Running,
+    Rebuilding,
+}
+
+/// <summary>A node's GPU device as its health shows it: the device's epoch (one more each time it is made again; −1 unknown), its phase,
+/// and since when (Unix ms; −1 unknown), so a supervisor tells a node that should be drawing from one that is starting or
+/// rebuilding.</summary>
+public sealed record HealthGpu(long Epoch, GpuPhase Phase, long SinceUnixMs)
+{
+    public static readonly HealthGpu Unknown = new(-1, GpuPhase.Unknown, -1);
+
+    /// <summary>The phase's word on the wire: "unknown", "starting", "running", "rebuilding".</summary>
+    public static string Word(GpuPhase phase) => phase switch
+    {
+        GpuPhase.Starting => "starting",
+        GpuPhase.Running => "running",
+        GpuPhase.Rebuilding => "rebuilding",
+        _ => "unknown",
+    };
+
+    /// <summary>The phase a word names; any other word, or none, is unknown.</summary>
+    public static GpuPhase Parse(string? word) => word switch
+    {
+        "starting" => GpuPhase.Starting,
+        "running" => GpuPhase.Running,
+        "rebuilding" => GpuPhase.Rebuilding,
+        _ => GpuPhase.Unknown,
+    };
+}
 
 /// <summary>A projector as a machine's health shows it: its light and words with its device's facts folded in, and the output that
 /// drives it ("" when none does).</summary>
@@ -35,6 +79,8 @@ public sealed record HealthFacts
     public string Renderer { get; init; } = "";
     public string RenderPath { get; init; } = "";
     public long Resets { get; init; }
+    /// <summary>The GPU device's epoch and phase (unknown until the node reports them).</summary>
+    public HealthGpu Gpu { get; init; } = HealthGpu.Unknown;
     public double CpuPct { get; init; } = -1;
     public double MemMb { get; init; } = -1;
     public double MemFreeMb { get; init; } = -1;
@@ -318,6 +364,8 @@ public static class HealthJson
             w.WriteNumber("dropped", o.Dropped);
             w.WriteNumber("missed60s", o.Missed60s);
             w.WriteString("path", o.Path);
+            w.WriteNumber("shownFrames", o.ShownFrames < 0 ? -1 : o.ShownFrames);
+            w.WriteNumber("observedFrames", o.ObservedFrames < 0 ? -1 : o.ObservedFrames);
             w.WriteEndObject();
         }
         w.WriteEndArray();
@@ -337,6 +385,11 @@ public static class HealthJson
         w.WriteString("renderer", f.Renderer);
         w.WriteString("path", f.RenderPath);
         w.WriteNumber("resets", f.Resets);
+        w.WriteEndObject();
+        w.WriteStartObject("gpu");
+        w.WriteNumber("epoch", f.Gpu.Epoch < 0 ? -1 : f.Gpu.Epoch);
+        w.WriteString("phase", HealthGpu.Word(f.Gpu.Phase));
+        w.WriteNumber("since", f.Gpu.SinceUnixMs < 0 ? -1 : f.Gpu.SinceUnixMs);
         w.WriteEndObject();
         w.WriteNumber("cpuPct", Round(f.CpuPct, 1));
         w.WriteNumber("memMb", Round(f.MemMb, 0));
@@ -401,7 +454,11 @@ public static class HealthJson
                     if (o.ValueKind != JsonValueKind.Object)
                         continue;
                     outputs.Add(new HealthOutput(Str(o, "id"), Str(o, "name"), Bool(o, "open", true), Num(o, "fps"), (long)Num(o, "dropped", 0),
-                        (long)Num(o, "missed60s", 0), Str(o, "path")));
+                        (long)Num(o, "missed60s", 0), Str(o, "path"))
+                    {
+                        ShownFrames = Count(o, "shownFrames"),
+                        ObservedFrames = Count(o, "observedFrames"),
+                    });
                 }
             }
             var projectors = ImmutableArray.CreateBuilder<HealthProjector>();
@@ -414,6 +471,7 @@ public static class HealthJson
                 }
             }
             var render = Obj(r, "render");
+            var gpu = Obj(r, "gpu");
             var sync = Obj(r, "sync");
             var devices = Obj(r, "devices");
             var media = Obj(r, "media");
@@ -434,6 +492,7 @@ public static class HealthJson
                 Renderer = render is { } re ? Str(re, "renderer") : "",
                 RenderPath = render is { } rp ? Str(rp, "path") : "",
                 Resets = render is { } rs ? (long)Num(rs, "resets", 0) : 0,
+                Gpu = gpu is { } g ? new HealthGpu(Count(g, "epoch"), HealthGpu.Parse(Str(g, "phase")), Count(g, "since")) : HealthGpu.Unknown,
                 CpuPct = Num(r, "cpuPct"),
                 MemMb = Num(r, "memMb"),
                 MemFreeMb = Num(r, "memFreeMb"),
@@ -490,6 +549,10 @@ public static class HealthJson
 
     private static double Num(JsonElement e, string name, double fallback = -1) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d) && double.IsFinite(d) ? d : fallback;
+
+    /// <summary>A whole count of 0 or more, or −1: absent (a round-2 line), not a number, negative or fractional all read unknown.</summary>
+    private static long Count(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n) && n >= 0 ? n : -1;
 
     private static bool Bool(JsonElement e, string name, bool fallback) =>
         e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : fallback;
