@@ -61,8 +61,8 @@ The lab checks still to do:
 - CALIBRATION HISTORY names no `standsAs` per row, so the desk offers a Recall the node refuses.
 - On Windows the survey import's lane slice is proven by the stopwatch alone: a tick read bounds a slice the lane thread ran in one
   stretch with no tick charged to an interrupt, so a slice the stopwatch reads over the budget passes on its ticks unproven, and
-  the Perf twin's 10 ms fails on a stall inside a slice; the Windows job has not yet run the tick measure. A precise Windows thread
-  time (L22) closes it.
+  the Perf twin's 10 ms fails on a stall inside a slice; the Windows job runs the tick measure and passes both slice tests. A
+  precise Windows thread time (L22) closes it.
 - A node's first survey import holds the lane 12 to 22 ms in its slices in a Debug build (their first-call compilation), past the
   10 ms slice; Release is not measured cold.
 - Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.

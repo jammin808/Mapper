@@ -326,9 +326,10 @@ Round 2 W1 notes:
   `ThreadTimeTests` take the measure from their own reading of the platform: on Windows the ticks, not precise, each read allowed
   the tick it states; a thread blocked 50 ms counts at most one tick, so the stopwatch is refused; a spinning thread counts at most
   1.1 times its span plus a tick, and a spin of eight ticks (125 ms) at least half its span less a tick (three ticks), so a measure
-  that charges a spin nothing, or only its kernel time, is refused. The node converts no thread's cycles. The Windows job has not
-  yet run the tick measure: it is observed when that job passes `ThreadTimeTests` and both slice tests with `Basis` and every
-  reading in the trx, and the tick half proves a slice when the lab item below gives a precise clock. The evidence so far, from the
+  that charges a spin nothing, or only its kernel time, is refused. The node converts no thread's cycles. The Windows job runs
+  the tick measure and passes `ThreadTimeTests` and both slice tests (CI run 312, 8ef15a2); a passing test's readings and `Basis`
+  are in that run's test-results-windows trx, which this machine's proxy does not fetch, so what each slice read there is not yet
+  recorded. The tick half proves a slice when the lab item below gives a precise clock. The evidence so far, from the
   windows-latest runner (a Hyper-V guest, Windows 10.0.26100 x64, 4 vCPUs, the invariant-TSC bit visible): run 306, which timed
   the slice by the stopwatch, failed the regular test at 42.62 ms against its 40 ms ceiling while the twin passed, in the same
   serial collection; fdef0b3's tick read then passed the regular test, but a tick read cannot verify the twin's 10 ms (it passed run
