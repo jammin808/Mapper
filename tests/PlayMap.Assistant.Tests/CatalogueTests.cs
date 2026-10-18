@@ -48,7 +48,7 @@ public sealed class CatalogueTests
             Assert.True(Enum.IsDefined(v.Risk), v.Name);
             Assert.True(Enum.IsDefined(v.Category), v.Name);
             Assert.True(Enum.IsDefined(v.Show), v.Name);
-            Assert.True(v.Round is 1 or 2, v.Name);
+            Assert.True(v.Round is 1 or 2 or 3, v.Name);
             Assert.True(Balanced(v.Syntax), $"{v.Name}: unbalanced brackets in {v.Syntax}");
             if (v.Mutates)
                 Assert.NotEqual(ShowClass.Query, v.Show);
@@ -97,7 +97,7 @@ public sealed class CatalogueTests
     public void RoundTwosRowsFollowTheFirstRoundsAndCarryNoSecret()
     {
         var first = VerbCatalog.All.TakeWhile(v => v.Round == 1).ToList();
-        var second = VerbCatalog.All.Skip(first.Count).ToList();
+        var second = VerbCatalog.All.Skip(first.Count).TakeWhile(v => v.Round == 2).ToList();
 
         Assert.Equal(FirstRoundRows, first.Count);
         Assert.Equal(RoundTwoRows - TrimmedRows.Length + AddedRows.Length, second.Count);
@@ -178,6 +178,128 @@ public sealed class CatalogueTests
             var at = commands.ToList().FindIndex(c => c.Verb == VerbCatalog.Find(name)!.Syntax);
             Assert.True(at >= moving, $"{name} at {at}, among the {moving} that move the show");
         }
+    }
+
+    /// <summary>PLAN §3.1's round-3 rows in catalogue order, each with its risk, show class, whether it changes something and whether it
+    /// is a gesture. GUIDE CHECK's forms are four rows (GUIDE BEGIN, END, CHECK, UNCHECK): a line names its row by its first one or two
+    /// words, so a guide's action word follows GUIDE.</summary>
+    private static readonly (string Name, VerbRisk Risk, ShowClass Show, bool Mutates, bool Gesture)[] RoundThreeRows =
+    [
+        ("MACHINE", VerbRisk.Low, ShowClass.Query, false, false),
+        ("MACHINE SET", VerbRisk.Review, ShowClass.Setup, true, false),
+        ("MACHINE LOCK", VerbRisk.Review, ShowClass.Setup, true, false),
+        ("GPU", VerbRisk.Low, ShowClass.Query, false, false),
+        ("GPU WARM", VerbRisk.Low, ShowClass.Perform, true, false),
+        ("GPU REHEARSE", VerbRisk.High, ShowClass.Heavy, true, false),
+        ("PRESENT PROVE", VerbRisk.Low, ShowClass.Perform, true, false),
+        ("WATERMARK", VerbRisk.Review, ShowClass.Layout, true, false),
+        ("OBSERVE", VerbRisk.Review, ShowClass.Setup, true, false),
+        ("OBSERVE STATUS", VerbRisk.Low, ShowClass.Query, false, false),
+        ("LATENCY STEP", VerbRisk.High, ShowClass.Heavy, true, false),
+        ("FX RELEASE", VerbRisk.High, ShowClass.Setup, true, false),
+        ("UNDO LIST", VerbRisk.Low, ShowClass.Query, false, false),
+        ("UNDO TO", VerbRisk.Review, ShowClass.Project, true, false),
+        ("PIN MOVE", VerbRisk.Review, ShowClass.Target, true, true),
+        ("WARP CORNER", VerbRisk.Review, ShowClass.Layout, true, true),
+        ("CANVAS SPAN", VerbRisk.Review, ShowClass.Layout, true, false),
+        ("CANVAS SOURCE", VerbRisk.High, ShowClass.Content, true, false),
+        ("HAND", VerbRisk.Low, ShowClass.Query, false, false),
+        ("HAND CLEAR", VerbRisk.Review, ShowClass.Layout, true, false),
+        ("GUIDE", VerbRisk.Low, ShowClass.Query, false, false),
+        ("GUIDE BEGIN", VerbRisk.Review, ShowClass.Project, true, false),
+        ("GUIDE END", VerbRisk.Review, ShowClass.Project, true, false),
+        ("GUIDE CHECK", VerbRisk.Review, ShowClass.Project, true, false),
+        ("GUIDE UNCHECK", VerbRisk.Review, ShowClass.Project, true, false),
+        ("VIEWPOINT FIT", VerbRisk.Review, ShowClass.Target, true, false),
+        ("SURFACE MAP", VerbRisk.Review, ShowClass.Content, true, false),
+        ("OUTPUT PASSTHROUGH", VerbRisk.Review, ShowClass.Setup, true, false),
+    ];
+
+    /// <summary>A line of each form a round-3 package adds to an earlier row, with that row (whose round stays its own).</summary>
+    private static readonly (string Line, string Row, int Round)[] FormsRoundThreeAdds =
+    [
+        ("VIEW v_stage SHOW editor 1280x720 SHARED 4242", "VIEW", 1),
+        ("PRESENT PATH D3D12", "PRESENT PATH", 2),
+        ("PATTERN grid ON cv_main", "PATTERN", 1),
+        ("WARP NODE op_1 2 1 TO 640 360 PX", "WARP NODE", 1),
+        ("WARP NODE op_1 2 1 BY 1 0 PX", "WARP NODE", 1),
+        ("HANDLE SELECT pn_1", "HANDLE SELECT", 2),
+        ("HANDLE SELECT op_1 WARP TL", "HANDLE SELECT", 2),
+        ("HANDLE SELECT op_1 WARP 2,1", "HANDLE SELECT", 2),
+        ("HANDLE SELECT op_1 MASK 0 3", "HANDLE SELECT", 2),
+        ("INPUT DISCOVER CAPTURE WAIT 500", "INPUT DISCOVER", 2),
+        ("INPUT ADD capture:dshow/Cam Front MODE 1920x1080@50 FORMAT V210", "INPUT ADD", 2),
+    ];
+
+    [Fact]
+    public void RoundThreesRowsFollowRoundTwosWithThePlansRiskAndClassAndCarryNoSecret()
+    {
+        var third = VerbCatalog.All.SkipWhile(v => v.Round == 1).SkipWhile(v => v.Round == 2).ToList();
+
+        Assert.Equal(RoundThreeRows.Select(r => r.Name), third.Select(v => v.Name));
+        Assert.Equal(third.Count, VerbCatalog.All.Count(v => v.Round == 3));
+        foreach (var (v, row) in third.Zip(RoundThreeRows))
+        {
+            Assert.Equal(3, v.Round);
+            Assert.Equal((row.Name, row.Risk, row.Show, row.Mutates, row.Gesture), (v.Name, v.Risk, v.Show, v.Mutates, v.Gesture));
+            Assert.Null(v.SecretFrom);
+            Assert.Empty(v.HighFor);
+            Assert.False(v.Internal || v.PairedOnly || v.EmbedsLine, v.Name);
+            Assert.Empty(v.Aliases);
+            Assert.False(v.Show is ShowClass.Air or ShowClass.Panic or ShowClass.Transport or ShowClass.Show, $"{v.Name} would move the air");
+        }
+        // A machine's GPU scheduling class set to REALTIME is high; its other settings are a review.
+        Assert.Equal(VerbRisk.High, VerbCatalog.RiskOf(Parse("MACHINE SET GPU-PRIORITY REALTIME")));
+        Assert.Equal(VerbRisk.Review, VerbCatalog.RiskOf(Parse("MACHINE SET GPU-PRIORITY HIGH")));
+        Assert.Equal(VerbRisk.Review, VerbCatalog.RiskOf(Parse("MACHINE SET TIMER HIGH")));
+    }
+
+    [Fact]
+    public void EveryFormOfARoundThreeRowAndEveryFormItAddsToAnEarlierRowMakesALineTheGatePassesAsItsRow()
+    {
+        foreach (var v in VerbCatalog.All.Where(v => v.Round == 3))
+        {
+            foreach (var form in VerbSyntax.Alternatives(v))
+            {
+                var line = string.Join(' ', new[] { v.Name }.Concat(VerbSyntax.RequiredTokens(v, form).Select(Sample)));
+                var check = CommandGate.Check(line);
+                Assert.True(check.Ok, $"{form} → '{line}': {check.Reason}");
+                Assert.Same(v, check.Spec);
+                Assert.Equal(VerbCatalog.RiskOf(Parse(line)), check.Risk);
+            }
+        }
+        foreach (var (text, row, round) in FormsRoundThreeAdds)
+        {
+            var check = CommandGate.Check(text);
+            Assert.True(check.Ok, $"'{text}': {check.Reason}");
+            Assert.Equal(row, check.Spec!.Name);
+            Assert.Equal(round, check.Spec.Round);
+            Assert.Equal(check.Spec.Risk, check.Risk);
+        }
+    }
+
+    [Fact]
+    public void NoWordLowersARoundThreeLineOnAHeavyAirOrLayoutRow()
+    {
+        var rows = VerbCatalog.All.Where(v => v.Round == 3 || FormsRoundThreeAdds.Any(f => f.Row == v.Name)).ToList();
+        Assert.Equal(RoundThreeRows.Length + FormsRoundThreeAdds.Select(f => f.Row).Distinct().Count(), rows.Count);
+        foreach (var v in rows.Where(v => v.Show is ShowClass.Heavy or ShowClass.Air or ShowClass.Layout))
+        {
+            Assert.All(v.RiskWhen, w => Assert.True(w.Risk >= v.Risk, $"{v.Name}: {w.Word} would lower {v.Risk} to {w.Risk}"));
+            foreach (var form in VerbSyntax.Alternatives(v))
+            {
+                var line = string.Join(' ', new[] { v.Name }.Concat(VerbSyntax.RequiredTokens(v, form).Select(Sample)));
+                Assert.True(VerbCatalog.RiskOf(Parse(line)) >= v.Risk, $"'{line}' is below {v.Risk}");
+            }
+        }
+        Assert.Contains(rows, v => v.Show == ShowClass.Heavy);
+        Assert.Contains(rows, v => v.Show == ShowClass.Layout);
+    }
+
+    private static WireLine Parse(string text)
+    {
+        Assert.True(WireGrammar.TryParse(text, out var line, out var error), error?.Reason);
+        return line;
     }
 
     /// <summary>A word that satisfies a required token: the first of a literal choice, any word for a placeholder.</summary>

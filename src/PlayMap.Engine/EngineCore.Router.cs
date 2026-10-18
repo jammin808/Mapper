@@ -66,7 +66,7 @@ public sealed partial class EngineCore
         return null;
     }
 
-    /// <summary>The first round's verbs, answered on the lane; a round-2 row no package routed is not available yet.</summary>
+    /// <summary>The first round's verbs, answered on the lane; a later round's row no package routed is not available yet.</summary>
     private CommandReply RouteRoundOne(VerbSpec spec, List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
     {
         return spec.Name switch
@@ -153,7 +153,7 @@ public sealed partial class EngineCore
                 (nc, a) => nc.LinkStagewatchAsync(IsOff(a[0]) ? null : a[0], a.Count > 1 ? a[1] : null, ct)),
             "PAIRING NEW" => NewPairing(),
 
-            _ => CommandReply.Fail($"{spec.Name} is not available on this node yet"),
+            _ => CommandReply.Fail(VerbCatalog.NotAvailableYet(spec.Name)),
         };
     }
 

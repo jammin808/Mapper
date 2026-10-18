@@ -56,6 +56,8 @@ public sealed partial class EngineCore
     /// is refused; DXGI is refused where it cannot run (not Windows), and asking it again with a blown fuse clears the fuse.</summary>
     private CommandReply PresentPathVerb(List<string> args, SessionInfo session)
     {
+        if (args.Count == 1 && args[0].Trim().Equals("D3D12", StringComparison.OrdinalIgnoreCase))
+            return CommandReply.Fail(VerbCatalog.NotAvailableYet("PRESENT PATH D3D12") + " — AUTO, DXGI and GL are");
         if (args.Count != 1 || PresentChoice.Normalise(args[0]) is var word && !args[0].Trim().Equals(word, StringComparison.OrdinalIgnoreCase))
             return CommandReply.Fail("PRESENT PATH AUTO|DXGI|GL");
         if (Services.PresentNode is not { } node)

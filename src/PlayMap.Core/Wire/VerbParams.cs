@@ -93,12 +93,13 @@ public static class VerbParams
     private static readonly FrozenSet<string> Numbers = new[]
     {
         "ms", "seconds", "minutes", "min", "max", "deg", "lux", "pct", "fps", "db", "ratio", "delta", "dx", "dy", "x", "y", "z", "value",
-        "x1", "x2", "x3", "x4", "y1", "y2", "y3", "y4", "attack", "release", "level", "gain", "rate",
+        "x1", "x2", "x3", "x4", "y1", "y2", "y3", "y4", "attack", "release", "level", "gain", "rate", "px",
     }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> Integers = new[]
     {
         "n", "index", "count", "seq", "universe", "channel", "port", "row", "column", "col", "rows", "epoch", "bars", "beats", "triangles",
+        "pid",
     }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>Rows whose syntax names its parameters too plainly for a key's dropdown: their forms, by row name. A package that

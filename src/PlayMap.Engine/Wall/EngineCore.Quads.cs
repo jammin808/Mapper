@@ -612,6 +612,8 @@ public sealed partial class EngineCore
     private CommandReply HandleSelect(VerbCall c)
     {
         OverlayHandle? next;
+        if (OtherHandle(c.Args) is { } other)
+            return CommandReply.Fail(VerbCatalog.NotAvailableYet(other) + " — a quad's corners and lattice nodes are (HANDLE SELECT <surface> TL|TR|BR|BL|<col>,<row>)");
         if (c.Args.Count == 1 && c.Args[0].Equals("NONE", StringComparison.OrdinalIgnoreCase))
         {
             if (_air.Overlay.Handle is null)
@@ -646,6 +648,16 @@ public sealed partial class EngineCore
         SetAir(a => a with { Overlay = a.Overlay with { Handle = next } });
         return HandleReply(next);
     }
+
+    /// <summary>The form of HANDLE SELECT that names a handle other than a quad's — a pin, an output's warp corner or node, a mask's
+    /// node — or null for a quad's handle and NONE.</summary>
+    private static string? OtherHandle(List<string> args) => args.Count switch
+    {
+        1 when !args[0].Equals("NONE", StringComparison.OrdinalIgnoreCase) => "HANDLE SELECT <pin>",
+        3 when args[1].Equals("WARP", StringComparison.OrdinalIgnoreCase) => "HANDLE SELECT … WARP",
+        4 when args[1].Equals("MASK", StringComparison.OrdinalIgnoreCase) => "HANDLE SELECT … MASK",
+        _ => null,
+    };
 
     /// <summary>Every handle on the wall in order: each pixel quad's corners (TL, TR, BR, BL), then its lattice nodes row by row.</summary>
     private static List<OverlayHandle> AllHandles(Project p)

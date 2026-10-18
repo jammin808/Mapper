@@ -76,7 +76,8 @@ public sealed record VerbSpec(
     /// line that moves the air, a transport, a panic or a projector's power.</summary>
     public IReadOnlyList<RiskWhen> RiskWhen { get; init; } = [];
 
-    /// <summary>1 for the first round's rows, 2 for round 2's (set by V2); with the node's routes it gives VERBS' "available".</summary>
+    /// <summary>1 for the first round's rows, 2 for round 2's (set by V2), 3 for round 3's (set by V3); with the node's routes it gives
+    /// VERBS' "available".</summary>
     public int Round { get; init; } = 1;
 
     /// <summary>The line carries another line (BIND ADD … TO &lt;line&gt;, BIND LEARN &lt;line&gt;): its risk is the higher of the two.</summary>
@@ -96,14 +97,14 @@ public sealed record VerbSpec(
     public bool PairedOnly { get; init; }
 }
 
-/// <summary>Whether a row is answered on this node now: every first-round row, and a round-2 row once its owner routed it.
+/// <summary>Whether a row is answered on this node now: every first-round row, and a later round's row once its owner routed it.
 /// The assistant's prompt, MCP's list_verbs and VERBS read it.</summary>
 public interface IVerbAvailability
 {
     bool IsAvailable(VerbSpec spec);
 }
 
-/// <summary>The availability of a node that routes no round-2 row: the first round's rows only.</summary>
+/// <summary>The availability of a node that routes no later round's row: the first round's rows only.</summary>
 public sealed class VerbAvailability : IVerbAvailability
 {
     public static readonly VerbAvailability RoundOne = new();
@@ -130,6 +131,13 @@ public static class VerbCatalog
     /// <summary>A round-2 row: answered "not available on this node yet" until its owner routes it.</summary>
     private static VerbSpec V2(string name, string syntax, string words, VerbCategory cat, VerbRisk risk, bool mutates, params string[] aliases) =>
         V(name, syntax, words, cat, risk, mutates, aliases) with { Round = 2 };
+
+    /// <summary>A round-3 row: answered "not available on this node yet" until its owner routes it.</summary>
+    private static VerbSpec V3(string name, string syntax, string words, VerbCategory cat, VerbRisk risk, bool mutates, params string[] aliases) =>
+        V(name, syntax, words, cat, risk, mutates, aliases) with { Round = 3 };
+
+    /// <summary>What a node answers for a row, or a form of one, that nothing on it answers yet.</summary>
+    public static string NotAvailableYet(string what) => what + " is not available on this node yet";
 
     public static readonly IReadOnlyList<VerbSpec> All =
     [
@@ -181,7 +189,8 @@ public static class VerbCatalog
         V("MEDIA STATUS", "MEDIA STATUS", "Transfers, readiness and disk", VerbCategory.Media, VerbRisk.Low, false),
 
         // Content: generators and test patterns.
-        V("PATTERN", "PATTERN <kind>|OFF [ON <output>|ALL]", "Puts a test pattern over the outputs (OFF returns them to the show)", VerbCategory.Content, VerbRisk.High, true) with { Show = ShowClass.Setup },
+        // PATTERN: ON <canvas> draws the pattern once at the canvas's size, wherever the canvas is shown (wp3-canvas).
+        V("PATTERN", "PATTERN <kind>|OFF [ON <output>|<canvas>|ALL]", "Puts a test pattern over the outputs, or once across a canvas wherever it is shown (OFF returns them to the show)", VerbCategory.Content, VerbRisk.High, true) with { Show = ShowClass.Setup },
         V("GENERATOR KINDS", "GENERATOR KINDS [<family>]", "Every generator kind with its parameters (grouped), traits, inputs and preset count", VerbCategory.Content, VerbRisk.Low, false),
         V("GENERATOR NEW", "GENERATOR NEW <kind> [<name>] [PRESET <preset>]", "Makes a generator, optionally from a look; answers its id", VerbCategory.Content, VerbRisk.Low, true),
         V("GENERATOR SET", "GENERATOR SET <generator> <param> <value> | GENERATOR SET <generator> <param> BY <delta>", "Sets a parameter (BY: a step for encoders)", VerbCategory.Content, VerbRisk.Review, true),
@@ -189,9 +198,10 @@ public static class VerbCatalog
         // Outputs.
         V("OUTPUT LIST", "OUTPUT LIST", "Every output, its display and its health", VerbCategory.Output, VerbRisk.Low, false),
         V("DISPLAYS", "DISPLAYS", "The displays this machine sees", VerbCategory.Output, VerbRisk.Low, false),
-        // VIEW: "editor DRAFT" shows the session's blind draft in that view only (wp2-blind).
-        V("VIEW", "VIEW <view> SHOW|CAMERA|KEEP|HIDE [<what> [<w>x<h>] [DRAFT]|<camera json>]",
-            "A preview into the view's shared-memory ring on this machine: SHOW editor, output:<id>, projector:<id>, camera:<id> or scan:<id>:smart|confidence; DRAFT shows this session's blind draft instead of the air (editor only); CAMERA moves an editor view's eye; KEEP renews it (a view not renewed for 15 s is hidden); HIDE lets it go",
+        // VIEW: "editor DRAFT" shows the session's blind draft in that view only (wp2-blind); SHARED <pid> hands the picture to that
+        // process as a GPU texture (wp3-desk-gpu).
+        V("VIEW", "VIEW <view> SHOW|CAMERA|KEEP|HIDE [<what> [<w>x<h>] [DRAFT]|<camera json>] [SHARED <pid>]",
+            "A preview into the view's shared-memory ring on this machine: SHOW editor, output:<id>, projector:<id>, camera:<id> or scan:<id>:smart|confidence; DRAFT shows this session's blind draft instead of the air (editor only); CAMERA moves an editor view's eye; KEEP renews it (a view not renewed for 15 s is hidden); HIDE lets it go; SHARED <pid> shares the picture with that process on this machine as a GPU texture and its fences instead of the ring",
             VerbCategory.Output, VerbRisk.Low, false),
         V("OUTPUT ENABLE", "OUTPUT ENABLE <output> ON|OFF", "Opens or closes an output", VerbCategory.Output, VerbRisk.High, true),
         V("OUTPUT SOURCE", "OUTPUT SOURCE <output> <source>", "What a canvas or source output shows", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Content },
@@ -205,7 +215,8 @@ public static class VerbCatalog
         V("PROJECTOR SOLVE", "PROJECTOR SOLVE <projector> [LOCK SHIFT|FOCAL|NONE]", "Solves pose (and lens) from the projector's pins", VerbCategory.Mapping, VerbRisk.Review, true),
         V("BLEND SOLVE", "BLEND SOLVE [<output>|ALL]", "Computes the 3D blend maps from the projectors' coverage", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Heavy },
         V("WARP RESET", "WARP RESET <output>", "Takes an output's 2D warp back to rest", VerbCategory.Mapping, VerbRisk.Review, true),
-        V("WARP NODE", "WARP NODE <output> <column> <row> <dx> <dy>", "Moves one lattice node (normalised output units)", VerbCategory.Mapping, VerbRisk.Review, true),
+        // WARP NODE: TO|BY … PX moves a node in the output's pixels (wp3-desk-map).
+        V("WARP NODE", "WARP NODE <output> <column> <row> <dx> <dy> | WARP NODE <output> <c> <r> TO|BY <x> <y> PX", "Moves one lattice node by dx, dy (normalised output units), or to or by x, y in the output's pixels", VerbCategory.Mapping, VerbRisk.Review, true),
 
         // Scan.
         // SCAN START: INTO adds a view to an existing scan (wp2-multiscan).
@@ -324,8 +335,8 @@ public static class VerbCatalog
         V2("SYNC LEAVE", "SYNC LEAVE [<output>|ALL]", "Outputs leave the framelock and present free-running, measured", VerbCategory.Network, VerbRisk.High, true) with { Show = ShowClass.Setup },
         V2("SYNC REJOIN", "SYNC REJOIN [<output>|ALL]", "Outputs that fell out of the lock join it again (armed: only while blacked out)", VerbCategory.Network, VerbRisk.High, true) with { Show = ShowClass.Setup },
 
-        // The D3D11 present path (wp2-d3d11, output's continuation).
-        V2("PRESENT PATH", "PRESENT PATH AUTO|DXGI|GL", "Where outputs present from the render host's next start: AUTO is OpenGL this round; DXGI (flip model on Windows) is experimental until proven on the machine (kept on the node)", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Setup },
+        // The D3D11 present path (wp2-d3d11, output's continuation); D3D12, Direct3D 12's flip presenters (wp3-present).
+        V2("PRESENT PATH", "PRESENT PATH AUTO|D3D12|DXGI|GL", "Where outputs present from the render host's next start: AUTO is OpenGL this round; D3D12 presents through Direct3D 12's flip presenters; DXGI (flip model on Windows) is experimental until proven on the machine (kept on the node)", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Setup },
 
         // The group's clock, anchors and vblank verdict (wp2-sync). SUBSCRIBE ANCHORS is a topic; SYNC STATUS (today's row) gains the verdict.
         V2("SYNC RECEIPT", "SYNC RECEIPT <seq> ACCEPTED|APPLIED|REFUSED <leader ns> [<words>]", "A group member's answer to an air line its leader fanned out (member to leader, on the member's anchor feed)", VerbCategory.Network, VerbRisk.Low, false) with { Ephemeral = true },
@@ -346,10 +357,11 @@ public static class VerbCatalog
         V2("MEDIA RULES", "MEDIA RULES", "The optimise mode and quality, this show's rules, then the built-in table's rule names", VerbCategory.Media, VerbRisk.Low, false),
         V2("MEDIA RULE", "MEDIA RULE MODE AUTO|NEVER", "Changes the optimise mode: AUTO optimises clips imported from now on as the rules say, NEVER optimises nothing unless a person asks", VerbCategory.Media, VerbRisk.Review, true),
 
-        // Network video and texture sharing: NDI, OMT, Spout (wp2-videoio).
+        // Network video and texture sharing: NDI, OMT, Spout (wp2-videoio). INPUT DISCOVER CAPTURE and INPUT ADD's capture:, MODE and
+        // FORMAT: capture cards (wp3-capture).
         V2("INPUT LIST", "INPUT LIST", "Every live input with its health, its users and whether it is on air", VerbCategory.Video, VerbRisk.Low, false),
-        V2("INPUT DISCOVER", "INPUT DISCOVER [NDI|OMT|SPOUT|ALL] [WAIT <0-5000 ms>]", "The NDI, OMT and Spout sources this node sees", VerbCategory.Video, VerbRisk.Low, false),
-        V2("INPUT ADD", "INPUT ADD <uri> [<name>] [PROXY] [COLD]", "Adds a live input (ndi:HOST (Name), omt:HOST (Name), omt://host:port, spout:Name) to the library, received once however many surfaces show it; answers its id", VerbCategory.Video, VerbRisk.Review, true),
+        V2("INPUT DISCOVER", "INPUT DISCOVER [NDI|OMT|SPOUT|CAPTURE|ALL] [WAIT <0-5000 ms>]", "The NDI, OMT and Spout sources and the capture devices, with their modes, this node sees", VerbCategory.Video, VerbRisk.Low, false),
+        V2("INPUT ADD", "INPUT ADD <uri> [<name>] [PROXY] [COLD] [MODE <w>x<h>@<rate>] [FORMAT UYVY|V210|NV12|AUTO]", "Adds a live input (ndi:HOST (Name), omt:HOST (Name), omt://host:port, spout:Name, or a capture card's capture:<provider>/<device>[/<input>] in a MODE and FORMAT) to the library, received once however many surfaces show it; answers its id", VerbCategory.Video, VerbRisk.Review, true),
         V2("INPUT FALLBACK", "INPUT FALLBACK <input> HOLD|BLACK|<source>", "What an input shows when its feed is lost", VerbCategory.Video, VerbRisk.Review, true),
         V2("INPUT BACKUP", "INPUT BACKUP <input> <uri>|OFF", "A second feed the input takes over on loss", VerbCategory.Video, VerbRisk.Review, true),
         V2("INPUT SWITCH", "INPUT SWITCH <input> PRIMARY|BACKUP", "Switches an input between its feeds (answered at the first frame)", VerbCategory.Video, VerbRisk.High, true) with { Show = ShowClass.DeviceSafe },
@@ -498,7 +510,8 @@ public static class VerbCatalog
         V2("SURFACE CORNER", "SURFACE CORNER <surface> TL|TR|BR|BL|0|1|2|3 TO <x> <y> [PX|RASTER] | SURFACE CORNER <surface> <corner> BY <dx> <dy> [PX|RASTER]", "Moves a quad's corner (BY: wall pixels by default)", VerbCategory.Mapping, VerbRisk.Review, true) with { Gesture = true },
         V2("SURFACE LATTICE", "SURFACE LATTICE <surface> <c>x<r>|OFF [LINEAR|SMOOTH|BEZIER]", "Gives a quad a lattice on top of its corners (its shape does not move)", VerbCategory.Mapping, VerbRisk.Review, true),
         V2("SURFACE NODE", "SURFACE NODE <surface> <col> <row> TO|BY <x> <y> [PX|RASTER]", "Moves a quad's lattice node", VerbCategory.Mapping, VerbRisk.Review, true) with { Gesture = true },
-        V2("HANDLE SELECT", "HANDLE SELECT <surface> TL|TR|BR|BL|<col>,<row> | HANDLE SELECT NONE", "The handle the wall shows enlarged and the arrows move", VerbCategory.Mapping, VerbRisk.Low, true) with { Ephemeral = true, Show = ShowClass.Setup },
+        // HANDLE SELECT: a pin, an output's warp corner or lattice node and a mask's node (wp3-desk-map).
+        V2("HANDLE SELECT", "HANDLE SELECT <surface> TL|TR|BR|BL|<col>,<row> | HANDLE SELECT NONE | HANDLE SELECT <pin> | HANDLE SELECT <output> WARP TL|TR|BR|BL|<c>,<r> | HANDLE SELECT <output> MASK <i> <node>", "The handle the wall shows enlarged and the arrows move: a quad's corner or lattice node, a pin, an output's warp corner or lattice node, or a mask's node", VerbCategory.Mapping, VerbRisk.Low, true) with { Ephemeral = true, Show = ShowClass.Setup },
         V2("HANDLE NEXT", "HANDLE NEXT", "The next handle", VerbCategory.Mapping, VerbRisk.Low, true) with { Ephemeral = true, Show = ShowClass.Setup },
         V2("HANDLE PREV", "HANDLE PREV", "The previous handle", VerbCategory.Mapping, VerbRisk.Low, true) with { Ephemeral = true, Show = ShowClass.Setup },
         V2("HANDLE NUDGE", "HANDLE NUDGE <dx> <dy> [PX|RASTER]", "Moves the selected handle (encoders and dials)", VerbCategory.Mapping, VerbRisk.Review, true) with { Gesture = true },
@@ -515,6 +528,65 @@ public static class VerbCatalog
         V2("CALIBRATION FORGET", "CALIBRATION FORGET <snapshot>", "Forgets a kept result (never the current, fallback or staged one)", VerbCategory.Calibration, VerbRisk.Review, true),
         V2("CALIBRATION RESOLVE", "CALIBRATION RESOLVE <projector>…|ALL [CAMERA <camera>] [STAGE]", "Re-solves only the projectors named — from their pins as they stand, or with CAMERA from a fresh look at their dots (only the ones found moved) — scores and applies it (or stages it when it fails the gate); the others are not touched", VerbCategory.Calibration, VerbRisk.High, true) with { Show = ShowClass.Heavy },
         V2("CALIBRATION CANCEL", "CALIBRATION CANCEL", "Stops a calibration task and gives the outputs back", VerbCategory.Calibration, VerbRisk.Low, true) with { Show = ShowClass.Perform },
+
+        // Round 3. Each block belongs to the package its comment names: it trims a row's syntax to what it implements, removes a
+        // row it does not build this round, and may add a row inside its own block; no package edits a row outside its block.
+        // Every row here is V3 (answered "not available on this node yet" until its owner routes it); a row's name is the first
+        // one or two words of every line of it. A form a round-3 package adds to an earlier row (VIEW … SHARED, PRESENT PATH D3D12,
+        // PATTERN … ON <canvas>, WARP NODE … PX, HANDLE SELECT of a pin, a warp or a mask, INPUT DISCOVER CAPTURE, INPUT ADD's
+        // capture:, MODE and FORMAT) is that row's: its handler refuses it with words until the package fills it.
+
+        // The machine: what a show node claims from Windows, its identity and its driver lock (wp3-platform).
+        V3("MACHINE", "MACHINE [STATUS]", "This machine's identity, edition and support tier, the claims PlayMap made of Windows with what Windows answered, and any drift from the locked driver set, in words", VerbCategory.Fleet, VerbRisk.Low, false),
+        V3("MACHINE SET", "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC SHOW|DEFAULT | AWAKE ON|OFF", "Changes one of this machine's claims (power throttling, the timer, MMCSS, the process priority, CPU sets, the GPU scheduling class, the GC's show mode, keep-awake), kept on the node and applied now where Windows allows, else at the next start, saying which; REALTIME needs the privilege the installer grants", VerbCategory.Fleet, VerbRisk.Review, true) with { Show = ShowClass.Setup, RiskWhen = [new(-1, "REALTIME", VerbRisk.High)] },
+        V3("MACHINE LOCK", "MACHINE LOCK [CLEAR]", "Keeps this machine's driver set (adapters, the Direct3D runtime, FFmpeg, the sync board's firmware, the OS build, PlayMap's build) as the one its shows run on, so preflight names any drift; CLEAR forgets it (kept on the node, never in the project)", VerbCategory.Fleet, VerbRisk.Review, true) with { Show = ShowClass.Setup },
+
+        // The Direct3D 12 device (wp3-d3d12-core).
+        V3("GPU", "GPU [STATUS]", "The render device: its API, adapter, feature level and shader model, how its start went stage by stage, its epoch and its removals", VerbCategory.Output, VerbRisk.Low, false),
+
+        // Nothing compiled during the show (wp3-d3d12-passes-2).
+        V3("GPU WARM", "GPU WARM [WAIT]", "Makes every pipeline the show can reach now, off the render thread; WAIT answers when done, with how many were made, came from the cache and failed", VerbCategory.Output, VerbRisk.Low, true) with { Show = ShowClass.Perform },
+
+        // Device loss as a rehearsed event (wp3-stability-2).
+        V3("GPU REHEARSE", "GPU REHEARSE [REMOVE]", "Rehearses a device loss: removes the render device on purpose and answers when the first good frame is back, with the time (the outputs black for its length: refused while armed)", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+
+        // The flip presenters' evidence (wp3-present; PRESENT PATH's D3D12 is its row's).
+        V3("PRESENT PROVE", "PRESENT PROVE [<output>|ALL] [FOR <seconds 2-60>]", "Measures each output's presentation over a window (10 s unless FOR) and answers its mode with the evidence: proven when the window met every vblank at the display's own rate, one frame from present to display", VerbCategory.Output, VerbRisk.Low, true) with { Show = ShowClass.Perform },
+
+        // Proof of what the audience saw (wp3-stability).
+        V3("WATERMARK", "WATERMARK <output>|ALL ON|OFF [TOP|BOTTOM|BOTH] [AT <x> <y>] [SIZE <px 4-32>]", "A frame code on an output's picture at an edge or a place, at a block size, that an observer reads back to prove which frame was shown (one undo step)", VerbCategory.Output, VerbRisk.Review, true),
+        V3("OBSERVE", "OBSERVE <output> FROM <capture uri> | OBSERVE <output> OFF", "Watches an output's picture through a capture input (capture:<provider>/<device>[/<input>]) and reads its frame code: each frame shown, stale or lost; OFF stops watching (kept on the node)", VerbCategory.Output, VerbRisk.Review, true) with { Show = ShowClass.Setup },
+        V3("OBSERVE STATUS", "OBSERVE STATUS [<output>]", "Each observed output's verdict, the frame seen and how late, in words", VerbCategory.Output, VerbRisk.Low, false),
+        V3("LATENCY STEP", "LATENCY STEP <output> [VIA <camera>|OBSERVER] [STEPS <3-60>]", "Measures glass to glass: steps the frame code's region (VIA a camera, the whole output) to white and times when the observer or the camera sees each step, with each stage's share (it puts the steps on the air: refused while armed)", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Heavy },
+
+        // One HLSL source; user ISF out of process (wp3-shaders).
+        V3("FX RELEASE", "FX RELEASE <kind>|ALL", "Lifts the quarantine on an effect kind whose shader took the GPU down, so its slots draw again (the quarantine is the node's, never a draft's)", VerbCategory.Effects, VerbRisk.High, true) with { Show = ShowClass.Setup },
+
+        // The Oops history (wp3-desk-ux).
+        V3("UNDO LIST", "UNDO LIST [<n 1-100>]", "The undo steps, newest first, in field words with who and when", VerbCategory.Project, VerbRisk.Low, false),
+        V3("UNDO TO", "UNDO TO <step>", "Undoes a step and every newer one as one action (UNDO TO the newest is one UNDO)", VerbCategory.Project, VerbRisk.Review, true),
+
+        // Every handle by one pixel (wp3-desk-map; WARP NODE … PX and HANDLE SELECT's pins, warps and masks are their rows').
+        V3("PIN MOVE", "PIN MOVE <pin> TO|BY <x> <y> [PX]", "Moves a pin's picture point to or by x, y (0–1 across its projector's picture; PX: its pixels)", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Target, Gesture = true },
+        V3("WARP CORNER", "WARP CORNER <output> TL|TR|BR|BL TO|BY <x> <y> [PX|NORM]", "Moves a corner of an output's corner pin to or by x, y (PX: the output's pixels; NORM: 0–1 across it)", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Layout, Gesture = true },
+
+        // One canvas across outputs, and every automatic result a layer under the hand's (wp3-canvas; PATTERN … ON <canvas> is its row's).
+        V3("CANVAS SPAN", "CANVAS SPAN <canvas>|NEW <output> <output>… [SIDE <c>x<r>] [STACK <n 2-4>] [OVERLAP <px>|<pct>%] [KEEP|REPLACE]", "Spans a canvas across outputs as one edit: the outputs position by position (SIDE columns x rows, STACK outputs a position), the overlap between positions, each output's rectangle and edges, recorded as the span; over a rectangle a hand moved or a measured warp, refused naming each unless KEEP or REPLACE", VerbCategory.Output, VerbRisk.Review, true),
+        V3("CANVAS SOURCE", "CANVAS SOURCE <canvas> <source> [FIT|FILL|STRETCH]", "What a canvas shows as its base layer, fitted, filled or stretched", VerbCategory.Output, VerbRisk.High, true) with { Show = ShowClass.Content },
+        V3("HAND", "HAND <output>|<projector>|<surface>", "What a hand set over the automatic results: warp, blend, colour, masks and γ, each beside the measured value under it and the run that measured it", VerbCategory.Mapping, VerbRisk.Low, false),
+        V3("HAND CLEAR", "HAND CLEAR <output> WARP|BLEND|COLOR|MASKS|ALL", "Clears a hand's layer of an output, the measured layer under it staying (one undo step)", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Layout },
+
+        // The guides, by hand, automatically or with the assistant (wp3-workflows).
+        V3("GUIDE", "GUIDE LIST | GUIDE FLAT|WALL|OBJECT|FACADE|FIRST [<subject>]", "The guides as steps: LIST, every guide begun on this node; FLAT, WALL, OBJECT, FACADE or FIRST, one guide's steps for its subject, each with its state, words, facts and the automatic, hand and proposed lines", VerbCategory.Mapping, VerbRisk.Low, false),
+        V3("GUIDE BEGIN", "GUIDE BEGIN FLAT|WALL|OBJECT|FACADE|FIRST <subject>", "Records a guide begun for its subject, with who and when", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Project },
+        V3("GUIDE END", "GUIDE END FLAT|WALL|OBJECT|FACADE|FIRST <subject>", "Records a begun guide ended", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Project },
+        V3("GUIDE CHECK", "GUIDE CHECK FLAT|WALL|OBJECT|FACADE|FIRST <subject> <step>", "A person marks a step they judged done (corners lined up by eye, a blend that looks right): the mark keeps the step's inputs and lapses once they move; never from an assistant's session", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Project },
+        V3("GUIDE UNCHECK", "GUIDE UNCHECK FLAT|WALL|OBJECT|FACADE|FIRST <subject> <step>", "Takes a person's mark off a step; never from an assistant's session", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Project },
+        V3("VIEWPOINT FIT", "VIEWPOINT FIT <viewpoint> <surface>… [MARGIN <pct>] [KEEP|REPLACE]", "Aims a viewpoint and fits its field of view to surfaces from its eye, with a margin, recorded as the fit; over an aim or field of view typed since, refused naming each unless KEEP or REPLACE", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Target },
+        V3("SURFACE MAP", "SURFACE MAP <surface> UV | SURFACE MAP <surface> CANVAS <canvas> [<x> <y> <w> <h>] | SURFACE MAP <surface> PROJECTION FROM <viewpoint>", "How a surface's content lies on it: by its own UVs, from a rectangle of a canvas, or projected from a viewpoint", VerbCategory.Mapping, VerbRisk.Review, true) with { Show = ShowClass.Content },
+
+        // Capture cards passed through to the air (wp3-capture; INPUT DISCOVER CAPTURE and INPUT ADD's capture:, MODE and FORMAT are their rows').
+        V3("OUTPUT PASSTHROUGH", "OUTPUT PASSTHROUGH <output> ON|OFF", "Runs an output as its capture input's pass-through: one frame in flight, outside the delay ring, sampled as late as its measured render time allows", VerbCategory.Output, VerbRisk.Review, true) with { Show = ShowClass.Setup },
     ];
 
     private static readonly FrozenDictionary<string, VerbSpec> ByName = BuildIndex();

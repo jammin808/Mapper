@@ -75,6 +75,10 @@ public sealed partial class EngineCore
         if (args.Count < 1)
             return CommandReply.Fail("INPUT ADD <uri> [<name>] [PROXY] [COLD]");
         var uri = args[0];
+        if (uri.StartsWith("capture:", StringComparison.OrdinalIgnoreCase))
+            return CommandReply.Fail(VerbCatalog.NotAvailableYet("INPUT ADD capture:") + " — ndi:, omt:, spout: and FFmpeg URLs are");
+        if (CaptureMode(args) is { } keyword)
+            return CommandReply.Fail(VerbCatalog.NotAvailableYet("INPUT ADD … " + keyword) + " — a live input takes its sender's mode and format");
         var proxy = false;
         var cold = false;
         var words = new List<string>();
@@ -150,6 +154,31 @@ public sealed partial class EngineCore
         return name.Length > 0 ? name : host;
     }
 
+    /// <summary>MODE or FORMAT when the words after an input's URI ask a capture card's mode ("MODE 1920x1080@50") or pixel format
+    /// ("FORMAT V210"), else null: any other word is the input's name.</summary>
+    private static string? CaptureMode(List<string> args)
+    {
+        for (var i = 1; i < args.Count - 1; i++)
+        {
+            var next = args[i + 1];
+            if (args[i].Equals("MODE", StringComparison.OrdinalIgnoreCase) && IsCaptureMode(next))
+                return "MODE";
+            if (args[i].Equals("FORMAT", StringComparison.OrdinalIgnoreCase) && next.ToUpperInvariant() is "UYVY" or "V210" or "NV12" or "AUTO")
+                return "FORMAT";
+        }
+        return null;
+    }
+
+    /// <summary>"&lt;w&gt;x&lt;h&gt;@&lt;rate&gt;": "1920x1080@50", "3840x2160@59.94".</summary>
+    private static bool IsCaptureMode(string word)
+    {
+        var x = word.IndexOf('x', StringComparison.OrdinalIgnoreCase);
+        var at = word.IndexOf('@', StringComparison.Ordinal);
+        return x > 0 && at > x + 1 && at < word.Length - 1
+            && word[..x].All(char.IsAsciiDigit) && word[(x + 1)..at].All(char.IsAsciiDigit)
+            && double.TryParse(word[(at + 1)..], NumberStyles.Float, CultureInfo.InvariantCulture, out var rate) && rate > 0;
+    }
+
     private async Task<CommandReply> InputDiscoverAsync(VerbCall call)
     {
         LiveProtocol? only = null;
@@ -165,6 +194,8 @@ public sealed partial class EngineCore
                 only = LiveProtocol.Spout;
             else if (a.Equals("ALL", StringComparison.OrdinalIgnoreCase))
                 only = null;
+            else if (a.Equals("CAPTURE", StringComparison.OrdinalIgnoreCase))
+                return CommandReply.Fail(VerbCatalog.NotAvailableYet("INPUT DISCOVER CAPTURE") + " — NDI, OMT, SPOUT and ALL are");
             else if (a.Equals("WAIT", StringComparison.OrdinalIgnoreCase) && i + 1 < call.Args.Count
                      && int.TryParse(call.Args[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var ms) && ms is >= 0 and <= 5000)
             {

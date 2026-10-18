@@ -32,6 +32,8 @@ public sealed partial class EngineCore
         if (on is not null && !on.Equals("ALL", StringComparison.OrdinalIgnoreCase))
         {
             var o = ResolveOutput(on);
+            if (o is null && (Edits.Project.FindCanvas(on) ?? Edits.Project.Canvases.FirstOrDefault(c => c.Name.Equals(on, StringComparison.OrdinalIgnoreCase))) is not null)
+                return CommandReply.Fail(VerbCatalog.NotAvailableYet("PATTERN … ON <canvas>") + " — PATTERN <kind> ON <output>|ALL is");
             if (o is null)
                 return CommandReply.Fail($"no output {on}");
             outputs = [o.Id];
@@ -284,6 +286,8 @@ public sealed partial class EngineCore
 
     private CommandReply WarpNode(List<string> args)
     {
+        if (args.Count >= 4 && args[3].ToUpperInvariant() is "TO" or "BY")
+            return CommandReply.Fail(VerbCatalog.NotAvailableYet("WARP NODE … TO|BY … PX") + " — WARP NODE <output> <column> <row> <dx> <dy> moves a node in output units");
         if (args.Count < 5
             || !int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var col)
             || !int.TryParse(args[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var row)

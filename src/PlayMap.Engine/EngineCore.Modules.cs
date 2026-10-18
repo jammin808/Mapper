@@ -28,7 +28,7 @@ public sealed record ShowEvent(long Seq, string Kind, long AtLeaderNs, long AtUn
 /// <summary>The packages' verbs and where each is answered: on the control lane (the default — what it changes is the lane's), or
 /// off it (work that waits on a device, a peer, the GPU, a file or a person; what it changes in the project still goes through
 /// the lane with <see cref="EngineCore.EditAsync"/>). Built once in the engine's constructor; a row routed twice, or a name
-/// that is not a row's own name, throws there. A round-2 row is available exactly when it is routed.</summary>
+/// that is not a row's own name, throws there. A later round's row is available exactly when it is routed.</summary>
 public sealed class VerbRoutes : IVerbAvailability
 {
     private readonly Dictionary<string, Func<VerbCall, CommandReply>> _lane = new(StringComparer.Ordinal);
@@ -57,7 +57,7 @@ public sealed class VerbRoutes : IVerbAvailability
 
     public bool IsRouted(string verb) => _lane.ContainsKey(verb) || _offLane.ContainsKey(verb);
 
-    /// <summary>Every row of the first round, and a round-2 row once a package routed it.</summary>
+    /// <summary>Every row of the first round, and a later round's row once a package routed it.</summary>
     public bool IsAvailable(VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(spec);
