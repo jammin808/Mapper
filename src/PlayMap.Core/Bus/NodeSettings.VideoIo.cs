@@ -12,7 +12,9 @@ public sealed record VideoIoSettings
 
     public bool NdiEnabled { get; init; } = true;
 
-    /// <summary>"" = the runtime's own search (its environment variable, the system paths); never shipped with PlayMap.</summary>
+    /// <summary>The runtime's file or folder, an absolute path (a relative one is refused with the words, never read against the
+    /// current directory); "" = the rest of the search (the variables, the exe's folder, the standard install folders, each by its
+    /// absolute path). Never shipped with PlayMap.</summary>
     public string NdiRuntimePath { get; init; } = "";
 
     public string NdiGroups { get; init; } = "";

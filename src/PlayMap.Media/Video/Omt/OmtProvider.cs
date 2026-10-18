@@ -9,7 +9,8 @@ namespace PlayMap.Media.Video.Omt;
 /// <summary>Open Media Transport in and out (libomtnet, vendored; its codec libvmx loaded at run time): discovery through OMT's own
 /// (mDNS where a daemon runs, a discovery server where one is set, senders of this process always), receivers that copy each
 /// decoded frame into a pool in the sender's own packed layout, and senders that encode packed frames on their worker. Ready only
-/// when libvmx loaded: without it OMT can neither encode nor decode, and the status says where it looked.</summary>
+/// when libvmx loaded: without it OMT can neither encode nor decode, and the status says where it looked; a <c>PLAYMAP_VMX_DIR</c>
+/// refused because it was not absolute is said in its words, ready or not.</summary>
 public sealed class OmtProvider : ILiveInputProvider, ISendProvider, IVideoRuntimeFacts
 {
     private readonly IMonoClock _clock;
@@ -33,7 +34,7 @@ public sealed class OmtProvider : ILiveInputProvider, ISendProvider, IVideoRunti
     public LiveProtocol Protocol => LiveProtocol.Omt;
 
     public ProviderStatus Status => _ready
-        ? new ProviderStatus("ready", Version, OmtSetup.VmxPath, "", "https://www.openmediatransport.org")
+        ? new ProviderStatus("ready", Version, OmtSetup.VmxPath, OmtSetup.VmxRefused, "https://www.openmediatransport.org")
         : new ProviderStatus("failed", Version, "", OmtSetup.VmxWhy, "https://www.openmediatransport.org");
 
     public string Vmx => OmtSetup.VmxPathWord;

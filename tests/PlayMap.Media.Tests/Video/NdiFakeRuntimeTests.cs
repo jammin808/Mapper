@@ -95,14 +95,12 @@ public sealed class NdiFakeRuntimeTests : IDisposable
         Assert.Equal(new Version(6, 2, 1), NdiRuntime.ParseVersion("NDI SDK LINUX 6.2.1 rel"));
         Assert.Equal(new Version(6, 3, 0), NdiRuntime.ParseVersion("6.3"));
 
-        // Nowhere it is told and none installed on this machine: absent, with the variable that points at it and where to get it.
-        // On Windows a library loaded already answers a load by its bare file name, so a process that loaded the fake never finds the
-        // runtime absent: there the search's last step is shown to end at the loaded fake, and the absent words are proven on Linux.
+        // Nowhere it is told and none installed on this machine: absent, with the variable that points at it and where to get it. Every
+        // candidate is a full path, so the fake this process loaded already (which on Windows would answer a load by its bare file
+        // name) is not found where the loader was not told to look, on Windows as on Linux.
         var empty = Directory.CreateTempSubdirectory("playmap-no-ndi-").FullName;
         var installed = Environment.GetEnvironmentVariable(NdiRuntime.DirVariable) is not null || NdiRuntime.Candidates("").Any(File.Exists);
-        if (OperatingSystem.IsWindows() && !installed)
-            Assert.True(NativeLibrary.TryLoad(NdiRuntime.FileName, out _), "a load by the bare name finds the fake this process loaded");
-        else if (!installed && !NativeLibrary.TryLoad(NdiRuntime.FileName, out _))
+        if (!installed)
         {
             using var none = new NdiProvider(new NdiOptions(empty), MonoClock.Instance);
             var status = none.Status;

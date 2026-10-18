@@ -97,14 +97,16 @@ third-party props (analyzers off). `PATCHES.md` lists every change: P1 no avahi 
 `mdns:"none"`), P2–P3 IPv4-only hosts (sockets fall back to IPv4 when IPv6 is off), P4 the discovery server logs through
 `OMTLogging`, P5 settings in memory (no file written next to the exe), P6 `Thread.Abort` replaced by a stop flag and a join, P7 a
 deadlock disposing a sender with receivers connected. `src/ThirdParty/libvmx` is the VMX codec's C++ source (MIT), unpatched; the
-native library is loaded at run time from `PLAYMAP_VMX_DIR`, the exe's folder, `runtimes/<rid>/native`, then the system, and the
-tests build it with clang++ from this source by the upstream command for the platform (on the Windows CI job, the runner's LLVM with
-the upstream export list), so the OMT tests run on Linux and Windows alike. OMT's storage path is the node home's `omt` folder.
+native library is loaded at run time from `PLAYMAP_VMX_DIR`, the exe's folder, `runtimes/<rid>/native`, then the system's library
+folders on Linux and macOS, each by its absolute path ([Native libraries](#native-libraries)), and the tests build it with clang++
+from this source by the upstream command for the platform (on the Windows CI job, the runner's LLVM with the upstream export list),
+so the OMT tests run on Linux and Windows alike. OMT's storage path is the node home's `omt` folder.
 
 ## NDI
 
 PlayMap ships no NDI binary and links none. `NdiRuntime` loads `libndi.so.6` / `Processing.NDI.Lib.x64.dll` / `libndi.dylib` at run
-time from `PLAYMAP_NDI_DIR`, then the runtime's own `NDI_RUNTIME_DIR_V6`, the exe's folder and the system's places, and binds its
+time from the node's `videoio.ndiRuntimePath` (a file or a folder), `PLAYMAP_NDI_DIR`, then the runtime's own `NDI_RUNTIME_DIR_V6`,
+the exe's folder and the standard install folders, each by its absolute path ([Native libraries](#native-libraries)), and binds its
 exports as unmanaged function pointers over blittable structs transcribed from NDI's MIT-licensed headers (their notice is kept in
 `NdiNative.cs` and in `THIRD-PARTY-NOTICES.md`). A runtime that is missing refuses with words that say where it looked, where to
 get one (https://ndi.video) and the variable to set. The Discovery Server and groups come from the node's settings
@@ -116,6 +118,20 @@ thin shim of each platform's own) — so the NDI tests run on both CI jobs; wher
 that does not build fails its tests with the compiler's words instead of skipping them.
 
 NDI® is a registered trademark of Vizrt NDI AB.
+
+## Native libraries
+
+NDI's runtime and OMT's libvmx are found under the rule round 3 sets for Aftermath (`round3/design/d3d12.md` §9): every candidate
+is an absolute path, loaded by that full path, and the system's loader is never asked by bare name — on Windows its search takes in
+the process's current directory and `PATH`, and a copy planted in either would load into the engine. FFmpeg's loader loads its
+libraries by full path the same way. The standard install folders are expanded to absolute paths: on Windows
+`%ProgramFiles%\NDI\NDI 6 Runtime\v6` (NDI only; no system folder is searched); on Linux `/usr/lib`, `/usr/local/lib` and the
+architecture's `/usr/lib/<triplet>`; on macOS `/usr/local/lib`, and for NDI `/Library/NDI SDK for Apple/lib/macOS`. A relative
+`videoio.ndiRuntimePath`, `PLAYMAP_NDI_DIR`, `NDI_RUNTIME_DIR_V6` or `PLAYMAP_VMX_DIR` is refused with the words, never read
+against the current directory, and the search goes on through the rest: the words are in `videoio.ndi.words` /
+`videoio.omt.words` (and the preflight row of a show that uses it) whether a library loaded or not. When libvmx is not loaded, OMT's import resolver refuses
+it with the words rather than hand the name to the runtime's own probing. `NdiFindTests` and `VmxFindTests` prove it with fake
+files: the order, the refusals, and a library present only in the current directory never loaded.
 
 ## Spout
 
@@ -163,7 +179,8 @@ Verified on this machine: the GPU pack and unpack of every layout against the CP
 for real over loopback, lock-step at 1080p in UYVY, UYVA, BGRA, P216 and PA16, with tally, quality and the 1/8 preview; the engine
 sending an output and receiving it as an input; discovery with no avahi daemon; NDI against the fake runtime (loader, find with
 groups and the discovery server, receive, the async send ring, tally both ways, advertisers on 6.3 and not 6.2, colour info); the
-loss policy and backups on a fake provider and a hand-moved clock; Spout's protocol against a fake kernel (the info map, the sender
+NDI and libvmx searches with fake files (the order, a relative setting or variable refused, a copy in the current directory never
+loaded); the loss policy and backups on a fake provider and a hand-moved clock; Spout's protocol against a fake kernel (the info map, the sender
 list, Spout's order on both sides, the busy-mutex case, a failed copy, a read-back in flight read before the next copy, keyed
 textures, a sender that left, a frame that does not convert dropped and never counted sent) and a Spout send following the air on
 the real render host. On the Windows CI job (WARP): a sender and a receiver round-trip a 64×36

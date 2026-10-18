@@ -10,9 +10,12 @@ public sealed record OmtOptions(string StoragePath, string DiscoveryServer = "",
 
 /// <summary>OMT's process-wide setup, done once before anything of OMT runs: its storage folder (OMT_STORAGE_PATH) set to the node's,
 /// file logging off, the discovery server and port range set in OMT's settings in memory (P5 in src/ThirdParty/libomtnet/PATCHES.md),
-/// and the resolver that finds the native codec, libvmx, at run time: <c>PLAYMAP_VMX_DIR</c>, then beside the exe, then the exe's
-/// <c>runtimes/&lt;rid&gt;/native</c>, then the system's own search. OMT's settings are per process: the first configuration
-/// wins.</summary>
+/// and the resolver that hands OMT its native codec, libvmx, loaded at run time from <c>PLAYMAP_VMX_DIR</c>, then beside the exe, then
+/// the exe's <c>runtimes/&lt;rid&gt;/native</c>, then the system's library folders (Linux, macOS). Every candidate is an absolute
+/// path, loaded by that full path: the system's search by bare name, which on Windows takes in the current directory and PATH, is
+/// never asked — nor is the runtime's own probing when libvmx is missing, which the resolver refuses with the words — and a relative
+/// <c>PLAYMAP_VMX_DIR</c> is refused with the words (STATE's <c>videoio.omt.words</c>), never read against the current directory.
+/// OMT's settings are per process: the first configuration wins.</summary>
 public static class OmtSetup
 {
     public const string VmxDirVariable = "PLAYMAP_VMX_DIR";
@@ -23,6 +26,7 @@ public static class OmtSetup
     private static nint s_vmx;
     private static string s_vmxPath = "";
     private static string s_vmxWhy = "";
+    private static string s_vmxRefused = "";
 
     /// <summary>The file name libvmx has on this platform.</summary>
     public static string VmxFileName => OperatingSystem.IsWindows() ? "libvmx.dll" : OperatingSystem.IsMacOS() ? "libvmx.dylib" : "libvmx.so";
@@ -36,7 +40,7 @@ public static class OmtSetup
             InstallResolver();
             // A codec put in place after an earlier look (a test that builds it, a user who copies it) is found on the next one.
             if (s_vmx == 0)
-                s_vmx = Load(out s_vmxPath, out s_vmxWhy);
+                Look();
             if (!s_configured)
             {
                 s_configured = true;
@@ -83,6 +87,17 @@ public static class OmtSetup
         }
     }
 
+    /// <summary>The value refused while looking for libvmx (a <c>PLAYMAP_VMX_DIR</c> that is not an absolute path), in words ("" when
+    /// none was).</summary>
+    public static string VmxRefused
+    {
+        get
+        {
+            lock (Gate)
+                return s_vmxRefused;
+        }
+    }
+
     /// <summary>The codec's CPU path on this machine: avx2, sse42, neon, or missing when libvmx did not load.</summary>
     public static string VmxPathWord
     {
@@ -109,54 +124,84 @@ public static class OmtSetup
         return File.Exists("/run/avahi-daemon/socket") || File.Exists("/var/run/avahi-daemon/socket") ? "avahi" : "none";
     }
 
+    /// <summary>Where libvmx is looked for, in order: <c>PLAYMAP_VMX_DIR</c>, beside the exe, the exe's <c>runtimes/&lt;rid&gt;/native</c>,
+    /// then the system's library folders — absolute files only — and the words for a variable refused because it was not absolute.</summary>
+    public static NativeSearch VmxSearch()
+    {
+        var files = new List<string>();
+        var refused = new List<string>();
+        void Add(string? dir)
+        {
+            // Only an absolute folder is looked in: a relative one would be read against the current directory.
+            if (dir is null || !Path.IsPathFullyQualified(dir))
+                return;
+            var file = Path.Combine(dir, VmxFileName);
+            if (!files.Contains(file, StringComparer.Ordinal))
+                files.Add(file);
+        }
+        Add(NativePaths.Absolute(Environment.GetEnvironmentVariable(VmxDirVariable), VmxDirVariable, refused));
+        var exe = AppContext.BaseDirectory;
+        Add(exe);
+        Add(Path.Combine(exe, "runtimes", RuntimeInformation.RuntimeIdentifier, "native"));
+        foreach (var dir in NativePaths.SystemFolders())
+            Add(dir);
+        return new NativeSearch(files, refused);
+    }
+
+    /// <summary>Loads libvmx from the first of the search's files that exists and loads, by that full path; zero, with the words that
+    /// say what was searched and what was refused, when none does.</summary>
+    internal static nint LoadVmx(NativeSearch search, out string loadedFrom, out string why)
+    {
+        ArgumentNullException.ThrowIfNull(search);
+        var refused = new List<string>(search.Refused);
+        foreach (var file in search.Files)
+        {
+            if (!File.Exists(file))
+                continue;
+            if (NativeLibrary.TryLoad(file, out var handle))
+            {
+                loadedFrom = file;
+                why = "";
+                return handle;
+            }
+            refused.Add($"{file} would not load");
+        }
+        loadedFrom = "";
+        why = $"libvmx (OMT's video codec) was not found: searched {string.Join(", ", search.Files)}"
+            + (refused.Count > 0 ? " (" + string.Join("; ", refused) + ")" : "")
+            + $" — build it from src/ThirdParty/libvmx (build/) and put it beside the exe or set {VmxDirVariable} to its folder, an absolute path";
+        return 0;
+    }
+
+    /// <summary>The resolver's answer for a library OMT imports: libvmx's handle, or the refusal when it is not loaded — zero would hand
+    /// the name to the runtime's own probing, whose search by name takes in the current directory and PATH. Any other library is
+    /// left to the runtime (zero).</summary>
+    internal static nint Resolved(string name, nint vmx, string why)
+    {
+        if (!string.Equals(name, "libvmx", StringComparison.Ordinal))
+            return 0;
+        return vmx != 0 ? vmx : throw new DllNotFoundException(why);
+    }
+
     private static void InstallResolver()
     {
         if (s_resolver)
             return;
         s_resolver = true;
         NativeLibrary.SetDllImportResolver(typeof(OMTSend).Assembly, Resolve);
-        s_vmx = Load(out s_vmxPath, out s_vmxWhy);
+        Look();
     }
 
     private static nint Resolve(string name, Assembly assembly, DllImportSearchPath? path)
     {
-        if (!string.Equals(name, "libvmx", StringComparison.Ordinal))
-            return 0;
         lock (Gate)
-            return s_vmx;
+            return Resolved(name, s_vmx, s_vmxWhy);
     }
 
-    private static nint Load(out string loadedFrom, out string why)
+    private static void Look()
     {
-        loadedFrom = "";
-        var searched = new List<string>();
-        foreach (var dir in Folders())
-        {
-            var file = Path.Combine(dir, VmxFileName);
-            searched.Add(dir);
-            if (File.Exists(file) && NativeLibrary.TryLoad(file, out var handle))
-            {
-                loadedFrom = file;
-                why = "";
-                return handle;
-            }
-        }
-        if (NativeLibrary.TryLoad(VmxFileName, out var system))
-        {
-            loadedFrom = VmxFileName;
-            why = "";
-            return system;
-        }
-        why = $"libvmx (OMT's video codec) was not found: searched {string.Join(", ", searched)} and the system's library path — build it from src/ThirdParty/libvmx (build/) and put it beside the exe or set {VmxDirVariable}";
-        return 0;
-    }
-
-    private static IEnumerable<string> Folders()
-    {
-        if (Environment.GetEnvironmentVariable(VmxDirVariable) is { Length: > 0 } dir)
-            yield return dir;
-        var exe = AppContext.BaseDirectory;
-        yield return exe;
-        yield return Path.Combine(exe, "runtimes", RuntimeInformation.RuntimeIdentifier, "native");
+        var search = VmxSearch();
+        s_vmxRefused = search.RefusedWords;
+        s_vmx = LoadVmx(search, out s_vmxPath, out s_vmxWhy);
     }
 }

@@ -17,12 +17,14 @@ public sealed record NdiOptions(string RuntimePath = "", string Discovery = "", 
 /// receivers that copy each captured frame into the pool in its own packed layout and free the runtime's buffer at once, senders
 /// that hand frames to the runtime asynchronously (the producer's frame is let go only at the runtime's next synchronising call), and
 /// tally both ways. On a 6.3 or later runtime the send and receive advertisers are made and every sender and receiver is added to
-/// them, so a Discovery Server sees them. Without a runtime the provider stays registered and says why, with where to get one.</summary>
+/// them, so a Discovery Server sees them. Without a runtime the provider stays registered and says why, with where to get one; a
+/// runtime path refused because it was not absolute is said in its words, with a runtime or without.</summary>
 public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVideoRuntimeFacts
 {
     private readonly IMonoClock _clock;
     private readonly NdiOptions _options;
     private readonly string _configWhy = "";
+    private readonly string _readyWords = "";
     private readonly NdiRuntime? _runtime;
     private readonly string _why;
     private readonly Lock _gate = new();
@@ -52,20 +54,23 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
             _configWhy = $"NDI's discovery server is not applied, and this node's other NDI tools do not get its groups: its configuration "
                 + $"could not be written in {_options.ConfigFolder} ({ex.Message}); its own finder and senders still use the groups";
         }
-        _runtime = NdiRuntime.Load(options.RuntimePath, out _why);
+        var search = NdiRuntime.Search(options.RuntimePath);
+        var refused = search.RefusedWords;
+        _runtime = NdiRuntime.Load(search, out _why);
         if (_runtime is null)
             return;
         if (_runtime.IsSupportedCpu() == 0)
         {
-            _why = "this CPU lacks what the NDI runtime needs (SSE4.2)";
+            _why = Words("this CPU lacks what the NDI runtime needs (SSE4.2)", refused);
             return;
         }
         if (_runtime.Initialize() == 0)
         {
-            _why = $"the NDI runtime at {_runtime.Path} would not initialise";
+            _why = Words($"the NDI runtime at {_runtime.Path} would not initialise", refused);
             return;
         }
         _initialized = true;
+        _readyWords = Words(refused, _configWhy);
         if (_runtime.HasAdvertisers)
             MakeAdvertisers();
     }
@@ -76,7 +81,7 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
     public LiveProtocol Protocol => LiveProtocol.Ndi;
 
     public ProviderStatus Status => _initialized
-        ? new ProviderStatus("ready", _runtime!.Version, _runtime.Path, _configWhy, NdiRuntime.Link)
+        ? new ProviderStatus("ready", _runtime!.Version, _runtime.Path, _readyWords, NdiRuntime.Link)
         : new ProviderStatus(_runtime is null ? "absent" : "failed", _runtime?.Version ?? "", _runtime?.Path ?? "", _why, NdiRuntime.Link);
 
     public bool Advertising => _sendAdvertiser != 0 && _recvAdvertiser != 0;
@@ -108,6 +113,9 @@ public sealed unsafe class NdiProvider : ILiveInputProvider, ISendProvider, IVid
     }
 
     private static string Quote(string s) => System.Text.Json.JsonSerializer.Serialize(s);
+
+    /// <summary>The parts that say something, in one line.</summary>
+    private static string Words(params string[] parts) => string.Join("; ", parts.Where(p => p.Length > 0));
 
     private void MakeAdvertisers()
     {

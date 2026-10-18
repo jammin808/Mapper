@@ -118,7 +118,9 @@ Top level `videoio` (after `decode`):
 - `ndi.state` is `absent` when no runtime was found (`words` name where it was looked for, `PLAYMAP_NDI_DIR` and
   https://ndi.video), `failed` when one was found and would not initialise, `off` when `VIDEOIO SET NDI OFF`; `advertisers` is true
   when the 6.3 send and receive advertisers are up. `omt.vmx` is libvmx's CPU path (`missing` when it did not load: OMT then
-  refuses with the loader's words); `mdns` is the service discovery this machine offers OMT (`none` here without avahi: OMT then
+  refuses with the loader's words). A runtime path that is not absolute (`videoio.ndiRuntimePath`, `PLAYMAP_NDI_DIR`,
+  `NDI_RUNTIME_DIR_V6`, `PLAYMAP_VMX_DIR`) is refused and said in `ndi.words` / `omt.words`, ready or not (`docs/VIDEO.md`, Native
+  libraries); `mdns` is the service discovery this machine offers OMT (`none` here without avahi: OMT then
   finds sources only by `omt://host:port` or a discovery server).
 - An input's `state` follows the age of its newest frame on the node's monotonic clock: `connecting` until the first, `ok`,
   `stale` past `live.staleMs` (0 = three periods of its own measured rate), `lost` past `live.lostMs` (1000; "no frame for 1.1 s"),
@@ -179,8 +181,8 @@ For the integration docs pass (WIRE.md, ARCHITECTURE.md, PLAYBACK.md, ROADMAP.md
   and covered/held outputs reach them exactly as they reach the air.
 - OMT is libomtnet and libvmx, vendored under `src/ThirdParty` with their licences, patched as `PATCHES.md` lists (avahi absent,
   IPv4-only hosts, no `Thread.Abort`, a send-dispose deadlock). NDI is the user's own NDI 6 runtime, loaded at run time from
-  `PLAYMAP_NDI_DIR` (or the runtime's `NDI_RUNTIME_DIR_V6`, or the system's); no NDI binary is shipped. NDI® is a registered
-  trademark of Vizrt NDI AB.
+  `PLAYMAP_NDI_DIR` (or the runtime's `NDI_RUNTIME_DIR_V6`, or the standard install folders), each by its absolute path and never
+  by bare name; no NDI binary is shipped. NDI® is a registered trademark of Vizrt NDI AB.
 - `SourceResolver` routes a live input to what its loss policy shows (`ISourceProvider.Route` now answers for live inputs too).
 - Next round (`docs/VIDEO.md`): prewarp taps, multiview sends, smooth and locked pacing, PTZ, failover sends, `LiveCamera` scans
   over NDI/OMT, discovery thumbnails, hosting an OMT discovery server, Syphon, capture cards.

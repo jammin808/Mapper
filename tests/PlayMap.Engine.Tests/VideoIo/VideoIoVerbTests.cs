@@ -3,8 +3,10 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.VideoIo;
+using PlayMap.Media.Video.Ndi;
 
 namespace PlayMap.Engine.Tests.VideoIo;
 
@@ -451,5 +453,27 @@ public sealed class VideoIoVerbTests
             Settings = EngineServices.ForTests().Settings with { VideoIo = VideoIoSettings.Default with { NdiEnabled = false, OmtEnabled = false } },
         });
         Assert.DoesNotContain(off.LiveInputs, p => p.Protocol is LiveProtocol.Ndi or LiveProtocol.Omt);
+    }
+
+    [Fact]
+    public async Task ARelativeNdiRuntimePathIsRefusedWithTheWordsInState()
+    {
+        // The setting is never read against the engine's current directory: STATE's NDI row says it was refused, runtime or none.
+        using var ndi = new NdiProvider(new NdiOptions("ndi-runtime"), MonoClock.Instance);
+        var engine = new EngineCore(EngineServices.ForTests() with { LiveInputs = [ndi], SendProviders = [ndi] }, VideoIoRig.Show());
+        try
+        {
+            engine.VideoIo.Tick();
+            engine.FactsChanged();
+            using var state = JsonDocument.Parse(engine.State().Json);
+            var row = state.RootElement.GetProperty("videoio").GetProperty("ndi");
+            Assert.Contains(row.GetProperty("state").GetString(), new[] { "ready", "absent", "failed" });
+            Assert.Contains("videoio.ndiRuntimePath \"ndi-runtime\" is refused: it is not an absolute path", row.GetProperty("words").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            engine.VideoIo.Dispose();
+            await engine.DisposeAsync();
+        }
     }
 }

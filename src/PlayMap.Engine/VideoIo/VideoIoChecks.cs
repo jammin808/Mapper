@@ -41,7 +41,7 @@ internal static class VideoIoChecks
                 // Running now, off from the next start: the show's inputs and sends of it will receive and send nothing after a restart.
                 : hub.OffAtNextStart(protocol) is { } off
                     ? new PreflightRow(id, node, Section, $"{name} runtime", Light.Amber, "off at next start", $"{ready} — {off}", FixFor(protocol, hub.Settings))
-                    // Ready, with words (NDI's configuration could not be written): amber, with them.
+                    // Ready, with words (NDI's configuration could not be written, a runtime path refused as relative): amber, with them.
                     : status is { Words.Length: > 0 }
                         ? new PreflightRow(id, node, Section, $"{name} runtime", Light.Amber, "ready", $"{ready} — {status.Words}", "VIDEOIO STATUS")
                         : new PreflightRow(id, node, Section, $"{name} runtime", Light.Green, "ready", ready, null));

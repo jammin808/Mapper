@@ -241,6 +241,9 @@ public sealed class OmtLoopbackTests : IDisposable
         var status = _omt.Status;
         Assert.Equal("ready", status.State);
         Assert.EndsWith(OmtSetup.VmxFileName, status.Path, StringComparison.Ordinal);
+        Assert.True(Path.IsPathFullyQualified(status.Path), status.Path + " is not an absolute path");
+        // Found by the absolute PLAYMAP_VMX_DIR the tests set: nothing was refused, so a ready codec has nothing to say.
+        Assert.Equal("", status.Words);
         Assert.StartsWith("1.0.0.20", status.Version, StringComparison.Ordinal);
         Assert.Contains(_omt.Vmx, new[] { "avx2", "sse42", "neon" });
         var daemon = File.Exists("/run/avahi-daemon/socket") || File.Exists("/var/run/avahi-daemon/socket");

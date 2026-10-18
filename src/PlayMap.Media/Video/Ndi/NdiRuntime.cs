@@ -6,10 +6,12 @@ namespace PlayMap.Media.Video.Ndi;
 
 /// <summary>The NDI® runtime the user installed, loaded at run time — none ships with PlayMap. The first of these that loads wins:
 /// the node's setting (<c>videoio.ndiRuntimePath</c>, a file or a folder), <c>PLAYMAP_NDI_DIR</c>, the runtime's own variable
-/// <c>NDI_RUNTIME_DIR_V6</c>, the exe's folder (only because the user put it there), the standard install folders, then the
-/// system's loader by name. Its exports are bound once as unmanaged function pointers (no marshalling stubs): the ones every node
-/// needs are required, the 6.x extras (source names, advertisers) optional and said in STATE. A runtime is loaded once per process
-/// per file and never unloaded.</summary>
+/// <c>NDI_RUNTIME_DIR_V6</c>, the exe's folder (only because the user put it there), then the standard install folders (Windows'
+/// Program Files, the system's library folders). Every candidate is an absolute path, loaded by that full path: the system's search
+/// by bare name, which on Windows takes in the current directory and PATH, is never asked, and a relative setting or variable is
+/// refused with the words (STATE's <c>videoio.ndi.words</c>), never read against the current directory. Its exports are bound once
+/// as unmanaged function pointers (no marshalling stubs): the ones every node needs are required, the 6.x extras (source names,
+/// advertisers) optional and said in STATE. A runtime is loaded once per process per file and never unloaded.</summary>
 public sealed unsafe partial class NdiRuntime
 {
     public const string DirVariable = "PLAYMAP_NDI_DIR";
@@ -57,7 +59,7 @@ public sealed unsafe partial class NdiRuntime
         Handle = handle;
     }
 
-    /// <summary>The file it was loaded from (or the loader name it was found by).</summary>
+    /// <summary>The absolute file it was loaded from.</summary>
     public string Path { get; }
 
     internal nint Handle { get; }
@@ -74,50 +76,53 @@ public sealed unsafe partial class NdiRuntime
     /// <summary>The library file's name on this platform.</summary>
     public static string FileName => OperatingSystem.IsWindows() ? "Processing.NDI.Lib.x64.dll" : OperatingSystem.IsMacOS() ? "libndi.dylib" : "libndi.so.6";
 
-    /// <summary>Where the runtime is looked for, in order (files; the last is the loader's own search by name).</summary>
-    public static IReadOnlyList<string> Candidates(string configured)
+    /// <summary>Where the runtime is looked for, in order: absolute files only, each loaded by that full path.</summary>
+    public static IReadOnlyList<string> Candidates(string configured) => Search(configured).Files;
+
+    /// <summary>The search for the runtime: the absolute files of <see cref="Candidates"/>, and the words for each of the setting and
+    /// the two variables that was refused because it was not an absolute path.</summary>
+    public static NativeSearch Search(string configured)
     {
-        var list = new List<string>();
+        var files = new List<string>();
+        var refused = new List<string>();
         void Add(string? place)
         {
-            if (string.IsNullOrWhiteSpace(place))
+            // Only an absolute place is looked in: a relative one would be read against the current directory.
+            if (place is null || !System.IO.Path.IsPathFullyQualified(place))
                 return;
             var file = Directory.Exists(place) || !System.IO.Path.HasExtension(place) && !place.EndsWith(".6", StringComparison.Ordinal)
                 ? System.IO.Path.Combine(place, FileName)
                 : place;
-            if (!list.Contains(file, StringComparer.Ordinal))
-                list.Add(file);
+            if (!files.Contains(file, StringComparer.Ordinal))
+                files.Add(file);
         }
-        Add(configured);
-        Add(Environment.GetEnvironmentVariable(DirVariable));
-        Add(Environment.GetEnvironmentVariable(RuntimeVariable));
+        Add(NativePaths.Absolute(configured, "videoio.ndiRuntimePath", refused));
+        Add(NativePaths.Absolute(Environment.GetEnvironmentVariable(DirVariable), DirVariable, refused));
+        Add(NativePaths.Absolute(Environment.GetEnvironmentVariable(RuntimeVariable), RuntimeVariable, refused));
         Add(AppContext.BaseDirectory);
         if (OperatingSystem.IsWindows())
-        {
-            Add(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NDI", "NDI 6 Runtime", "v6"));
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            Add("/usr/local/lib");
+            Add(NativePaths.Under(Environment.SpecialFolder.ProgramFiles, "NDI", "NDI 6 Runtime", "v6"));
+        foreach (var dir in NativePaths.SystemFolders())
+            Add(dir);
+        if (OperatingSystem.IsMacOS())
             Add("/Library/NDI SDK for Apple/lib/macOS");
-        }
-        else
-        {
-            Add("/usr/lib");
-            Add("/usr/local/lib");
-            Add("/usr/lib/x86_64-linux-gnu");
-        }
-        list.Add(FileName);
-        return list;
+        return new NativeSearch(files, refused);
     }
 
-    /// <summary>Loads (once per file) the first runtime of <see cref="Candidates"/> that loads and has every required export, or
-    /// null with the words that say what was searched, why each was refused and where to get the runtime.</summary>
+    /// <summary>Loads the runtime from the <see cref="Search"/> for the setting (<see cref="Load(NativeSearch, out string)"/>).</summary>
     public static NdiRuntime? Load(string configured, out string why)
     {
         ArgumentNullException.ThrowIfNull(configured);
-        var refused = new List<string>();
-        foreach (var candidate in Candidates(configured))
+        return Load(Search(configured), out why);
+    }
+
+    /// <summary>Loads (once per file) the first runtime of the search's files that loads, by its full path, and has every required
+    /// export, or null with the words that say what was searched, what was refused and why, and where to get the runtime.</summary>
+    public static NdiRuntime? Load(NativeSearch search, out string why)
+    {
+        ArgumentNullException.ThrowIfNull(search);
+        var refused = new List<string>(search.Refused);
+        foreach (var candidate in search.Files)
         {
             lock (Gate)
             {
@@ -127,13 +132,11 @@ public sealed unsafe partial class NdiRuntime
                     return known;
                 }
             }
-            var byName = !System.IO.Path.IsPathRooted(candidate);
-            if (!byName && !File.Exists(candidate))
+            if (!File.Exists(candidate))
                 continue;
             if (!NativeLibrary.TryLoad(candidate, out var handle))
             {
-                if (!byName)
-                    refused.Add($"{candidate} would not load");
+                refused.Add($"{candidate} would not load");
                 continue;
             }
             var runtime = new NdiRuntime(candidate, handle);
@@ -156,10 +159,9 @@ public sealed unsafe partial class NdiRuntime
             why = "";
             return runtime;
         }
-        var searched = string.Join(", ", Candidates(configured).Where(System.IO.Path.IsPathRooted));
-        why = $"the NDI runtime was not found (searched {searched} and the system's library path"
+        why = $"the NDI runtime was not found (searched {string.Join(", ", search.Files)}"
             + (refused.Count > 0 ? "; " + string.Join("; ", refused) : "")
-            + $") — install the NDI 6 runtime from {Link} ({RedistLink}) and set {DirVariable} to its folder";
+            + $") — install the NDI 6 runtime from {Link} ({RedistLink}) and set {DirVariable} to its folder, an absolute path";
         return null;
     }
 
