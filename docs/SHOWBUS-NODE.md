@@ -13,13 +13,17 @@ Every 2 s a hello to UDP 9928 (broadcast and loopback; never on Patterns' own be
 {"t":"playmap","v":1,"proto":1,"id":"a1b2c3d4","name":"Stage left","host":"RENDER-01","web":9940,"wire":9941,
  "ports":{"http":9940,"https":9940,"wire":9941,"ws":9940},
  "caps":["video","video.clock","video.transport","video.seek","video.end","state","context","receipts","clock","mcp",
-         "playlist","media","mapping","scan"],
- "clock":1760101234567,"inst":"0badc0de","tls":"sha256:…"}
+         "playlist","media","mapping","scan","eye","show"],
+ "clock":1760101234567,"inst":"0badc0de","tls":"sha256:…","build":"0.2.0+17.abc1234"}
 ```
 
 - `t` is neither `patterns` (Patterns hides other Patterns) nor `main` (Patterns would dial it as Stagewatch).
 - Stagewatch's strict reader is honoured: ≤ 2048 bytes, `v` 1, `t` ≤ 16 and `id` ≤ 40 characters, ≤ 16 caps.
 - Top-level `web` and `wire` ride beside `ports` for older readers.
+- `build` is the build the node runs, its whole identity in SemVer (`0.2.0+17.abc1234` from CI, `0.2.0-dev+abc1234` from a
+  local build), the same string as HEALTH's `build` and MCP's server info, so a peer tells builds apart before it connects.
+  A reader that knows no `build` ignores it; PlayMap's reader keeps at most 64 characters of SemVer's alphabet and drops any
+  other value, keeping the rest of the hello.
 - It shows up today as a grey "playmap" node on Stagewatch's Show network and on Patterns' Nodes page and Eye.
 
 PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and the Stagewatch it is pointed at

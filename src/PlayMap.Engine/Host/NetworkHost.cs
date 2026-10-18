@@ -899,7 +899,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             WirePort = _wire?.Port ?? 0,
             SyncPort = _responder?.Port ?? s.SyncPort,
         };
-        return HelloService.PlayMapHello(advertised, _o.Wall.UnixMs, _web is not null ? _o.Tls?.Fingerprint : null);
+        return HelloService.PlayMapHello(advertised, _o.Wall.UnixMs, _web is not null ? _o.Tls?.Fingerprint : null, build: _engine?.Services.Build);
     }
 
     private ShowBusPeer? FindPeer(string idOrName) =>
