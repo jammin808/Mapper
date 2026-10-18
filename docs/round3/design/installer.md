@@ -73,9 +73,10 @@ the last fee-free binary line, has had no community security fixes since Februar
   WiX issue is filed.
 - The first day is M17's time-box: the tag built, a test MSI with a `ServiceInstall`, a `MajorUpgrade` and a firewall rule installed,
   upgraded and uninstalled quietly on the runner, the build's minutes and the cache's size recorded, and whether the self-built tool
-  still asks for the EULA gesture (if it does, the gesture is never passed — accepting the EULA makes the fee due on revenue of
-  US$10 000 or more — and the fallback below builds the installer, `PLAN.md` §9 decision 3).
-- If the toolset does not build within the day, or asks for the gesture, Inno Setup 7.1 (its licence allows any use; a commercial user
+  still asks for the EULA gesture (if it does, the gesture is never passed — PlayMap accepts no WiX agreement, and the EULA does not
+  bind a tool built from its source — and a one-line patch to the pinned source answers the check, kept with the pin and published
+  under MS-RL; only if no patch holds does the fallback below build the installer, `PLAN.md` §9 decision 3).
+- If the toolset does not build within the day, or asks for the gesture and no patch holds, Inno Setup 7.1 (its licence allows any use; a commercial user
   above US$5 000 revenue is asked, not required, to buy a licence — a request the owner may meet, and nothing in the build depends on
   it, `PLAN.md` §9 decision 3) builds a 64-bit installer instead:
   every machine-level action of §3 through the supervisor's own commands (`install`, `uninstall`, `grant`, `revoke`,
@@ -264,7 +265,7 @@ edition cannot defer updates"); the build unsigned (grey, **i**).
 | `MsiVersionTests` | both | §1's table; a major or minor of 256 refused; build 0 refused; a lower version than the last release refused with "raise MINOR" |
 | `PreinstallCheckTests` | both (the decision pure; on Windows against fake engines) | no engine process → go on; an engine answering armed → refused with its words; disarmed → go on; **an engine process alive but silent → refused**, naming its pid; a pid file whose process is gone → go on |
 | `VersionPropsTests` | both | a build of 256.0.0 fails with the words; a numbered build sets `PlayMapMsiVersion` |
-| `WixSourceTests` | Windows | the restored `WixToolset.Sdk` and extensions come from the local feed, their hashes the cached build's; no other source serves `WixToolset.*` |
+| `WixSourceTests` | Windows | the restored `WixToolset.Sdk` and extensions come from the local feed, their hashes the cached build's; no other source serves `WixToolset.*`; no `AcceptEula` property, `-acceptEula` argument or `wix eula accept` step anywhere in the installer's files, the `Directory.Build.*` files or its CI block, and the MSI builds with none (no WIX7015 in its log) |
 | `InstallerTests` | Windows (elevated) | the MSI builds (from `installer/PlayMap.Installer.wixproj`, outside `PlayMap.sln`); with Smart App Control's state set to evaluating (a test property), a quiet install completes and its log carries the warning's words; the FFmpeg it carries hashes to CI's LGPL pin; a quiet install lays the files, the service with its recovery actions, the firewall rules, the WER values, the registry key; the previous build's MSI (built in the job with a lower build number) upgrades to this one and keeps the node's settings; a downgrade refused with words; a low build refused by the launch condition (a test property); an uninstall removes all but the node's data; with a fake engine on loopback answering armed, the install stops with its words; with a fake engine process that never answers, it stops with "does not answer"; a standard user binds 9940 |
 | `SupervisorTests` | both | `SupervisorCore` on a manual clock: the backoff, the frozen-engine rule (and not on a slow HEALTH while frames move), the rule inactive while `ShownFrames` is −1, `starting` and `rebuilding` exempt within the budget and frozen past it, the five-in-ten-minutes stop, re-adoption, the dump manifest (with its stretch); on Windows the service installs, starts and stops |
 | `SessionStartProbe` | Windows (a probe, not a gate) | M9's calls on the runner, whose job runs in an interactive session: `WTSGetActiveConsoleSessionId`, `WTSQueryUserToken` and `CreateProcessAsUser` of a child that reports its session id; the answer in the job's summary, L11 the proof |
@@ -282,9 +283,11 @@ edition cannot defer updates"); the build unsigned (grey, **i**).
   for every decode test, so the tests run on the libraries the MSI carries, and `LicenceTests` check the MSI's copy against that
   hash.
 - **WiX from its source** may not build on the runner within its day, or may still ask for the fee's EULA gesture (M17): Inno Setup
-  is the measured fallback, and the gesture is never passed (`PLAN.md` §9 decision 3). No free installer is cheaper than the self-built
-  toolset, and none of them builds an MSI: Inno Setup and NSIS build EXEs, MSIX needs a signature, Velopack and Squirrel install no
-  services (`research/installer_tools.md` §3).
+  is the measured fallback, and the gesture is never passed: a one-line patch to the pinned source answers the check first (`PLAN.md`
+  §9 decision 3). No free installer is cheaper than the self-built toolset, and none fits the node better: Inno Setup and NSIS build
+  EXEs, MSIX needs a signature, Velopack and Squirrel install no services, WixSharp still runs a WiX toolset, Visual Studio's
+  Installer Projects build only inside the IDE, and writing the MSI's tables directly is weeks of a generator PlayMap would own
+  (`research/installer_tools.md` §3).
 - **Unsigned builds** meet SmartScreen's prompt on every download and Smart App Control's block where it enforces (`PLAN.md` R23),
   which no word of PlayMap's can reach: the release page and `docs/INSTALL.md` say so before the download and give the steps, and in
   evaluation the MSI's warning page and preflight say it on the machine.

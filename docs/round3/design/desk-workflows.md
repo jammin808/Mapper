@@ -53,7 +53,7 @@ inspector one click away.
 | Area | Who it is for | What it holds | How it is reached |
 |---|---|---|---|
 | **Workflows home** (Simple's landing; a pane in Pro) | a person setting up a standard job | a card per guide — Blend two projectors, Stack two projectors, Stack and blend four, Map a video onto a wall, Map an object, First light, Facade — each with its state from STATE `guides` ("Front screen · corners · 4 of 7"), Resume and Start (`GUIDE <kind> <subject> BEGIN`) | the Guides menu, the empty view's right-click, the palette, Simple's start |
-| **A guide** | the same | the step rail docked at the left, the live view in the centre (the projector view, the 3D view or the wall's overlay), the step's object's inspector at the right showing only the fields the step uses, each step with **Do it**, **By hand**, **Ask**, **Explain** and, for a step a person judges, **Check** | a card, the object's right-click (each step is re-entered from the object it is about), the palette |
+| **A guide** | the same | the step rail docked at the left, the live view in the centre (the projector view, the 3D view or the wall's overlay), the step's object's inspector at the right showing only the fields the step uses, each step with **Do it**, **By hand**, **Ask**, **Explain** and, for a step a person judges, **Check** | the Guides menu (each guide, and each of its steps, acting on the selection), a card, the object's right-click (each step is re-entered from the object it is about), the palette |
 | **Pro** | an operator who knows the tools | every pane, the outliner, the full inspectors, every card and drawer, the advanced panes (below), the generated entries | Ctrl+Shift+P, the View menu |
 | **The advanced panes** (Pro) | an operator who programs a show's looks and controls | the effects chain editor, the modulation and bindings pane, and an area pane per advanced STATE block (below) | the Window menu, the object's right-click, the palette |
 | **The console** (the programming area, Pro) | a programmer | a line editor with completion from `VerbSyntax`, each reply under its line, the history, "Copy line" from any menu entry or control; the journal beside it (`EVENTS`); scripts — named lists of lines run through the gate — as desk-shell's first stretch | the Window menu, Ctrl+` |
@@ -77,7 +77,7 @@ and menus are the same in both. "Open in Pro" on any guide step shows the whole 
 blind draft, Show Mode, the locks) and then to the node as the same line a button sends; the desk has no private API, so nothing
 typed there can do what a button cannot. A row that carries a secret (`CREDENTIAL SET`, `LINK PATTERNS` with a token, `PAIRING`)
 is refused in the console and in the palette with "type secrets in Network ▸ Links", and nothing of what was typed is kept in the
-history. Typing a line by hand is new on the desk (`docs/DESK.md` says "the desk has no line typed by hand"): the owner keeps the console
+history. Typing a line by hand is new on the desk (`docs/DESK.md` says "the desk has no line of its own to type"): the owner keeps the console
 (`PLAN.md` D11, §9 decision 22), and nothing is reached only through it.
 
 | Test (App, headless) | Holds |
@@ -218,8 +218,8 @@ The guides are the assistant's way into every workflow, as they are the desk's:
 - STATE `guides` lists every guide begun (kind, subject, the next step, how many of how many, its light); the context carries one
   item per guide (kind `guide`, "Flat blend · Front: corners, 4 of 7"), so Patterns' Eye and a peer's assistant see where a
   setup stands. The Eye keeps the first 64 of a context's commands today, which are the air's, so it sees a guide's state but
-  cannot propose its lines until Patterns keeps the 256 the owner asks for, which hold every command PlayMap lists (`PLAN.md` §9
-  decision 18); an assistant on the node, or over MCP, reaches them all.
+  cannot propose its lines until Patterns keeps at least 256 of a context's commands, the owner's figure, or no cap, either of
+  which holds every command PlayMap lists (`PLAN.md` §9 decision 18); an assistant on the node, or over MCP, reaches them all.
 
 The planners are pure functions of the project and the node's facts (`Core/Workflows`), so the same project gives the same steps on
 the desk, over MCP and in a test; they write nothing, and the guide's progress is the project itself, with the begun guides and the
@@ -250,7 +250,8 @@ the assistant to say, from those, why the step stands as it does ("P2's top-righ
 found; the seam's misregistration is 0.8 px at p95; the blend is automatic from the 288 px overlap"); with the assistant off, the
 desk shows the step's own words and `StateExplainer`'s, which need no model. No picture is sent to a model in the must; a still of a
 view for a model that reads pictures, on the machine or off it (`PLAN.md` §9 decision 19), is workflows' stretch: off by default,
-turned on by a person in the assistant's settings with the provider it goes to named; one view's picture (an output, the stage, a
+turned on by a person on the node or its paired desk with `ASSISTANT SET stills on` (high; refused from an assistant, an MCP client
+or an approval, as every `ASSISTANT SET`), the provider it goes to named in `ASSISTANT STATUS`; one view's picture (an output, the stage, a
 projector or a scan view, never the desk's window, so no form, token or invite is in it) at the preview's size; each still journalled
 by view, size, time and provider, never its pixels (`AssistantStillTests`).
 
@@ -500,7 +501,8 @@ has no canvas or layer editor (the flat guide's Span step adds the canvas's, wor
 ### 9.1 One action table, three doors
 
 The desk's actions (`DeskAction`, each naming its line) are one table, reached three ways: the **menu bar** (File, Edit, View, Map,
-Output, Show, Guides, Window, Help), the **Ctrl+K palette** (deterministic ranking, each entry with its shortcut, its menu path and its
+Output, Show, Guides, Window, Help; each at most 15 entries at its top level, the catalogue's rows in submenus by category, acting on
+the selection where a row names an object; Window ▸ Cards ▸ <block> opens each STATE block's cards), the **Ctrl+K palette** (deterministic ranking, each entry with its shortcut, its menu path and its
 line [UX P4]; text that matches no verb becomes `ASK`), and the **right-click menu** of the object it is about. The gate's door words
 and the held rules are the action's, wherever it is pressed: a line a Companion key holds is held to confirm on the desk, except
 `VIDEO STOP`, `PANIC CLEAR` and `MASTER`, which the desk sends at every press with the air's controls (the owner's call 7).
@@ -510,8 +512,9 @@ and the held rules are the action's, wherever it is pressed: a line a Companion 
 Each object's right-click menu is built from the catalogue: every row whose syntax names the object's kind as a placeholder
 (`<surface>`, `<output>`, `<projector>`, `<pin>`, `<playlist>`, `<canvas>`, `<viewpoint>`, `<input>` …) is an entry for that kind, its
 other values filled from the object, offered as a submenu where they are enumerable (a syntax's alternatives, kinds the node lists,
-ids in the project), or, where they are free (a number, a file, a name), opened in the palette with the line written up to the first
-free value. Hand-built entries keep their order and words where they read better; the catalogue is the coverage. Microsoft's rules
+ids in the project), or, where they are free, taken in the entry's own field — the inline scrub-and-type row for a number (§9.3), a file
+picker for a file, a name field for a name — and sent as its line; the palette offers the same entry, its line written up to the
+first free value. Hand-built entries keep their order and words where they read better; the catalogue is the coverage. Microsoft's rules
 hold [ux §3.2]: only the object's commands, the default first, at most 15 at the top level (the rest grouped by category), an entry
 that never applies to the kind hidden — and one refused now shown greyed with the node's words, which tells the truth about the
 attempt. Empty 3D space and empty plan space get menus (add a surface, a projector, an output; paste; the view's options).
@@ -527,15 +530,18 @@ radial menu in MAP (at most eight entries: quad, select, pin, lattice, mask, on 
 ### 9.4 The rule's test
 
 `MenuCoverageTests` (App, headless, every fixture loaded): every catalogue row the desk may send — not internal, not node-to-node —
-is reachable without typing: from the menu bar, acting on the selection where the row names an object, and from a right-click menu
-of the kind its first placeholder names, the palette searching the same entries (the owner: "all commands and features should be
-available through the UI or menu system", `PLAN.md` §9 decision 22); a secret-bearing row is reached as a menu entry that opens its form (Network ▸ Links, the credential form), never
-as a line, and the test asserts that door for each; every right-click entry, every `DeskAction` and every shortcut of `ShortcutMap`
-(the loupe's L, zoom, Keep quad tool, Reset layout, Simple/Pro, dim among them) is also in the menu bar ("never only in a
-context menu", nor only on a key, in the palette or in the console); every STATE block's cards open from a menu entry (Window ▸ its
-pane, or its object's right-click); no top-level menu over 15 entries; every entry's line parses (`VerbSyntax`) and passes
+is reached without typing a line (the owner: "all commands and features should be available through the UI or menu system",
+`PLAN.md` §9 decision 22): from the menu bar, acting on the selection where the row names an object, and, where its first
+placeholder names an entity, from the right-click menu of that kind (a row with no entity placeholder is reached from the menu bar),
+the palette searching the same entries; a free value is taken in the entry's own field (§9.2), never by finishing a line in the
+palette; a secret-bearing row is reached as a menu entry that opens its form (the Window menu's Network ▸ Links, the credential
+form), never as a line, and the test asserts that door for each; every right-click entry, every `DeskAction` and every shortcut of `ShortcutMap`
+(the loupe's L, zoom, Keep quad tool, Reset layout, Simple/Pro, dim among them) is also in the menu bar, by Microsoft's
+rule ("never only in a context menu" [ux §3.2]), nor only on a key, in the palette or in the console; every STATE block's cards open from a menu entry (Window ▸ its
+pane once desk-map's area panes exist, Window ▸ Cards ▸ <block> before, or its object's right-click); no menu, of the bar or a
+right-click, over 15 entries at its top level, the rest in submenus by catalogue category; every entry's line parses (`VerbSyntax`) and passes
 `DeskVerbRuleTests`' rules; a held row is held wherever it is pressed but for the three the owner's call keeps. It lets off no row: a
-row no menu reaches fails the merge that adds it, unless the owner signs it off by name in `docs/DESK.md`'s list, which the test reads
+row missing from the menu bar, or from its object's right-click menu where it names one, fails the merge that adds it, unless the owner signs it off by name in `docs/DESK.md`'s list, which the test reads
 and which starts empty.
 
 `InteractiveMenuTests` (App, headless): a long menu's filter narrows it to the entries whose words match; a number's inline row sends
