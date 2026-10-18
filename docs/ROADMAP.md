@@ -35,8 +35,8 @@ The lab checks still to do:
   counts per GPU; per-output latency on displays of different lag; a precise Windows thread time — the time-stamp counter's
   frequency from the platform, never a rate measured against the stopwatch, and a thread's cycles at it against its work — on bare
   metal and on a Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), with round 3's platform
-  package (until then a Windows thread time is its clock ticks, and the survey slice's budget is proven by the ticks or the
-  stopwatch, docs/FACADE.md).
+  package (L22; until then a Windows thread time is its clock ticks, and the survey slice's budget there is proven by the stopwatch
+  and shown, not proven, by the ticks, docs/FACADE.md).
 - Runtimes and SDKs loaded at run time: a real NDI runtime (the user's own install); the NVAPI tier on a sync board.
 - Devices: a real projector, and a Panasonic's answers to the double-correction guard's reads; a real camera scan (from one place
   or many, through a capture camera, a phone or a tethered camera's folder), a camera re-solve and a colour match through a real
@@ -59,6 +59,12 @@ The lab checks still to do:
 - The desk's throttle sends what it coalesced to the link it holds when it flushes, so a line queued just before the desk attaches
   to another node goes to that node.
 - CALIBRATION HISTORY names no `standsAs` per row, so the desk offers a Recall the node refuses.
+- On Windows the survey import's lane slice is proven by the stopwatch alone: a tick read bounds a slice the lane thread ran in one
+  stretch with no tick charged to an interrupt, so a slice the stopwatch reads over the budget passes on its ticks unproven, and
+  the Perf twin's 10 ms fails on a stall inside a slice; the Windows job has not yet run the tick measure. A precise Windows thread
+  time (L22) closes it.
+- A node's first survey import holds the lane 12 to 22 ms in its slices in a Debug build (their first-call compilation), past the
+  10 ms slice; Release is not measured cold.
 - Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - `PANIC REWIND` publishes its lane as Cued before it writes the panic's journal row, so a reader that sees Cued can read the
   journal without it; `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads it at once and failed one gate run on that.

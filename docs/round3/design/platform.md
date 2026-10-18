@@ -129,6 +129,12 @@ pool is not claimed. The optimise worker and the shader worker are processes tha
 - Stamps stay QPC (`Stopwatch`, `MonoClock`); wall-clock stamps that cross machines use `GetSystemTimePreciseAsFileTime`, as the
   clock's sync already does.
 - The timer's lateness (p99 of the last 1 000 waits) is in STATE; a p99 over 1 ms is amber in preflight.
+- A thread's own time (`ThreadTime`) on Windows is its kernel and user time in clock ticks (`GetThreadTimes`, 15.625 ms by
+  default), which bounds a span's work only for a span the thread ran in one stretch with no tick charged to an interrupt or a DPC;
+  its cycles are not converted at a rate measured against the stopwatch (Windows leaves interrupt time out of them, and the rate
+  moves with the machine's load). L22 measures a precise read: a thread's cycles at the time-stamp counter's frequency from the
+  platform against its running time, with Memory Integrity on and off, and the ticks' step under the claims of §2 (the timer
+  resolution honoured, the high-resolution timer). The read changes only with that record.
 
 ## 5. The node's identity and capabilities
 

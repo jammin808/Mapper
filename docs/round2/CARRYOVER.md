@@ -268,7 +268,7 @@ Round 2 W1 notes:
   (`ScanEngineTests.TheNextScanStartedTheMomentOneEndsIsNotRefusedAsRunning`); the phone camera's 5 s and 10 s waits run on the
   hub's clock (`PhoneAlignTests`, `ResolveCameraTests`); the survey import's lane slice is the work the lane thread did in it, its
   own processor time on Linux and macOS, read in the step the CPU clock states (`ThreadTime`, `ThreadTimeTests`); Windows is
-  settled below.
+  open below.
 - Done, off the CPU jobs fix-tests3 left on the pool: the stage's automatic blend, thumbnails' conversion and
   encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' still and scan pictures, a probe's first-frame
   decode, the site preflight check and ONNX inference with its pixel work run on the compute threads (`Compute.RunAsync`;
@@ -305,36 +305,55 @@ Round 2 W1 notes:
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
   holds, and the pause stays pending with no "paused at frame" row while STATE says held (the fact). A worker that says every let-go
   it takes, even one taken back before its thread ran, closes it.
-- Done on Windows: the survey slice's budget is proven by two measures. `ThreadTime` reads the lane thread's kernel and user time
-  (`GetThreadTimes`), which Windows charges in whole clock ticks (`ResolutionNs` the system's clock increment from
+- Open on Windows: the survey slice's budget is proven there only by the stopwatch. `ThreadTime` reads the lane thread's kernel and
+  user time (`GetThreadTimes`), which Windows charges in whole clock ticks (`ResolutionNs` the system's clock increment from
   `GetSystemTimeAdjustment`, 15.625 ms by default); it is never precise there, and `Basis` says so and why the thread's cycles are
-  not converted. Each slice is timed by the stopwatch too, and the survey view carries both: `LaneMaxMs` (the longest slice by the
-  lane thread's time), `LaneResolutionMs` (that clock's step), `LaneMaxWallMs` (the longest by the stopwatch, which never reads
-  below the work done in it) and `LaneSlices`. A slice's work is within its thread time plus the step (in ticks, a tick for each
-  stretch the thread ran it in) and within its stopwatch time, so `SurveyImportTests` (4 × 10 ms) and `SurveyImportPerfTests`
-  (10 ms, run alone) pass where `LaneMaxMs + LaneResolutionMs` or `LaneMaxWallMs` is within the budget, and fail with both readings,
-  the step and `Basis` where neither is. On Linux the CPU clock proves both budgets; on Windows a tick read of none or one, plus a
-  tick, is within the regular test's 40 ms, and the twin's 10 ms, shorter than a tick, is proven by the stopwatch alone.
+  not converted. Each slice is timed by the stopwatch too, and the survey view carries `LaneMaxMs` (the longest slice by the lane
+  thread's time), `LaneResolutionMs` (that clock's step), `LaneMaxWallMs` (the longest by the stopwatch, which never reads below the
+  work done in it), `LaneMaxBoundMs` (the longest by each slice's lesser reading, its thread time plus the step or its stopwatch
+  time), `LaneMaxPauseMs` (the most the collections paused the process within a slice) and `LaneSlices` (`SurveyJobViewTests`).
+  `SurveyImportTests` (4 × 10 ms) and `SurveyImportPerfTests` (10 ms) hold `LaneMaxBoundMs` to their budgets and fail with every
+  reading, the step, the pause and `Basis`, and log what a pass stands on. On Linux the CPU clock proves both. On Windows the
+  stopwatch proves a slice it reads within the budget, and a tick read bounds only a slice the lane thread ran in one stretch with
+  no tick charged to an interrupt or a DPC: a slice broken into k stretches reads within k ticks of its work, and a tick that finds
+  the processor in an interrupt handler or a DPC is charged to the processor. So a slice the stopwatch reads over 40 ms that passes
+  the regular test on its ticks plus a tick is shown, not proven, and the twin's 10 ms, shorter than a tick, rests on the stopwatch
+  alone: a stall inside a slice (a collection, a page brought in, another thread's turn) fails it, with its readings and the
+  collections' pause. Both tests run in `SurveyPerfCollection` (`DisableParallelization`), so both run alone, after the parallel
+  tests; the twin differs from the regular test in asking no SITE and holding no 2 M-triangle original. Here (Linux, Debug, warm),
+  a slice holds 0.4 to 1.4 ms of the lane thread's time and 0.6 to 1.8 ms by the stopwatch, and, where measured, no collection
+  paused the process inside one.
   `ThreadTimeTests` take the measure from their own reading of the platform: on Windows the ticks, not precise, each read allowed
-  the tick it states, and still refusing the stopwatch (a thread blocked 50 ms counts at most one tick; a spinning thread counts
-  half to 1.1 times its span, within a tick). The node converts no thread's cycles. The evidence, from the windows-latest runner (a Hyper-V guest,
-  Windows 10.0.26100 x64, 4 vCPUs, the invariant-TSC bit visible): run 306, which timed the slice by the stopwatch, failed the
-  regular test at 42.62 ms against its 40 ms ceiling while the twin (10 ms, run alone) passed; fdef0b3's tick read then passed the
-  regular test, but a tick read cannot verify the twin's 10 ms (it passed run 307 only because no slice was charged a tick). The
-  thread's cycles (`QueryThreadCycleTime`) converted at a rate measured once, from 16 spins of about a millisecond against the
-  stopwatch, failed in turn: in run 308 the freshness rule refused the clock in Core's process (an equal back-to-back pair now and
-  then) while the Engine's process used it; a probe (run 309, alone) found back-to-back reads about 260 cycles apart, the count
-  current at each read, 1 ms spins at 2.57 to 2.596 cycles a nanosecond, and 0 to 77 of 2000 pairs equal by thread; in run 310 the
-  agreement gate ("only 2 of 16 spins … within 1% of the fastest") refused it in both processes; and in run 311, without that gate,
-  `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait` failed: the calibration's fastest spin counted 2.153 cycles a nanosecond
-  (0.46455 ns a cycle, 8 of 16 spins agreeing), and a later spin in the same process counted 2.439 ("spun 10.00 ms of the stopwatch,
-  counted 11.33 ms"; blocked 50.0 ms, counted 37.7 µs). On that guest a thread's cycles a stopwatch nanosecond move by more than 15%
-  with the machine's load (Windows leaves interrupt time out of a thread's cycles, and a guest's interrupt and host load vary), so
-  no rate measured once converts them to within the 10% the tests and a 10 ms budget need.
+  the tick it states; a thread blocked 50 ms counts at most one tick, so the stopwatch is refused; a spinning thread counts at most
+  1.1 times its span plus a tick, and a spin of eight ticks (125 ms) at least half its span less a tick (three ticks), so a measure
+  that charges a spin nothing, or only its kernel time, is refused. The node converts no thread's cycles. The Windows job has not
+  yet run the tick measure: it is observed when that job passes `ThreadTimeTests` and both slice tests with `Basis` and every
+  reading in the trx, and the tick half proves a slice when the lab item below gives a precise clock. The evidence so far, from the
+  windows-latest runner (a Hyper-V guest, Windows 10.0.26100 x64, 4 vCPUs, the invariant-TSC bit visible): run 306, which timed
+  the slice by the stopwatch, failed the regular test at 42.62 ms against its 40 ms ceiling while the twin passed, in the same
+  serial collection; fdef0b3's tick read then passed the regular test, but a tick read cannot verify the twin's 10 ms (it passed run
+  307 only because no slice was charged a tick). The thread's cycles (`QueryThreadCycleTime`) converted at a rate measured once,
+  from 16 spins of about a millisecond against the stopwatch, failed in turn: in run 308 the freshness rule refused the clock in
+  Core's process (an equal back-to-back pair now and then) while the Engine's process used it; a probe (run 309, alone) found
+  back-to-back reads about 260 cycles apart, the count current at each read, 1 ms spins at 2.57 to 2.596 cycles a nanosecond, and 0
+  to 77 of 2000 pairs equal by thread; in run 310 the agreement gate ("only 2 of 16 spins … within 1% of the fastest") refused it
+  in both processes; and in run 311, without that gate, `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait` failed: the
+  calibration's fastest spin counted 2.153 cycles a nanosecond (0.46455 ns a cycle, 8 of 16 spins agreeing), and a later spin in
+  the same process counted 2.439 ("spun 10.00 ms of the stopwatch, counted 11.33 ms"; blocked 50.0 ms, counted 37.7 µs). On that
+  guest a thread's cycles a stopwatch nanosecond moved by 13% within one process (2.153 to 2.439) with the machine's load (Windows
+  leaves interrupt time out of a thread's cycles, and a guest's interrupt and host load vary), so no rate measured once converts
+  them to within the 10% the tests and a 10 ms budget need. Counting a slice's stretches would not close it: a thread's context
+  switches are read from the system's process list (`NtQuerySystemInformation`), which lists every thread on the machine, too heavy
+  a read for the lane, and a tick an interrupt or a DPC takes is lost inside one stretch.
 - Open, lab: a precise Windows thread time needs the time-stamp counter's frequency from the platform, not a rate measured against
   the stopwatch. It is measured in the lab, with a thread's cycles at that frequency against its work, on bare metal and on a
-  Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition): round 3's platform package
-  (wp3-platform, docs/ROADMAP.md).
+  Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), and the ticks' step checked under the
+  node's own timer claims: round 3's platform package (wp3-platform, L22 in docs/round3/PLAN.md §7; docs/ROADMAP.md).
+- Open: a node's first survey import holds the lane longer than the 10 ms slice. Its slices compile the lane's import path: in a
+  Debug build here they hold 12 to 22 ms of the lane thread's time (12.48 ms, and 14.49 ms by the stopwatch, run alone in a fresh
+  process; 22.22 ms on a loaded machine), and an import after it about 1 ms. `SurveyImportPerfTests` measures an import after a
+  small one has compiled the path, and logs the small one's slices; the regular test holds a first import to its 40 ms ceiling.
+  Release is not measured cold; ReadyToRun or a pre-roll (round 3's M13) bears on it.
 - Open: `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued before `RunStep` writes the
   panic's journal row ("panic … cued A"), so a reader that sees Cued can read the journal without the row.
   `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the journal the moment it sees Cued, and failed one Engine run of

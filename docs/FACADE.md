@@ -23,18 +23,23 @@ EPSG system to another is refused (that is a reprojection).
 apply), each slice timed into the import's view by two measures. One is the work the lane thread did in it (`ThreadTime`: the
 thread's own processor time, never the time a loaded machine gave others; the view's `LaneMaxMs`, the longest slice by it) beside
 the step that clock moves in (`LaneResolutionMs`). Linux and macOS read the thread's CPU clock, precise in the step it states (1 ns
-on Linux; `clock_getres` on macOS). Windows reads the thread's kernel and user time (`GetThreadTimes`), which it charges in whole
-clock ticks (15.625 ms by default), a tick to the thread a clock interrupt finds running, so a stretch the thread runs unbroken
-reads within a tick of its work; it is not precise, and `Basis` says so and why the thread's cycles are not converted: Windows
-leaves interrupt time out of them, so their rate against the stopwatch moves with the machine's load (by more than a tenth on a
-Hyper-V guest), and no rate measured once converts them. The other is the stopwatch (`LaneMaxWallMs`): the slice's span, which holds
-its work and whatever else the machine did meanwhile, and never reads below the work. Each bounds a slice's work from above
-(Windows' ticks to a tick for each stretch the thread ran the slice in), so a slice held the lane for no more than a budget where
-its thread time plus the step, or its stopwatch time, is within it. The slice budget's tests prove their budgets so, and a slice
-proven by neither fails with both readings, the step and `Basis`: on Linux the CPU clock proves them; on Windows a slice read as no
-tick or one, plus a tick, is within the regular test's 4 × 10 ms, and the Perf twin's 10 ms, shorter than a tick, is proven by the
-stopwatch, which in a test run alone reads the slice's work and little else. How long the lane answers meanwhile is measured as such
-(SITE's latency).
+on Linux; `clock_getres` on macOS), so a slice's work is within its read plus the step. Windows reads the thread's kernel and user
+time (`GetThreadTimes`), which it charges in whole clock ticks (15.625 ms by default), a tick to the thread a clock interrupt finds
+running; it is not precise and bounds no slice's work from above: a stretch the thread runs unbroken reads within a tick of its
+work, and a tick further under for each clock interrupt that finds the processor in an interrupt handler or a DPC (Windows charges
+that tick to the processor), and a slice broken into k stretches reads within k ticks of it. `Basis` says so, and why the thread's
+cycles are not converted: Windows leaves interrupt time out of them, so their rate against the stopwatch moves with the machine's
+load (by more than a tenth on a Hyper-V guest), and no rate measured once converts them. The other is the stopwatch
+(`LaneMaxWallMs`): the slice's span, which holds its work and whatever else the process and the machine did meanwhile, and never
+reads below the work. The view takes each slice by the lesser of the two, its thread time plus the step or its stopwatch time, and
+keeps the longest (`LaneMaxBoundMs`), beside the most the runtime's collections paused the process within a slice
+(`LaneMaxPauseMs`), which names a stall a slice's stopwatch time holds. The slice budget's tests hold `LaneMaxBoundMs` to their
+budgets and fail with every reading, the step, the pause and `Basis`. That proves a budget where the thread's time is precise, as on
+Linux, or where the stopwatch reads every slice within it. On Windows a slice the stopwatch reads over the regular test's
+4 × 10 ms passes on its ticks plus a tick, which shows the budget and does not prove it; the Perf twin's 10 ms, shorter than a tick,
+is proven by the stopwatch alone, so a stall inside a slice (a collection, a page brought in, another thread's turn) fails it
+there. The twin measures an import after the lane has compiled the import's path; a node's first import compiles it in its slices.
+How long the lane answers meanwhile is measured as such (SITE's latency).
 The result lands as one edit, so one UNDO takes the whole import back.
 
 - **Meshes** (OBJ, PLY, glTF): rebased as read, then decimated to the triangle budget by quadric edge collapse. A collapse keeps one of

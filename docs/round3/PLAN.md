@@ -523,7 +523,9 @@ wp3-d3d12-passes' own file.
 
 **Verified here.** Policy, placement, verbs, STATE, preflight, against fakes. **On CI (Windows).** Every call answers, read back
 where the Server SKU allows. **Manual (lab).** L10: p99.9 frame time with and without each claim on an NVIDIA, an AMD and an Intel
-machine — the measured cause that turns each default on or off; a hybrid Intel CPU's placement; a dual-CCD X3D CPU.
+machine — the measured cause that turns each default on or off; a hybrid Intel CPU's placement; a dual-CCD X3D CPU. L22: a precise
+Windows thread time — a thread's cycles at the time-stamp counter's frequency from the platform against its running time, with
+Memory Integrity on and off, and the ticks' step under the node's own timer claims.
 
 **Next round.** Core reservation, large pages for frame pools, a pre-roll measured against NativeAOT (M13).
 
@@ -1633,7 +1635,7 @@ missing is said in the round's papers as not run, never as passed.
 
 | Machine or rig | Lines | Status |
 |---|---|---|
-| Two RTX PRO nodes with RTX PRO Sync, four outputs each, a house-sync generator at 59.94 Hz | L1, L2, L5, L6, L9, L10, L14, L15, L21 | to confirm |
+| Two RTX PRO nodes with RTX PRO Sync, four outputs each, a house-sync generator at 59.94 Hz | L1, L2, L5, L6, L9, L10, L14, L15, L21, L22 | to confirm |
 | A GeForce RTX node | L1, L2, L4, L8, L16, L17 | to confirm |
 | A Radeon RDNA 3 or 4 node | L1, L2, L7, L9, L10, L15, L20 | to confirm |
 | An Intel Arc node; a hybrid Intel CPU; a dual-CCD X3D CPU | L1, L2, L7, L10, L15, L20 | to confirm |
@@ -1665,6 +1667,7 @@ missing is said in the round's papers as not run, never as passed.
 | L19 | The formative dark-room session | the desk, three operators, a dark room | each critical task (GO, panic, recovering after a desk restart, finding a faulted output) done without help, or the finding recorded in `docs/UX.md` | desk-ux |
 | L20 | The GL backend after the cut, on Windows drivers | NVIDIA, AMD, Intel nodes | the pixel suites within their GL tolerances and an hour's show on AUTO (GL) with no more missed vblanks than `23f162f` on the same machine | rhi |
 | L21 | **M13**: the first ten minutes | the RTX PRO node, the MSI's ReadyToRun build | p99.9 frame time over a show's first ten minutes recorded against minutes 10–20 | installer |
+| L22 | A precise Windows thread time: a thread's cycles (`QueryThreadCycleTime`) at the time-stamp counter's frequency from the platform, never a rate measured against the stopwatch | the RTX PRO node with Memory Integrity on (Windows as Hyper-V's root partition), then off | a spinning thread's cycles at that frequency within 1% of its running time from ETW's context-switch, interrupt and DPC events, idle and beside a network and disk interrupt load; its ticks (`GetThreadTimes`) under the node's own timer claims (`IGNORE_TIMER_RESOLUTION`, the high-resolution timer) still in the step `ThreadTime.ResolutionNs` states; until it passes, a Windows thread time is its ticks and the survey slice's budget there is proven by the stopwatch alone (docs/FACADE.md) | platform |
 
 ---
 
