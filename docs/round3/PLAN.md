@@ -334,7 +334,7 @@ Windows evidence comes from the pushed branch's Windows job either way). Hours a
 | 1 | `wp3-rhi` | — | W1 | spine | here | 26 | The RHI in Core with the presenter seams, the program table, user programs and the graph's transients; GL behind it with unchanged pixels; one test fixture for every backend |
 | 2 | `wp3-platform` | Machine | W1 | spine | cloud | 27 | `PlayMap.Platform.Windows`: QoS, timers, MMCSS, process and GPU priority, CPU sets, keep-awake; the node's identity, edition, support tier and capabilities; machine preflight with Home's rows |
 | 3 | `wp3-shaders` | Shaders | W1 | spine (rhi before merge) | cloud | 25 | The 40 programs in HLSL through DXC; the shader worker for user ISF; quarantine |
-| 4 | `wp3-installer` | — | W1 | spine | cloud | 26 | The MSI version rules, the LGPL FFmpeg in CI, the WiX toolset built from its source and the MSI with ReadyToRun, machine-level actions, the supervisor service, a fail-closed armed check, unsigned builds with their SHA-256 list, the editions' guidance |
+| 4 | `wp3-installer` | — | W1 | spine | cloud | 26.5 | The MSI version rules, the LGPL FFmpeg in CI, the WiX toolset built from its source and the MSI with ReadyToRun, machine-level actions, the supervisor service, a fail-closed armed check, unsigned builds with their SHA-256 list, the editions' guidance |
 | 5 | `wp3-desk-ux` | Undo | W1 | spine | cloud | 26 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status rules, preview age, the M2 bench, the four-click quad that stays and drags |
 | 6 | `wp3-d3d12-core` | Gpu | W2 | rhi, shaders | cloud | 26 | Device, queues, fences, memory, descriptors, transients and aliasing, the exporter, DRED and Aftermath, the pipeline cache; every product pixel scene on WARP |
 | 7 | `wp3-d3d12-passes` | Plan | W2 | rhi (d3d12-core before merge) | here | 24.5 | Every pass declares what it reads and writes; the render graph compiled on show change; both backends walk the plan; a live input's import marked late-latched |
@@ -484,7 +484,8 @@ unchanged** (the moved presentation types keep their names; only `using` lines c
 
 **Verified here.** All but the Windows lines. **On CI (Windows).** WARP and the Agility SDK restored beside the hosts; a one-line
 Direct3D 12 test creates a WARP device and says its feature level; M7's and M14's answers in the summary; the bench builds. **On
-CI (Linux).** The ES 3.00 leg green. **Manual.** None (the bench's runs are L1 and L4).
+CI (Linux).** The ES 3.00 leg green. **Manual.** None (the bench's runs are L1 and L4; with no lab
+(D15) the bench is built and waits).
 
 ### 3.2 `wp3-rhi` — the cut at `GlDevice`, with GL behind it (W1)
 
@@ -552,7 +553,8 @@ CI (Linux).** The ES 3.00 leg green. **Manual.** None (the bench's runs are L1 a
 - The STATE fixtures' own tests regenerate every fixture byte for byte.
 
 **Verified here.** All. **On CI (Windows).** The same suites on Mesa WGL. **Manual (lab).** L20: the GL backend after the cut on
-NVIDIA, AMD and Intel Windows drivers — what AUTO runs all round.
+NVIDIA, AMD and Intel Windows drivers — what AUTO runs all round. With no lab (D15) L20 is reported not run: the GL backend is
+proven on llvmpipe and Mesa WGL only, said in the papers.
 
 **Next round.** The GL backend deleted with its tests once M1's record holds on every tier (GL-only tests leave with it, by name,
 in that change); constant ids everywhere.
@@ -767,7 +769,7 @@ wp3-d3d12-core's).
    node's words; an engine process alive that does not answer: refused with words, never read as "not armed". (6 h)
 6. Unsigned builds (D6, the owner's answer 3): the artifact and every release named `-unsigned`, with a named notice in the job's
    summary ("unsigned: the owner's decision — PLAN.md §9 decision 2"); a `SHA256SUMS` file of every shipped file and the installer
-   beside each artifact and release, which `docs/INSTALL.md` says how to check (`Get-FileHash`) — the only integrity a person has
+   beside each artifact and on each release's page (fetched over HTTPS), which `docs/INSTALL.md` says how to check (`Get-FileHash`) — the only integrity a person has
    this round, and nothing verifies an update automatically, since there is no updater; `docs/INSTALL.md` shows what Windows says to
    an unsigned download (SmartScreen's "Windows protected your PC — unknown publisher", More info ▸ Run anyway; UAC's "Unknown
    publisher"; Smart App Control's block with no exception) and the steps. (1 h)
@@ -982,7 +984,8 @@ packages' new tests sit in their own area folders), `src/PlayMap.Render/Platform
 **Verified here.** The C# builds; the pure parts (the release queue, the ring allocator, the cache key, the tolerance table's
 reader). **On CI (Windows, WARP).** All the above, read from Linux through the spine's dispatch leg and its artifacts. **Manual
 (lab).** L15: every pixel scene on NVIDIA, AMD and Intel drivers; an Aftermath dump of a forced fault on NVIDIA; a Radeon GPU
-Detective report on AMD.
+Detective report on AMD. With no lab (D15) L15 is reported not run: every scene is proven on WARP within its tolerance row, and
+no per-vendor parity is claimed.
 
 **Next round.** Enhanced barriers by default where every tier has them; work graphs where a pass gains from them.
 
@@ -1041,7 +1044,8 @@ Detective report on AMD.
 - `LateLatchTests`: a live import whose slot changes between two frames walks the same plan hash; its barrier stands before the read.
 
 **Verified here.** The compiler, GL walking. **On CI (Windows).** D3D12 walking, aliasing, validation. **Manual (lab).** L16: GPU
-time per pass on real GPUs (from -2's timings).
+time per pass on real GPUs (from -2's timings). With no lab (D15) L16 is reported not run; WARP's pass times are recorded, and no
+GPU's are claimed.
 
 **Next round.** Async compute placed by the compiler where measured.
 
@@ -1122,7 +1126,9 @@ count, item 6).
   sequence, nothing blocks the writer.
 
 **Verified here.** All, with OMT loopback on llvmpipe. **On CI (Windows).** The same. **Manual (lab).** L12: a capture card on an
-HDMI loop-through of a real output; an LED processor's monitor out; a photodiode beside the observer for `LATENCY STEP`.
+HDMI loop-through of a real output; an LED processor's monitor out; a photodiode beside the observer for `LATENCY STEP`. With no
+lab (D15) L12 is reported not run: the observer and `LATENCY STEP` are proven over OMT loopback, and no capture-card or photodiode
+figure is claimed.
 
 **Next round.** A hardware bypass on loss (LED processors' dual inputs, a relay router) driven by the observer's verdict.
 
@@ -1327,7 +1333,9 @@ d3d12-passes-2).
 
 **Verified here.** Logic, the ring path, refusals. **On CI (Windows).** Duplication and import into a second WARP device in a
 child process. **Manual (lab).** L3: Avalonia's own compositor importing the texture and the fence on NVIDIA, AMD and Intel (M2),
-and the preview's latency.
+and the preview's latency. With no lab (D15) L3 is reported not run: the GPU path is chosen at run time from the interop's own
+lists, proven against a fake interop and in a child process on WARP (or two devices, M8), and the ring stays the default wherever
+the interop lists neither type.
 
 **Next round.** A DirectComposition surface hosted by the desk, if the measured latency calls for it.
 
@@ -1387,7 +1395,8 @@ W3).
 
 **Verified here.** GL's share of the allocation fence; the warm-up orchestration with a fake cache. **On CI (Windows).** All.
 **Manual (lab).** L16: GPU time per pass and render-thread CPU time against surface count on a real GPU; a driver update
-re-warming.
+re-warming. With no lab (D15) L16 is reported not run: the render thread's per-surface work is counted on WARP, with no 10 % pass
+mark claimed.
 
 **Next round.** Work graphs for GPU-driven content where measured.
 
@@ -1537,7 +1546,9 @@ the folder in W4 and merges after).
 - `DegradeOrderTests`.
 
 **Verified here.** The policy and the path against fakes. **On CI (Windows, WARP).** Forced removals. **Manual (lab).** L9: a real
-TDR on NVIDIA and AMD; a driver update during a rehearsal; an Aftermath dump read in Nsight.
+TDR on NVIDIA and AMD; a driver update during a rehearsal; an Aftermath dump read in Nsight. With no lab (D15) L9 is reported not
+run: removal is proven on WARP or through the fault seam (M8), the time to the first good frame recorded, and its × 4 budget
+unproven on a real GPU.
 
 **Next round.** The observer's verdict driving the hardware bypass; a safety monitor kept even simpler than the supervisor.
 
@@ -1593,7 +1604,8 @@ corpus).
 - `QuarantineTests` and `ShaderWorkerTests` unchanged.
 
 **Verified here.** The guard's rule, the request's keying, the worker's protocol. **On CI (Windows, WARP).** All. **Manual
-(lab).** User effects in L15's per-vendor parity; the guard's numbers on a real GPU in L16.
+(lab).** User effects in L15's per-vendor parity; the guard's numbers on a real GPU in L16. With no lab (D15) both are reported
+not run: the effects are proven on WARP and the guard on a fake timer.
 
 **Next round.** User HLSL; Shader Model 7's SPIR-V intake when it ships.
 
