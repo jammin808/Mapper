@@ -73,7 +73,8 @@ The lab checks still to do:
   and `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 
 **Next:** round 3 (below), the Windows-native node of docs/round3/PLAN.md, with the desk's guided workflows and capture-card
-pass-through. The owner has made its decisions; the plan records each answer.
+pass-through. The owner answered the round's decisions; whether the round carries the five proposed packages, and a few smaller
+calls, are open (the plan's §9).
 
 **The rule:** **Round 0** on real hardware is the gate. Every lens agreed: it is the cheapest way to learn which design assumptions are wrong.
 
@@ -96,17 +97,18 @@ pass-through. The owner has made its decisions; the plan records each answer.
 others". Its plan of record is `docs/round3/PLAN.md`.*
 
 **Decided.** The owner answered the round's decisions on 18 October 2026 (docs/round3/PLAN.md §1.2 and §9; docs/round2/CARRYOVER.md
-keeps the calls with their answers): every Windows 11 edition from build 26100, Windows 11 Home included and supported unmanaged,
-with IoT Enterprise LTSC 2024 recommended for permanent show nodes; the hardware lock where the hardware allows it (the present
-barrier on NVIDIA's professional GPUs with RTX PRO Sync) and the software lock everywhere else; builds unsigned this round, each with a
-SHA-256 list; the installer from the WiX toolset built from its source, so no paid WiX service is used; no lab yet, so every lab line is
-reported not run and nothing claims a hardware fact it has not measured; and all sixteen packages. The owner's requirements of the same
-day — the four-click quad that stays and drags, every corner and pin nudged by one pixel, what each screen shows, simple workflows
-beside advanced and programming areas, one canvas across outputs, menus and right-click menus for every feature, draggable and
-collapsible panels, colour for areas and stages, every mapping step by hand, the assistant in every step, and fast capture-card
-pass-through — are designed in docs/round3/design/desk-workflows.md and docs/round3/design/capture.md and planned as small items inside
-the sixteen packages and as five proposed packages, twenty-one sessions in all; whether the round carries the five is the owner's call (§9
-decision 1). The request to Patterns that its Eye read 128 commands or more is in docs/round2/CARRYOVER.md (call 11).
+keeps the calls with their answers): every Windows 11 edition from build 26100, Windows 11 Home included and supported unmanaged, with
+IoT Enterprise LTSC 2024 recommended for permanent show nodes; the hardware lock where the hardware allows it (on NVIDIA's professional
+GPUs with RTX PRO Sync, the present barrier on Direct3D 12 and the swap group on OpenGL) and the software lock everywhere else; builds
+unsigned this round, each with a SHA-256 list; the installer from the WiX toolset built from its source, so no paid WiX service is
+used; no lab yet, so every lab line is reported not run and nothing claims a hardware fact it has not measured; and all sixteen
+packages. The owner's requirements of the same day — the four-click quad that stays and drags, every corner and pin nudged by one
+pixel, what each screen shows, simple workflows beside advanced and programming areas, one canvas across outputs, menus and right-click
+menus for every feature, draggable and collapsible panels, colour for areas and stages, every mapping step by hand, the assistant in
+every step, and fast capture-card pass-through — are designed in docs/round3/design/desk-workflows.md and docs/round3/design/capture.md
+and planned as small items inside the sixteen packages and as five proposed packages, twenty-one packages and about 518 hours in all;
+whether the round carries the five is the owner's call (§9 decision 1), with a few smaller calls (§9). The request to Patterns that its
+Eye read every command a node lists, and that the Show Bus contract state its cap, is in docs/round2/CARRYOVER.md (call 11).
 
 **Today.** PlayMap is one portable exe. It renders through OpenGL 3.3 core or ES 3.00 on GLFW windows, EGL or a surfaceless context;
 on Windows the Direct3D 11 flip model through ANGLE is an explicit, experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no
@@ -131,19 +133,19 @@ agrees; at the round's end the integration pass will update the statuses of the 
 | One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined | wp3-shaders | — |
 | User ISF effects drawn on the Direct3D 12 device; a GPU-time guard per effect slot; the public ISF corpus counted on the new road | wp3-shaders-2 | — |
 | Flip-model presenters on Direct3D 12, Independent Flip proven per output, one queued frame, the frame drawn for its predicted display instant, HDR10 and 10-bit | wp3-present | R2.1, R2.5, M21 |
-| The present barrier where the hardware allows it (RTX PRO Sync); every other output in the software lock, reporting measured phase, never in a locked state | wp3-framelock | R4.2 |
+| The present barrier on Direct3D 12 and the swap group on OpenGL where the hardware allows them (RTX PRO Sync), each output locked by its own evidence; every other output in the software lock, reporting measured phase, never in a locked state | wp3-framelock | R4.2 |
 | D3D12VA decode sampled in place, the copy-queue upload arena, Spout through a D3D11 side device | wp3-video | R2.2 |
 | The Windows platform seam: QoS, timers, MMCSS, process and GPU priority, keep-awake, the GC's latency mode while armed; the node's identity and drivers in STATE; machine preflight with driver drift | wp3-platform | R2.8, R2.9 |
 | A watermark read back by an independent observer; the shown-frame heartbeat; `LATENCY STEP`; one rebuild path for a lost device, rehearsed in CI | wp3-stability, -2 | R1.11 |
-| Shared-texture previews into the desk | wp3-desk-gpu | — |
+| Shared-texture previews into the desk; the desk's UI-stall watchdog and push budget | wp3-desk-gpu | — |
 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status by shape and word, preview age | wp3-desk-ux | M20 (the night theme) |
 | A per-machine MSI on every Windows 11 edition, built by the WiX toolset compiled from its source, unsigned with a SHA-256 list, with a supervising service, the engine in an auto-logged-on show user's session, the MSI's version rules, an install refused while the show is armed | wp3-installer | R0.7, R4.5 (boot to show), R4.6 (in part: never updating an armed node) |
-| The four-click quad that stays when the person looks away, its corners dragged | wp3-desk-ux | — |
+| The four-click quad that stays when the person looks away, its corners dragged, typed and nudged, a pin typed and nudged | wp3-desk-ux | — |
 | Docked, floating and collapsible panes; a menu bar, a palette and a console; right-click menus generated from the catalogue; colour for status, identity and stage; the assistant's pane | wp3-desk-shell | R3.11 (the palette) |
-| Every corner, pin and warp handle dragged, typed and nudged by one pixel; what each screen shows | wp3-desk-map | — |
-| One canvas across outputs (`CANVAS SPAN`, a pattern drawn across it); every automatic result a layer under the hand's | wp3-canvas | — |
+| Every corner, pin and warp handle dragged, typed and nudged by one pixel; what each screen shows; the advanced panes (effects chains, modulation and bindings, an area pane per STATE block) | wp3-desk-map | — |
+| One canvas across outputs — side by side, stacked, or a double-stacked blend (`CANVAS SPAN`, a pattern drawn across it); every automatic result a layer under the hand's | wp3-canvas | — |
 | Guided workflows — two projectors blended or stacked on a flat screen, a film on a building from the audience, an object with one or two projectors — by hand, automatically or with the assistant; Simple that hides | wp3-workflows | R3.11 (Simple/Pro) |
-| Capture cards in the video I/O hub (Media Foundation, DeckLink), no CPU copy where the card allows, the pass-through output, its latency measured | wp3-capture | M13 (in part: DeckLink) |
+| Capture cards in the video I/O hub (Media Foundation, DeckLink), no CPU copy where the card and Direct3D 12 allow, the pass-through output with its late sample, the input's phase and its latency measured | wp3-capture | M13 (in part: DeckLink) |
 
 What only real hardware can show — Direct3D 12 against GL on the present ledger, Independent Flip with PresentMon beside STATE, a
 Sync wall, real TDRs, a Home node, two projectors on a screen, a capture card's loop-through — is the plan's lab checklist

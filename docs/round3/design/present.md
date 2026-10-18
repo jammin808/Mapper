@@ -10,9 +10,12 @@ lock machine it feeds are §2.8, §2.9 and §3.2.*
 covering the display, a waitable `FLIP_DISCARD` swap chain at latency 1, frame statistics as vblank truth [map §2.7]. The Direct3D
 12 presenter keeps that discipline without ANGLE, adds the evidence it never set (`IndependentFlip`, `Proven` [map §2.8]), and
 moves the render loop to just-in-time: wait on the pacing output's waitable, then sample time and live inputs, then record one
-frame for one predicted display instant. The lock is a strictly better tier behind the same lock machine: NVIDIA's D3D12 present
-barrier on RTX PRO with RTX PRO Sync, whose own sync mode and in-sync counts are the only evidence that puts an output in a locked
-state (`framelocked`, `house-locked`, `grouped`). Everywhere else outputs are in a free state and STATE gives their measured phase.
+frame for one predicted display instant. The lock is a strictly better tier behind the same lock machine, one per present path on
+RTX PRO with RTX PRO Sync: NVIDIA's D3D12 present barrier on Direct3D 12, and the `WGL_NV_swap_group` swap group on OpenGL, which is
+AUTO's path on every machine this round. Each output joins as its own client or member, and only its own evidence — the barrier's
+sync mode and in-sync counts for its client, or its group's read-back, the board's sync state and the shared frame count — puts it in
+a locked state (`framelocked`, `house-locked`, `grouped`). Everywhere else outputs are in a free state and STATE gives their measured
+phase.
 The seams all of this implements sit in Core (`IGpuPlatform` and `IOutputPresenter` in `Core/Gpu`, the clock, the ledger and the
 frame block in `Core/Presentation`, the barrier's target and statistics in `Core/Sync`), so the Direct3D 12 platform, presenters and
 barrier tier live in `Render.D3D12` and reference Render not at all.
@@ -126,7 +129,9 @@ public sealed class FrameBlockRing
 
 This is the pattern NVIDIA Reflex and AMD Anti-Lag 2 implement for games; PlayMap's own version needs neither SDK. Reflex is a
 measured option for later (M5), never on an output in a barrier until measured. Stamps 2–5 and the shown stamp feed the ledger
-and `LATENCY STEP`'s stage shares.
+and `LATENCY STEP`'s stage shares. While a pass-through output is on, wp3-capture adds one wait between steps 1 and 2 (its late
+sample, `capture.md` §7), and the pass-through is the pacing output unless it is in a lock group, where the group's pacing output
+keeps the role: under a hardware lock every member flips on the same refresh, so any member's waitable marks the same instant.
 
 ## 7. HDR10 and 10-bit
 
@@ -266,21 +271,62 @@ board is on house sync), and `PresentInSyncCount` and `FlipInSyncCount` have adv
 taskbar composition — the same conditions as Independent Flip — so the words name which one fails ("not locked: the barrier is
 pending — output 2 is composed: a window overlaps it").
 
+**A client per output, answered on the node (M4).** Every output's swap chain is its own client, joined at `SYNC APPLY` (class Setup,
+refused while armed), and every client's statistics are read every frame. Whether one process may hold several clients on a Sync wall
+is M4's question and no lab answers it this round, so each node answers it for itself: a client the driver does not take — refused at
+creation or join, or still pending after 120 refreshes while its output is full screen and in Independent Flip — leaves the barrier and
+runs free with its phase and the words ("the barrier did not take op_2's swap chain on driver 582.16: one swap chain per machine
+there"). A join that stalls the clients already in sync is caught by §14's rule within three refreshes, and since joins happen only
+disarmed it never reaches a show. The node keeps the driver's answer in `NodeSettings.Sync` by driver version, so the next `SYNC APPLY`
+on that driver joins only the swap chains it took, and a new driver is tried again whole.
+
+## 12a. The OpenGL swap-group tier
+
+AUTO is OpenGL on every machine this round (D2, D15), so a node with RTX PRO Sync on the default path locks through NVIDIA's
+`WGL_NV_swap_group`, shipping on Quadro since 2003 and reported to hold a wall where Vulkan's barrier would not take a second swap
+chain [`research/vendor_features.md` §1; `docs/round2/research/present.md`]:
+
+| Call | When |
+|---|---|
+| `wglQueryMaxSwapGroupsNV(hdc, &groups, &barriers)` | at the tier's start on the first output's context; 0 → the tier says why (no extension on this context, no board) |
+| `wglJoinSwapGroupNV(hdc, 1)` | per output on `SYNC APPLY`, on the render thread with that output's context current |
+| `wglBindSwapBarrierNV(1, 1)` | once the node's board is a member of a framelock group (cluster), so the group's swaps wait on the board |
+| `wglQuerySwapGroupNV(hdc, &group, &barrier)` | read back after each join and bind, and once a second |
+| `wglQueryFrameCountNV(hdc, &count)` | every frame: the frame count the locked nodes share |
+| `wglJoinSwapGroupNV(hdc, 0)` | to leave, on `SYNC LEAVE`, a stall or a context loss |
+
+The entry points come from `wglGetProcAddress` on the output's context; the window's device context comes from the GL presenter,
+which offers it as an `ISwapGroupTarget` (`Core/Sync`), framelock's one hunk in the GL backend. Its evidence, per output: `grouped`
+when the group reads back joined and the frame count advances one per refresh for 120 refreshes; `framelocked` (`house-locked` on
+house sync) when the barrier also reads back bound and the board's sync state for the output's display is synced (today's `NvFrameLock`
+facts: synced, signal, the display's sync state). The frame count is `LockCounter`'s source on GL, wrap-aware as on Direct3D 12. A
+context without the extension (ANGLE, Mesa, a GeForce driver) has no tier, and the node with a board is amber (§13).
+
+**The DXGI path** (`PRESENT PATH DXGI`, D3D11 through ANGLE) joins nothing this round: NVAPI's `NvAPI_D3D1x_JoinSwapGroup` would join
+its swap chains, but the path retires next round with GL's other paths and the Direct3D 12 flip presenter is its successor on the same
+flip model (`PLAN.md` §9 decision 21). Its `Join` keeps today's words, and a node with a board on it is amber with the fix line.
+
+
+
 ## 13. The honest software lock
 
-Without a board or a barrier, every output is in a free state (`free-measured`, or `free-unknown` before its clock settles).
+Without a board, a hardware tier on its present path or a client the driver took, every output is in a free state (`free-measured`,
+or `free-unknown` before its clock settles).
 STATE gives its measured phase against the group's reference from the leader's board, with its uncertainty and the next slip
 ("software lock: same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min"), `lock.tier` "software", and never a locked state —
 "software" is a tier, not a state, and the retired `soft-locked` stays retired. `SoftwareLockWordsTests` assert the fields
 first — every output without barrier statistics has a free `lock.state` and `IsLocked` false — and then scan the whole of STATE for
 a locked state's word (`framelocked`, `house-locked`, `grouped`) in any value of a free output; words such as "not locked: the
 barrier is pending" are allowed. The content is still the same frame on every node (frame =
-f(leader time at vblank)); only scan-out phase differs, and only hardware moves it.
+f(leader time at vblank)); only scan-out phase differs, and only hardware moves it. A node with a board whose outputs present on a
+path with no hardware tier — DXGI, or a GL context without the swap-group extension — is amber in preflight and in `SYNC APPLY`'s
+answer: "op_1 presents through DXGI, which has no hardware lock: `PRESENT PATH D3D12` or `PRESENT PATH GL`".
 
 ## 14. The barrier governed
 
-A barrier is all-or-nothing: a node that stalls stops the wall. An output whose `PresentInSyncCount` stops advancing for three
-refreshes while it keeps presenting (or whose waitable times out) leaves the barrier and free-runs (`fell-out`); its cause goes to the journal
+A barrier is all-or-nothing: a node that stalls stops the wall. An output whose `PresentInSyncCount` (on GL, its shared frame count)
+stops advancing for three refreshes while it keeps presenting (or whose waitable or swap times out) leaves the barrier or group and
+free-runs (`fell-out`); its cause goes to the journal
 and to `outputs[].lock.reason` (the existing key, with `LockReasons`' words) and `lock.words`; the rest of the wall keeps its
 barrier. While armed nothing rejoins on its own (round 2's rule);
 disarmed, an output rejoins after 10 s at an idle boundary.
@@ -288,7 +334,8 @@ disarmed, an output rejoins after 10 s at an idle boundary.
 ## 15. The shared frame count
 
 Locked content time comes from a count every node agrees on. Where the driver answers `NvAPI_D3D1x_QueryFrameCount` with the barrier
-joined (M10), `LockCounter` reads it, wrap-aware; otherwise from the leader's anchor at the barrier's in-sync refresh count. Both
+joined (M10), `LockCounter` reads it, wrap-aware; on GL it reads `wglQueryFrameCountNV`; otherwise from the leader's anchor at the
+barrier's in-sync refresh count. Both
 sit behind `LockCounter`'s source, so the lock machine does not know which.
 
 ## 16. Preconditions as facts
@@ -306,11 +353,8 @@ sit behind `LockCounter`'s source, so the lock machine does not know which.
 ## 17. Stretch
 
 - **Synchronized Mosaic**: one swap chain over the Mosaic surface, PlayMap's outputs as its viewports, one client in the barrier.
-  It stays a stretch whatever M4 answers, because it changes the presenter model. Until M4 is measured, a multi-output node joins one
-  swap chain per machine to the barrier (the pacing output's) and reports its other outputs free with their phase against it;
-  `SYNC APPLY` says so ("op_2 and op_3 stay free on this machine until several swap chains are measured to join"). With no lab this
-  round (`PLAN.md` D15), M4 is not measured, so this one-swap-chain shape is what framelock builds, proven against the fake NVAPI and
-  said "built, not proven on hardware".
+  It stays a stretch whatever M4 answers, because it changes the presenter model; a driver that takes one client per machine (§12)
+  is where it would matter.
 - **Warp and blend at scanout** (`NvAPI_GPU_SetScanoutWarping`, `SetScanoutIntensity`) behind PlayMap's shader warp, reported
   applied only after the state is read back (a GeForce driver reportedly answered success and did nothing).
 
@@ -324,8 +368,9 @@ sit behind `LockCounter`'s source, so the lock machine does not know which.
   "reason": "", "fellOut": 0, "rejoins": 0, "tier": "software", "phaseMs": 6.2, "phaseUncertaintyMs": 0.3 } } ]
 ```
 
-The published keys and words stay (`state`, `words`, `reason`, `fellOut`, `rejoins`); `tier`, `mode`, `presentInSync`,
-`flipInSync`, `phaseMs` and `phaseUncertaintyMs` are new keys.
+The published keys and words stay (`state`, `words`, `reason`, `fellOut`, `rejoins`); `tier` (`present-barrier`, `swap-group` or
+`software`), `mode`, `presentInSync`, `flipInSync` (on GL `frameCount` in their place), `phaseMs` and `phaseUncertaintyMs` are new
+keys.
 
 ## 19. Tests
 
@@ -345,13 +390,17 @@ The published keys and words stay (`state`, `words`, `reason`, `fellOut`, `rejoi
 | `SoftwareLockWordsTests` | framelock | both | every output without barrier statistics: `lock.state` a free state and `IsLocked` false (the fields first); then no locked state's word in any STATE value of a free output; free outputs carry phase words |
 | `TimingPreconditionTests` | framelock | both | 80 ppm apart → `SYNC APPLY` refused naming both rates and the rule; an output on a second adapter refused naming it; members on different backends with a shared generator → amber and the words |
 | `AdlxProbeTests` | framelock | both | a fake ADLX: FreeSync on → the VRR row with its words; no ADLX → "unknown", said |
-| `SingleClientTests` | framelock | both | a three-output node before M4: one swap chain joins, the other two free with their phase, `SYNC APPLY`'s words |
+| `ClientPerOutputTests` | framelock | both | a three-output node: a driver that takes every client → three locked, each by its own statistics; one that takes one → the other two leave within 120 refreshes, free with their phase and the words, the answer kept by driver version, the next `SYNC APPLY` joining only the one; a new driver version → all three tried again |
+| `SwapGroupTierTests` | framelock | both | a fake WGL extension table: none → the tier's words and the amber row; a join read back → `grouped` after 120 refreshes of the frame count advancing; the barrier bound on a synced fake board → `framelocked`; a count that stops → `fell-out` within three refreshes; a board on DXGI → amber with the fix line |
 | `NvapiLayoutTests` | framelock | both | the barrier's structures and ids against NVIDIA's header |
 
 ## 20. Risks
 
 - **WARP gives no real vblank** and may give no statistics: CI proves bring-up, recording and read-back; the lab proves the mode and
   the timing (L1, L2).
-- **The barrier and several swap chains** (M4) — until measured, one swap chain per machine joins; Mosaic stays a stretch.
+- **The barrier and several swap chains** (M4) — each node answers it by each client's own statistics, keeps the driver's answer, and
+  joins only disarmed; Mosaic stays a stretch.
+- **The GL swap group on a borderless window** may not engage on a real Sync wall: locked only by its read-back, the board's state and
+  the shared count, otherwise free with its words; L5 runs both paths.
 - **Reflex and the barrier together** are unknown; never combined until measured.
 - **HDR's independent flip** on mixed SDR and HDR monitors is undocumented; the evidence says what each output got.

@@ -45,25 +45,27 @@ to the section that answers it.
 
 ### 1.1 The goal
 
-At the end of round 3 a Windows 11 machine — Home, Pro or IoT Enterprise, build 26100 or later — will run PlayMap from a
-per-machine installer, unsigned this round and named so, with a SHA-256 list beside every build. Its engine will start in the
-show user's session under a supervising service and render on Direct3D 12. Each output will present through its own
-flip-model swap chain, and STATE will say whether that output is in Independent Flip and how that is known. The frame will
-be drawn for the instant it is predicted to light the display, from a render graph compiled when the show changes, with every
-pipeline compiled before the show is armed. User effects will compile out of process and draw on the same device. Decode will
-stay on the GPU, previews will reach the desk without a CPU copy, and a lost device will be rebuilt by the same path that started
-it, rehearsed in CI. An independent observer will read back what the audience saw. Outputs will lock across machines where the
-hardware locks — the present barrier on RTX PRO with RTX PRO Sync — and say "software lock: same frame, phase +x ms" everywhere
-else. OpenGL will stay the reference backend through the round and keep the Linux development loop alive. It will retire in the
-next round, once the pixel and timing evidence says the two backends agree.
+At the end of round 3 a Windows 11 machine — Home, Pro or IoT Enterprise, build 26100 or later — will run PlayMap from a per-machine
+installer, unsigned this round and named so, with a SHA-256 list beside every build. Its engine will start in the show user's session
+under a supervising service and render on Direct3D 12. Each output will present through its own flip-model swap chain, and STATE will
+say whether that output is in Independent Flip and how that is known. The frame will be drawn for the instant it is predicted to light
+the display, from a render graph compiled when the show changes, with every pipeline compiled before the show is armed. User effects
+will compile out of process and draw on the same device. Decode will stay on the GPU, previews will reach the desk without a CPU copy,
+and a lost device will be rebuilt by the same path that started it, rehearsed in CI. An independent observer will read back what the
+audience saw. Outputs will lock across machines where the hardware locks — on RTX PRO with RTX PRO Sync, through NVIDIA's present
+barrier on Direct3D 12 and its swap groups on OpenGL, each output locked only by its own evidence — and say "software lock: same frame,
+phase +x ms" everywhere else. OpenGL will stay the reference backend through the round and keep the Linux development loop alive. It
+will retire in the next round, once the pixel and timing evidence says the two backends agree.
 
 The desk will open on simple guided workflows — two projectors blended or stacked on a flat screen, a film on a building seen from
 the audience, an object mapped with one or two projectors — each a list of steps the node computes, done automatically, by hand or
-by the assistant on a person's approval, beside panes that dock and collapse, a menu bar, a palette, a console and right-click
-menus generated from the catalogue. Every mapping step will be doable by hand, and every automatic result will be a layer the hand's
-edits sit on, kept through a re-run. The four-click quad will stay put, every corner and pin will move by one pixel, every screen
-will say what it shows, and one pattern, picture or generator will span several outputs as one canvas. A capture card will pass
-through to an output with no CPU copy where the card allows, its arrival-to-shown time published.
+by the assistant through the same gate a person's lines pass, beside panes that dock and collapse, advanced panes for effects,
+modulation, bindings and alignment, a menu bar, a palette, a console and right-click menus generated from the catalogue. Every
+mapping step will be doable by hand, and every automatic result will be a layer the hand's edits sit on, or a value it stages rather
+than overwrite, kept through a re-run. The four-click quad will stay put, every corner and pin will move by one pixel, every screen
+will say what it shows, and one pattern, picture or generator will span several outputs as one canvas, two projectors side by side,
+stacked, or both. A capture card will pass through to an output with no CPU copy where the card and the Direct3D 12 path allow and
+with one copy on OpenGL, said, its arrival-to-shown time published.
 
 No lab exists this round (the owner's answer 5): everything the Windows job and the simulators can prove is proven there, and every
 claim that only hardware can prove is reported not run, never passed (§7).
@@ -83,19 +85,19 @@ answers on the edition, the lock, signing and the installer; D11–D16 are what 
 | D1 | **Direct3D 12 is the primary renderer, behind an RHI.** | The RHI's contracts will live in Core (`PlayMap.Core/Gpu`); the GL backend will move under `src/PlayMap.Render/Gl/`; the Direct3D 12 backend will be a new edge, `src/PlayMap.Render.D3D12`, referencing Core and its native libraries only. Everything a backend implements or feeds will move to Core with the contracts: the platform and presenter seams, the program table, the vblank clock and ledger, the lock driver's shape. Passes, generators and the frame code will use the RHI and name neither API. | New GPU features reach Windows through D3D12 first; it sits on DXGI's flip model and NVIDIA's present barrier; it is the currency of D3D12 Video, Spout's D3D11 bridge and the desk's GPU import; only D3D12 has PIX, DRED, Aftermath, Radeon GPU Detective and GPU-less CI on WARP [dir §1]. | Nothing in the evidence; a lab finding that D3D12 is slower than GL on a vendor tier delays AUTO there (D2), not the decision. |
 | D2 | **OpenGL will stay the reference backend until pixel and timing parity, then retire.** | GL 3.3 core / ES 3.00 will stay behind the RHI with unchanged pixels, both dialects' legs in CI. `PRESENT PATH D3D12` will be explicit this round; AUTO will stay GL until a lab parity record exists for a vendor tier (§1.5, M1), and then become D3D12 on that tier in one commit that cites the record. GL, ANGLE and the D3D11 path will be deleted next round, each with the tests that test only it. | Parity must be measured before a backend is retired ("measured, then governed"); no source compares D3D12, Vulkan and GL latency on show hardware [dir §1]. | A tier whose parity never arrives keeps GL there, with words. |
 | D3 | **Vulkan is not carried.** | No Vulkan backend. The user-shader front end will go through SPIR-V (D7), so a Vulkan backend would stay cheap to add. | Vulkan's Windows presentation depends on each vendor; Spout, D3D12 Video and the desk's import need a DirectX bridge anyway; present timing is new and NVIDIA-first [dir §1]. | Linux render nodes as a goal again. |
-| D4 | **Windows 11 24H2 (build 26100) or later on every edition — Home, Pro, Pro for Workstations, Enterprise, Education and IoT Enterprise; IoT Enterprise LTSC 2024 recommended for permanent show nodes.** (The owner's answer 1.) | The installer will refuse an older build with words; S mode (Home only) runs no installer at all, so `docs/INSTALL.md` and the download page say "switch out of S mode first". Three published tiers in `docs/INSTALL.md` and `machine.identity`: **IoT Enterprise LTSC 2024** for permanent show nodes (Shell Launcher, specialized displays, update deferral; supported to 10 Oct 2034); **Pro or Enterprise 25H2+** for desks and for nodes run with update policies; **Home 25H2+**, supported and unmanaged. PlayMap depends on no edition-only feature: on Home a node runs the engine in an auto-logged-on local standard "show" account under the supervisor (D6) instead of Shell Launcher or Assigned Access, with Explorer as the shell; its outputs are desktop monitors (no specialized displays), so the desk's monitor stays the primary display; PlayMap writes no Windows Update policy on Home (pause and active hours are the person's, and `MACHINE LOCK` observes a driver that changed rather than claiming to stop it). Preflight names each layer an edition lacks as an information row (the owner's call 9's pattern) and four as hard rows: Smart App Control enforcing while builds are unsigned (the MSI's launch condition refuses with the words before anything runs), a projector output that is the primary display, show media in an online-only OneDrive placeholder, and the show network on the Public firewall profile without a rule. Windows 10 will not be supported. Linux will keep the development loop and CI's GL suites, not shipped nodes. | 24H2 clears every feature floor the round uses (GPU upload heaps at 26080+, D3D12 AV1 encode) [dir §5]. Home runs every API the engine and desk use — Direct3D 12, DXGI flip and Independent Flip, MMCSS, QoS, high-resolution timers, services, Task Scheduler, the MSI, WER — and lacks the management layers: Assigned Access, Shell Launcher, specialized displays, the Update client policies, the policy editors [home §1]. Vendor features are gated by GPU class, not edition [home §11]. Home 24H2 left servicing on 13 Oct 2026, so a Home node runs 25H2 or 26H2 and moves on Microsoft's schedule [home §2]; the Agility SDK keeps D3D12 current on a frozen LTSC. | A shipped feature needing a later build or an edition-only feature. |
-| D5 | **Hardware lock where the hardware allows it; the honest software lock everywhere else.** (The owner's answer 2.) | The frame-lock tier will join outputs through NVAPI's D3D12 present barrier wherever the outputs' adapter answers `NvAPI_D3D12_QueryPresentBarrierSupport` — NVIDIA's professional GPUs (RTX PRO Blackwell, RTX Ada, RTX A-series, Quadro RTX) with an RTX PRO Sync board — and report its sync mode and in-sync counts as the lock's evidence; a capture card's reference input (DeckLink's genlock) locks that input to house sync where the card has one, read from the card (wp3-capture); a genlocked SDI output is next round. Every other output — AMD, GeForce, Intel, any node without a board — presents free with its measured phase: `lock.tier` "software" and the words "software lock: same frame, phase +6.2 ms ± 0.3 ms". STATE will never give an output a locked state (`framelocked`, `house-locked`, `grouped`) without the barrier's own statistics, and the unused `soft-locked` state will be retired ("software" is a tier, not a state). With no lab this round, the barrier tier is built in M4's "no" shape (one swap chain per machine), proven against a fake NVAPI, and says "built, not proven on hardware". | AMD withdrew framelock in 23.Q1 and its S400 module is no longer sold; GeForce never had it; network time aligns which frame is drawn, not when it scans out [dir §2, cap §5.3]. | A vendor shipping a lock with a D3D12 entry point. |
-| D6 | **A per-machine MSI built by the WiX toolset compiled from its source in CI, unsigned this round; the engine runs in an auto-logged-on show user's session under a supervising service.** (The owner's answers 3 and 4.) | A cached CI job builds the WiX toolset (v7) from its MS-RL source at a pinned release tag into a local package feed; `nuget.config` maps `WixToolset.*` to that feed only, so no official WiX binary — release, NuGet package or .NET tool — is ever restored, and nothing of FireGiant's paid offerings (HeatWave, Developer Direct, the maintenance fee) is used; no WiX issue is filed. The MSI's Util and Firewall custom-action DLLs are named with MS-RL and their source tag in `THIRD-PARTY-NOTICES.md`. If the toolset cannot be built on the runner within its one-day time-box (M17), Inno Setup 7.1 (a free EXE installer) builds the installer, every machine-level action in the supervisor's own commands. Builds are unsigned and named `-unsigned`, each artifact and release with a `SHA256SUMS` file. A small LocalSystem service (`PlayMap.Supervisor`) will start `PlayMap.exe engine` in the show user's session, restart it, and stop one whose shown-frame heartbeat has stopped while HEALTH says it should move (never during a start or a device rebuild within its measured budget). The engine will never run as administrator and never in session 0; the installer will do every machine-level action once (firewall, dump settings, privileges). | The WiX maintenance fee's EULA binds only WiX's binary releases and says a user may compile binaries from the source without it; WiX v5, the last fee-free binary line, has had no security fixes since February 2026 [inst §2]. An MSI keeps transactional rollback, services, `MajorUpgrade` and `msiexec` for IT [inst §3]. Session 0 cannot drive displays; MSIX virtualises the machine-level writes the node needs; Velopack's MSI adds no services [dir §5]. | The toolset's spike failing (→ Inno Setup); the owner choosing to sign (§9 decision 2). |
+| D4 | **Windows 11 24H2 (build 26100) or later on every edition — Home, Pro, Pro for Workstations, Enterprise, Education and IoT Enterprise; IoT Enterprise LTSC 2024 recommended for permanent show nodes.** (The owner's answer 1.) | The installer will refuse an older build with words; S mode (Home only) runs no installer at all, so `docs/INSTALL.md` and the download page say "switch out of S mode first". Three published tiers in `docs/INSTALL.md` and `machine.identity`: **IoT Enterprise LTSC 2024** for permanent show nodes (Shell Launcher, specialized displays, update deferral; supported to 10 Oct 2034); **Pro or Enterprise 25H2+** for desks and for nodes run with update policies; **Home 25H2+**, supported and unmanaged. PlayMap depends on no edition-only feature: on Home a node runs the engine in an auto-logged-on local standard "show" account under the supervisor (D6) instead of Shell Launcher or Assigned Access, with Explorer as the shell; its outputs are desktop monitors (no specialized displays), so the desk's monitor stays the primary display; PlayMap writes no Windows Update policy on Home (pause and active hours are the person's, and `MACHINE LOCK` observes a driver that changed rather than claiming to stop it). Preflight names each layer an edition lacks as an information row (grey, with an **i**) and five facts as hard rows: Smart App Control in evaluation while builds are unsigned (amber: once it enforces, Windows itself blocks the unsigned installer, `PlayMap.exe` and the supervisor before any of PlayMap runs, so a person then meets only Windows' block and the words `docs/INSTALL.md` and the release page carry), a projector output that is the primary display, show media held as an online-only cloud placeholder (red, the file named: wp3-video's decode preflight), the show network on the Public firewall profile without a rule, and an OS version past its end of servicing (amber: Home and Pro 24H2 left servicing on 13 Oct 2026, so a 24H2 Home node installs, runs and says so; the tiers name 25H2 or later). Windows 10 will not be supported. Linux will keep the development loop and CI's GL suites, not shipped nodes. | 24H2 clears every feature floor the round uses (GPU upload heaps at 26080+, D3D12 AV1 encode) [dir §5]. Home runs every API the engine and desk use — Direct3D 12, DXGI flip and Independent Flip, MMCSS, QoS, high-resolution timers, services, Task Scheduler, the MSI, WER — and lacks the management layers: Assigned Access, Shell Launcher, specialized displays, the Update client policies, the policy editors [home §1]. Vendor features are gated by GPU class, not edition [home §11]. Home 24H2 left servicing on 13 Oct 2026, so a Home node runs 25H2 or 26H2 and moves on Microsoft's schedule [home §2]; the Agility SDK keeps D3D12 current on a frozen LTSC. | A shipped feature needing a later build or an edition-only feature. |
+| D5 | **Hardware lock where the hardware allows it; the honest software lock everywhere else.** (The owner's answer 2.) | Each present path has its hardware tier, on NVIDIA's professional GPUs (RTX PRO Blackwell, RTX Ada, RTX A-series, Quadro RTX) with an RTX PRO Sync board: on Direct3D 12 (`PRESENT PATH D3D12`) NVAPI's present barrier, wherever the outputs' adapter answers `NvAPI_D3D12_QueryPresentBarrierSupport`; on OpenGL — AUTO's path on every machine this round — the `WGL_NV_swap_group` swap group and swap barrier, wherever the output's context lists the extension. Every output joins as its own client or member at `SYNC APPLY` (refused while armed) and counts as locked only while its own evidence shows it in sync: on Direct3D 12 the barrier's statistics for its client, on OpenGL its group and barrier read back bound, the board's sync state for its display and the shared frame count advancing one per refresh. An output the driver does not take reaches no in-sync count, leaves within the governed time and runs free with its phase and words, so whether several swap chains join (M4) is each node's own measured answer, never a hope. The DXGI path (`PRESENT PATH DXGI`) has no hardware tier this round (§9 decision 21): a node with a board whose outputs present there — or on a GL context without the extension — is amber in preflight and in `SYNC APPLY`'s answer, with `PRESENT PATH D3D12` (or `GL`) as the fix. A capture input is never called locked: its arrival phase against the pacing output's vblank is measured and published (wp3-capture), and a capture card's reference status is a fact about that card's outputs, a genlocked SDI output being next round's. Every other output — AMD, GeForce, Intel, any node without a board — presents free with its measured phase: `lock.tier` "software" and the words "software lock: same frame, phase +6.2 ms ± 0.3 ms". STATE will never give an output a locked state (`framelocked`, `house-locked`, `grouped`) without its tier's own evidence, and the unused `soft-locked` state will be retired ("software" is a tier, not a state). With no lab this round both hardware tiers are proven against fakes (NVAPI, the WGL extension) and say "built, not proven on hardware". | AMD withdrew framelock in 23.Q1 and its S400 module is no longer sold; GeForce never had it; network time aligns which frame is drawn, not when it scans out [dir §2, cap §5.3]. The GL swap group has shipped on Quadro since 2003, and a wall that Vulkan's barrier would not take a second swap chain into worked through it [`research/vendor_features.md` §1]. | A vendor shipping a lock with a D3D12 entry point; the owner asking for the DXGI path's swap groups (§9 decision 21). |
+| D6 | **A per-machine MSI built by the WiX toolset compiled from its source in CI, unsigned this round; the engine runs in an auto-logged-on show user's session under a supervising service.** (The owner's answers 3 and 4.) | A cached CI job builds the WiX toolset (v7) from its MS-RL source at a pinned release tag into a local package feed; `nuget.config` maps `WixToolset.*` to that feed only, so no official WiX binary — release, NuGet package or .NET tool — is ever restored, and nothing of FireGiant's paid offerings (HeatWave, Developer Direct, the maintenance fee) is used; no WiX issue is filed. The MSI's Util and Firewall custom-action DLLs are named with MS-RL and their source tag in `THIRD-PARTY-NOTICES.md`. If the toolset cannot be built on the runner within its one-day time-box (M17), Inno Setup 7.1 (an EXE installer whose licence allows any use, though its author asks commercial users above US$5 000 revenue to buy a licence — a request, not a condition, and the owner's call, §9 decision 3) builds the installer, every machine-level action in the supervisor's own commands. Builds are unsigned and named `-unsigned`, each artifact and release with a `SHA256SUMS` file, which shows a download is intact and not who built it. A small LocalSystem service (`PlayMap.Supervisor`) will start `PlayMap.exe engine` in the show user's session, restart it, and stop one whose shown-frame heartbeat has stopped while HEALTH says it should move (never during a start or a device rebuild within its measured budget). The engine will never run as administrator and never in session 0; the installer will do every machine-level action once (firewall, dump settings, privileges). | The WiX maintenance fee's EULA binds only WiX's binary releases and says a user may compile binaries from the source without it; WiX v5, the last fee-free binary line, has had no security fixes since February 2026 [inst §2]. An MSI keeps transactional rollback, services, `MajorUpgrade` and `msiexec` for IT [inst §3]. Session 0 cannot drive displays; MSIX virtualises the machine-level writes the node needs; Velopack's MSI adds no services [dir §5]. | The toolset's spike failing (→ Inno Setup); the owner choosing to sign (§9 decision 2). |
 | D7 | **One HLSL source for the product shaders; user ISF out of process.** | The 40 product programs will be written once in HLSL and compiled by DXC at build time (the GLSL stays for the GL backend until it retires). User ISF will go ISF → GLSL 4.50 → glslang relaxed (`-R`) → SPIR-V → validated → SPIRV-Cross → HLSL → DXC → DXIL in a `PlayMap shader-worker` process, so no compiler loads into the engine, and will draw on the Direct3D 12 device through a root signature of its own (wp3-shaders-2); spirv_to_dxil will stay a measured alternative behind the same stage. A shader that crashed the GPU will be quarantined. | DXC's PDBs map a GPU crash to a source line in PIX and RGD; incorrectly written GLSL crashes explicit-API renderers [dir §1]. SPIRV-Cross and DXC ship as packages today; spirv_to_dxil has no package (to be built from Mesa). | spirv_to_dxil passing more of the ISF corpus than SPIRV-Cross (shaders' stretch measures it). |
 | D8 | **TerraFX for Direct3D 12 and DXGI.** | `TerraFX.Interop.Windows` (raw structs and function-pointer vtables, generated from the Windows SDK and Agility headers) in `PlayMap.Render.D3D12` only; its port of the D3D12 Memory Allocator for memory, or PlayMap's own placed-resource pools if that port lags the Agility SDK. NVAPI will stay hand-declared, as today: the board's facts in Render's existing tier, the present barrier's calls in `Render.D3D12/Sync`; `PlayMap.Platform.Windows` will carry its own few read-only DXGI and NVAPI probe declarations, each with a layout golden. | The hot path allocates nothing; raw bindings keep that true and match the house's vtable approach (`ComSlots`) without hand-writing the D3D12 surface, which is far larger than the 31 methods `ComSlots` declares [map §2.7]. A wrapper binding allocates managed objects per interface. | A binding gap that blocks a must; Vortice.Windows is the named alternative. |
 | D9 | **The desk keeps Avalonia,** with GPU shared-texture previews and the consoles' safety patterns. | Previews will move from four CPU copies to a shared texture and fence per view where the desk's compositor shares the engine's adapter; the CPU ring will stay for every other case. | Avalonia 12.1 is current and imports D3D11 NT-handle textures and D3D12 fence handles; WinUI 3 would rewrite every view for one asset [dir §9]. | Avalonia's backend not importing either at run time (§1.5, M2): the ring stays, and only the GPU path waits. |
 | D10 | **What the round refuses.** | DLSS frame generation (synthesised frames under their own pacing contradict content as a pure function of show time); adaptive resolution (it breaks blend seams); VRR on any output in a lock group or feeding genlocked processors; shipping changed TDR registry keys (long GPU work is split instead); `GC.Collect` at show arm (banned in `src/`; a case for it needs a measured cause and a test). | [dir §2, §4, §5, §7, §8] | A measured cause and a deterministic test. |
-| D11 | **The desk's shell: panes that dock, float inside the desk window and collapse; one action table reached from the menu bar, the Ctrl+K palette and right-click menus generated from the catalogue; a console for typed lines.** | Dock for Avalonia (`Dock.Avalonia`, MIT, its Avalonia-12 line), pinned exactly and wrapped behind a desk seam, with managed floating windows only, so no pane can land on an output; layouts per workspace and per guide in the user's `desk.json`. Every catalogue row the desk may send is reachable from a right-click menu of the kind it names, or from the bar or the palette, and every right-click entry is also in the bar or the palette (`MenuCoverageTests`). The console types any line through the desk's gate, a secret-bearing row refused; the desk's rule "no line typed by hand" gives way to the owner's "programming areas". The held rules stay, `VIDEO STOP`, `PANIC CLEAR` and `MASTER` sent at every press (the owner's call 7). | The owner's requirements (draggable, collapsible panels; every feature from a menu or an interactive right-click menu; programming areas); Microsoft's rule that no command lives only in a context menu; Avalonia ships no docking control [ux §3.1–§3.2]. | Dock not running on the desk's Avalonia (M18 → the desk's own splitters and rails, no floating). |
-| D12 | **Every mapping step can be done by hand, and every automatic result is a layer a hand edit sits on or a value it records having written.** | A re-run replaces its own layer only and lists the hand edits it kept; over a value typed by hand since, a projector solve stages and every other step refuses unless `KEEP` or `REPLACE`; `HAND` and `HAND CLEAR` say and clear the hand layer; every edit through `ProjectStore`, one undo step each (`design/desk-workflows.md` §3). Align's measured γ moves from `Blend.Gamma`, a field a person types, into the measured layer. | The owner: "All mapping can also be manual, from initial setup to adjusting the auto scan and setup"; Mapping Matter does not overwrite a value the user typed [`docs/UX.md` P10]; one writer. | None expected. |
-| D13 | **The assistant is in every workflow through the verbs, STATE and context the desk uses: guides are engine-side step lists, and the assistant proposes a step's lines and carries them out only on a person's approval.** | `GUIDE` answers each guide's steps (state, words, facts, the automatic, hand and proposed lines) from pure planners in `Core/Workflows`, `SITE GUIDE`'s shape; STATE `guides` and the context's guide items; `plan_recipe guide_step`; the desk's assistant pane with Show me, Approve and Reject; "Ask about this…" on every object; a person's Check refused from an assistant. Every new row and STATE block reaches MCP, the prompt and the context with no package code. | The owner: "Ai integration throughout"; the assistant changes the show only through the gate today and its proposals wait for a person [`docs/UX.md` §10]. | None expected. |
-| D14 | **Capture cards join the video I/O hub as providers loaded at run time and never redistributed; a pass-through output runs one frame in flight outside the delay ring; every latency figure is measured or "unmeasured".** | Media Foundation and DeckLink in the must, AJA and Magewell as stretch; the rungs from card DMA into a wrapped D3D12 heap (no CPU copy) to one upload copy; packed 4:2:2 unpacked on the GPU; `OUTPUT PASSTHROUGH`; `LATENCY LOOP` (`design/capture.md`). GPUDirect for Video and DirectGMA wait for a measured cause. | The owner: "Video capture cards should be ultra fast in their pass through signal flow"; a mapped pass-through's floor is one input frame plus the render [cap §0]. | A loop-through measurement showing the copy is the bottleneck. |
+| D11 | **The desk's shell: panes that dock, float inside the desk window and collapse; one action table reached from the menu bar, the Ctrl+K palette and right-click menus generated from the catalogue; a console for typed lines.** | Dock for Avalonia (`Dock.Avalonia`, MIT, its Avalonia-12 line), pinned exactly and wrapped behind a desk seam, with managed floating windows only, so no pane can land on an output; layouts per workspace and per guide in the user's `desk.json`. Every catalogue row the desk may send is reachable from a right-click menu of the kind it names, or from the bar or the palette, and every right-click entry is also in the bar or the palette (`MenuCoverageTests`). The console types any line through the desk's gate, a secret-bearing row refused; the desk's rule "no line typed by hand" gives way to the owner's "programming areas". The held rules stay, `VIDEO STOP`, `PANIC CLEAR` and `MASTER` sent at every press (the owner's call 7). | The owner's requirements (draggable, collapsible panels; every feature from a menu or an interactive right-click menu; programming areas); Microsoft's rule that no command lives only in a context menu; Avalonia ships no docking control [ux §3.1–§3.2]. | Dock not running on the desk's Avalonia (M18 → the desk's own splitters, collapsible rails and drag-to-dock between the four edges and the rails behind the same seam; only floating is lost, and the owner is told). |
+| D12 | **Every mapping step can be done by hand, and every automatic result is a layer a hand edit sits on or a value it records having written.** | A re-run replaces its own layer only and lists the hand edits it kept; over a projector's pose or lens typed or nudged since (a calibration result of source `manual`), `PROJECTOR SOLVE`, `CALIBRATION RESOLVE` and `SCAN APPLY` stage that projector's result and name the manual one it would replace (`CALIBRATION ACCEPT` applies it), and every other step that writes a value a person can type refuses unless `KEEP` or `REPLACE`; `HAND` and `HAND CLEAR` say and clear the hand layer; every edit through `ProjectStore`, one undo step each (`design/desk-workflows.md` §3). Align's measured γ stays in the measured layer (`Measured.Color.Gamma`), an accept writes no `Blend.Gamma`, and `Blend.Gamma` is the hand's override (0: the measured γ, else 2.2). | The owner: "All mapping can also be manual, from initial setup to adjusting the auto scan and setup"; Mapping Matter does not overwrite a value the user typed [`docs/UX.md` P10]; one writer. | None expected. |
+| D13 | **The assistant is in every workflow through the verbs, STATE and context the desk uses: guides are engine-side step lists, and the assistant proposes a step's lines through the same gate as every line, which decides by the line's risk, the operator's settings and Show Mode.** | `GUIDE` answers each guide's steps (state, words, facts, the automatic, hand and proposed lines) from pure planners in `Core/Workflows`, `SITE GUIDE`'s shape; STATE `guides` and the context's guide items; `plan_recipe guide_step`; the desk's assistant pane with Show me, Approve and Reject; "Ask about this…" on every object. The gate, as the tree has it: in the assistant a low line runs when the operator's `runLowWithoutAsking` is on and a review line when `runReviewWithoutAsking` is, else each waits on the proposal list, and a high-risk line always waits for a person's `APPROVE`; over MCP `run_command` runs a high-risk line only while the node's "AI may act" switch is on, and queues it (or refuses it with the reason) while it is off; armed, every assistant line queues; a person's Check of a judged step and a secret are never an assistant's. Every new row and STATE block reaches MCP, the prompt and the context with no package code; Patterns' Eye, which keeps the first 64 of a context's commands (§9 decision 18), sees the air's verbs and not the guides' rows, which sort after them. | The owner: "Ai integration throughout"; the assistant changes the show only through the gate today and its proposals wait for a person where the settings say so [`docs/UX.md` §10]. | None expected. |
+| D14 | **Capture cards join the video I/O hub as providers loaded at run time and never redistributed; a pass-through output runs one frame in flight outside the delay ring and samples late by its measured render time; every latency figure is measured or "unmeasured".** | Media Foundation and DeckLink in the must, AJA and Magewell as stretch; on Direct3D 12 the rungs from card DMA into a wrapped heap (no CPU copy) to one upload copy, with a GPU wait on the copy's fence; on OpenGL — AUTO's path this round — one CPU copy into a mapped buffer, the upload on the render thread and a CPU fence wait standing in for the waitable, said in STATE and amber in preflight ("the fast path is `PRESENT PATH D3D12`"); packed 4:2:2 unpacked on the GPU; `OUTPUT PASSTHROUGH`; glass to glass through `LATENCY STEP` on a loop-through observer plus the input's age at draw (`design/capture.md`). GPUDirect for Video and DirectGMA wait for a measured cause. | The owner: "Video capture cards should be ultra fast in their pass through signal flow"; a mapped pass-through's floor is one input frame plus the render [cap §0]. | A loop-through measurement showing the copy is the bottleneck. |
 | D15 | **No lab this round.** (The owner's answer 5.) | Every lab line (§7) stays with its script and pass mark and is reported not run, never passed; every question only the lab answers (M1–M5, M9's proof, M10–M13, M20) stands on its "if no" branch all round, said in STATE and the papers; AUTO stays OpenGL on every machine; nothing claims a hardware fact it has not measured. | "Measured, then governed": WARP and the simulators prove logic and pixels, not vblanks, drivers or light. | A lab booked (§9 decision 11). |
-| D16 | **Colour carries three separate meanings — status, identity, stage — and none is the only cue.** | Status (red, amber, green, grey with an **i** for information) reserved for its job; identity in muted colour-blind-safe hues with a number badge, never a status hue (today's projector orange goes); stage as 2–4 % low-chroma tints; tested from each theme's tokens (`design/desk-workflows.md` §11). | ISA-101 and IEC 60601-1-8 reserve alarm colours; colour alone fails colour-blind operators [ux §4]. | None expected. |
+| D16 | **Colour carries three separate meanings — status, identity, stage — and none is the only cue.** | Status (red, amber, green, and grey for off, unknown and the edition's information rows, which carry an **i**) reserved for its job; identity in colour-blind-safe hues with a number badge, never a status hue or a grey (today's projector orange goes for new projectors, and a stored colour that reads as a status is drawn in its identity token); stage as 2–4 % low-chroma tints; tested from each theme's tokens (`design/desk-workflows.md` §11). The controllers rows of the owner's call 9 keep their lights (amber "not paired", red "not announced") and carry no fix line. | ISA-101 and IEC 60601-1-8 reserve alarm colours; colour alone fails colour-blind operators [ux §4]. | None expected. |
 
 ### 1.3 Versions: one source, every format its reader needs
 
@@ -156,7 +158,7 @@ asserts a time (§2.1).
 | User ISF to SPIR-V (glslang, spirv-val, SPIRV-Cross) | ✓ | ✓ (on to DXIL, drawn on WARP, the pinned public corpus counted) | — |
 | D3D12 flip presenters: bring-up, 120 presents, read-back, HDR swap chains | — | ✓ (statistics may be absent on WARP) | real vblank |
 | Independent Flip proven, PresentMon agreeing | — | — | ✓ |
-| Present barrier, RTX PRO Sync | fake NVAPI | fake NVAPI, layout goldens | ✓ |
+| Present barrier and GL swap group, RTX PRO Sync | fake NVAPI, fake WGL extension | fake NVAPI, layout goldens, fake WGL extension | ✓ |
 | D3D12VA decode handoff, the copy-queue arena, Spout through a D3D11 side device | — | ✓ (fake decoder; two WARP devices, cross-API if M8 allows) | NVIDIA, AMD, Intel; Resolume, TouchDesigner |
 | Forced device removal; the time to the first good frame recorded | — | ✓ (if WARP honours a forced removal, M8; else a fault seam) | a real TDR |
 | Shared previews: handles duplicated into a second process and read there | — | ✓ (in a child process if M8 allows; else two devices in one process) | Avalonia's own compositor |
@@ -185,9 +187,9 @@ M9's proof, M10, M11, M12, M13 and M20 — stands on its "if no" column all roun
 | # | Question | Measured how | Deadline | If yes | If no (and until it is measured) |
 |---|---|---|---|---|---|
 | M1 | **Is D3D12 as fast as GL, through the present ledger, on show hardware?** | `bench/r3-present` (the spine's) in W1 (a flashing quad through D3D12 flip, the existing GL window and the D3D11 path on one display, photodiode at a fixed screen position plus PresentMon); then the engine itself once wp3-present merges: the same show on `PRESENT PATH GL` and `D3D12`, an hour each, ledger and photodiode, the ISF corpus count on the new road beside it | AUTO's switch, after W3 | AUTO becomes D3D12 on that vendor tier (NVIDIA RTX, RTX PRO, Radeon, Arc) in one commit citing the record | AUTO stays GL on that tier, with words in STATE naming the record; D3D12 stays explicit |
-| M2 | **Does Avalonia's Windows backend import a D3D12 shared texture and a D3D12 fence at run time?** | desk-ux's bench app (`bench/r3-avalonia-import`) in W1 on a real GPU: `ICompositionGpuInterop.SupportedImageHandleTypes` and `SupportedSemaphoreTypes`, an import, a frame shown | wp3-desk-gpu's slice (W3) | The fence path as designed | The ring stays for that compositor (a shared texture the desk cannot wait on is not used); the age badge ships either way |
+| M2 | **Does Avalonia's Windows backend import a D3D12 shared texture and a D3D12 fence at run time?** | desk-gpu's bench app (`bench/r3-avalonia-import`, built on its first day) on a real GPU: `ICompositionGpuInterop.SupportedImageHandleTypes` and `SupportedSemaphoreTypes`, an import, a frame shown | wp3-desk-gpu's slice (W3) | The fence path as designed | The ring stays for that compositor (a shared texture the desk cannot wait on is not used); the age badge ships either way |
 | M3 | **Does the Windows 11 composition swapchain take D3D12 buffers and present at a target time?** | `bench/r3-present` in W1 | wp3-present's stretch 7 | A timed-present tier for outputs whose cadence is not the display's | Not built; flip presenters with the predicted display time are the path |
-| M4 | **Does the present barrier join several swap chains in one process on a Sync wall?** | The lab's two-machine RTX PRO Sync wall, two outputs each: nvpro-samples' barrier sample (no PlayMap code), then the engine | W4's entry condition: the sample's run booked before W3 ends (§9 decision 13) | A client per output's swap chain, as designed | One swap chain per machine joins the barrier (the pacing output's); the machine's other outputs report free with their phase against it, and `SYNC APPLY` says so; Mosaic stays a stretch |
+| M4 | **Does the present barrier join several swap chains in one process on a Sync wall?** | The lab's two-machine RTX PRO Sync wall, two outputs each: nvpro-samples' barrier sample (no PlayMap code), then the engine | W4's entry condition: the sample's run booked before W3 ends (§9 decision 13) | A client per output's swap chain, as designed, the record confirming it | Each node answers it for itself: every output's swap chain still joins as its own client at `SYNC APPLY` (disarmed only), and one the driver does not take reaches no in-sync count within 120 refreshes, leaves and runs free with its phase and words; the node keeps that driver's answer in its settings (`NodeSettings.Sync`, by driver version), so the next `SYNC APPLY` joins only what the driver took; Mosaic stays a stretch |
 | M5 | **Does Reflex work on RTX PRO drivers, and with the present barrier?** | The lab's RTX PRO node: `NvAPI_D3D_SetSleepMode` answers and its latency markers | after W3 | An optional low-latency tier on outputs that are not in a barrier | PlayMap's own just-in-time pacing (waitable, then sample, then record) is the only one; never both on one output until measured |
 | M6 | Does DXC on Linux emit validated, signed DXIL? | The shaders package's first day | wp3-shaders | HLSL compiles on both jobs | HLSL compiles on the Windows job only; the Linux build embeds none and a Linux test holds the HLSL program set to the library's names |
 | M7 | Does a .NET apphost load the Agility SDK's runtime (no `D3D12SDKVersion` export) through `ID3D12SDKConfiguration1::CreateDeviceFactory`? | The spine's probe step, on the runner (its WARP test and the hard gate's debug layer rest on the answer) | the spine | The MSI places `D3D12Core.dll` beside the exe and STATE names the runtime loaded | The OS runtime, named in STATE, its debug layer from Windows' Graphics Tools optional feature installed in the job; features that need a newer runtime are probed and refused with words |
@@ -201,7 +203,7 @@ M9's proof, M10, M11, M12, M13 and M20 — stands on its "if no" column all roun
 | M15 | How many minutes does GPU-based validation add to the Direct3D 12 leg on WARP? | wp3-d3d12-core's first full run, the leg's minutes in the summary | wp3-d3d12-core | On in every run | On for the merge's changed scenes in every run and for all of them in a nightly run on `main`; the gate (§5.4) names which |
 | M16 | Does WARP accept `OpenExistingHeapFromAddress` over a `VirtualAlloc` ring, placed buffers on it, and a copy-queue copy and a compute unpack from it, byte-exact for UYVY and v210? | wp3-capture's first day (`WrappedHeapTests`) | wp3-capture | Rung 1 (card DMA into the wrapped heap) built, proven on WARP, waiting for a real card's DMA (M20) | Rung 2 (one upload copy) is the best rung on every card, the refusal's words recorded |
 | M17 | Does the WiX toolset build from its MS-RL source at a pinned tag on `windows-2025` within a one-day time-box, and does the self-built tool still ask for the maintenance fee's EULA gesture? | wp3-installer's first day: build the tag, then a test MSI with a service, a `MajorUpgrade` and a firewall rule installed, upgraded and uninstalled on the runner; build time and cache size recorded | wp3-installer | The self-built toolset in a cached job and a local feed (D6) | Inno Setup 7.1, every machine-level action in the supervisor's commands, §1.3's rules restated for an EXE; if the self-built tool asks for the gesture, the owner decides (§9 decision 3) |
-| M18 | Does Dock for Avalonia (its 12.1 line) run on the desk's Avalonia 12.1.4 headless, keep floating panes inside the window, and round-trip a layout through its source-generated serializer? | wp3-desk-shell's first day | wp3-desk-shell | Dock behind the desk's seam (D11) | The desk's own splitters and collapsible rails behind the same seam, no floating panes |
+| M18 | Does Dock for Avalonia (its 12.1 line) run on the desk's Avalonia 12.1.4 headless, keep floating panes inside the window, and round-trip a layout through its source-generated serializer? | wp3-desk-shell's first day | wp3-desk-shell | Dock behind the desk's seam (D11) | The desk's own splitters, collapsible rails and drag-to-dock between the four edges and the rails behind the same seam; no floating panes, which the owner is told |
 | M19 | Does the hosted runner let a test create a Media Foundation virtual camera (`MFCreateVirtualCamera`) that the capture provider opens? | wp3-capture's first day | wp3-capture | `MfProviderTests` on a real MF source in CI | The MF provider against a fake source-reader seam; the real MF path is L25's |
 | M20 | Does a real capture card DMA into pages Direct3D 12 has wrapped, without fault or tearing, and how fast does the GPU read them? | L25 (lab) | after wp3-capture | Rung 1 on that card | Rung 2 on that card, said |
 
@@ -228,21 +230,23 @@ Round 3 is done when:
    why.
 4. On Linux the GL backend draws every golden byte for byte as it did at `23f162f`, and every suite that needs no Direct3D is
    green.
-5. No claim without evidence: every output says its present mode and how it is known; no output without the barrier's own
-   statistics is in a locked state; every platform claim says what it asked and what Windows answered; every shared preview says
-   which path it took.
+5. No claim without evidence: every output says its present mode and how it is known; no output without its lock tier's own evidence
+   (the barrier's statistics, or the swap group's read-back, board state and shared count) is in a locked state; every platform claim
+   says what it asked and what Windows answered; every shared preview says which path it took.
 6. The lab checklist (§7) is written with a script and a pass mark for every manual line; with no lab (D15) every line is reported
    not run, never passed, every question only the lab answers stands on its "if no" branch with STATE and the papers saying so, and
    no paper claims a hardware fact it has not measured; the papers (the integration pass, §5.6) describe what shipped in the present
    tense.
 7. On the desk, headless on both jobs: the three guides run end to end on the align and stage simulators — every step done by hand,
-   every automatic step's result adjusted by hand and a re-run keeping that edit — the quad's draft survives leaving it, every handle
-   is dragged, typed and nudged by one pixel, every view of an output says what it shows, every catalogue row the desk may send is
-   reachable from a menu or a right-click (`MenuCoverageTests`), layouts persist per user, and the colour tokens keep their rules;
-   through a scripted provider the assistant reaches every guide step and carries it out only on a person's approval.
-8. A capture input through a fake provider passes through on one frame in flight with no CPU wait and its stamps exact; WARP unpacks
-   UYVY and v210 byte-exact from the wrapped heap, or M16's words say why the upload copy is the best rung; every glass-to-glass
-   figure in STATE is "unmeasured" until a loop-through has run.
+   every automatic step's result adjusted by hand and a re-run keeping or staging over that edit — the quad's draft survives leaving
+   it, every handle is dragged, typed and nudged by one pixel, every view of an output says what it shows, every catalogue row the desk
+   may send is reachable from a menu or a right-click with no row let off (`MenuCoverageTests`), layouts persist per user, and the
+   colour tokens keep their rules; through a scripted provider the assistant reaches every step of the five guides, each line decided
+   by the gate as its risk, the operator's settings and Show Mode say, a judged step waiting for a person's Check.
+8. A capture input through a fake provider passes through on one frame in flight with no CPU wait on Direct3D 12 and its stamps
+   exact, a frame shown within two vblanks of its arrival by count; on GL it passes through with one copy and the fence wait, said;
+   WARP unpacks UYVY and v210 byte-exact from the wrapped heap, or M16's words say why the upload copy is the best rung; every
+   glass-to-glass figure in STATE is "unmeasured" until a loop-through has run.
 
 ---
 
@@ -330,35 +334,36 @@ Windows evidence comes from the pushed branch's Windows job either way). Hours a
 
 | # | Branch | Hook word | Wave | Depends on | Where | h | Round-3 headline |
 |---|---|---|---|---|---|---|---|
-| 0 | `wp3-spine` | — | W0 | `main` with `versioning` merged | here | 26 | Round-3 rows (the new packages' too), Core contracts and the presenter types in Core, model fields, the seams already known (`UNDO TO` in the gate, the heartbeat's fields, the arm hook), the new projects, the WARP and ES legs in CI, the M1/M3 bench, stubs, the edition family |
+| 0 | `wp3-spine` | — | W0 | `main` with `versioning` merged | here | 27 | Round-3 rows (the new packages' too), Core contracts and the presenter types in Core, the capture URI grammar, model fields, the seams already known (`UNDO TO` in the gate, the heartbeat's fields, the arm hook, the context's `showing` words), the new projects, the WARP and ES legs in CI, the M1/M3 bench, stubs, the edition family |
 | 1 | `wp3-rhi` | — | W1 | spine | here | 26 | The RHI in Core with the presenter seams, the program table, user programs and the graph's transients; GL behind it with unchanged pixels; one test fixture for every backend |
-| 2 | `wp3-platform` | Machine | W1 | spine | cloud | 27 | `PlayMap.Platform.Windows`: QoS, timers, MMCSS, process and GPU priority, CPU sets, keep-awake; the node's identity, edition, support tier and capabilities; machine preflight with Home's rows |
+| 2 | `wp3-platform` | Machine | W1 | spine | cloud | 27.5 | `PlayMap.Platform.Windows`: QoS, timers, MMCSS, process and GPU priority, CPU sets, keep-awake; the node's identity, edition, support tier and capabilities; machine preflight with Home's rows and the OS's servicing |
 | 3 | `wp3-shaders` | Shaders | W1 | spine (rhi before merge) | cloud | 25 | The 40 programs in HLSL through DXC; the shader worker for user ISF; quarantine |
 | 4 | `wp3-installer` | — | W1 | spine | cloud | 26.5 | The MSI version rules, the LGPL FFmpeg in CI, the WiX toolset built from its source and the MSI with ReadyToRun, machine-level actions, the supervisor service, a fail-closed armed check, unsigned builds with their SHA-256 list, the editions' guidance |
-| 5 | `wp3-desk-ux` | Undo | W1 | spine | cloud | 26 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status rules, preview age, the M2 bench, the four-click quad that stays and drags |
+| 5 | `wp3-desk-ux` | Undo | W1 | spine | cloud | 26 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status rules, preview age, the four-click quad that stays, its corners dragged, typed and nudged, a pin typed and nudged |
 | 6 | `wp3-d3d12-core` | Gpu | W2 | rhi, shaders | cloud | 26 | Device, queues, fences, memory, descriptors, transients and aliasing, the exporter, DRED and Aftermath, the pipeline cache; every product pixel scene on WARP |
 | 7 | `wp3-d3d12-passes` | Plan | W2 | rhi (d3d12-core before merge) | here | 24.5 | Every pass declares what it reads and writes; the render graph compiled on show change; both backends walk the plan; a live input's import marked late-latched |
-| 8 | `wp3-stability` | Observe | W2 | rhi | here | 23 | The watermark, the independent observer, the shown-frame heartbeat, `LATENCY STEP`, the crash policy, the journal's drops counted |
+| 8 | `wp3-stability` | Observe | W2 | rhi | here | 24 | The watermark, the independent observer, the shown-frame heartbeat, `LATENCY STEP`, the crash policy, the journal's drops counted, the servers flooded with the render's counts unchanged |
 | 9 | `wp3-present` | (Output) | W3 | d3d12-core, stability | cloud | 25 | D3D12 flip presenters, Independent Flip evidence, one queued frame, the predicted display time, HDR10 and 10-bit, the Engine suites on D3D12 |
-| 10 | `wp3-video` | (Decode) | W3 | d3d12-core | cloud | 24 | D3D12VA zero-copy, the copy-queue arena, Spout on a D3D11 side device, NDI and OMT on the copy queue at arrival, decode tiers |
-| 11 | `wp3-desk-gpu` | Preview | W3 | d3d12-core, desk-ux, desk-shell | here | 20 | Shared-texture previews with a fence, the adapter guard, the ring kept, the desk-kill test |
+| 10 | `wp3-video` | (Decode) | W3 | d3d12-core | cloud | 24.5 | D3D12VA zero-copy, the copy-queue arena, Spout on a D3D11 side device, NDI and OMT on the copy queue at arrival, decode tiers, online-only show media named |
+| 11 | `wp3-desk-gpu` | Preview | W3 | d3d12-core, desk-ux (desk-shell before merge, when carried) | here | 24 | Shared-texture previews with a fence, the adapter guard, the ring kept, the desk-kill test, the M2 bench, the desk's UI-stall watchdog and push budget |
 | 12 | `wp3-d3d12-passes-2` | (Plan, Gpu) | W3 | d3d12-passes, d3d12-core | here | 21 | Pipelines compiled at arm and keyed by driver, bindless records, zero allocation on D3D12, GPU time per pass |
-| 13 | `wp3-framelock` | (Sync) | W4 | present; M4's "no" shape (no lab) | cloud | 23 | The present barrier where the hardware allows it, the honest software lock, the governed fall-out, timing preconditions with ADLX's FreeSync read |
+| 13 | `wp3-framelock` | (Sync) | W4 | present (stability-2 before merge) | cloud | 26 | The present barrier on Direct3D 12 and the swap group on OpenGL where the hardware allows them, each output locked by its own evidence, the honest software lock, the governed fall-out, timing preconditions with ADLX's FreeSync read |
 | 14 | `wp3-stability-2` | (Gpu, Observe) | W4 | present, d3d12-passes-2 | cloud | 21 | One rebuild path, rehearsed device removal, repeated loss governed, the degrade order, GPU crash evidence |
 | 15 | `wp3-shaders-2` | (Shaders) | W3 | shaders, d3d12-core (d3d12-passes-2 before merge) | cloud | 22 | User ISF effects on the Direct3D 12 device, the GPU-time guard, the ISF corpus on the new road |
-| 16 | `wp3-desk-shell` | — | W2 | desk-ux | cloud | 26 | Docked, floating and collapsible panes; the menu bar, the palette and the console from one action table; right-click menus from the catalogue; colour in three channels; the assistant's pane |
-| 17 | `wp3-desk-map` | Handles | W3 | desk-shell, d3d12-passes-2 (before merge) | here | 20 | Every handle selected, dragged, typed and nudged by one pixel (`PIN MOVE`, `WARP CORNER`, the PX forms); the projector view's zoom and loupe; what each screen shows |
-| 18 | `wp3-canvas` | Canvas | W4 | d3d12-passes-2, present | here | 15 | `CANVAS SPAN` and `CANVAS SOURCE`; one pattern drawn across a canvas; every output's automatic results a layer under the hand's (`HAND`, align's γ out of the hand's field) |
-| 19 | `wp3-workflows` | Guide | W4 | desk-map, canvas (before merge) | cloud | 23 | The three guides and `GUIDE`; poses and scans keeping hand edits; `VIEWPOINT FIT`, `SURFACE MAP`; the Workflows home and Simple that hides; the assistant in every step |
-| 20 | `wp3-capture` | Capture | W4 | video, present (framelock before merge) | cloud | 23 | Capture cards in the video I/O hub (Media Foundation, DeckLink), the wrapped-heap and upload rungs, packed 4:2:2 on the GPU, the pass-through output, the frame rate and lock, latency measured |
+| 16 | `wp3-desk-shell` | — | W2 | desk-ux | cloud | 26.5 | Docked, floating and collapsible panes; the menu bar, the palette and the console from one action table; right-click menus from the catalogue, none let off; colour in three channels; the assistant's pane |
+| 17 | `wp3-desk-map` | Handles | W3 | desk-shell, d3d12-passes-2 (before merge) | here | 26 | Every handle selected, dragged, typed and nudged by one pixel (`PIN MOVE`, `WARP CORNER`, the PX forms); the projector view's zoom and loupe; the tool remembered per workspace; what each screen shows; the advanced panes (effects chains, modulation and bindings, an area pane per STATE block) |
+| 18 | `wp3-canvas` | Canvas | W4 | d3d12-passes-2, present | here | 17.5 | `CANVAS SPAN` side by side, stacked or both, and `CANVAS SOURCE`; one pattern drawn across a canvas; every output's automatic results a layer under the hand's (`HAND`, align's γ out of the hand's field) |
+| 19 | `wp3-workflows` | Guide | W4 | desk-map, canvas (before merge) | cloud | 26 | The three guides with the facade and first light on the same rail, and `GUIDE`; the 2 × 2 stack and blend; poses and scans keeping or staging over hand edits; `VIEWPOINT FIT`, `SURFACE MAP`; the canvas editor; the Workflows home and Simple that hides; the assistant in every step |
+| 20 | `wp3-capture` | Capture | W4 | video, present (framelock before merge) | cloud | 25.5 | Capture cards in the video I/O hub (Media Foundation, DeckLink), the wrapped-heap and upload rungs on Direct3D 12 and the one-copy path on GL, packed 4:2:2 on the GPU, the pass-through output with its late sample, the input's measured phase, latency measured |
 
-Twenty-one sessions, about 490 hours above the cut lines: the sixteen packages the owner kept ("All 16"), about 386 hours with what
-their answers change in them, and five packages — 16 to 20 — that this revision of the plan proposes for the owner's requirements of
-18 October 2026, about 107 hours. The owner kept sixteen before those requirements were given; the five are the plan's proposal, and
-§9 decision 1 says how they go to the next round if the owner keeps the round at sixteen. The designs that go beyond this file:
+Twenty-one packages, each one implementation session and one review-and-fix session, about 518 hours above the cut lines: the
+sixteen packages the owner kept ("All 16"), about 396 hours with what their answers and the requirements' small items add to them,
+and five packages — 16 to 20 — that the plan proposes for the owner's requirements of 18 October 2026, about 122 hours. The
+sixteen are the owner's answer and the five the plan's proposal; §9 decision 1 says what the round keeps of the requirements if the
+owner holds it at sixteen. The designs that go beyond this file:
 `design/rhi.md` (wp3-rhi), `design/d3d12.md` (wp3-d3d12-core), `design/graph.md` (wp3-d3d12-passes and -2), `design/shaders.md`
 (wp3-shaders and -2), `design/present.md` (wp3-present and wp3-framelock), `design/platform.md`, `design/desk-gpu.md`,
-`design/stability.md` (wp3-stability and -2), `design/installer.md`, `design/desk-workflows.md` (desk-ux's item 7, wp3-desk-shell,
+`design/stability.md` (wp3-stability and -2), `design/installer.md`, `design/desk-workflows.md` (desk-ux's item 6, wp3-desk-shell,
 wp3-desk-map, wp3-canvas and wp3-workflows) and `design/capture.md` (wp3-capture). Video and the rest of desk-ux are specified here in
 full.
 
@@ -376,34 +381,45 @@ lab, and its next round.
    `PRESENT PATH` gains `D3D12` (refused with words until their owners route them); the extended rows of the five packages the
    owner's requirements add (`PATTERN … ON <canvas>`, `WARP NODE … PX`, `HANDLE SELECT` of every handle, `INPUT DISCOVER CAPTURE`,
    `INPUT ADD`'s `MODE` and `FORMAT`) the same way; `RoutesTests` and `CatalogueTests` cover the rows. (4 h)
-3. Contracts two or more packages share: `GpuApi.D3D12`; `PresentPath.D3D12Flip` and its word (`d3d12-flip` in STATE; on the
-   wire a D3D12 flip presenter reports PMVB path 2, `dxgi-flip`, the presentation model it shares with the D3D11 path, so mixed
-   builds in a group read each other); the PMVB reader learns path 3 (`dedicated`, wp3-present's stretch) and still refuses 4
-   and above; `NodeIdentity`, `AdapterIdentity`, `CapabilitySnapshot`, `CapabilityProbe`, `ThreadRole`, `IThreadClaim` and the
-   static `ThreadClaims` (Core/Machine: a thread in Media, Net or the engine claims its role in one line, a no-op until the engine
-   points it at its platform), with `ThreadRole.Capture` for capture threads and `OsIdentity`'s edition family (`home`, `pro`,
-   `workstation`, `enterprise`, `education`, `iot`) beside its LTSC and IoT flags; the engine seams of `Seams.Round3.cs` (`IMachinePlatform`, `IAirObserver`, `IGpuLifecycle`,
-   `IPreviewShare`, `IShowArmHook`) with null implementations that say why. The presenter-facing types move from Render to
-   `src/PlayMap.Core/Presentation` with their names and behaviour (`VblankClock`, `PresentLedger`, `PresentClock` with
-   `PresentSnapshot`, `PresentMode` and `ModeEvidence`, `LatencyPlan`, `PresentPath`, `PresentProblem`, `PresentResult`), so a
-   Direct3D 12 presenter in `Render.D3D12` feeds them without referencing Render (wp3-rhi moves `IGpuPlatform` and
-   `IOutputPresenter` when it reshapes them). (5 h)
+3. Contracts two or more packages share: `GpuApi.D3D12`; `PresentPath.D3D12Flip` and its word (`d3d12-flip` in STATE; on the wire a
+   D3D12 flip presenter reports PMVB path 2, `dxgi-flip`, the presentation model it shares with the D3D11 path, so mixed builds in a
+   group read each other); the PMVB reader learns path 3 (`dedicated`, wp3-present's stretch) and still refuses 4 and above;
+   `NodeIdentity`, `AdapterIdentity`, `CapabilitySnapshot`, `CapabilityProbe`, `ThreadRole`, `IThreadClaim` and the static
+   `ThreadClaims` (Core/Machine: a thread in Media, Net or the engine claims its role in one line, a no-op until the engine points it
+   at its platform), with `ThreadRole.Capture` for capture threads and `OsIdentity`'s edition family (`home`, `pro`, `workstation`,
+   `enterprise`, `education`, `iot`, `server`, `unknown`) beside its LTSC and IoT flags; `CaptureUri` (Core/Media:
+   `capture:<provider>/<device>[/<input>]`, the providers `dshow` and `v4l2` — FFmpeg's avdevice, rung 4 — and `mf`, `decklink`, `aja`
+   and `magewell`; an unknown provider, user information or a query refused with words; a provider whose code the node lacks answers
+   "not on this node yet"), the one grammar wp3-stability's observer (W2: `dshow`, `v4l2`) and wp3-capture's providers (W4: the rest)
+   parse, so no stored source changes meaning between them; the engine seams of `Seams.Round3.cs` (`IMachinePlatform`, `IAirObserver`,
+   `IGpuLifecycle`, `IPreviewShare`, `IShowArmHook`) with null implementations that say why. The presenter-facing types move from
+   Render to `src/PlayMap.Core/Presentation` with their names and behaviour (`VblankClock`, `PresentLedger`, `PresentClock` with
+   `PresentSnapshot`, `PresentMode` and `ModeEvidence`, `LatencyPlan`, `PresentPath`, `PresentProblem`, `PresentResult`), so a Direct3D
+   12 presenter in `Render.D3D12` feeds them without referencing Render (wp3-rhi moves `IGpuPlatform` and `IOutputPresenter` when it
+   reshapes them). (5.5 h)
 4. The model's round-3 fields, backward compatible (init properties with defaults): `Output.ColorBits` (8 | 10), `Output.Hdr`
    (off | hdr10 | scrgb) and `Output.NitTarget`, `Output.FramesInFlight` (0 = auto, 1, 2), `Output.Watermark` (null, or place
-   and size); for the owner's requirements `Output.PassThrough`, `MeasuredCorrection.Gamma` (the measured γ align writes, drawn
-   under the hand's γ), `Canvas.Span` (the outputs, layout, overlap and what a span wrote) and the calibration source `Hand`;
-   `ModelCompatTests` read every round-2 fixture project unchanged. (3 h)
+   and size); for the owner's requirements `Output.PassThrough`, `Canvas.Span` (the outputs, the layout `SIDE <c>x<r>` and `STACK <n>`,
+   the overlap and what a span wrote), `Viewpoint.Fit` (the surfaces, margin, aim and field of view `VIEWPOINT FIT` wrote),
+   `Project.Guides` (each begun guide's kind, subject, who began it and when, and each checked step with the hash of its inputs), and
+   `BlendSettings.Gamma`'s meaning as the hand's override (0: the output's measured γ, `Measured.Color.Gamma`, where it has one, else
+   2.2; the default 0); the measured γ stays where align already keeps it, and a typed or nudged pose is a calibration result of the
+   existing source `Manual`; `ModelCompatTests` read every round-2 fixture project, unchanged but for γ: a stored `Blend.Gamma` equal to
+   2.2 or to the γ the output's current calibration result recorded (an accept wrote it) reads as 0, any other value as the hand's
+   override, and the reader names each output it moved in the project's load note. (3.5 h)
 5. The tree: `src/PlayMap.Render.D3D12` (references Core; TerraFX; every type `[SupportedOSPlatform("windows")]`; its folders as
    `design/d3d12.md` §0 lists them), `src/PlayMap.Platform.Windows` (references Core), `src/PlayMap.Supervisor` (references Core),
    their test projects, the solution's entries (the WiX project stays outside `PlayMap.sln`: an MSI builds on Windows only, so the
    Windows job's MSI step builds it); `ModuleRuleTests` (each new project references Core and its own native packages only;
-   Render.D3D12 does not reference Render; only App references Avalonia); the stubs of §2.3, each empty body holding
-   `// wp3-<pkg> fills this.`; the new STATE keys reserved in their place — `identity`, `capabilities`, `platform`, `locked` and
-   `install` as children of the existing `machine` block, after its present keys; `render`, `observe` and `previews` at the top
-   level; for the owner's requirements `guides` at the top level, `outputs[].showing`, `outputs[].hand`, `outputs[].passThrough`,
-   `media[].shownOn`, `videoio.inputs[].capture` and `.latency` and `air.overlay.handleP95Ms` after their blocks' present keys, and
-   the context's `guide` item kind; empty fixtures `machine.json`, `install.json`, `shaders.json`, `gpu.json`, `graph.json`,
-   `observe.json`, `previews.json`, `showing.json`, `canvas.json`, `guides.json` and `capture.json` with their card descriptors; `docs/wire/<pkg>.md` generated from the catalogue; one heading per package in
+   Render.D3D12 does not reference Render; only App references Avalonia); the stubs of §2.3, each empty body holding `// wp3-<pkg>
+   fills this.`; the new STATE keys reserved in their place — `identity`, `capabilities`, `platform`, `locked` and `install` as
+   children of the existing `machine` block, after its present keys; `render`, `observe` and `previews` at the top level; for the
+   owner's requirements `guides` at the top level, `outputs[].showing`, `outputs[].hand`, `outputs[].passThrough`, `media[].shownOn`,
+   `videoio.inputs[].capture` and `.latency` and `air.overlay.handleP95Ms` after their blocks' present keys, and the context's `guide`
+   item kind; in `ContextBuilder.cs` the output item's words joined with `ShowingWords(output)`, a partial in desk-map's
+   `EngineCore.Showing.cs` stub that answers nothing until desk-map fills it; empty fixtures `machine.json`, `install.json`,
+   `shaders.json`, `gpu.json`, `graph.json`, `observe.json`, `previews.json`, `showing.json`, `canvas.json`, `guides.json` and
+   `capture.json` with their card descriptors; `docs/wire/<pkg>.md` generated from the catalogue; one heading per package in
    `THIRD-PARTY-NOTICES.md`. (5 h)
 6. CI: the Windows job pinned to `windows-2025` (Windows Server 2025, build 26100: the MSI's launch condition holds there);
    it restores `Microsoft.Direct3D.WARP` and `Microsoft.Direct3D.D3D12` (the Agility SDK, with its debug layer) and copies them
@@ -427,7 +443,7 @@ lab, and its next round.
    window and the D3D11 path on one display, and the composition swapchain asked to take Direct3D 12 buffers — built on the
    Windows job, run in the lab (L1, L4). (2 h)
 
-⟂ *(≈ 26 h)*
+⟂ *(≈ 27 h)*
 
 The round-3 rows:
 
@@ -453,34 +469,36 @@ The round-3 rows:
 | `WARP CORNER` | `WARP CORNER <output> TL\|TR\|BR\|BL TO\|BY <x> <y> [PX\|NORM]` | desk-map | Review | Layout (a gesture) |
 | `WARP NODE` (extended) | `… \| WARP NODE <output> <c> <r> TO\|BY <x> <y> PX` | desk-map | as `WARP NODE` | as `WARP NODE` |
 | `HANDLE SELECT` (extended) | `… \| HANDLE SELECT <pin> \| HANDLE SELECT <output> WARP TL\|TR\|BR\|BL\|<c>,<r> \| HANDLE SELECT <output> MASK <i> <node>` | desk-map | as `HANDLE SELECT` | as `HANDLE SELECT` |
-| `CANVAS SPAN` | `CANVAS SPAN <canvas>\|NEW <output> <output>… [SIDE <c>x<r>\|STACK] [OVERLAP <px>\|<pct>%] [KEEP\|REPLACE]` | canvas | Review | Layout |
+| `CANVAS SPAN` | `CANVAS SPAN <canvas>\|NEW <output> <output>… [SIDE <c>x<r>] [STACK <n 2-4>] [OVERLAP <px>\|<pct>%] [KEEP\|REPLACE]` | canvas | Review | Layout |
 | `CANVAS SOURCE` | `CANVAS SOURCE <canvas> <source> [FIT\|FILL\|STRETCH]` | canvas | High | Content |
 | `PATTERN` (extended) | `PATTERN <kind>\|OFF [ON <output>\|<canvas>\|ALL]` | canvas | as `PATTERN` | as `PATTERN` |
 | `HAND` | `HAND <output>\|<projector>\|<surface>` | canvas | Low | Query |
-| `HAND CLEAR` | `HAND CLEAR <output> WARP\|BLEND\|COLOR\|ALL` | canvas | Review | Layout |
+| `HAND CLEAR` | `HAND CLEAR <output> WARP\|BLEND\|COLOR\|MASKS\|ALL` | canvas | Review | Layout |
 | `GUIDE` | `GUIDE LIST \| GUIDE FLAT\|WALL\|OBJECT\|FACADE\|FIRST [<subject>]` | workflows | Low | Query |
-| `GUIDE CHECK` | `GUIDE <kind> <subject> CHECK\|UNCHECK <step>` (a person's mark: refused from an assistant's session) | workflows | Review | Project |
-| `VIEWPOINT FIT` | `VIEWPOINT FIT <viewpoint> <surface>… [MARGIN <pct>] [FOV]` | workflows | Review | Target |
+| `GUIDE CHECK` | `GUIDE <kind> <subject> BEGIN\|END \| GUIDE <kind> <subject> CHECK\|UNCHECK <step>` (CHECK and UNCHECK a person's mark: refused from an assistant's session) | workflows | Review | Project |
+| `VIEWPOINT FIT` | `VIEWPOINT FIT <viewpoint> <surface>… [MARGIN <pct>] [KEEP\|REPLACE]` | workflows | Review | Target |
 | `SURFACE MAP` | `SURFACE MAP <surface> UV \| CANVAS <canvas> [<x> <y> <w> <h>] \| PROJECTION FROM <viewpoint>` | workflows | Review | Content |
 | `INPUT DISCOVER` (extended) | `INPUT DISCOVER [NDI\|OMT\|SPOUT\|CAPTURE\|ALL] [WAIT <0-5000 ms>]` | capture | Low | Query |
 | `INPUT ADD` (extended) | `… [MODE <w>x<h>@<rate>] [FORMAT UYVY\|V210\|NV12\|AUTO]`, `capture:` URIs | capture | as `INPUT ADD` | as `INPUT ADD` |
 | `OUTPUT PASSTHROUGH` | `OUTPUT PASSTHROUGH <output> ON\|OFF` | capture | Review | Setup |
-| `LATENCY LOOP` | `LATENCY LOOP <output> VIA <input> [STEPS <3-60>]` | capture | High | Heavy |
 
 Rows whose replies or words grow, without a new row: `OUTPUT STATS` (mode, evidence), `SYNC STATUS` (barrier, phase), `HEALTH`
 (shown and observed frames, the GPU's phase), `FX CHECK` (the Direct3D 12 path's stages), `DECODE STATUS` (D3D12VA), `PREFLIGHT`
 (every package's rows), `SITE GUIDE` (the FACADE guide's steps, the same list), `ALIGN ACCEPT`, `STACK ALIGN`, `STACK MATCH`,
-`BLEND SOLVE` and `SCAN APPLY` (the hand edits each kept), `PROJECTOR SOLVE` and `CALIBRATION RESOLVE` (staged over a hand result).
+`BLEND SOLVE` and `SCAN APPLY` (the hand edits each kept), `PROJECTOR SOLVE`, `CALIBRATION RESOLVE` and `SCAN APPLY` (a projector's
+result staged over a manual one, named), `LATENCY STEP` (a pass-through output's glass-to-glass, wp3-capture), `SYNC APPLY` (each
+output's tier and evidence, a board on a path with no hardware tier).
 
-**Acceptance.** `CatalogueTests` (every round-3 row: syntax parses, risk and class set, `SecretFrom` null, every alternative
-passes `CommandGate.Check`; no `RiskWhen` lowers a Heavy, Air or Layout line); `RoutesTests` (round-3 rows unrouted answer "not
-available on this node yet"); `ModelCompatTests`; `ModuleRuleTests`; `PmvbCodecTests` (path 3 round-trips; path 4 is refused);
-`StateOrderTests` (the new keys in their place, empty: the `machine` children after its present keys); `WindowsPlatformTests` (the
-new projects' types carry the attribute); `UndoGateTests` (the gate's verdicts: `UNDO TO` allowed for an operator while armed and
-drafted for the blind owner, exactly as `UNDO`; `FX RELEASE` refused armed and not draftable); `UndoToStoreTests` (`UndoTo(3)` on
-five edits → the root after the second, one step); `HealthCompatTests` (a round-2 HEALTH line reads the new fields as −1 and the
-phase as unknown); `ArmHookTests` (a hook past its deadline is cancelled and named, and ARM arms); **every existing test passes
-unchanged** (the moved presentation types keep their names; only `using` lines change); the desk builds.
+**Acceptance.** `CatalogueTests` (every round-3 row: syntax parses, risk and class set, `SecretFrom` null, every alternative passes
+`CommandGate.Check`; no `RiskWhen` lowers a Heavy, Air or Layout line); `RoutesTests` (round-3 rows unrouted answer "not available on
+this node yet"); `ModelCompatTests` (with the γ rule of item 4); `CaptureUriTests` (each provider's form parses; an unknown provider,
+user information and a query refused with words; nothing of a refused URI journalled); `ModuleRuleTests`; `PmvbCodecTests` (path 3
+round-trips; path 4 is refused); `StateOrderTests` (the new keys in their place, empty: the `machine` children after its present keys);
+`WindowsPlatformTests` (the new projects' types carry the attribute); `UndoGateTests` (the gate's verdicts: `UNDO TO` allowed for an
+operator while armed and drafted for the blind owner, exactly as `UNDO`; `FX RELEASE` refused armed and not draftable);
+`UndoToStoreTests` (`UndoTo(3)` on five edits → the root after the second, one step); `HealthCompatTests` (a round-2 HEALTH line reads
+the new fields as −1 and the phase as unknown); `ArmHookTests` (a hook past its deadline is cancelled and named, and ARM arms); **every
+existing test passes unchanged** (the moved presentation types keep their names; only `using` lines change); the desk builds.
 
 **Verified here.** All but the Windows lines. **On CI (Windows).** WARP and the Agility SDK restored beside the hosts; a one-line
 Direct3D 12 test creates a WARP device and says its feature level; M7's and M14's answers in the summary; the bench builds. **On
@@ -601,12 +619,15 @@ in that change); constant ids everywhere.
    drift from `MACHINE LOCK`'s set (amber, naming the old and new versions, fix `MACHINE LOCK`; on Home, where drivers cannot be held
    back, it observes the change and says so). The edition's rows (D4): each layer the edition lacks an information row in grey with
    **i** ("updates cannot be deferred on Home: pause them past the show in Settings ▸ Windows Update"; "no kiosk on Home"; "outputs
-   are desktop monitors here: keep the desk's monitor primary"), and the hard rows — Smart App Control enforcing while the build is
-   unsigned (red, read from `CI\Policy\VerifiedAndReputablePolicyState`; evaluating: amber, "it may start blocking this unsigned
-   build"), a projector output that is the primary display (amber), the show adapter on the Public firewall profile with no rule
-   for it (amber). (4 h)
+   are desktop monitors here: keep the desk's monitor primary"), and the hard rows — Smart App Control in evaluation while the build
+   is unsigned (amber, read from `CI\Policy\VerifiedAndReputablePolicyState` 2: "turn Smart App Control off before the show: once it
+   enforces, Windows blocks this unsigned build and this node will not start"; enforcing has no row, since the unsigned engine that
+   would raise it cannot start), a projector output that is the primary display (amber), the show adapter on the Public firewall
+   profile with no rule for it (amber), and the OS version past its end of servicing (amber, from a servicing table of edition family
+   and version shipped in the build and dated with it: "Windows 11 Home 24H2 left servicing on 13 Oct 2026: this node gets no security
+   updates — move to 25H2 or later"; a version the table does not know is a grey fact, "servicing unknown"). (4.5 h)
 
-⟂ *(≈ 27 h)*
+⟂ *(≈ 27.5 h)*
 
 7. *(stretch)* Preflight's remaining rows: USB selective suspend, PCIe link-state power management, notifications, the Windows
    Update deferral policy (on the editions that have it), HAGS, Memory Integrity, Game Mode and each media volume's encryption as
@@ -640,25 +661,28 @@ wp3-d3d12-passes' own file.
   service runs; 1 000 waits of 1 ms on today's wait and on the high-resolution timer, both distributions recorded and no ceiling
   asserted (the runner is shared; L10 holds the pass mark).
 - `PlatformLayoutTests` (both): the platform's own DXGI and NVAPI probe structures against the headers' sizes and offsets.
-- `IdentityTests`: the record's keys and types from a fake platform, the tier and support level per vendor; every edition family
-  from a fake `GetProductInfo` and `EditionID` (`Core`, `CoreSingleLanguage`, `Professional`, `ProfessionalWorkstation`,
-  `Enterprise`, `EnterpriseS`, `Education`, `IoTEnterpriseS`) and its support tier; `machine.json` written; a locked set against a
-  changed GPU driver → an amber row naming both versions with the fix line `MACHINE LOCK`.
+- `IdentityTests`: the record's keys and types from a fake platform, the tier and support level per vendor; every edition family from a
+  fake `GetProductInfo` and `EditionID` (`Core`, `CoreSingleLanguage`, `Professional`, `ProfessionalWorkstation`, `Enterprise`,
+  `EnterpriseS`, `Education`, `IoTEnterpriseS`, a Server SKU, an unknown id) and its support tier; `machine.json` written; a locked set
+  against a changed GPU driver → an amber row naming both versions with the fix line `MACHINE LOCK`.
 - `EditionRowTests`: on a fake Home the edition's information rows with their Settings paths and no Update policy written; Smart
-  App Control enforcing on an unsigned build → red, evaluating → amber; a projector output that is the primary display → amber; the
-  show adapter on Public with no rule → amber; on a fake IoT Enterprise LTSC none of Home's rows.
+  App Control evaluating on an unsigned build → amber with its words, off → no row; a projector output that is the primary display →
+  amber; the show adapter on Public with no rule → amber; a fake Home 24H2 (build 26100) with the wall clock after 13 Oct 2026 →
+  the servicing row amber, a fake 25H2 → none, a build the table lacks → grey "servicing unknown"; on a fake IoT Enterprise LTSC
+  none of Home's rows.
 - `MachineVerbTests`: `MACHINE SET GPU-PRIORITY REALTIME` without the privilege → refused naming it; armed → refused by the class;
   `MACHINE SET QOS HIGH` when it is → refused "already high"; `MACHINE LOCK` on the locked set and `MACHINE LOCK CLEAR` with none →
   refused with the reason, nothing written.
 - `PreflightMachineTests`: each row fails on an injected fake fact and passes once fixed; every fix line parses.
 - On Linux the null platform's words ("the platform seam is Windows only") in STATE and preflight.
 
-**Verified here.** Policy, placement, verbs, STATE, preflight, against fakes. **On CI (Windows).** Every call answers, read back
-where the Server SKU allows. **Manual (lab).** L10: p99.9 frame time with and without each claim on an NVIDIA, an AMD and an Intel
-machine — the measured cause that turns each default on or off; a hybrid Intel CPU's placement; a dual-CCD X3D CPU. L22: a precise
-Windows thread time — a thread's cycles at the time-stamp counter's frequency from the platform against its running time, with
-Memory Integrity on and off, and the ticks' step under the node's own timer claims. L23: the edition's rows and the claims on a clean
-Windows 11 Home 26H2 node. With no lab (D15) all three are reported not run; the defaults with no documented cause stay off.
+**Verified here.** Policy, placement, verbs, STATE, preflight, against fakes. **On CI (Windows).** Every call answers, read back where
+the Server SKU allows. **Manual (lab).** L10: p99.9 frame time with and without each claim on an NVIDIA, an AMD and an Intel machine —
+the measured cause that turns each default on or off; a hybrid Intel CPU's placement; a dual-CCD X3D CPU. L22: a precise Windows thread
+time — a thread's cycles at the time-stamp counter's frequency from the platform against its running time, with Memory Integrity on and
+off, and the ticks' step under the node's own timer claims. L23: the edition's rows and the claims on a clean Windows 11 Home 26H2
+node, and what Windows shows once Smart App Control enforces on it. With no lab (D15) all three are reported not run; the defaults with
+no documented cause stay off.
 
 **Next round.** Core reservation, large pages for frame pools, a pre-roll measured against NativeAOT (M13).
 
@@ -745,11 +769,13 @@ wp3-d3d12-core's).
    built by the Windows job's MSI step against item 2's feed): per machine into Program Files\PlayMap; the self-contained publish
    with ReadyToRun (`PublishReadyToRun`: M13's default with the pre-roll, the first ten minutes recorded in L21) harvested; FFmpeg's
    LGPL shared libraries (item 1's pin) and libvmx beside the exe (today neither is in the folder [map §6.2]); the Agility SDK
-   runtime under `D3D12\` (its debug layer left out of releases); the shader worker's natives; launch conditions of Windows 11 build
-   26100 or later on x64 (a registry search, not `VersionNT`) and of Smart App Control not enforcing while the build is unsigned
-   (`CI\Policy\VerifiedAndReputablePolicyState` 1 → "Smart App Control blocks unsigned programs and this build is unsigned: turn it
-   off in Windows Security ▸ App & browser control, or wait for a signed build"); `MajorUpgrade` with no same-version upgrade and a
-   downgrade refused with words; the product's name carrying the SemVer. (8 h)
+   runtime under `D3D12\` (its debug layer left out of releases); the shader worker's natives; a launch condition of Windows 11 build
+   26100 or later on x64 (a registry search, not `VersionNT`); no launch condition for Smart App Control, which, enforcing, blocks the
+   unsigned MSI itself before Windows Installer evaluates one — while it is in evaluation (`CI\Policy\VerifiedAndReputablePolicyState`
+   2) the MSI's UI shows one warning page ("Smart App Control is evaluating this PC: once it enforces, Windows blocks this unsigned
+   build and the node will not start — turn it off in Windows Security ▸ App & browser control before the show") and a quiet install
+   writes it to its log; `MajorUpgrade` with no same-version upgrade and a downgrade refused with words; the product's name carrying
+   the SemVer. (8 h)
 4. Machine-level actions, once, so the engine never runs as administrator: firewall rules for `PlayMap.exe` (TCP 9940, 9941; UDP
    9928, 9942, 9943, 6454, 5568, 5353) on the private and domain profiles, the Public profile a property the person sets (a new
    network is Public by default [home §12]); no URL ACL (Kestrel binds its own sockets — asserted by a standard user binding 9940);
@@ -769,10 +795,14 @@ wp3-d3d12-core's).
    node's words; an engine process alive that does not answer: refused with words, never read as "not armed". (6 h)
 6. Unsigned builds (D6, the owner's answer 3): the artifact and every release named `-unsigned`, with a named notice in the job's
    summary ("unsigned: the owner's decision — PLAN.md §9 decision 2"); a `SHA256SUMS` file of every shipped file and the installer
-   beside each artifact and on each release's page (fetched over HTTPS), which `docs/INSTALL.md` says how to check (`Get-FileHash`) — the only integrity a person has
-   this round, and nothing verifies an update automatically, since there is no updater; `docs/INSTALL.md` shows what Windows says to
-   an unsigned download (SmartScreen's "Windows protected your PC — unknown publisher", More info ▸ Run anyway; UAC's "Unknown
-   publisher"; Smart App Control's block with no exception) and the steps. (1 h)
+   beside each artifact and on each release's page (fetched over HTTPS), which `docs/INSTALL.md` says how to check (`Get-FileHash`) —
+   the only check a person has this round, and one that shows a download is intact, not who built it (the sums sit on the same page as
+   the files); nothing verifies an update automatically, since there is no updater; `docs/INSTALL.md` and the release page say, before
+   the download, what Windows does to an unsigned build (SmartScreen's "Windows protected your PC — unknown publisher", More info ▸
+   Run anyway; UAC's "Unknown publisher"; Smart App Control, once it enforces, blocking the installer, `PlayMap.exe` and the supervisor
+   with no per-app exception, so nothing of PlayMap runs and its block, logged as event 3077 in
+   `Microsoft-Windows-CodeIntegrity/Operational`, is the only sign; a desk on another machine shows the node as not answering in the
+   fleet's board) and the steps. (1 h)
 7. The editions in `docs/INSTALL.md` (D4): the three tiers; on Home, a local standard "show" account made after setup (Home's setup
    asks for a Microsoft account, and a new one has no password), auto-logon to it with the password as an LSA secret, never a
    plain-text registry value, no Shell Launcher and the supervisor in its place, updates paused past the show and active hours set
@@ -820,8 +850,8 @@ EngineSupervisor.cs` (attach to a supervised engine; after desk-ux); the FFmpeg 
   actions, the firewall rules and the WER values; its FFmpeg hashes to CI's LGPL pin; the previous build's MSI (built in the job
   with a lower build number) upgrades to this one and keeps the node's settings; a downgrade is refused with words; an uninstall
   removes all but the node's data; with a fake engine on loopback answering armed, the install fails with the node's words; with
-  a fake engine process that never answers, it fails with "does not answer"; with the Smart App Control state set to enforcing (a
-  test property standing in for the registry value), the launch condition refuses with its words.
+  a fake engine process that never answers, it fails with "does not answer"; with the Smart App Control state set to evaluating (a
+  test property standing in for the registry value), a quiet install completes and its log carries the warning's words.
 - `SupervisorTests` (pure, both): the backoff schedule, the heartbeat rule on a manual clock, the rule inactive while the count is
   −1, `starting` and `rebuilding` exempt within the budget and frozen past it, the five-in-ten-minutes stop; on Windows the service
   installs, starts and stops on the runner.
@@ -868,24 +898,26 @@ its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package 
    (6 h)
 5. Preview age: each preview's age from its ring slot's stamp; older than two frames of its own rate → a "stale" badge with the
    age; frozen for 1 s → greyed with the reason (the engine quiet, the ring gone). wp3-desk-gpu reuses it on the GPU path. (3 h)
-6. The M2 bench: `bench/r3-avalonia-import` — an Avalonia 12.1 window that lists `SupportedImageHandleTypes` and
-   `SupportedSemaphoreTypes`, imports a Direct3D 12 shared texture and fence from a helper process and shows a frame, and records
-   the exact name and signature of the compositor's timeline-semaphore update; built on the Windows job, run in the lab (L3). (2 h)
-7. The four-click quad that stays (the owner's requirement; `design/desk-workflows.md` §6.1): an unfinished quad kept per
-   projector on the desk until Enter or a Discard (a tool change, another projector, leaving MAP and a push keep it; a "Quad 2/4 ·
-   Resume · Discard" chip in the view and the outliner); Select after Enter, with the new quad selected; reselecting restores its
-   last corner and sends `HANDLE SELECT`, deselecting sends `HANDLE SELECT NONE`; an outliner pick shows the quad's projector; the
-   quad's corners dragged in the projector view (`SURFACE CORNER … TO … RASTER` through the throttle, a burst one undo step); the
-   first-light guide reopened from the view's right-click and the help overlay. (3 h)
+6. The four-click quad that stays, its corners and a pin by one pixel (the owner's requirements; `design/desk-workflows.md` §6.1):
+   an unfinished quad kept per projector until Enter or a Discard — a tool change, another projector, leaving MAP, a menu entry
+   chosen, the first-light guide closed, a push, a desk restart and a reattach to the same node keep it (the draft in the user's
+   `desk.json`, by node and projector, never in the project; a draft whose projector is gone is dropped with a toast) — with a "Quad
+   2/4 · Resume · Discard" chip in the view and the outliner; the draft's placed points dragged and nudged on the desk before Enter;
+   Select after Enter, with the new quad selected; reselecting restores its last corner and sends `HANDLE SELECT`, deselecting sends
+   `HANDLE SELECT NONE`; an outliner pick shows the quad's projector; the quad's corners dragged in the projector view (`SURFACE
+   CORNER … TO … RASTER` through the throttle, a burst one undo step), typed in its inspector (x, y in wall pixels, `SURFACE CORNER …
+   TO … PX`, in place of the mesh fields a quad does not use) and nudged by one pixel with the arrows, as today; a selected pin's pixel
+   typed in its row and nudged by one pixel with the arrows, through the line its drag sends today (`SET <pin> pixel`); the first-light
+   guide reopened from the view's right-click and the help overlay. (5 h)
 
 ⟂ *(≈ 26 h)*
 
-8. *(stretch)* Map anything: every control whose line can be bound highlighted; touching one starts `BIND LEARN` for its line.
+7. *(stretch)* Map anything: every control whose line can be bound highlighted; touching one starts `BIND LEARN` for its line.
 
 **Preflight.** None (desk). **INDEX.** None.
 
 **Owns.** `src/PlayMap.App/**` for W1, the `Undo` stub, `tests/PlayMap.App.Tests/**` for W1 (but `Install/**`, wp3-installer's
-area), `bench/r3-avalonia-import/**`, `docs/DESK.md`.
+area), `tests/PlayMap.Assistant.Tests/Quad/**` (new), `docs/DESK.md`.
 
 **Hunks.** None (the spine lands `ProjectStore.UndoTo`, its steps' list and the gate's `UNDO TO` rule).
 
@@ -902,13 +934,17 @@ area), `bench/r3-avalonia-import/**`, `docs/DESK.md`.
   the red token used only by air styles; no animation period under 500 ms.
 - `PreviewAgeTests`: a frozen ring → stale after two frames, grey at 1 s with the reason.
 - `CloseArmedTests`; `DeskVerbRuleTests` pass with the new actions.
-- `QuadDraftTests`, `QuadSelectTests`, `QuadCornerDragTests` (`design/desk-workflows.md` §6.4): the draft survives a tool change,
-  another projector, PLAY and back, and is in no line before Enter; Enter sends one `SURFACE QUAD` and leaves Select; reselect and
-  deselect send their `HANDLE SELECT`; a drag sends at most one `SURFACE CORNER … TO` per 16 ms window of the desk's clock.
+- `QuadDraftTests`, `QuadSelectTests`, `QuadCornerDragTests`, `QuadCornerEditTests`, `PinNudgeTests` (`design/desk-workflows.md`
+  §6.4): the draft survives a tool change, another projector, PLAY and back, a menu entry chosen, the first-light guide closed and a
+  desk restart (read back from `desk.json`); its points drag and nudge before Enter; no `SURFACE QUAD` and no line that changes the
+  project before Enter, the ephemeral `CURSOR … TRAIL` only while the draft is shown; Enter sends one `SURFACE QUAD` and leaves
+  Select; reselect and deselect send their `HANDLE SELECT`; a drag sends at most one `SURFACE CORNER … TO` per 16 ms window of the
+  desk's clock; a typed corner sends `TO … PX`; an arrow on a selected pin sends its pixel ± 1.
+- `AssistantQuadTests` (Assistant): a `ScriptedProvider` proposes `SURFACE QUAD <projector> … PX` and `SURFACE CORNER <sf> TR BY 1 0
+  PX`, each decided by the gate as its class and the settings say, queued while armed, the quad and its corner read back from STATE.
 
-**Verified here.** All (headless); the bench builds on the Windows job. **Manual (lab).** L19: a formative session with operators
-in a dark room, recorded in `docs/UX.md`; L3: the bench (M2). With no lab (D15) both are reported not run; the bench is built and
-waits for a GPU.
+**Verified here.** All (headless). **Manual (lab).** L19: a formative session with operators in a dark room, recorded in
+`docs/UX.md`. With no lab (D15) it is reported not run.
 
 **Next round.** A summative test of the critical tasks (GO, panic, recovering after a desk restart, finding a faulted output).
 
@@ -1069,9 +1105,11 @@ GPU's are claimed.
    torn (the two marks differ); wrong (the leader instant off by more than a frame); late (lit later than the predicted display
    time by more than the output's budget); lost (no mark while STATE says the output shows); black (no mark while STATE says it is
    black: expected) — on its standard output to the engine and into a status file the supervisor reads, so a wedged engine is
-   still caught; STATE `outputs[].observed`, `OBSERVE` (its URI grammar fail-closed: `capture:`, `omt:` and `ndi:` only, user
-   information or a query refused with words; its current source again, or `OFF` with nothing observed, refused with the reason;
-   the source in `NodeSettings.Observe`, this node's), `OBSERVE STATUS`, a red preflight row, HEALTH's outputs category. (8 h)
+   still caught; STATE `outputs[].observed`, `OBSERVE` (its URI grammar fail-closed: the spine's `CaptureUri` —
+   `capture:dshow/<device>` on Windows and `capture:v4l2/<device>` on Linux through Media's avdevice this wave, every capture provider
+   once wp3-capture lands — and `omt:` and `ndi:`; user information or a query refused with words; its current source again, or `OFF`
+   with nothing observed, refused with the reason; the source in `NodeSettings.Observe`, this node's), `OBSERVE STATUS`, a red
+   preflight row, HEALTH's outputs category. (8 h)
 3. The heartbeat: HEALTH's reserved `ShownFrames` (the present ledger's count, from display statistics where there are any, swap
    returns on GL) and `ObservedFrames` filled, −1 until known, and HEALTH's `gpu` phase kept `running`; the supervisor's rule reads
    them. (2 h)
@@ -1083,11 +1121,14 @@ GPU's are claimed.
 6. The journal's drops counted: the bounded channel that drops its oldest row under a burst (4 096 rows) counts each drop, says the
    count and the first dropped sequence in STATE (`journal.dropped`) and writes one row saying how many it lost once the burst ends —
    an audit trail that says where it has a gap, as a medical device's does. (1 h)
+7. The servers off the air's path, proven: a burst on every server — line-wire lines, MCP calls, HTTP STATE reads — while the render
+   host draws on its manual-clock pacer leaves the render thread's frame and present counts advancing one per tick, the servers'
+   bounded queues refusing what overflows with their words and counting it (`ServerFloodTests`). (1 h)
 
-⟂ *(≈ 23 h)*
+⟂ *(≈ 24 h)*
 
-6. *(stretch)* The observer reading the scan camera's view of the wall in rehearsal (larger marks).
-7. *(stretch)* The air hazard file (`docs/HAZARDS.md`: each hazard to the air traced to the test that holds it, design §14).
+8. *(stretch)* The observer reading the scan camera's view of the wall in rehearsal (larger marks).
+9. *(stretch)* The air hazard file (`docs/HAZARDS.md`: each hazard to the air traced to the test that holds it, design §14).
 
 **Preflight.** Section `observe`: an observed output stale, torn, wrong or lost (red), late (amber); a watermark showing on the
 air (amber, with where). **INDEX.** Section `observe`: each observed output's light.
@@ -1124,6 +1165,9 @@ count, item 6).
   dump.
 - `JournalDropTests`: a burst past the channel's bound → `journal.dropped` equals the rows lost, the gap row names the first
   sequence, nothing blocks the writer.
+- `ServerFloodTests` (Engine host rig on llvmpipe, manual clock): 10 000 line-wire lines, 1 000 MCP calls and 1 000 HTTP STATE reads
+  from test threads during 600 ticks → 600 rendered frames and 600 presents counted, no tick missed, each server's overflow refused
+  with its words and counted; counts only, no time asserted.
 
 **Verified here.** All, with OMT loopback on llvmpipe. **On CI (Windows).** The same. **Manual (lab).** L12: a capture card on an
 HDMI loop-through of a real output; an LED processor's monitor out; a photodiode beside the observer for `LATENCY STEP`. With no
@@ -1242,14 +1286,19 @@ record: no lab has run one").
 5. Decode tiers in the capability record: D3D12 Video's decode profiles per codec (`CheckFeatureSupport(VIDEO_DECODE_SUPPORT)`),
    so `MEDIA INSPECT` and preflight say what this GPU decodes in hardware (4:2:2 HEVC on Blackwell, AV1); NVDEC and AMF recorded as
    probed tiers. (2 h)
+6. Show media that is not on the disk: a show item whose file is an online-only cloud placeholder (OneDrive's Files On-Demand and
+   its kind, read from the file's attributes — `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN` or `OFFLINE`), so its first
+   read waits on a download or fails offline, is red in the decode preflight with the file named ("Intro.mov is online-only in
+   OneDrive: right-click it ▸ Always keep on this device, or move the show's media out of OneDrive"); Home's setup turns OneDrive's
+   folder backup on, which is how most such files arrive. (0.5 h)
 
-⟂ *(≈ 24 h)*
+⟂ *(≈ 24.5 h)*
 
-6. *(stretch)* NVDEC through FFmpeg's CUDA path with CUDA ↔ D3D12 external memory, for profiles D3D12 Video does not expose.
-7. *(stretch)* The GPU HAP encoder on D3D12 compute (a new encoder version with its PSNR evidence).
+7. *(stretch)* NVDEC through FFmpeg's CUDA path with CUDA ↔ D3D12 external memory, for profiles D3D12 Video does not expose.
+8. *(stretch)* The GPU HAP encoder on D3D12 compute (a new encoder version with its PSNR evidence).
 
-**Preflight.** Software decode of a show item the GPU could decode (amber, with the profile); Spout through staging (amber).
-**INDEX.** None new.
+**Preflight.** Software decode of a show item the GPU could decode (amber, with the profile); Spout through staging (amber); a show
+item that is an online-only placeholder (red, the file named). **INDEX.** None new.
 
 **Owns.** `src/PlayMap.Media/Hw/**`, `src/PlayMap.Media/Video/Spout/**`, `src/PlayMap.Render.D3D12/Video/**`,
 `src/PlayMap.Render/{Video, Hap, Decode}/**`, `src/PlayMap.Engine/Decode/**`, `src/PlayMap.Engine/EngineCore.Decode.cs`,
@@ -1272,6 +1321,8 @@ record: no lab has run one").
 - `LiveUploadTests` (WARP): an OMT loopback input's upload submitted at arrival, the render's GPU wait on its fence, no CPU wait
   counted; its arrival-to-submit and submit-to-sample in STATE.
 - `VideoCapsTests`: a fake `CheckFeatureSupport` → the record's profiles; preflight's software-decode row names what the GPU lacks.
+- `CloudPlaceholderRowTests` (both): a fake file-attribute source marks one show item recall-on-data-access → red naming its file; the
+  same file kept on the device → no row; a file outside the show → no row.
 
 **Verified here.** The logic, against fakes. **On CI (Windows).** As above. **Manual (lab).** L7: D3D12VA on NVIDIA, AMD and Intel
 with the pinned FFmpeg (M12); L8: Spout with Resolume and TouchDesigner (M11); L17: NDI with a real runtime. With no lab (D15) each
@@ -1300,24 +1351,35 @@ is reported not run: real decode stands on the ladder's words ("not measured on 
 4. The desk-kill test: a desk killed mid-import leaves the engine as it was, by facts — no render-thread wait on the desk's fence
    (counted), the present ledger's missed and held counts unchanged, no allocation — and the view's shared textures released when
    its lease ends; the frame times are recorded, not asserted. (3 h)
+5. The M2 bench, on the first day: `bench/r3-avalonia-import` — an Avalonia 12.1 window that lists `SupportedImageHandleTypes` and
+   `SupportedSemaphoreTypes`, imports a Direct3D 12 shared texture and fence from a helper process and shows a frame, and records
+   the exact name and signature of the compositor's timeline-semaphore update; built on the Windows job, run in the lab (L3). (2 h)
+6. The desk's frame budget (the games and medical lessons, `design/desk-workflows.md` §12): a STATE push is one diff pass on the UI
+   thread (`StateSnapshot`, read once) that raises only what moved, a push that moved nothing raising nothing and a selection sending
+   no line (`PushBudgetTests`, the push's UI-thread time recorded, never asserted); a watchdog on the desk's UI thread — a background
+   counter the dispatcher ticks — that turns a stall over 250 ms into one desk journal row and one toast, never a flash and never a
+   line to the node (`UiStallTests`, a blocked dispatcher on a manual clock). (2 h)
 
-⟂ *(≈ 20 h)*
+⟂ *(≈ 24 h)*
 
-5. *(stretch)* The desk's compositor put on the engine's adapter by default (`GraphicsAdapterSelectionCallback`).
-6. *(stretch)* Rates from what the desk shows: the focused viewport at the display's rate, thumbnails at 15 Hz, hidden views none.
+7. *(stretch)* The desk's compositor put on the engine's adapter by default (`GraphicsAdapterSelectionCallback`).
+8. *(stretch)* Rates from what the desk shows: the focused viewport at the display's rate, thumbnails at 15 Hz, hidden views none.
 
 **Preflight.** None (the desk). **INDEX.** None.
 
 **Owns.** The desk's preview files for W3 — `src/PlayMap.App/Controls/{PreviewSource, PreviewSurface}.cs`,
 `src/PlayMap.App/State/PreviewNames.cs`, the new `src/PlayMap.App/Previews/**` (`GpuPreviewSource`, `IPreviewSource`) and
-`tests/PlayMap.App.Tests/{DeskPreviewTests.cs, Previews/**}` (wp3-desk-map owns the rest of the desk in W3); `src/PlayMap.Engine/Rendering/{PreviewViews,
+`tests/PlayMap.App.Tests/{DeskPreviewTests.cs, Previews/**}`, the new `src/PlayMap.App/Infrastructure/UiWatchdog.cs` and
+`tests/PlayMap.App.Tests/Budget/**` (wp3-desk-map owns the rest of the desk in W3); `src/PlayMap.Engine/Rendering/{PreviewViews,
 RenderHost.Previews}.cs`, the `Preview` stub; `src/PlayMap.Core/Media/PreviewRing.cs`; `src/PlayMap.Render.D3D12/Share/**` for W3;
-`tests/fixtures/state/previews.json` and its cards.
+`bench/r3-avalonia-import/**`; `tests/fixtures/state/previews.json` and its cards.
 
 **Hunks.** `src/PlayMap.Render/Engine/RenderEngine.cs` (`Preview` and `CollectPreviews` into shared targets, after
-d3d12-passes-2).
+d3d12-passes-2); `src/PlayMap.App/State/StateSnapshot.cs` (only where `PushBudgetTests` finds a raise beyond what moved, at most ten
+lines, before desk-map).
 
-**Depends on.** d3d12-core, desk-ux, desk-shell (the panes its previews sit in).
+**Depends on.** d3d12-core, desk-ux (its previews sit in today's layout; when the round carries wp3-desk-shell, which merges in W2,
+they sit in its panes).
 
 **Acceptance.**
 - `PreviewShareTests` (Windows, WARP): `VIEW … SHARED <pid>` from a loopback session for a child test process → the handles open
@@ -1330,12 +1392,13 @@ d3d12-passes-2).
   ledger's missed and held counts unchanged, no allocation, the view released at its lease's end; the frame times before and after
   recorded without a ceiling.
 - `ViewVerbTests` extended.
+- `PushBudgetTests`, `UiStallTests` (App, headless, item 6).
 
-**Verified here.** Logic, the ring path, refusals. **On CI (Windows).** Duplication and import into a second WARP device in a
-child process. **Manual (lab).** L3: Avalonia's own compositor importing the texture and the fence on NVIDIA, AMD and Intel (M2),
-and the preview's latency. With no lab (D15) L3 is reported not run: the GPU path is chosen at run time from the interop's own
-lists, proven against a fake interop and in a child process on WARP (or two devices, M8), and the ring stays the default wherever
-the interop lists neither type.
+**Verified here.** Logic, the ring path, refusals, the desk's budget. **On CI (Windows).** Duplication and import into a second WARP
+device in a child process; the bench builds. **Manual (lab).** L3: the bench, then Avalonia's own compositor importing the texture and
+the fence on NVIDIA, AMD and Intel (M2), and the preview's latency. With no lab (D15) L3 is reported not run: the GPU path is chosen at
+run time from the interop's own lists, proven against a fake interop and in a child process on WARP (or two devices, M8), and the ring
+stays the default wherever the interop lists neither type.
 
 **Next round.** A DirectComposition surface hosted by the desk, if the measured latency calls for it.
 
@@ -1404,89 +1467,106 @@ mark claimed.
 
 *Design: `design/present.md` Part B (§11–§18).*
 
-**Entry condition.** M4 is answered only by L5's run of NVIDIA's barrier sample on a Sync wall, and no lab exists this round (D15,
-the owner's answer 5), so the session builds M4's "no" shape — one swap chain per machine in the barrier, correct whatever the
-answer — and a client per output waits for the record as a stretch; the multi-output shape is never built on a hope. The tier is
-proven against the fake NVAPI and says so ("built, not proven on hardware") until L5 runs.
+**Entry condition.** M4 has no lab to answer it this round (D15, the owner's answer 5), so the tier is built to answer it on each
+node: every output joins as its own client, and only its own evidence locks it. No multi-output shape rests on a hope; both hardware
+tiers are proven against fakes and say so ("built, not proven on hardware") until L5 runs.
 
 **Slice.**
-1. The hardware lock where the hardware allows it (D5, the owner's answer 2) — NVIDIA's present-barrier tier, taken wherever the
-   outputs' adapter answers `NvAPI_D3D12_QueryPresentBarrierSupport` (a professional GPU with an RTX PRO Sync board): a client per joined
-   swap chain (`NvAPI_D3D12_CreatePresentBarrierClient`); its back buffers and fence registered
-   (`NvAPI_D3D12_RegisterPresentBarrierResources`), again after every `ResizeBuffers` and rebuild; `NvAPI_JoinPresentBarrier` and
-   `NvAPI_LeavePresentBarrier`; `NvAPI_QueryPresentBarrierFrameStatistics` read after the presents every frame (sync mode — not
-   joined, client, system, cluster — and the present, present-in-sync, flip-in-sync and in-sync refresh counts). `IFrameLockDriver`
-   reshaped for a barrier client and moved, with `FrameLockBoard`, `IPresentBarrierTarget` and `BarrierStatistics`, to
-   `src/PlayMap.Core/Sync`, split from the board's facts (`IFrameLockBoardSource`, today's NVAPI tier, its declarations unchanged);
+1. NVIDIA's present barrier on Direct3D 12 (D5, the owner's answer 2), taken wherever the outputs' adapter answers
+   `NvAPI_D3D12_QueryPresentBarrierSupport` (a professional GPU with an RTX PRO Sync board): a client per output's swap chain
+   (`NvAPI_D3D12_CreatePresentBarrierClient`); its back buffers and fence registered (`NvAPI_D3D12_RegisterPresentBarrierResources`),
+   again after every `ResizeBuffers` and rebuild; `NvAPI_JoinPresentBarrier` on `SYNC APPLY` (Setup: refused while armed) and
+   `NvAPI_LeavePresentBarrier`; `NvAPI_QueryPresentBarrierFrameStatistics` read for every client after the presents every frame (sync
+   mode — not joined, client, system, cluster — and the present, present-in-sync, flip-in-sync and in-sync refresh counts).
+   `IFrameLockDriver` reshaped for a barrier client and moved, with `FrameLockBoard`, `IPresentBarrierTarget` and `BarrierStatistics`,
+   to `src/PlayMap.Core/Sync`, split from the board's facts (`IFrameLockBoardSource`, today's NVAPI tier, its declarations unchanged);
    the barrier tier in `Render.D3D12/Sync` with its own declarations of the barrier's calls, each structure pinned by
-   `NvapiLayoutTests`. The lock machine's locked states need the barrier's own evidence: `grouped` for system mode, `framelocked`
-   (or `house-locked` on house sync) for cluster mode, with in-sync counts advancing; `SoftLocked`, which nothing enters and no
-   STATE has published, removed with a wire note, so `IsLocked` and the engine's `PresentSeams.Locked` count only those three.
-   M4's answer decides the multi-output shape: a client per output's swap chain if several join; if not, one swap chain per machine
-   joins (the pacing output's) and the machine's other outputs report free with their phase against it, `SYNC APPLY` saying so.
-   (8 h)
-2. The honest software lock everywhere else: without a board or a barrier, every output is in a free state (`free-measured`, or
-   `free-unknown` before its clock settles) with its measured phase against the group's reference ("software lock: same frame, phase
-   +6.2 ms ± 0.3 ms, next slip in 41 min"), `lock.tier` "software" — a tier, never a state; the lock's published keys and words kept
-   (`state`, `words`, `reason`, `fellOut`, `rejoins`), `tier`, `mode`, `phaseMs` and `phaseUncertaintyMs` new, and
-   `sync.outputs[].phaseMs`; no free output ever carries a locked state. (3 h)
-3. The all-or-nothing barrier governed: an output whose in-sync count stops for three refreshes leaves the barrier and free-runs
-   (`fell-out`), its reason in `lock.reason`; the rest of the wall keeps its barrier; no automatic rejoin while armed (round 2's
-   rule); the 24-bit counter wrap-aware through `LockCounter`. (4 h)
-4. The shared frame count: content time from `NvAPI_D3D1x_QueryFrameCount` where the driver answers it with the barrier joined
-   (M10), else from the leader's anchor at the barrier's in-sync refresh count — both behind `LockCounter`'s source. (3 h)
-5. The preconditions as facts: each output's timing (pixel clock, totals, refresh rational) in STATE, so a refused lock names its
+   `NvapiLayoutTests`. The lock machine's locked states need each client's own evidence: `grouped` for system mode, `framelocked` (or
+   `house-locked` on house sync) for cluster mode, with that client's in-sync counts advancing; `SoftLocked`, which nothing enters and
+   no STATE has published, removed with a wire note, so `IsLocked` and the engine's `PresentSeams.Locked` count only those three. M4
+   answered on the node: a client the driver does not take reaches no in-sync count within 120 refreshes, leaves and runs free with
+   its phase and words ("the barrier did not take op_2's swap chain on driver 582.16: one swap chain per machine there"), and the node
+   keeps the driver's answer in `NodeSettings.Sync` by driver version, so the next `SYNC APPLY` joins only what that driver took. (8 h)
+2. The swap group on OpenGL, AUTO's path on every machine this round: `WGL_NV_swap_group` taken wherever the output's context lists it
+   on a node with a board — `wglQueryMaxSwapGroupsNV` at the tier's start (none → the tier's words), per output on the render thread
+   with its context current `wglJoinSwapGroupNV(hdc, 1)` on `SYNC APPLY` and `wglBindSwapBarrierNV(1, 1)` once the board is in a
+   framelock group, `wglJoinSwapGroupNV(hdc, 0)` to leave; `wglQuerySwapGroupNV` read back after each join and `wglQueryFrameCountNV`
+   every frame. Its evidence, per output: `grouped` when the group reads back joined and the frame count advances one per refresh for
+   120 refreshes; `framelocked` (or `house-locked`) when the barrier also reads back bound and the board's sync state for the output's
+   display is synced (today's `NvFrameLock` facts); the frame count is `LockCounter`'s source on GL. The calls through
+   `wglGetProcAddress` on the output's context, the device context from the GL presenter as an `ISwapGroupTarget` (one hunk); the
+   DXGI path joins nothing this round (§9 decision 21) and says so. (3 h)
+3. The honest software lock everywhere else: without a board, a hardware tier or a client taken, every output is in a free state
+   (`free-measured`, or `free-unknown` before its clock settles) with its measured phase against the group's reference ("software
+   lock: same frame, phase +6.2 ms ± 0.3 ms, next slip in 41 min"), `lock.tier` "software" — a tier, never a state; the lock's
+   published keys and words kept (`state`, `words`, `reason`, `fellOut`, `rejoins`), `tier`, `mode`, `phaseMs` and
+   `phaseUncertaintyMs` new, and `sync.outputs[].phaseMs`; no free output ever carries a locked state; a node with a board whose
+   outputs present on a path with no hardware tier (DXGI, or GL without the extension) amber in preflight and in `SYNC APPLY`'s
+   answer, with the fix `PRESENT PATH D3D12` (or `GL`). (3 h)
+4. The all-or-nothing lock governed: an output whose in-sync count (or, on GL, frame count) stops for three refreshes while it keeps
+   presenting, or whose waitable or swap times out, leaves the barrier or group and free-runs (`fell-out`), its reason in
+   `lock.reason`; the rest of the wall keeps its lock; no automatic rejoin while armed (round 2's rule); the 24-bit counter wrap-aware
+   through `LockCounter`. (4 h)
+5. The shared frame count: content time from `NvAPI_D3D1x_QueryFrameCount` where the driver answers it with the barrier joined
+   (M10), from `wglQueryFrameCountNV` on GL, else from the leader's anchor at the barrier's in-sync refresh count — all behind
+   `LockCounter`'s source. (3 h)
+6. The preconditions as facts: each output's timing (pixel clock, totals, refresh rational) in STATE, so a refused lock names its
    cause — timings more than ±50 ppm apart, EDIDs that differ, VRR on (NVAPI on NVIDIA; ADLX's FreeSync state on AMD, a read-only
    probe loaded from the driver's own library, never bundled, in `Platform.Windows/Vendors/`; unknown on Intel, said), not in
    full-screen Independent Flip, an output on a second adapter; members of one group on different backends or GPU drivers while a
    generator or effect is drawn on two members' outputs (amber in preflight, words in `SYNC APPLY`: their floats may round apart
    across a seam); preflight rows. (5 h)
 
-⟂ *(≈ 23 h)*
+⟂ *(≈ 26 h)*
 
-6. *(stretch)* Synchronized Mosaic: one swap chain across a Mosaic surface, outputs as its viewports — a stretch whatever M4
+7. *(stretch)* Synchronized Mosaic: one swap chain across a Mosaic surface, outputs as its viewports — a stretch whatever M4
    answers, since it changes the presenter model.
-7. *(stretch)* Warp and blend at scanout (`NvAPI_GPU_SetScanoutWarping`, `SetScanoutIntensity`) as an RTX PRO tier behind the
+8. *(stretch)* Warp and blend at scanout (`NvAPI_GPU_SetScanoutWarping`, `SetScanoutIntensity`) as an RTX PRO tier behind the
    shader warp, reported applied only after the state is read back.
 
-**Preflight.** The lock per output (a free output in a group that applied the lock: amber with its phase and reason); timing
-mismatches (red); VRR unknown on a vendor (amber); mixed backends or drivers under shared content (amber). **INDEX.** Section
-`sync`: the barrier's mode per output (feedback only).
+**Preflight.** The lock per output (a free output in a group that applied the lock: amber with its phase and reason); a board on a
+path with no hardware tier (amber, fix `PRESENT PATH D3D12`); timing mismatches (red); VRR unknown on a vendor (amber); mixed
+backends or drivers under shared content (amber). **INDEX.** Section `sync`: the barrier's or group's mode per output (feedback only).
 
-**Owns.** `src/PlayMap.Render/Sync/**`, `src/PlayMap.Render.D3D12/{Sync, Present}/**` for W4 (present is merged),
-`src/PlayMap.Render/Platform/Windows/NvApi*.cs`, `src/PlayMap.Core/Sync/**`, `src/PlayMap.Platform.Windows/Vendors/**` for W4,
-`src/PlayMap.Engine/Presentation/**` for W4, `src/PlayMap.Engine/Rendering/OutputWindows.cs` for W4 (the Mosaic stretch),
-`src/PlayMap.Engine/EngineCore.Sync.cs`, `src/PlayMap.Net/Sync/{VblankReport, SyncBoard}.cs`, `tests/fixtures/state/sync.json`,
-`docs/SYNC.md` (its lock part).
+**Owns.** `src/PlayMap.Render/Sync/**` (the GL swap-group tier among them), `src/PlayMap.Render.D3D12/{Sync, Present}/**` for W4
+(present is merged), `src/PlayMap.Render/Platform/Windows/NvApi*.cs`, `src/PlayMap.Core/Sync/**`, `src/PlayMap.Platform.Windows/
+Vendors/**` for W4, `src/PlayMap.Engine/Presentation/**` for W4, `src/PlayMap.Engine/Rendering/OutputWindows.cs` for W4 (the Mosaic
+stretch), `src/PlayMap.Engine/EngineCore.Sync.cs`, `src/PlayMap.Net/Sync/{VblankReport, SyncBoard}.cs`, `src/PlayMap.Core/Bus/
+NodeSettings.Sync.cs` for W4 (the drivers' answers), `tests/fixtures/state/sync.json`, `docs/SYNC.md` (its lock part).
 
-**Hunks.** None (the barrier's registration on resize and rebuild sits in the presenter it now owns; stability-2's rebuild hook
-lands first).
+**Hunks.** `src/PlayMap.Render/Gl/**` (the GL presenter's device context offered as `ISwapGroupTarget`, after stability-2); the
+barrier's registration on resize and rebuild sits in the presenter it owns in W4 (stability-2's rebuild hook lands first).
 
-**Depends on.** present (and stability-2 in merge order); M4 measured, or its "no" shape (the entry condition above).
+**Depends on.** present (and stability-2 in merge order).
 
 **Acceptance.**
 - `PresentBarrierTierTests` (a fake NVAPI with the six functions scripted: pending until full screen, client, system, cluster): a
-  join locks only after cluster mode (`framelocked`) or system mode (`grouped`) with in-sync counts advancing for 120 refreshes;
-  pending → "not locked: the barrier is pending (a window overlaps output 2)"; after a `ResizeBuffers` the registered buffers
-  equal the swap chain's.
+  join locks only after cluster mode (`framelocked`) or system mode (`grouped`) with that client's in-sync counts advancing for 120
+  refreshes; pending → "not locked: the barrier is pending (a window overlaps output 2)"; after a `ResizeBuffers` the registered
+  buffers equal the swap chain's.
+- `ClientPerOutputTests` (the fake NVAPI): a three-output node whose driver takes every client → three locked, each by its own
+  statistics; a driver that takes one → the other two leave within 120 refreshes, free with their phase and the words, the answer
+  kept by driver version, and the next `SYNC APPLY` joins only the one; a changed driver version → all three tried again.
+- `SwapGroupTierTests` (a fake WGL extension table): no extension → the tier's words and the amber row; a join read back → `grouped`
+  after 120 refreshes of the frame count advancing; the barrier bound on a synced fake board → `framelocked`; a count that stops →
+  `fell-out` within three refreshes; the DXGI path with a board → amber with the fix line.
 - `NvapiLayoutTests` extended with the barrier's structures against NVIDIA's header.
 - `BarrierStallTests`: one output's in-sync count stops → it leaves and free-runs within three refreshes with its reason; the others
   stay locked; armed → no rejoin.
-- `SoftwareLockWordsTests`: the fields first — every output without barrier statistics has a free `lock.state` and `IsLocked`
-  false and `lock.tier` "software"; then no locked state's word (`framelocked`, `house-locked`, `grouped`) in any STATE value of a
-  free output (the whole STATE scanned); free outputs carry the software lock's phase words.
-- `SingleClientTests`: a three-output node under M4's "no": one swap chain joins, the other two free with their phase, `SYNC APPLY`'s
-  words.
+- `SoftwareLockWordsTests`: the fields first — every output without its tier's evidence has a free `lock.state` and `IsLocked` false
+  and `lock.tier` "software"; then no locked state's word (`framelocked`, `house-locked`, `grouped`) in any STATE value of a free
+  output (the whole STATE scanned); free outputs carry the software lock's phase words.
 - `TimingPreconditionTests`: two outputs 80 ppm apart → `SYNC APPLY` refused naming both rates and the ±50 ppm rule; an output on a
   second adapter refused naming it; two members on different backends with a shared generator → amber with the words.
 - `AdlxProbeTests`: a fake ADLX: FreeSync on → the VRR row with its words; no ADLX → "unknown", said.
 - `LockCounterTests` unchanged; `RebuiltBarrierTests` (merge-time, with stability-2): after a rehearsed removal the barrier's
   resources are registered again before the first present.
 
-**Verified here.** The fake tier, the words, the counters, the preconditions. **On CI (Windows).** NVAPI loads or says "no NVIDIA
-driver"; ADLX loads or says why. **Manual (lab).** L5: a two-machine RTX PRO Sync wall with two outputs each: cluster mode, in-sync
-counts, a pulled sync cable, a stalled node, house sync at 59.94 Hz with a ×2 multiply (M4, M10); GeForce and Radeon nodes reporting
-free with their phase. With no lab (D15) L5 is reported not run, and no output of a real machine is ever said to be locked by it.
+**Verified here.** The fake tiers, the words, the counters, the preconditions. **On CI (Windows).** NVAPI loads or says "no NVIDIA
+driver"; ADLX loads or says why; Mesa WGL lists no swap-group extension, and the tier says so. **Manual (lab).** L5: a two-machine RTX
+PRO Sync wall with two outputs each, on `PRESENT PATH D3D12` and on AUTO (GL): cluster mode, in-sync counts, a pulled sync cable, a
+stalled node, house sync at 59.94 Hz with a ×2 multiply (M4, M10); GeForce and Radeon nodes reporting free with their phase. With no
+lab (D15) L5 is reported not run, and no output of a real machine is ever said to be locked by it.
 
 **Next round.** EDID and custom timings owned by the presentation layer; SDI and ST 2110 presenters whose vblank truth comes from
 the card; ADLX's display control (FreeSync forced off, 10-bit) where measured.
@@ -1619,7 +1699,9 @@ not run: the effects are proven on WARP and the guard on a fake timer.
    and the journal as panes — dragged, split, pinned to collapse into a rail that keeps the pane's title and worst light, floated
    only inside the desk's window (managed floating windows, so no pane reaches an output); the show strip, the attention bar, PANIC,
    Blackout and the mode frame fixed; a layout per workspace in the user's `desk.json` with a version, Reset layout, an unreadable
-   layout the default with a toast; today's columns the default layouts. (8 h)
+   layout the default with a toast; today's columns the default layouts. If M18 says no, the same seam carries the desk's own
+   splitters, collapsible rails and drag-to-dock between the four edges and the rails, and only floating is lost, which the owner
+   is told. (8 h)
 2. One action table, three doors: the menu bar (File, Edit, View, Map, Output, Show, Guides, Window, Help) and the Ctrl+K palette
    (deterministic ranking, each entry's shortcut, menu path and line; text that matches no verb becomes `ASK`) from the same
    `DeskAction`s as the right-click menus, with the gate's door words and the held rules — `VIDEO STOP`, `PANIC CLEAR` and `MASTER`
@@ -1628,18 +1710,23 @@ not run: the effects are proven on WARP and the guard on a fake timer.
 3. Right-click menus from the catalogue: an entry for every row whose syntax names the object's kind, its other values filled from
    the object, a submenu or the palette; the default first, at most 15 at the top level, an entry that never applies hidden and one
    refused now greyed with the node's words; a filter field, inline scrub-and-type rows for numbers, recent entries, Copy line and
-   "Ask about this…" on every object; menus on empty 3D and plan space; `MenuCoverageTests`. (5 h)
-4. Colour (D16): the identity tokens (sky blue, reddish purple, pale grey, with the number badge) for new projectors, outputs and
-   clients, replacing today's projector orange for new ones; the stage tints (Setup, MAP, SCAN) on tabs, pane headers and guide
-   steps; information grey with **i**; `AreaColourTests` over every theme desk-ux made. (3 h)
+   "Ask about this…" on every object; menus on empty 3D and plan space; a secret-bearing row's entry opening its form (Network ▸
+   Links, the credential form), never a line; `MenuCoverageTests` with no row let off and `InteractiveMenuTests`. (5.5 h)
+4. Colour (D16): the identity tokens per theme (azure, lavender, magenta, then repeating, with the number badge; design §11's values)
+   for new projectors, outputs and clients, replacing today's projector orange for new ones, and a stored colour that reads as a
+   status drawn in its identity token with the words in its inspector; the stage tints (Setup, MAP, SCAN) on tabs, pane headers and
+   guide steps; grey for off, unknown and information, with its **i**; `AreaColourTests` over every theme desk-ux made. (3 h)
 5. The assistant's pane (D13): the conversation (`ASK`), the proposals as rows with Show me (the control that sends the same line
    rung), Approve (`APPROVE <id>`, one press, the owner's call 8), Reject and Approve step (a step's low and review lines approved in
    batch order, each high-risk line on its own press); the "AI · n" pill opens it. (3 h)
 
-⟂ *(≈ 26 h)*
+⟂ *(≈ 26.5 h)*
 
-6. *(stretch)* A held-key radial menu in MAP (at most eight entries).
-7. *(stretch)* Native floating panes, opt-in, onto a monitor no output uses.
+6. *(stretch)* Scripts in the console pane: named lists of lines kept in the user's `desk.json`, run in order through the desk's gate
+   and stopping at the first refusal with its words; an assistant's approved batch saved as one; each line's Copy line for Companion
+   or Patterns (`design/desk-workflows.md` §2).
+7. *(stretch)* A held-key radial menu in MAP (at most eight entries).
+8. *(stretch)* Native floating panes, opt-in, onto a monitor no output uses.
 
 **Preflight.** None (the desk). **INDEX.** None.
 
@@ -1650,8 +1737,9 @@ W2; the Dock package's reference in the App project (one `<ItemGroup Label="wp3-
 
 **Depends on.** desk-ux (the themes and status rules the colour channels join; the quad's draft).
 
-**Acceptance.** `DockLayoutTests`, `FixedPartsTests`, `CollapsedLightTests`, `MenuCoverageTests`, `ConsoleTests`, `AreaColourTests`,
-`AssistantPaneTests`, `AskAboutThisTests` (`design/desk-workflows.md` §2, §4.6, §9.4, §10, §11); `PaletteTests`: every action
+**Acceptance.** `DockLayoutTests`, `FixedPartsTests`, `CollapsedLightTests`, `MenuCoverageTests`, `InteractiveMenuTests`,
+`ConsoleTests`, `AreaColourTests`, `AssistantPaneTests`, `AskAboutThisTests` (`design/desk-workflows.md` §2, §4.6, §9.3, §9.4, §10,
+§11); `PaletteTests`: every action
 reachable, ranked the same for the same query, a held row held but for the owner's three, a secret-bearing row refused;
 `DeskVerbRuleTests` and every existing App test pass unchanged.
 
@@ -1673,33 +1761,43 @@ the palette), reported not run while no lab exists (D15).
 2. The desk's handles: every handle dragged, selected (restored per object), typed (x, y in the inspector, the quad's corners among
    them, replacing the mesh fields a quad does not use) and nudged (arrows 1 px, Shift a desk preference of 2–100 defaulting to 10, Alt
    0.1; Tab steps); the status bar's mode, handle, step and unit; the overlay's selected-handle crosshair and the pins on the wall
-   (`OverlayHandles`, one call from `OverlayPass`). (5 h)
+   (`OverlayHandles`, one call from `OverlayPass`); the tool and the selected handle remembered per workspace and per object, the mode
+   always on screen (`ToolMemoryTests`). (6 h)
 3. Precision: the projector view's zoom (the wheel, 1:1, Fit) and an 8× loupe at the pointer, so one raster pixel is one move. (3 h)
 4. What each screen shows: STATE `outputs[].showing` resolved engine-side at each revision (the chain to the media now playing, and
-   `over` when the air covers it) and `media[].shownOn`, in the context's output items; on the desk every view of an output (PLAY's
+   `over` when the air covers it) and `media[].shownOn`, in the context's output items (the spine's `ShowingWords` hook, filled in this
+   package's `EngineCore.Showing.cs`); on the desk every view of an output (PLAY's
    cards, the plan's tiles, the outliner, the projector view, the inspector's chain), media and playlist badges ("on 2 surfaces · 1
    output"), a Source-mode output's source picker, a surface's Content ▸ made again on every push with media entries; an amber
    preflight row for an enabled output that shows nothing. (6 h)
-5. `showing.json` and its cards; `docs/wire/handles.md`; the papers notes. (2 h)
+5. The advanced panes (Pro, docked like any; `design/desk-workflows.md` §2): an area pane per advanced STATE block — effects,
+   modulation and tempo, bindings and learn, timecode, LED, optimise, live inputs and sends, align, the facade, sync — built from that
+   block's card descriptors with each card's actions and its rows' generated entries; and two editors where the work is fine-grained:
+   the effects chain of a target (kinds from `FX KINDS`, add, reorder by drag sending `FX MOVE`, bypass, each parameter scrubbed and
+   typed through `FX SET`, `FX IMPORT` and `FX CHECK`'s report by line) and modulation and bindings (a parameter's `MOD BIND` with its
+   source, amount, curve and smoothing, `BIND LEARN` from the parameter, the bindings list with `BIND ENABLE` and `BIND FORGET`). (5 h)
+6. `showing.json` and its cards; `docs/wire/handles.md`; the papers notes. (2 h)
 
-⟂ *(≈ 20 h)*
+⟂ *(≈ 26 h)*
 
-6. *(stretch)* Duplicate offsetting a quad by a visible step (today a copy lands on its original [today §a]).
-7. *(stretch)* Gamepad selection and nudging (Watchout's mapping [ux §2]).
+7. *(stretch)* Duplicate offsetting a quad by a visible step (today a copy lands on its original [today §a]).
+8. *(stretch)* Gamepad selection and nudging (Watchout's mapping [ux §2]).
 
 **Preflight.** An enabled output showing nothing (amber, section `outputs`). **INDEX.** None new (the outputs' section gains its
 `showing` words).
 
-**Owns.** `src/PlayMap.App/**` and `tests/PlayMap.App.Tests/**` for W3 but wp3-desk-gpu's preview files (§3.12); the `Handles`
-stubs; `src/PlayMap.Engine/Wall/**` for W3; `src/PlayMap.Render/Passes/OverlayHandles.cs` (new); `tests/fixtures/state/showing.json`
+**Owns.** `src/PlayMap.App/**` and `tests/PlayMap.App.Tests/**` for W3 but wp3-desk-gpu's files (§3.12); the `Handles`
+stubs; `src/PlayMap.Engine/Wall/**` for W3; `src/PlayMap.Engine/EngineCore.Content.cs` for W3 (`WARP NODE … PX`);
+`src/PlayMap.Render/Passes/OverlayHandles.cs` (new); `tests/fixtures/state/showing.json`
 and its cards; `docs/wire/handles.md`.
 
 **Hunks.** `src/PlayMap.Render/Passes/OverlayPass.cs` (the call to `OverlayHandles`, after d3d12-passes-2).
 
 **Depends on.** desk-shell; d3d12-passes-2 before merge (§5.3).
 
-**Acceptance.** `HandleVerbTests`, `HandleSelectTests`, `HandleEditTests`, `OverlayHandleTests`, `LoupeTests`, `ShowingTests`,
-`ShowingDeskTests`, `ContentMenuTests`, `NothingShownRowTests` (`design/desk-workflows.md` §6.4, §7); `HandleLatencyTests` (Render):
+**Acceptance.** `HandleVerbTests`, `HandleSelectTests`, `HandleEditTests`, `ToolMemoryTests`, `OverlayHandleTests`, `LoupeTests`,
+`ShowingTests`, `ShowingDeskTests`, `ContentMenuTests`, `NothingShownRowTests`, `AdvancedPaneTests`, `FxChainEditorTests`,
+`ModBindPaneTests` (`design/desk-workflows.md` §2, §6.4, §7, §12); `HandleLatencyTests` (Render):
 300 handle moves drawn within two frames at p95, counted in frames, no byte allocated; `AssistantHandleTests` (Assistant): a scripted
 provider proposes `PIN MOVE … BY 1 0 PX` and `HANDLE NUDGE`, the gate's verdict by the class (queued while armed), the pin's pixel in
 STATE afterwards; `MenuCoverageTests` with the new rows.
@@ -1714,40 +1812,56 @@ STATE afterwards; `MenuCoverageTests` with the new rows.
 *Design: `design/desk-workflows.md` §3, §8.*
 
 **Slice.**
-1. `CANVAS SPAN <canvas>|NEW <output> <output>… [SIDE <c>x<r>|STACK] [OVERLAP <px>|<pct>%] [KEEP|REPLACE]` as one edit — the canvas's
-   size from the outputs less the overlaps, each output in Canvas mode with its rectangle, its inner edges and its plan rectangle,
-   `STACK` the whole canvas each with no edge — recording what it wrote (`Canvas.Span`), a re-span over a rectangle or edge changed
-   by hand since refused naming each unless `KEEP` or `REPLACE`; `CANVAS SOURCE <canvas> <source> [FIT|FILL|STRETCH]` (the canvas's
-   base layer, one line). (4 h)
+1. `CANVAS SPAN <canvas>|NEW <output> <output>… [SIDE <c>x<r>] [STACK <n 2-4>] [OVERLAP <px>|<pct>%] [KEEP|REPLACE]` as one edit
+   — the outputs listed position by position, a position's stacked outputs together and its first the stack's reference, so `SIDE 2x1
+   STACK 2` takes four outputs, two positions side by side each double-stacked, and `STACK 2` alone one position; the canvas's size from
+   the positions less the overlaps, each output in Canvas mode with its position's rectangle, its inner edges and its plan rectangle,
+   a stack's members sharing their rectangle with no edge between them — recording what it wrote (`Canvas.Span`); a re-span over a
+   rectangle or edge changed by hand since, or over an output drawing a measured warp (whose grid holds the canvas's own uv and so
+   sets the output's region of the canvas while it is on), refused naming each unless `KEEP` (the hand's rectangles and the measured
+   outputs left as they are, the rest written) or `REPLACE` (written, and the measured layer taken off the outputs whose region
+   changed, the reply naming each run it cleared — a fresh `ALIGN RUN` measures again); a hand rectangle (`SET <output> sourceRect`)
+   on an output drawing a measured warp refused with "op_2's canvas region comes from its measured warp (run al_7): move the picture
+   with `WARP CORNER`, or `ALIGN REVERT` the group"; `CANVAS SOURCE <canvas> <source> [FIT|FILL|STRETCH]` (the canvas's base layer,
+   one line). (5 h)
 2. `PATTERN <kind>|OFF ON <canvas>`: the pattern drawn once at the canvas's size, over the canvas wherever it is shown, with the span
    card — each output's label, number and resolution in its identity colour, its rectangle's border, the overlap's start and width,
    circles and diagonals across the seams — through the RHI on both backends. (5 h)
-3. The outputs' automatic results as layers under the hand's (D12): align's measured γ into `Measured.Gamma`, drawn before the hand's
-   γ (today `ALIGN ACCEPT` writes it into `Blend.Gamma`, a field a person types); `ALIGN ACCEPT`, `STACK ALIGN`, `STACK MATCH` and
-   `BLEND SOLVE` replacing only their layer and listing each hand edit they kept with its clearing line; `HAND <output>|<projector>|
-   <surface>` and `HAND CLEAR <output> WARP|BLEND|COLOR|ALL`; STATE `outputs[].hand`. (4 h)
-4. `canvas.json` and its cards, `docs/CANVAS.md`, `docs/wire/canvas.md`, `docs/ALIGN.md`'s γ words, the papers notes. (2 h)
+3. The outputs' automatic results as layers under the hand's (D12): an accept writes no `Blend.Gamma` (`CalibrationLedger`'s
+   hunk, and `ALIGN REVERT`'s copy in `Engine/Align`), the measured γ staying in `Measured.Color.Gamma`, and the output stage draws
+   the blend through `Blend.Gamma` when a hand set it (non-zero), else the measured γ, else 2.2 — so a later accept changes the
+   effective γ unless a person typed one, and `HAND` says which ("γ 2.40 by hand over the measured 2.31"); `ALIGN ACCEPT`, `STACK
+   ALIGN`, `STACK MATCH` and `BLEND SOLVE` replacing only their layer and listing each hand edit they kept with its clearing line;
+   `HAND <output>|<projector>|<surface>` and `HAND CLEAR <output> WARP|BLEND|COLOR|MASKS|ALL`; STATE `outputs[].hand` (`warp`, `blend`,
+   `color`, `masks`, each true when not at rest, `gamma` with its measured and hand values, and the run the measured layer under it
+   came from). (4.5 h)
+4. The align simulator's combined layout, `flat-screen:tile<c>x<r>:stack<n>` (`flat-screen:tile2x1:stack2:o15`: two positions of two
+   stacked projectors), in `Core/Align`'s simulator beside today's `tile` and `stack`, for the flat guide's tests and align's own. (1 h)
+5. `canvas.json` and its cards, `docs/CANVAS.md`, `docs/wire/canvas.md`, `docs/ALIGN.md`'s γ words, the papers notes. (2 h)
 
-⟂ *(≈ 15 h)*
+⟂ *(≈ 17.5 h)*
 
-5. *(stretch)* Content as a camera sees it (`SurfaceMapping.Camera`, from a scan taken at the audience's seat [ux §1.2]).
-6. *(stretch)* MPCDI export as a verb (`MpcdiExport` is in Core with no verb today [today §d2]).
+6. *(stretch)* Content as a camera sees it (`SurfaceMapping.Camera`, from a scan taken at the audience's seat [ux §1.2]).
+7. *(stretch)* MPCDI export as a verb (`MpcdiExport` is in Core with no verb today [today §d2]).
 
 **Preflight.** A span's output whose rectangle a hand moved since (grey fact, its `KEEP` and `REPLACE` lines). **INDEX.** None.
 
 **Owns.** `src/PlayMap.Core/Canvas/**` (the span planner, pure), `src/PlayMap.Engine/Canvas/**`, the `Canvas` stubs,
 `src/PlayMap.Render/Engine/**` for W4, `src/PlayMap.Render/Passes/{OutputStage, MeasuredStage}.cs` for W4, `src/PlayMap.Core/Align/**`
-and `src/PlayMap.Engine/Align/**` for W4, `tests/PlayMap.Render.Tests/Canvas/**`, `tests/fixtures/state/canvas.json` and its cards,
-`docs/CANVAS.md`, `docs/wire/canvas.md`.
+and `src/PlayMap.Engine/Align/**` for W4, `src/PlayMap.Engine/EngineCore.Content.cs` for W4 (`PATTERN … ON <canvas>`),
+`src/PlayMap.Engine/EngineCore.BlendSolve.cs` and `src/PlayMap.Engine/Site/EngineCore.Stacks.cs` for W4 (the hand edits each keeps),
+`tests/PlayMap.Render.Tests/Canvas/**`, `tests/fixtures/state/canvas.json` and its cards, `docs/CANVAS.md`, `docs/wire/canvas.md`.
 
-**Hunks.** `tests/PlayMap.Render.Tests/Parity/D3D12Tolerances.cs` (its scenes' rows, after stability-2).
+**Hunks.** `tests/PlayMap.Render.Tests/Parity/D3D12Tolerances.cs` (its scenes' rows, after stability-2);
+`src/PlayMap.Engine/Wall/CalibrationLedger.cs` (an accept writes no `Blend.Gamma`; W4, before workflows, which owns the file).
 
 **Depends on.** d3d12-passes-2, present (the render and output-stage files they finish in W3).
 
-**Acceptance.** `CanvasSpanTests`, `SpanKeepTests`, `SpanPatternTests`, `CanvasSourceTests`, `HandOverAutoTests`, `HandClearTests`
-(`design/desk-workflows.md` §3.3, §8); `AssistantSpanTests` (Assistant): a scripted provider proposes `CANVAS SPAN NEW op_1 op_2 SIDE
-2x1 OVERLAP 15%` and `PATTERN grid ON <canvas>`, the review line by the setting and the high line waiting for a person, the canvas in
-the project afterwards; every Render and Engine golden unchanged.
+**Acceptance.** `CanvasSpanTests`, `SpanKeepTests`, `SpanMeasuredTests`, `SpanPatternTests`, `CanvasSourceTests`, `HandOverAutoTests`,
+`HandGammaTests`, `HandClearTests` (`design/desk-workflows.md` §3.3, §8); `SimStackTileTests` (Core): `tile2x1:stack2` places four
+projectors as two positions of two, each stack's members on the same rectangle; `AssistantSpanTests` (Assistant): a scripted provider
+proposes `CANVAS SPAN NEW op_1 op_2 SIDE 2x1 OVERLAP 15%` and `PATTERN grid ON <canvas>`, each decided by the gate as its class and
+the settings say, the canvas in the project afterwards; every Render and Engine golden unchanged.
 
 **Verified here.** All (GL on llvmpipe). **On CI (Windows).** The span pattern on WARP within its tolerance row. **Manual (lab).** L24,
 reported not run while no lab exists.
@@ -1759,52 +1873,65 @@ reported not run while no lab exists.
 *Design: `design/desk-workflows.md` §2–§5.*
 
 **Slice.**
-1. Guides as data (D13): pure planners in `Core/Workflows` — FLAT (§5.1 of the design), WALL (§5.2), OBJECT (§5.3), with FACADE
-   (`SiteGuide`, behind the same contract and its old row) and FIRST (the first light) — each step's state, words, facts (the pins'
-   coverage meter among them), automatic, hand and proposed lines; `GUIDE LIST`, `GUIDE <kind> [<subject>]`, `GUIDE … CHECK|UNCHECK
-   <step>` (a person's mark, refused from an assistant's session); STATE `guides`; the context's guide items. (6 h)
-2. Poses, scans and viewpoints keeping the hand's edits (D12): a typed or nudged pose a ledger result of source `hand`, and a solve or
-   re-solve over one staged, naming it; `SCAN APPLY` keeping every surface's content, tags, masks and hand transforms, a surface whose
-   faces are gone kept hidden and named; `VIEWPOINT FIT <viewpoint> <surface>… [MARGIN <pct>] [FOV]` (aim and field of view from the
-   eye) and `SURFACE MAP <surface> UV|CANVAS …|PROJECTION FROM <viewpoint>`. (3 h)
-3. The desk's guides: the Workflows home with a card per guide and its state; a guide as a docked step rail beside the live view and
-   the step's inspector, each step's Do it, By hand, Ask, Explain and Check, re-entered from the object's right-click; the
-   viewpoint's inspector (typed eye, aim, field of view) and Look through. (7 h)
+1. Guides as data (D13): pure planners in `Core/Workflows` — FLAT (§5.1 of the design: side by side, stacked, and two positions each
+   double-stacked), WALL (§5.2), OBJECT (§5.3), with FACADE (`SiteGuide`, behind the same contract and its old row) and FIRST (the
+   first light) — each step's state, words, facts (the pins' coverage meter among them), automatic, hand and proposed lines; `GUIDE
+   LIST`, `GUIDE <kind> [<subject>]`, `GUIDE <kind> <subject> BEGIN|END` (any session) and `GUIDE … CHECK|UNCHECK <step>` (a person's
+   mark, refused from an assistant's session), the begun guides and their checks in `Project.Guides`; STATE `guides`; the context's
+   guide items. (6.5 h)
+2. Poses, scans and viewpoints keeping or staging over the hand's edits (D12): a typed or nudged pose recorded as a calibration
+   result of the existing source `manual`; over one, `PROJECTOR SOLVE`, `CALIBRATION RESOLVE` and `SCAN APPLY` stage that projector's
+   result instead of applying it and name the manual result it would replace (`CALIBRATION ACCEPT` applies it; `SCAN SOLVE … HOLD
+   <projector>`, which exists, keeps a projector at its stage pose through the solve itself); `SCAN APPLY` keeping every surface's
+   content, tags, masks and hand transforms and every pixel quad as it stands (a quad's corners are raster pixels, so a hand-moved
+   corner lights the same wall spot whatever pose the scan writes; a camera re-solve, whose cause is a projector that moved, re-seats
+   them as today and names each), a surface whose faces are gone kept hidden and named; `VIEWPOINT FIT <viewpoint> <surface>… [MARGIN
+   <pct>] [KEEP|REPLACE]` (aim and field of view from the eye, recorded in `Viewpoint.Fit`; over an aim or field of view typed since,
+   refused naming each unless `KEEP` or `REPLACE`) and `SURFACE MAP <surface> UV|CANVAS …|PROJECTION FROM <viewpoint>`. (3.5 h)
+3. The desk's guides: the Workflows home with a card per guide and its state (Blend two projectors, Stack two projectors, Stack and
+   blend four, Map a video onto a wall, Map an object, First light, Facade); a guide as a docked step rail beside the live view and the
+   step's inspector, each step's Do it, By hand, Ask, Explain and Check, re-entered from the object's right-click — the facade's and
+   the first light's steps on the same rail; the flat guide's Span step as a canvas editor (positions and stacks, overlap, each
+   output's rectangle typed and dragged on a diagram of the canvas, sending `CANVAS SPAN` or `SET <output> sourceRect`); the
+   viewpoint's inspector (typed eye, aim, field of view) and Look through. (8 h)
 4. Simple hides, Pro shows: Simple, the Workflows home's landing, hides Pro fields and panes and never an air-safety control; menus
    the same in both. (2 h)
 5. The assistant in the guides: `plan_recipe guide_step`; the prompt's workflow rule; Explain from the step's facts and words
-   (`StateExplainer` with the assistant off); `AssistantGuideTests` for every step of the three guides. (3 h)
+   (`StateExplainer` with the assistant off); `AssistantGuideTests` for every step of the five guides. (4 h)
 6. `guides.json` and its cards, `docs/WORKFLOWS.md`, `docs/wire/guide.md`, `docs/MAPPING.md`'s hand rule, the papers notes. (2 h)
 
-⟂ *(≈ 23 h)*
+⟂ *(≈ 26 h)*
 
 7. *(stretch)* A still of a view for an assistant model that reads pictures, off by default, named in the assistant's settings.
 8. *(stretch)* Suggested pin points from `PlayMap.Vision`'s pin suggestions, offered as proposals.
-9. *(stretch)* The 2 × 2 stack-and-blend and n × m presets of the flat guide.
+9. *(stretch)* The n × m presets of the flat guide beyond two positions.
 
 **Preflight.** A begun guide with a failed step (amber, the step's words, its line as the fix where one exists). **INDEX.** Section
 `guides`: each guide's next step (its line an action).
 
 **Owns.** `src/PlayMap.Core/Workflows/**`, `src/PlayMap.Core/Site/SiteGuide.cs` for W4, `src/PlayMap.Core/Calibration/**` for W4,
 `src/PlayMap.Core/Mapping/ViewpointFit.cs` (new), `src/PlayMap.Engine/Workflows/**`, the `Guide` stubs, `src/PlayMap.Engine/Wall/**`
-and `src/PlayMap.Engine/Scanning/**` for W4, `src/PlayMap.App/**` and `tests/PlayMap.App.Tests/**` for W4, `src/PlayMap.Assistant/**`
-and `tests/PlayMap.Assistant.Tests/**` for W4, `tests/PlayMap.Net.Tests/Workflows/**`, `tests/fixtures/state/guides.json` and its
-cards, `docs/WORKFLOWS.md`, `docs/wire/guide.md`.
+and `src/PlayMap.Engine/Scanning/**` for W4, `src/PlayMap.Engine/{EngineCore.Mapping, EngineCore.Edits}.cs` for W4 (the solves'
+staging, `SCAN APPLY`'s keeps, a typed pose recorded), `src/PlayMap.App/**` and `tests/PlayMap.App.Tests/**` for W4,
+`src/PlayMap.Assistant/**` and `tests/PlayMap.Assistant.Tests/**` for W4, `tests/PlayMap.Net.Tests/Workflows/**`,
+`tests/fixtures/state/guides.json` and its cards, `docs/WORKFLOWS.md`, `docs/wire/guide.md`.
 
 **Hunks.** None beyond its files.
 
 **Depends on.** desk-map (and desk-shell before it); canvas before merge (§5.3).
 
 **Acceptance.** `GuidePlannerTests`, `GuideVerbTests`, `FlatGuideTests`, `WallGuideTests`, `ObjectGuideTests`, `HandPoseTests`,
-`ScanKeepsHandTests`, `ManualSetupTests`, `GuideRailTests`, `SimpleProTests`, `WorkflowsHomeTests`, `AssistantGuideTests`,
-`McpGuideTests` (`design/desk-workflows.md` §2, §3.3, §4.6, §5); `ViewpointFitTests`: a viewpoint and two surfaces → aim at their
-centre and the field of view that frames them with the margin, a typed field of view kept without `FOV`; `SurfaceMapTests`: each
-form sets the mapping, again with the same refused; `SiteGuideTests` unchanged through `GUIDE FACADE`.
+`ScanKeepsHandTests`, `ManualSetupTests`, `GuideRailTests`, `SpanEditorTests`, `SimpleProTests`, `WorkflowsHomeTests`,
+`AssistantGuideTests`, `McpGuideTests` (`design/desk-workflows.md` §2, §3.3, §4.6, §5); `ViewpointFitTests`: a viewpoint and two
+surfaces → aim at their centre and the field of view that frames them with the margin, recorded; a field of view typed since →
+refused naming it, `KEEP` keeps it and writes the aim, `REPLACE` writes both and names what it replaced; `SurfaceMapTests`: each form
+sets the mapping, again with the same refused; `SiteGuideTests` unchanged through `GUIDE FACADE`.
 
 **Verified here.** All (headless, the align and stage simulators). **On CI.** The same on both jobs. **Manual (lab).** L24 (the flat
-blend and stack on two projectors), L19 (the guides' critical tasks with operators), reported not run while no lab exists.
+blend and stack on two projectors, and the stack and blend on four), L19 (the guides' critical tasks with operators), reported not
+run while no lab exists.
 
-**Next round.** A curved-screen guide; the facade guide on the desk's rail.
+**Next round.** A curved-screen guide.
 
 ### 3.21 `wp3-capture` — capture cards passed through to the air (W4)
 
@@ -1812,55 +1939,74 @@ blend and stack on two projectors), L19 (the guides' critical tasks with operato
 
 **Slice.**
 1. The seam and the hub: capture providers in the video I/O hub (a receiver per input, the loss policy, backup, tally, health,
-   preflight); `capture:` schemes failing closed, never read as FFmpeg locations; `INPUT DISCOVER CAPTURE` with devices and modes;
-   `INPUT ADD`'s `MODE` and `FORMAT`; the `video=` path kept as rung 4 and opened with the platform's input format (today's
-   `Format = ""` case first, as a failing test [vt §1.1]); packed 4:2:2 (UYVY, YUYV, v210, P210) kept packed and unpacked on the GPU,
-   `video.v210` new in GLSL and HLSL. (5 h)
-2. Media Foundation (rung 3, M19): the source reader with `MF_LOW_LATENCY` on a D3D11 device manager, its texture shared into
-   Direct3D 12 by NT handle and shared fence through wp3-video's bridge. (5 h)
+   preflight, the context's input item as every hub input has); the spine's `CaptureUri` failing closed, never read as an FFmpeg
+   location; `INPUT DISCOVER CAPTURE` with devices and modes; `INPUT ADD`'s `MODE` and `FORMAT`; the capture contract in
+   `Core/Media/LiveVideo.cs` (the slot ring and `ICaptureCopy`, so Media's capture thread submits the copy at arrival through a
+   Core seam the Direct3D 12 and GL sides implement, Media referencing Core alone); the `video=` path kept as rung 4 and handed to
+   FFmpeg with the platform's input format, not a probe (today's `Format = ""` case first, as a failing test at the seam [vt §1.1]);
+   packed 4:2:2 (UYVY, YUYV, v210, P210) kept packed and unpacked on the GPU, `video.v210` new in GLSL and HLSL, read from a buffer
+   so no texture copy's row-pitch rule applies. (5 h)
+2. Media Foundation (rung 3 or 2 per input, M19): the source reader with `MF_LOW_LATENCY` on a D3D11 device manager; a source whose
+   samples are `IMFDXGIBuffer`s takes rung 3 (its texture shared into Direct3D 12 by NT handle and shared fence through wp3-video's
+   bridge), one whose samples are system memory (most USB devices) rung 2; an MJPEG device decoded by Media Foundation's own decoder,
+   named in STATE (`capture.decode`), its time inside the input's figure; `cpuCopies` on rung 3 "PlayMap 0; Media Foundation's own
+   unknown". (5 h)
 3. DeckLink (rungs 1 and 2): COM interop declared from the SDK's Include IDL with Blackmagic's notice kept; the capture allocator
    provider handing the card PlayMap's slots; every interface checked against an older driver; the hardware timestamp mapped to the
-   monotonic clock; the genlock status read. (5 h)
-4. The GPU side and the pass-through output: the slot ring wrapped as a D3D12 heap (M16), the copy at arrival with a fence, the
-   render's GPU wait, slots released after their last drawing frame's fence, drops counted; `OUTPUT PASSTHROUGH` (one frame in flight,
-   out of the latency plan's delay ring, the pacing output; refused in a lock group without a shared reference); repeats and lateness
-   counted; the rate-mismatch row. (5 h)
+   monotonic clock; the card's reference status read as a fact about its outputs. (5 h)
+4. The GPU side and the pass-through output: on Direct3D 12 the slot ring wrapped as a heap (M16), the copy at arrival with a fence,
+   the render's GPU wait, slots released after their last drawing frame's fence, drops counted; on GL — AUTO's path this round — the
+   slot a persistent-mapped buffer (rung 2's one copy), the upload on the render thread at the sample and, while a pass-through is on, a
+   wait on the GL fence of the frame before the last so the driver queues at most one frame, the path said in STATE and amber in
+   preflight ("the fast path is `PRESENT PATH D3D12`"); `OUTPUT PASSTHROUGH` (one frame in flight, out of the latency plan's delay
+   ring, the pacing output outside a lock group; in a group the group's pacing output keeps the pacing and the words say what that
+   costs); repeats and lateness counted; the input's arrival phase against the pacing output's vblank measured (`capture.phase`:
+   phase, jitter, drift, in phase or drifting, never "locked"); the rate-mismatch and drift rows. (5.5 h)
 5. Measured, then governed: STATE `videoio.inputs[].capture` and `.latency` from the stamps (arrival to shown, p50 and p95, "in-node");
-   `LATENCY LOOP <output> VIA <input>` (glass to glass through a loop-through, p50, p95, p99, the method named), "unmeasured" until it
-   runs; `capture.json` and its cards, `docs/VIDEO.md`'s capture part, `docs/wire/capture.md`, L25's script. (3 h)
+   a pass-through's glass to glass from wp3-stability's `LATENCY STEP <output> VIA OBSERVER` on a loop-through observer
+   (`OBSERVE <output> FROM capture:…`) plus, per step frame, the age at draw of the pass-through's own input frame (p50, p95, p99,
+   the method named), "unmeasured" until it runs — no row of capture's own; `capture.json` and its cards, `docs/VIDEO.md`'s capture
+   part, `docs/wire/capture.md`, L25's script. (3 h)
+6. The late sample, while a pass-through is on: after the pacing output's waitable the render waits on the platform's
+   high-resolution timer until the predicted vblank less the p99 of the last 600 frames' sample-to-GPU-done time and a margin (1 ms
+   and 10 % of the period), clamped to the period; the frame's GPU-done time from the node's own timestamps (Direct3D 12 queries; GL
+   timer queries, a frame late); a present that misses its vblank sets the offset to 0 for 10 s, counted and said; STATE
+   `outputs[].passThrough.lateSampleMs` and the misses. (2 h)
 
-⟂ *(≈ 23 h)*
+⟂ *(≈ 25.5 h)*
 
-6. *(stretch)* AJA through a C-interface shim built from its MIT library (rungs 1 and 2).
-7. *(stretch)* Magewell from `LibMWCapture.dll` in System32, its low-latency mode (rungs 1 and 2).
-8. *(stretch)* DeckLink's reference timing offset as a setting.
+7. *(stretch)* AJA through a C-interface shim built from its MIT library (rungs 1 and 2).
+8. *(stretch)* Magewell from `LibMWCapture.dll` in System32, its low-latency mode (rungs 1 and 2).
+9. *(stretch)* DeckLink's reference timing offset as a setting, for the in-phase case.
 
-**Preflight.** Section `videoio`: a capture runtime missing, an input's rate not its pass-through output's refresh, a pass-through in
-a lock group without a shared reference, rung 4 in use, a capture driver that did not load (each amber, with its words). **INDEX.**
-Section `inputs` gains the capture inputs (tally and health, as live inputs).
+**Preflight.** Section `videoio`: a capture runtime missing, an input's rate not its pass-through output's refresh, a pass-through's
+input drifting against its output, a pass-through on GL, rung 4 in use, a capture driver that did not load (each amber, with its
+words). **INDEX.** Section `inputs` gains the capture inputs (tally and health, as live inputs).
 
 **Owns.** `src/PlayMap.Media/Capture/**` (new), `src/PlayMap.Media/Sources/CaptureSource.cs`, `src/PlayMap.Media/Frames/**` and
-`src/PlayMap.Media/Video/LiveSource.cs` for W4, `src/PlayMap.Core/Media/LiveVideo.cs` for W4, `src/PlayMap.Core/Presentation/LatencyPlan.cs`
-for W4, `src/PlayMap.Engine/VideoIo/**` and `src/PlayMap.Engine/EngineCore.VideoIo.cs` for W4, `src/PlayMap.Render/Video/**` for W4,
-`src/PlayMap.Render.D3D12/Capture/**` (new, outside stability-2's W4 folders), the `Capture` stubs, `tests/fixtures/state/capture.json`
-and its cards, `docs/VIDEO.md` (its capture part), `docs/wire/capture.md`, its heading of `THIRD-PARTY-NOTICES.md` (the DeckLink IDL's
-notice; AJA's MIT notice if the stretch lands).
+`src/PlayMap.Media/Video/LiveSource.cs` for W4, `src/PlayMap.Core/Media/{LiveVideo, CaptureUri}.cs` for W4,
+`src/PlayMap.Core/Presentation/LatencyPlan.cs` for W4, `src/PlayMap.Engine/VideoIo/**` and `src/PlayMap.Engine/EngineCore.VideoIo.cs`
+for W4, `src/PlayMap.Render/Video/**` for W4, `src/PlayMap.Render.D3D12/Capture/**` (new, outside stability-2's W4 folders), the
+`Capture` stubs (`Rendering/RenderHost.Capture.cs` holding the late sample), `tests/fixtures/state/capture.json` and its cards,
+`docs/VIDEO.md` (its capture part), `docs/wire/capture.md`, its heading of `THIRD-PARTY-NOTICES.md` (the DeckLink IDL's notice; AJA's
+MIT notice if the stretch lands).
 
 **Hunks.** `src/PlayMap.Render.D3D12/Shaders/video.v210.hlsl` (a new file in stability-2's W4 folder, after stability-2);
-`src/PlayMap.Engine/Rendering/RenderHost.cs` (the pacing output while a pass-through is on, after stability-2);
-`tests/PlayMap.Render.Tests/Parity/D3D12Tolerances.cs` (v210's byte-exact row).
+`src/PlayMap.Engine/Rendering/RenderHost.cs` (the pacing output while a pass-through is on, and the call to the late sample, after
+stability-2); `src/PlayMap.Engine/Observe/LatencyStep.cs` (each step's sample and arrival instants raised to a listener, after
+stability-2); `tests/PlayMap.Render.Tests/Parity/D3D12Tolerances.cs` (v210's byte-exact row).
 
-**Depends on.** video, present; framelock before merge (the lock-group rule reads its state).
+**Depends on.** video, present; framelock before merge (the group's pacing rule reads its state).
 
 **Acceptance.** `CaptureProviderTests`, `CapturePathTests`, `CaptureSlotTests`, `WrappedHeapTests`, `PackedCaptureTests`,
-`MfProviderTests`, `DeckLinkInteropTests`, `PassThroughTests`, `RateMatchTests`, `CaptureLatencyTests`, `LatencyLoopTests`,
-`DeviceItemOpenTests`, `ZeroAllocTests` with a capture input (`design/capture.md` §11); `AssistantCaptureTests` (Assistant): a
-scripted provider proposes `INPUT ADD capture:decklink/1`, `SURFACE SOURCE <sf> live:<in>` and `OUTPUT PASSTHROUGH <op> ON`, each by
-its class, queued while armed, the input in STATE afterwards.
+`MfProviderTests`, `DeckLinkInteropTests`, `PassThroughTests`, `GlPassThroughTests`, `InputPhaseTests`, `RateMatchTests`,
+`CaptureLatencyTests`, `PassThroughLatencyTests`, `LateSampleTests`, `DeviceItemOpenTests`, `ZeroAllocTests` with a capture input
+(`design/capture.md` §11); `AssistantCaptureTests` (Assistant): a scripted provider proposes `INPUT ADD capture:decklink/1`, `SURFACE
+SOURCE <sf> live:<in>` and `OUTPUT PASSTHROUGH <op> ON`, each by its class, queued while armed, the input in STATE afterwards.
 
-**Verified here.** The providers against fakes, the slots, the rate maths, the pass-through, on GL. **On CI (Windows, WARP).** The
-wrapped heap (M16), the packed unpacks, the MF provider (M19), the pass-through on WARP's presenters. **Manual (lab).** L25, reported
-not run while no lab exists; STATE says "unmeasured".
+**Verified here.** The providers against fakes, the slots, the rate and phase maths, the pass-through and the late sample, on GL.
+**On CI (Windows, WARP).** The wrapped heap (M16), the packed unpacks, the MF provider (M19), the pass-through on WARP's presenters.
+**Manual (lab).** L25, reported not run while no lab exists; STATE says "unmeasured".
 
 **Next round.** Genlocked SDI and ST 2110 outputs (their vblank from the card), AJA and Magewell if their stretch is not reached,
 GPUDirect for Video where a loop-through shows the copy matters, Deltacast, Datapath and Bluefish444 under their vendors' terms.
@@ -1880,6 +2026,9 @@ nothing in that wave edits it.
 | `src/PlayMap.Core/Model/ProjectStore.cs` | spine (W0: `UndoTo` and the steps' list) | none |
 | `src/PlayMap.Core/Show/ShowPolicy.cs` | spine (W0: `UNDO TO` as `UNDO`) | none |
 | `src/PlayMap.Core/Fleet/HealthRecord.cs` | spine (W0: `ShownFrames`, `ObservedFrames` at −1, the `gpu` record) | none |
+| `src/PlayMap.Core/Media/CaptureUri.cs` | spine (W0: the grammar every capture source parses) → capture (W4: its providers' forms) | none (stability's observer reads it) |
+| `src/PlayMap.Core/Bus/ShowContext.cs` | — (round 2's) → the integration pass (§5.6 item 7: a peer's commands read to the context's size bound) | none |
+| `src/PlayMap.Core/Bus/NodeSettings.Sync.cs` | — (round 2's) → framelock (W4: the drivers' answers to a barrier client) | none |
 | `src/PlayMap.Engine/EngineCore.Fleet.cs` | — (round 2's, finished) | stability (fills the counts, W2) → stability-2 (the `gpu` phase while rebuilding, W4) |
 | `Version.props`, `src/PlayMap.Core/BuildInfo.cs` | spine (from the `versioning` branch) | installer (the 255 rule, `MsiVersion`; W1) |
 | `src/PlayMap.Core/Gpu/**` | rhi (W1: the contracts, the presenter seams, the program table, user programs, the transient contract) → d3d12-core (W2) → d3d12-passes-2 (W3: indirect draws and structured buffers) → stability-2 (W4) | none |
@@ -1890,9 +2039,9 @@ nothing in that wave edits it.
 | `src/PlayMap.Core/Media/PreviewRing.cs` | desk-gpu (W3) | none (desk-ux reads the existing stamp) |
 | `src/PlayMap.Core/Effects/IsfTranslator.cs` | shaders (W1) → shaders-2 (W3) | none |
 | `src/PlayMap.Core/Modulation/{ModulationBus, ModulationPlan}.cs`, `src/PlayMap.Engine/Audio/EngineCore.Mod.cs` | — (round 2's) | d3d12-passes-2 (the drawn numbers' table, W3) |
-| `src/PlayMap.Core/Observe/**`, `src/PlayMap.Engine/Observe/**` | stability (W2) → stability-2 (W4) | present (`Observe/LatencyStep.cs`: the stage shares, W3) |
+| `src/PlayMap.Core/Observe/**`, `src/PlayMap.Engine/Observe/**` | stability (W2) → stability-2 (W4) | present (`Observe/LatencyStep.cs`: the stage shares, W3) → capture (`Observe/LatencyStep.cs`: each step's instants raised to a listener, W4, after stability-2) |
 | `src/PlayMap.Render/Gpu/*` → `Gl/*` | rhi (W1) | none |
-| `src/PlayMap.Render/Gl/**` (with `RenderContext.cs` and the GL platforms) | rhi (W1) → d3d12-passes (W2: the GL walk) → d3d12-passes-2 (W3: GL's allocation fence) → stability-2 (W4: context loss) | none |
+| `src/PlayMap.Render/Gl/**` (with `RenderContext.cs` and the GL platforms) | rhi (W1) → d3d12-passes (W2: the GL walk) → d3d12-passes-2 (W3: GL's allocation fence) → stability-2 (W4: context loss) | framelock (the GL presenter's device context offered as `ISwapGroupTarget`, W4, after stability-2) |
 | `src/PlayMap.Render/Engine/{RenderEngine, FramePasses, Contracts}.cs` | rhi (W1) → d3d12-passes (W2) → d3d12-passes-2 (W3) → canvas (W4: a pattern across a canvas) | present (`FrameInputs.PredictedDisplayNs`, W3) → desk-gpu (`Preview`, `CollectPreviews`, W3) |
 | `src/PlayMap.Render/Passes/OutputStage.cs`, `MeasuredStage.cs` | rhi (W1) → d3d12-passes (W2) → d3d12-passes-2 (W3) → canvas (W4: the measured γ under the hand's) | stability (the watermark last, W2, before d3d12-passes) → present (the PQ encode and the 10-bit dither, W3) |
 | `src/PlayMap.Render/Passes/OverlayPass.cs` | rhi (W1) → d3d12-passes (W2) → d3d12-passes-2 (W3) | desk-map (the call to its `OverlayHandles.cs`, W3, after d3d12-passes-2) |
@@ -1918,11 +2067,14 @@ nothing in that wave edits it.
 | `src/PlayMap.Net/Sync/VblankReport.cs` | spine (W0: path 3) → framelock (W4) | none |
 | `src/PlayMap.Media/Hw/**`, `Video/Spout/**` | video (W3) | rhi (the share's type, W1) |
 | `src/PlayMap.Render/{Video, Hap, Decode}/**` | rhi (W1) → video (W3) → capture (`Video/**` only, W4: `video.v210`) | none |
-| `src/PlayMap.Media/{Capture/**, Sources/CaptureSource.cs, Frames/**, Video/LiveSource.cs}`, `src/PlayMap.Core/Media/LiveVideo.cs`, `src/PlayMap.Engine/VideoIo/**`, `src/PlayMap.Engine/EngineCore.VideoIo.cs` | — (round 2's) → capture (W4) | video (the live inputs' copy at arrival, W3, in its own files) |
-| `src/PlayMap.App/**` | desk-ux (W1) → desk-shell (W2) → W3: desk-gpu (its preview files, §3.12) and desk-map (the rest) → workflows (W4) | installer (`Link/EngineSupervisor.cs`: attach to a supervised engine, W1) |
-| `tests/PlayMap.App.Tests/**` | desk-ux (W1; `Install/**` installer's) → desk-shell (W2) → W3: desk-gpu (`DeskPreviewTests.cs`, `Previews/**`) and desk-map (the rest) → workflows (W4) | none |
+| `src/PlayMap.Media/{Capture/**, Sources/CaptureSource.cs, Frames/**, Video/LiveSource.cs}`, `src/PlayMap.Core/Media/LiveVideo.cs`, `src/PlayMap.Engine/VideoIo/**`, `src/PlayMap.Engine/EngineCore.VideoIo.cs` | — (round 2's) → capture (W4: the providers, the capture contract, the context's capture inputs) | video (the live inputs' copy at arrival, W3, in its own files) |
+| `src/PlayMap.App/**` | desk-ux (W1) → desk-shell (W2) → W3: desk-gpu (its preview files and `Infrastructure/UiWatchdog.cs`, §3.12) and desk-map (the rest) → workflows (W4) | installer (`Link/EngineSupervisor.cs`: attach to a supervised engine, W1) → desk-gpu (`State/StateSnapshot.cs`, only where `PushBudgetTests` needs it, W3, before desk-map) |
+| `tests/PlayMap.App.Tests/**` | desk-ux (W1; `Install/**` installer's) → desk-shell (W2) → W3: desk-gpu (`DeskPreviewTests.cs`, `Previews/**`, `Budget/**`) and desk-map (the rest) → workflows (W4) | none |
 | `docs/DESK.md` | desk-ux (W1) → desk-shell (W2) → desk-map (W3) → workflows (W4) | none |
-| `src/PlayMap.Engine/Wall/**` | — (round 2's) → desk-map (W3: the handles) → workflows (W4: hand results in the ledger) | none |
+| `src/PlayMap.Engine/Wall/**` | — (round 2's) → desk-map (W3: the handles) → workflows (W4: manual results in the ledger, the solves staged over them) | canvas (`CalibrationLedger.cs`: an accept writes no `Blend.Gamma`, W4, before workflows) |
+| `src/PlayMap.Engine/EngineCore.Content.cs` | — (round 2's) → desk-map (W3: `WARP NODE … PX`) → canvas (W4: `PATTERN … ON <canvas>`) | none |
+| `src/PlayMap.Engine/{EngineCore.Mapping, EngineCore.Edits}.cs` | — (round 2's) → workflows (W4: `PROJECTOR SOLVE` and `SCAN APPLY` staged over a manual result, `SCAN APPLY`'s keeps, a typed pose recorded) | none |
+| `src/PlayMap.Engine/EngineCore.BlendSolve.cs`, `src/PlayMap.Engine/Site/EngineCore.Stacks.cs` | — (round 2's) → canvas (W4: the hand edits `BLEND SOLVE`, `STACK ALIGN` and `STACK MATCH` keep) | none |
 | `src/PlayMap.Core/Calibration/**`, `src/PlayMap.Engine/Scanning/**`, `src/PlayMap.Core/Site/SiteGuide.cs` | — (round 2's) → workflows (W4) | none |
 | `src/PlayMap.Core/Align/**`, `src/PlayMap.Engine/Align/**` | — (round 2's) → canvas (W4: the measured γ) | none |
 | `src/PlayMap.Assistant/**`, `tests/PlayMap.Assistant.Tests/**` | — (round 2's) → workflows (W4: `guide_step`, the prompt's rule) | the packages' `Assistant…Tests` sit in their own area folders (`tests/PlayMap.Assistant.Tests/<Area>/**`) |
@@ -1950,10 +2102,10 @@ nothing in that wave edits it.
 |---|---|---|
 | **Base** | the `versioning` branch merged to `main` | The version every later artifact, journal and dump carries; the installer's rules build on it. |
 | **W0** | spine | The rows, contracts, model fields, projects, the seams already known and the WARP and ES legs every later test reads. W1 starts on a green spine. |
-| **W1** | rhi, platform, shaders, installer, desk-ux (5) | Each depends on the spine only. rhi alone touches `src/PlayMap.Render` and the render host (beyond the named hunks); the other four own new projects (`Platform.Windows`, `Render.D3D12/Shaders`, `Supervisor`, `installer/`) and the desk. The benches for M1–M3 (the spine's and desk-ux's) are built beside them and wait for a lab (D15). |
+| **W1** | rhi, platform, shaders, installer, desk-ux (5) | Each depends on the spine only. rhi alone touches `src/PlayMap.Render` and the render host (beyond the named hunks); the other four own new projects (`Platform.Windows`, `Render.D3D12/Shaders`, `Supervisor`, `installer/`) and the desk. The spine's bench for M1 and M3 is built beside them, desk-gpu's for M2 in W3, and both wait for a lab (D15). |
 | **W2** | d3d12-core, d3d12-passes, stability, desk-shell (4) | Each needs the RHI but desk-shell; d3d12-core also the HLSL. The graph compiler and the observer run on GL here; their Direct3D 12 acceptance runs after d3d12-core merges first. desk-shell takes the desk while no other package of the wave owns it. |
-| **W3** | d3d12-passes-2, shaders-2, present, video, desk-gpu, desk-map (6) | Each needs the Direct3D 12 device but desk-map; d3d12-passes-2 also the graph; shaders-2 also the worker; desk-gpu also the desk's age badge and panes; video and desk-gpu build on d3d12-core's merged exporter; desk-map needs the shell's panes and menus, and splits the desk with desk-gpu by file (§4). |
-| **W4** | stability-2, framelock, canvas, capture, workflows (5) | stability-2 and framelock need the flip presenters, the rebuild path before the barrier that must register again in it, and framelock builds M4's "no" shape (§3.14); canvas needs the render and output-stage files finished in W3; capture needs video's live uploads and present's frames in flight; workflows needs desk-map's handles and canvas's span. |
+| **W3** | d3d12-passes-2, shaders-2, present, video, desk-gpu, desk-map (6) | Each needs the Direct3D 12 device but desk-map; d3d12-passes-2 also the graph; shaders-2 also the worker; desk-gpu also the desk's age badge; video and desk-gpu build on d3d12-core's merged exporter; desk-map needs the shell's panes and menus, and splits the desk with desk-gpu by file (§4). |
+| **W4** | stability-2, framelock, canvas, capture, workflows (5) | stability-2 and framelock need the flip presenters, the rebuild path before the barrier that must register again in it, and framelock answers M4 on each node by each client's own evidence (§3.14); canvas needs the render and output-stage files finished in W3; capture needs video's live uploads and present's frames in flight; workflows needs desk-map's handles and canvas's span. |
 
 **Scheduling.** Waves name dependency depth, not a barrier: a package starts when every package it depends on is merged and a
 slot is free; a review takes the next free slot when its implementation ends. The critical path is spine → rhi → d3d12-core →
@@ -1983,8 +2135,8 @@ is done here, through §5.4's gate. Per wave, at most:
 
 The packages here are the ones that run the GL pixel suites heavily or own the integration-hot render files; the cloud ones own
 new projects, the desk's headless suites or take their evidence from the Windows job. With this split the round runs in about
-seven rounds of sessions — W0, two for W1, one each for W2–W4, and the integration pass — with W3 at this machine's four
-implementations (d3d12-passes-2, desk-gpu, desk-map) plus one review.
+seven rounds of sessions — W0, two for W1, one each for W2–W4, and the integration pass — with W3 at three of this machine's
+implementations (d3d12-passes-2, desk-gpu, desk-map) and its reviews within the five.
 
 ### 5.3 Merge order
 
@@ -2039,8 +2191,8 @@ They need two packages; the second package's review session writes them.
 | video, d3d12-passes-2 | the send stage's copy-queue readback through the plan; `ZeroAllocTests` with a live input |
 | present, desk-gpu | shared previews while flip presenters run (WARP) |
 | desk-map, desk-gpu | `ShowingDeskTests` on a PLAY card whose picture is a shared preview |
-| capture, framelock | `PassThroughTests`' lock-group refusal against the real lock machine |
-| canvas, workflows | `FlatGuideTests` end to end through `CANVAS SPAN` and the span card |
+| capture, framelock | `PassThroughTests`' pacing rule in a lock group and `InputPhaseTests` against the real lock machine |
+| canvas, workflows | `FlatGuideTests` end to end through `CANVAS SPAN` and the span card on the side-by-side, stacked and two-positions-double-stacked simulator layouts, with an accept, a hand rectangle and a re-span |
 | workflows, every package that added a desk step | `AssistantGuideTests` reaching each step; `MenuCoverageTests` over the integrated catalogue |
 | stability-2, shaders-2 | `QuarantineOnLossTests` (a removal inside a user effect's pass on the Direct3D 12 device) |
 | stability-2, framelock | `RebuiltBarrierTests` |
@@ -2060,14 +2212,17 @@ They need two packages; the second package's review session writes them.
    the items its round-3 table says the packages move (R0.7, R1.11, R2.1, R2.2, R2.5, R2.8, R2.9, R4.2, R4.5, R4.6 in part, M20,
    M21); `docs/COMPETITIVE.md`; `THIRD-PARTY-NOTICES.md` against the MSI's contents.
 4. `LicenceTests` on the MSI's contents: no NDI binary; FFmpeg's hash equals CI's LGPL pin and it reports no `--enable-gpl`; no
-   WARP; no AMD runtime (ADLX is the driver's); no DeckLink, AJA or Magewell binary and no FFmpeg built with DeckLink; WiX's Util and
+   WARP; no AMD runtime (ADLX is the driver's); no DeckLink or Magewell binary, no AJA driver or SDK binary (the shim capture's stretch
+   compiles from AJA's MIT sources allowed, with its notice) and no FFmpeg built with DeckLink; WiX's Util and
    Firewall custom-action DLLs named with their MS-RL notice and source tag; every notice present.
 5. Budgets recorded: the MSI's size, start-up to the first frame on WARP, the pipeline count of the reference show, the warm-frame
    allocation assertion with every pass registered on both backends.
 6. The Companion module's fixtures regenerated from the integrated catalogue and STATE.
 7. `ContextOrderTests` (Core): whatever rows the round adds, the context lists every panic, air, transport and Show Mode row before
    any other, so a peer that keeps only the first commands — Patterns keeps 64 today — keeps the air's verbs (`docs/round2/
-   CARRYOVER.md`, the owner's call 11).
+   CARRYOVER.md`, the owner's call 11); and PlayMap's own reader of a peer's context (`Core/Bus/ShowContext.Parse`) keeps every
+   command up to the context's 512 KB bound, its 64 removed — the contract names no command cap, so the 64 was the reader's own
+   choice — with `ShowContextTests` reading a 300-command context whole.
 8. The papers for the owner's requirements: `docs/DESK.md` (the shell, the guides, the console, the colours), `docs/MAPPING.md` and
    `docs/CALIBRATION.md` (the hand rule), `docs/VIDEO.md` (capture), `docs/INSTALL.md` (the editions, unsigned builds), `docs/UX.md`
    (the conditions of its first-light target: an unsigned build's prompts), `docs/COMPETITIVE.md` (the guides against the field).
@@ -2090,28 +2245,30 @@ until it lands, the package works behind its own interface in its own files.
 | R5 | A user shader hangs or faults the GPU under an explicit API | Medium | High | Compiled out of process; SPIR-V validated; the GPU-time guard and the corpus on the new road above wp3-shaders-2's cut line; the kind quarantined; the rebuild path | shaders, shaders-2, stability-2 |
 | R6 | GLSL and HLSL drift apart while both live | Medium | Medium | Layout tests per program against one program table; pixel parity per scene on both backends as a hard gate; GL retires next round | shaders, d3d12-core |
 | R7 | TerraFX or its memory-allocator port lags the Agility SDK or misses a call | Low | Medium | Raw declarations for any gap (the house's `ComSlots` way); PlayMap's own placed pools; Vortice named as the alternative | d3d12-core |
-| R8 | Avalonia does not import a D3D12 fence (M2) | Medium | Low | Measured in W1; the ring stays; the age badge ships either way | desk-gpu |
-| R9 | The present barrier refuses several swap chains (M4), or yields no shared frame count (M10) | Medium | High for multi-output walls | With no lab M4 is not measured, so one swap chain per machine joins and the rest report free with their phase; Mosaic stays a stretch; content time from the anchor at the in-sync refresh | framelock |
+| R8 | Avalonia does not import a D3D12 fence (M2) | Medium | Low | desk-gpu's bench measures it once a lab exists; the GPU path is taken only where the interop lists the fence type, else the ring stays; the age badge ships either way | desk-gpu |
+| R9 | The present barrier refuses several swap chains (M4), or yields no shared frame count (M10) | Medium | High for multi-output walls | Every output joins as its own client and is locked only by its own statistics, so a refused client leaves within 120 refreshes and runs free with its phase and words, and the node keeps the driver's answer; joins happen at `SYNC APPLY`, refused while armed, so a stalled join never reaches a show; Mosaic stays a stretch; content time from the anchor at the in-sync refresh | framelock |
 | R10 | The Agility runtime does not load from a .NET apphost (M7) | Medium | Low | The OS runtime, named in STATE; newer features probed and refused with words | d3d12-core |
 | R11 | Auto-logon and a LocalSystem supervisor widen the attack surface | Medium | High | A standard show account; its password as an LSA secret, never a plain registry value; the supervisor's pipe ACL'd to the show user and administrators; the MSI grants two named privileges to one named account; the engine never elevated; guidance in `docs/INSTALL.md` | installer |
 | R12 | Wire and fixture changes break peers (Patterns, Stagewatch, Companion) | Low | Medium | D3D12 flip outputs keep PMVB path 2; new STATE keys additive (`machine.present`'s keys and types, the lock's words and `reason` kept); Windows fixtures as twins; the module's fixtures regenerated at integration; mixed builds in a group named in preflight by their versions | spine, present, framelock, integrator |
 | R13 | Platform claims starve the desk or the system (a high-priority process with MMCSS threads) | Low | Medium | Each claim a setting with its read-back; realtime GPU priority off until measured; the lab's p99.9 with and without each | platform |
 | R14 | Licences: FFmpeg now inside the MSI; WARP not redistributable; AMD runtimes; Aftermath's terms | Medium | High | The LGPL FFmpeg build only, as replaceable files with notices, the same pin every CI decode test loads; WARP in CI only; AMD runtimes (ADLX among them) never bundled; Aftermath loaded when present until its terms are confirmed; `LicenceTests` on the MSI | installer, integrator |
 | R15 | People read "Direct3D 12" as "the default" while AUTO is still GL | Medium | Medium | STATE says why AUTO is GL; the roadmap and papers say it in the present tense; the lab checklist says what remains | integrator |
-| R16 | Twenty-one sessions (the sixteen and the five for the owner's requirements); `main` moves meanwhile | Medium | Medium | Packages start as their dependencies merge; cloud sessions beside this machine's five; every package rebases before merge; §9 decision 1 names the deferral order of the five | orchestrator |
+| R16 | Twenty-one packages (the sixteen and the five for the owner's requirements), about 518 hours; `main` moves meanwhile | Medium | Medium | Packages start as their dependencies merge; cloud sessions beside this machine's five; every package rebases before merge; §9 decision 1 says what the round keeps if the five go to the next round as a block | orchestrator |
 | R17 | Add/Remove Programs shows `0.2.17` for 0.2.0 build 17 | High | Low | The product's name carries the SemVer; `docs/INSTALL.md` explains the two numbers | installer |
 | R18 | WARP's rasteriser rounds, filters and blends unlike llvmpipe, against tolerances tuned on llvmpipe | High | Medium | A per-scene D3D12 tolerance table filled from the first WARP run, each widening with its measured difference and reason, reviewed at the gate; byte-exact only for the integer `Load` programs; L15 on real drivers | d3d12-core |
 | R19 | A shared hosted runner makes a timing assertion red sometimes, blocking a hard gate | Medium | High | CI asserts counts, order and fields and records times (§2.1); pass marks live in the lab | every package |
 | R20 | A sync group mixes GL and Direct3D 12 nodes, or drivers, while generated content spans a blend seam | Medium | Medium | AUTO stays GL and D3D12 is chosen per node, so the case is real; amber in preflight and words in `SYNC APPLY` (framelock item 5) | framelock |
 | R21 | The supervisor stops an engine during a legitimate stall (a start, a rebuild, a GL fallback) | Medium | High | HEALTH's `gpu` phase exempts a start or a rebuild up to four times its recorded budget; the stale time tied to that measured budget; `SupervisorRebuildTests` at the merge | installer, stability-2 |
 | R22 | The lab is not there when its line falls due | Certain (the owner's answer 5) | High | Every line reported not run, never passed (D15); every M the lab alone answers on its "if no" branch, said in STATE; AUTO GL on every machine; nothing claims a hardware fact it has not measured; the scripts written, so a lab booked later runs them as they stand | owner |
-| R23 | Smart App Control blocks an unsigned PlayMap on a clean Windows 11 machine, Home or Pro, with no per-app exception, and blocks the shipped unsigned natives even once PlayMap's own files are signed | High | High | The MSI's launch condition refuses with the words before anything runs; preflight's red row; `docs/INSTALL.md`'s steps; signing next round covers the shipped natives too | installer, platform |
+| R23 | Smart App Control blocks an unsigned PlayMap on a clean Windows 11 machine, Home or Pro, with no per-app exception — the MSI, `PlayMap.exe` and the supervisor before any of PlayMap runs — and blocks the shipped unsigned natives even once PlayMap's own files are signed | High | High | The release page and `docs/INSTALL.md` say so before the download, with the steps and the event that logs the block; in evaluation the MSI's warning page and preflight's amber row ask the person to turn it off before the show; a desk elsewhere shows the blocked node as not answering; signing next round covers the shipped natives too | installer, platform |
 | R24 | A Home node moves under the show: feature updates on Microsoft's schedule, drivers in the monthly update, no deferral | High | Medium | No Update policy written on Home (an attempt is not a fact); pause and active hours in the guide; `MACHINE LOCK` observes and names a changed driver; preflight's pending-reboot row | platform, installer |
-| R25 | The WiX toolset does not build from its source on the runner within its time-box, or still asks for the fee's EULA gesture | Medium | Medium | M17 on the installer's first day; Inno Setup 7.1 as the measured fallback with every machine-level action in the supervisor's commands; the gesture, if asked, the owner's call (§9 decision 3) | installer |
-| R26 | Dock for Avalonia has essentially one maintainer and frequent releases | Medium | Medium | One exact release pinned, at least two weeks old; behind the desk's seam; M18 on the first day; the desk's own splitters and rails as the fallback | desk-shell |
+| R25 | The WiX toolset does not build from its source on the runner within its time-box, or still asks for the fee's EULA gesture | Medium | Medium | M17 on the installer's first day; Inno Setup 7.1 as the measured fallback with every machine-level action in the supervisor's commands, its author's request that commercial users buy a licence named to the owner; the gesture, if asked, the owner's call (§9 decision 3) | installer |
+| R26 | Dock for Avalonia has essentially one maintainer and frequent releases | Medium | Medium | One exact release pinned, at least two weeks old; behind the desk's seam; M18 on the first day; the desk's own splitters, rails and drag-to-dock as the fallback, only floating lost | desk-shell |
 | R27 | Two layers (automatic under, hand over) confuse a person, or a re-run surprises them | Medium | High | `HAND` says both in words; every re-run's reply and staged card list the hand edits it kept; values typed by hand are never overwritten without `REPLACE` or an accept; `HandOverAutoTests` | canvas, workflows |
-| R28 | Rung 1 (a card's DMA into a wrapped D3D12 heap) does not hold on a real card | Medium | Low | M16 on WARP, M20 in the lab; rung 2 (one upload copy) is designed and tested as the fallback, the rung said in STATE | capture |
-| R29 | The desk's work grows past its five packages (menus generated for 300 rows, guides, panes) | Medium | Medium | Each package at its cut line with stretch below it; `MenuCoverageTests` names any row it lets off; the guides reuse `SiteGuide`'s contract | desk-shell, desk-map, workflows |
+| R28 | Rung 1 (a card's DMA into a wrapped D3D12 heap) does not hold on a real card; `OpenExistingHeapFromAddress` is what Microsoft calls a special-purpose diagnostic call | Medium | Low | M16 on WARP, M20 in the lab; rung 2 (one upload copy) is designed and tested as the fallback, the rung said in STATE; the copy is buffer to buffer, so no texture row-pitch rule bites 720p or 2K v210 | capture |
+| R29 | The desk's work grows past its five packages (menus generated for 300 rows, guides, panes) | Medium | Medium | Each package at its cut line with stretch below it; `MenuCoverageTests` lets off no row, so a row no menu reaches fails the merge that adds it; the area panes come from the card descriptors the blocks already have; the guides reuse `SiteGuide`'s contract | desk-shell, desk-map, workflows |
+| R30 | The pass-through's late sample misses a vblank, so every output repeats a frame | Medium | Medium | The offset from the node's own p99 render time plus a margin, on only while a pass-through is on; a miss sets it to 0 for 10 s, counted and said; `LateSampleTests` on the manual clock | capture |
+| R31 | The GL swap group does not engage on a borderless GL window on a real Sync wall | Medium | Medium | Locked only by its own read-back, the board's sync state and the frame count; otherwise free with its phase and words; `PRESENT PATH D3D12`'s barrier the other tier; L5 runs both | framelock |
 
 ---
 
@@ -2145,7 +2302,7 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 | L2 | Independent Flip proven per output, PresentMon beside STATE, at each node's most outputs at once | each node of L1, every output it drives | PresentMon shows "Hardware: Independent Flip" or "Hardware Composed: Independent Flip" on each output for 10 minutes and STATE says `iflip` with `proven`; the most outputs one GPU holds in Independent Flip recorded | present |
 | L3 | **M2**: Avalonia importing the D3D12 texture and fence; the cross-process and cross-API share if M8 sent it here | the desk on each vendor | a preview shown from the shared texture; the fence type listed; the preview's latency recorded | desk-gpu |
 | L4 | **M3**: the composition swapchain with D3D12 buffers and a target time | an RTX node | a present at its target time, measured | present |
-| L5 | **M4, M10**: the Sync wall — NVIDIA's barrier sample first (M4, before W3 ends), then the engine | two RTX PRO machines with RTX PRO Sync, two outputs each, house sync at 59.94 Hz with a ×2 multiply | several swap chains in one process join, or not (M4's answer); cluster mode with in-sync counts advancing on every joined output; a pulled sync cable frees only that machine, with its reason; the frame count shared, or the anchor's fallback measured; photodiode phase across machines within the card's specification | framelock |
+| L5 | **M4, M10**: the Sync wall — NVIDIA's barrier sample first (M4, before W3 ends), then the engine on `PRESENT PATH D3D12` and on AUTO (GL's swap group) | two RTX PRO machines with RTX PRO Sync, two outputs each, house sync at 59.94 Hz with a ×2 multiply | several swap chains in one process join, or not (M4's answer, beside what each node's own evidence said); cluster mode with in-sync counts advancing on every joined output, and the GL group framelocked with its frame count shared; a pulled sync cable frees only that machine, with its reason; the frame count shared, or the anchor's fallback measured; photodiode phase across machines within the card's specification | framelock |
 | L6 | **M5**: Reflex on the RTX PRO driver | the RTX PRO node | `NvAPI_D3D_SetSleepMode` answers and its markers report | present |
 | L7 | **M12**: D3D12VA through FFmpeg 9.0.2 | NVIDIA, AMD, Intel; H.264, HEVC 10-bit, AV1 at 4K60 | STATE says `d3d12va-direct`; no CPU copy counted | video |
 | L8 | **M11**: Spout with Resolume and TouchDesigner; the cross-API bridge if M8 sent it here | an RTX node | both directions without a CPU copy | video |
@@ -2158,14 +2315,14 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 | L15 | Pixel parity and crash evidence on real drivers | NVIDIA, AMD, Intel nodes | every pixel scene within its tolerance row on each vendor's driver, user effects included; an Aftermath dump of a forced fault read in Nsight on NVIDIA; a Radeon GPU Detective report naming an HLSL line on AMD | d3d12-core |
 | L16 | GPU time per pass; render-thread CPU against surface count | an RTX node | each pass's p50 and p95 recorded; with bindless records the render thread's CPU time at 100 surfaces within 10 % of 10 surfaces; the GPU-time guard's numbers on a heavy effect | d3d12-passes, -2 |
 | L17 | NDI with a real runtime | an RTX node with the NDI 6 runtime | a send and a receive through the copy queue, no CPU wait counted | video |
-| L18 | The unsigned installer as a person meets it | clean Windows 11 Home and Pro | downloaded through a browser: SmartScreen's "unknown publisher" prompt and More info ▸ Run anyway as `docs/INSTALL.md` shows them; UAC's "Unknown publisher"; with Smart App Control enforcing, the launch condition's words before anything runs; off, the install completes and `SHA256SUMS` matches | installer |
+| L18 | The unsigned installer as a person meets it | clean Windows 11 Home and Pro | downloaded through a browser: SmartScreen's "unknown publisher" prompt and More info ▸ Run anyway as `docs/INSTALL.md` shows them; UAC's "Unknown publisher"; with Smart App Control enforcing, Windows' own block of the installer as `docs/INSTALL.md` shows it, nothing of PlayMap running, and event 3077 logged; evaluating, the MSI's warning page; off, the install completes and `SHA256SUMS` matches | installer |
 | L19 | The formative dark-room session | the desk, three operators, a dark room | each critical task (GO, panic, recovering after a desk restart, finding a faulted output) done without help, or the finding recorded in `docs/UX.md` | desk-ux |
 | L20 | The GL backend after the cut, on Windows drivers | NVIDIA, AMD, Intel nodes | the pixel suites within their GL tolerances and an hour's show on AUTO (GL) with no more missed vblanks than `23f162f` on the same machine | rhi |
 | L21 | **M13**: the first ten minutes | the RTX PRO node, the MSI's ReadyToRun build | p99.9 frame time over a show's first ten minutes recorded against minutes 10–20 | installer |
 | L22 | A precise Windows thread time: a thread's cycles (`QueryThreadCycleTime`) at the time-stamp counter's frequency from the platform, never a rate measured against the stopwatch | the RTX PRO node with Memory Integrity on (Windows as Hyper-V's root partition), then off | a spinning thread's cycles at that frequency within 1% of its running time from ETW's context-switch, interrupt and DPC events, idle and beside a network and disk interrupt load; its ticks (`GetThreadTimes`) under the node's own timer claims (`IGNORE_TIMER_RESOLUTION`, the high-resolution timer) still in the step `ThreadTime.ResolutionNs` states; until it passes, a Windows thread time is its ticks and the survey slice's budget there is proven by the stopwatch alone (docs/FACADE.md) | platform |
 | L23 | A Windows 11 Home node | a clean Home 26H2 install as its setup leaves it (a Microsoft account, Smart App Control evaluating, device encryption on, OneDrive folder backup on) | the local show account and auto-logon by `docs/INSTALL.md`; the supervisor starts the engine in its session after a cold boot (M9); preflight's edition rows and hard rows each as their facts say; an hour's show with L1's present and decode measures beside a Pro machine's; Memory Integrity on and off, and the media volume encrypted and not, each with its frame times; what the air shows during a UAC prompt; a projector's power cycle with and without EDID emulation | platform, installer |
-| L24 | The flat-screen guide on real projectors | two projectors on a flat screen, side by side and then stacked; a camera on a tripod | the flat guide by hand to a blended, content-carrying canvas within 10 minutes, then again with `ALIGN`; a hand corner nudge kept through a re-run of the align; the stack's misregistration at or below 0.5 output px p95 after alignment; the wall and the object guides on a facade model with two projectors | workflows, canvas, desk-map |
-| L25 | A capture card's pass-through (`design/capture.md` §12) | a DeckLink card and a USB capture device on an RTX node and a Radeon node; a loop-through; a photodiode; house sync into RTX PRO Sync and the card | the rung each reached (M20); zero CPU copies on rung 1; loop-through glass-to-glass at or below 2 output frames at p95 unlocked and about 1.5 locked; the card's reference read as locked; one repeat about every 16.7 s at 59.94 → 60; Media Foundation's figure beside the native path's; the photodiode's beside the loop's | capture |
+| L24 | The flat-screen guide on real projectors | two projectors on a flat screen, side by side and then stacked; a camera on a tripod | the flat guide by hand to a blended, content-carrying canvas within 10 minutes, then again with `ALIGN`; a hand corner nudge kept through a re-run of the align; the stack's misregistration at or below 0.5 output px p95 after alignment; the stack and blend on four projectors; the wall and the object guides on a facade model with two projectors | workflows, canvas, desk-map |
+| L25 | A capture card's pass-through (`design/capture.md` §12) | a DeckLink card and a USB capture device on an RTX node and a Radeon node; a loop-through; a photodiode; house sync into RTX PRO Sync and the card | the rung each reached (M20); zero CPU copies on rung 1; on `PRESENT PATH D3D12`, glass to glass with the late sample at or below about 2.5 output frames at p95 with a free-running source and about 1.5 with the source in phase through house sync, and about 3 and 2 with the late sample at 0; the same on AUTO (GL), recorded beside it; the input's phase stable when the source shares the house reference; one repeat about every 16.7 s at 59.94 → 60; Media Foundation's figure beside the native path's; the photodiode's beside the loop's | capture |
 
 ---
 
@@ -2178,7 +2335,7 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 | "an installed Windows application" | installer, platform | A per-machine MSI on every Windows 11 edition, unsigned and named so this round with its SHA-256 list; the engine supervised in the show user's session; machine-level actions done once; the version rules an installer needs | `InstallerTests`, `SupervisorTests`, `MsiVersionTests`, `PreinstallCheckTests`, `UnsignedArtifactTests`; L11, L18, L23 |
 | "direct deep Windows features" | platform, present, installer | QoS and timer claims, MMCSS, process and GPU priority, keep-awake, CPU sets, flip-model presenters with HDR10 and 10-bit, WER dumps, privileges; specialized displays as stretch | `PlatformCallsTests`, `CpuSetTests`, `D3D12WarpPresenterTests`, `HdrOutputTests`; L2, L10, L13 |
 | "processor features" | platform, installer | The CPU's vector widths and efficiency classes in the identity; CPU sets placing the critical pool on the highest efficiency class, EcoQoS for background pools, never a hard affinity; ReadyToRun in the MSI's publish. **Below bar this round**: hot kernels benchmarked on the show CPUs; NativeAOT against ReadyToRun (M13) | `CpuSetTests`, `PlatformPolicyTests`, `IdentityTests`; L10, L21 |
-| "graphics card features including RTX" | d3d12-core, framelock, video, platform | Aftermath, RTX PRO Sync through the present barrier, NVDEC and 4:2:2 profiles probed, the RTX PRO tier detected; the published support tiers (NVIDIA RTX and RTX PRO tier 1, AMD validated per driver, Intel Arc best effort) in `docs/INSTALL.md` and `machine.identity`. **Below bar this round**: RTX Video and TrueHDR, Optical Flow, scanout warp (stretch), Windows ML with TensorRT for RTX (no inference on the air path yet), DirectStorage (no GPU-native, chunk-compressed frame format yet), Intel VPL (D3D12 Video and FFmpeg decode first) | `PresentBarrierTierTests`, `VideoCapsTests`, `IdentityTests`; L5, L6, L15 |
+| "graphics card features including RTX" | d3d12-core, framelock, video, platform | Aftermath, RTX PRO Sync through the present barrier on Direct3D 12 and the swap group on OpenGL, NVDEC and 4:2:2 profiles probed, the RTX PRO tier detected; the published support tiers (NVIDIA RTX and RTX PRO tier 1, AMD validated per driver, Intel Arc best effort) in `docs/INSTALL.md` and `machine.identity`. **Below bar this round**: RTX Video and TrueHDR, Optical Flow, scanout warp (stretch), Windows ML with TensorRT for RTX (no inference on the air path yet), DirectStorage (no GPU-native, chunk-compressed frame format yet), Intel VPL (D3D12 Video and FFmpeg decode first) | `PresentBarrierTierTests`, `SwapGroupTierTests`, `VideoCapsTests`, `IdentityTests`; L5, L6, L15 |
 | "and Radeon" | d3d12-core, platform, video, framelock | DXIL with PDBs for Radeon GPU Detective, the Radeon tier detected and validated per driver, AMF probed, ADLX's FreeSync and colour-depth state read (read only, from the driver's own library) for the lock's preconditions, the honest software lock (AMD has no framelock). **Below bar this round**: ADLX display control (FreeSync forced off, 10-bit forced); AGS (its Direct3D 12 extensions need it to create the device, behind the device factory next round); Anti-Lag 2 (PlayMap's own just-in-time pacing does its job, and never two pacers on one output) | `SoftwareLockWordsTests`, `AdlxProbeTests`, `IdentityTests`; L1, L7, L15 |
 | "Portability is not an issue — ability" | D1–D4, d3d12-core, video, present, shaders-2 | Windows-only nodes; Direct3D 12 with HDR10, 10-bit, GPU upload heaps, D3D12VA, bindless records, user effects on the device | §1.6 item 2 |
 | "ultra-low latency" | present, d3d12-passes-2, stability | One queued frame, the waitable, just-in-time sampling, one predicted display time per frame, nothing compiled on the render thread, `LATENCY STEP` measuring it | `FrameBlockTests`, `JustInTimeTests`, `PipelineWarmTests`, `LatencyStepTests`; L1, L12 |
@@ -2193,29 +2350,29 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 
 | The owner's words | Where it is answered | Packages | Proved by |
 |---|---|---|---|
-| "PlayMap also needs to run on Windows 11 Home as well." | D4; §3.3 items 4 and 6; §3.5 items 3, 7 and 8; §6 R23, R24; §7 L23; `design/installer.md` §7, `design/platform.md` §5–§6 | platform, installer, spine | `IdentityTests`, `EditionRowTests`, `InstallerTests`; L23 |
-| "Use hardware lock where possible, fall back to software lock." | D5; §3.14 items 1–2 and its entry condition; `design/present.md` §13, §18; `design/capture.md` §6 | framelock, capture | `PresentBarrierTierTests`, `SoftwareLockWordsTests`, `SingleClientTests`, `PassThroughTests`; L5, L25 |
-| "Leave unsigned for now" | D6; §1.6 item 2; §3.5 item 6; §5.4 item 5; §7 L18; §9 decision 2; `design/installer.md` §6 | installer | `UnsignedArtifactTests`; L18 |
+| "PlayMap also needs to run on Windows 11 Home as well." | D4; §3.3 items 4 and 6; §3.5 items 3, 6, 7 and 8; §3.11 item 6; §6 R23, R24; §7 L23; `design/installer.md` §2, §6, §7, `design/platform.md` §5–§6 | platform, installer, video, spine | `IdentityTests`, `EditionRowTests`, `CloudPlaceholderRowTests`, `InstallerTests`; L23 |
+| "Use hardware lock where possible, fall back to software lock." | D5; §3.14 its entry condition and items 1–4; §9 decision 21; `design/present.md` §12, §12a, §13, §18; `design/capture.md` §6 | framelock, capture | `PresentBarrierTierTests`, `ClientPerOutputTests`, `SwapGroupTierTests`, `SoftwareLockWordsTests`, `InputPhaseTests`; L5, L25 |
+| "Leave unsigned for now" | D6; §1.6 item 2; §3.5 items 3 and 6; §5.4 item 5; §6 R23; §7 L18; §9 decision 2; `design/installer.md` §2, §6 | installer, platform | `UnsignedArtifactTests`, `InstallerTests`, `EditionRowTests`; L18 |
 | "Do not use WIX paid services." | D6; §1.5 M17; §3.5 item 2; §4 (`nuget.config`, the notices); §6 R25; §9 decision 3; `design/installer.md`'s decision and §1a | installer | `WixSourceTests`, `InstallerTests`, `LicenceTests` |
 | "Full physical hardware testing is not available yet." | D15; §1.5; §1.6 item 6; §2.1; §6 R22; §7; every package's "Manual (lab)" | every package | every line reported not run |
 | "All 16" | §3.0; §5.1; §9 decision 1 (the sixteen kept in their waves, the five new packages the plan's proposal) | all | — |
-| The four-click quad "needs to stay for a user to come back to if clicked away from in the menu" | §3.6 item 7; `design/desk-workflows.md` §6.1 | desk-ux | `QuadDraftTests`, `QuadSelectTests` |
-| "Each corner/pin Needs to be editable and single pixel nudge-able." | §3.18 items 1–3; `design/desk-workflows.md` §6.2–§6.4 | desk-map | `HandleVerbTests`, `HandleEditTests`, `LoupeTests` |
-| "corners can also be dragged in the four click quad." | §3.6 item 7; §3.18 item 2; `design/desk-workflows.md` §6.1–§6.2 | desk-ux, desk-map | `QuadCornerDragTests`, `HandleEditTests` |
+| The four-click quad "needs to stay for a user to come back to if clicked away from in the menu" | §3.6 item 6; `design/desk-workflows.md` §6.1 | desk-ux | `QuadDraftTests`, `QuadSelectTests` |
+| "Each corner/pin Needs to be editable and single pixel nudge-able." | §3.6 item 6 (the quad's corners and a pin, typed and nudged); §3.18 items 1–3 (every handle); `design/desk-workflows.md` §6.1–§6.4 | desk-ux, desk-map | `QuadCornerEditTests`, `PinNudgeTests`, `HandleVerbTests`, `HandleEditTests`, `LoupeTests` |
+| "corners can also be dragged in the four click quad." | §3.6 item 6 (the draft's points and the quad's corners); §3.18 item 2; `design/desk-workflows.md` §6.1–§6.2 | desk-ux, desk-map | `QuadCornerDragTests`, `QuadDraftTests`, `HandleEditTests` |
 | "The media allocated to a screen should be shown in the UI." | §3.18 item 4; `design/desk-workflows.md` §7 | desk-map | `ShowingTests`, `ShowingDeskTests`, `ContentMenuTests` |
-| "It needs simple workflows UI areas, as well as areas advanced techniques and programming areas." | D11; §3.17 item 2 (the console); §3.20 items 3–4; `design/desk-workflows.md` §2 | desk-shell, workflows | `SimpleProTests`, `WorkflowsHomeTests`, `ConsoleTests` |
-| "A two projector bland [blend] or double stacked projector blend on a standard flat screen … intuitive workflow and interface." | §3.19 items 1–2; §3.20; `design/desk-workflows.md` §5.1, §8 | canvas, workflows, desk-map | `CanvasSpanTests`, `SpanPatternTests`, `FlatGuideTests`; L24 |
+| "It needs simple workflows UI areas, as well as areas advanced techniques and programming areas." | D11; §3.17 item 2 (the console) and stretch 6 (scripts); §3.18 item 5 (the advanced panes); §3.20 items 3–4; §9 decision 22; `design/desk-workflows.md` §2 | desk-shell, desk-map, workflows | `SimpleProTests`, `WorkflowsHomeTests`, `ConsoleTests`, `AdvancedPaneTests`, `FxChainEditorTests`, `ModBindPaneTests` |
+| "A two projector bland [blend] or double stacked projector blend on a standard flat screen … intuitive workflow and interface." | §3.19 items 1, 2 and 4; §3.20 items 1 and 3; `design/desk-workflows.md` §5.1, §8; §7 L24 | canvas, workflows, desk-map | `CanvasSpanTests`, `SimStackTileTests`, `SpanPatternTests`, `FlatGuideTests`; L24 |
 | "A single map of a 2d visual … onto a 3d surface like a house wall … viewed as intended without distortion. (Can be blended to more projectors)" | §3.20 items 1–3; `design/desk-workflows.md` §5.2 | workflows | `WallGuideTests`, `ViewpointFitTests`, `SurfaceMapTests` |
 | "A simple workflow option to 3d map surfaces with 1 or 2 projectors." | §3.20 items 1–3; `design/desk-workflows.md` §5.3 | workflows | `ObjectGuideTests` |
 | "Multiple outputs can use the same pattern, media or generator to span a combined screen canvas." | §3.19 items 1–2; `design/desk-workflows.md` §8 | canvas | `CanvasSpanTests`, `SpanPatternTests`, `CanvasSourceTests` |
-| "All features can be accessible from menu items or clever, intuitive, interactive right click menus." | D11; §3.17 items 2–3; §5.4 item 6; `design/desk-workflows.md` §9 | desk-shell | `MenuCoverageTests`, `PaletteTests` |
-| "Video capture cards should be ultra fast in their pass through signal flow." | D14; §3.11 item 4; §3.21; `design/capture.md` | capture, video, d3d12-passes | `CapturePathTests`, `WrappedHeapTests`, `PassThroughTests`, `LiveUploadTests`; L25 |
-| "Remember to consider Games design UI/UX for professional and intuitive interfaces and UI." | `design/desk-workflows.md` §6.3, §9.3, §12 | desk-shell, desk-map, workflows | `PushBudgetTests`, `ToolMemoryTests`, `HandleLatencyTests` |
-| "Keep in mind gaming and medical code architecture, for speed, ultra-low latency and any database or server use." | §3.9 item 6; `design/desk-workflows.md` §12–§13; `design/capture.md` §3, §7 | stability, desk-shell, capture | `JournalDropTests`, `UiStallTests`, `CaptureLatencyTests` |
-| "UI panels should be draggable and collapsible." | D11; §3.17 item 1; `design/desk-workflows.md` §10 | desk-shell | `DockLayoutTests`, `CollapsedLightTests` |
+| "All features can be accessible from menu items or clever, intuitive, interactive right click menus." | D11; §3.17 items 2–3; §5.4 item 6; `design/desk-workflows.md` §9 | desk-shell | `MenuCoverageTests`, `InteractiveMenuTests`, `PaletteTests` |
+| "Video capture cards should be ultra fast in their pass through signal flow." | D14; §3.11 item 4; §3.21; `design/capture.md` | capture, video, d3d12-passes | `CapturePathTests`, `WrappedHeapTests`, `PassThroughTests`, `GlPassThroughTests`, `LateSampleTests`, `LiveUploadTests`; L25 |
+| "Remember to consider Games design UI/UX for professional and intuitive interfaces and UI." | §3.12 item 6; §3.17 item 3; §3.18 items 2–3; `design/desk-workflows.md` §6.3, §9.3, §12 | desk-gpu, desk-shell, desk-map | `PushBudgetTests`, `InteractiveMenuTests`, `ToolMemoryTests`, `HandleLatencyTests` |
+| "Keep in mind gaming and medical code architecture, for speed, ultra-low latency and any database or server use." | §3.9 items 6–7; §3.12 item 6; §3.21 item 6; `design/desk-workflows.md` §12–§13; `design/capture.md` §3, §7 | stability, desk-gpu, capture | `JournalDropTests`, `ServerFloodTests`, `UiStallTests`, `CaptureLatencyTests`, `LateSampleTests` |
+| "UI panels should be draggable and collapsible." | D11; §1.5 M18; §3.17 item 1; `design/desk-workflows.md` §10 | desk-shell | `DockLayoutTests`, `CollapsedLightTests` |
 | "Consider subtle uses of colour in the UI/UX to enhance cognition and awareness of areas and workflow stages." | D16; §3.17 item 4; `design/desk-workflows.md` §11 | desk-shell | `AreaColourTests` |
-| "All mapping can also be manual, from initial setup to adjusting the auto scan and setup." | D12; §3.19 item 3; §3.20 item 2; `design/desk-workflows.md` §3 | canvas, workflows, desk-map | `HandOverAutoTests`, `HandPoseTests`, `ScanKeepsHandTests`, `ManualSetupTests` |
-| "Remember - Ai integration throughout." | D13; §2.1 (AI reach); §3.17 item 5; §3.20 items 1 and 5; every new package's `Assistant…Tests`; `design/desk-workflows.md` §4 | every new package | `AssistantGuideTests`, `McpGuideTests`, `AssistantPaneTests`, `AssistantHandleTests`, `AssistantSpanTests`, `AssistantCaptureTests` |
+| "All mapping can also be manual, from initial setup to adjusting the auto scan and setup." | D12; §3.6 item 6; §3.19 items 1 and 3; §3.20 items 2–3; `design/desk-workflows.md` §3 | canvas, workflows, desk-ux, desk-map | `HandOverAutoTests`, `HandGammaTests`, `SpanMeasuredTests`, `HandPoseTests`, `ScanKeepsHandTests`, `ViewpointFitTests`, `ManualSetupTests` |
+| "Remember - Ai integration throughout." | D13; §2.1 (AI reach); §3.6 item 6; §3.17 item 5; §3.20 items 1 and 5; every new package's `Assistant…Tests`; `design/desk-workflows.md` §4 | every new package, desk-ux | `AssistantGuideTests`, `McpGuideTests`, `AssistantPaneTests`, `AssistantQuadTests`, `AssistantHandleTests`, `AssistantSpanTests`, `AssistantCaptureTests` |
 | Calls 7–11 (round 2's) | §9 decisions 14–18; `docs/round2/CARRYOVER.md` | — | — |
 
 ---
@@ -2223,26 +2380,37 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 ## 9. Decisions: the owner's answers, and what stays open
 
 The owner answered on 18 October 2026. Each decision below says the answer, in the owner's words where they gave them, and what it
-changes; the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, calls 7–11) are decisions 14–18.
+changes; the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, calls 7–11) are decisions 14–18. Still with the owner:
+whether the round carries the five proposed packages (1); the WiX gesture, only if M17 finds one (3); Aftermath's library (7); the
+plan's answer to call 11 (18); a picture for the assistant (19); the DXGI path's swap groups (21); and what "programming areas"
+means beyond what the round builds (22).
 
-1. **The size of the round.** *Answered: "All 16."* The sixteen packages stay in their waves (§5.1) and none is deferred, so the old
-   deferral order no longer applies. The owner's requirements of the same day came after that answer: this revision proposes five
-   packages for them (desk-shell, desk-map, canvas, workflows, capture; §3.17–§3.21, about 107 hours, twenty-one sessions in all) and
-   puts the smallest requirements inside the sixteen (desk-ux's quad, video's live upload at arrival, stability's journal drops,
-   d3d12-passes' late latch). *Open:* whether the round carries the five. If the owner keeps it at sixteen, the five go to the next
-   round as a block, deferred in this order — workflows (it builds on the other four), canvas, capture, desk-map, desk-shell — with
-   their §8.2 rows marked "Below bar this round"; desk-ux's quad item stays in the sixteen either way.
+1. **The size of the round.** *Answered: "All 16."* The sixteen packages stay in their waves (§5.1) and none is deferred. For the
+   owner's requirements of the same day the plan proposes five packages (desk-shell, desk-map, canvas, workflows, capture; §3.17–§3.21,
+   about 122 hours: twenty-one packages and about 518 hours in all) and puts the smallest requirements inside the sixteen (desk-ux's
+   quad that stays, its corners dragged, typed and nudged and a pin typed and nudged; video's live upload at arrival and its
+   online-only media row; stability's journal drops and the servers' flood test; desk-gpu's UI-stall watchdog and push budget;
+   d3d12-passes' late latch; framelock's GL swap group). *Open:* whether the round carries the five. If the owner holds it at sixteen,
+   the five go to the next round together, as one block; desk-gpu, which depends on desk-ux alone, shows its previews in today's
+   layout; and round done item 8 and item 7 fall away except the quad's parts that desk-ux builds (the draft survives leaving it, its
+   corners are dragged, typed and nudged by one pixel, a pin is typed and nudged by one pixel), with the five's §8.2 rows marked
+   "Below bar this round".
 2. **Signing identity.** *Answered: "Leave unsigned for now."* Builds and installers are unsigned and named `-unsigned`, each with a
-   `SHA256SUMS` file (§3.5 item 6); the signing step, the protected signing branch and Azure Artifact Signing move to the next round,
-   and signing's three hours shrink to the one the unsigned item takes. A person meets SmartScreen's "unknown publisher" prompt and UAC's "Unknown
-   publisher"; Smart App Control, on by default on clean Windows 11 installs, blocks unsigned code with no exception, so the MSI's
-   launch condition refuses with the words while it enforces [inst §4]. Nothing verifies an update automatically this round: there is
-   no updater, and the person checks the published hashes. When an identity exists it signs the shipped third-party natives too, or
-   Smart App Control still blocks them.
+   `SHA256SUMS` file (§3.5 item 6), which shows a download is intact and not who built it; the signing step, the protected signing
+   branch and Azure Artifact Signing are the next round's, and this round's unsigned item is one hour. A person meets SmartScreen's
+   "unknown publisher" prompt and UAC's "Unknown publisher". Smart App Control, on by default on clean Windows 11 installs, blocks
+   unsigned code with no exception once it enforces — the installer, `PlayMap.exe` and the supervisor, before any of PlayMap runs —
+   so the release page and `docs/INSTALL.md` say so before the download, and while it is still evaluating the MSI's warning page and
+   preflight's amber row ask the person to turn it off before the show [inst §4]. Nothing verifies an update automatically this
+   round: there is no updater, and the person checks the published hashes. When an identity exists it signs the shipped third-party
+   natives too, or Smart App Control still blocks them; GitHub's build-provenance attestations, which would show which workflow built a
+   file, are a next-round option once their terms for this repository's plan are checked.
 3. **WiX's Open Source Maintenance Fee.** *Answered: "Do not use WIX paid services."* No fee, no FireGiant service and no official WiX
    binary: the toolset is built from its MS-RL source at a pinned tag in CI (D6, §3.5 item 2), which the fee's EULA does not bind
    [inst §2]; no WiX issue is filed. *Open, only if M17 finds it:* if the self-built toolset still asks for the EULA gesture, the owner
-   chooses between passing it (the agreement does not apply to self-compiled binaries) and the Inno Setup fallback.
+   chooses between passing it (the agreement does not apply to self-compiled binaries) and the Inno Setup fallback — whose licence
+   allows any use, while its author asks commercial users above US$5 000 revenue to buy a licence, a request the owner may choose to
+   meet or not.
 4. **FFmpeg inside the MSI.** The pinned Windows build is the LGPL variant; the installer package switches both CI jobs to it on its
    first day and confirms it. Unchanged.
 5. **AUTO's switch** per vendor tier needs the owner's sign-off on L1's record. With no lab (decision 11), AUTO stays OpenGL on every
@@ -2252,7 +2420,7 @@ changes; the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, call
    the desk's monitor kept primary.
 7. **Aftermath's library** shipped in the MSI, or loaded where the user puts it, by its terms. Open.
 8. **Realtime GPU priority** stays off until L10 measures it — all round, with no lab.
-9. **The air hazard file** (stability's stretch 7) as a standing rule for the air's code: each hazard traced to a fault-injection
+9. **The air hazard file** (stability's stretch 9) as a standing rule for the air's code: each hazard traced to a fault-injection
    test, borrowing medical risk practice as a design tool, not as a claim of compliance; `design/desk-workflows.md` §12 lists the
    desk's hazard-related use scenarios beside it.
 10. **`main` has moved** past `23f162f`, the map's base, to `6f24310` (round 2 closed), with the desk's merges and the version scheme
@@ -2264,27 +2432,43 @@ changes; the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, call
     and WARP proved; nothing claims a hardware fact it has not measured; round done item 6 is restated (§1.6). A lab booked later runs
     the scripts as they stand.
 12. **The platform's defaults.** As planned, `PROCESS HIGH`, HighQoS, MMCSS, CPU sets, EcoQoS and keep-awake are on by their
-    documented causes; the GPU scheduling class is off until L10 measures it, and the GC's show mode is now platform's stretch beside
-    the pause histogram it waits for — both stay off all round with no lab. The owner may prefer every claim off, or every claim on;
+    documented causes; the GPU scheduling class is off until L10 measures it, and the GC's show mode is platform's stretch beside the
+    pause histogram it waits for — both stay off all round with no lab. The owner may prefer every claim off, or every claim on;
     either is one line in `design/platform.md` §2.
-13. **M4's date.** No lab books the barrier sample, so framelock builds the one-swap-chain shape, correct whatever the answer, and a
-    client per output waits for the record (§3.14). Closed.
+13. **M4's date.** No lab books the barrier sample, so each node answers M4 for itself: every output's swap chain joins as its own
+    client and is locked only by its own statistics, and a client the driver does not take leaves and runs free with its words
+    (§3.14). L5 confirms it on a real wall when a lab exists. Closed.
 14. **The desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at every press** though a Companion key holds each (call 7). *Answered:
     "Keep."* The menu bar, the palette, the console and the generated menus keep the rule (§3.17 item 2).
 15. **A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk** (call 8). *Answered: "Approve."* It stays one
     press, on the cards and in the assistant's pane (§3.17 item 5); `docs/DESK.md` states it as the rule.
-16. **The controllers preflight rows carry no fix line** (call 9). *Answered: "Leave rows as information for now."* They stay
-    information rows; the edition's rows on Home follow the same pattern (D4).
+16. **The controllers preflight rows carry no fix line** (call 9). *Answered: "Leave rows as information for now."* The rows stay as
+    they are — amber "not paired", red "not announced", grey "none" — with their words and no fix line. The edition's facts on Home
+    are a different kind of row: grey with an **i**, information only (D4).
 17. **`/api/context` sits behind the token** (call 10). *Answered: "Keep it closed."* Patterns reads PlayMap's context over the wire
     (`SUBSCRIBE CONTEXT`), as today.
 18. **Which commands Patterns' Eye sees** (call 11). *The owner asked: "If PlayMap uses up to 128 commands, shouldn't Patterns use 128
-    too?"* PlayMap's context lists every mutating verb with no cap, the panic, air, transport and Show Mode rows first (195 in the
-    busy golden); the Show Bus contract keeps 64 — Patterns' reader takes the first 64, and PlayMap's own reader of a peer's context
-    keeps the contract's 64. Changing that is Patterns' to do, and the Patterns tree is not this repository's: the request — raise the
-    contract's command cap to at least 128, or read every command — is recorded for Patterns' maintainers in `docs/round2/CARRYOVER.md`;
-    PlayMap's reader follows the contract once it changes, and `ContextOrderTests` (§5.6 item 7) keeps the air's verbs first whatever
-    the cap.
+    too?"* The plan's answer, back to the owner: PlayMap's context lists every mutating verb the node answers, the panic, air,
+    transport and Show Mode rows first — 195 in the busy golden today and about 215 once round 3's rows are routed — so a cap of 128
+    would still drop about 87 of them. The Show Bus contract (Patterns' `docs/SHOWBUS.md` §6) names no command cap; the 64 lives only in
+    the two readers' code — Patterns' `ShowContext.cs:99` (`.Take(64)`) and PlayMap's own `Core/Bus/ShowContext.Parse`. PlayMap's
+    reader is PlayMap's to change, and the integration pass reads every command up to the context's 512 KB bound (§5.6 item 7). The
+    request to Patterns' maintainers, recorded in `docs/round2/CARRYOVER.md` because the Patterns tree is not this repository's:
+    read every command a node lists (or, if a cap is kept, at least 256), and state the cap in `SHOWBUS.md` §6. Until then the Eye
+    proposes the air's verbs and not the guides', canvases' or capture's rows, which sort after them (D13), and `ContextOrderTests`
+    keeps the air's verbs first whatever the cap.
 19. **A picture for the assistant** (workflows' stretch 7). A still of a view sent to an assistant model that reads pictures is off by
     default; whether one may ever go to a provider off the machine is the owner's call.
 20. **Dock for Avalonia** (D11) has essentially one maintainer; the plan accepts it pinned and behind a seam. Actipro Docking, the
     commercial alternative, is used only by the owner's decision.
+21. **The DXGI path's swap groups.** NVAPI's `NvAPI_D3D1x_JoinSwapGroup` would give the DXGI path (`PRESENT PATH DXGI`, D3D11 through
+    ANGLE) a hardware lock too. The plan does not build it: that path retires next round with GL's other paths, the Direct3D 12 flip
+    presenter is its successor on the same flip model, and the tier would be built and deleted in consecutive rounds; a node with a
+    board on DXGI is amber with the fix `PRESENT PATH D3D12` or `GL` (D5). The owner may ask for it; it would be framelock's stretch.
+22. **What "programming areas" means.** The round builds the console (typed lines through the desk's gate, completion, history),
+    Copy line on every menu entry and control, the effects chain editor with ISF import and its compile report, and the modulation and
+    bindings pane; desk scripts (named lists of lines run through the gate) are desk-shell's first stretch. It does not build
+    engine-side macros a Companion key, Patterns or the assistant could run by name, an ISF source editor, or cue programming on a
+    timeline. *Open:* whether the owner meant more than the round builds, and which of the three the next round takes first. The
+    advanced areas that get an area pane from their STATE cards and no editor of their own this round: timecode, LED, optimise, live
+    inputs and sends, align's runs, the facade and sync.

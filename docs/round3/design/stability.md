@@ -71,11 +71,14 @@ PlayMap.exe observer     a process the engine starts and watches, one JSON objec
 ```
 
 **Sources** (`OBSERVE <output> FROM <uri>`, machine-local, kept in `NodeSettings.Observe` — this node's settings, written by its
-settings writer, never the project's): a capture device through Media's avdevice (`capture:<device>` — a card on an HDMI or SDI
-loop-through), an OMT or NDI receive of a loop-through converter or an LED processor's monitor output (`omt:…`, `ndi:…`), and, for
-tests, an OMT send of the output itself. The grammar fails closed: only the `capture:`, `omt:` and `ndi:` schemes are taken; any
-other scheme, a URI carrying user information (`omt://user:secret@…`) or a query is refused with words naming what was refused,
-and nothing of a refused URI reaches the journal (`ObserveUriTests`).
+settings writer, never the project's): a capture device in the spine's one capture grammar (`CaptureUri`,
+`capture:<provider>/<device>[/<input>]`) — this wave `capture:dshow/<device>` on Windows and `capture:v4l2/<device>` on Linux through
+Media's avdevice (a card on an HDMI or SDI loop-through), and once wp3-capture lands every capture provider (`capture:decklink/2`,
+`capture:mf/…`), read on the CPU — an OMT or NDI receive of a loop-through converter or an LED processor's monitor output (`omt:…`,
+`ndi:…`), and, for tests, an OMT send of the output itself. A stored source means the same before and after wp3-capture merges,
+since both parse the one grammar. It fails closed: only `capture:`, `omt:` and `ndi:` are taken, a `capture:` provider the grammar
+does not know is refused, and any other scheme, a URI carrying user information (`omt://user:secret@…`) or a query is refused with
+words naming what was refused; nothing of a refused URI reaches the journal (`ObserveUriTests`).
 
 **The engine tells it** what it watches and what STATE says, on change only:
 
@@ -148,7 +151,7 @@ observer's status file; its rule, inactive while a count is −1, is in `install
 ## 7. Facts and verbs, Part A
 
 ```json
-"outputs": [ { "id": "op_1", "observed": { "verdict": "ok", "source": "capture:Magewell USB Capture HDMI 4K+",
+"outputs": [ { "id": "op_1", "observed": { "verdict": "ok", "source": "capture:dshow/Magewell USB Capture HDMI 4K+",
                "counter": 1234567, "ageMs": 16, "lateMs": 0.4, "words": "" } } ],
 "observe": { "observer": "running", "restarts": 0, "steps": { "op_1": { "p50Ms": 31.2, "p95Ms": 33.9, "at": 1760600000000 } } }
 ```
@@ -276,7 +279,8 @@ compliance claim: `docs/HAZARDS.md` lists each hazard to the air and the fault-i
 | `WatermarkCodecTests` | stability | both | round trips near the 24-bit wrap; a flipped block fails the CRC; differing marks → torn; the index is the leader instant over the period, the same on two hosts for the same instant |
 | `ObserverVerdictTests` | stability | both | scripted captures → every verdict with its words; held against stale; black expected |
 | `ObserverLoopbackTests` | stability | both | the observer process on an OMT send of the output; FREEZE → held; an injected presenter stall → stale after two captured frames without an advance (counted in captured frames, never timed), preflight and HEALTH red; the observer killed → restarted |
-| `ObserveUriTests` | stability | both | `capture:`, `omt:`, `ndi:` taken; another scheme, user information or a query refused with words; nothing of a refused URI journalled |
+| `ObserveUriTests` | stability | both | `capture:dshow/…`, `capture:v4l2/…`, `omt:`, `ndi:` taken; an unknown capture provider, another scheme, user information or a query refused with words; nothing of a refused URI journalled |
+| `ServerFloodTests` | stability | both | the Engine host rig on a manual-clock pacer: 10 000 line-wire lines, 1 000 MCP calls and 1 000 HTTP STATE reads from test threads during 600 ticks → 600 frames rendered and 600 presents counted, no tick missed, each server's overflow refused with its words and counted; counts only |
 | `ObserveVerbTests` | stability | both | `OBSERVE … FROM` its current source, `OBSERVE … OFF` with nothing observed, `WATERMARK … ON` as it is and `OFF` when off: each refused with its reason, nothing changed |
 | `WatermarkRenderTests` | stability | both (WARP at merge) | the marks read back from the final raster decode to the frame's counter and instant; black under blackout |
 | `LatencyStepTests` | stability | both | ten steps → p50 and p95 (with stage shares after wp3-present); armed refused; no observer and no camera refused |

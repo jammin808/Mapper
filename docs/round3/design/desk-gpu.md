@@ -140,11 +140,23 @@ thumbnails at 15 Hz, hidden views none — reported by the desk through `VIEW �
 | `GpuPreviewSourceTests` | both | a fake `ICompositionGpuInterop`: adapter mismatch, no fence type and repeated import failure each → the ring with its words; a lost device → one re-import; an epoch move → `VIEW … SHARED` again |
 | `DeskKillTests` | Windows | the child desk killed mid-import → facts, never a timing band on a shared runner: zero render-thread waits on the desk's fence (counted), the present ledger's missed and held counts unchanged across the kill, no allocation on the render thread, the view's textures released at the lease's end; the frame times before and after are recorded, not asserted (L3 judges them on real GPUs) |
 | `ViewVerbTests` | both | the existing cases, plus `SHARED` |
+| `PushBudgetTests` | both | (item 6) the property changes per STATE push equal the fields that moved; a push that moved nothing raises nothing; a selection sends no line; the push's UI-thread time recorded, never asserted |
+| `UiStallTests` | both | (item 6) a blocked dispatcher on a manual clock → one desk journal row and one toast at 250 ms, never a flash and never a line to the node |
+
+**The M2 bench** (`bench/r3-avalonia-import`, this package's first day): an Avalonia 12.1 window that lists the interop's
+`SupportedImageHandleTypes` and `SupportedSemaphoreTypes`, imports a Direct3D 12 shared texture and fence from a helper process and
+shows a frame, and records the exact name and signature of the timeline-semaphore update; built on the Windows job, run in the lab
+(L3), reported not run while no lab exists.
+
+**The desk's frame budget** (item 6, the games and medical lessons of `desk-workflows.md` §12): the STATE push stays one diff pass on
+the UI thread that raises only what moved, and a background counter the dispatcher ticks watches the UI thread, a stall over 250 ms
+becoming one desk journal row and one toast. Both sit with the previews because they hold the same promise: the desk never stalls the
+air and never stalls unseen.
 
 ## 9. Risks
 
-- **Avalonia's fence type** (M2, `PLAN.md` R8): measured in W1 on a real GPU; without it the shared path is not taken and the ring,
-  now with an age, stays.
+- **Avalonia's fence type** (M2, `PLAN.md` R8): measured on a real GPU by this package's bench once a lab exists; without it the shared
+  path is not taken and the ring, now with an age, stays.
 - **Cross-API sharing** (a D3D12 texture opened by Avalonia's D3D11 device): `BGRA8` and a single mip are the formats both sides
   document; the format is fixed and tested. Whether the NuGet WARP the Direct3D 12 tests load and the system WARP a D3D11 device
   loads share NT-handle textures and fences is M8's first-day probe; if they do not, CI covers Direct3D 12 to Direct3D 12 and the

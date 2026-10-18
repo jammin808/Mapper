@@ -7,26 +7,29 @@ answers are here, in one place.
 
 ## The owner's calls, answered
 
-The owner answered every call on 18 October 2026. Round 3's plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a
-decision taken (its §1.2 and §9) and what it changes.
+The owner answered calls 1–10 on 18 October 2026 and answered call 11 with a question, which round 3's plan answers back (its §9
+decision 18). The plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a decision taken (its §1.2 and §9) and what
+it changes.
 
 1. **The show nodes' Windows edition** (the plan's D4). *Answered:* "PlayMap also needs to run on Windows 11 Home as well." Every
    Windows 11 edition from build 26100 is supported — Home, Pro, Pro for Workstations, Enterprise, Education, IoT Enterprise — with IoT
    Enterprise LTSC 2024 recommended for permanent show nodes; on Home the supervisor starts the engine in an auto-logged-on local show
    account in place of a kiosk, and preflight names each layer Home lacks.
-2. **The hardware lock's hardware** (D5). *Answered:* "Use hardware lock where possible, fall back to software lock." The present
-   barrier joins outputs wherever the adapter answers it (NVIDIA's professional GPUs with RTX PRO Sync), a capture card's reference
-   input locks where the card has one, and every other output is in the software lock: the same frame, its phase measured, never a
-   locked state.
+2. **The hardware lock's hardware** (D5). *Answered:* "Use hardware lock where possible, fall back to software lock." On NVIDIA's
+   professional GPUs with RTX PRO Sync, the present barrier locks outputs on Direct3D 12 and the swap group on OpenGL (AUTO's path this
+   round), each output locked only by its own evidence; a capture input's phase is measured, never called locked; and every other
+   output is in the software lock: the same frame, its phase measured, never a locked state.
 3. **The signing identity** (§9 decision 2). *Answered:* "Leave unsigned for now." Builds and installers are unsigned and named so,
    each with a SHA-256 list; signing is next round's.
 4. **The WiX maintenance fee** (§9 decision 3). *Answered:* "Do not use WIX paid services." The WiX toolset is built from its source
-   in CI, so no official binary, package, fee or paid service is used; Inno Setup is the fallback if that build fails.
+   in CI, so no official binary, package, fee or paid service is used; Inno Setup is the fallback if that build fails (its author asks
+   commercial users to buy a licence, a request the owner decides on).
 5. **The lab: its machines and who runs it** (§9 decision 11, §7). *Answered:* "Full physical hardware testing is not available yet."
    Every lab line keeps its script and pass mark and is reported not run; every question only the lab answers stands on its "if no"
    branch, said in STATE.
 6. **The round's size** (§9 decision 1). *Answered:* "All 16." The sixteen packages stay in their waves; the plan proposes five more
-   for the owner's requirements of the same day, and §9 decision 1 says how they go to the next round if the round stays at sixteen.
+   for the owner's requirements of the same day, and §9 decision 1 says what the round keeps if they go to the next round as one
+   block.
 
 The desk's held-line exemptions (the desk-2 notes, below):
 
@@ -39,19 +42,23 @@ The desk's held-line exemptions (the desk-2 notes, below):
 The other calls the notes below leave with the owner:
 
 9. The controllers preflight rows carry no fix line: no verb pairs a client or restarts the network announcement (wp2-companion,
-   in the fx merge's notes). *Answered:* "Leave rows as information for now." They stay information rows.
+   in the fx merge's notes). *Answered:* "Leave rows as information for now." The rows stay as they are, with their lights (amber
+   "not paired", red "not announced", grey "none") and their words, and no fix line.
 10. `/api/context` sits behind the token, so Patterns reads PlayMap's context over the wire (`SUBSCRIBE CONTEXT`); opening it is
     the owner's call (wp2-fleet). *Answered:* "Keep it closed."
 11. Which commands Patterns' Eye sees: the context lists the verbs that move a panic, the air, a transport or Show Mode first,
     the rest in catalogue order, and the Eye keeps the first 64 (wp2-control). *The owner asked:* "If PlayMap uses up to 128 commands,
-    shouldn't Patterns use 128 too?" PlayMap's context lists every mutating verb with no cap — 195 in the busy golden
-    (`tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json`), the 65th of them `MOVE <id> <index>` — and the Show Bus contract keeps
-    64: Patterns' reader takes the first 64 (Patterns' `src/Patterns.Core/Services/ShowContext.cs:99`), and PlayMap's own reader of a
-    peer's context keeps the contract's 64 (`src/PlayMap.Core/Bus/ShowContext.cs`, `Parse`). Changing the contract is Patterns' to do,
-    so it is **a request to Patterns' maintainers**: raise the Show Bus context's command cap from 64 to at least 128 — or read every
-    command a node lists — knowing PlayMap's commands are already ordered most-useful first (the panic, air, transport and Show Mode
-    rows lead); PlayMap's reader follows once the contract says so, and round 3's integration pass adds `ContextOrderTests`, which keep
-    the air's verbs first whatever rows the round adds.
+    shouldn't Patterns use 128 too?" *The plan's answer, back to the owner* (round 3's §9 decision 18): PlayMap's context lists every
+    mutating verb the node answers — 195 in the busy golden (`tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json`), the 65th of
+    them `MOVE <id> <index>`, and about 215 once round 3's rows are routed — so a cap of 128 would still drop about 87. The Show Bus
+    contract (Patterns' `docs/SHOWBUS.md` §6) names no command cap; the 64 lives only in the two readers' code, Patterns'
+    `src/Patterns.Core/Services/ShowContext.cs:99` (`.Take(64)`) and PlayMap's own `src/PlayMap.Core/Bus/ShowContext.cs` (`Parse`).
+    PlayMap's reader is PlayMap's, and round 3's integration pass makes it read every command up to the context's 512 KB bound. Changing
+    Patterns' reader is Patterns' to do, so it is **a request to Patterns' maintainers**: read every command a node lists (or, if a cap
+    is kept, at least 256), and state the cap in `SHOWBUS.md` §6, knowing PlayMap's commands are ordered most-useful first (the panic,
+    air, transport and Show Mode rows lead). Round 3's integration pass adds `ContextOrderTests`, which keep the air's verbs first
+    whatever rows the round adds; until Patterns reads more, its Eye proposes the air's verbs and not the guides', canvases' or
+    capture's rows, which sort after them.
 
 ## Carry-over from the round-1 integration
 

@@ -74,11 +74,11 @@ the last fee-free binary line, has had no community security fixes since Februar
 - The first day is M17's time-box: the tag built, a test MSI with a `ServiceInstall`, a `MajorUpgrade` and a firewall rule installed,
   upgraded and uninstalled quietly on the runner, the build's minutes and the cache's size recorded, and whether the self-built tool
   still asks for the EULA gesture (if it does, the owner decides, `PLAN.md` §9 decision 3).
-- If the toolset does not build within the day, Inno Setup 7.1 (its licence allows any use; a commercial user is asked, not required,
-  to buy a licence) builds a 64-bit installer instead: every machine-level action of §3 through the supervisor's own commands
-  (`install`, `uninstall`, `grant`, `revoke`, `preinstall-check`), the downgrade and armed checks in its `InitializeSetup`, §1's
-  version rules restated for an EXE (ordered by the four-part file version). It loses MSI's transactional rollback of service and
-  registry changes, repair and `msiexec`.
+- If the toolset does not build within the day, Inno Setup 7.1 (its licence allows any use; a commercial user above US$5 000 revenue is
+  asked, not required, to buy a licence — a request the owner decides on, `PLAN.md` §9 decision 3) builds a 64-bit installer instead:
+  every machine-level action of §3 through the supervisor's own commands (`install`, `uninstall`, `grant`, `revoke`,
+  `preinstall-check`), the downgrade and armed checks in its `InitializeSetup`, §1's version rules restated for an EXE (ordered by the
+  four-part file version). It loses MSI's transactional rollback of service and registry changes, repair and `msiexec`.
 - `THIRD-PARTY-NOTICES.md` names WiX as a build tool built from its source at the tag, and its Util and Firewall custom-action DLLs,
   which sit inside the MSI, as MS-RL files with a link to that tag's source.
 
@@ -99,11 +99,13 @@ profile.
 **Upgrade and launch.** A fixed `UpgradeCode`; `MajorUpgrade` scheduled after `InstallInitialize`, no same-version upgrade, a
 downgrade refused with "PlayMap 0.2.17 is newer than this installer's 0.2.12: uninstall it first to go back". A launch condition
 from a registry search of `CurrentBuildNumber` (`VersionNT` does not tell 24H2 from older builds): "PlayMap needs Windows 11 24H2
-(build 26100) or later; this machine runs build 22631". A second from Smart App Control's state
-(`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState`): 1, enforcing, while the build is unsigned →
-"Smart App Control blocks unsigned programs and this build is unsigned: turn it off in Windows Security ▸ App & browser control, or
-wait for a signed build" — before any file is laid, since the installed exe, its DLLs and the supervisor would all be blocked. x64
-only, on every edition.
+(build 26100) or later; this machine runs build 22631". No launch condition reads Smart App Control: once it enforces
+(`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState` 1) it blocks the unsigned MSI itself before
+Windows Installer evaluates a condition, and the installed exe, its DLLs and the supervisor with it [`research/installer_tools.md` §4],
+so no word of PlayMap's is ever shown then — the release page and `docs/INSTALL.md` carry them, before the download. While it is still
+evaluating (2) the MSI installs, and its UI shows one warning page — "Smart App Control is evaluating this PC: once it enforces, Windows
+blocks this unsigned build and the node will not start. Turn it off in Windows Security ▸ App & browser control before the show" —
+which a quiet install writes to its log. x64 only, on every edition.
 
 ## 3. Machine-level actions
 
@@ -193,13 +195,18 @@ The owner's answer: "Leave unsigned for now" (`PLAN.md` §9 decision 2). Every b
 decision 2"), on `main` as on a branch.
 
 - **What a person sees.** A downloaded installer carries the Mark of the Web: SmartScreen shows "Windows protected your PC" with an
-  unknown publisher, and More info ▸ Run anyway lets it run; an unsigned build has no reputation to carry from one release to the
-  next. UAC names the publisher "Unknown". Smart App Control, on by default on clean Windows 11 installs, Home included, blocks unsigned
-  code with no per-app exception, so the launch condition (§2) refuses while it enforces. A copy from a share or a USB stick usually
-  carries no mark [`research/installer_tools.md` §4].
+  unknown publisher, and More info ▸ Run anyway lets it run; an unsigned build has no reputation to carry from one release to the next.
+  UAC names the publisher "Unknown". Smart App Control, on by default on clean Windows 11 installs, Home included, blocks unsigned code
+  with no per-app exception once it enforces: the installer, `PlayMap.exe` and the supervisor, before anything of PlayMap runs, so the
+  person sees only Windows' own block (logged as event 3077 in `Microsoft-Windows-CodeIntegrity/Operational`), and a desk on another
+  machine shows the node as not answering in the fleet's board. The release page and `docs/INSTALL.md` say this before the download,
+  with the steps; while it evaluates, the MSI's warning page (§2) and preflight's amber row say it on the machine. A copy from a share
+  or a USB stick usually carries no mark [`research/installer_tools.md` §4].
 - **What still verifies a build.** A `SHA256SUMS` file of the installer and every shipped file beside each artifact and release;
-  `docs/INSTALL.md` shows `Get-FileHash` against it. That is the only integrity check this round: there is no updater, so nothing
-  verifies an update automatically.
+  `docs/INSTALL.md` shows `Get-FileHash` against it. That is the only check this round, and it shows a download is intact, not who built
+  it: the sums sit on the same page as the files, so whoever could change one could change the other, and `docs/INSTALL.md` says so.
+  There is no updater, so nothing verifies an update automatically. GitHub's build-provenance attestations, which would show which
+  workflow built a file, are a next-round option once their terms for this repository's plan are checked (`PLAN.md` §9 decision 2).
 - **Next round.** An identity (Azure Artifact Signing, or another the owner chooses) signs `PlayMap.exe`, PlayMap's own assemblies,
   `PlayMap.Supervisor.exe`, the shipped third-party natives (Smart App Control checks every DLL as it loads) and the installer,
   timestamped, each checked by `Get-AuthenticodeSignature`; the updater verifies a build against a hash from a channel it trusts.
@@ -209,8 +216,10 @@ decision 2"), on `main` as on a branch.
 - **The OS, in three tiers** (`PLAN.md` D4). Windows 11 IoT Enterprise LTSC 2024 for permanent show nodes (build 26100, supported to
   10 Oct 2034, no feature updates, Shell Launcher and specialized displays available); Pro or Enterprise 25H2 or later for desks and
   for nodes run with update policies; Home 25H2 or later, supported and unmanaged — no kiosk, no specialized displays, no update
-  deferral, at most 128 GB of memory and one socket [`research/windows11_home.md` §1]. S mode (Home only) runs no installer: switch
-  out of it first. Windows 10 is not supported.
+  deferral, at most 128 GB of memory and one socket [`research/windows11_home.md` §1]. Build 26100 is the floor every edition shares, so
+  Home or Pro 24H2, out of servicing since 13 Oct 2026, installs and runs, and machine preflight's servicing row says, amber, that it
+  gets no security updates (`design/platform.md` §6). S mode (Home only) runs no installer: switch out of it first. Windows 10 is not
+  supported.
 - **The show account.** A standard user; auto-logon through Sysinternals Autologon, which keeps the password as an LSA secret —
   never `DefaultPassword` in plain text in the registry; `ShowUser` given to the MSI. On Home, whose setup asks for a Microsoft
   account (and a new one has no password), a local standard "show" account is made after setup, with a password, and auto-logon is
@@ -254,7 +263,7 @@ edition cannot defer updates"); the build unsigned (grey, **i**).
 | `PreinstallCheckTests` | both (the decision pure; on Windows against fake engines) | no engine process → go on; an engine answering armed → refused with its words; disarmed → go on; **an engine process alive but silent → refused**, naming its pid; a pid file whose process is gone → go on |
 | `VersionPropsTests` | both | a build of 256.0.0 fails with the words; a numbered build sets `PlayMapMsiVersion` |
 | `WixSourceTests` | Windows | the restored `WixToolset.Sdk` and extensions come from the local feed, their hashes the cached build's; no other source serves `WixToolset.*` |
-| `InstallerTests` | Windows (elevated) | the MSI builds (from `installer/PlayMap.Installer.wixproj`, outside `PlayMap.sln`); with Smart App Control's state set to enforcing (a test property), the launch condition refuses with its words; the FFmpeg it carries hashes to CI's LGPL pin; a quiet install lays the files, the service with its recovery actions, the firewall rules, the WER values, the registry key; the previous build's MSI (built in the job with a lower build number) upgrades to this one and keeps the node's settings; a downgrade refused with words; a low build refused by the launch condition (a test property); an uninstall removes all but the node's data; with a fake engine on loopback answering armed, the install stops with its words; with a fake engine process that never answers, it stops with "does not answer"; a standard user binds 9940 |
+| `InstallerTests` | Windows (elevated) | the MSI builds (from `installer/PlayMap.Installer.wixproj`, outside `PlayMap.sln`); with Smart App Control's state set to evaluating (a test property), a quiet install completes and its log carries the warning's words; the FFmpeg it carries hashes to CI's LGPL pin; a quiet install lays the files, the service with its recovery actions, the firewall rules, the WER values, the registry key; the previous build's MSI (built in the job with a lower build number) upgrades to this one and keeps the node's settings; a downgrade refused with words; a low build refused by the launch condition (a test property); an uninstall removes all but the node's data; with a fake engine on loopback answering armed, the install stops with its words; with a fake engine process that never answers, it stops with "does not answer"; a standard user binds 9940 |
 | `SupervisorTests` | both | `SupervisorCore` on a manual clock: the backoff, the frozen-engine rule (and not on a slow HEALTH while frames move), the rule inactive while `ShownFrames` is −1, `starting` and `rebuilding` exempt within the budget and frozen past it, the five-in-ten-minutes stop, re-adoption, the dump manifest (with its stretch); on Windows the service installs, starts and stops |
 | `SessionStartProbe` | Windows (a probe, not a gate) | M9's calls on the runner, whose job runs in an interactive session: `WTSGetActiveConsoleSessionId`, `WTSQueryUserToken` and `CreateProcessAsUser` of a child that reports its session id; the answer in the job's summary, L11 the proof |
 | `SupervisorHeartbeatTests` | both (at the merge with stability) | a fake engine on loopback whose shown frames stop → the stop event, then termination after the grace |
@@ -272,5 +281,6 @@ edition cannot defer updates"); the build unsigned (grey, **i**).
   hash.
 - **WiX from its source** may not build on the runner within its day, or may still ask for the fee's EULA gesture (M17): Inno Setup
   is the measured fallback, the gesture the owner's call (`PLAN.md` §9 decision 3).
-- **Unsigned builds** meet SmartScreen's prompt on every download and Smart App Control's block where it enforces (`PLAN.md` R23):
-  the launch condition says so before anything is laid, and `docs/INSTALL.md` gives the steps.
+- **Unsigned builds** meet SmartScreen's prompt on every download and Smart App Control's block where it enforces (`PLAN.md` R23),
+  which no word of PlayMap's can reach: the release page and `docs/INSTALL.md` say so before the download and give the steps, and in
+  evaluation the MSI's warning page and preflight say it on the machine.
