@@ -127,8 +127,8 @@ public sealed class FocalLockProvenanceTests
 /// <summary>PROJECTOR SOLVE holds the control lane only to read the projector and to apply its result: the solve and its score (one
 /// uncertainty analysis, the long-throw solve's, which the score takes as it is) run off it. The lane's 10 ms slice is a budget on real
 /// work, measured as the longest a line waits for the lane while solves run beside it: the regular test records it and holds it to its
-/// 4× ceiling (the suite runs beside it); the Perf twin, run alone, holds it to 10 ms. A projector changed while it is solved is not
-/// overwritten.</summary>
+/// 4× ceiling; the Perf twin, run with the Perf tests at integration, holds it to 10 ms. Both run in the serial collection, after the
+/// parallel tests. A projector changed while it is solved is not overwritten.</summary>
 [Collection(SurveyPerfCollection.Name)]
 public sealed class ProjectorSolveLaneTests(ITestOutputHelper log)
 {

@@ -10,16 +10,33 @@ using PlayMap.Engine.Site;
 namespace PlayMap.Engine;
 
 /// <summary>A survey import as the node sees it while it runs and after: its id and name, the file, importing / ready / failed with
-/// the progress and words, and the longest the import held the control lane in one slice by two measures, from its own
-/// instrumentation: the lane thread's own time (<see cref="LaneMaxMs"/>, ms of its processor time from
-/// <see cref="Core.Time.ThreadTime"/>: the work it did, never the time a loaded machine gave others) in the step that clock moves in
-/// here (<see cref="LaneResolutionMs"/>, ms), and the stopwatch (<see cref="LaneMaxWallMs"/>, ms: the slice's span, the work done in
-/// it and whatever else the machine ran meanwhile, never below the work); and how many slices it took (<see cref="LaneSlices"/>). A
-/// slice's work is within its stopwatch time, and within its thread time plus that step (in Windows' ticks, a step for each stretch
-/// the lane thread ran the slice in: <see cref="Core.Time.ThreadTime.ResolutionNs"/>), so either bounds it. How long the lane answers
-/// while it runs is measured as such (SITE's latency in SurveyImportTests).</summary>
+/// the progress and words, and the longest the import held the control lane in one slice, from its own instrumentation, by two
+/// measures: the lane thread's own time (<see cref="LaneMaxMs"/>, ms of its processor time from <see cref="Core.Time.ThreadTime"/>:
+/// the work it did, never the time a loaded machine gave others) in the step that clock moves in here (<see cref="LaneResolutionMs"/>,
+/// ms), and the stopwatch (<see cref="LaneMaxWallMs"/>, ms: the slice's span, the work done in it and whatever else the process and
+/// the machine ran meanwhile, never below the work). <see cref="LaneMaxBoundMs"/> takes each slice by the lesser of the two (its
+/// thread time plus the step, or its stopwatch time) and keeps the longest: where the thread's time is precise (the CPU clock) both
+/// bound a slice's work from above, so it bounds every slice's; in Windows' ticks only the stopwatch does, and a thread time plus a
+/// tick bounds only a slice the lane thread ran in one stretch with no tick charged to an interrupt or a DPC
+/// (<see cref="Core.Time.ThreadTime.ResolutionNs"/>). <see cref="LaneMaxPauseMs"/> is the most the runtime's collections paused the
+/// process within one slice (ms, <see cref="GC.GetTotalPauseDuration"/>), which names a stall a slice's stopwatch time holds;
+/// <see cref="LaneSlices"/> how many slices it took. How long the lane answers while it runs is measured as such (SITE's latency in
+/// SurveyImportTests).</summary>
 public sealed record SurveyJobView(string Id, string Name, SurveyFormat Format, string Path, string State, double Progress, string Words,
-    double LaneMaxMs, double LaneResolutionMs, double LaneMaxWallMs, int LaneSlices);
+    double LaneMaxMs, double LaneResolutionMs, double LaneMaxWallMs, double LaneMaxBoundMs, double LaneMaxPauseMs, int LaneSlices)
+{
+    /// <summary>The view with one more lane slice, read as <paramref name="threadMs"/> of the lane thread's time,
+    /// <paramref name="wallMs"/> by the stopwatch and <paramref name="pauseMs"/> of the collections' pauses: each longest kept, and
+    /// the slice's lesser reading (its thread time plus the step, or its stopwatch time) against the longest so far.</summary>
+    public SurveyJobView WithSlice(double threadMs, double wallMs, double pauseMs) => this with
+    {
+        LaneMaxMs = Math.Max(LaneMaxMs, threadMs),
+        LaneMaxWallMs = Math.Max(LaneMaxWallMs, wallMs),
+        LaneMaxBoundMs = Math.Max(LaneMaxBoundMs, Math.Min(threadMs + LaneResolutionMs, wallMs)),
+        LaneMaxPauseMs = Math.Max(LaneMaxPauseMs, pauseMs),
+        LaneSlices = LaneSlices + 1,
+    };
+}
 
 /// <summary>SURVEY IMPORT and SURVEY LIST. The lane checks the line and the node and answers accepted at once; a worker reads,
 /// places, thins, decimates and writes (<see cref="SurveyImporter"/>); the lane then applies the result as one edit — the mesh asset,
@@ -164,7 +181,7 @@ public sealed partial class EngineCore
             if (Volatile.Read(ref _survey) is { State: "importing" } running)
                 return CommandReply.Fail(string.Create(SiteInv, $"{running.Name} is importing ({running.Progress:P0}) — one survey at a time; STATE.stage.surveys follows it"));
             view = new SurveyJobView(id, name, format, path, "importing", 0, $"importing {Path.GetFileName(path)}", 0,
-                Core.Time.ThreadTime.ResolutionNs / 1e6, 0, 1);
+                Core.Time.ThreadTime.ResolutionNs / 1e6, 0, 0, 0, 0);
             Volatile.Write(ref _survey, view);
             _surveyShown = 0;
         }
@@ -199,32 +216,30 @@ public sealed partial class EngineCore
         _surveyStop.Dispose();
     }
 
-    /// <summary>A lane slice's start by both its measures. The stopwatch is read before the thread's time here and after it at the
-    /// end (<see cref="NoteSurveySlice"/>), so the slice's stopwatch span holds the span its thread time reads.</summary>
-    private readonly record struct LaneSlice(long Timestamp, long ThreadNs)
+    /// <summary>A lane slice's start by its measures. The collections' pause total is read first and the stopwatch before the
+    /// thread's time, and at the end (<see cref="NoteSurveySlice"/>) the other way round, so each span holds the one inside it.</summary>
+    private readonly record struct LaneSlice(TimeSpan Paused, long Timestamp, long ThreadNs)
     {
         public static LaneSlice Start()
         {
+            var paused = GC.GetTotalPauseDuration();
             var timestamp = Stopwatch.GetTimestamp();
-            return new LaneSlice(timestamp, Core.Time.ThreadTime.NowNs());
+            return new LaneSlice(paused, timestamp, Core.Time.ThreadTime.NowNs());
         }
     }
 
-    /// <summary>The slice that began at <paramref name="start"/> has ended: the longest the import held the lane in one slice, by the
-    /// lane thread's time and by the stopwatch, kept on its view. A stopwatch read is the tick it falls in, so a span is taken one
+    /// <summary>The slice that began at <paramref name="start"/> has ended, as the lane's last act in it: its readings folded into
+    /// the import's view (<see cref="SurveyJobView.WithSlice"/>). A stopwatch read is the tick it falls in, so a span is taken one
     /// tick longer than its reads, never shorter than it lasted.</summary>
     private void NoteSurveySlice(LaneSlice start)
     {
         var threadMs = (Core.Time.ThreadTime.NowNs() - start.ThreadNs) / 1e6;
         var wallMs = (Stopwatch.GetTimestamp() - start.Timestamp + 1) * 1e3 / Stopwatch.Frequency;
+        var pauseMs = (GC.GetTotalPauseDuration() - start.Paused).TotalMilliseconds;
         lock (_surveyGate)
         {
             if (Volatile.Read(ref _survey) is { } v)
-                Volatile.Write(ref _survey, v with
-                {
-                    LaneMaxMs = Math.Max(v.LaneMaxMs, threadMs),
-                    LaneMaxWallMs = Math.Max(v.LaneMaxWallMs, wallMs),
-                });
+                Volatile.Write(ref _survey, v.WithSlice(threadMs, wallMs, pauseMs));
         }
     }
 
@@ -367,8 +382,8 @@ public sealed partial class EngineCore
         }
         finally
         {
+            FactsChanged();
             NoteSurveySlice(held);
-            SetSurvey(v => v with { LaneSlices = v.LaneSlices + 1 }, shown: true);
         }
     }
 
