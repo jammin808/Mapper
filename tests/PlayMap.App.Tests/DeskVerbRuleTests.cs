@@ -101,9 +101,12 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
 
     /// <summary>Every action the desk offers with STATE as the link holds it: from the top bar, the drawers, the inspectors and every
     /// object's right-click menu (its own actions and the modules' entries), over every workspace, every object of the outliner selected,
-    /// every media and playlist item selected and every drawer tab shown, and every module entry for every object the desk names. On the
-    /// way, every module entry for an inspected object is on its inspector's toolbar and every control's toolbar is in its menu.</summary>
-    internal static (List<DeskAction> Actions, List<IMenuTarget> Targets, List<object> Objects) Reach(DeskHarness desk, Window window)
+    /// every media and playlist item selected and every drawer tab shown, and every module entry for every object the desk names — with
+    /// the Oops panel open on the show's undo steps (each step's Undo to here) and a quad's draft held (its chip's Resume and Discard).
+    /// On the way, every module entry for an inspected object is on its inspector's toolbar and every control's toolbar is in its menu;
+    /// at the end the desk is walked once more with Map anything on, and every line a touch would learn (BIND LEARN &lt;line&gt;) is a
+    /// catalogue line.</summary>
+    internal static async Task<(List<DeskAction> Actions, List<IMenuTarget> Targets, List<object> Objects)> ReachAsync(DeskHarness desk, Window window)
     {
         var all = new List<DeskAction>();
         var targets = new List<IMenuTarget>();
@@ -140,6 +143,29 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
                 }
             }
         }
+
+        // An undo step on the node (the show disarmed for the edit, and armed again as it was), and the Oops panel open on it: each step's
+        // Undo to here is reached.
+        var armed = desk.Main.ShowModule.Strip.IsArmed;
+        if (armed)
+            Assert.True((await desk.Session.SendAsync("SHOW DISARM", Ct)).Ok);
+        Assert.True((await desk.Session.SendAsync("SET pj_left name \"Left reached\"", Ct)).Ok);
+        if (armed)
+            Assert.True((await desk.Session.SendAsync("SHOW ARM", Ct)).Ok);
+        DeskHarness.Pump();
+        await desk.Main.Ux.Oops.Toggle.Command.ExecuteAsync();
+        await desk.Main.Ux.Oops.Fetching;
+        DeskHarness.Pump();
+        Assert.NotEmpty(desk.Main.Ux.Oops.Steps);
+        // A quad's draft held on a projector: its chip's entries are reached.
+        desk.Main.Workspace = Workspace.Map;
+        desk.Main.Map.Select("projector", "pj_left");
+        desk.Main.Map.IsProjectorView = true;
+        desk.Main.Map.Tool = MapTool.Quad;
+        desk.Main.Map.QuadClick(new PlayMap.Core.Numerics.Vec2d(0.3, 0.3));
+        desk.Main.Map.Tool = MapTool.Select;
+        DeskHarness.Pump();
+        Assert.NotEmpty(desk.Main.Map.DraftChips);
 
         foreach (var ws in new[] { Workspace.Play, Workspace.Map, Workspace.Scan })
         {
@@ -178,6 +204,29 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
         // Every module entry for every object the desk names.
         foreach (var t in targets.DistinctBy(t => t.Id))
             all.AddRange(desk.Main.ExtrasFor(t).SelectMany(x => x.Children.Prepend(x)));
+
+        // Once more with Map anything on (the show disarmed: armed, a learn is refused and the mode ends): every line a touch would learn
+        // is BIND LEARN of a catalogue line, itself a catalogue line.
+        if (armed)
+        {
+            Assert.True((await desk.Session.SendAsync("SHOW DISARM", Ct)).Ok);
+            DeskHarness.Pump();
+        }
+        desk.Session.MapAnything = true;
+        desk.Main.Workspace = Workspace.Play;
+        Collect();
+        var learnt = all.Distinct().Where(a => a.IsBindable).Select(a => DeskAction.LearnLine(a.Verb)).Distinct().ToList();
+        Assert.NotEmpty(learnt);
+        Assert.All(learnt, line => Assert.True(Fault(line) is null, line + ": " + Fault(line)));
+        desk.Session.MapAnything = false;
+        if (armed)
+            Assert.True((await desk.Session.SendAsync("SHOW ARM", Ct)).Ok);
+        // The panel and the draft go, so what follows the walk meets the desk as it was.
+        await desk.Main.Ux.Oops.Fetching;
+        await desk.Main.Ux.Oops.Toggle.Command.ExecuteAsync();
+        desk.Main.Map.DiscardDraft("pj_left");
+        DeskHarness.Pump();
+        Assert.False(desk.Main.Ux.Oops.IsOpen);
         return (all, targets, objects);
     }
 
@@ -188,7 +237,7 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
         StateFixtures.LoadAll(desk.Link);
         var window = MainWindowTests.Open(desk);
         DeskHarness.Pump();
-        var (all, targets, objects) = Reach(desk, window);
+        var (all, targets, objects) = await ReachAsync(desk, window);
 
         var lines = all.Distinct().Select(a => (a, line: a.Verb)).Where(x => x.line.Length > 0).ToList();
         Assert.NotEmpty(lines);
