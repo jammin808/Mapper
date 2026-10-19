@@ -63,6 +63,7 @@ public sealed class EngineHost : IAsyncDisposable
     private IScanBackend? _scan;
     private EngineCore? _engine;
     private Task _recovery = Task.CompletedTask;
+    private Task _armedAgain = Task.CompletedTask;
     private Core.Machine.EnginePidRecord? _pid;
     private int _phase;
 
@@ -198,6 +199,8 @@ public sealed class EngineHost : IAsyncDisposable
         await _network.StartAsync(engine, ct);
         WritePidRecord(startedUnixMs);
         _recovery = Task.Run(() => KeepRecoveryAsync(engine, _stop.Token), CancellationToken.None);
+        // A show that came back armed has its arming hooks run now its parts are up (a hook may need the render host).
+        _armedAgain = Task.Run(() => engine.ArmAgainAsync(_stop.Token), CancellationToken.None);
         engine.Journal.Add("node", $"{running.Name} is up: wire {Port(_network.WirePort)}, web {Port(_network.HttpPort)}, renderer {outputs.RendererName} · {engine.Services.Build.Display}");
         _log.LogInformation("{Name} ({Id}) is up: wire {Wire}, web {Web}, renderer {Renderer}.", running.Name, running.NodeId,
             Port(_network.WirePort), Port(_network.HttpPort), outputs.RendererName);
@@ -390,6 +393,7 @@ public sealed class EngineHost : IAsyncDisposable
         await _stop.CancelAsync();
         _engine?.BeginStop();
         await Quietly("the recovery writer", () => _recovery);
+        await Quietly("the arm hooks of a show that came back armed", () => _armedAgain);
         await Quietly("the network", async () =>
         {
             if (_network is not null)

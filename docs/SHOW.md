@@ -18,9 +18,14 @@ back comes back armed (a panic in force comes back too, at its outcome at once).
 
 **The arm hooks.** Work a part of the node does as the show arms or disarms (plans compiled, pipelines warmed, the collector's mode)
 is an `IShowArmHook` the node is composed with (`EngineServices.ArmHooks`). `SHOW ARM` and `SHOW DISARM` change the mode first,
-then run every hook together, each until it answers or its own deadline passes, and answer once each has: a hook past its deadline
-is cancelled and named ("pipelines: missed its 2000 ms deadline and was cancelled: the show is armed without it"), one that fails is
-named with its words, and the show is armed either way. A node with no hook answers as before.
+then run every hook together, each until it answers or its own deadline passes (at most five minutes, which an infinite deadline
+means), and answer once each has: a hook past its deadline is cancelled and named ("pipelines: missed its 2000 ms deadline and was
+cancelled: the show is armed without it"), one that fails — in its work, its name or its deadline — is named with its words, and the
+show is armed either way. With `ALL` the group is sent the line as soon as this node's mode has changed, while its hooks run, and the
+answer names them beside the members' receipts. A member answers its leader's line once its mode has changed: its hooks run behind
+the answer, each outcome a journal row, so the leader's receipt and a PANIC behind the line never wait on a hook. A node that comes
+back armed from its recovery record runs its arming hooks once its parts are up, each outcome a recovery row ("armed again: plans —
+done: 12 plans compiled"). A node with no hook answers as before.
 
 **Roles** come from the session's transport, never from words a client sends: the desk is the **operator**; any other paired
 client (wire, HTTP, WebSocket, Companion, OSC, bindings, Patterns, Stagewatch) is a **remote** — an **operator** when the node's

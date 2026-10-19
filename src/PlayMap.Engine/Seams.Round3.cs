@@ -150,13 +150,16 @@ public sealed class NoPreviewShare : IPreviewShare
 
 /// <summary>Work a package does as the show arms (plans compiled, pipelines warmed, the collector's mode) and as it disarms.
 /// <c>SHOW ARM</c> runs every registered hook before it answers and names what each did; a hook past its <see cref="Deadline"/> is
-/// cancelled and named with words, and the show arms either way (armed is the safe side). Asynchronous; never on the render thread.</summary>
+/// cancelled and named with words, and the show arms either way (armed is the safe side). A line from the sync leader is answered
+/// before its hooks end, each outcome journalled; a node that comes back armed after a restart runs <see cref="ArmingAsync"/> once,
+/// when it is up, each outcome journalled as a recovery row. Asynchronous; never on the render thread.</summary>
 public interface IShowArmHook
 {
     /// <summary>The hook's name in the answer ("plans", "pipelines", "gc").</summary>
     string Name { get; }
 
-    /// <summary>How long arming waits for this hook before cancelling it.</summary>
+    /// <summary>How long arming waits for this hook before cancelling it: at most <see cref="EngineCore.MaxArmHookDeadline"/>, which
+    /// an infinite deadline (<see cref="Timeout.InfiniteTimeSpan"/>) or a longer one means; a negative one means none.</summary>
     TimeSpan Deadline { get; }
 
     /// <summary>Runs as the show arms; answers what it did, in words. <paramref name="ct"/> is cancelled at the deadline.</summary>

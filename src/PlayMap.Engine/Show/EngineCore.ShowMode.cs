@@ -218,22 +218,32 @@ public sealed partial class EngineCore : IShowDecisions
     }
 
     /// <summary>This node's half on the lane, then its arm hooks once its mode changed (<see cref="RunArmHooksAsync"/>: the answer names
-    /// what each did), then (ALL) the group's at the leader instant this node's half ran: a node already in the asked mode still sends
-    /// the line on, so ALL brings every member to it. The reply lists this node and then each member with its receipt. A line still
-    /// waiting for the lane when the node began to stop is refused there, as every line is, and the group is sent nothing.</summary>
+    /// what each did), and (ALL) the group's at the leader instant this node's half ran, sent as soon as the mode changed so no member
+    /// waits on this node's hooks: a node already in the asked mode still sends the line on, so ALL brings every member to it. The reply
+    /// lists this node (its words with its hooks') and then each member with its receipt, and beside them this node's hooks. A line from
+    /// the sync leader is answered once the mode has changed, its hooks running behind the answer, so the leader's receipt and this
+    /// node's feed (a PANIC behind the line) never wait on a hook. A line still waiting for the lane when the node began to stop is
+    /// refused there, as every line is, and the group is sent nothing.</summary>
     private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords, bool arming)
     {
         var (local, at) = await _lane.RunAsync(() => RefusedAsStopping(c.Session) ? (CommandReply.Fail(StoppingWords), 0L) : (here(), LeaderNowNs))
             .ConfigureAwait(false);
-        // The mode has changed already; the hooks prepare for it, each bounded by its own deadline, and no caller leaving cuts them short.
+        // A mode a line changed is this line's to prepare: the hooks of a show that came back armed no longer run for it.
         if (local.Ok)
-            local = WithArmHooks(local, await RunArmHooksAsync(arming, CancellationToken.None).ConfigureAwait(false));
+            Volatile.Write(ref _armAgain, 0);
+        if (!all && c.Session.Transport == LeaderTransport)
+            return WithArmHooksBehind(local, arming);
+        // The mode has changed already; the hooks prepare for it, each bounded by its own deadline, and no caller leaving cuts them short.
+        var hooks = local.Ok ? RunArmHooksAsync(arming, CancellationToken.None) : null;
         if (!all)
-            return local;
+            return hooks is null ? local : WithArmHooks(local, await hooks.ConfigureAwait(false));
         var already = !local.Ok && (local.Payload ?? "").StartsWith(alreadyWords, StringComparison.Ordinal);
         if (!local.Ok && !already)
             return local;
         var receipts = await FanOutAsync(line, at, c.Ct).ConfigureAwait(false);
+        var results = hooks is null ? [] : await hooks.ConfigureAwait(false);
+        if (local.Ok)
+            local = WithArmHooks(local, results);
         var mode = _showMode;
         var refused = receipts.Count(r => r.Stage != "applied");
         return new CommandReply(true, JsonOut(w =>
@@ -249,6 +259,19 @@ public sealed partial class EngineCore : IShowDecisions
             foreach (var r in receipts)
                 WriteReceipt(w, r);
             w.WriteEndArray();
+            if (!results.IsDefaultOrEmpty)
+            {
+                w.WriteStartArray("hooks");
+                foreach (var r in results)
+                {
+                    w.WriteStartObject();
+                    w.WriteString("name", r.Name);
+                    w.WriteString("outcome", r.Outcome);
+                    w.WriteString("words", r.Words);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
             w.WriteEndObject();
         }), $"{line} on this node and {receipts.Count} member{(receipts.Count == 1 ? "" : "s")}{(refused > 0 ? $" ({refused} did not apply it)" : "")}");
     }
@@ -543,8 +566,9 @@ public sealed partial class EngineCore : IShowDecisions
         w.WriteEndObject();
     });
 
-    /// <summary>Puts the show facts back after a restart: armed as it was, and a panic at its outcome at once (no fade: the air was
-    /// already dark when the node went away).</summary>
+    /// <summary>Puts the show facts back after a restart: armed as it was (its arming hooks then run once the node is up,
+    /// <see cref="ArmAgainAsync"/>), and a panic at its outcome at once (no fade: the air was already dark when the node went
+    /// away).</summary>
     private void LoadShowRecovery(string json)
     {
         try
@@ -556,6 +580,7 @@ public sealed partial class EngineCore : IShowDecisions
                 _showMode = new ShowMode(true, e.GetProperty("by").GetString() ?? "", e.GetProperty("since").GetInt64(),
                     e.TryGetProperty("words", out var words) ? words.GetString() ?? "" : "");
                 Journal.Add("recovery", $"armed again: the show was armed by {_showMode.By} when the node went away");
+                Volatile.Write(ref _armAgain, 1);
             }
             if (e.TryGetProperty("panic", out var p) && p.ValueKind == JsonValueKind.Object)
                 RestorePanic(p);

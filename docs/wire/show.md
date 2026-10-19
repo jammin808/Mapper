@@ -31,10 +31,14 @@ second GO on the same playlist inside the window — "double GO protection: 0.20
 
 - `SHOW` — the `STATE.show` object below.
 - `SHOW ARM` — `{"armed":true,"by":"Desk","since":<unix ms>}` (`"members":n` with `ALL` on a group's leader); refused "already armed
-  by … since HH:mm". On a node composed with arm hooks the answer comes once each hook has answered or passed its deadline, and adds
-  `"hooks":[{"name","outcome":"done"|"cancelled"|"failed","words"}]` in the hooks' order; the effect names each hook that said
-  something ("armed by Desk · plans: 12 plans compiled; pipelines: missed its 2000 ms deadline and was cancelled: the show is armed
-  without it").
+  by … since HH:mm". On a node composed with arm hooks the answer comes once each hook has answered or passed its deadline (at most
+  five minutes), and adds `"hooks":[{"name","outcome":"done"|"cancelled"|"failed","words"}]` in the hooks' order; the effect names
+  each hook that said something ("armed by Desk · plans: 12 plans compiled; pipelines: missed its 2000 ms deadline and was
+  cancelled: the show is armed without it"). With `ALL` the members are sent the line before this node's hooks end; the reply's
+  `nodes[0].words` carry this node's effect with its hooks' words and `hooks` sits beside `nodes`. A line from the sync leader is
+  answered once the mode has changed, each hook `"outcome":"running"` with the words "runs behind this answer: its outcome is
+  journalled on this node", and each outcome is a `show` journal row ("SHOW ARM's arm hook pipelines: missed its 3000 ms deadline
+  …").
 - `SHOW DISARM` — `{"armed":false,"landed":0,"setAside":0}` (and `hooks`, as ARM's, from each hook's disarming half); refused "not
   armed — the show is in rehearsal".
 - `PANIC` — `{"outcome":"black","hard":false,"since":…,"outputs":[{"id","outcome","fadeMs","until"}],"devices":[{"id","stage"}],
