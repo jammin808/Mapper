@@ -19,11 +19,17 @@ public sealed record ProjectRead(Project Project, ImmutableArray<string> MovedOu
 /// paths an AI sees are the ones it writes.</summary>
 public static class ProjectJson
 {
+    /// <summary>The model as it is, an output's blend γ included: what <see cref="OutputJson"/> writes from and reads into.</summary>
+    private static readonly JsonSerializerOptions Inner = Create(indented: false, outputs: false);
+
     public static readonly JsonSerializerOptions Options = Create(indented: true);
 
     public static readonly JsonSerializerOptions Compact = Create(indented: false);
 
-    private static JsonSerializerOptions Create(bool indented)
+    /// <summary>The file's key beside an output's blend.gamma for <see cref="BlendSettings.Gamma"/>.</summary>
+    public const string GammaOverrideKey = "gammaOverride";
+
+    private static JsonSerializerOptions Create(bool indented, bool outputs = true)
     {
         var o = new JsonSerializerOptions
         {
@@ -37,8 +43,43 @@ public static class ProjectJson
             TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { StoredOnly } },
         };
         o.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+        if (outputs)
+            o.Converters.Add(new OutputJson());
         o.MakeReadOnly();
         return o;
+    }
+
+    /// <summary>An output in the file and on the wire: as the model holds it, but for its blend's γ, written twice. <c>gamma</c> is the
+    /// γ the fades are drawn through (<see cref="Output.DrawnBlendGamma"/>), what every earlier build reads, so a backup, a desk or a
+    /// build that predates the override draws the same fades; <c>gammaOverride</c> beside it is <see cref="BlendSettings.Gamma"/>
+    /// (above 0 the γ drawn through, 0 the measured γ, else 2.2). A blend that names an override is read by it; one that names none, or
+    /// a null one (an earlier build's file, a line that sets the whole blend) reads its gamma as the override.</summary>
+    private sealed class OutputJson : JsonConverter<Output>
+    {
+        public override Output? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var node = JsonNode.Parse(ref reader, NodeOptions);
+            if (node is JsonObject output && Child(output, "blend") is JsonObject blend
+                && blend.FirstOrDefault(kv => kv.Key.Equals(GammaOverrideKey, StringComparison.OrdinalIgnoreCase)) is { Key: { } key } given)
+            {
+                blend.Remove(key);
+                if (given.Value is not null)
+                    blend[blend.Select(kv => kv.Key).FirstOrDefault(k => k.Equals("gamma", StringComparison.OrdinalIgnoreCase)) ?? "gamma"] =
+                        given.Value.DeepClone();
+            }
+            return node.Deserialize<Output>(Inner);
+        }
+
+        public override void Write(Utf8JsonWriter writer, Output value, JsonSerializerOptions options)
+        {
+            var node = JsonSerializer.SerializeToNode(value, Inner)!.AsObject();
+            if (node["blend"] is JsonObject blend && blend.IndexOf("gamma") is >= 0 and var at)
+            {
+                blend["gamma"] = value.DrawnBlendGamma();
+                blend.Insert(at + 1, GammaOverrideKey, value.Blend.Gamma);
+            }
+            node.WriteTo(writer, options);
+        }
     }
 
     /// <summary>Only what a value is made from is written: a property with no setter and no constructor
@@ -164,7 +205,7 @@ public static class ProjectJson
     {
         if (node is null)
             return default;
-        DropNullScalars(node, Options.GetTypeInfo(typeof(T)), refuseNulls);
+        DropNullScalars(node, Inner.GetTypeInfo(typeof(T)), refuseNulls);
         return node.Deserialize<T>(Options);
     }
 
@@ -182,7 +223,7 @@ public static class ProjectJson
                     if (!obj.TryGetPropertyValue(prop.Name, out var value))
                         continue;
                     if (value is not null)
-                        DropNullScalars(value, Options.GetTypeInfo(prop.PropertyType), refuseNulls);
+                        DropNullScalars(value, Inner.GetTypeInfo(prop.PropertyType), refuseNulls);
                     else if (prop.AssociatedParameter is null && CannotHoldNull(prop))
                     {
                         if (refuseNulls)
@@ -192,13 +233,13 @@ public static class ProjectJson
                 }
                 break;
             case JsonTypeInfoKind.Enumerable when node is JsonArray list && info.ElementType is { } elementType:
-                var element = Options.GetTypeInfo(elementType);
+                var element = Inner.GetTypeInfo(elementType);
                 foreach (var item in list)
                     if (item is not null)
                         DropNullScalars(item, element, refuseNulls);
                 break;
             case JsonTypeInfoKind.Dictionary when node is JsonObject map && info.ElementType is { } valueType:
-                var entry = Options.GetTypeInfo(valueType);
+                var entry = Inner.GetTypeInfo(valueType);
                 foreach (var (_, item) in map)
                     if (item is not null)
                         DropNullScalars(item, entry, refuseNulls);
@@ -215,6 +256,11 @@ public static class ProjectJson
     public static T SetPath<T>(T entity, string path, string jsonValue)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        // An output's blend.gamma is the γ drawn, which follows from the override: a line that sets it sets the override.
+        var overrides = typeof(T) == typeof(Output) && (path.Equals("blend.gamma", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("blend." + GammaOverrideKey, StringComparison.OrdinalIgnoreCase));
+        if (overrides)
+            path = "blend." + GammaOverrideKey;
         var root = JsonSerializer.SerializeToNode(entity, Compact) ?? throw new EditRefusedException("Nothing to edit.");
         JsonNode? value;
         try
@@ -226,6 +272,8 @@ public static class ProjectJson
             // A bare word reads as a string, so SET sf1 name Lobby works without quotes.
             value = JsonValue.Create(jsonValue);
         }
+        if (overrides && value is null)
+            throw new EditRefusedException($"'{path}' does not take null");
         var parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
         JsonNode node = root;
         for (var i = 0; i < parts.Length - 1; i++)

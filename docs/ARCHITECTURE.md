@@ -89,7 +89,10 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   show's wall clock; `Steps` lists them newest first, and `UndoTo(n)` takes step n and every newer one back as one action:
   one root, one revision, each step on the redo list as `Undo` puts it there. Readers (render thread, network, state
   writer) take the current root through a volatile reference and never lock. The file form is schema 2: a schema-1
-  file is read by its rules (`ProjectJson.Read`), and the open names what they moved.
+  file is read by its rules (`ProjectJson.Read`), and the open names what they moved. An output's blend writes its γ twice:
+  `gamma` is the γ the fades are drawn through, what every earlier build reads, so a backup or a build that predates schema 2
+  draws the same fades from the file; `gammaOverride` beside it is the model's `Blend.Gamma` (0: the measured γ, else 2.2). A
+  line's `blend.gamma` sets the override, as `blend.gammaOverride` does.
 - Runtime state (transports, links, outputs' health, availability) is not in the document: each lane publishes
   its own immutable snapshot; STATE composes them.
 - Generic edits (`GET/SET/ADD/REMOVE/MOVE` by id and dotted field path) are how the desk edits anything and why an

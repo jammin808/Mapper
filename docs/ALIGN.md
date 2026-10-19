@@ -64,7 +64,9 @@ calibration result recorded; 0 draws the output's measured γ where it has one, 
 and the MPCDI export read it so (`Output.DrawnBlendGamma`). A person's γ is told from a result's in one place, `Output.HandGamma`: it
 is `Blend.Gamma` unless that is 0 or the γ the current result recorded. A project file of schema 1 is read by that rule: a stored 2.2,
 or a γ that is not a person's, reads as 0 wherever 0 draws the same γ, any other γ stays the person's, and PROJECT OPEN's answer and
-journal row name each output it moved.
+journal row name each output it moved. The file writes the drawn γ as `blend.gamma`, which every earlier build reads, and
+`Blend.Gamma` beside it as `blend.gammaOverride`, so a round-2 backup mirroring this node, or a round-2 build opening its file, draws
+the same fades.
 
 ## On the air (`Render/Passes/MeasuredStage.cs`, the `output` program)
 

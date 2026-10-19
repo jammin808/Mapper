@@ -15,7 +15,7 @@ public sealed class ModelCompatTests
     [
         "$.guides", "$.canvases[].span", "$.stage.viewpoints[].fit",
         "$.outputs[].colorBits", "$.outputs[].hdr", "$.outputs[].nitTarget", "$.outputs[].framesInFlight", "$.outputs[].watermark",
-        "$.outputs[].passThrough",
+        "$.outputs[].passThrough", "$.outputs[].blend.gammaOverride",
     ];
 
     /// <summary>Every key round 2 and round 3 add, as a path ("[]" for every element of a list).</summary>
@@ -338,14 +338,13 @@ public sealed class ModelCompatTests
         var read = ProjectJson.Read(text);
 
         Assert.Equal(moved, read.MovedOutputs);
-        // Every key and value of the file is held, but the schema, raised, and each moved output's γ, now 0.
+        // Every key and value of the file is held, but the schema, raised: blend.gamma is still the γ each output draws (what an
+        // earlier build reads), and each moved output's override beside it is 0.
         var expected = JsonNode.Parse(text)!;
         expected["schema"] = Project.CurrentSchema;
-        foreach (var o in expected["outputs"]!.AsArray())
-        {
-            if (moved.Contains((string)o!["id"]!))
-                o["blend"]!["gamma"] = 0;
-        }
+        var overrides = JsonNode.Parse(ProjectJson.Serialize(read.Project))!["outputs"]!.AsArray()
+            .Select(o => ((string)o!["id"]!, (double)o["blend"]!["gammaOverride"]!)).ToList();
+        Assert.All(overrides, x => Assert.Equal(moved.Contains(x.Item1), x.Item2 == 0));
         var extras = new SortedSet<string>(StringComparer.Ordinal);
         AssertHolds(expected, JsonNode.Parse(ProjectJson.Serialize(read.Project))!, "$", extras);
         Assert.Equal(added.Order(StringComparer.Ordinal), extras);
@@ -439,6 +438,49 @@ public sealed class ModelCompatTests
         Assert.Equal(1.8, (BlendSettings.Default with { Gamma = 1.8 }).DrawnGamma(measured));
         var output = Project.CreateDefault().Outputs[0] with { Measured = measured };
         Assert.Equal(2.4, output.DrawnBlendGamma());
+    }
+
+    [Fact]
+    public void AnEarlierBuildReadingTheFileDrawsTheSameFadesAndTheOverrideRidesBeside()
+    {
+        var p = Project.CreateDefault("Fades");
+        var o = p.Outputs[0];
+        var measured = new MeasuredCorrection(null, null, null, new MeasuredColor(1, 1, 1, 2.4, 1), 0, "", "", "", 1);
+        p = p with
+        {
+            Outputs =
+            [
+                o with { Measured = measured },                                                         // 0 over a measured 2.4
+                o with { Id = "op_2", Name = "Output 2" },                                              // 0, nothing measured
+                o with { Id = "op_3", Name = "Output 3", Measured = measured, Blend = o.Blend with { Gamma = 1.8 } },
+            ],
+        };
+
+        var text = ProjectJson.Serialize(p);
+
+        // An earlier build reads blend.gamma alone: it is the γ this build draws, so its fades are the same.
+        var blends = JsonNode.Parse(text)!["outputs"]!.AsArray().Select(n => n!["blend"]!).ToList();
+        Assert.Equal(new[] { 2.4, 2.2, 1.8 }, blends.Select(b => (double)b["gamma"]!));
+        Assert.Equal(new[] { 0, 0, 1.8 }, blends.Select(b => (double)b["gammaOverride"]!));
+        Assert.Equal(p.Outputs.Select(x => x.DrawnBlendGamma()), blends.Select(b => (double)b["gamma"]!));
+        // This build reads the override back, and nothing moves.
+        var read = ProjectJson.Read(text);
+        Assert.Equal(new[] { 0, 0, 1.8 }, read.Project.Outputs.Select(x => x.Blend.Gamma));
+        Assert.Empty(read.MovedOutputs);
+        Assert.Equal(text, ProjectJson.Serialize(read.Project));
+        // An entity reads the same way, and the drawn γ follows a measured edit in the next file written.
+        Assert.Equal(0, ProjectJson.DeserializeEntity<Output>(ProjectJson.SerializeEntity(p.Outputs[0])).Blend.Gamma);
+        var remeasured = p.Outputs[0] with { Measured = measured with { Color = new MeasuredColor(1, 1, 1, 2.3, 1) } };
+        Assert.Equal(2.3, (double)JsonNode.Parse(ProjectJson.SerializeEntity(remeasured))!["blend"]!["gamma"]!);
+
+        // A line's blend.gamma sets the override, as blend.gammaOverride does; a whole blend that names no override (an earlier
+        // writer's) reads its gamma as the override; a null override is refused.
+        Assert.Equal(2.0, ProjectJson.SetPath(p.Outputs[0], "blend.gamma", "2.0").Blend.Gamma);
+        Assert.Equal(1.9, ProjectJson.SetPath(p.Outputs[0], "Blend.GammaOverride", "1.9").Blend.Gamma);
+        Assert.Equal(0, ProjectJson.SetPath(p.Outputs[2], "blend.gamma", "0").Blend.Gamma);
+        var earlier = "{\"auto3D\":true,\"edges\":{\"left\":0,\"top\":0,\"right\":0,\"bottom\":0},\"curve\":\"cosine\",\"gamma\":2.4,\"blackLevel\":0,\"intensityCompensation\":false}";
+        Assert.Equal(2.4, ProjectJson.SetPath(p.Outputs[1], "blend", earlier).Blend.Gamma);
+        Assert.Throws<EditRefusedException>(() => ProjectJson.SetPath(p.Outputs[0], "blend.gamma", "null"));
     }
 
     [Fact]
