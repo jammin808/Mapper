@@ -9,6 +9,7 @@ namespace PlayMap.Supervisor.Windows;
 
 /// <summary>An answer read from the supervisor's pipe: the server's words, or why its server is not the supervisor (then nothing it
 /// said was read).</summary>
+[SupportedOSPlatform("windows")]
 public sealed record PipeAnswer(bool FromSupervisor, string Words);
 
 /// <summary>The client of the supervisor's pipe: it connects for identification only (the server may learn who asks, never act as
