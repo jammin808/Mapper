@@ -6,9 +6,10 @@ namespace PlayMap.App.Infrastructure;
 
 /// <summary>The desk's own preferences (never the show's): Simple or Pro, whether Esc in PLAY is PANIC, the look (its theme and a
 /// brightness of its own, apart from the machine's) and every unfinished quad, kept per node and projector until it is drawn or
-/// discarded. Kept in the desk's desk.json beside its other files, every key it does not know kept as it was; a desk without a file
-/// (tests, a read-only folder) keeps them in memory. Simple hides controls; it never disables one, and right-click menus and the show
-/// strip are the same in both.</summary>
+/// discarded. Kept in the desk's desk.json beside its other files, every key it does not know kept as it was, written whole beside its
+/// place and renamed over it (a crash mid-write leaves the last whole file); a key of the wrong shape (a hand edit) reads as its
+/// default and the rest are kept; a desk without a file (tests, a read-only folder) keeps them in memory. Simple hides controls; it
+/// never disables one, and right-click menus and the show strip are the same in both.</summary>
 public sealed class DeskPrefs : ObservableObject
 {
     /// <summary>The desk's brightness runs from this…</summary>
@@ -56,10 +57,13 @@ public sealed class DeskPrefs : ObservableObject
         };
         if (doc["theme"] is JsonValue t && t.GetValueKind() == JsonValueKind.String && Enum.TryParse<DeskTheme>(t.GetValue<string>(), true, out var theme))
             prefs._theme = theme;
-        if (doc["brightness"] is JsonValue b && b.GetValueKind() == JsonValueKind.Number)
-            prefs._brightness = Math.Clamp(b.GetValue<int>(), MinBrightness, MaxBrightness);
+        if (doc["brightness"] is JsonValue b && b.GetValueKind() == JsonValueKind.Number && b.TryGetValue<double>(out var level) && double.IsFinite(level))
+            prefs._brightness = (int)Math.Clamp(Math.Round(level, MidpointRounding.AwayFromZero), MinBrightness, MaxBrightness);
         return prefs;
     }
+
+    /// <summary>How many times this desk wrote desk.json since it was read (tests count the writes a gesture makes).</summary>
+    public int Writes { get; private set; }
 
     /// <summary>The default place: desk.json in the user's PlayMap folder.</summary>
     public static string DefaultPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PlayMap", "desk.json");
@@ -114,21 +118,21 @@ public sealed class DeskPrefs : ObservableObject
     /// <summary>The unfinished quad on a node's projector: its placed points (wall-normalised, in the order placed), or null.</summary>
     public IReadOnlyList<Vec2d>? QuadDraft(string node, string projector)
     {
-        if (_doc["quadDrafts"]?[node]?[projector] is not JsonArray points)
+        if (_doc["quadDrafts"] is not JsonObject all || all[node] is not JsonObject drafts || drafts[projector] is not JsonArray points)
             return null;
         var list = new List<Vec2d>(points.Count);
         foreach (var p in points)
         {
             if (p is JsonArray { Count: 2 } xy && xy[0] is JsonValue x && xy[1] is JsonValue y
-                && x.GetValueKind() == JsonValueKind.Number && y.GetValueKind() == JsonValueKind.Number)
-                list.Add(new Vec2d(x.GetValue<double>(), y.GetValue<double>()));
+                && x.TryGetValue<double>(out var px) && y.TryGetValue<double>(out var py) && double.IsFinite(px) && double.IsFinite(py))
+                list.Add(new Vec2d(px, py));
         }
         return list.Count == 0 ? null : list;
     }
 
     /// <summary>Every projector of a node that holds an unfinished quad.</summary>
     public IReadOnlyList<string> QuadDraftProjectors(string node) =>
-        _doc["quadDrafts"]?[node] is JsonObject drafts ? [.. drafts.Select(d => d.Key)] : [];
+        _doc["quadDrafts"] is JsonObject all && all[node] is JsonObject drafts ? [.. drafts.Select(d => d.Key)] : [];
 
     /// <summary>Keeps (or, with no points, forgets) the unfinished quad on a node's projector, and writes desk.json.</summary>
     public void SetQuadDraft(string node, string projector, IReadOnlyList<Vec2d>? points)
@@ -175,7 +179,8 @@ public sealed class DeskPrefs : ObservableObject
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            File.WriteAllText(_path, _doc.ToJsonString());
+            PlayMap.Core.Storage.DurableFile.WriteAllText(_path, _doc.ToJsonString());
+            Writes++;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
