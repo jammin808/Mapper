@@ -840,7 +840,7 @@ public sealed partial class RenderHost : IRenderHost
         var wait = _deadlineNs - now;
         var margin = _windows.Pacer is not null ? 2_000_000 : 500_000;
         if (wait > margin)
-            _wake.WaitOne(TimeSpan.FromTicks(wait / 100));
+            _headless.WaitUntil(_deadlineNs, _wake);
     }
 
     /// <summary>Deletes everything GL on this thread (windows, renderer, context) and fails what still waits.</summary>
@@ -918,6 +918,7 @@ public sealed partial class RenderHost : IRenderHost
             await _stage.DisposeAsync().ConfigureAwait(false);
         // The render thread has exited: nothing raises the signal any more.
         Volatile.Read(ref _facts)?.Dispose();
+        _headless.Dispose();
         _wake.Dispose();
         _ready.Dispose();
     }

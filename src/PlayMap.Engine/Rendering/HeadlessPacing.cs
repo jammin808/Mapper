@@ -1,3 +1,4 @@
+using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
 using PlayMap.Render.Timing;
 
@@ -7,11 +8,24 @@ namespace PlayMap.Engine.Rendering;
 /// <see cref="Output.RefreshHz"/>: fed every instant the render loop finished a frame, it counts the refresh slots of
 /// that output which passed without a new picture. The headless loop runs at the fastest such target
 /// (<see cref="LoopRateHz"/>), so an output is served at its rate and a slow frame shows as dropped on the outputs it
-/// starved. Render thread only; nothing allocates per frame.</summary>
-internal sealed class HeadlessPacing
+/// starved. Its deadline waits go through the machine platform's timer (<see cref="WaitUntil"/>). Render thread only; nothing
+/// allocates per frame.</summary>
+internal sealed class HeadlessPacing : IDisposable
 {
     private readonly Dictionary<string, FramePacer> _pacers = new(StringComparer.Ordinal);
     private readonly List<string> _gone = [];
+    private IDeadlineTimer? _timer;
+
+    /// <summary>Waits until the deadline (ns, the machine's monotonic clock) or until <paramref name="wake"/> is signalled, on the
+    /// platform's deadline timer, made at the first wait: on Windows under TIMER HIGH the high-resolution waitable timer, which wakes
+    /// near its due time without raising the system's timer resolution; elsewhere, and under TIMER DEFAULT, the runtime's own wait.</summary>
+    public void WaitUntil(long deadlineNs, WaitHandle wake)
+    {
+        _timer ??= ThreadClaims.Platform?.CreateTimer() ?? new RuntimeDeadlineTimer();
+        _ = _timer.WaitUntil(deadlineNs, wake);
+    }
+
+    public void Dispose() => _timer?.Dispose();
 
     /// <summary>One pacer per enabled output at its refresh; a changed refresh starts its count again.</summary>
     public void Sync(Project project)
