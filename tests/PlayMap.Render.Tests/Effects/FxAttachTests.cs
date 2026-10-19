@@ -148,7 +148,7 @@ public sealed class FxAttachTests(GlFixture gl)
         gl.Run(c =>
         {
             using var engine = new RenderEngine(c.Backend, Exact);
-            using var fx = new FxPass(c);
+            using var fx = new FxPass(c.Backend);
             var plain = Draw(engine, Scene.Inputs(Show(FxChain.Empty)) with { Passes = [fx] });
             Assert.Equal((0, 0, 255), Pixels.At(plain, W, 40, 30));
 
@@ -182,7 +182,7 @@ public sealed class FxAttachTests(GlFixture gl)
         gl.Run(c =>
         {
             using var engine = new RenderEngine(c.Backend, Exact);
-            using var fx = new FxPass(c);
+            using var fx = new FxPass(c.Backend);
             Assert.Equal((255, 255, 255), Pixels.At(Draw(engine, Scene.Inputs(Show(FxChain.Empty)) with { Passes = [fx] }), W, 10, 10));
             // White at alpha one half over the black background: the effect's alpha blends, it is not written as the canvas's.
             var half = DrawCompiled(engine, fx, Scene.Inputs(Show(FxRig.Chain(FxRig.Slot("isf:fa00000021")))) with { Passes = [fx] }, ["fx00000001"]);
@@ -201,7 +201,7 @@ public sealed class FxAttachTests(GlFixture gl)
         gl.Run(c =>
         {
             using var engine = new RenderEngine(c.Backend, Exact);
-            using var fx = new FxPass(c);
+            using var fx = new FxPass(c.Backend);
             var frame = 0;
             (byte[] A, byte[] B) Both(Project p)
             {
@@ -260,7 +260,7 @@ public sealed class FxAttachTests(GlFixture gl)
         gl.Run(c =>
         {
             using var engine = new RenderEngine(c.Backend, Exact);
-            using var fx = new FxPass(c);
+            using var fx = new FxPass(c.Backend);
             (byte[] Canvas, byte[] Stage) Frame(FrameInputs inputs)
             {
                 engine.Render(inputs with { Passes = [fx] });
@@ -345,7 +345,7 @@ public sealed class FxAttachTests(GlFixture gl)
         gl.Run(c =>
         {
             using var engine = new RenderEngine(c.Backend, Exact);
-            using var fx = new FxPass(c);
+            using var fx = new FxPass(c.Backend);
             var inputs = Scene.Inputs(project, 1, sources) with { Passes = [fx], Levels = air };
             DrawCompiled(engine, fx, inputs, ["fx00000001", "fx00000002"], "op2");
             engine.Render(inputs);
@@ -380,7 +380,7 @@ public sealed class FxAttachTests(GlFixture gl)
         gl.Run(c =>
         {
             using var engine = new RenderEngine(c.Backend, Exact);
-            using var fx = new FxPass(c);
+            using var fx = new FxPass(c.Backend);
             // Item A started at 10 s: its TIME is 0 then, 2.5 s later 2.5.
             var playing = new OneItem(new ItemOnAir(a, 10_000_000_000), white);
             var start = DrawCompiled(engine, fx, Scene.Inputs(project, 10, playing) with { Passes = [fx] }, ["fx00000001"]);
@@ -422,7 +422,7 @@ public sealed class FxAttachTests(GlFixture gl)
         gl.Run(c =>
         {
             using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
-            using var fx = new FxPass(c);
+            using var fx = new FxPass(c.Backend);
             var inputs = Scene.Inputs(project, 1, sources, stage) with
             {
                 Passes = [fx],

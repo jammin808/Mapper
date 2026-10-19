@@ -60,11 +60,14 @@ public sealed class IsfTranslatorTests(GlFixture gl, ITestOutputHelper log)
             """, null),
     ];
 
+    /// <summary>The ISF dialect a context compiles: desktop GLSL 3.30 on a core context, ES 3.00 on any other.</summary>
+    private static IsfDialect DialectOf(GlDevice d) => d.Dialect == GlDialect.Core330 ? IsfDialect.Glsl330 : IsfDialect.Es300;
+
     private static void Compile(GlDevice d, string name, string fs, string? vs)
     {
         var doc = IsfParser.Parse(fs);
         Assert.True(doc.Valid, $"{name}: {string.Join("; ", doc.Issues)}");
-        var src = IsfTranslator.Translate(doc, vs, FxChainRunner.DialectOf(d.Dialect));
+        var src = IsfTranslator.Translate(doc, vs, DialectOf(d));
         Assert.Empty(src.Issues);
         using var program = d.CreateProgram("isf " + name, src.Vertex, src.Fragment);
         Assert.NotNull(program);
@@ -128,7 +131,7 @@ public sealed class IsfTranslatorTests(GlFixture gl, ITestOutputHelper log)
             {
                 var vsPath = Path.ChangeExtension(file, ".vs");
                 var doc = IsfParser.Parse(File.ReadAllText(file));
-                var src = IsfTranslator.Translate(doc, File.Exists(vsPath) ? File.ReadAllText(vsPath) : null, FxChainRunner.DialectOf(c.Device.Dialect));
+                var src = IsfTranslator.Translate(doc, File.Exists(vsPath) ? File.ReadAllText(vsPath) : null, DialectOf(c.Device));
                 try
                 {
                     using var program = c.Device.CreateProgram("isf corpus", src.Vertex, src.Fragment);

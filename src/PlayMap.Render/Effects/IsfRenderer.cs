@@ -2,15 +2,16 @@ using System.Collections.Immutable;
 using PlayMap.Core.Effects;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gl;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Effects;
 
-/// <summary>One slot's ISF effect on the GPU: its program (from the compile lane), its pass buffers — temporary ones and
-/// persistent ones, float when asked, owned here, made again and cleared when their size changes — and its uniforms, computed
-/// once per slot change. Each frame it draws every pass with the built-ins of show time and answers its result, stored bottom row
-/// first as ISF draws. A buffer a pass draws into is read by that pass as it was before (each buffer has a front and a back), so
-/// a feedback pass never reads what it writes.</summary>
+/// <summary>One slot's ISF effect on the GPU: its program (made by the device through the effects' lane, <see cref="FxLane"/>), its
+/// pass buffers — temporary ones and persistent ones, float when asked, owned here, made again and cleared when their size changes —
+/// and its uniforms, computed once per slot change. Each frame it draws every pass into the frame's list with the built-ins of show
+/// time, each constant and picture set by name through the program's layout (a name the program does not use is not set), and
+/// answers its result, stored bottom row first as ISF draws. A buffer a pass draws into is read by that pass as it was before (each
+/// buffer has a front and a back), so a feedback pass never reads what it writes.</summary>
 internal sealed class IsfRenderer : IDisposable, IIsfVariables
 {
     private const int MaxImages = 15;
@@ -51,8 +52,8 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
 
     private sealed record UniformBinding(string Name, IsfInputType Type, float[] Value);
 
-    private readonly GlDevice _device;
-    private readonly FxCompileLane _lane;
+    private readonly IGpuDevice _device;
+    private readonly FxLane _lane;
     private readonly GpuTexture _black;
     private readonly GpuTexture _grey;
     private readonly Dictionary<string, double> _vars = new(StringComparer.Ordinal);
@@ -64,9 +65,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
     private string _name = "";
     private IsfProgramSource? _source;
     private ImmutableSortedDictionary<string, string> _imports = ImmutableSortedDictionary<string, string>.Empty;
-#pragma warning disable CA2213 // The lane owns its programs; a slot borrows one and never disposes it.
-    private FxProgramEntry? _entry;
-#pragma warning restore CA2213
+    private FxProgram? _entry;
     private IsfPass[] _passes = [];
     private IsfExpression[] _widths = [];
     private IsfExpression[] _heights = [];
@@ -78,7 +77,7 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
     private int _renderH;
     private bool _failedDrawing;
 
-    public IsfRenderer(GlDevice device, FxCompileLane lane, GpuTexture black, GpuTexture grey)
+    public IsfRenderer(IGpuDevice device, FxLane lane, GpuTexture black, GpuTexture grey)
     {
         _device = device;
         _lane = lane;
@@ -228,9 +227,9 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
             entry.LastUsed = frame;
     }
 
-    /// <summary>The effect's result for this frame at a size, or null when it has none to give (compiling or faulted: the chain
-    /// passes its input on). The texture is stored bottom row first and stays this renderer's.</summary>
-    public GpuTexture? Apply(long frame, in FxClock clock, GpuTexture input, int width, int height)
+    /// <summary>The effect's result for this frame at a size, drawn into <paramref name="list"/>, or null when it has none to give
+    /// (compiling or faulted: the chain passes its input on). The texture is stored bottom row first and stays this renderer's.</summary>
+    public GpuTexture? Apply(ICommandList list, long frame, in FxClock clock, GpuTexture input, int width, int height)
     {
         if (_kind is null || _slot is null || State == FxSlotState.Faulted)
             return null;
@@ -244,16 +243,16 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
                 Words = _lane.Mode == "render-thread" ? "compiling (on the render thread: one effect a frame)" : "compiling";
                 return null;
             }
-            if (_entry.Program is null)
+            if (_entry.Layout is null)
             {
-                var issues = _source!.LineMap.Read(_entry.Error, vertex: _entry.Error?.Contains("(vertex)", StringComparison.Ordinal) ?? false);
+                var issues = _source!.LineMap.Read(_entry.Error, vertex: _entry.Stage == "vertex");
                 Fault(issues.Length > 0 ? Line(issues[0]) : _entry.Error ?? "the program did not build");
                 return null;
             }
         }
         var entry = _entry;
         entry.LastUsed = frame;
-        var program = entry.Program!;
+        var layout = entry.Layout!;
         _renderW = width;
         _renderH = height;
         for (var i = 0; i < _passes.Length; i++)
@@ -261,25 +260,27 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
             var w = _widths[i].Evaluate(this, width, out _);
             var h = _heights[i].Evaluate(this, height, out _);
             _sizes[i] = (w, h);
-            Ensure(_passBuffers[i], w, h);
+            Ensure(list, _passBuffers[i], w, h);
         }
-        _device.SetBlend(BlendMode.Opaque);
         for (var i = 0; i < _passes.Length; i++)
         {
             var buffer = _passBuffers[i];
             var (w, h) = _sizes[i];
-            _device.BindTarget(buffer.Back!);
-            program.SetInt("PASSINDEX", i);
-            program.Set("RENDERSIZE", w, h);
-            program.Set("TIME", clock.Time);
-            program.Set("TIMEDELTA", clock.TimeDelta);
-            program.SetInt("FRAMEINDEX", clock.FrameIndex);
-            program.Set("DATE", clock.Year, clock.Month, clock.Day, clock.DaySeconds);
-            for (var k = 0; k < _images.Length; k++)
-                BindImage(program, entry, k, _images[k], input);
-            foreach (var u in _uniforms)
-                SetUniform(program, u);
-            _device.DrawFullscreen(program);
+            using (list.Pass(buffer.Back!, PassDesc.Keep))
+            {
+                var draw = list.Draw(entry.Id, Drawn);
+                SetInt(draw, layout, "PASSINDEX", i);
+                Set(draw, layout, "RENDERSIZE", w, h);
+                Set(draw, layout, "TIME", clock.Time);
+                Set(draw, layout, "TIMEDELTA", clock.TimeDelta);
+                SetInt(draw, layout, "FRAMEINDEX", clock.FrameIndex);
+                Set(draw, layout, "DATE", clock.Year, clock.Month, clock.Day, clock.DaySeconds);
+                foreach (var image in _images)
+                    BindImage(draw, layout, entry, image, input);
+                foreach (var u in _uniforms)
+                    SetUniform(draw, layout, u);
+                draw.Fullscreen();
+            }
             buffer.Swap();
         }
         State = FxSlotState.Ok;
@@ -287,7 +288,34 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
         return _passBuffers[^1].Front!.Color;
     }
 
-    private void BindImage(ShaderProgram program, FxProgramEntry entry, int unit, ImageBinding image, GpuTexture input)
+    /// <summary>Every pass writes its buffer whole, opaque.</summary>
+    private static readonly DrawState Drawn = DrawState.Opaque;
+
+    private static void Set(DrawBuilder draw, ProgramLayout layout, string name, float x)
+    {
+        if (layout.TryConstant(name, out _))
+            draw.Set(name, x);
+    }
+
+    private static void Set(DrawBuilder draw, ProgramLayout layout, string name, float x, float y)
+    {
+        if (layout.TryConstant(name, out _))
+            draw.Set(name, x, y);
+    }
+
+    private static void Set(DrawBuilder draw, ProgramLayout layout, string name, float x, float y, float z, float w)
+    {
+        if (layout.TryConstant(name, out _))
+            draw.Set(name, x, y, z, w);
+    }
+
+    private static void SetInt(DrawBuilder draw, ProgramLayout layout, string name, int value)
+    {
+        if (layout.TryConstant(name, out _))
+            draw.SetInt(name, value);
+    }
+
+    private void BindImage(DrawBuilder draw, ProgramLayout layout, FxProgram entry, ImageBinding image, GpuTexture input)
     {
         GpuTexture texture;
         var flip = false;
@@ -312,58 +340,72 @@ internal sealed class IsfRenderer : IDisposable, IIsfVariables
                 texture = _black;
                 break;
         }
-        _device.BindSampler(program, image.Name, unit, texture);
-        program.Set(image.Size, texture.Width, texture.Height);
-        program.Set(image.Rect, 0, 0, 1, 1);
-        program.SetInt(image.Flip, flip ? 1 : 0);
+        if (layout.TryTexture(image.Name, out _))
+            draw.Texture(image.Name, texture);
+        Set(draw, layout, image.Size, texture.Width, texture.Height);
+        Set(draw, layout, image.Rect, 0, 0, 1, 1);
+        SetInt(draw, layout, image.Flip, flip ? 1 : 0);
     }
 
-    private static void SetUniform(ShaderProgram program, UniformBinding u)
+    private static void SetUniform(DrawBuilder draw, ProgramLayout layout, UniformBinding u)
     {
         var v = u.Value;
         switch (u.Type)
         {
             case IsfInputType.Float:
-                program.Set(u.Name, v[0]);
+                Set(draw, layout, u.Name, v[0]);
                 break;
             case IsfInputType.Point2D:
-                program.Set(u.Name, v[0], v[1]);
+                Set(draw, layout, u.Name, v[0], v[1]);
                 break;
             case IsfInputType.Color:
-                program.Set(u.Name, v[0], v[1], v[2], v[3]);
+                Set(draw, layout, u.Name, v[0], v[1], v[2], v[3]);
                 break;
             default:
-                program.SetInt(u.Name, (int)v[0]);
+                SetInt(draw, layout, u.Name, (int)v[0]);
                 break;
         }
     }
 
     /// <summary>A buffer at a size: made (both sides, cleared) when it has none or its size changed — a persistent buffer starts
     /// again from transparent black.</summary>
-    private void Ensure(Buffer b, int w, int h)
+    private void Ensure(ICommandList list, Buffer b, int w, int h)
     {
         if (b.Front is not null && b.Width == w && b.Height == h)
             return;
         b.Dispose();
-        var format = BufferFormat(_device.Caps, b.Float);
-        b.Front = _device.CreateRenderTarget(w, h, format);
-        b.Back = b.Single ? b.Front : _device.CreateRenderTarget(w, h, format);
+        var format = BufferFormat(_device.Features, b.Float);
+        b.Front = _device.CreateTarget(new TargetDesc(w, h, format));
+        b.Back = b.Single ? b.Front : _device.CreateTarget(new TargetDesc(w, h, format));
         b.Width = w;
         b.Height = h;
-        _device.BindTarget(b.Front);
-        _device.Clear(0, 0, 0, 0);
-        _device.BindTarget(b.Back);
-        _device.Clear(0, 0, 0, 0);
+        Clear(list, b.Front);
+        if (!ReferenceEquals(b.Back, b.Front))
+            Clear(list, b.Back);
     }
 
-    /// <summary>A pass buffer's format: 32-bit float when the file asks for FLOAT, else 16-bit float, each where this context
-    /// can render to it (an ES context may not), else 8-bit.</summary>
-    internal static TextureFormat BufferFormat(GlCaps caps, bool wantsFloat)
+    private static void Clear(ICommandList list, RenderTarget target)
     {
-        if (wantsFloat && caps.SupportsRenderTarget(TextureFormat.Rgba32F))
-            return TextureFormat.Rgba32F;
-        return caps.SupportsRenderTarget(TextureFormat.Rgba16F) ? TextureFormat.Rgba16F : TextureFormat.Rgba8;
+        using (list.Pass(target, Transparent))
+        {
+            // The pass's clear is the whole of it.
+        }
     }
+
+    private static readonly PassDesc Transparent = FrameLists.Clear(0, 0, 0, 0);
+
+    /// <summary>A pass buffer's format: 32-bit float when the file asks for FLOAT, else 16-bit float, each where this device can
+    /// render to it (an ES context may not), else 8-bit.</summary>
+    internal static TextureFormat BufferFormat(GpuFeatures features, bool wantsFloat)
+    {
+        ArgumentNullException.ThrowIfNull(features);
+        if (wantsFloat && Renders(features, TextureFormat.Rgba32F))
+            return TextureFormat.Rgba32F;
+        return Renders(features, TextureFormat.Rgba16F) ? TextureFormat.Rgba16F : TextureFormat.Rgba8;
+    }
+
+    internal static bool Renders(GpuFeatures features, TextureFormat format) =>
+        features.Formats.TryGetValue(format, out var f) && f.Target;
 
     /// <summary>A fault met while drawing (a target this context cannot make, a driver's refusal): the slot shows its input with
     /// the words and is not drawn again until its record changes, so a failing draw is never retried every frame.</summary>

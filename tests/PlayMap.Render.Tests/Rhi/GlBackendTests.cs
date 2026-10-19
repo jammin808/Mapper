@@ -66,7 +66,7 @@ public sealed class GlBackendTests(GlFixture gl)
             Assert.Equal(c.Device.BlockFormats, b.Features.Blocks);
             Assert.Equal(caps.IsCore, b.Features.Timers);
             Assert.False(b.Features.SharedHandles);
-            Assert.Equal(b.Features.Timers ? 16 : 0, b.Timers.Slots);
+            Assert.Equal(b.Features.Timers ? GlTimers.SlotCount : 0, b.Timers.Slots);
             Assert.StartsWith("0 · " + c.Device.Renderer, b.Pipelines.Key, StringComparison.Ordinal);
         });
     }
@@ -353,7 +353,7 @@ public sealed class GlBackendTests(GlFixture gl)
                 list.EndPass();
                 list.Timestamp(1);
             });
-            Assert.Throws<ArgumentOutOfRangeException>(() => b.GlTimers.Stamp(frame, 16));
+            Assert.Throws<ArgumentOutOfRangeException>(() => b.GlTimers.Stamp(frame, GlTimers.SlotCount));
             b.WaitFor(done);
             if (!b.Features.Timers)
             {

@@ -6,8 +6,8 @@ using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Effects;
 
-/// <summary>Slots, chains and pictures for the effect tests, and a chain run until its programs are in (the lane compiles on its
-/// own context; each try is one renderer frame).</summary>
+/// <summary>Slots, chains and pictures for the effect tests, and a chain run until its programs are in (the device's lane compiles
+/// on its own context; each try is one frame of the device's list, numbered by the test's own count).</summary>
 internal static class FxRig
 {
     public static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
@@ -36,7 +36,7 @@ internal static class FxRig
 
     /// <summary>Applies a chain frame after frame until no slot is compiling, and answers the last result read back (BGRA, top row
     /// first). <paramref name="frame"/> counts the frames drawn.</summary>
-    public static byte[] Run(GlDevice d, FxCompileLane lane, FxChainRunner runner, Project project, FxChain chain, GpuTexture input,
+    public static byte[] Run(GlDevice d, FxLane lane, FxChainRunner runner, Project project, FxChain chain, GpuTexture input,
         ref long frame, long leaderNs = 1_000_000_000, string owner = "op_test")
     {
         var waited = Stopwatch.StartNew();
@@ -50,16 +50,34 @@ internal static class FxRig
         }
     }
 
-    /// <summary>One renderer frame of a chain: the lane collected, the runner begun, the chain applied.</summary>
-    public static GpuTexture Step(GlDevice d, FxCompileLane lane, FxChainRunner runner, Project project, FxChain chain, GpuTexture input,
+    /// <summary>One renderer frame of a chain: the lane collected, the runner begun, the chain applied, all in one frame of the
+    /// device's list.</summary>
+    public static GpuTexture Step(GlDevice d, FxLane lane, FxChainRunner runner, Project project, FxChain chain, GpuTexture input,
         ref long frame, long leaderNs, string owner = "op_test")
     {
-        frame++;
-        lane.Collect(frame);
-        runner.BeginFrame(frame, project);
-        var result = runner.Apply(chain, owner, input, new FxFrame(frame, leaderNs, 60, 1_760_000_000_000, 0));
-        runner.EndFrame();
-        return result;
+        var at = ++frame;
+        return Frame(d.Backend, at, list =>
+        {
+            lane.Collect(at, list);
+            runner.BeginFrame(at, project);
+            var result = runner.Apply(list, chain, owner, input, new FxFrame(at, leaderNs, 60, 1_760_000_000_000, 0));
+            runner.EndFrame();
+            return result;
+        });
+    }
+
+    /// <summary>One frame of the device's list numbered <paramref name="frame"/>: begin, the body, submit.</summary>
+    public static T Frame<T>(GlBackend backend, long frame, Func<ICommandList, T> body)
+    {
+        var list = backend.BeginFrame(frame);
+        try
+        {
+            return body(list);
+        }
+        finally
+        {
+            backend.Submit(list);
+        }
     }
 
     public static FxSlotLive Live(PlayMap.Render.Engine.RenderEngine engine, FxPass fx, string slotId) =>

@@ -169,6 +169,9 @@ internal sealed class GlPipelineCache : IPipelineCache
 
     public long RenderThreadMakes => Interlocked.Read(ref _renderThreadMakes);
 
+    /// <summary>A product program's link is on the compile lane now (render thread).</summary>
+    internal bool Linking => _linking is not null;
+
     public bool TryGet(in PipelineKey key, [NotNullWhen(true)] out GpuPipeline? pipeline)
     {
         if (_made.TryGetValue(key, out var made))

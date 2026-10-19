@@ -52,8 +52,8 @@ internal sealed class GlUploadRing : IUploadRing, IDisposable
 /// Threading: the render thread (the GL context's).</summary>
 internal sealed class GlTimers : IGpuTimers, IDisposable
 {
-    /// <summary>Timestamps a frame may write.</summary>
-    public const int SlotCount = 16;
+    /// <summary>Timestamps a frame may write: two a span, for every output, generator and effect a frame times.</summary>
+    public const int SlotCount = 64;
 
     /// <summary>Frames whose timestamps are kept to be read.</summary>
     public const int Depth = 4;

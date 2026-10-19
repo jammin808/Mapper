@@ -18,8 +18,8 @@ public sealed class FxLibraryTests(GlFixture gl)
         return gl.Run(c =>
         {
             var d = c.Device;
-            using var lane = new FxCompileLane(c);
-            using var runner = new FxChainRunner(d, lane);
+            using var lane = new FxLane(c.Backend);
+            using var runner = new FxChainRunner(c.Backend, lane);
             using var picture = FxRig.Picture(d, W, H, input);
             long frame = 0;
             var px = FxRig.Run(d, lane, runner, Show, FxRig.Chain(FxRig.Slot(kind, ps)), picture, ref frame);
@@ -133,8 +133,8 @@ public sealed class FxLibraryTests(GlFixture gl)
         gl.Run(c =>
         {
             var d = c.Device;
-            using var lane = new FxCompileLane(c);
-            using var runner = new FxChainRunner(d, lane);
+            using var lane = new FxLane(c.Backend);
+            using var runner = new FxChainRunner(c.Backend, lane);
             using var white = FxRig.Picture(d, W, H, (_, _) => (255, 255, 255));
             using var black = FxRig.Picture(d, W, H, (_, _) => (0, 0, 0));
             var chain = FxRig.Chain(FxRig.Slot("fx.feedback", ParamSet.Empty.With("decay", 0.5)));

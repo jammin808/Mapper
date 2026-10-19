@@ -4,7 +4,9 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using PlayMap.Core.Gpu;
+using PlayMap.Core.Effects;
 using PlayMap.Core.Gpu.Programs;
+using PlayMap.Render.Effects;
 using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Gl;
@@ -23,7 +25,7 @@ namespace PlayMap.Render.Gl;
 /// Threading: the device's thread (the render thread) for everything but <see cref="IsComplete"/>, <see cref="CreateProgramAsync"/>,
 /// <see cref="ReleaseProgram"/>, the pipeline cache's warm-up and its counts, which any thread may call. A user program and a
 /// warm-up are made at the frames' starts (<see cref="BeginFrame"/>): a GL context is its thread's.</summary>
-public sealed class GlBackend : IGpuDevice
+public sealed class GlBackend : IGpuDevice, IProgramLane
 {
     private static readonly string[] SoftwareRenderers =
         ["llvmpipe", "softpipe", "swrast", "SwiftShader", "lavapipe", "Microsoft Basic Render", "WARP"];
@@ -54,6 +56,8 @@ public sealed class GlBackend : IGpuDevice
     private readonly ConcurrentQueue<ProgramId> _releases = new();
     private readonly List<ProgramId> _releasing = [];
     private FxCompileLane? _lane;
+    private bool _laneShared = true;
+    private Action<string>? _beforeMake;
     private bool _disposed;
 
     internal GlBackend(GlDevice device)
@@ -159,10 +163,20 @@ public sealed class GlBackend : IGpuDevice
         return texture;
     }
 
+    /// <summary>A target of the shape asked; one the context refuses (an incomplete framebuffer) throws with words, the device's state
+    /// cache forgotten first (the make bound what it made).</summary>
     public RenderTarget CreateTarget(in TargetDesc desc)
     {
         ThrowIfDisposed();
-        return _device.CreateTarget(desc);
+        try
+        {
+            return _device.CreateTarget(desc);
+        }
+        catch (Exception)
+        {
+            _device.InvalidateState();
+            throw;
+        }
     }
 
     /// <summary>A buffer of the uses asked (an index buffer binds as GL's element array, every other as an array buffer), its store
@@ -292,7 +306,7 @@ public sealed class GlBackend : IGpuDevice
         }
         if (_lane is null)
             return;
-        _lane.Collect(frame);
+        _lane.Collect();
         for (var i = _making.Count - 1; i >= 0; i--)
         {
             var make = _making[i];
@@ -304,7 +318,43 @@ public sealed class GlBackend : IGpuDevice
     }
 
     private FxCompileLane MakeLane() =>
-        new(_device.Context ?? throw new InvalidOperationException("This GL device has no render context to compile user programs beside."));
+        new(_device.Context ?? throw new InvalidOperationException("This GL device has no render context to compile user programs beside."),
+            _laneShared)
+        {
+            BeforeCompile = _beforeMake,
+        };
+
+    // ---- the lane, as the effects report it ----
+
+    string IProgramLane.LaneMode => (_lane ??= MakeLane()).Mode;
+
+    string IProgramLane.LaneWords => (_lane ??= MakeLane()).Words;
+
+    /// <summary>Desktop GLSL 3.30 on a core context; any other is an ES one.</summary>
+    IsfDialect IProgramLane.Dialect => _device.Dialect == GlDialect.Core330 ? IsfDialect.Glsl330 : IsfDialect.Es300;
+
+    Action<string>? IProgramLane.BeforeMake
+    {
+        get => _beforeMake;
+        set
+        {
+            _beforeMake = value;
+            if (_lane is not null)
+                _lane.BeforeCompile = value;
+        }
+    }
+
+    /// <summary>The lane of the kind asked: made now if there is none; one of the other kind made again while nothing is in flight on
+    /// it (a context that cannot make a second context runs the lane on the render thread whatever is asked).</summary>
+    void IProgramLane.UseLane(bool sharedContext)
+    {
+        ThrowIfDisposed();
+        if (_lane is not null && (_laneShared == sharedContext || !_makes.IsEmpty || _making.Count > 0 || _pipelines.Linking))
+            return;
+        _lane?.Dispose();
+        _laneShared = sharedContext;
+        _lane = MakeLane();
+    }
 
     private void Adopt(Make make, FxMade made)
     {
@@ -407,11 +457,14 @@ public sealed class GlBackend : IGpuDevice
         return 0;
     }
 
+    /// <summary>What a context of these caps does with each format: sampled, target, blendable.</summary>
+    internal static FrozenDictionary<TextureFormat, FormatSupport> FormatsOf(GlCaps caps) =>
+        Enum.GetValues<TextureFormat>().ToFrozenDictionary(f => f,
+            f => new FormatSupport(caps.Supports(f), caps.SupportsRenderTarget(f), caps.SupportsRenderTarget(f, blended: true)));
+
     private static GpuFeatures FeaturesOf(GlDevice device, bool timers)
     {
-        var caps = device.Caps;
-        var formats = Enum.GetValues<TextureFormat>().ToFrozenDictionary(f => f,
-            f => new FormatSupport(caps.Supports(f), caps.SupportsRenderTarget(f), caps.SupportsRenderTarget(f, blended: true)));
+        var formats = FormatsOf(device.Caps);
         var words = ImmutableArray.CreateBuilder<string>();
         if (!timers)
             words.Add("no timestamp queries on this context (ES 3.0): GPU times read nothing");

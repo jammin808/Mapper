@@ -59,7 +59,7 @@ public sealed class RenderEngine : IDisposable
         public PresentClock Clock = new(60, measured: false, PresentPath.Offscreen);
         /// <summary>The refresh an offscreen output is measured against (its configured rate).</summary>
         public double OffscreenHz;
-        public GpuTimer? Timer;
+        public GpuSpanTimer? Timer;
         public bool HasPicture;
         /// <summary>The picture up is a raw frame, not the show's: a freeze has nothing of the show to hold.</summary>
         public bool Raw;
@@ -85,7 +85,6 @@ public sealed class RenderEngine : IDisposable
             Ring.Dispose();
             Final?.Dispose();
             Projector?.Dispose();
-            Timer?.Dispose();
             IdentifyCard?.Dispose();
         }
     }
@@ -371,9 +370,9 @@ public sealed class RenderEngine : IDisposable
             else if (!((inputs.Freeze || (inputs.Levels?.Hold(output.Id, inputs.LeaderNs) ?? false)) && st.HasPicture && !st.Raw))
             {
                 if (_options.GpuTiming)
-                    (st.Timer ??= new GpuTimer(_services.Gl)).Begin();
+                    (st.Timer ??= new GpuSpanTimer(_device)).Begin(list, Frame);
                 DrawOutput(list, output, i, st, in inputs, in passFrame);
-                st.Timer?.End();
+                st.Timer?.End(list);
                 st.HasPicture = true;
                 st.Raw = false;
             }
@@ -506,10 +505,9 @@ public sealed class RenderEngine : IDisposable
         }
         catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
-            // A source that could not be drawn this frame shows black; the generators keep their own faults. The GL device forgets
-            // its cached state: what threw may have left the context unlike it.
+            // A source that could not be drawn this frame shows black; the generators keep their own faults. A device call that threw
+            // part way has let go of what it assumed of its state, so what follows sets its own.
             picture = _services.Black;
-            _services.Gl.InvalidateState();
         }
 
         foreach (var pass in _passes)
@@ -564,7 +562,6 @@ public sealed class RenderEngine : IDisposable
         catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
             picture = _services.Black;
-            _services.Gl.InvalidateState();
         }
         _outputStage.Draw(list, st.Final!, new OutputStageInputs(picture, new Vector4(0, 0, 1, 1), _caches.Warp(null), null, null, null,
             ColorTrim.Neutral, 0, 0f, Frame));

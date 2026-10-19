@@ -1,7 +1,7 @@
 using PlayMap.Core.Effects;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gl;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Effects;
 
@@ -9,12 +9,12 @@ namespace PlayMap.Render.Effects;
 /// time (for DATE), and the instant the owner's time counts from (an item's start; 0 for the leader's epoch).</summary>
 public readonly record struct FxFrame(long Frame, long LeaderNs, double FrameRate, long UnixMs, long OwnerOriginNs);
 
-/// <summary>Runs effect chains on the render thread: for each slot in order, skips it when bypassed or at mix 0 (the input passes
-/// untouched — bit-exact), when its kind is missing, while its program compiles or once it faulted (it shows its input); otherwise
-/// draws the slot's effect at its scale and mixes it over its input into one of the owner's two targets (blend and mix), so
-/// every slot's result is a top-row-first picture at the input's size. One renderer per slot, made on first use, configured
-/// again when the slot's record changes, dropped after <see cref="IdleFrames"/> frames unused. It allocates nothing per frame
-/// once warm, and nothing it draws throws through a frame.</summary>
+/// <summary>Runs effect chains on the render thread, into the frame's list: for each slot in order, skips it when bypassed or at mix 0
+/// (the input passes untouched — bit-exact), when its kind is missing, while its program compiles or once it faulted (it shows its
+/// input); otherwise draws the slot's effect at its scale and mixes it over its input into one of the owner's two targets (blend and
+/// mix), so every slot's result is a top-row-first picture at the input's size. One renderer per slot, made on first use, configured
+/// again when the slot's record changes, dropped after <see cref="IdleFrames"/> frames unused; each slot's GPU time is measured
+/// between two timestamps. It allocates nothing per frame once warm, and nothing it draws throws through a frame.</summary>
 public sealed class FxChainRunner : IDisposable
 {
     public const int IdleFrames = 120;
@@ -28,13 +28,13 @@ public sealed class FxChainRunner : IDisposable
         public GpuTexture? Result;
         public long LastUsed;
 
-        public RenderTarget Next(GlDevice device, GpuTexture current, int w, int h, TextureFormat format)
+        public RenderTarget Next(IGpuDevice device, GpuTexture current, int w, int h, TextureFormat format)
         {
             if (A is null || A.Width != w || A.Height != h || A.Format != format)
             {
                 Dispose();
-                A = device.CreateRenderTarget(w, h, format);
-                B = device.CreateRenderTarget(w, h, format);
+                A = device.CreateTarget(new TargetDesc(w, h, format));
+                B = device.CreateTarget(new TargetDesc(w, h, format));
             }
             return ReferenceEquals(current, A.Color) ? B! : A;
         }
@@ -47,24 +47,24 @@ public sealed class FxChainRunner : IDisposable
         }
     }
 
-    private sealed class SlotState(IsfRenderer renderer, FxTimer timer, FxSlotLive live) : IDisposable
+    private sealed class SlotState(IsfRenderer renderer, GpuSpanTimer timer, FxSlotLive live) : IDisposable
     {
         public IsfRenderer Renderer { get; } = renderer;
-        public FxTimer Timer { get; } = timer;
+        public GpuSpanTimer Timer { get; } = timer;
         public FxSlotLive Live { get; } = live;
         public FxSlot? Slot;
         public FxCatalog? Catalog;
         public long LastUsed;
 
-        public void Dispose()
-        {
-            Renderer.Dispose();
-            Timer.Dispose();
-        }
+        public void Dispose() => Renderer.Dispose();
     }
 
-    private readonly GlDevice _device;
-    private readonly FxCompileLane _lane;
+    /// <summary>The mix of a slot's result over its input writes the owner's target whole, opaque.</summary>
+    private static readonly DrawState Mixed = DrawState.Opaque;
+
+    private readonly IGpuDevice _device;
+    private readonly FxLane _lane;
+    private readonly ProgramId _mix;
     private readonly Dictionary<string, Owner> _owners = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SlotState> _slots = new(StringComparer.Ordinal);
     private readonly List<string> _stale = [];
@@ -74,22 +74,19 @@ public sealed class FxChainRunner : IDisposable
     private FxCatalog _catalog = FxCatalog.Builtin;
     private long _frame;
 
-    public FxChainRunner(GlDevice device, FxCompileLane lane)
+    public FxChainRunner(IGpuDevice device, FxLane lane)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(lane);
         _device = device;
         _lane = lane;
-        _dialect = DialectOf(device.Dialect);
-        _black = device.CreateTexture(1, 1, TextureFormat.Rgba8);
-        device.Upload(_black, [0, 0, 0, 0], UploadFormat.Rgba8);
-        _grey = device.CreateTexture(1, 1, TextureFormat.Rgba8);
-        device.Upload(_grey, [128, 128, 128, 255], UploadFormat.Rgba8);
+        _dialect = lane.Dialect;
+        _mix = device.Programs.Id("fxmix");
+        _black = device.CreateTexture(new TextureDesc(1, 1, TextureFormat.Rgba8, FrameLists.Uploaded));
+        _grey = device.CreateTexture(new TextureDesc(1, 1, TextureFormat.Rgba8, FrameLists.Uploaded));
     }
 
-    /// <summary>The ISF dialect a GL dialect compiles (desktop GLSL 3.30; any other context is an ES one).</summary>
-    public static IsfDialect DialectOf(GlDialect dialect) =>
-        GlDialects.Word(dialect) == "core330" ? IsfDialect.Glsl330 : IsfDialect.Es300;
+    private bool _filled;
 
     public FxStats Stats { get; } = new();
 
@@ -107,13 +104,21 @@ public sealed class FxChainRunner : IDisposable
         Stats.SetFrame(frame);
     }
 
-    /// <summary>A chain over a picture: the last slot's result, or the input itself when no slot changed it. Render thread.</summary>
-    public GpuTexture Apply(FxChain chain, string ownerId, GpuTexture input, in FxFrame frame)
+    /// <summary>A chain over a picture, drawn into the frame's <paramref name="list"/>: the last slot's result, or the input itself
+    /// when no slot changed it. Render thread.</summary>
+    public GpuTexture Apply(ICommandList list, FxChain chain, string ownerId, GpuTexture input, in FxFrame frame)
     {
+        ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(chain);
         ArgumentNullException.ThrowIfNull(input);
         if (chain.IsEmpty)
             return input;
+        if (!_filled)
+        {
+            _filled = true;
+            list.Upload(_black, [0, 0, 0, 0], UploadFormat.Rgba8);
+            list.Upload(_grey, [128, 128, 128, 255], UploadFormat.Rgba8);
+        }
         if (!_owners.TryGetValue(ownerId, out var owner))
             _owners[ownerId] = owner = new Owner();
         owner.LastUsed = _frame;
@@ -122,18 +127,20 @@ public sealed class FxChainRunner : IDisposable
         var current = input;
         var w = input.Width;
         var h = input.Height;
-        var format = input.Format is TextureFormat.Rgba8 or TextureFormat.Rgba16F or TextureFormat.Rgba32F && _device.Caps.SupportsRenderTarget(input.Format)
+        var features = _device.Features;
+        var format = input.Format is TextureFormat.Rgba8 or TextureFormat.Rgba16F or TextureFormat.Rgba32F && IsfRenderer.Renders(features, input.Format)
             ? input.Format
-            : _device.Caps.SupportsRenderTarget(TextureFormat.Rgba16F) ? TextureFormat.Rgba16F : TextureFormat.Rgba8;
+            : IsfRenderer.Renders(features, TextureFormat.Rgba16F) ? TextureFormat.Rgba16F : TextureFormat.Rgba8;
         foreach (var slot in chain.Slots)
-            current = ApplySlot(slot, owner, current, w, h, format, in frame);
+            current = ApplySlot(list, slot, owner, current, w, h, format, in frame);
         owner.Frame = _frame;
         owner.Input = input;
         owner.Result = current;
         return current;
     }
 
-    private GpuTexture ApplySlot(FxSlot slot, Owner owner, GpuTexture current, int w, int h, TextureFormat format, in FxFrame frame)
+    private GpuTexture ApplySlot(ICommandList list, FxSlot slot, Owner owner, GpuTexture current, int w, int h, TextureFormat format,
+        in FxFrame frame)
     {
         if (slot.Bypass || slot.Mix <= 0)
         {
@@ -152,7 +159,7 @@ public sealed class FxChainRunner : IDisposable
         }
         if (!_slots.TryGetValue(slot.Id, out var state))
         {
-            state = new SlotState(new IsfRenderer(_device, _lane, _black, _grey), new FxTimer(_device), Stats.For(slot.Id));
+            state = new SlotState(new IsfRenderer(_device, _lane, _black, _grey), new GpuSpanTimer(_device), Stats.For(slot.Id));
             _slots[slot.Id] = state;
         }
         state.LastUsed = _frame;
@@ -170,8 +177,8 @@ public sealed class FxChainRunner : IDisposable
             var eh = Math.Max(1, (int)Math.Round(h * scale));
             var origin = slot.OriginNs != 0 ? slot.OriginNs : frame.OwnerOriginNs;
             var clock = FxTime.At(frame.LeaderNs, origin, frame.FrameRate, frame.UnixMs);
-            state.Timer.Begin();
-            var fx = state.Renderer.Apply(_frame, in clock, current, ew, eh);
+            state.Timer.Begin(list, _frame);
+            var fx = state.Renderer.Apply(list, _frame, in clock, current, ew, eh);
             if (fx is null)
             {
                 state.Timer.Cancel();
@@ -179,25 +186,23 @@ public sealed class FxChainRunner : IDisposable
                 return current;
             }
             var target = owner.Next(_device, current, w, h, format);
-            _device.BindTarget(target);
-            _device.SetBlend(BlendMode.Opaque);
-            var mix = _device.Program("fxmix");
-            _device.BindSampler(mix, "uInput", 0, current);
-            _device.BindSampler(mix, "uFx", 1, fx);
-            mix.SetInt("uFxBottomUp", 1);
-            mix.SetInt("uBlend", (int)slot.Blend);
-            mix.Set("uMix", (float)Math.Clamp(slot.Mix, 0, 1));
-            _device.DrawFullscreen(mix);
-            state.Timer.End();
+            using (list.Pass(target, PassDesc.Keep))
+                list.Draw(_mix, Mixed)
+                    .Texture("uInput", current)
+                    .Texture("uFx", fx)
+                    .SetInt("uFxBottomUp", 1)
+                    .SetInt("uBlend", (int)slot.Blend)
+                    .Set("uMix", (float)Math.Clamp(slot.Mix, 0, 1))
+                    .Fullscreen();
+            state.Timer.End(list);
             state.Live.Gpu(state.Timer.LastNs);
             state.Live.Set(FxSlotState.Ok, clock.Reanchor ? "TIME is past float precision: FX RETIME re-anchors it" : "", _frame);
             return target.Color;
         }
         // A slot that cannot draw shows its input; the next slot and the output go on.
-        catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
             state.Timer.Cancel();
-            _device.InvalidateState();
             state.Renderer.Fail(ex.Message);
             state.Live.Set(FxSlotState.Faulted, state.Renderer.Words, _frame);
             return current;

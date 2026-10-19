@@ -1,5 +1,6 @@
 using PlayMap.Render.Effects;
 using PlayMap.Render.Gl;
+using PlayMap.Render.Tests.Rhi;
 
 namespace PlayMap.Render.Tests.Effects;
 
@@ -27,10 +28,12 @@ public sealed class FxLaneContextTests
                 else
                     Assert.Equal((OperatingSystem.IsWindows() ? "wgl" : "cocoa", ""), (c.Api, c.Words));
                 Assert.Equal(c.Api == "egl", c.EglWindows);
-                using var lane = new FxCompileLane(c);
+                using var lane = new FxLane(c.Backend);
                 Assert.Equal("shared-context", lane.Mode);
                 Assert.Equal("", lane.Words);
-                var report = lane.CheckAsync("solid", Vertex, Fragment).WaitAsync(TimeSpan.FromSeconds(60)).GetAwaiter().GetResult();
+                var check = lane.CheckAsync("solid", Vertex, Fragment);
+                Assert.True(BackendFrames.Until(c.Backend, () => check.IsCompleted), "the check never came back");
+                var report = check.GetAwaiter().GetResult();
                 Assert.True(report.Ok, report.Error);
                 Assert.Equal("shared-context", report.Lane);
                 Assert.Empty(c.Device.TakeErrors());

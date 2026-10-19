@@ -8,7 +8,8 @@ namespace PlayMap.Render.Gl;
 /// (GL's clear ignores the viewport). A draw applies its state through the device's cache (blend, depth, cull, polygon mode only
 /// where they differ), uses its program, sets every constant of the program's layout from the draw's block (an unset one is zero)
 /// and binds each texture to the unit of its slot. Barriers, waits, aliasing and discards are nothing on GL: one context orders its
-/// own work, and transients are pooled, never aliased.
+/// own work, and transients are pooled, never aliased. A call that throws part way leaves the context unlike the device's cache, so
+/// the cache is forgotten before the exception goes on: the next call sets every state it needs again.
 ///
 /// Threading: the render thread, between <see cref="GlBackend.BeginFrame"/> and <see cref="GlBackend.Submit"/>. Allocation-free
 /// once every pipeline it draws is made.</summary>
@@ -68,11 +69,19 @@ internal sealed class GlCommandList : ICommandList, IDrawSink
         RequireOpen();
         if (_target is not null)
             throw new InvalidOperationException("A pass is open: EndPass comes before the next BeginPass.");
-        _device.BindTarget(target);
-        if (pass.Width > 0 && pass.Height > 0)
-            _device.SetViewport(pass.X, pass.Y, pass.Width, pass.Height);
-        if (pass.Load == LoadOp.Clear)
-            _device.ClearTarget(pass.Clear, target.HasDepth, pass.ClearDepth);
+        try
+        {
+            _device.BindTarget(target);
+            if (pass.Width > 0 && pass.Height > 0)
+                _device.SetViewport(pass.X, pass.Y, pass.Width, pass.Height);
+            if (pass.Load == LoadOp.Clear)
+                _device.ClearTarget(pass.Clear, target.HasDepth, pass.ClearDepth);
+        }
+        catch (Exception)
+        {
+            _device.InvalidateState();
+            throw;
+        }
         _target = target;
     }
 
@@ -100,6 +109,19 @@ internal sealed class GlCommandList : ICommandList, IDrawSink
     {
         RequireOpen();
         var target = _target ?? throw new InvalidOperationException("A draw is inside a pass: BeginPass names the target it draws into.");
+        try
+        {
+            Issue(call, constants, textures, target);
+        }
+        catch (Exception)
+        {
+            _device.InvalidateState();
+            throw;
+        }
+    }
+
+    private void Issue(in DrawCall call, ReadOnlySpan<byte> constants, ReadOnlySpan<GpuTexture?> textures, RenderTarget target)
+    {
         var pipeline = _backend.PipelineCache.Resolve(PipelineKey.For(call.Program, call.State, target));
         var program = pipeline.Program;
         var state = call.State;
@@ -139,19 +161,43 @@ internal sealed class GlCommandList : ICommandList, IDrawSink
     public void Copy(GpuTexture source, GpuTexture dest)
     {
         RequireOutsidePass("A copy");
-        _device.CopyTexture(source, dest);
+        try
+        {
+            _device.CopyTexture(source, dest);
+        }
+        catch (Exception)
+        {
+            _device.InvalidateState();
+            throw;
+        }
     }
 
     public void Upload(GpuTexture dest, ReadOnlySpan<byte> pixels, UploadFormat format, int rowPixels = 0)
     {
         RequireOpen();
-        _device.Upload(dest, pixels, format, rowPixels);
+        try
+        {
+            _device.Upload(dest, pixels, format, rowPixels);
+        }
+        catch (Exception)
+        {
+            _device.InvalidateState();
+            throw;
+        }
     }
 
     public void UploadCompressed(GpuTexture dest, nint blocks, int bytes)
     {
         RequireOpen();
-        _device.UploadCompressed(dest, blocks, bytes);
+        try
+        {
+            _device.UploadCompressed(dest, blocks, bytes);
+        }
+        catch (Exception)
+        {
+            _device.InvalidateState();
+            throw;
+        }
     }
 
     /// <summary>Nothing on GL: the context orders reads after the writes before them.</summary>
