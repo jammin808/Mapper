@@ -75,7 +75,7 @@
         <!-- The show cluster never shrinks: the show strip (Ready, ARM, PANIC), then Blackout. -->
         <StackPanel ui:TopBarPanel.Slot="Right" ui:TopBarPanel.Second="True" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6" x:Name="ShowCluster">
           <ContentControl x:Name="ShowSlot" Content="{Binding ShowSlot}" />
-          <Button x:Name="BlackoutButton" Classes="blackout" Classes.on="{Binding IsBlackout}"
+          <Button x:Name="BlackoutButton" Classes="blackout" Classes.on="{Binding IsBlackout}" Classes.bindable="{Binding Blackout.IsBindable}" ui:MapAnythingTouch.Action="{Binding Blackout}"
                   Command="{Binding Blackout.Command}" ToolTip.Tip="{Binding Blackout.Tip}" VerticalAlignment="Center"
                   ui:DeskMenu.Actions="{Binding BlackoutMenu}">
             <StackPanel Orientation="Horizontal" Spacing="8">

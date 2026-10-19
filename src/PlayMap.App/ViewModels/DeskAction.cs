@@ -40,18 +40,13 @@ public sealed class DeskAction : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(session);
         DeskAction? self = null;
+        // The command always sends the line itself, from every door (a press, a shortcut, an Esc rung, a menu entry); Map anything's
+        // touch is the window's (it never reaches the command).
         var command = new AsyncCommand(async ct =>
         {
             var line = verb();
             if (line is null)
                 return;
-            if (session.MapAnything && Bindable(line))
-            {
-                // Map anything: the touch learns this control's line, once.
-                session.MapAnything = false;
-                await session.SendAsync("BIND LEARN " + line, ct);
-                return;
-            }
             await session.SendAsync(line, ct);
         }, () => self?.IsEnabled ?? true, ex => session.Notify(ToastKind.Fault, ex.Message), everyPress);
         self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled) { _session = session, _whyNot = whyNot, _isSend = true };
@@ -70,8 +65,8 @@ public sealed class DeskAction : ObservableObject
         return self;
     }
 
-    /// <summary>A desk-only action: no verb.</summary>
-    public static DeskAction Local(string id, string label, Action run, Func<bool>? isChecked = null, Func<bool>? isEnabled = null)
+    /// <summary>A desk-only action: no verb. <paramref name="whyNot"/> says why its own condition holds it greyed, in its tooltip.</summary>
+    public static DeskAction Local(string id, string label, Action run, Func<bool>? isChecked = null, Func<bool>? isEnabled = null, Func<string?>? whyNot = null)
     {
         DeskAction? self = null;
         var command = new AsyncCommand(_ =>
@@ -79,7 +74,7 @@ public sealed class DeskAction : ObservableObject
             run();
             return Task.CompletedTask;
         }, () => self?.IsEnabled ?? true);
-        self = new DeskAction(id, label, () => null, command, null, isChecked, isEnabled);
+        self = new DeskAction(id, label, () => null, command, null, isChecked, isEnabled) { _whyNot = whyNot };
         return self;
     }
 
@@ -185,17 +180,42 @@ public sealed class DeskAction : ObservableObject
     /// draws the guard's red border (a line that is no GO never does).</summary>
     public bool IsGoGuarded => _session?.GoGuard is { } g && g.IsOpen(Verb);
 
-    /// <summary>True while Map anything is on and this action sends a line a binding can carry: the control is highlighted, and a touch
-    /// sends BIND LEARN for its line.</summary>
-    public bool IsBindable => _session is { MapAnything: true } && _isSend && Bindable(Verb);
+    /// <summary>True while Map anything is on, this action sends a line a touch may learn (<see cref="TouchLearns"/>) and the gate lets
+    /// BIND LEARN of it through: the control is outlined, and a pointer press on it sends BIND LEARN for its line instead of running it.
+    /// Its shortcut, its menu entry and an Esc rung still send the line itself.</summary>
+    public bool IsBindable => _session is { MapAnything: true } s && _isSend && TouchLearns(Verb) && s.GateRefusalOf(LearnLine(Verb)) is null;
 
     private bool _isSend;
+
+    /// <summary>The line a touch on this control sends while Map anything is on.</summary>
+    public static string LearnLine(string line) => "BIND LEARN " + line;
 
     /// <summary>A line a binding may carry: a catalogue row's, neither node-to-node nor the connection's own, carrying no secret and no
     /// line of its own (BIND LEARN of a BIND).</summary>
     public static bool Bindable(string? line) =>
         !string.IsNullOrWhiteSpace(line) && WireGrammar.TryParse(line, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m
         && !m.Spec.Internal && !m.Spec.EmbedsLine && m.Spec.SecretFrom is null && m.Spec.Category != VerbCategory.Session;
+
+    /// <summary>A line a touch in Map anything may learn: a bindable line that is not the air's or a panic's (PANIC, PANIC CLEAR,
+    /// BLACKOUT, MASTER), so a touch on those always acts — their Bind ▸ entry learns them.</summary>
+    public static bool TouchLearns(string? line) =>
+        Bindable(line) && WireGrammar.TryParse(line!, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m
+        && PlayMap.Core.Show.ShowPolicy.ClassOf(m.Spec, parsed) is not (ShowClass.Panic or ShowClass.Air);
+
+    /// <summary>Map anything's touch on this control: BIND LEARN for its line, the gate asked first, and the mode ends. False (nothing
+    /// sent) when the control is not one a touch learns now.</summary>
+    public bool LearnByTouch()
+    {
+        if (_session is not { } s || !IsBindable)
+            return false;
+        var line = LearnLine(Verb);
+        s.MapAnything = false;
+        LastLearn = s.SendAsync(line);
+        return true;
+    }
+
+    /// <summary>The BIND LEARN the last touch sent (tests wait on it).</summary>
+    public Task LastLearn { get; private set; } = Task.CompletedTask;
 
     /// <summary>True for the one flash of a GO the node's fence refused (this action's line a GO).</summary>
     public bool IsGoFlash => _session?.GoGuard is { } g && g.IsFlashing(Verb);

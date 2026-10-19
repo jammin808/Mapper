@@ -168,7 +168,7 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <Button Classes="secondary" VerticalAlignment="Top" Command="{Binding NewPlaylist.Command}" ToolTip.Tip="{Binding NewPlaylist.Tip}" Height="56" Padding="18,0">
+          <Button Classes="secondary" Classes.bindable="{Binding NewPlaylist.IsBindable}" ui:MapAnythingTouch.Action="{Binding NewPlaylist}" VerticalAlignment="Top" Command="{Binding NewPlaylist.Command}" ToolTip.Tip="{Binding NewPlaylist.Tip}" Height="56" Padding="18,0">
             <StackPanel Orientation="Horizontal" Spacing="8">
               <PathIcon Data="{StaticResource Icon.plus}" Width="15" Height="15" />
               <TextBlock Text="New playlist" VerticalAlignment="Center" />

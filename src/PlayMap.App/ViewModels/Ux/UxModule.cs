@@ -43,8 +43,11 @@ public sealed class UxModule : DeskModule
         session.Replied += (line, reply) => session.OnUi(() => Guard.Replied(line, reply.Ok, reply.Text, MinGoMs(session.State)));
         Guard.Changed += () => GuardMoved?.Invoke();
         Oops = new OopsPanelViewModel(session);
+        // Map anything is greyed with the node's words while the gate refuses a learn (armed: BIND LEARN is setup), and ends when the
+        // show is armed; on, it can always be turned off.
         MapAnything = DeskAction.Local("map.anything", "Map anything", () => session.MapAnything = !session.MapAnything,
-            isChecked: () => session.MapAnything).Look("bind");
+            isChecked: () => session.MapAnything, isEnabled: () => session.MapAnything || session.GateRefusalOf(LearnProbe) is null,
+            whyNot: () => session.GateWords(LearnProbe)).Look("bind");
         session.MapAnythingChanged += () =>
         {
             MapAnything.Refresh();
@@ -160,6 +163,9 @@ public sealed class UxModule : DeskModule
         _armed = show?.Bool("armed") ?? false;
         if (!_armed)
             IsCloseAsked = false;
+        // Armed, a learn is refused: Map anything ends (after this push is drawn), and greys with the node's words until disarmed.
+        if (_armed && _session.MapAnything)
+            _session.OnUi(() => _session.MapAnything = false);
         var mine = _ownsDraft();
         var changes = show?.Obj("blind") is { } b && b.Bool("on") ? (int)b.Long("changes") : -1;
         if (mine != _blindMine)
@@ -183,6 +189,20 @@ public sealed class UxModule : DeskModule
 
     public override void Tick() => Guard.Tick();
 
+    /// <summary>Esc's Map anything rung, above PANIC: Esc ends the mode (and PANIC's guard starts, as after any lower rung).</summary>
+    public override bool TryEscape()
+    {
+        if (!_session.MapAnything)
+            return false;
+        _session.MapAnything = false;
+        return true;
+    }
+
+    public override int EscapeOrder => EscapeLadder.Learn;
+
+    /// <summary>The line the gate is asked for Map anything: a learn's class (BIND LEARN is setup; OFF stands for every learn).</summary>
+    private const string LearnProbe = "BIND LEARN OFF";
+
     /// <summary>The GO the node refused, in its words, while the window it hit is open.</summary>
     public override IEnumerable<Banner> Banners(StateSnapshot state)
     {
@@ -193,11 +213,11 @@ public sealed class UxModule : DeskModule
     public override IEnumerable<Shortcut> Shortcuts() =>
     [
         new("Ctrl+Alt+Z", "The Oops history: every undo step, newest first, each with Undo to here (UNDO LIST, UNDO TO)", "Desk", Key.Z,
-            KeyModifiers.Control | KeyModifiers.Alt, Oops.Toggle.Command) { WhileTyping = true },
+            KeyModifiers.Control | KeyModifiers.Alt, Oops.Toggle.Command),
         new("Ctrl+Alt+M", "Map anything: every control that can be bound lights up; touch one to learn it (BIND LEARN <its line>); again to stop",
-            "Desk", Key.M, KeyModifiers.Control | KeyModifiers.Alt, MapAnything.Command) { WhileTyping = true },
+            "Desk", Key.M, KeyModifiers.Control | KeyModifiers.Alt, MapAnything.Command),
         new("Ctrl+Alt+D", "The look: dark, the dark room, daylight (this desk only)", "Desk", Key.D, KeyModifiers.Control | KeyModifiers.Alt,
-            new RelayCommand(() => _prefs.Theme = (DeskTheme)(((int)_prefs.Theme + 1) % 3))) { WhileTyping = true },
+            new RelayCommand(() => _prefs.Theme = (DeskTheme)(((int)_prefs.Theme + 1) % 3))),
         new("Ctrl+Alt+Up", "The desk brighter by 10 % (this desk only, apart from the machine's)", "Desk", Key.Up, KeyModifiers.Control | KeyModifiers.Alt, Brighter.Command),
         new("Ctrl+Alt+Down", "The desk darker by 10 %, down to 20 % (this desk only)", "Desk", Key.Down, KeyModifiers.Control | KeyModifiers.Alt, Darker.Command),
     ];

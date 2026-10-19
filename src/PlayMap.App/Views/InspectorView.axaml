@@ -231,7 +231,7 @@
               <TextBlock Classes="faint" Text="{Binding SolveText}" />
             </StackPanel>
           </StackPanel>
-          <Button Grid.Column="1" x:Name="SolveButton" Classes="primary" Command="{Binding Solve.Command}" ToolTip.Tip="{Binding Solve.Tip}" Content="Solve" />
+          <Button Grid.Column="1" x:Name="SolveButton" Classes="primary" Classes.bindable="{Binding Solve.IsBindable}" ui:MapAnythingTouch.Action="{Binding Solve}" Command="{Binding Solve.Command}" ToolTip.Tip="{Binding Solve.Tip}" Content="Solve" />
         </Grid>
         <Grid ColumnDefinitions="28,*,90,64,Auto" Margin="4,2">
           <TextBlock Classes="faint" Text="#" />

@@ -140,7 +140,7 @@
           </Border>
           <TextBlock Grid.Column="2" Classes="dim" Text="{Binding ToolHint}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="12" Margin="4,0" />
           <!-- On the wall: the edit overlay on the projector's output; greyed with the node's words while the show is armed. -->
-          <Button Grid.Column="3" x:Name="OnWallButton" Classes="tool" Classes.checked="{Binding OnWall.IsChecked}" Command="{Binding OnWall.Command}"
+          <Button Grid.Column="3" x:Name="OnWallButton" Classes="tool" Classes.checked="{Binding OnWall.IsChecked}" Classes.bindable="{Binding OnWall.IsBindable}" ui:MapAnythingTouch.Action="{Binding OnWall}" Command="{Binding OnWall.Command}"
                   ToolTip.Tip="{Binding OnWall.Tip}" ToolTip.ShowOnDisabled="True" IsVisible="{Binding OnWall.IsAvailable}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <PathIcon Data="{StaticResource Icon.projector}" Width="14" Height="14" />
