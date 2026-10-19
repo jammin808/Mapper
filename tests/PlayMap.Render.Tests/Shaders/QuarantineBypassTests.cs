@@ -1,0 +1,56 @@
+using PlayMap.Core.Effects;
+using PlayMap.Core.Model;
+using PlayMap.Render.Effects;
+using PlayMap.Render.Tests.Effects;
+
+namespace PlayMap.Render.Tests.Shaders;
+
+/// <summary>A quarantined kind on GL: its slot draws its input unchanged (± 0 codes: the chain hands on the input itself) and says so
+/// in its observed state, while the rest of the chain draws; once released the slot draws its effect again.</summary>
+[Collection("gl")]
+public sealed class QuarantineBypassTests(GlFixture gl)
+{
+    private const int W = 32, H = 18;
+    private static readonly Project Show = Project.CreateDefault("Quarantine");
+
+    private static (int, int, int) Ramp(int x, int y) => (x * 8, y * 14, 200 - x * 6);
+
+    [Fact]
+    public void AQuarantinedSlotPassesItsInputUnchangedAndDrawsAgainOnceReleased()
+    {
+        gl.Run(c =>
+        {
+            var d = c.Device;
+            using var lane = new FxCompileLane(c);
+            using var runner = new FxChainRunner(d, lane);
+            using var picture = FxRig.Picture(d, W, H, Ramp);
+            var input = Scene.ReadTexture(d, picture);
+            var quarantine = new ShaderQuarantine();
+            quarantine.Add(new QuarantineEntry(FxCatalog.Builtin.Source("fx.invert")!.Hash, "Invert", QuarantineReason.DeviceRemoved,
+                "the GPU stopped inside its pass", 0, "test"));
+            runner.Quarantine = quarantine;
+            var chain = FxRig.Chain(FxRig.Slot("fx.invert"));
+            long frame = 0;
+
+            var held = FxRig.Run(d, lane, runner, Show, chain, picture, ref frame);
+            Assert.Equal(input, held);
+            Assert.Same(picture, FxRig.Step(d, lane, runner, Show, chain, picture, ref frame, 1_000_000_000));
+            var live = FxRig.Live(runner, "fx00000001");
+            Assert.Equal(FxSlotState.Bypassed, live.State);
+            Assert.StartsWith("quarantined on this node", live.Words, StringComparison.Ordinal);
+
+            // The rest of the chain draws: a slot of another kind after it still inverts the picture.
+            var two = FxRig.Chain(FxRig.Slot("fx.invert"), FxRig.Slot("fx.levels", ParamSet.Empty.With("outWhite", 0.5), id: "fx00000002"));
+            var after = FxRig.Run(d, lane, runner, Show, two, picture, ref frame, owner: "op_two");
+            Assert.NotEqual(input, after);
+            Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000002").State);
+
+            quarantine.ReleaseAll();
+            var drawn = FxRig.Run(d, lane, runner, Show, chain, picture, ref frame);
+            Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000001").State);
+            for (var i = 0; i < input.Length; i += 4)
+                for (var k = 0; k < 3; k++)
+                    Assert.InRange(drawn[i + k], 255 - input[i + k] - 1, 255 - input[i + k] + 1);
+        });
+    }
+}

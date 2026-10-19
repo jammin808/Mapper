@@ -98,6 +98,9 @@ public sealed class FxChainRunner : IDisposable
     /// <summary>The kinds this frame's show can use.</summary>
     public FxCatalog Catalog => _catalog;
 
+    /// <summary>The node's quarantine: a slot whose kind it holds draws bypassed, its input unchanged (null: none).</summary>
+    public ShaderQuarantine? Quarantine { get; set; }
+
     public void BeginFrame(long frame, Project project)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -147,6 +150,11 @@ public sealed class FxChainRunner : IDisposable
                 missing.Touch(_frame);
             else
                 missing.Set(FxSlotState.Missing, "this node has no effect " + slot.Kind, _frame);
+            return current;
+        }
+        if (Quarantine?.Hashes.Contains(files.Hash) == true)
+        {
+            Stats.For(slot.Id).Set(FxSlotState.Bypassed, "quarantined on this node (FX RELEASE lifts it): its input passes unchanged", _frame);
             return current;
         }
         if (!_slots.TryGetValue(slot.Id, out var state))

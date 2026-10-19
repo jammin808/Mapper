@@ -1,1 +1,32 @@
-{}
+{
+  "fx": {
+    "compile": {
+      "lane": "none",
+      "pending": 0,
+      "words": "no renderer on this node",
+      "worker": {
+        "running": false,
+        "pid": null,
+        "restarts": 0,
+        "lastMs": 0,
+        "compiled": 0,
+        "failed": 0,
+        "natives": [],
+        "words": "the shader worker starts with the first effect to compile"
+      }
+    },
+    "quarantine": [
+      {
+        "hash": "6afca97cc12004fa3d2763642de8032d1a5b49e5b0e728c6d8000dd2a105116b",
+        "kind": "Invert",
+        "reason": "deviceRemoved",
+        "words": "the GPU stopped inside this effect\u0027s pass on Output 1",
+        "at": 1760000000000,
+        "build": "0.2.0\u002B17.abc1234",
+        "slots": [
+          "fx00000001"
+        ]
+      }
+    ]
+  }
+}
