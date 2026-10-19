@@ -392,10 +392,10 @@ jobs:
           "commit=$($pin.commit)", "key=$key" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
       - name: The toolset's cache
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: wix-feed
-          key: wix-toolset-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+          key: wix-toolset-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
       - name: Build the WiX toolset from its source (M17)
         if: steps.cache.outputs.cache-hit != 'true'
         id: build
@@ -432,15 +432,22 @@ jobs:
           $mb = [math]::Round(((Get-ChildItem wix-feed -File | Measure-Object Length -Sum).Sum / 1MB), 1)
           "#### M17: the WiX toolset built from its source at $($pin.tag) ($($pin.commit))", '', "- built in $minutes minutes on windows-2025 (upstream's own test runs left out); the feed holds $mb MB", '' |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+      - name: Keep the toolset (only one that built)
+        if: steps.build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: wix-feed
+          key: wix-toolset-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
       - name: M17's answer
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           if ('${{ steps.build.outcome }}' -eq 'failure') {
-            "#### M17: the WiX toolset did not build from its source on the runner", '', "- after ${{ steps.build.outputs.minutes }} minutes; Inno Setup builds the installer (PLAN.md §9 decision 3)", '' |
+            "#### M17: the WiX toolset did not build from its source on the runner", '', "- it stopped after ${{ steps.build.outputs.minutes }} minutes (the build step's log says where); Inno Setup builds the installer (PLAN.md §9 decision 3)", '' |
               Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
             exit 0
           }
+          if (-not (Get-ChildItem wix-feed -Filter 'WixToolset.Sdk.*.nupkg' -ErrorAction SilentlyContinue)) { throw 'the toolset step succeeded and left no WixToolset.Sdk package' }
           if ('${{ steps.cache.outputs.cache-hit }}' -eq 'true') {
             "#### M17: the WiX toolset from the cache (built from its source at the pinned commit)", '' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           }
@@ -478,15 +485,10 @@ jobs:
           # Inno Setup 7.1.0 (Jordan Russell's licence: any use; a commercial user is asked, not required, to buy a licence), pinned
           # by hash and installed for this job only.
           $ErrorActionPreference = 'Stop'
-          $page = (Invoke-WebRequest -Uri 'https://jrsoftware.org/isdl.php' -UseBasicParsing).Links.href | Where-Object { $_ -match 'innosetup-7\.1[^/]*\.exe$' } | Select-Object -Unique
-          Write-Host "Inno Setup 7.1 links: $($page -join ', ')"
-          $url = $page | Select-Object -First 1
-          if (-not $url) { throw 'no Inno Setup 7.1 download on jrsoftware.org/isdl.php' }
-          if ($url -notmatch '^https?:') { $url = "https://jrsoftware.org/$($url.TrimStart('/'))" }
+          $url = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
           Invoke-WebRequest -Uri $url -OutFile is.exe
           $hash = (Get-FileHash is.exe -Algorithm SHA256).Hash
-          $pin = 'UNPINNED'
-          if ($hash -ne $pin) { throw "$url is not the pinned build ($hash)" }
+          if ($hash -ne '0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F') { throw "$url is not the pinned build ($hash)" }
           $dir = Join-Path $env:RUNNER_TEMP 'inno'
           Start-Process .\is.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$dir`"" -Wait
           $iscc = Join-Path $dir 'ISCC.exe'
