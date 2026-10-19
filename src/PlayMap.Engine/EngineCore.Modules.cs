@@ -287,6 +287,18 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     /// reach the packages' checks and their words refuse the edit.</summary>
     internal Func<Project, object, string?>? ValidateForTests { get; set; }
 
+    /// <summary>A field the air does not follow yet, refused by its package's check until the package draws it: an edit that moves it
+    /// from the stored value (<paramref name="before"/>, absent for an added entity) to anything but its default is answered with
+    /// the words of a verb not available yet, so the generic SET and ADD never report as done what the air never follows. A stored
+    /// value (a project opened with it) is kept through other edits, and setting the field back to its default is taken.</summary>
+    internal static string? NotDrawnYet<T>(string field, T after, T before, T fallback, bool added) =>
+        SameValue(after, fallback) || (!added && SameValue(after, before)) ? null : VerbCatalog.NotAvailableYet(field);
+
+    /// <summary>Two values as the project file holds them (a list read back is a new array with the same items).</summary>
+    private static bool SameValue<T>(T a, T b) =>
+        EqualityComparer<T>.Default.Equals(a, b) || (a is not null && b is not null
+            && string.Equals(Core.Model.ProjectJson.SerializeEntity(a), Core.Model.ProjectJson.SerializeEntity(b), StringComparison.Ordinal));
+
     /// <summary>Each package's check of an entity it owns, at the end of the generic Validate (null = fine).</summary>
     internal string? ValidateModules(Project p, object entity)
     {

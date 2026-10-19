@@ -25,6 +25,8 @@ public sealed partial class EngineCore
 
     partial void ValidateObserve(Project p, object entity, ref string? why)
     {
-        // wp3-stability fills this.
+        // wp3-stability fills this. Until then an output's watermark is refused: nothing draws it yet.
+        if (why is null && entity is Output o)
+            why = NotDrawnYet("watermark", o.Watermark, p.FindOutput(o.Id)?.Watermark, null, p.FindOutput(o.Id) is null);
     }
 }

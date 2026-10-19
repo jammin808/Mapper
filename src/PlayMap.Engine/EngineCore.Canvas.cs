@@ -19,6 +19,8 @@ public sealed partial class EngineCore
 
     partial void ValidateCanvas(Project p, object entity, ref string? why)
     {
-        // wp3-canvas fills this.
+        // wp3-canvas fills this. Until then a canvas's span is refused: CANVAS SPAN writes it, and nothing reads it yet.
+        if (why is null && entity is Canvas c)
+            why = NotDrawnYet("span", c.Span, p.FindCanvas(c.Id)?.Span, null, p.FindCanvas(c.Id) is null);
     }
 }

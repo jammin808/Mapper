@@ -574,6 +574,15 @@ public sealed partial class EngineCore
         // Another check's words stand: this one only adds its own.
         if (entity is not Output o || why is not null)
             return;
+        // The present path's fields (wp3-present lifts each as it draws it): nothing reads them yet.
+        var stored = p.FindOutput(o.Id);
+        var was = stored ?? o;
+        why = NotDrawnYet("colorBits", o.ColorBits, was.ColorBits, 8, stored is null)
+            ?? NotDrawnYet("hdr", o.Hdr, was.Hdr, HdrMode.Off, stored is null)
+            ?? NotDrawnYet("nitTarget", o.NitTarget, was.NitTarget, Output.DefaultNitTarget, stored is null)
+            ?? NotDrawnYet("framesInFlight", o.FramesInFlight, was.FramesInFlight, 0, stored is null);
+        if (why is not null)
+            return;
         if (double.IsNaN(o.LatencyMs) || o.LatencyMs < 0 || o.LatencyMs > 500)
         {
             why = string.Create(CultureInfo.InvariantCulture, $"latencyMs is 0–500 ms (the display's input lag); {o.LatencyMs} was given");

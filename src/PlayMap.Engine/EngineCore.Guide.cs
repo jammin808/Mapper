@@ -25,6 +25,11 @@ public sealed partial class EngineCore
 
     partial void ValidateGuide(Project p, object entity, ref string? why)
     {
-        // wp3-workflows fills this.
+        // wp3-workflows fills this. Until then a viewpoint's fit is refused: VIEWPOINT FIT writes it, and nothing reads it yet.
+        if (why is null && entity is Viewpoint v)
+        {
+            var stored = p.Stage.Viewpoints.FirstOrDefault(x => x.Id == v.Id);
+            why = NotDrawnYet("fit", v.Fit, stored?.Fit, null, stored is null);
+        }
     }
 }
