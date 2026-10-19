@@ -122,11 +122,31 @@ internal static unsafe class WindowsReadings
         return why.ToImmutable();
     }
 
-    /// <summary>The screen saver (<c>SPI_GETSCREENSAVEACTIVE</c>, the user's): 1 on, 0 off, −1 unread.</summary>
+    /// <summary>The screen saver, the user's: on (1) only when <c>SPI_GETSCREENSAVEACTIVE</c> answers TRUE and a screen saver is chosen
+    /// (a non-empty <c>SCRNSAVE.EXE</c> under <c>Control Panel\Desktop</c> or its policy key), since the flag reads TRUE with "(None)"
+    /// chosen; off (0) when either says no; −1 when the two readings do not decide.</summary>
     public static int ScreenSaver()
     {
         int active = 0;
-        return Native.SystemParametersInfoW(Native.SpiGetScreenSaveActive, 0, &active, 0) ? (active != 0 ? 1 : 0) : -1;
+        bool? flag = Native.SystemParametersInfoW(Native.SpiGetScreenSaveActive, 0, &active, 0) ? active != 0 : null;
+        return ScreenSaverReading.State(flag, ScreenSaverChosen());
+    }
+
+    /// <summary>Whether a screen saver is chosen: a non-empty <c>SCRNSAVE.EXE</c> in the policy key or the user's own; null when neither
+    /// key opens.</summary>
+    private static bool? ScreenSaverChosen()
+    {
+        bool? chosen = null;
+        foreach (var path in new[] { @"Software\Policies\Microsoft\Windows\Control Panel\Desktop", @"Control Panel\Desktop" })
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(path);
+            if (key is null)
+                continue;
+            if (key.GetValue("SCRNSAVE.EXE") is string exe && exe.Trim().Length > 0)
+                return true;
+            chosen = false;
+        }
+        return chosen;
     }
 
     /// <summary>The active power plan, the power mode where the machine offers Balanced only, and the sleep and display timeouts on mains.</summary>
@@ -261,13 +281,22 @@ internal static unsafe class WindowsReadings
         }
     }
 
-    /// <summary>Windows Firewall's rules as the registry keeps them (<c>FirewallPolicy\FirewallRules</c>), or none unread.</summary>
+    /// <summary>Windows Firewall's rules as the registry keeps them: the local store (<c>FirewallPolicy\FirewallRules</c>) and the
+    /// policy store a GPO writes (<c>Policies\Microsoft\WindowsFirewall\FirewallRules</c>); none where neither opens.</summary>
     public static ImmutableArray<string> FirewallRuleText()
     {
-        using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules");
-        if (key is null)
-            return [];
-        return [.. key.GetValueNames().Select(n => key.GetValue(n) as string).OfType<string>()];
+        var rules = ImmutableArray.CreateBuilder<string>();
+        foreach (var path in new[]
+        {
+            @"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules",
+            @"SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules",
+        })
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(path);
+            if (key is not null)
+                rules.AddRange(key.GetValueNames().Select(n => key.GetValue(n) as string).OfType<string>());
+        }
+        return rules.ToImmutable();
     }
 
     /// <summary>The connected networks with their firewall profiles (the Network List Manager), each with whether a rule lets
@@ -285,7 +314,7 @@ internal static unsafe class WindowsReadings
                 words = "the Network List Manager did not open (" + Native.StatusWords(status) + ")";
                 return false;
             }
-            var publicRule = FirewallRules.CoverPublic(FirewallRuleText(), exePath);
+            var publicRule = FirewallRules.CoverPublic(FirewallRuleText(), exePath, Environment.ExpandEnvironmentVariables);
             var list = ImmutableArray.CreateBuilder<NetworkProfile>();
             try
             {
