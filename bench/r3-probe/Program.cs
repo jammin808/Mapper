@@ -12,11 +12,17 @@ namespace PlayMap.Bench.Probe;
 /// failure. It exits 0 once it has written its answers, 2 when its command line is wrong.</summary>
 internal static class Program
 {
+    // A lab bench is run from a console by the person reading its words: its answers go there.
+#pragma warning disable RS0030
+    private static readonly TextWriter Say = Console.Out;
+    private static readonly TextWriter Complain = Console.Error;
+#pragma warning restore RS0030
+
     private static int Main(string[] args)
     {
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19043))
         {
-            Console.Error.WriteLine("the probe asks Windows 10 21H1 or later: it has nothing to ask here");
+            Complain.WriteLine("the probe asks Windows 10 21H1 or later: it has nothing to ask here");
             return 2;
         }
         string? output = null;
@@ -41,13 +47,13 @@ internal static class Program
                     session = true;
                     break;
                 default:
-                    Console.Error.WriteLine($"the probe does not know '{args[i]}': --out <file> [--sdk <n>] [--agility <folder>] [--session]");
+                    Complain.WriteLine($"the probe does not know '{args[i]}': --out <file> [--sdk <n>] [--agility <folder>] [--session]");
                     return 2;
             }
         }
         if (output is null)
         {
-            Console.Error.WriteLine("the probe writes its answers to --out <file>");
+            Complain.WriteLine("the probe writes its answers to --out <file>");
             return 2;
         }
         var text = Write(session ? SessionAnswers() : AllAnswers(sdk, agility), session);
@@ -55,7 +61,7 @@ internal static class Program
         var partial = output + ".partial";
         File.WriteAllText(partial, text, new UTF8Encoding(false));
         File.Move(partial, output, overwrite: true);
-        Console.Out.Write(text);
+        Say.Write(text);
         return 0;
     }
 

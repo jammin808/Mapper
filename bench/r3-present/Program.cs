@@ -15,13 +15,19 @@ namespace PlayMap.Bench.Present;
 /// It exits 0 when every path it was asked for ran or answered why not, 1 when one could not start, 2 on a wrong command line.</summary>
 internal static class Program
 {
+    // A lab bench is run from a console by the person reading its words: its answers go there.
+#pragma warning disable RS0030
+    private static readonly TextWriter Say = Console.Out;
+    private static readonly TextWriter Complain = Console.Error;
+#pragma warning restore RS0030
+
     private static readonly string[] Paths = ["d3d12", "gl", "d3d11", "composition"];
 
     private static int Main(string[] args)
     {
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19043))
         {
-            Console.Error.WriteLine("the bench runs on Windows 10 21H1 or later (the lab runs it on Windows 11 24H2 or later)");
+            Complain.WriteLine("the bench runs on Windows 10 21H1 or later (the lab runs it on Windows 11 24H2 or later)");
             return 2;
         }
         var (paths, seconds, display, flash, hz, warp, output) = (Paths, 60, 0, 30, 60, false, "r3-present.csv");
@@ -61,7 +67,7 @@ internal static class Program
                     i++;
                     break;
                 default:
-                    Console.Error.WriteLine($"the bench does not know '{args[i]}'{(next is null ? "" : $" {next}")}: see README.md");
+                    Complain.WriteLine($"the bench does not know '{args[i]}'{(next is null ? "" : $" {next}")}: see README.md");
                     return 2;
             }
         }
@@ -82,17 +88,17 @@ internal static class Program
         {
             try
             {
-                Console.Out.WriteLine($"{path}: {Once(path, display, seconds, flash, hz, warp, record)}");
+                Say.WriteLine($"{path}: {Once(path, display, seconds, flash, hz, warp, record)}");
             }
             catch (Exception ex) when (ex is InvalidOperationException or GlException or GpuPlatformStartException or DllNotFoundException
                 or EntryPointNotFoundException or PlatformNotSupportedException)
             {
                 failed++;
                 record.Note($"{path}: did not start: {ex.Message}");
-                Console.Out.WriteLine($"{path}: did not start: {ex.Message}");
+                Say.WriteLine($"{path}: did not start: {ex.Message}");
             }
         }
-        Console.Out.WriteLine($"{record.Rows} presents written to {Path.GetFullPath(output)}");
+        Say.WriteLine($"{record.Rows} presents written to {Path.GetFullPath(output)}");
         return failed == 0 ? 0 : 1;
     }
 
