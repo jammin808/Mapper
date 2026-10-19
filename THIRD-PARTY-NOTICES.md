@@ -168,6 +168,23 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 
 ### wp3-installer
 
+- **Inno Setup 7.1.0** (Jordan Russell and Martijn Laan, https://jrsoftware.org/isinfo.php; source https://github.com/jrsoftware/issrc
+  at `is-7_1_0`), under the Inno Setup License: it builds the installer, and its setup and uninstall programs are inside the
+  installer EXE. The licence allows any use; its authors ask a commercial user to buy a licence, a request and not a condition, which
+  is the owner's own to meet (`docs/round3/PLAN.md` §9 decision 3). The installer is downloaded on CI from the project's release,
+  pinned by hash.
+- **WiX Toolset** (https://github.com/wixtoolset/wix, MS-RL): CI builds it from its source at the pinned tag `v7.0.0` (commit
+  `b8977d6f88e7b68e000bac226a2814f236770570`, `installer/wix/toolset.json`) to measure it (M17). No WiX release, package or tool is
+  downloaded, and nothing of WiX is inside what PlayMap ships this round: the self-built tool asks for its licence gesture, which
+  PlayMap never gives, so it builds no installer. Were it to build the MSI, its Util and Firewall custom-action DLLs inside the MSI
+  would be MS-RL files, named here with that tag's source.
+- **FFmpeg 9.0.2** (https://ffmpeg.org, the LGPL 2.1-or-later build `lgpl-shared` of FFmpeg-Builds,
+  https://github.com/BtbN/FFmpeg-Builds, `autobuild-2026-09-30-13-08`, pinned by hash): its shared libraries are inside the
+  installer as replaceable files in `ffmpeg\`; its source is at https://git.ffmpeg.org/ffmpeg.git, tag `n9.0.2`. The GPL command-line
+  build of the same release is used on CI only, to encode test media, and is never shipped.
+- **libvmx** (src/ThirdParty/libvmx, its own licence there) is inside the installer, built from the vendored source with its upstream
+  Windows command.
+
 ### wp3-desk-ux
 
 ### wp3-d3d12-core
