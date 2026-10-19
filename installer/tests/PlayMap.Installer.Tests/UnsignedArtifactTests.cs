@@ -51,7 +51,7 @@ public sealed class UnsignedArtifactTests
         Assert.True(File.Exists(payload));
         var names = File.ReadAllLines(payload).Where(l => l.Length > 66).Select(l => l[66..]).ToList();
         foreach (var name in new[] { "PlayMap.exe", "Supervisor/PlayMap.Supervisor.exe", "D3D12/D3D12Core.dll", "ffmpeg/avcodec-63.dll", "ffmpeg/LICENSE.txt",
-                     "THIRD-PARTY-NOTICES.md" })
+                     "THIRD-PARTY-NOTICES.md", "licence.txt" })
             Assert.Contains(name, names);
     }
 

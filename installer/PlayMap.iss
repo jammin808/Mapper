@@ -12,6 +12,10 @@
 ;   Payload      the folder of files to lay down (the exe's publish, ffmpeg\, D3D12\, Supervisor\)
 ;   OutputDir    where the installer is written
 ;
+; Its licence page shows the payload's licence.txt (installer/licence.txt: PlayMap's terms, none named yet, and Microsoft's terms for
+; D3D12Core.dll, verbatim from the Agility SDK package), which a person accepts before anything is laid down; a quiet install
+; (/VERYSILENT) accepts it on its command line.
+;
 ; Two test words are read from the command line and nowhere else: /PLAYMAPTESTBUILD=<n> stands in for Windows' build number and
 ; /PLAYMAPTESTSAC=<0|1|2> for Smart App Control's state, so the runner proves the launch condition and the warning without changing
 ; the machine.
@@ -45,6 +49,7 @@ OutputBaseFilename=PlayMap-{#FileVersion}-win-x64-unsigned
 Compression=lzma2/max
 SolidCompression=yes
 SetupLogging=yes
+LicenseFile={#Payload}\licence.txt
 CloseApplications=no
 UninstallDisplayName=PlayMap {#SemVer} (build {#Build})
 UninstallDisplayIcon={app}\PlayMap.exe
@@ -75,6 +80,7 @@ Name: "{autoprograms}\PlayMap"; Filename: "{app}\PlayMap.exe"
 [Code]
 const
   MinBuild = 26100;
+  TermsHeading = 'PlayMap: the terms for the software this installer lays down';
   SacEvaluating = 2;
   SacWords = 'Smart App Control is evaluating this PC: once it enforces, Windows blocks this unsigned build and the node will not start. Turn it off in Windows Security > App & browser control before the show.';
 
@@ -198,8 +204,33 @@ begin
     Log('warning: ' + SacWords);
 end;
 
+function YesNo(Value: Boolean): String;
+begin
+  if Value then Result := 'yes' else Result := 'no';
+end;
+
+{ What the licence page shows, read from the page itself into the log: the terms' heading first, Microsoft's DISTRIBUTABLE CODE
+  section for D3D12Core.dll on it, and Microsoft's typographic apostrophe one character (the terms decoded as UTF-8). The page's
+  window is made first, so its text is the control's own in a quiet install too; a byte-order mark the control keeps is an
+  invisible character, not part of the heading. }
+procedure LogLicencePage();
+var
+  Terms: String;
+begin
+  if WizardForm.LicenseMemo.Handle <> 0 then
+    Terms := WizardForm.LicenseMemo.Text
+  else
+    Terms := '';
+  if (Length(Terms) > 0) and (Terms[1] = #$FEFF) then
+    Delete(Terms, 1, 1);
+  Log('the licence page: heading ' + YesNo(Pos(TermsHeading, Terms) = 1)
+    + '; Microsoft''s distributable-code terms ' + YesNo(Pos('DISTRIBUTABLE CODE. The software may contain code you are permitted to distribute', Terms) > 0)
+    + '; read as UTF-8 ' + YesNo(Pos('Microsoft' + #$2019 + 's trademarks', Terms) > 0));
+end;
+
 procedure InitializeWizard();
 begin
+  LogLicencePage();
   if SacState() = SacEvaluating then
     SacPage := CreateOutputMsgPage(wpWelcome, 'Smart App Control', 'This build is unsigned.', SacWords);
 end;

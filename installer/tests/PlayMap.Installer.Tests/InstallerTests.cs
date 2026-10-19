@@ -41,6 +41,21 @@ public sealed class InstallerTests
 
     private static string ShowUser => Environment.UserDomainName + "\\" + Environment.UserName;
 
+    /// <summary>What the installer reads back from its licence page into its log (PlayMap.iss, LogLicencePage).</summary>
+    private const string LicencePage = "the licence page: heading yes; Microsoft's distributable-code terms yes; read as UTF-8 yes";
+
+    /// <summary>The terms the licence page shows, as the repository holds them (installer/licence.txt).</summary>
+    private static string RepositoryTerms
+    {
+        get
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))
+                dir = dir.Parent;
+            return Path.Combine(dir?.FullName ?? throw new InvalidOperationException("no PlayMap.sln above " + AppContext.BaseDirectory), "installer", "licence.txt");
+        }
+    }
+
     private static string Required(string name) =>
         Environment.GetEnvironmentVariable(name) is { Length: > 0 } v ? v : throw new InvalidOperationException(name + " is not set: the installer job sets it");
 
@@ -53,6 +68,29 @@ public sealed class InstallerTests
         Assert.Contains("PlayMap needs Windows 11 24H2 (build 26100) or later; this machine runs build 22631.", run.Log, StringComparison.Ordinal);
         Assert.Null(InstallKey());
         Assert.Empty(Left());
+    }
+
+    [Fact]
+    public void TheLicencePageShowsTheTermsBeforeAnythingIsLaidDownAndTheInstallKeepsThem()
+    {
+        EnsureUninstalled();
+        try
+        {
+            var run = Install(This, "/SHOWUSER=" + ShowUser);
+            Assert.True(run.Exit == 0, run.Log);
+            // The page as the built installer holds it: the terms' heading first, Microsoft's DISTRIBUTABLE CODE section on it, decoded
+            // as UTF-8; a quiet install accepts it on its command line, and Inno Setup lays nothing down before.
+            var page = run.Log.IndexOf(LicencePage, StringComparison.Ordinal);
+            Assert.True(page >= 0, "the installer's log reads back no licence page showing the terms whole: " + run.Log);
+            var laying = run.Log.IndexOf("Starting the installation process.", StringComparison.Ordinal);
+            Assert.True(laying > page, "the installation began before the licence page was read: " + run.Log);
+            // The install keeps the terms it showed, byte for byte the repository's.
+            Assert.Equal(File.ReadAllBytes(RepositoryTerms), File.ReadAllBytes(Path.Combine(InstallDir, "licence.txt")));
+        }
+        finally
+        {
+            EnsureUninstalled();
+        }
     }
 
     [Fact]
@@ -426,8 +464,9 @@ public sealed class InstallerTests
         foreach (var file in new[] { "PlayMap.exe", @"Supervisor\PlayMap.Supervisor.exe", @"D3D12\D3D12Core.dll", "libvmx.dll", @"ffmpeg\avcodec-63.dll" })
             Assert.True(File.Exists(Path.Combine(InstallDir, file)), file + " is not installed");
         // The notices and the licence texts the shipped third-party files ask for, beside them.
-        foreach (var file in new[] { "THIRD-PARTY-NOTICES.md", @"ffmpeg\LICENSE.txt", @"ffmpeg\GPL-3.0.txt", "libvmx-LICENSE.txt", "soft_oal-LICENSE.txt" })
+        foreach (var file in new[] { "THIRD-PARTY-NOTICES.md", "licence.txt", @"ffmpeg\LICENSE.txt", @"ffmpeg\GPL-3.0.txt", "libvmx-LICENSE.txt", "soft_oal-LICENSE.txt" })
             Assert.True(File.Exists(Path.Combine(InstallDir, file)), file + " is not installed");
+        Assert.Equal(File.ReadAllBytes(RepositoryTerms), File.ReadAllBytes(Path.Combine(InstallDir, "licence.txt")));
         Assert.Contains("GNU LESSER GENERAL PUBLIC LICENSE", File.ReadAllText(Path.Combine(InstallDir, "ffmpeg", "LICENSE.txt")), StringComparison.Ordinal);
         AssertEveryFileMatchesItsSum();
         Assert.Empty(Directory.GetFiles(InstallDir, "d3d12SDKLayers.dll", SearchOption.AllDirectories));

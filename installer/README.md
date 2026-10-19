@@ -6,9 +6,14 @@ PlayMap's per-machine installer (`docs/INSTALL.md` for a person; `docs/round3/de
   decision 3): the WiX toolset's pinned source carries licence checks PlayMap never answers, patches or passes (the owner decides
   them), and M17 measures whether that source builds on the runner (`wix/`, below; `docs/INSTALL.md` says what it answered). Every
   machine-level action is the supervisor's own command.
+- `licence.txt` — the terms the licence page shows and the install keeps as `{app}\licence.txt`: the section for PlayMap's own
+  terms (none named yet), Microsoft's licence terms for `D3D12Core.dll` byte for byte from the pinned Agility SDK package's
+  `LICENSE.txt`, and pointers to the other components' notices. UTF-8 with its byte-order mark and CRLF lines, never converted on
+  checkout (`.gitattributes`); `InstallerTermsTests` holds it to the pinned package.
 - `build-installer.ps1` — lays out the payload (the ReadyToRun publish, `ffmpeg\` with its licence texts, `D3D12\`, libvmx and its
-  licence, OpenAL Soft's licence, `THIRD-PARTY-NOTICES.md`, `Supervisor\`), writes the payload's `SHA256SUMS` of every file it lays
-  down, and compiles it with the version Version.props gives a numbered build; a local build makes no installer, with words.
+  licence, OpenAL Soft's licence, `THIRD-PARTY-NOTICES.md`, `licence.txt`, `Supervisor\`), writes the payload's `SHA256SUMS` of
+  every file it lays down, and compiles it with the version Version.props gives a numbered build; a local build makes no installer,
+  with words.
 - `licenses/` — the GNU licence texts the payload carries beside the files they cover (GPL version 3 for FFmpeg's LGPL version 3,
   LGPL version 2 for OpenAL Soft).
 - `sums.ps1` — the `SHA256SUMS` of an unsigned build, and the job summary's notice.
