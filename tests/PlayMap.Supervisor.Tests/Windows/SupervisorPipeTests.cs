@@ -128,14 +128,14 @@ public sealed class SupervisorPipeTests
         await using var squatter = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         var answering = Task.Run(async () =>
         {
-            await squatter.WaitForConnectionAsync();
             try
             {
+                await squatter.WaitForConnectionAsync();
                 await squatter.WriteAsync(Encoding.UTF8.GetBytes("OK resumed: a squatter's words\n"));
             }
             catch (IOException)
             {
-                // The client hung up without reading: it took nothing from this server.
+                // The client hung up without reading, before or after the connection was taken: it took nothing from this server.
             }
         });
         var answer = SupervisorPipe.Ask(name, "resume", SupervisorPipe.ThisMachinesSupervisor(@"C:\Program Files\PlayMap\Supervisor\PlayMap.Supervisor.exe"));
