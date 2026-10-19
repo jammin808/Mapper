@@ -95,6 +95,16 @@ if ($Beside) {
 if ($Leg) {
     # A filter is a dotnet test expression of names, operators and parentheses only: anything else is refused, never run.
     if ($Filter -and $Filter -notmatch '^[A-Za-z0-9_.,~=!&|() -]{1,200}$') { throw "the Direct3D 12 filter '$Filter' holds a character a test filter never needs" }
+    # Its parentheses balance, so it stays one term inside Backend=D3D12&(...): the allowed set holds no backslash, so no parenthesis
+    # is escaped and a count is exact.
+    if ($Filter) {
+        $depth = 0
+        foreach ($c in $Filter.ToCharArray()) {
+            if ($c -eq '(') { $depth++ }
+            elseif ($c -eq ')') { $depth--; if ($depth -lt 0) { break } }
+        }
+        if ($depth -ne 0) { throw "the Direct3D 12 filter '$Filter' has unbalanced parentheses: it would not stay within Backend=D3D12" }
+    }
     $expression = if ($Filter) { "Backend=D3D12&($Filter)" } else { 'Backend=D3D12' }
     $clock = [System.Diagnostics.Stopwatch]::StartNew()
     $failed = @()

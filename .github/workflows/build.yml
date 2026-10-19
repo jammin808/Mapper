@@ -278,16 +278,26 @@ jobs:
           $task = 'PlayMap probe as LocalSystem'
           $action = New-ScheduledTaskAction -Execute $exe -Argument "--session --out `"$system`""
           $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-          Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Force | Out-Null
+          # A task the runner refuses to make, start or remove is an answer ("could not be asked"), never the step's failure; an answer
+          # file the task wrote is read first, so a refusal to remove the task keeps a real answer.
+          $why = $null
           try {
-            Start-ScheduledTask -TaskName $task
-            $deadline = [DateTime]::UtcNow.AddSeconds(90)
-            while (-not (Test-Path $system) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 2 }
+            Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Force | Out-Null
+            try {
+              Start-ScheduledTask -TaskName $task
+              $deadline = [DateTime]::UtcNow.AddSeconds(90)
+              while (-not (Test-Path $system) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 2 }
+            }
+            finally {
+              Unregister-ScheduledTask -TaskName $task -Confirm:$false
+            }
           }
-          finally {
-            Unregister-ScheduledTask -TaskName $task -Confirm:$false
-          }
-          $lines = if (Test-Path $system) { Get-Content $system } else {
+          catch { $why = $_.Exception.Message }
+          $lines = if (Test-Path $system) {
+            Get-Content $system
+          } elseif ($why) {
+            "#### M9's calls as LocalSystem", '', "The scheduled task as LocalSystem could not be asked: $why", ''
+          } else {
             "#### M9's calls as LocalSystem", '', 'The scheduled task as LocalSystem wrote no answer within 90 s: the calls could not be asked that way here.', ''
           }
           $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
