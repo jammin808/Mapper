@@ -68,6 +68,16 @@ jobs:
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+      - name: The Render suite on OpenGL ES 3.00 (the ES leg)
+        # The whole Render suite again on an ES 3.00 context (GLFW on EGL under the same Xvfb), so the GL backend's pixels hold in
+        # both dialects; its results are kept beside the core leg's under their own name. It runs whatever the suites above said.
+        if: ${{ !cancelled() }}
+        env:
+          PLAYMAP_GL_DIALECT: es300
+        run: |
+          dotnet test tests/PlayMap.Render.Tests/PlayMap.Render.Tests.csproj -c Release --no-build \
+            --logger "trx;LogFileName=PlayMap.Render.Tests.es300.trx" \
+            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
       # The Companion module (integrations/companion-module-playmap): its type check, lint and tests — the e2e test against this
       # job's Release engine — then Companion's own module check. It runs whatever the .NET suites said.
       - name: Node for the Companion module

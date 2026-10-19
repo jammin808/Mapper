@@ -3,8 +3,8 @@ using PlayMap.Render.Gpu;
 namespace PlayMap.Render.Tests.Spine;
 
 /// <summary>What a context can sample and render to, read from its version and extension list: fake lists for desktop Mesa, ES 3.0
-/// Mesa and an ANGLE-like ES context; then the real core 3.3 context of the tests, where every block family reads true and a float
-/// and a 16-bit target render a known colour.</summary>
+/// Mesa and an ANGLE-like ES context; then the real context of the tests in the fixture's dialect (core 3.3, or ES 3.00 on the ES
+/// leg), where every block family reads true and a float and a 16-bit target render a known colour.</summary>
 [Collection("gl")]
 public sealed class GlCapsTests(GlFixture gl)
 {
@@ -53,10 +53,11 @@ public sealed class GlCapsTests(GlFixture gl)
     }
 
     [Fact]
-    public void OnTheTestsCoreContextEveryBlockFamilyReadsTrue()
+    public void OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect()
     {
         var caps = gl.Run(c => c.Device.Caps);
-        Assert.Equal("core330", caps.Dialect);
+        Assert.Equal(GlDialects.Word(GlFixture.Dialect), caps.Dialect);
+        Assert.Equal(GlFixture.Dialect == GlDialect.Core330, caps.IsCore);
         foreach (var f in new[] { TextureFormat.Bc1, TextureFormat.Bc3, TextureFormat.Bc4, TextureFormat.Bc7, TextureFormat.Bc6hUfloat })
             Assert.True(caps.Supports(f), $"{f} on {gl.Run(c => c.Device.Renderer)}");
     }

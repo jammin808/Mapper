@@ -183,16 +183,68 @@ public sealed unsafe partial class GlDevice
     }
 
     /// <summary>Reads a target back synchronously as floats (RGBA, top row first) — a float pipeline's own
-    /// values, for tests that measure below one 8-bit code.</summary>
+    /// values, for tests that measure below one 8-bit code. Either dialect gives the same values: a fixed-point target reads as
+    /// its codes over 2^bits − 1, a float target as its floats.</summary>
     public void ReadPixelsFloat(RenderTarget target, Span<float> rgba)
     {
         ArgumentNullException.ThrowIfNull(target);
-        if (rgba.Length < target.Width * target.Height * 4)
+        var count = target.Width * target.Height * 4;
+        if (rgba.Length < count)
             throw new ArgumentException("The buffer is smaller than the target.", nameof(rgba));
         BindTarget(target);
-        fixed (float* p = rgba)
-            _gl.ReadPixels(0, 0, (uint)target.Width, (uint)target.Height, GLEnum.Rgba, GLEnum.Float, p);
+        if (Dialect == GlDialect.Es300 && !IsFloatTarget(target.Format))
+            ReadFixedPointAsFloat(target, rgba[..count]);
+        else
+            fixed (float* p = rgba)
+                _gl.ReadPixels(0, 0, (uint)target.Width, (uint)target.Height, GLEnum.Rgba, GLEnum.Float, p);
         Check("read float");
+    }
+
+    private static bool IsFloatTarget(TextureFormat format) => format is TextureFormat.R16F or TextureFormat.Rg16F
+        or TextureFormat.Rgba16F or TextureFormat.R32F or TextureFormat.Rg32F or TextureFormat.Rgba32F;
+
+    /// <summary>ES reads a fixed-point buffer only as its own codes (ES 3.0 §4.3.2: RGBA with UNSIGNED_BYTE for 8-bit, with
+    /// UNSIGNED_INT_2_10_10_10_REV for 10-bit, and with UNSIGNED_SHORT for 16-bit through EXT_texture_norm16), so they are read
+    /// that way and scaled here to code / (2^bits − 1), the values desktop GL's float read of the same buffer converts to.</summary>
+    private void ReadFixedPointAsFloat(RenderTarget target, Span<float> rgba)
+    {
+        var (w, h) = ((uint)target.Width, (uint)target.Height);
+        switch (target.Format)
+        {
+            case TextureFormat.R16 or TextureFormat.Rg16 or TextureFormat.Rgba16:
+            {
+                var codes = new ushort[rgba.Length];
+                fixed (ushort* p = codes)
+                    _gl.ReadPixels(0, 0, w, h, GLEnum.Rgba, GLEnum.UnsignedShort, p);
+                for (var i = 0; i < rgba.Length; i++)
+                    rgba[i] = codes[i] / 65535f;
+                break;
+            }
+            case TextureFormat.Rgb10A2:
+            {
+                var words = new uint[rgba.Length / 4];
+                fixed (uint* p = words)
+                    _gl.ReadPixels(0, 0, w, h, GLEnum.Rgba, GLEnum.UnsignedInt2101010Rev, p);
+                for (var i = 0; i < words.Length; i++)
+                {
+                    var word = words[i];
+                    rgba[i * 4] = (word & 0x3FF) / 1023f;
+                    rgba[i * 4 + 1] = ((word >> 10) & 0x3FF) / 1023f;
+                    rgba[i * 4 + 2] = ((word >> 20) & 0x3FF) / 1023f;
+                    rgba[i * 4 + 3] = (word >> 30) / 3f;
+                }
+                break;
+            }
+            default:
+            {
+                var codes = new byte[rgba.Length];
+                fixed (byte* p = codes)
+                    _gl.ReadPixels(0, 0, w, h, GLEnum.Rgba, GLEnum.UnsignedByte, p);
+                for (var i = 0; i < rgba.Length; i++)
+                    rgba[i] = codes[i] / 255f;
+                break;
+            }
+        }
     }
 
     // ---- buffers ----

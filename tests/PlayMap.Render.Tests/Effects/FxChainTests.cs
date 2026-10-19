@@ -245,7 +245,12 @@ public sealed class FxChainTests(GlFixture gl)
                 engine.Render(inputs);
             }
             Assert.Equal(0, Allocations.Since(before));
-            Assert.True(FxRig.Live(engine, fx, "fx00000001").GpuMs > 0, "the slot's GPU time is measured");
+            // A slot's GPU time comes from timestamp queries, core in desktop GL 3.3: an ES context measures none and says 0.
+            var gpuMs = FxRig.Live(engine, fx, "fx00000001").GpuMs;
+            if (c.Device.Caps.IsCore)
+                Assert.True(gpuMs > 0, "the slot's GPU time is measured");
+            else
+                Assert.Equal(0d, gpuMs);
             Assert.Empty(c.Device.TakeErrors());
         });
     }

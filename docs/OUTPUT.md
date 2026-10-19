@@ -185,10 +185,14 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   targets, an output through the whole frame on ES; the presenter seam with the GL window and a scripted presenter; vblank and
   ledger arithmetic on synthetic sequences (Xvfb's swaps are no real display); the lock machine, the counter and the verbs against
   the scripted board on the real render host (headless and windowed).
-- **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here). Every
-  test passes on it except the two spine tests that assert a desktop core context by name
-  (`GlCapsTests.OnTheTestsCoreContextEveryBlockFamilyReadsTrue`, `ShaderConventionTests.EveryProgramCompilesAndLinksOnCore33`);
-  the leg runs with those two filtered out until they read the fixture's dialect, and it is not yet a step of the CI workflow.
+- **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here), and
+  the Linux CI job runs it as its own step after the core suites, its results in `PlayMap.Render.Tests.es300.trx`. Every test
+  passes on it whole. A test that names a dialect reads the fixture's: the caps and every program in it
+  (`GlCapsTests.OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect`,
+  `ShaderConventionTests.EveryProgramCompilesAndLinksInTheFixturesDialect`), the binding the context was made through (EGL for the
+  ES context), and an effect slot's GPU time, which comes from timestamp queries, core in desktop GL only, so an ES context reads
+  0. A target read back as floats (`GlDevice.ReadPixelsFloat`, the tests' reader) gives the same values in both dialects: ES reads
+  a fixed-point buffer only as its integer codes, so the device reads those and scales them (`FloatReadTests`).
   On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).
 - **Here, for the DXGI path**: the stage faults with a fake platform (each stage's words, the GL fallback), the fuse and its words in
   STATE and preflight, the extension lists, QPC conversion, the one-wrapper cache, display-timed clocks on synthetic statistics, the
@@ -203,5 +207,4 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 - **Next round**: DXGI as `auto` once proven in the lab; independent-flip evidence (the PresentMon proof, the media statistics hint);
   10-bit output, device-lost rebuild (the DXGI path's included), the DRS stop-gap, scanline sampling; `SYNC MARKS`,
   `SYNC CERTIFY`, `SYNC REPORT`, the frame code and certificate, `LATENCY MEASURE`; the IGCL and GLX swap-group tiers; the board
-  helper; the D3D12 present barrier; HDR; macOS. The ES leg as a CI step (once the two spine tests read the fixture's dialect), and
-  OML sync control on Linux.
+  helper; the D3D12 present barrier; HDR; macOS; OML sync control on Linux.

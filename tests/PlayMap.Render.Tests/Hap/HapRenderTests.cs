@@ -329,10 +329,11 @@ public class HapRenderTests(GlFixture gl)
     [Fact]
     public void TheBindingIsWhatTheCurrentContextCameThroughNotTheEnvironment()
     {
-        // The fixture's context is GLFW's on an X server (GLX); a thread with no context current gets no answer at all.
-        var bound = gl.Run(_ => GlDevice.CurrentBinding());
+        // The fixture's context is GLFW's on an X server, made through GLX for desktop GL and through EGL for the ES leg's (GLX when
+        // EGL refused the window): the binding is the one it was made through. A thread with no context current gets no answer.
+        var (bound, made) = gl.Run(c => (GlDevice.CurrentBinding(), c.Api));
         if (OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
-            Assert.Equal("glx", bound);
+            Assert.Equal(made.StartsWith("egl", StringComparison.Ordinal) ? "egl" : "glx", bound);
         else
             Assert.Contains(bound, new[] { "egl", "glx", "wgl", "cgl" });
         Assert.Equal("", GlDevice.CurrentBinding());
