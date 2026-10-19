@@ -487,6 +487,18 @@ public sealed class GlBackendTests(BackendFixture backends)
     }
 
     [Fact]
+    public void EveryProgramOfTheGlslLibraryLinksOnTheGlDevice()
+    {
+        backends.RunGl(c =>
+        {
+            // Those only a backend or a tool draws among them (the window's present, the HAP encoder's) included.
+            foreach (var name in ShaderLibrary.Names)
+                Assert.Equal(name, c.Device.Program(name).Name);
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
+    [Fact]
     public void TheImporterRefusesWhatItCannotImportWithWords()
     {
         backends.RunGl(c =>

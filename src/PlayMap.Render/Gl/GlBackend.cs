@@ -56,6 +56,7 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
     private readonly ConcurrentQueue<ProgramId> _releases = new();
     private readonly List<ProgramId> _releasing = [];
     private FxCompileLane? _lane;
+    private long _laneFrame = long.MinValue;
     private bool _laneShared = true;
     private Action<string>? _beforeMake;
     private bool _disposed;
@@ -225,7 +226,9 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
     // ---- frames and fences ----
 
     /// <summary>Opens the frame's list. First it lets go of imported surfaces and user programs whose last reads completed, takes
-    /// the user programs the compile lane finished, and runs the warm-up asked for.</summary>
+    /// the user programs the compile lane finished, and runs the warm-up asked for. A lane on the render thread makes one program
+    /// when the frame number moves past the last that made one: a preview's or a side list's frame (the same number as its frame's),
+    /// or a second renderer's that counts lower, makes none.</summary>
     public ICommandList BeginFrame(long frame)
     {
         ThrowIfDisposed();
@@ -327,7 +330,11 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         }
         if (_lane is null)
             return;
-        _lane.Collect();
+        if (frame > _laneFrame)
+        {
+            _laneFrame = frame;
+            _lane.Collect();
+        }
         for (var i = _making.Count - 1; i >= 0; i--)
         {
             var make = _making[i];
@@ -338,12 +345,16 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         }
     }
 
-    private FxCompileLane MakeLane() =>
-        new(_device.Context ?? throw new InvalidOperationException("This GL device has no render context to compile user programs beside."),
+    /// <summary>A lane of the kind asked; its frames count afresh (the next frame of any number makes a program).</summary>
+    private FxCompileLane MakeLane()
+    {
+        _laneFrame = long.MinValue;
+        return new(_device.Context ?? throw new InvalidOperationException("This GL device has no render context to compile user programs beside."),
             _laneShared)
         {
             BeforeCompile = _beforeMake,
         };
+    }
 
     // ---- the lane, as the effects report it ----
 
@@ -370,6 +381,8 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
     void IProgramLane.UseLane(bool sharedContext)
     {
         ThrowIfDisposed();
+        // A renderer starting on the device counts its frames from its own start.
+        _laneFrame = long.MinValue;
         if (_lane is not null && (_laneShared == sharedContext || !_makes.IsEmpty || _making.Count > 0 || _pipelines.Linking))
             return;
         _lane?.Dispose();

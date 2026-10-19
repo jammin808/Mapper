@@ -3,20 +3,18 @@ using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Tests;
 
-/// <summary>The GPU seam: every program of the library makes its pipeline on the device, targets clear and read back top row first,
-/// and pooled resources come back.</summary>
+/// <summary>The GPU seam: every pipeline the frame's passes list is made by the device's warm-up, targets clear and read back top row
+/// first, and pooled resources come back.</summary>
 [Collection("gpu")]
 public class DeviceTests(BackendFixture backends)
 {
     [Fact]
-    public void EveryProgramInTheLibraryMakesItsPipeline()
+    public void EveryPipelineThePassesListIsMadeByTheWarmUp()
     {
         backends.Run(leg =>
         {
             var d = leg.Device;
-            var keys = d.Programs.Names
-                .Select(n => new PipelineKey(d.Programs.Id(n), DrawState.Opaque, TextureFormat.Rgba8, null, Depth: false))
-                .ToArray();
+            var keys = FramePipelines.Of(d).Keys.ToArray();
             var warm = d.Pipelines.WarmAsync(keys, CancellationToken.None);
             Assert.True(BackendFrames.Until(d, () => warm.IsCompleted), "the warm-up did not answer");
             var result = warm.GetAwaiter().GetResult();

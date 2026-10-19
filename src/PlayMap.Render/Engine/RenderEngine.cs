@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
@@ -187,24 +188,41 @@ public sealed class RenderEngine : IDisposable
     /// <summary>How long <see cref="WarmUp"/> waits for the device's warm-up; what it has not made by then its first draw makes.</summary>
     public static readonly TimeSpan WarmUpBound = TimeSpan.FromSeconds(20);
 
-    /// <summary>Makes now every pipeline the frame's passes list (<see cref="FramePipelines"/>), and every product program's opaque
-    /// 8-bit one (the programs only a backend or a tool draws among them), so the first show frame makes none: the device's warm-up
-    /// moves on frame by frame, so empty frames are submitted until it answers or <see cref="WarmUpBound"/> passes. A pipeline it could
-    /// not make is tried again by its first draw. Render thread, before the first frame.</summary>
-    public void WarmUp()
+    /// <summary>Makes now every pipeline the frame's passes list (<see cref="FramePipelines"/>), so the first show frame makes none. The
+    /// device's warm-up moves on frame by frame, so empty frames are submitted until it answers or <see cref="WarmUpBound"/> passes,
+    /// numbered from <see cref="long.MinValue"/> up: below every frame the engine draws, each above the last. A pipeline the device
+    /// could not make (a program its driver refuses) fails the warm-up with the device's words (a <see cref="GpuException"/>): the
+    /// renderer does not start with a pipeline a pass will draw that no frame could make. Past the bound the warm-up is let go and null
+    /// answered: what it had not made, its first draw makes (counted). Render thread, before the first frame.</summary>
+    public PipelineWarmResult? WarmUp()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var keys = FramePipelines.Of(_device);
-        foreach (var name in _device.Programs.Names)
-            keys.Add(name, DrawState.Opaque, TargetShape.Rgba8);
-        var warm = _device.Pipelines.WarmAsync(keys.Keys, CancellationToken.None);
+        var keys = FramePipelines.Of(_device).Keys;
+        using var stop = new CancellationTokenSource();
+        var warm = _device.Pipelines.WarmAsync(keys, stop.Token);
         var until = MonoClock.Instance.NowNs + (long)(WarmUpBound.TotalMilliseconds * 1e6);
         var spin = default(SpinWait);
+        var label = long.MinValue;
         while (!warm.IsCompleted && MonoClock.Instance.NowNs < until)
         {
-            _device.Submit(_device.BeginFrame(Frame));
+            _device.Submit(_device.BeginFrame(++label));
             spin.SpinOnce(sleep1Threshold: 10);
         }
+        if (!warm.IsCompleted)
+        {
+            stop.Cancel();
+            return null;
+        }
+        if (!warm.IsCompletedSuccessfully)
+            throw new GpuException(string.Create(CultureInfo.InvariantCulture,
+                $"the device's warm-up of {keys.Count} pipelines did not finish: {warm.Exception?.GetBaseException().Message ?? "cancelled"}"));
+#pragma warning disable VSTHRD002 // The warm-up has completed (IsCompletedSuccessfully): Result reads it, it never waits.
+        var result = warm.Result;
+#pragma warning restore VSTHRD002
+        if (result.Failed.Length > 0)
+            throw new GpuException(string.Create(CultureInfo.InvariantCulture,
+                $"the device could not make {result.Failed.Length} of the {result.Asked} pipelines the passes draw: {string.Join("; ", result.Failed)}"));
+        return result;
     }
 
     /// <summary>Shows an output through a presenter (a window). The first presenter attached paces the loop (its present waits

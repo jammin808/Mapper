@@ -154,6 +154,9 @@ public sealed partial class RenderHost : IRenderHost
 
     private volatile bool _stopping;
     private volatile string? _startFailure;
+
+    /// <summary>What the pipeline warm-up left undone at start (its bound passed), journalled when the loop starts; null when it finished.</summary>
+    private string? _warmUpWords;
     private EngineCore? _engine;
     private FactsSignal? _facts;
     private int _started;
@@ -513,7 +516,11 @@ public sealed partial class RenderHost : IRenderHost
             _dxgiUp = _platform.Path == PresentPath.DxgiFlip;
             var device = _platform.Device;
             _renderer = new RenderEngine(device, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && device.Features.Timers });
-            _renderer.WarmUp();
+            // A pipeline the device refuses fails the start here, with its words; a warm-up past its bound is said once the engine is
+            // there (the first draws make what it had not).
+            if (_renderer.WarmUp() is null)
+                _warmUpWords = string.Create(CultureInfo.InvariantCulture,
+                    $"render: the pipeline warm-up did not finish within {RenderEngine.WarmUpBound.TotalSeconds:0} s; the first draws make what it had not");
             ContextModules(_renderer);
             _rendererName = string.Create(CultureInfo.InvariantCulture, $"{device.Adapter.Api} {device.Adapter.Name}");
             _windows = new OutputWindows(_platform, _renderer);
@@ -550,6 +557,8 @@ public sealed partial class RenderHost : IRenderHost
 
     private void Loop(EngineCore engine)
     {
+        if (_warmUpWords is { } warmUp)
+            engine.Journal.Add("fault", warmUp, ok: false);
         _deadlineNs = MonoClock.Instance.NowNs;
         var faults = 0;
         // A device other threads share (the DXGI path's, decoders on it): held around each frame and the work between frames, taken
