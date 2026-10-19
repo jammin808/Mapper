@@ -419,7 +419,8 @@ jobs:
           # WiX's README asks for Visual Studio's v143 C++ tools and ATL (x64, x86, ARM64); the runner's Visual Studio 2026 carries its
           # own v145 tools only, and the pinned source's native packages are laid out by toolset, so the v143 components are added.
           $clock = [System.Diagnostics.Stopwatch]::StartNew()
-          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          # The installer's command line (setup.exe), as the runner image's own scripts modify Visual Studio.
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
           $components = Get-Content installer/wix/vs-components.txt | Where-Object { $_ -and -not $_.StartsWith('#') }
           $vsArgs = @('modify', '--installPath', $vs, '--quiet', '--norestart', '--force') + ($components | ForEach-Object { '--add', $_ })
           $p = Start-Process $installer -ArgumentList $vsArgs -Wait -PassThru
@@ -456,7 +457,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if ('${{ steps.build.outcome }}' -eq 'failure') {
-            "#### M17: the WiX toolset did not build from its source on the runner", '', "- it stopped after ${{ steps.build.outputs.minutes }} minutes (the build step's log says where); Inno Setup builds the installer (PLAN.md §9 decision 3)", '' |
+            "#### M17: the WiX toolset did not build from its source on the runner", '', "- $(if ('${{ steps.build.outputs.minutes }}') { 'it stopped after ${{ steps.build.outputs.minutes }} minutes of building' } else { 'it stopped before the build, preparing Visual Studio' }) (the build step's log says where); Inno Setup builds the installer (PLAN.md §9 decision 3)", '' |
               Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
             exit 0
           }
