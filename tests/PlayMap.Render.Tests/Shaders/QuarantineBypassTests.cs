@@ -6,7 +6,8 @@ using PlayMap.Render.Tests.Effects;
 namespace PlayMap.Render.Tests.Shaders;
 
 /// <summary>A quarantined kind on GL: its slot draws its input unchanged (± 0 codes: the chain hands on the input itself) and says so
-/// in its observed state, while the rest of the chain draws; once released the slot draws its effect again.</summary>
+/// in its observed state, while the rest of the chain draws what it draws after a slot bypassed by hand; once released the slot draws
+/// its effect again.</summary>
 [Collection("gl")]
 public sealed class QuarantineBypassTests(GlFixture gl)
 {
@@ -39,11 +40,20 @@ public sealed class QuarantineBypassTests(GlFixture gl)
             Assert.Equal(FxSlotState.Bypassed, live.State);
             Assert.StartsWith("quarantined on this node", live.Words, StringComparison.Ordinal);
 
-            // The rest of the chain draws: a slot of another kind after it still inverts the picture.
-            var two = FxRig.Chain(FxRig.Slot("fx.invert"), FxRig.Slot("fx.levels", ParamSet.Empty.With("outWhite", 0.5), id: "fx00000002"));
+            // The rest of the chain draws: the levels slot after it draws on the input itself, exactly as the same chain does on a
+            // node with no quarantine whose first slot is bypassed by hand.
+            var levels = FxRig.Slot("fx.levels", ParamSet.Empty.With("outWhite", 0.5), id: "fx00000002");
+            var two = FxRig.Chain(FxRig.Slot("fx.invert"), levels);
             var after = FxRig.Run(d, lane, runner, Show, two, picture, ref frame, owner: "op_two");
-            Assert.NotEqual(input, after);
+            Assert.Equal(FxSlotState.Bypassed, FxRig.Live(runner, "fx00000001").State);
             Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000002").State);
+            using var plain = new FxChainRunner(d, lane);
+            var expected = FxRig.Run(d, lane, plain, Show, FxRig.Chain(FxRig.Slot("fx.invert", bypass: true), levels), picture,
+                ref frame, owner: "op_two");
+            Assert.Equal(FxSlotState.Bypassed, FxRig.Live(plain, "fx00000001").State);
+            Assert.Equal(expected.Length, after.Length);
+            for (var i = 0; i < after.Length; i++)
+                Assert.InRange(after[i], expected[i] - 1, expected[i] + 1);
 
             quarantine.ReleaseAll();
             var drawn = FxRig.Run(d, lane, runner, Show, chain, picture, ref frame);
