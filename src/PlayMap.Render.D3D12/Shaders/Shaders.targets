@@ -3,9 +3,10 @@
   <!-- The HLSL library's build. Every build writes each program's header (Layout.hlsli: its constants as the cbuffer at b0, in the
        table's order, which HLSL packs at the table's offsets, and its texture slots) from the program table, read as data, so this project never references the GL
        backend; and where DXC's executable runs (Microsoft.Direct3D.DXC's dxc.exe, Windows) it compiles every program's two entries
-       to validated, signed DXIL (Shader Model 6.6), with a PDB and reflection kept apart, only when a source or the table is newer.
-       The sources, the tables, the headers and the DXIL with its reflection are embedded (shaders/…); the PDBs stay in obj/ for the
-       CI's symbols, never in the exe. -->
+       to validated, signed DXIL (Shader Model 6.6), with a PDB and reflection kept apart, only when a source, the layout table or the
+       program list (an entry's file or entry points) is newer. The sources, the tables, the headers and the DXIL with its reflection
+       are embedded (shaders/…); the PDBs are written to obj/ beside the DXIL and are not kept by CI yet (no step uploads them), never
+       in the exe. -->
   <PropertyGroup>
     <PlayMapHlslSources>$(MSBuildThisFileDirectory)</PlayMapHlslSources>
     <PlayMapHlslTable>$(MSBuildThisFileDirectory)programs.glsl.layout.json</PlayMapHlslTable>
@@ -90,7 +91,8 @@
         if (!string.IsNullOrEmpty(Dxc) && File.Exists(Dxc))
         {
             var entry = new Regex("\"name\": \"([^\"]+)\", \"file\": \"([^\"]+)\", \"vs\": \"(\\w+)\", \"ps\": \"(\\w+)\"");
-            var newest = Directory.GetFiles(Sources, "*.hlsl*").Select(File.GetLastWriteTimeUtc).Concat(new[] { File.GetLastWriteTimeUtc(Table) }).Max();
+            var newest = Directory.GetFiles(Sources, "*.hlsl*").Select(File.GetLastWriteTimeUtc)
+                .Concat(new[] { File.GetLastWriteTimeUtc(Table), File.GetLastWriteTimeUtc(Programs) }).Max();
             foreach (var line in File.ReadAllLines(Programs))
             {
                 var m = entry.Match(line);

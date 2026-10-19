@@ -23,6 +23,9 @@ internal static class HlslCompile
 
     public static IReadOnlyList<Compiled> Programs => All.Value;
 
+    /// <summary>A reflection blob read through the shader worker's pinned DXC; null with words when it does not read.</summary>
+    public static DxilReflection? Reflect(byte[] reflection, out string words) => Compiler.Value.Reflect(reflection, out words);
+
     public static byte[]? Resource(string name)
     {
         using var stream = Backend.GetManifestResourceStream(name);
