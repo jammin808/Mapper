@@ -138,13 +138,13 @@ internal static class FxSources
     /// dialect whether it compiled on this node (null with words where it was not compiled: no such context here, or issues
     /// to put right before a compile). <paramref name="compiledIsEs"/> says which dialect this node's context compiles.</summary>
     public static (bool Ok, string Json) Report(IsfDocument doc, IsfProgramSource? glsl, IsfProgramSource? es, FxCompileReport? compiled,
-        bool compiledIsEs, string laneMode)
+        bool compiledIsEs, string laneMode, System.Collections.Immutable.ImmutableArray<FxStage> stages = default)
     {
         var issues = new List<IsfIssue>();
         issues.AddRange(glsl?.Issues ?? doc.Issues);
         if (compiled is { Ok: false, Error: { } err } && (compiledIsEs ? es : glsl) is { } src)
             issues.AddRange(src.LineMap.Read(err, err.Contains("(vertex)", StringComparison.Ordinal)));
-        var ok = doc.Valid && (glsl?.Issues.IsEmpty ?? false) && compiled is not { Ok: false };
+        var ok = doc.Valid && (glsl?.Issues.IsEmpty ?? false) && compiled is not { Ok: false } && !(!stages.IsDefault && stages.Any(st => st.Ok == false));
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms))
         {
@@ -174,6 +174,24 @@ internal static class FxSources
             Dialect(w, "glsl330", compiledIsEs ? null : compiled, laneMode, mine: !compiledIsEs);
             Dialect(w, "es300", compiledIsEs ? compiled : null, laneMode, mine: compiledIsEs);
             w.WriteEndObject();
+            // A package's stages (EngineServices.FxStages), in the road's order; none when no package checks any.
+            if (!stages.IsDefault)
+            {
+                w.WriteStartArray("stages");
+                foreach (var st in stages)
+                {
+                    w.WriteStartObject();
+                    w.WriteString("name", st.Name);
+                    if (st.Ok is { } stageOk)
+                        w.WriteBoolean("ok", stageOk);
+                    else
+                        w.WriteNull("ok");
+                    w.WriteString("words", st.Words);
+                    w.WriteNumber("line", st.Line);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
             w.WriteEndObject();
         }
         return (ok, System.Text.Encoding.UTF8.GetString(ms.ToArray()));

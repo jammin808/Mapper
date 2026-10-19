@@ -172,6 +172,19 @@ public interface IShowArmHook
     Task<string> DisarmingAsync(CancellationToken ct) => Task.FromResult("");
 }
 
+/// <summary>One stage of a user effect's road to a device as FX CHECK reports it: its name ("spirv", "validate", "hlsl", "dxil"),
+/// whether it passed (null: not run, with the words why), its words, and the ISF line it points at (0 for none).</summary>
+public readonly record struct FxStage(string Name, bool? Ok, string Words, int Line);
+
+/// <summary>The stages of a user effect's road a package checks for FX CHECK and FX IMPORT beside the GL dialects' (wp3-shaders: the
+/// shader worker's SPIR-V, validation and HLSL; wp3-shaders-2: DXIL drawn on the Direct3D 12 device). Off the lane, bounded by the
+/// caller; a stage that fails makes the report's ok false.</summary>
+public interface IFxStageCheck
+{
+    /// <summary>Checks an ISF source (its fragment and, when it has one, its vertex shader) and answers each stage in the road's order.</summary>
+    Task<ImmutableArray<FxStage>> CheckAsync(string name, string fragment, string? vertex, CancellationToken ct);
+}
+
 /// <summary>Round 3's seams a node is composed with, each at its null implementation until a package's extension sets it in its
 /// Configure: the air observer, the preview share, the GPU lifecycle listeners, the machine platform, and the arm hooks with the
 /// timers their deadlines run on.</summary>
@@ -190,6 +203,10 @@ public sealed partial record EngineServices
     /// <summary>What the node claims from its operating system (wp3-platform sets it). The host points <see cref="ThreadClaims"/> at
     /// it once at start, before any part starts a thread.</summary>
     public IMachinePlatform MachinePlatform { get; init; } = new NullMachinePlatform();
+
+    /// <summary>The stages of a user effect's road FX CHECK reports beyond the GL dialects' (wp3-shaders sets it); null: none, and the
+    /// report carries no stages.</summary>
+    public IFxStageCheck? FxStages { get; init; }
 
     /// <summary>The hooks SHOW ARM and SHOW DISARM run before they answer, each named in the answer (none: the mode's answer alone).</summary>
     public ImmutableArray<IShowArmHook> ArmHooks { get; init; } = [];

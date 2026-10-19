@@ -20,7 +20,7 @@ public sealed class RoundThreeFixtureTests
         { "shaders", "wp3-shaders", ["fx.quarantine"] },
         { "gpu", "wp3-d3d12-core", ["render"] },
         { "graph", "wp3-d3d12-passes", ["render.graph"] },
-        { "observe", "wp3-stability", ["observe"] },
+        { "observe", "wp3-stability", ["observe", "outputs[].observed"] },
         { "previews", "wp3-desk-gpu", ["previews"] },
         { "showing", "wp3-desk-map", ["outputs[].showing", "media.shownOn", "air.overlay.handleP95Ms"] },
         { "canvas", "wp3-canvas", ["outputs[].hand"] },

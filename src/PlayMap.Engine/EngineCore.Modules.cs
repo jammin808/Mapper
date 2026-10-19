@@ -198,8 +198,8 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         RouteVideoIo(_routes); RouteControl(_routes); RouteCompanion(_routes); RouteFx(_routes); RouteAudio(_routes);
         RouteContent(_routes); RouteLed(_routes); RouteSite(_routes); RouteAlign(_routes); RoutePhone(_routes); RouteWall(_routes);
         // Round 3's, by hook word (docs/round3/PLAN.md §2.3).
-        RouteMachine(_routes); RouteGpu(_routes); RouteObserve(_routes); RouteUndo(_routes); RouteHandles(_routes); RouteCanvas(_routes);
-        RouteGuide(_routes); RouteCapture(_routes);
+        RouteMachine(_routes); RouteGpu(_routes); RouteObserve(_routes); RouteShaders(_routes); RouteUndo(_routes); RouteHandles(_routes);
+        RouteCanvas(_routes); RouteGuide(_routes); RouteCapture(_routes);
     }
 
     /// <summary>Every package's lane work each 10 ms tick, after the playlists' own tick, with the leader's now.</summary>
@@ -227,10 +227,21 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     /// <summary>Keys at the end of air.overlay, after wp2-wall's own (handleP95Ms).</summary>
     internal void WriteOverlayExtras(Utf8JsonWriter w) { OverlayHandles(w); }
 
+    /// <summary>Keys at the end of STATE's render block, after wp3-d3d12-core's own (graph): wp3-d3d12-core's StateGpu calls it last
+    /// inside the block it writes.</summary>
+    internal void WriteRenderExtras(Utf8JsonWriter w) { RenderPlan(w); }
+
+    /// <summary>Keys at the end of fx.compile, after wp2-fx's own (worker), and at the end of the fx block (quarantine).</summary>
+    internal void WriteFxCompileExtras(Utf8JsonWriter w) { FxCompileShaders(w); }
+
+    internal void WriteFxExtras(Utf8JsonWriter w) { FxShaders(w); }
+
+    /// <summary>Keys at the end of each output, after the round-2 packages' own: measured (wp2-align), then observed, showing, hand,
+    /// passThrough.</summary>
     internal void WriteOutputExtras(Utf8JsonWriter w, Output o)
     {
         OutputOutput(w, o); OutputFx(w, o); OutputAlign(w, o);
-        OutputShowing(w, o); OutputCanvas(w, o); OutputCapture(w, o);
+        OutputObserve(w, o); OutputShowing(w, o); OutputCanvas(w, o); OutputCapture(w, o);
     }
 
     internal void WritePlaylistExtras(Utf8JsonWriter w, Playlist list) { PlaylistControl(w, list); }
@@ -458,6 +469,7 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     partial void RouteMachine(VerbRoutes routes);
     partial void RouteGpu(VerbRoutes routes);
     partial void RouteObserve(VerbRoutes routes);
+    partial void RouteShaders(VerbRoutes routes);
     partial void RouteUndo(VerbRoutes routes);
     partial void RouteHandles(VerbRoutes routes);
     partial void RouteCanvas(VerbRoutes routes);
@@ -470,6 +482,10 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     partial void StateGuide(Utf8JsonWriter w);
 
     partial void OverlayHandles(Utf8JsonWriter w);
+    partial void RenderPlan(Utf8JsonWriter w);
+    partial void FxCompileShaders(Utf8JsonWriter w);
+    partial void FxShaders(Utf8JsonWriter w);
+    partial void OutputObserve(Utf8JsonWriter w, Output o);
     partial void OutputShowing(Utf8JsonWriter w, Output o);
     partial void OutputCanvas(Utf8JsonWriter w, Output o);
     partial void OutputCapture(Utf8JsonWriter w, Output o);
@@ -487,6 +503,10 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     partial void ValidateCanvas(Project p, object entity, ref string? why);
     partial void ValidateGuide(Project p, object entity, ref string? why);
     partial void ValidateCapture(Project p, object entity, ref string? why);
+
+    /// <summary>VIEW … SHARED &lt;pid&gt;: wp3-desk-gpu answers it (EngineCore.Preview.cs); while <paramref name="reply"/> stays null the
+    /// spine refuses it with the words of a form not available yet.</summary>
+    partial void ViewShared(List<string> args, SessionInfo session, ref CommandReply? reply);
 
     /// <summary>What an output shows now, in the words its context item carries after its own ("Front — Intro.mov via Show"), or ""
     /// when nothing is said: wp3-desk-map fills it (EngineCore.Showing.cs). Read on whichever thread builds the context, from published

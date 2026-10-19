@@ -30,12 +30,17 @@ ENGINE_CORE = [
         ("MachineInstall", W)]),
     ("EngineCore.Gpu.cs", "d3d12-core", "its verbs, STATE's render block and the render device's context items", [
         ("RouteGpu", "VerbRoutes routes"), ("StateGpu", W), ("ContextGpu", CTX)]),
-    ("EngineCore.Observe.cs", "stability", "its verbs, STATE's observe block, the observed outputs' context items and its checks", [
-        ("RouteObserve", "VerbRoutes routes"), ("StateObserve", W), ("ContextObserve", CTX), ("ValidateObserve", VAL)]),
+    ("EngineCore.Plan.cs", "d3d12-passes", "STATE's render.graph, written inside the render block", [
+        ("RenderPlan", W)]),
+    ("EngineCore.Observe.cs", "stability", "its verbs, STATE's observe block, each output's observed key, the observed outputs' context items and its checks", [
+        ("RouteObserve", "VerbRoutes routes"), ("StateObserve", W), ("OutputObserve", W + ", Output o"), ("ContextObserve", CTX),
+        ("ValidateObserve", VAL)]),
+    ("EngineCore.Shaders.cs", "shaders", "its verbs (FX RELEASE), the fx block's quarantine and the compile lane's worker", [
+        ("RouteShaders", "VerbRoutes routes"), ("FxCompileShaders", W), ("FxShaders", W)]),
     ("EngineCore.Undo.cs", "desk-ux", "its verbs", [
         ("RouteUndo", "VerbRoutes routes")]),
-    ("EngineCore.Preview.cs", "desk-gpu", "STATE's previews block", [
-        ("StatePreview", W)]),
+    ("EngineCore.Preview.cs", "desk-gpu", "STATE's previews block and VIEW … SHARED's answer", [
+        ("StatePreview", W), ("ViewShared", "List<string> args, SessionInfo session, ref CommandReply? reply")]),
     ("EngineCore.Handles.cs", "desk-map", "its verbs and the overlay's handle latency", [
         ("RouteHandles", "VerbRoutes routes"), ("OverlayHandles", W)]),
     ("EngineCore.Showing.cs", "desk-map", "what each screen shows: the outputs' showing key, the media's shownOn key and the words the context's output items carry", [
@@ -54,7 +59,7 @@ ENGINE_CORE = [
 ENGINE_SERVICES = [("Machine", "platform"), ("Observe", "stability"), ("Shaders", "shaders"), ("Guide", "workflows"), ("Capture", "capture")]
 
 # Host/EngineParts stub files: (word, package).
-ENGINE_PARTS = [("Observe", "stability"), ("Capture", "capture")]
+ENGINE_PARTS = [("Machine", "platform"), ("Plan", "d3d12-passes"), ("Observe", "stability"), ("Preview", "desk-gpu"), ("Capture", "capture")]
 
 # Host/EngineEntry stub files: (file word, method, package, what the process is).
 ENGINE_ENTRY = [
@@ -73,6 +78,7 @@ ENGINE_USINGS = [
     ("System.Text.Json", ["Utf8JsonWriter"]),
     ("PlayMap.Core.Bus", ["ContextItem", "ContextLink"]),
     ("PlayMap.Core.Model", ["Output", "Project"]),
+    ("PlayMap.Core.Wire", ["SessionInfo", "CommandReply"]),
     ("PlayMap.Engine.VideoIo", ["LiveInput"]),
 ]
 

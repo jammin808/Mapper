@@ -49,7 +49,7 @@ public sealed class StateOrderTests
         TodayThenOnly("air.overlay", ["on", "outputs", "layers", "handle", "grid", "cursors", "cursorP95Ms", "armed"], ["handleP95Ms"],
             Keys(s.GetProperty("air").GetProperty("overlay")));
         TodayThenOnly("outputs[]", ["id", "name", "mode", "kind", "display", "width", "height", "refreshHz", "enabled", "open", "fps", "dropped",
-            "frameMsP95", "pattern", "projector", "light"], ["latencyMs", "present", "lock", "fx", "measured", "showing", "hand", "passThrough"],
+            "frameMsP95", "pattern", "projector", "light"], ["latencyMs", "present", "lock", "fx", "measured", "observed", "showing", "hand", "passThrough"],
             Keys(s.GetProperty("outputs")[0]));
         var playlist = Keys(s.GetProperty("playlists")[0]);
         var items = Array.IndexOf(playlist, "items");

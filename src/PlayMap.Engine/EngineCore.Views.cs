@@ -54,7 +54,11 @@ public sealed partial class EngineCore
         if (args.Count < 2)
             return CommandReply.Fail(ViewSyntax);
         if (args.Skip(2).Any(a => a.Equals("SHARED", StringComparison.OrdinalIgnoreCase)))
-            return CommandReply.Fail(VerbCatalog.NotAvailableYet("VIEW … SHARED") + " — a view's picture comes through its shared-memory ring");
+        {
+            CommandReply? shared = null;
+            ViewShared(args, session, ref shared);
+            return shared ?? CommandReply.Fail(VerbCatalog.NotAvailableYet("VIEW … SHARED") + " — a view's picture comes through its shared-memory ring");
+        }
         var view = args[0];
         if (!ViewRequest.IsViewId(view))
             return CommandReply.Fail("a view id is letters, digits, '-', '_' and '.', at most 64 of them");
