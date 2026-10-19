@@ -1,7 +1,7 @@
-; PlayMap's installer (docs/round3/design/installer.md; docs/INSTALL.md). Inno Setup 7 builds it: the WiX toolset does not
-; build from its pinned source on the runner, and that source carries a licence check PlayMap never answers, so this EXE takes the MSI's place with the same acceptance
-; (docs/round3/PLAN.md §3.5 item 2, §9 decision 3). It installs per machine into Program Files\PlayMap and does every machine-level
-; action through the supervisor's own commands (install, uninstall, preinstall-check), so the engine never runs as administrator.
+; PlayMap's installer (docs/round3/design/installer.md; docs/INSTALL.md), an EXE built by Inno Setup 7.1 in the MSI's place with the
+; same acceptance (docs/round3/PLAN.md §3.5 item 2, §9 decision 3; why, in docs/INSTALL.md). It installs per machine into
+; Program Files\PlayMap and does every machine-level action through the supervisor's own commands (install, uninstall, upgrade-stop,
+; preinstall-check), so the engine never runs as administrator.
 ;
 ; The build passes, from a numbered build only (installer/build-installer.ps1):
 ;   SemVer       the product version, MAJOR.MINOR.PATCH            0.2.0
@@ -31,9 +31,12 @@ VersionInfoVersion={#FileVersion}
 VersionInfoProductVersion={#FileVersion}
 VersionInfoProductTextVersion={#SemVer}+{#Build}.{#Commit}
 VersionInfoDescription=PlayMap {#SemVer} (build {#Build}) installer
+; Program Files\PlayMap only: the LocalSystem service runs from here, and a folder an ordinary account may change would let it replace
+; what SYSTEM runs. The page is never shown and PrepareToInstall refuses any other folder, /DIR= included.
 DefaultDirName={autopf}\PlayMap
 DisableProgramGroupPage=yes
-DisableDirPage=auto
+DisableDirPage=yes
+UsePreviousAppDir=no
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
@@ -62,8 +65,9 @@ Root: HKLM; Subkey: "SOFTWARE\PlayMap"; ValueType: string; ValueName: "InstallDi
 Root: HKLM; Subkey: "SOFTWARE\PlayMap"; ValueType: string; ValueName: "Version"; ValueData: "{#MsiVersion}"
 Root: HKLM; Subkey: "SOFTWARE\PlayMap"; ValueType: string; ValueName: "SemVer"; ValueData: "{#SemVer}+{#Build}.{#Commit}"
 Root: HKLM; Subkey: "SOFTWARE\PlayMap"; ValueType: string; ValueName: "ShowUser"; ValueData: "{code:ShowUser}"
-Root: HKLM; Subkey: "SOFTWARE\PlayMap"; ValueType: dword; ValueName: "Supervised"; ValueData: "1"
 Root: HKLM; Subkey: "SOFTWARE\PlayMap"; ValueType: dword; ValueName: "Signed"; ValueData: "0"
+; Supervised is the supervisor's install's to write, once its service runs, and its uninstall's to take back first: a machine whose
+; install or upgrade did not finish is not supervised, so its desk starts its own engine.
 
 [Icons]
 Name: "{autoprograms}\PlayMap"; Filename: "{app}\PlayMap.exe"
@@ -77,12 +81,23 @@ const
 var
   MachineSetupFailed: Boolean;
   SacPage: TOutputMsgWizardPage;
+  EarlierStopped: Boolean;
+  ReachedPostInstall: Boolean;
+  PreviousShowUser: String;
 
 function ShowUser(Param: String): String;
 begin
   Result := ExpandConstant('{param:SHOWUSER|}');
   if Result = '' then
     RegQueryStringValue(HKLM, 'SOFTWARE\PlayMap', 'ShowUser', Result);
+end;
+
+{ The show user the earlier install recorded: the install's key alone, never a new /SHOWUSER, so an uninstall takes the right back
+  from the account it was given to. }
+function RecordedShowUser(): String;
+begin
+  if not RegQueryStringValue(HKLM, 'SOFTWARE\PlayMap', 'ShowUser', Result) then
+    Result := '';
 end;
 
 function Refuse(const Words: String): Boolean;
@@ -189,23 +204,80 @@ begin
     SacPage := CreateOutputMsgPage(wpWelcome, 'Smart App Control', 'This build is unsigned.', SacWords);
 end;
 
-{ Before files are replaced: an earlier install's supervisor stops its service and its engine and takes back its machine-level
-  actions; this install's supervisor does them again after the files are in place. }
+{ Words, then a further sentence. }
+function ThenSay(const Words, More: String): String;
+begin
+  if (Words <> '') and (Copy(Words, Length(Words), 1) = '.') then
+    Result := Words + ' ' + More
+  else
+    Result := Words + '. ' + More;
+end;
+
+{ The folder an install may go into: Program Files\PlayMap. }
+function InstallFolder(): String;
+begin
+  Result := ExpandConstant('{autopf}\PlayMap');
+end;
+
+{ Runs this build's supervisor (unlaid, in the temporary folder) with Params; its exit code and its words. False when it could not run. }
+function RunSupervisor(const Params: String; var Code: Integer; var Words: String): Boolean;
+var
+  Said: String;
+  Text: AnsiString;
+begin
+  Said := ExpandConstant('{tmp}\supervisor-said.txt');
+  DeleteFile(Said);
+  Result := Exec(ExpandConstant('{tmp}\PlayMap.Supervisor.exe'), Params + ' --out "' + Said + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if not Result then
+    Words := 'the supervisor could not run (' + SysErrorMessage(Code) + ')'
+  else if LoadStringFromFile(Said, Text) then
+    Words := Trim(String(Text))
+  else
+    Words := '';
+  Log('the supervisor''s ' + Params + ' answered ' + IntToStr(Code) + ':' + #13#10 + Words);
+end;
+
+{ Just before anything is changed (Inno Setup shows these words as the Preparing page's refusal, and exits 7): the folder must be
+  Program Files\PlayMap; the armed check runs again, since the wizard may have waited on its pages; and an earlier install's service
+  and engine are stopped by this build's supervisor ("upgrade-stop": the armed check, nothing else running from the folder, then the
+  service and the engine), its machine-level actions left for this build's "install" to set again. If this install does not reach its
+  end, DeinitializeSetup starts the earlier service again. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  Dir, Old: String;
+  Dir, Words: String;
   Code: Integer;
 begin
   Result := '';
-  if RegQueryStringValue(HKLM, 'SOFTWARE\PlayMap', 'InstallDir', Dir) then
+  if CompareText(RemoveBackslash(ExpandConstant('{app}')), InstallFolder()) <> 0 then
   begin
-    Old := AddBackslash(Dir) + 'Supervisor\PlayMap.Supervisor.exe';
-    if FileExists(Old) then
+    Result := 'PlayMap installs only in ' + InstallFolder() + ', which only administrators may change, since its service runs as SYSTEM; '
+      + ExpandConstant('{app}') + ' was asked: nothing was changed.';
+    Log('refused: ' + Result);
+    Exit;
+  end;
+  if RegQueryStringValue(HKLM, 'SOFTWARE\PlayMap', 'InstallDir', Dir) and (Dir <> '') then
+  begin
+    if CompareText(RemoveBackslash(Dir), InstallFolder()) <> 0 then
     begin
-      Exec(Old, 'uninstall --show-user "' + ShowUser('') + '" --out "' + ExpandConstant('{tmp}\uninstall-old.txt') + '"', '', SW_HIDE,
-        ewWaitUntilTerminated, Code);
-      Log('the earlier install''s supervisor answered ' + IntToStr(Code));
+      Result := 'The earlier install is in ' + Dir + ', not ' + InstallFolder() + ': uninstall it first, then install again. Nothing was changed.';
+      Log('refused: ' + Result);
+      Exit;
     end;
+    PreviousShowUser := RecordedShowUser();
+    if not RunSupervisor('upgrade-stop', Code, Words) or (Code <> 0) then
+    begin
+      if Words = '' then Words := 'the earlier install''s service and engine could not be stopped (exit ' + IntToStr(Code) + ')';
+      Result := ThenSay(Words, 'Nothing was replaced.');
+      Log('refused: ' + Result);
+      Exit;
+    end;
+    EarlierStopped := True;
+  end
+  else if not RunSupervisor('preinstall-check', Code, Words) or (Code <> 0) then
+  begin
+    if Words = '' then Words := 'The armed check refused the install and said nothing (exit ' + IntToStr(Code) + ').';
+    Result := ThenSay(Words, 'Nothing was changed.');
+    Log('refused: ' + Result);
   end;
 end;
 
@@ -216,8 +288,11 @@ var
   Params: String;
 begin
   if CurStep <> ssPostInstall then Exit;
+  ReachedPostInstall := True;
   Params := 'install --dir "' + ExpandConstant('{app}') + '" --out "' + ExpandConstant('{tmp}\install.txt') + '"';
   if ShowUser('') <> '' then Params := Params + ' --show-user "' + ShowUser('') + '"';
+  if (PreviousShowUser <> '') and (CompareText(PreviousShowUser, ShowUser('')) <> 0) then
+    Params := Params + ' --previous-show-user "' + PreviousShowUser + '"';
   if ExpandConstant('{param:PUBLICFIREWALL|0}') = '1' then Params := Params + ' --public';
   if not Exec(ExpandConstant('{app}\Supervisor\PlayMap.Supervisor.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code) then
     Code := -1;
@@ -226,6 +301,7 @@ begin
   if Code <> 0 then
   begin
     MachineSetupFailed := True;
+    Log('the files are in place but the machine-level setup did not finish (exit 3): the machine is not supervised');
     SuppressibleMsgBox('The files are in place but the machine-level setup did not finish: ' + String(Words), mbError, MB_OK, IDOK);
   end;
 end;
@@ -235,12 +311,17 @@ begin
   if MachineSetupFailed then Result := 3 else Result := 0;
 end;
 
-{ The show user the earlier install recorded: the install's key alone, never a new /SHOWUSER, so an uninstall takes the right back
-  from the account it was given to. }
-function RecordedShowUser(): String;
+{ An upgrade that stopped the earlier service and did not reach its end (refused, cancelled, a file it could not replace — Inno Setup
+  rolls its files back) starts the earlier service again, which starts the earlier engine: the machine is as it was. }
+procedure DeinitializeSetup();
+var
+  Code: Integer;
 begin
-  if not RegQueryStringValue(HKLM, 'SOFTWARE\PlayMap', 'ShowUser', Result) then
-    Result := '';
+  if EarlierStopped and not ReachedPostInstall then
+  begin
+    Exec(ExpandConstant('{sys}\sc.exe'), 'start PlayMapSupervisor', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Log('the install did not finish: the earlier install''s service is started again (sc start answered ' + IntToStr(Code) + ')');
+  end;
 end;
 
 function InitializeUninstall(): Boolean;

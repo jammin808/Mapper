@@ -69,6 +69,16 @@ public sealed class EngineIdentityTests
             EngineExpectation.AnyEngine));
     }
 
+    [Fact]
+    public void TheSupervisorsEngineIsTheInstalledExeRunAsTheEngineWithSupervised()
+    {
+        Assert.True(EngineIdentity.IsSupervisedEngine(Engine(), Exe));
+        Assert.False(EngineIdentity.IsSupervisedEngine(Engine(line: "\"" + Exe + "\" engine headless"), Exe));
+        Assert.False(EngineIdentity.IsSupervisedEngine(Engine(line: "\"" + Exe + "\" --supervised"), Exe));
+        Assert.False(EngineIdentity.IsSupervisedEngine(Engine(image: @"C:\Users\show\PlayMap.exe"), Exe));
+        Assert.False(EngineIdentity.IsSupervisedEngine(ProcessFacts.Gone, Exe));
+    }
+
     [Theory]
     [InlineData("\"C:\\Program Files\\PlayMap\\PlayMap.exe\" engine --supervised", true)]
     [InlineData("C:\\PlayMap\\PlayMap.exe engine headless --http 9940", true)]

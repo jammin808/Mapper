@@ -132,6 +132,122 @@ public sealed class InstallerTests
         }
     }
 
+    [Fact]
+    public void AFolderOtherThanProgramFilesIsRefusedAndNothingIsLaidDown()
+    {
+        EnsureUninstalled();
+        var elsewhere = @"C:\PlayMapElsewhere";
+        var run = Install(This, "/DIR=" + elsewhere);
+        Assert.Equal(7, run.Exit);
+        Assert.Contains($"PlayMap installs only in {InstallDir}, which only administrators may change, since its service runs as SYSTEM; {elsewhere} was asked: nothing was changed.",
+            run.Log, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(elsewhere) && Directory.EnumerateFileSystemEntries(elsewhere).Any(), elsewhere + " holds files");
+        Assert.Null(InstallKey());
+        Assert.False(ServiceExists());
+    }
+
+    [Fact]
+    public void AShowUserWindowsCannotFindFailsTheMachineSetupAndLeavesTheMachineUnsupervised()
+    {
+        EnsureUninstalled();
+        try
+        {
+            var run = Install(This, "/SHOWUSER=NoSuchAccount");
+            Assert.Equal(3, run.Exit);
+            Assert.Contains("the machine-level setup did not finish", run.Log, StringComparison.Ordinal);
+            using var key = InstallKey();
+            Assert.NotNull(key);
+            Assert.Null(key.GetValue("Supervised"));
+        }
+        finally
+        {
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
+    public void AnUpgradeWhileAProgramRunsFromTheInstallIsRefusedAndTheEarlierServiceRunsOn()
+    {
+        EnsureUninstalled();
+        try
+        {
+            var first = Install(Previous, "/SHOWUSER=" + ShowUser);
+            Assert.True(first.Exit == 0, first.Log);
+            using (var holder = Holder.StartIn(InstallDir))
+            {
+                var upgrade = Install(This);
+                Assert.Equal(7, upgrade.Exit);
+                Assert.Contains($"a program runs from {InstallDir} (pid {holder.Pid}, {Holder.Name}): close it (the desk, or an engine run by hand), then install again",
+                    upgrade.Log, StringComparison.Ordinal);
+                Assert.True(holder.Running);
+            }
+            Assert.Equal(PreviousVersion, InstallKey()!.GetValue("Version"));
+            Assert.Equal(1, InstallKey()!.GetValue("Supervised"));
+            Assert.Equal("RUNNING", WaitForService("RUNNING"));
+        }
+        finally
+        {
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
+    public void AnUpgradeThatCannotReplaceAFileIsRolledBackAndTheEarlierServiceStartsAgain()
+    {
+        EnsureUninstalled();
+        try
+        {
+            var first = Install(Previous, "/SHOWUSER=" + ShowUser);
+            Assert.True(first.Exit == 0, first.Log);
+            // The engine held, so no process but this test's holds the install's files; then one of them held open with no sharing:
+            // the upgrade cannot replace it, and a quiet install aborts.
+            HoldTheEngine();
+            Run upgrade;
+            using (new FileStream(Path.Combine(InstallDir, "PlayMap.Core.dll"), FileMode.Open, FileAccess.Read, FileShare.None))
+                upgrade = Install(This);
+            Assert.NotEqual(0, upgrade.Exit);
+            Assert.Contains("the install did not finish: the earlier install's service is started again", upgrade.Log, StringComparison.Ordinal);
+            Assert.Equal(PreviousVersion, InstallKey()!.GetValue("Version"));
+            Assert.Equal(1, InstallKey()!.GetValue("Supervised"));
+            Assert.Equal("RUNNING", WaitForService("RUNNING"));
+            Assert.True(File.Exists(Path.Combine(InstallDir, "PlayMap.exe")));
+        }
+        finally
+        {
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
+    public void AnEngineArmedWhenTheUninstallIsAskedStopsItAndLeavesTheServiceInPlace()
+    {
+        EnsureUninstalled();
+        try
+        {
+            var first = Install(This, "/SHOWUSER=" + ShowUser);
+            Assert.True(first.Exit == 0, first.Log);
+            // The supervisor holds its engine and is stopped, so the armed fake is the only engine the check finds.
+            HoldTheEngine();
+            Tool("sc.exe", "stop", "PlayMapSupervisor");
+            Assert.Equal("STOPPED", WaitForService("STOPPED"));
+            using (var engine = FakeEngineProcess.Start("--answer", "{\"armed\":true,\"by\":\"Desk\",\"since\":0,\"words\":\"armed\"}",
+                       "--record", SupervisorFolder()))
+            {
+                var refused = Uninstall();
+                Assert.Contains("the show is armed on this node by Desk: disarm first", refused.Log, StringComparison.Ordinal);
+                Assert.NotNull(InstallKey());
+                Assert.True(ServiceExists());
+                Assert.True(File.Exists(Path.Combine(InstallDir, "PlayMap.exe")));
+                Assert.True(engine.Running);
+            }
+            Tool("sc.exe", "start", "PlayMapSupervisor");
+        }
+        finally
+        {
+            EnsureUninstalled();
+        }
+    }
+
     /// <summary>What an installed build holds, read from Windows.</summary>
     private static void AssertInstalled(string version)
     {
@@ -184,6 +300,50 @@ public sealed class InstallerTests
     }
 
     private static RegistryKey? InstallKey() => Registry.LocalMachine.OpenSubKey(@"SOFTWARE\PlayMap");
+
+    /// <summary>Asks the supervisor to stop its engine and hold it (<c>PlayMap.Supervisor.exe stop</c>) and waits until its status says
+    /// held with no engine, the engine gone.</summary>
+    private static void HoldTheEngine()
+    {
+        var supervisor = Path.Combine(InstallDir, "Supervisor", "PlayMap.Supervisor.exe");
+        var stop = Tool(supervisor, "stop");
+        Assert.True(stop.Exit == 0, stop.Output);
+        var deadline = Stopwatch.StartNew();
+        var status = Tool(supervisor, "status").Output;
+        while (!(status.Contains("\"state\":\"held\"", StringComparison.Ordinal) && status.Contains("\"pid\":0", StringComparison.Ordinal))
+               && deadline.Elapsed < TimeSpan.FromMinutes(1))
+        {
+            Wait("cmd.exe", ["/c", "ping", "-n", "2", "127.0.0.1"]);
+            status = Tool(supervisor, "status").Output;
+        }
+        Assert.True(status.Contains("\"state\":\"held\"", StringComparison.Ordinal) && status.Contains("\"pid\":0", StringComparison.Ordinal), status);
+    }
+
+    /// <summary>The service's state as sc.exe says it ("RUNNING", "STOPPED", …; "" when it is not installed).</summary>
+    private static string ServiceState()
+    {
+        var query = Tool("sc.exe", "query", "PlayMapSupervisor");
+        foreach (var line in query.Output.Split('\n'))
+        {
+            var at = line.IndexOf("STATE", StringComparison.Ordinal);
+            if (at >= 0)
+                return line.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.Trim() ?? "";
+        }
+        return "";
+    }
+
+    /// <summary>The service's state once it is <paramref name="state"/>, or as it stands after a minute.</summary>
+    private static string WaitForService(string state)
+    {
+        var deadline = Stopwatch.StartNew();
+        var now = ServiceState();
+        while (now != state && deadline.Elapsed < TimeSpan.FromMinutes(1))
+        {
+            Wait("cmd.exe", ["/c", "ping", "-n", "2", "127.0.0.1"]);
+            now = ServiceState();
+        }
+        return now;
+    }
 
     private static bool ServiceExists() => Tool("sc.exe", "query", "PlayMapSupervisor").Exit != 1060;
 
@@ -261,6 +421,45 @@ public sealed class InstallerTests
     {
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream));
+    }
+
+    /// <summary>A program that runs from a folder and is not PlayMap: Windows' ping copied there, waiting ten minutes, ended and removed
+    /// when the test is done.</summary>
+    private sealed class Holder : IDisposable
+    {
+        public const string Name = "ping-holder.exe";
+
+        private readonly Process _process;
+        private readonly string _path;
+
+        private Holder(Process process, string path)
+        {
+            _process = process;
+            _path = path;
+        }
+
+        public int Pid => _process.Id;
+
+        public bool Running => !_process.HasExited;
+
+        public static Holder StartIn(string folder)
+        {
+            var path = Path.Combine(folder, Name);
+            File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "PING.EXE"), path, overwrite: true);
+            var start = new ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var a in new[] { "-n", "600", "127.0.0.1" })
+                start.ArgumentList.Add(a);
+            return new Holder(Process.Start(start)!, path);
+        }
+
+        public void Dispose()
+        {
+            if (!_process.HasExited)
+                _process.Kill();
+            _process.WaitForExit();
+            _process.Dispose();
+            File.Delete(_path);
+        }
     }
 
     /// <summary>The machine's supervisor folder, where a supervised engine writes its pid record (made when it is missing, as the

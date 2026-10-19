@@ -22,12 +22,21 @@ public static class MachineSetup
     public static string MachineFolder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PlayMap");
 
-    public static void Install(string installDir, string showUser, bool publicProfile, Action<string> say)
+    /// <summary>The value that says a supervisor keeps this machine's engine (the desk then attaches to it and starts none).</summary>
+    public const string SupervisedValue = "Supervised";
+
+    /// <summary>Sets every machine-level action: the folders with the show user's write access, WER, the event source, the firewall
+    /// rules, the show user's right (taken back from <paramref name="previousShowUser"/> when an upgrade names another account) and the
+    /// service, started. The machine is marked supervised only as the last step, once its service runs: an install that stops on the
+    /// way leaves it unsupervised, so its desk starts its own engine.</summary>
+    public static void Install(string installDir, string showUser, string previousShowUser, bool publicProfile, Action<string> say)
     {
         ArgumentException.ThrowIfNullOrEmpty(installDir);
         ArgumentNullException.ThrowIfNull(say);
         var exe = Path.Combine(installDir, "PlayMap.exe");
         var supervisor = Path.Combine(installDir, "Supervisor", "PlayMap.Supervisor.exe");
+        MarkSupervised(false);
+        say("this machine is not supervised until its service runs");
 
         foreach (var folder in new[] { Path.Combine(MachineFolder, "dumps"), Path.Combine(MachineFolder, "supervisor") })
         {
@@ -61,6 +70,8 @@ public static class MachineSetup
             Grant(showUser);
             say(MachinePlan.ShowUserRight + " granted to " + showUser);
         }
+        if (previousShowUser.Length > 0 && !string.Equals(previousShowUser, showUser, StringComparison.OrdinalIgnoreCase))
+            TakeBackFrom(previousShowUser, say);
 
         var binPath = "\"" + supervisor + "\" run";
         var exists = Run("sc.exe", ["query", MachinePlan.ServiceName], okExits: [0, 1060]) == 0;
@@ -75,6 +86,46 @@ public static class MachineSetup
         Run("sc.exe", ["failureflag", MachinePlan.ServiceName, "1"]);
         Run("sc.exe", ["start", MachinePlan.ServiceName], okExits: [0, 1056]);
         say("service " + MachinePlan.ServiceName + ": LocalSystem, automatic, restarts after 5 s and 30 s, started");
+        MarkSupervised(true);
+        say("this machine is supervised: its desk attaches to the engine the service keeps");
+    }
+
+    /// <summary>Marks the machine supervised, or not (HKLM\SOFTWARE\PlayMap, Supervised).</summary>
+    private static void MarkSupervised(bool supervised)
+    {
+        if (supervised)
+        {
+            using var key = Registry.LocalMachine.CreateSubKey(MachinePlan.InstallKey, true);
+            key.SetValue(SupervisedValue, 1, RegistryValueKind.DWord);
+        }
+        else
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(MachinePlan.InstallKey, true);
+            key?.DeleteValue(SupervisedValue, false);
+        }
+    }
+
+    /// <summary>An upgrade that names another show user takes the right and the folders' write access back from the earlier one.</summary>
+    private static void TakeBackFrom(string previous, Action<string> say)
+    {
+        try
+        {
+            Revoke(previous);
+            foreach (var folder in new[] { Path.Combine(MachineFolder, "dumps"), Path.Combine(MachineFolder, "supervisor") })
+            {
+                if (!Directory.Exists(folder))
+                    continue;
+                var info = new DirectoryInfo(folder);
+                var security = info.GetAccessControl();
+                security.PurgeAccessRules(new NTAccount(previous).Translate(typeof(SecurityIdentifier)));
+                info.SetAccessControl(security);
+            }
+            say(MachinePlan.ShowUserRight + " and the folders' write access taken back from the earlier show user " + previous);
+        }
+        catch (IdentityNotMappedException)
+        {
+            say("the earlier show user " + previous + " no longer exists: there is nothing to take back by its name");
+        }
     }
 
     /// <summary>How long a stopping service has to reach Stopped.</summary>
@@ -129,6 +180,9 @@ public static class MachineSetup
     {
         ArgumentNullException.ThrowIfNull(say);
         var remains = new List<string>();
+        // First: a machine whose uninstall stops on the way is no longer supervised, so its desk starts its own engine.
+        MarkSupervised(false);
+        say("this machine is no longer supervised");
         void Step(string what, Action act)
         {
             try

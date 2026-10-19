@@ -4,16 +4,17 @@ using PlayMap.Core.Machine;
 namespace PlayMap.Supervisor.Install;
 
 /// <summary>How a stop of the record's engine ended.</summary>
+/// <remarks>In order of weight: of several stops, the heaviest is the outcome.</remarks>
 public enum EngineStop
 {
     /// <summary>No engine runs: the record names none, or a process that has ended.</summary>
     NoneRan,
+    /// <summary>The record names a process that is not the installed engine: nothing was stopped.</summary>
+    NotTheEngine,
     /// <summary>The engine stopped within the grace.</summary>
     Stopped,
     /// <summary>The engine did not stop within the grace and was ended.</summary>
     Terminated,
-    /// <summary>The record names a process that is not the installed engine: nothing was stopped.</summary>
-    NotTheEngine,
     /// <summary>The engine runs and could not be ended.</summary>
     Failed,
 }
@@ -41,7 +42,8 @@ public interface IMachineActions
     IReadOnlyList<string> Remove(string showUser, Action<string> say);
 
     /// <summary>The programs running from the install's folder but this command and the supervisor's own exe; with
-    /// <paramref name="exceptTheEngine"/>, also but the installed engine the pid record names and the processes it started.</summary>
+    /// <paramref name="exceptTheEngine"/>, also but the supervisor's engine (<see cref="EngineIdentity.IsSupervisedEngine"/>) and what
+    /// it or the service started.</summary>
     IReadOnlyList<RunningProgram> RunningFromInstall(bool exceptTheEngine);
 }
 
@@ -57,9 +59,10 @@ public static class MachineCommands
     /// <summary>How long the processes an engine started have to end with it before an upgrade is refused.</summary>
     public static readonly TimeSpan ChildrenEnd = TimeSpan.FromSeconds(10);
 
-    /// <summary><c>uninstall</c>: the armed check; the service stopped; the engine stopped (one that cannot be is refused, the service
-    /// started again and nothing removed); then every machine-level action taken back, each tried whatever the others did, and what
-    /// remains named.</summary>
+    /// <summary><c>uninstall</c>: the armed check; nothing else running from the install's folder (refused with words before anything
+    /// is stopped, as its files could not be removed); the service stopped; the engine stopped (one that cannot be is refused, the
+    /// service started again and nothing removed); then every machine-level action taken back, each tried whatever the others did, and
+    /// what remains named.</summary>
     public static async Task<int> UninstallAsync(IMachineActions machine, ArmedLook look, string showUser, TimeZoneInfo zone, Action<string> say,
         CancellationToken ct = default)
     {
@@ -67,6 +70,11 @@ public static class MachineCommands
         ArgumentNullException.ThrowIfNull(say);
         if (await ArmedAsync(look, zone, say, ct).ConfigureAwait(false) is { } refused)
             return refused;
+        if (machine.RunningFromInstall(exceptTheEngine: true) is [var other, ..])
+        {
+            say(Running(machine, other) + ": close it (the desk, or an engine run by hand), then uninstall again");
+            return Program.Refused;
+        }
         if (!TryStopService(machine, say, "nothing was removed"))
             return Program.Refused;
         if (machine.StopEngine(say) == EngineStop.Failed)

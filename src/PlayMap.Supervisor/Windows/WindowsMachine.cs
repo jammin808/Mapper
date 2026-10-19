@@ -17,8 +17,14 @@ public sealed class WindowsMachine : IMachineActions
 
     public void StartService(Action<string> say) => MachineSetup.StartService(say);
 
-    public EngineStop StopEngine(Action<string> say) =>
-        EngineStopper.Stop(EnginePidRecord.MachineFolder(), InstallDir, MachinePlan.StopEvent, say);
+    /// <summary>The engine the record names, then any supervised engine no record names yet (one the service started moments
+    /// before it was stopped): the heavier outcome.</summary>
+    public EngineStop StopEngine(Action<string> say)
+    {
+        var recorded = EngineStopper.Stop(EnginePidRecord.MachineFolder(), InstallDir, MachinePlan.StopEvent, say);
+        var unrecorded = EngineStopper.StopUnrecorded(InstallDir, MachinePlan.StopEvent, say);
+        return unrecorded > recorded ? unrecorded : recorded;
+    }
 
     public IReadOnlyList<string> Remove(string showUser, Action<string> say) => MachineSetup.Uninstall(showUser, say);
 
@@ -28,8 +34,9 @@ public sealed class WindowsMachine : IMachineActions
         if (dir.Length == 0)
             return [];
         var supervisor = Path.Combine(dir, "Supervisor", "PlayMap.Supervisor.exe");
-        var engine = exceptTheEngine ? SupervisedEnginePid(dir) : 0;
-        var running = new List<RunningProgram>();
+        var exe = Path.Combine(dir, "PlayMap.exe");
+        var under = new List<(int Pid, ProcessFacts Facts)>();
+        var supervised = new HashSet<int>();
         foreach (var process in Process.GetProcesses())
         {
             using (process)
@@ -37,24 +44,24 @@ public sealed class WindowsMachine : IMachineActions
                 if (process.Id == Environment.ProcessId)
                     continue;
                 var facts = EngineProcess.ReadFacts(process.Id);
-                if (!facts.Exists || !Under(facts.ImagePath, dir) || string.Equals(facts.ImagePath, supervisor, StringComparison.OrdinalIgnoreCase))
+                if (!facts.Exists || !Under(facts.ImagePath, dir))
                     continue;
-                if (engine != 0 && (process.Id == engine || facts.ParentPid == engine))
-                    continue;
-                running.Add(new RunningProgram(process.Id, facts.ImagePath));
+                // The service, and the engine it keeps whether or not its record is written yet.
+                if (string.Equals(facts.ImagePath, supervisor, StringComparison.OrdinalIgnoreCase) || EngineIdentity.IsSupervisedEngine(facts, exe))
+                    supervised.Add(process.Id);
+                under.Add((process.Id, facts));
             }
         }
+        var running = new List<RunningProgram>();
+        foreach (var (pid, facts) in under)
+        {
+            if (string.Equals(facts.ImagePath, supervisor, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (exceptTheEngine && (supervised.Contains(pid) || supervised.Contains(facts.ParentPid)))
+                continue;
+            running.Add(new RunningProgram(pid, facts.ImagePath));
+        }
         return running;
-    }
-
-    /// <summary>The installed engine the pid record names (0 when it names none that passes <see cref="EngineIdentity"/>).</summary>
-    private static int SupervisedEnginePid(string dir)
-    {
-        var folder = EnginePidRecord.MachineFolder();
-        if (!Directory.Exists(folder) || EnginePidRecord.Named(folder) is not { } record)
-            return 0;
-        using var engine = EngineProcess.Adopt(record, new EngineExpectation(Path.Combine(dir, "PlayMap.exe"), "", -1), out _);
-        return engine?.Pid ?? 0;
     }
 
     private static bool Under(string image, string dir) =>

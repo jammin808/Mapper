@@ -103,6 +103,15 @@ public static class EngineIdentity
         return words.Length > 0 && string.Equals(words[0], "engine", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Whether a process is the supervisor's engine whether or not its record is written yet: the installed exe (a folder
+    /// only administrators may change), run as the engine with <c>--supervised</c>, the one run the supervisor starts.</summary>
+    public static bool IsSupervisedEngine(in ProcessFacts facts, string installedExe)
+    {
+        ArgumentNullException.ThrowIfNull(installedExe);
+        return facts.Exists && SamePath(facts.ImagePath, installedExe) && IsEngineLine(facts.CommandLine)
+            && facts.CommandLine.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("--supervised", StringComparer.OrdinalIgnoreCase);
+    }
+
     private static bool SamePath(string a, string b)
     {
         if (a.Length == 0 || b.Length == 0)

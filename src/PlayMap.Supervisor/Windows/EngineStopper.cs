@@ -36,6 +36,39 @@ public static class EngineStopper
             return EngineStop.NotTheEngine;
         }
         AskToStop(stopEventName, say);
+        return Finish(engine, say);
+    }
+
+    /// <summary>Stops every supervised engine no record names (one the supervisor started that has not written its record yet):
+    /// the installed exe run as the engine with <c>--supervised</c>, checked again through the handle that ends it. The outcome of
+    /// the worst stop; <see cref="EngineStop.NoneRan"/> when there is none.</summary>
+    public static EngineStop StopUnrecorded(string installDir, string stopEventName, Action<string> say)
+    {
+        ArgumentNullException.ThrowIfNull(say);
+        if (installDir.Length == 0)
+            return EngineStop.NoneRan;
+        var exe = Path.Combine(installDir, "PlayMap.exe");
+        var outcome = EngineStop.NoneRan;
+        foreach (var process in System.Diagnostics.Process.GetProcessesByName(EngineIdentity.ImageName))
+        {
+            using (process)
+            {
+                using var engine = EngineProcess.Open(process.Id, out _);
+                if (engine is null || !EngineIdentity.IsSupervisedEngine(engine.Facts(), exe))
+                    continue;
+                if (outcome == EngineStop.NoneRan)
+                    AskToStop(stopEventName, say);
+                var stop = Finish(engine, say);
+                if (stop > outcome)
+                    outcome = stop;
+            }
+        }
+        return outcome;
+    }
+
+    /// <summary>The grace, then termination, through the engine's handle.</summary>
+    private static EngineStop Finish(EngineProcess engine, Action<string> say)
+    {
         if (engine.WaitForExit(Grace))
         {
             say(Words($"the engine (pid {engine.Pid}) stopped"));

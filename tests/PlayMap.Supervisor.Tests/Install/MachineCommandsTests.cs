@@ -111,7 +111,7 @@ public sealed class MachineCommandsTests
         var machine = new FakeMachine { EngineStops = EngineStop.NoneRan };
         var (exit, _) = await Uninstall(machine, folder);
         Assert.Equal(Program.Done, exit);
-        Assert.Equal(["stop service", "stop engine", "remove MACHINE\\show"], machine.Asked);
+        Assert.Equal(["running but the engine", "stop service", "stop engine", "remove MACHINE\\show"], machine.Asked);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public sealed class MachineCommandsTests
         var (exit, said) = await Uninstall(machine, folder);
         Assert.Equal(Program.Refused, exit);
         Assert.Equal("not taken back: the firewall rule 'PlayMap (UDP in)'; WER LocalDumps for PlayMap.exe", said[^1]);
-        Assert.Equal(["stop service", "stop engine", "remove MACHINE\\show"], machine.Asked);
+        Assert.Equal(["running but the engine", "stop service", "stop engine", "remove MACHINE\\show"], machine.Asked);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class MachineCommandsTests
         var machine = new FakeMachine { EngineStops = EngineStop.Failed };
         var (exit, said) = await Uninstall(machine, folder);
         Assert.Equal(Program.Refused, exit);
-        Assert.Equal(["stop service", "stop engine", "start service"], machine.Asked);
+        Assert.Equal(["running but the engine", "stop service", "stop engine", "start service"], machine.Asked);
         Assert.Equal("the engine still runs: the service is started again and nothing is removed", said[^1]);
     }
 
@@ -143,8 +143,20 @@ public sealed class MachineCommandsTests
         var machine = new FakeMachine { ServiceRefuses = true };
         var (exit, said) = await Uninstall(machine, folder);
         Assert.Equal(Program.Refused, exit);
-        Assert.Equal(["stop service"], machine.Asked);
+        Assert.Equal(["running but the engine", "stop service"], machine.Asked);
         Assert.Equal("the service could not be stopped (sc.exe stop PlayMapSupervisor answered 5: Access is denied.): nothing was removed", said[^1]);
+    }
+
+    [Fact]
+    public async Task AnUninstallIsRefusedWhileAProgramRunsFromTheInstallBeforeAnythingIsStopped()
+    {
+        using var folder = new Folder();
+        var machine = new FakeMachine { Running = [[new RunningProgram(77, @"C:\Program Files\PlayMap\PlayMap.exe")]] };
+        var (exit, said) = await Uninstall(machine, folder);
+        Assert.Equal(Program.Refused, exit);
+        Assert.Equal(["running but the engine"], machine.Asked);
+        Assert.Equal(@"a program runs from C:\Program Files\PlayMap (pid 77, PlayMap.exe): close it (the desk, or an engine run by hand), then uninstall again",
+            said[^1]);
     }
 
     [Fact]

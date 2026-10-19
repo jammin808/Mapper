@@ -45,11 +45,27 @@ Install quietly with `PlayMap-….exe /VERYSILENT /SUPPRESSMSGBOXES /SHOWUSER=<c
   evaluating this PC: once it enforces, Windows blocks this unsigned build and the node will not start. Turn it off in Windows
   Security > App & browser control before the show."
 
-An upgrade stops the earlier install's service and engine before files are replaced and starts the new ones after. The uninstall
-removes the files, the service, the firewall rules, WER's values, the event source, the account right and the install's key; the
-dumps and the node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. Inno Setup rolls back files when an
-install is cancelled, not the service or registry changes the supervisor made — the MSI's transactional rollback is what the
-fallback gives up.
+The installer goes into `C:\Program Files\PlayMap` only: its service runs as SYSTEM from there, and a folder an ordinary account
+may change would let that account replace what SYSTEM runs. It shows no folder page, and a `/DIR=` elsewhere, or an earlier install
+found elsewhere, is refused with words before anything changes.
+
+**Upgrades.** Just before anything is replaced the installer asks the armed check again (the wizard may have waited on its pages);
+refuses while any program other than the supervised engine runs from the folder — a desk left open, an engine run by hand ("a
+program runs from C:\Program Files\PlayMap (pid 4120, PlayMap.exe): close it (the desk, or an engine run by hand), then install
+again"); then stops the earlier service and its engine (a termination after 5 s: see the supervisor, below). The earlier install's machine-level actions
+stay as they are, and the new build's supervisor sets each again once the files are in place, the machine marked supervised last,
+once the service runs; an upgrade that names another show user takes the right and the folders' write access back from the earlier
+one. An upgrade that does not reach its end — refused, cancelled, a file it could not replace — has its files rolled back by Inno
+Setup and the earlier service started again, which starts the earlier engine: the machine is as it was. An install whose
+machine-level setup fails (exit 3, its words in the log) leaves the files in place and the machine not supervised, so the desk
+starts its own engine until the installer is run again.
+
+**Uninstall.** After the person confirms it and before any file is removed, the supervisor's uninstall asks the armed check again,
+refuses while another program runs from the folder, stops the service and its engine, and takes back every machine-level action —
+the supervised mark first, then the service, the firewall rules, WER's values, the event source and the account right, each tried
+whatever the others did. Any refusal, or anything it could not take back, stops the uninstall with every file still in place, its
+words in the uninstall's log. The dumps and the node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The MSI's
+transactional rollback of service and registry changes is what the Inno Setup installer gives up; the order above stands in for it.
 
 ## The two version numbers
 

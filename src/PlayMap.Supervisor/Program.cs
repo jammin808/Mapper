@@ -22,7 +22,8 @@ public static class Program
 
     /// <summary>The commands, as <c>help</c> lists them.</summary>
     public const string Words =
-        "PlayMap.Supervisor run | status | resume | stop | preinstall-check [--out <file>] | install --dir <folder> [--show-user <account>] [--public] [--out <file>] | "
+        "PlayMap.Supervisor run | status | resume | stop | preinstall-check [--out <file>] | install --dir <folder> [--show-user <account>] "
+        + "[--previous-show-user <account>] [--public] [--out <file>] | "
         + "uninstall [--show-user <account>] [--out <file>] | upgrade-stop [--out <file>] | grant <account> | revoke <account> | "
         + "version-check <next> <last> | session-probe --out <file>";
 
@@ -131,7 +132,7 @@ public static class Program
                 ServiceBase.Run(new SupervisorService());
                 return Done;
             case "install" when Option(args, "--dir") is { Length: > 0 } dir:
-                MachineSetup.Install(dir, showUser, args.Contains("--public"), say);
+                MachineSetup.Install(dir, showUser, Option(args, "--previous-show-user") ?? "", args.Contains("--public"), say);
                 return Done;
             case "uninstall":
                 return await MachineCommands.UninstallAsync(new WindowsMachine(), ThisMachinesLook,
