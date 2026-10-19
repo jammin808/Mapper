@@ -182,26 +182,39 @@ public sealed class UserProgramTests(BackendFixture backends)
                 list.Draw(made.Id, DrawState.Opaque).Texture("inputImage", picture).Set("amount", 0.5f).Fullscreen();
                 list.EndPass();
             }
-            var last = BackendFrames.Run(b, list =>
+            var signals = b.DirectSignals;
+            FenceValue last;
+            try
             {
-                DrawWith(list);
-                b.ReleaseProgram(made.Id);
-                // Asked inside the frame that draws with it: the frame goes on drawing it.
-                DrawWith(list);
-            });
-            // Let go only as a frame begins, and only once the frame that drew with it has completed (a value once complete stays so):
-            // while the GPU is still on it, every frame keeps it; once it has completed, the next frame lets it go.
-            Assert.True(Held(b, made.Id));
-            for (var frames = 0; Held(b, made.Id) && frames < 200; frames++)
-            {
-                BackendFrames.Run(b, _ => { });
-                if (!Held(b, made.Id))
-                    Assert.True(b.IsComplete(last), "released before the last frame that drew with it completed");
+                last = BackendFrames.Run(b, list =>
+                {
+                    DrawWith(list);
+                    b.ReleaseProgram(made.Id);
+                    // Asked inside the frame that draws with it: the frame goes on drawing it.
+                    DrawWith(list);
+                    // The GPU is scripted from here: it has not reached this frame (nor any after it) until the test says so.
+                    signals.Holding = true;
+                });
+                // While the frame that drew with it is not complete, every frame that begins keeps it.
+                for (var frames = 0; frames < 6; frames++)
+                {
+                    BackendFrames.Run(b, _ => { });
+                    Assert.False(b.IsComplete(last));
+                    Assert.True(Held(b, made.Id), $"released at frame {frames} before the last frame that drew with it completed");
+                    Assert.Same(made.Layout, b.Programs.Layout(made.Id));
+                }
             }
+            finally
+            {
+                signals.Release();
+            }
+            // The GPU reaches it: the very next frame to begin lets it go.
             b.WaitFor(last);
+            Assert.True(b.IsComplete(last));
+            Assert.True(Held(b, made.Id));
             BackendFrames.Run(b, _ => { });
             Assert.False(Held(b, made.Id));
-            Assert.True(b.IsComplete(last));
+            Assert.Throws<ArgumentException>(() => b.PipelineCache.ProgramOf(made.Id));
             Assert.Empty(c.Device.TakeErrors());
         });
     }

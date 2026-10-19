@@ -136,3 +136,39 @@ public sealed class FenceRing : IDisposable
         _disposed = true;
     }
 }
+
+/// <summary>A device's signals that a test can hold back: while <see cref="Holding"/>, every signal inserted reads as not yet passed
+/// until <see cref="Release"/>, so a queue's values from then on stay incomplete whatever the GPU did (the GPU reaching them is then
+/// the test's to say). Unheld, each call goes straight to the device's own signals.
+///
+/// Threading: the device's thread.</summary>
+internal sealed class HoldableSignals(IFenceSignals inner) : IFenceSignals
+{
+    private HashSet<nint>? _held;
+
+    /// <summary>Signals inserted now are held back.</summary>
+    public bool Holding { get; set; }
+
+    public nint Insert()
+    {
+        var signal = inner.Insert();
+        if (Holding)
+            (_held ??= []).Add(signal);
+        return signal;
+    }
+
+    public bool IsSignaled(nint signal) => (_held is null || !_held.Contains(signal)) && inner.IsSignaled(signal);
+
+    public void Delete(nint signal)
+    {
+        _held?.Remove(signal);
+        inner.Delete(signal);
+    }
+
+    /// <summary>Stops holding: every signal held reads as the device has it from now on.</summary>
+    public void Release()
+    {
+        Holding = false;
+        _held?.Clear();
+    }
+}

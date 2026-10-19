@@ -44,6 +44,7 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
     private readonly ProgramTable _table = new();
     private readonly GlPipelineCache _pipelines;
     private readonly GlCommandList _list;
+    private readonly HoldableSignals _directSignals;
     private readonly FenceRing _direct;
     private readonly FenceRing _copy;
     private readonly ResourcePool _pool;
@@ -66,7 +67,8 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         _device = device;
         _pipelines = new GlPipelineCache(device, _table, () => _lane ??= MakeLane());
         _list = new GlCommandList(this, device, _table.ProductCount == 0 ? 0 : ProgramTable.Product.Max(p => p.ConstantBytes));
-        _direct = new FenceRing(QueueKind.Direct, device);
+        _directSignals = new HoldableSignals(device);
+        _direct = new FenceRing(QueueKind.Direct, _directSignals);
         _copy = new FenceRing(QueueKind.Copy, device);
         // The binding loads a GL entry point on its first call: the ring's own are called here once, so its first wrap, a ring's
         // length of frames into the show, loads nothing on the frame path.
@@ -157,6 +159,9 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         ConstantMisses++;
         LastMiss = (program, name);
     }
+
+    /// <summary>The direct queue's signals, which a test holds back to say when the GPU reached a frame.</summary>
+    internal HoldableSignals DirectSignals => _directSignals;
 
     /// <summary>The direct queue's value the frame being recorded will take at its submit.</summary>
     internal ulong FrameValue => _direct.Last + 1;
