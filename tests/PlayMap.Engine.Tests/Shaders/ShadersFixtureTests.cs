@@ -57,15 +57,22 @@ public sealed class ShadersFixtureTests
         var quarantine = new ShaderQuarantine();
         await using var worker = new ShaderWorkerHost(new ShaderWorkerOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()) }, quarantine,
             NullLogger.Instance, () => 1_760_000_000_000, "0.2.0+17.abc1234");
+        // An ISF file the show carries, written here: its hash is the same on every platform (a built-in's file is checked out
+        // with the platform's line ends, and its hash with them).
         const string slot = "fx00000001";
+        const string wobble = "/*{ \"DESCRIPTION\": \"Wobble\", \"INPUTS\": [ { \"NAME\": \"inputImage\", \"TYPE\": \"image\" } ] }*/\n"
+            + "void main() { gl_FragColor = IMG_NORM_PIXEL(inputImage, isf_FragNormCoord + vec2(sin(TIME) * 0.01, 0.0)); }\n";
+        var asset = new FxAsset("fa00000001", "Wobble", FxFormat.Isf, "wobble.fs", FxCatalog.ContentHash(wobble, null)) { Source = wobble };
         var show = ShowRig.OneScreen();
         show = show with
         {
-            Outputs = [show.Outputs[0] with { Fx = new FxChain([new FxSlot(slot, "fx.invert", "", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0)]) }],
+            FxAssets = [asset],
+            Outputs = [show.Outputs[0] with { Fx = new FxChain([new FxSlot(slot, FxCatalog.AssetKindId(asset.Id), "", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0)]) }],
         };
+        var hash = FxCatalog.For(show.FxAssets).Source(FxCatalog.AssetKindId(asset.Id))!.Hash;
         await using var rig = new ShowRig(show, s => ShaderParts.Compose(s, quarantine, worker));
         ShaderParts.Attach(rig.Engine);
-        quarantine.Add(new QuarantineEntry(FxCatalog.Builtin.Source("fx.invert")!.Hash, "Invert", QuarantineReason.DeviceRemoved,
+        quarantine.Add(new QuarantineEntry(hash, "Wobble", QuarantineReason.DeviceRemoved,
             "the GPU stopped inside this effect's pass on Output 1", 1_760_000_000_000, "0.2.0+17.abc1234"));
 
         var fx = JsonNode.Parse(rig.Engine.State().Json)!["fx"]!;

@@ -17,8 +17,8 @@
     },
     "quarantine": [
       {
-        "hash": "6afca97cc12004fa3d2763642de8032d1a5b49e5b0e728c6d8000dd2a105116b",
-        "kind": "Invert",
+        "hash": "ab2c03f83df6c6a6c29e4676becaa3286e8019bb84dde08120248cabfe70d818",
+        "kind": "Wobble",
         "reason": "deviceRemoved",
         "words": "the GPU stopped inside this effect\u0027s pass on Output 1",
         "at": 1760000000000,
