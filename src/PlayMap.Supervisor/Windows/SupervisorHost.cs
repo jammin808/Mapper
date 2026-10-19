@@ -375,6 +375,7 @@ public sealed class SupervisorHost : IDisposable
     public async Task ServePipeAsync(CancellationToken ct)
     {
         NamedPipeServerStream? listening = null;
+        var serving = new List<Task>();
         try
         {
             while (!ct.IsCancellationRequested)
@@ -390,13 +391,17 @@ public sealed class SupervisorHost : IDisposable
                 await _connections.WaitAsync(ct).ConfigureAwait(false);
                 var connected = listening;
                 listening = PipeInstance();
-                _ = ServeConnectionAsync(connected, ct);
+                serving.RemoveAll(t => t.IsCompleted);
+                serving.Add(ServeConnectionAsync(connected, ct));
             }
         }
         finally
         {
             if (listening is not null)
                 ClosePipe(listening);
+            // Every connection taken ends before the pipe stops being served (each within its time, or at once on the halt), so
+            // none answers or writes the log after.
+            await Task.WhenAll(serving).ConfigureAwait(false);
         }
     }
 
@@ -514,7 +519,8 @@ public sealed class SupervisorHost : IDisposable
         return "OK held: the engine is asked to stop and is not started again until resume";
     }
 
-    /// <summary>The pipe's ACL: SYSTEM, administrators and the show user; a show user Windows cannot find is left out, said once.</summary>
+    /// <summary>The pipe's ACL: SYSTEM, administrators and the show user, and the account serving it, which makes its further
+    /// instances; a show user Windows cannot find is left out, said once.</summary>
     private PipeSecurity PipeAcl(string showUser)
     {
         var security = new PipeSecurity();
