@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
@@ -125,7 +126,7 @@ public class ContentTimeTests(GlFixture gl)
         });
     }
 
-    private static Gpu.GpuTexture DrawAt(GeneratorHost host, Generator g, long leaderNs, long frame)
+    private static GpuTexture DrawAt(GeneratorHost host, Generator g, long leaderNs, long frame)
     {
         host.BeginFrame(frame);
         var tex = host.Render(g, W, H, ContentGl.Context, GeneratorFrame.At(leaderNs / 1e9) with { LeaderNs = leaderNs });

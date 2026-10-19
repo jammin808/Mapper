@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
 namespace PlayMap.Render.Gpu;

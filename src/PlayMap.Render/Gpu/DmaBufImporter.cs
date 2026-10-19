@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 
 namespace PlayMap.Render.Gpu;

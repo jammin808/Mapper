@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using PlayMap.Core.Geometry;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;

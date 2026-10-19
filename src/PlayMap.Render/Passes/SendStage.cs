@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 
@@ -209,7 +210,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
             var held = follows && holds && !entry.Stale
                 ? _pack.Last(entry, entry.Width, entry.Height, entry.Format)
                 : null;
-            Gpu.RenderTarget packed;
+            RenderTarget packed;
             if (held is not null)
             {
                 packed = held;
@@ -325,7 +326,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
     /// the send exactly as they reach the output; a disabled output, and one on a raw frame, sends black. A canvas or source tap that
     /// follows the air is black in blackout and shows the air's test pattern or safe look while it covers every output, drawn as the
     /// outputs draw it: as its source is, through no pass.</summary>
-    private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame, out SendFit fit)
+    private GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame, out SendFit fit)
     {
         fit = entry.Fit;
         if (entry.Kind != SendTapKind.Output && entry.FollowAir)

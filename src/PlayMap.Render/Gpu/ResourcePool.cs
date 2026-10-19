@@ -1,3 +1,5 @@
+using PlayMap.Core.Gpu;
+
 namespace PlayMap.Render.Gpu;
 
 /// <summary>Render targets and textures kept for reuse, keyed by size, format and depth: a pass takes one

@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Render.Gpu;
@@ -29,12 +30,14 @@ public sealed record OutputWindowOptions(
 /// wait (the pacing window, <see cref="SetSwapInterval"/> 1) and the others swap at once (0); the engine
 /// picks the pacer. A window never makes the primary context lose its state: the present switches to the
 /// window's context and back.</summary>
-public sealed class OutputWindow : IOutputPresenter
+public sealed class OutputWindow : IImmediatePresenter
 {
     private readonly RenderContext _primary;
     private readonly IWindow _window;
     private uint _vao;
     private bool _disposed;
+    private bool _recorded;
+    private GpuTexture? _picture;
 
     private OutputWindow(RenderContext primary, IWindow window)
     {
@@ -114,6 +117,38 @@ public sealed class OutputWindow : IOutputPresenter
     {
         _window.GLContext?.SwapInterval(interval);
         SwapInterval = interval;
+    }
+
+    /// <summary>Takes the picture the next <see cref="Present()"/> shows. The window draws it when it presents: its context is its
+    /// own, and GL's frame list is the device's immediate one.</summary>
+    public void Record(ICommandList list, GpuTexture picture)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(picture);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _picture = picture;
+        _recorded = true;
+    }
+
+    /// <summary>Takes black for the next <see cref="Present()"/>.</summary>
+    public void RecordBlack(ICommandList list)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _picture = null;
+        _recorded = true;
+    }
+
+    /// <summary>Shows what was recorded since the last present; nothing recorded is refused.</summary>
+    public PresentResult Present()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_recorded)
+            throw new InvalidOperationException("an output window presents what was recorded since its last present: nothing was");
+        var picture = _picture;
+        _picture = null;
+        _recorded = false;
+        return picture is null ? PresentBlack() : Present(picture);
     }
 
     /// <summary>Shows a finished picture: switches to the window's context, draws it over the window,

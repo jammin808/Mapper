@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
@@ -44,7 +45,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
 
     /// <summary>A GL platform whose device other threads share through a lock: on a surfaceless context where the platform has one
     /// (EGL, Linux), else on the window system's hidden context.</summary>
-    private sealed class SharedDevicePlatform : IGpuPlatform
+    private sealed class SharedDevicePlatform : IGlPlatform
     {
         private readonly GlPlatform _gl;
 
@@ -63,6 +64,8 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         public string Words => "";
 
         public RenderContext Context => _gl.Context;
+
+        public IGpuDevice Device => _gl.Device;
 
         public PresentPath Path => PresentPath.Offscreen;
 

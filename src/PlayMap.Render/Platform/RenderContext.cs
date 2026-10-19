@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Render.Gpu;
 using Silk.NET.GLFW;
 using Silk.NET.Maths;
@@ -259,6 +260,3 @@ internal interface ISurfacelessContext : IDisposable
 {
     void MakeCurrent();
 }
-
-/// <summary>A display: its platform index, name, desktop bounds and refresh rate (0 = unknown).</summary>
-public sealed record MonitorInfo(int Index, string Name, int X, int Y, int Width, int Height, int RefreshHz);

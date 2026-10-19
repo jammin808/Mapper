@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
@@ -16,10 +17,11 @@ public sealed class PresenterSeamTests(GlFixture gl)
     /// <summary>A presenter that keeps the pictures it was given and waits, as a vsync'd swap does, for the next vblank of a 60 Hz
     /// grid on the monotonic clock (the one after it when asked to be late), and says it returned just after that vblank — the
     /// instant it scripted, whenever its thread got the CPU back (how the fit copes with late stamps is VblankClockTests').</summary>
-    private sealed class ScriptedPresenter : IOutputPresenter
+    private sealed class ScriptedPresenter : IImmediatePresenter
     {
         private const double Period = 1e9 / 60;
         private readonly long _start = MonoClock.Instance.NowNs;
+        private GpuTexture? _recorded;
 
         public int Width => 64;
         public int Height => 36;
@@ -34,6 +36,12 @@ public sealed class PresenterSeamTests(GlFixture gl)
         public bool Full { get; set; }
 
         public void SetSwapInterval(int interval) => SwapInterval = interval;
+
+        public void Record(ICommandList list, GpuTexture picture) => _recorded = picture;
+
+        public void RecordBlack(ICommandList list) => _recorded = null;
+
+        public PresentResult Present() => _recorded is { } picture ? Present(picture) : PresentBlack();
 
         public PresentResult Present(GpuTexture picture)
         {

@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Shaders;
 

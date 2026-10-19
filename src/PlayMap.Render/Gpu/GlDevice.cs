@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
 namespace PlayMap.Render.Gpu;

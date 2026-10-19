@@ -24,4 +24,10 @@
     <InternalsVisibleTo Include="PlayMap.Engine.Tests" />
   </ItemGroup>
 
+  <!-- wp3-rhi: the render hardware interface's contracts (PlayMap.Core.Gpu), named by every file that composes or feeds a
+       backend. -->
+  <ItemGroup Label="wp3-rhi">
+    <Using Include="PlayMap.Core.Gpu" />
+  </ItemGroup>
+
 </Project>

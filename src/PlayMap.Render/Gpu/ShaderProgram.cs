@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 
 namespace PlayMap.Render.Gpu;
 
@@ -113,10 +114,4 @@ public sealed class ShaderProgram : IDisposable
         _device.DeleteProgram(Id);
         Id = 0;
     }
-}
-
-/// <summary>A 3×3 matrix for normals, row-major (row r, column c at index 3r + c).</summary>
-public readonly record struct Matrix3x3(float M00, float M01, float M02, float M10, float M11, float M12, float M20, float M21, float M22)
-{
-    public static readonly Matrix3x3 Identity = new(1, 0, 0, 0, 1, 0, 0, 0, 1);
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Presentation;
 using PlayMap.Render.Gpu;
@@ -124,7 +125,7 @@ internal sealed unsafe class AngleContext : ISurfacelessContext
 /// (<see cref="DxgiOutputWindow"/>). The device is handed to decoders and Spout as <see cref="IGpuShare"/> (<see cref="GpuApi.D3D11"/>).
 /// Experimental this round: it starts only on an explicit PRESENT PATH DXGI. Made, used and disposed on the render thread.</summary>
 [SupportedOSPlatform("windows")]
-public sealed class AnglePlatform : IGpuPlatform
+public sealed class AnglePlatform : IGlPlatform
 {
     private readonly D3D11Adapter _adapter;
     private readonly AngleContext _angle;
@@ -192,6 +193,9 @@ public sealed class AnglePlatform : IGpuPlatform
     public string Words => "";
 
     public RenderContext Context { get; }
+
+    /// <summary>The renderer draws through ANGLE's GL context on this platform; it offers no <see cref="IGpuDevice"/>.</summary>
+    public IGpuDevice Device => throw new NotSupportedException("the DXGI platform offers no IGpuDevice: the renderer draws through ANGLE's GL context");
 
     public PresentPath Path => PresentPath.DxgiFlip;
 

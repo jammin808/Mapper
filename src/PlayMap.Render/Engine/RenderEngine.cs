@@ -1,5 +1,6 @@
 using System.Numerics;
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;

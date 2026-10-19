@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Render.Gpu;
@@ -24,7 +25,7 @@ namespace PlayMap.Render.Platform.Windows;
 /// </list>
 /// Render thread only; nothing here allocates per frame once the back buffer is wrapped.</summary>
 [SupportedOSPlatform("windows")]
-internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
+internal sealed unsafe class DxgiOutputWindow : IImmediatePresenter
 {
     private const string ClassName = "PlayMapOutput";
     private static readonly ConcurrentDictionary<nint, bool> Closing = new();
@@ -48,6 +49,8 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
     private long _lastStatsNs;
     private Core.Media.GpuDeviceLock? _deviceLock;
     private bool _disposed;
+    private bool _recorded;
+    private GpuTexture? _picture;
 
     private DxgiOutputWindow(D3D11Adapter adapter, AngleContext angle, RenderContext context, DwmNudge nudge, int width, int height, double hz)
     {
@@ -226,6 +229,37 @@ internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
         {
             _ = _deviceLock?.Reenter(holds, Core.Media.GpuDeviceLock.FrameBoundMs);
         }
+    }
+
+    /// <summary>Takes the picture the next <see cref="Present()"/> draws into buffer 0 and queues: ANGLE's context and the swap
+    /// chain share the one immediate context, so the draw and the flip stay together in the present.</summary>
+    public void Record(ICommandList list, GpuTexture picture)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(picture);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _picture = picture;
+        _recorded = true;
+    }
+
+    /// <summary>Takes black for the next <see cref="Present()"/>.</summary>
+    public void RecordBlack(ICommandList list)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _picture = null;
+        _recorded = true;
+    }
+
+    /// <summary>Draws and queues what was recorded since the last present; nothing recorded is refused.</summary>
+    public PresentResult Present()
+    {
+        if (!_recorded)
+            throw new InvalidOperationException("a DXGI output presents what was recorded since its last present: nothing was");
+        var picture = _picture;
+        _picture = null;
+        _recorded = false;
+        return PresentDrawn(picture);
     }
 
     public PresentResult Present(GpuTexture picture)

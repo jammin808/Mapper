@@ -4,6 +4,7 @@ using BCnEncoder.Decoder;
 using BCnEncoder.Encoder;
 using BCnEncoder.Shared;
 using CommunityToolkit.HighPerformance;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Render.Gpu;

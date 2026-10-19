@@ -1,4 +1,5 @@
 using System.Numerics;
+using PlayMap.Core.Gpu;
 using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Passes;

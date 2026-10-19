@@ -3,6 +3,7 @@ using PlayMap.Core.Sync;
 using PlayMap.Engine.Presentation;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Gpu;
+using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
 using PlayMap.Core.Model;
 

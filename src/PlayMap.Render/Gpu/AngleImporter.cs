@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Render.Platform.Windows;
 

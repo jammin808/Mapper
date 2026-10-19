@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
 using PlayMap.Core.Presentation;
@@ -245,7 +246,7 @@ public sealed class FrameLockHostTests
     /// returns four periods late (a software rasteriser, a display server's round trip, a starved thread); on the DXGI flip contract
     /// (<c>DxgiOutputWindow</c>) a held present is a full queue — <c>Present1(DO_NOT_WAIT)</c> answers at once that it queued nothing
     /// — and every fifteenth waits out the waitable's cap of three periods.</summary>
-    private sealed class HeldPresenter(PresentPath path) : IOutputPresenter
+    private sealed class HeldPresenter(PresentPath path) : IImmediatePresenter
     {
         private const double Period = 1e9 / 60;
         private readonly long _start = MonoClock.Instance.NowNs;
@@ -260,6 +261,18 @@ public sealed class FrameLockHostTests
         public int Held { get; private set; }
 
         public void SetSwapInterval(int interval) => SwapInterval = interval;
+
+        public void Record(ICommandList list, GpuTexture picture)
+        {
+            // Every present here is timed the same, whatever it shows.
+        }
+
+        public void RecordBlack(ICommandList list)
+        {
+            // As Record.
+        }
+
+        public PresentResult Present() => PresentBlack();
 
         public PresentResult Present(GpuTexture picture) => PresentBlack();
 

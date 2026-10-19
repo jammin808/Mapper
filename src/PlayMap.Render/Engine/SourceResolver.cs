@@ -1,4 +1,5 @@
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Render.Generators;

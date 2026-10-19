@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using PlayMap.Core.Gpu;
 using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
 using Silk.NET.Maths;

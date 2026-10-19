@@ -1,13 +1,18 @@
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
 namespace PlayMap.Render.Gpu;
 
-public sealed unsafe partial class GlDevice
+public sealed unsafe partial class GlDevice : IFenceSignals
 {
     // ---- textures ----
 
-    public GpuTexture CreateTexture(int width, int height, TextureFormat format, TextureFilter filter = TextureFilter.Linear, TextureWrap wrap = TextureWrap.Clamp)
+    public GpuTexture CreateTexture(int width, int height, TextureFormat format, TextureFilter filter = TextureFilter.Linear, TextureWrap wrap = TextureWrap.Clamp) =>
+        CreateTexture(width, height, format, filter, wrap, TextureUsage.Sampled | TextureUsage.CopySource | TextureUsage.CopyDest);
+
+    /// <summary>A texture made for the given uses (a target's attachment is also drawn into).</summary>
+    internal GpuTexture CreateTexture(int width, int height, TextureFormat format, TextureFilter filter, TextureWrap wrap, TextureUsage usage)
     {
         AssertOwner();
         ArgumentOutOfRangeException.ThrowIfLessThan(width, 1);
@@ -28,7 +33,7 @@ public sealed unsafe partial class GlDevice
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureWrapS, w);
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureWrapT, w);
         Check("texture");
-        return new GpuTexture(this, id, width, height, format, filter, wrap);
+        return new GlTexture(this, id, width, height, format, filter, wrap, usage);
     }
 
     /// <summary>Shows a one-channel texture as grey (R in R, G and B, alpha one): a Gray8 picture samples as
@@ -120,7 +125,7 @@ public sealed unsafe partial class GlDevice
     {
         if (!Caps.SupportsRenderTarget(format))
             throw new ArgumentException($"This context cannot render to {format} ({Caps.Dialect}); the caller falls back to a format it can (RGBA16F for 16-bit unsigned).", nameof(format));
-        var color = CreateTexture(width, height, format, filter);
+        var color = CreateTexture(width, height, format, filter, TextureWrap.Clamp, AttachmentUsage);
         var fbo = _gl.GenFramebuffer();
         _liveFramebuffers.Add(fbo);
         _gl.BindFramebuffer(GLEnum.Framebuffer, fbo);
@@ -139,13 +144,16 @@ public sealed unsafe partial class GlDevice
         var status = _gl.CheckFramebufferStatus(GLEnum.Framebuffer);
         if (status != GLEnum.FramebufferComplete)
         {
-            var target = new RenderTarget(this, fbo, color, rb);
+            var target = new GlRenderTarget(this, fbo, color, rb);
             target.Dispose();
             throw new GlException($"A {width}×{height} {format} target is incomplete: {status}.");
         }
         Check("target");
-        return new RenderTarget(this, fbo, color, rb);
+        return new GlRenderTarget(this, fbo, color, rb);
     }
+
+    /// <summary>What a target's colour attachment is made for: drawn into, sampled, copied.</summary>
+    internal const TextureUsage AttachmentUsage = TextureUsage.Sampled | TextureUsage.RenderTarget | TextureUsage.CopySource | TextureUsage.CopyDest;
 
     internal void DeleteRenderTarget(uint framebuffer, uint depth)
     {
@@ -254,7 +262,7 @@ public sealed unsafe partial class GlDevice
         AssertOwner();
         var id = _gl.GenBuffer();
         _liveBuffers.Add(id);
-        return new GpuBuffer(this, id, kind);
+        return new GlBuffer(this, id, kind);
     }
 
     /// <summary>Replaces a buffer's contents. The store is orphaned (re-specified) so the GPU may keep reading
@@ -263,18 +271,19 @@ public sealed unsafe partial class GlDevice
     {
         ArgumentNullException.ThrowIfNull(buffer);
         AssertOwner();
-        var target = Target(buffer.Kind);
-        if (buffer.Kind == BufferKind.Index)
+        var gl = (GlBuffer)buffer;
+        var target = Target(gl.Kind);
+        if (gl.Kind == BufferKind.Index)
             BindVertexArrayId(0); // an element buffer binds into the bound vertex array; keep it out of a live one
-        _gl.BindBuffer(target, buffer.Id);
+        _gl.BindBuffer(target, gl.Id);
         var bytes = data.Length * sizeof(T);
-        if (bytes > buffer.Capacity)
-            buffer.Capacity = Math.Max(16, Math.Max(bytes, buffer.Capacity + buffer.Capacity / 2));
-        _gl.BufferData(target, (nuint)buffer.Capacity, null, dynamic ? GLEnum.StreamDraw : GLEnum.StaticDraw);
+        if (bytes > gl.Capacity)
+            gl.Capacity = Math.Max(16, Math.Max(bytes, gl.Capacity + gl.Capacity / 2));
+        _gl.BufferData(target, (nuint)gl.Capacity, null, dynamic ? GLEnum.StreamDraw : GLEnum.StaticDraw);
         if (bytes > 0)
             fixed (T* p = data)
                 _gl.BufferSubData(target, 0, (nuint)bytes, p);
-        if (buffer.Kind == BufferKind.Vertex)
+        if (gl.Kind == BufferKind.Vertex)
             _gl.BindBuffer(target, 0);
         Check("buffer");
     }
@@ -317,7 +326,7 @@ public sealed unsafe partial class GlDevice
         _vao = 0;
         _gl.BindBuffer(GLEnum.ArrayBuffer, 0);
         Check("vertex array");
-        return new VertexArray(this, id, vertices, indices, instances);
+        return new VertexArray(this, id, attributes, vertices, indices, instances);
     }
 
     internal void DeleteVertexArray(uint id)
@@ -349,6 +358,12 @@ public sealed unsafe partial class GlDevice
         if (fence != 0 && !_disposed)
             _gl.DeleteSync(fence);
     }
+
+    nint IFenceSignals.Insert() => InsertFence();
+
+    bool IFenceSignals.IsSignaled(nint signal) => IsSignaled(signal);
+
+    void IFenceSignals.Delete(nint signal) => DeleteFence(signal);
 
     internal uint CreateQuery() => _gl.GenQuery();
 

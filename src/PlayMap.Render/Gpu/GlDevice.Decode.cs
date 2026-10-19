@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Render.Decode;
 using Silk.NET.OpenGL;
@@ -84,7 +85,7 @@ public sealed unsafe partial class GlDevice
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureWrapT, (int)GLEnum.ClampToEdge);
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureMaxLevel, 0);
         Check("compressed texture");
-        return new GpuTexture(this, id, w, h, format, TextureFilter.Nearest, TextureWrap.Clamp);
+        return new GlTexture(this, id, w, h, format, TextureFilter.Nearest, TextureWrap.Clamp);
     }
 
     /// <summary>Fills a whole compressed texture from client memory: <paramref name="bytes"/> of tight rows of blocks, top row
@@ -147,7 +148,7 @@ public sealed unsafe partial class GlDevice
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureWrapS, (int)GLEnum.ClampToEdge);
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureWrapT, (int)GLEnum.ClampToEdge);
         Check("external texture");
-        return new GpuTexture(this, id, width, height, format, TextureFilter.Linear, TextureWrap.Clamp);
+        return new GlTexture(this, id, width, height, format, TextureFilter.Linear, TextureWrap.Clamp);
     }
 
     /// <summary>Gives an adopted texture the EGLImage's storage. False when this context has no glEGLImageTargetTexture2DOES or the

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Numerics;
@@ -305,7 +306,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         for (var i = 0; i < 2; i++)
         {
             var none = EglImages.None;
-            var image = create(display, EglImages.GetCurrentContext(), EglImages.GlTexture2D, (nint)textures[i].Id, &none);
+            var image = create(display, EglImages.GetCurrentContext(), EglImages.GlTexture2D, (nint)((GlTexture)textures[i]).Id, &none);
             Assert.NotEqual(0, image);
             images[i] = image;
             int fourcc, count, fd, stride, offset;

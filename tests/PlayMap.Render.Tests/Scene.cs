@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using PlayMap.Core.Geometry;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;

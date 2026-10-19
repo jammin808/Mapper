@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Render.Decode;

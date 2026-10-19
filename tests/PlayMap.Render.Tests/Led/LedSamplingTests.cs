@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Led;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;

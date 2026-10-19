@@ -1,3 +1,5 @@
+using PlayMap.Core.Gpu;
+
 namespace PlayMap.Render.Gpu;
 
 /// <summary>Streams uploads through a ring of pixel-unpack buffers: the CPU copies a plane into a mapped
@@ -163,7 +165,3 @@ public sealed unsafe class PixelPackRing : IDisposable
         _disposed = true;
     }
 }
-
-/// <summary>Receives a finished read-back: the BGRA bytes (valid only during the call), the size and the
-/// stamp the request carried.</summary>
-public delegate void ReadbackConsumer<in TState>(TState state, ReadOnlySpan<byte> bgra, int width, int height, long stamp);

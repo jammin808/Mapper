@@ -1,56 +1,27 @@
 using System.Globalization;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Presentation;
 using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Platform;
 
-/// <summary>Where a presenter goes: a monitor (null = a free-floating window at <see cref="X"/>, <see cref="Y"/>), borderless over
-/// the whole monitor or a movable window of the given size, and whether its presents wait for the vertical blank.</summary>
-public sealed record OutputPresenterOptions(string Title, MonitorInfo? Monitor, bool Borderless, int Width, int Height, int X = 64,
-    int Y = 64, bool VSync = true);
-
-/// <summary>The render platform a node starts on: the primary context the renderer draws in, the displays, the presenters outputs
-/// go to and the device decoders may share. The GL platform (GLFW windows over GLX, or EGL for ES) is the one this round; the DXGI
-/// flip-model platform on Windows (<c>Windows.AnglePlatform</c>, experimental) stands behind the same seam.
-///
-/// Threading: made, used and disposed on the render thread.</summary>
-public interface IGpuPlatform : IDisposable
+/// <summary>A GL platform (GLFW windows over GLX or WGL, EGL, or ANGLE's ES on Direct3D 11): its primary context, made current on
+/// the render thread, which the renderer draws in through its <see cref="RenderContext.Device"/>.</summary>
+public interface IGlPlatform : IGpuPlatform
 {
-    /// <summary>"gl" (GLFW windows sharing one context), "gl-surfaceless" (EGL with no window system: offscreen only), "dxgi" (the
-    /// flip model on a Direct3D 11 device through ANGLE).</summary>
-    string Name { get; }
-
-    /// <summary>The windowing API under the context: "glx", "egl", "egl-surfaceless", "wgl", "cocoa", "angle-d3d11".</summary>
-    string Api { get; }
-
-    /// <summary>Why the platform is not what was asked ("ES through GLX: EGL refused …"); "" when it is.</summary>
-    string Words { get; }
-
     RenderContext Context { get; }
+}
 
-    /// <summary>The path this platform's presenters take.</summary>
-    PresentPath Path { get; }
-
-    IReadOnlyList<MonitorInfo> Monitors();
-
-    /// <summary>A presenter on a display; throws with words when the platform cannot open one there.</summary>
-    IOutputPresenter CreatePresenter(OutputPresenterOptions options);
-
-    void PumpEvents();
-
-    /// <summary>The renderer's device as decoders may share it.</summary>
-    IGpuShare Share { get; }
-
-    /// <summary>The lock of a device other threads issue work on while the renderer draws on it (the D3D11 device decoders share on
-    /// the DXGI path): the render loop holds it around each frame, bounded (<see cref="GpuDeviceLock.FrameBoundMs"/>), and lets go of
-    /// it while it waits on a display. Null when nothing else draws on the renderer's device (a GL context is the render thread's
-    /// alone).</summary>
-    GpuDeviceLock? DeviceLock => null;
-
-    /// <summary>The adapter the platform renders on, in words ("Direct3D 11 + ANGLE · NVIDIA RTX A4000"); "" when the GL renderer
-    /// string says it.</summary>
-    string Adapter => "";
+/// <summary>The GL context of a platform, for the frame code that draws through <see cref="GlDevice"/>.</summary>
+public static class GlPlatformContext
+{
+    extension(IGpuPlatform platform)
+    {
+        /// <summary>The platform's GL context; a platform that is not a GL one has none, and is refused.</summary>
+        public RenderContext Context =>
+            platform is IGlPlatform gl ? gl.Context : throw new NotSupportedException($"the {platform.Name} platform has no GL context");
+    }
 }
 
 /// <summary>What a node asks of its platform: the present path ("auto" | "gl" | "dxgi") and the GL dialect ("auto" | "core330" |
@@ -150,7 +121,7 @@ public static class GpuPlatforms
 
 /// <summary>Today's platform: one hidden GL context (GLFW over GLX, or EGL) and an <see cref="OutputWindow"/> per output sharing
 /// its objects; or an EGL context with no window system, which renders every output offscreen and opens no windows.</summary>
-public sealed class GlPlatform : IGpuPlatform
+public sealed class GlPlatform : IGlPlatform
 {
     private readonly GlShare _share;
     private bool _disposed;
@@ -170,6 +141,10 @@ public sealed class GlPlatform : IGpuPlatform
     public string Words { get; }
 
     public RenderContext Context { get; }
+
+    /// <summary>The renderer draws through <see cref="Context"/>'s GL device on this platform; it offers no
+    /// <see cref="IGpuDevice"/>.</summary>
+    public IGpuDevice Device => throw new NotSupportedException("the GL platform offers no IGpuDevice: the renderer draws through its GL context");
 
     public PresentPath Path => Context.HasWindows ? PresentPath.GlWindow : PresentPath.Offscreen;
 

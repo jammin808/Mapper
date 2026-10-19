@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
 namespace PlayMap.Render.Gpu;
@@ -13,11 +14,11 @@ public sealed unsafe partial class GlDevice
         AssertOwner();
         if (!Caps.SupportsRenderTarget(format))
             throw new ArgumentException($"This context cannot render to {format} ({Caps.Dialect}).", nameof(format));
-        var a = CreateTexture(width, height, format, TextureFilter.Nearest);
+        var a = CreateTexture(width, height, format, TextureFilter.Nearest, TextureWrap.Clamp, AttachmentUsage);
         GpuTexture b;
         try
         {
-            b = CreateTexture(width, height, format, TextureFilter.Nearest);
+            b = CreateTexture(width, height, format, TextureFilter.Nearest, TextureWrap.Clamp, AttachmentUsage);
         }
         catch
         {

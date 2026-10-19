@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Modulation;
 using PlayMap.Render.Gpu;
