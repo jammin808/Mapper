@@ -12,7 +12,7 @@ gesture, and that no patch in this tree answers or bypasses: what to do about th
 installer, with the same acceptance (§9 decision 3). M17, CI's `wix-toolset` job, measures whether the pinned source builds on the
 runner at all, and its summary says what it answered: on windows-2025, Visual Studio 2026's installer holds none of the v143 C++
 components WiX's native parts ask for (it exits having added none), and the build stops at MSB8020, the v143 build tools not
-found, after a minute, before any licence check runs. The installer runs elevated once and does every machine-level action
+found, in its first minute, before any licence check runs. The installer runs elevated once and does every machine-level action
 through the supervisor's own commands, so the engine itself never runs as administrator:
 
 | Where | What |

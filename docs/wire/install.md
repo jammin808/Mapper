@@ -74,6 +74,12 @@ Lines outside this package's files that the integration pass changes, with what 
   `tests/fixtures/state/main.json`, `tests/fixtures/state/output.json`, and the Companion module's
   `integrations/companion-module-playmap/test/fixtures/state.json` and `state-pattern.json`, each now carrying `machine.install`.
 
+What the runner answered for the plan's two probes (§3.5 item 4), from the installer job's summary: a standard account runs the
+installed engine and serves HTTP on 9940 with no URL reservation (`InstallerTests`); and for `_playmap._tcp` beside Windows' own mDNS
+responder, Windows' resolver (`Resolve-DnsName -Type PTR _playmap._tcp.local`) answers "DNS name does not exist", while a DNS-SD
+browse on the wire (a PTR query to 224.0.0.251:5353) is answered from the runner's address naming the instance it ran — the answer
+stretch 10 is decided by.
+
 What waits on other packages and on the spine:
 
 - The shader worker's natives (DXC's `dxcompiler.dll` and `dxil.dll`, glslang, SPIRV-Tools, SPIRV-Cross; design §2, §3.5 item 3)
