@@ -7,8 +7,9 @@ Read this before any change. The papers people read are `README.md`, `docs/`; th
 PlayMap (repo: Mapper) is a media player / render node of the Patterns ecosystem (Patterns, Stagewatch) and a 3D
 projection-mapping suite (structured-light scanning, LiDAR import, pose solving, 3D blending, pen-tool masks). Today it
 is one portable .NET 10 exe with two processes: the **desk** (`PlayMap`, Avalonia 12) and the **engine** (`PlayMap
-engine`, the node: project, playback, FFmpeg decode, OpenGL render, outputs, Show Bus, scan). `docs/ARCHITECTURE.md` is
-the design; read it first. Round 3 (`docs/round3/PLAN.md`) is the plan of record for where it is going.
+engine`, the node: project, playback, FFmpeg decode, rendering through the RHI with the GL backend behind it, outputs,
+Show Bus, scan). `docs/ARCHITECTURE.md` is the design; read it first. Round 3 (`docs/round3/PLAN.md`) is the plan of
+record for where it is going.
 
 ## The direction (the owner's)
 
@@ -74,6 +75,10 @@ MCP, desk, menus and right-click menus, papers.
 - Module rules: Core references only the runtime; edges reference Core and their own native library; only App
   references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, never `PlayMap.Render`, so the two backends
   meet only in Core's contracts. Windows-only types carry `[SupportedOSPlatform("windows")]`.
+- **The GL line**: no code outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL side (in Render,
+  of any of Silk.NET) but the platform factory, which names the GL platforms' maker (`RhiFenceTests`, `EngineFenceTests`
+  hold it), and a Render GPU test draws through the device its `BackendFixture` leg hands it (only the GL backend's own
+  tests, listed by name in those fences, name a GL type).
 - **Round 3's ownership**: a package edits only the files `docs/round3/PLAN.md` §4 gives it and its hook word's stubs; a
   missing seam goes through the spine amendment lane (§5.7). Every new verb is a catalogue row; every new STATE block has
   its fixture written by a test and a card descriptor.
@@ -103,6 +108,7 @@ CI runs both jobs on every push: Linux (with the ES 3.00 leg) and Windows on `wi
 |---|---|
 | The design | `docs/ARCHITECTURE.md` |
 | Where it is going: round 3's plan, designs and research | `docs/round3/PLAN.md`, `docs/round3/design/`, `docs/round3/research/` |
+| The render hardware interface | `src/PlayMap.Core/Gpu`, `docs/round3/design/rhi.md`, the contracts as built in `docs/round3/notes/rhi.md` §2 |
 | The wire, STATE, the verbs | `docs/WIRE.md`, `src/PlayMap.Core/Wire/VerbCatalog.cs` (the one table) |
 | The Show Bus node (Patterns/Stagewatch interop) | `docs/SHOWBUS-NODE.md` |
 | Mapping and scanning | `docs/MAPPING.md` |

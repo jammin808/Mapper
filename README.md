@@ -3,8 +3,9 @@
 **A playback node and a 3D projection-mapping suite, in one portable exe — and a full member of the Patterns /
 Stagewatch show network.**
 
-Today that exe renders through OpenGL. PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11,
-rendering on Direct3D 12, with a desk of guided workflows (**Next**, below).
+Today that exe draws through a rendering hardware interface with OpenGL behind it. PlayMap is becoming an installed,
+Windows-native show node on every edition of Windows 11, rendering on Direct3D 12, with a desk of guided workflows (**Next**,
+below).
 
 PlayMap plays anything FFmpeg can decode, the whole HAP family on the GPU, stills, image sequences, network streams, NDI and
 OMT sources, capture devices, test patterns, fractals, particle fields and sound-reactive scenes, through chains of ISF
@@ -142,19 +143,20 @@ run, never passed, and nothing claims a hardware fact it has not measured.
 
 **Next:** PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11 from build 26100, Home
 included (`docs/round3/PLAN.md`). It will install per machine from an installer built with Inno Setup this round (an MSI is
-revisited next round); builds will stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer will show
-a licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising service
-will start the engine in the show user's session, never as administrator and never in session 0. The engine will render on
-Direct3D 12 behind a rendering hardware interface, and OpenGL stays the reference backend until the pixel and timing evidence
-says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present barrier on Direct3D 12, its
-swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured. The desk will open on
-guided workflows — two projectors blended or stacked on a flat screen, a film mapped onto a wall so it reads undistorted
-from the audience, an object mapped with one or two projectors — beside advanced panes and a typed console, with every command
-and feature in the menu bar and the right-click menus. Every mapping step will be doable by hand or with the assistant, and
-capture cards will pass through to the air. With no lab this round, what only hardware proves stays on the lab's list (above).
-Twenty-one packages build the direction in four waves, each of the plan's decisions answered in its §9, on the round's spine,
-which is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the new projects as placeholders
-and the CI legs (`docs/ROADMAP.md`, round 3).
+revisited next round); builds will stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer will
+show a licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising
+service will start the engine in the show user's session, never as administrator and never in session 0. The engine will render
+on Direct3D 12 behind the rendering hardware interface it draws through today, and OpenGL stays the reference backend until the
+pixel and timing evidence says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present
+barrier on Direct3D 12, its swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured.
+The desk will open on guided workflows — two projectors blended or stacked on a flat screen, a film mapped onto a wall so it
+reads undistorted from the audience, an object mapped with one or two projectors — beside advanced panes and a typed console,
+with every command and feature in the menu bar and the right-click menus. Every mapping step will be doable by hand or with the
+assistant, and capture cards will pass through to the air. With no lab this round, what only hardware proves stays on the lab's
+list (above). Twenty-one packages build the direction in four waves, each of the plan's decisions answered in its §9, on the
+round's spine, which is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the new projects
+as placeholders and the CI legs. Of the packages, the rendering hardware interface is built on it: every frame draws through
+Core's `IGpuDevice` with the GL backend behind it, its pixels unchanged (`docs/ROADMAP.md`, round 3).
 
 ## What it is made of
 
@@ -162,7 +164,7 @@ and the CI legs (`docs/ROADMAP.md`, round 3).
 |---|---|
 | `PlayMap.Core` | The immutable project model and its single writer (undo, coalesced drags). Also: the monotonic clock, the leader clock (slewed, stepped on the engine's lane, held while the leader is quiet) and its drift estimate; timeline anchors (frame = a pure function of show time); Patterns' clip semantics; the one verb catalogue; Show Bus hello/context/pairing; the solvers (SVD, Levenberg–Marquardt); mesh, ray caster and camera model. Mapping maths (warp lattices, pixel quads, Bézier masks, 3D blend), scan maths (structured light, calibration, point clouds, the multi-view solve), align's fits and the calibration score sit here too, with the show policy, preflight and the blind draft's diff, the ISF parser, audio analysis, the beat clock and the modulation bus, OSC/MIDI/DMX and binding maths, LTC/MTC and the chase, the frame-lock machine, the generator catalogue and its looks, LED layouts, patching and packets, fleet health, and optimise's planner, rules, governor, HAP packer and version choice. The site frame and the survey readers (rebased in double; chunked LAS, a managed E57 reader), decimation and voxel thinning, control-point files and the site check, and the long-throw solve with its priors sit here too. |
 | `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), the blind draft and its commit at a show boundary, preflight, frame-exact playlist lanes with pre-scheduled gapless switches and fades on a GO by hand, the air's sound, timecode chase, control bindings, the video I/O hub (each live input received once and lent to every consumer, each send's sender, the loss policy and tally), the calibration ledger, align runs, the scan runner (a scan's views solved together, kept on disk, its surface suggestions and the folder camera), survey import (read, thinned and decimated on its own thread, applied as one edit), the optimise queue and its worker (the same exe as `PlayMap optimise-worker`, a process of its own the engine starts and watches), STATE and context, journal, recovery record; the sync part: the role kept, the leader's air fanned out to its members, and a member taking the leader's anchors and air through its own verbs (answered with receipts) and its frame lock |
-| `PlayMap.Render` | One GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload and the unpack of packed network video; the edit overlay; LED sampling; the send stage (network video packed on the GPU and read back without a stall); previews; the GPU HAP encoder |
+| `PlayMap.Render` | The frame drawn through Core's render hardware interface (`IGpuDevice`, its frame list, one `DrawState` per draw), with the GL backend behind it (`Render/Gl`): one GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload and the unpack of packed network video; the edit overlay; LED sampling; the send stage (network video packed on the GPU and read back without a stall); previews; the GPU HAP encoder |
 | `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; OMT (libomtnet and libvmx, vendored) and NDI 6 (the user's runtime, loaded at run time) receivers and senders over a lock-free frame pool; HAP's own parser with its Snappy stage on a worker pool; stills (JPEG, PNG, TIFF at 16 bits) read as grey for a folder camera; the HAP transcode (decode, encode, mux with the source's audio, read back); sound input (libavdevice; WASAPI with loopback on Windows); sound out through OpenAL Soft, slaved to a transport |
 | `PlayMap.Net` | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; also on the web port's `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS + MCP (9940) with `/health` and `/fleet`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and the leader's sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) input, the LED sender (Art-Net, sACN, DDP), the mDNS announcement (`_playmap._tcp`), the fleet monitor, media transfer, the Patterns and Stagewatch links |
 | `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, resetting internal geometry before scans, and reading a Panasonic's own geometry and edge blend while PlayMap corrects its picture. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |

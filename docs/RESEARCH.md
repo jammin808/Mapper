@@ -86,9 +86,9 @@ separate same-coloured surfaces), vectorise to Bézier paths, lift to 3D with pl
   multi-output engine.
 - **GPU and presentation:** on Windows the lowest-latency path is engine-owned borderless windows with DXGI
   flip-model waitable swap chains (independent flip, one frame of latency), `GetFrameStatistics` to map vblanks.
-  PlayMap renders on OpenGL 3.3 core or ES 3.00 (testable headless on Mesa) behind a device seam, with an experimental
-  Direct3D 11 flip path through ANGLE; the direction is Direct3D 12 behind a rendering hardware interface (RHI) cut at
-  `GlDevice`, with OpenGL the reference backend until the pixel and timing evidence agrees (§8).
+  PlayMap draws through a rendering hardware interface (RHI) cut at `GlDevice`, with OpenGL 3.3 core or ES 3.00 behind it
+  (testable headless on Mesa) and an experimental Direct3D 11 flip path through ANGLE; the direction is Direct3D 12 behind that
+  interface, with OpenGL the reference backend until the pixel and timing evidence agrees (§8).
 - **Sync:** Watchout 7 (NTP via w32time, "millisecond-level"; frame-exact needs NVIDIA sync boards), Pixera
   (sync cards + "RX Frame Sync"), disguise (genlock + QTP/VSync messages), Resolume/Millumin (OSC/LTC mirror —
   users report drift). PlayMap: own UDP exchange on the monotonic clock with min-RTT filtering and drift

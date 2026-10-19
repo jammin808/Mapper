@@ -1,92 +1,12 @@
 # The render hardware interface (`wp3-rhi`): papers note
 
-*For the integration pass (`PLAN.md` §4, §5.6). The package writes none of `README.md`, `docs/ARCHITECTURE.md` or
-`docs/ROADMAP.md` during the wave: this note holds the text it gives them, the contracts as they are built where they differ from
-`design/rhi.md`, where the code proves a design wrong, the hunks outside the package's Owns in the order they merge, and what waits
-for the Windows job and the lab.*
+*For the integration pass (`PLAN.md` §4, §5.6). The package's text for `README.md`, `docs/ARCHITECTURE.md` and `docs/ROADMAP.md`
+stands in them (§1). This note holds the contracts as they are built where they differ from `design/rhi.md`, where the code proves a
+design wrong, the hunks outside the package's Owns in the order they merge, and what waits for the Windows job and the lab.*
 
 ## 1. Text for the spine's papers
 
-Each block is the text as it stands at the package's head; the pass applies it at the place named.
-
-### `README.md`
-
-The module table's `PlayMap.Render` row, whole:
-
-```markdown
-| `PlayMap.Render` | The frame drawn through Core's render hardware interface (`IGpuDevice`, its frame list, one `DrawState` per draw), with the GL backend behind it (`Render/Gl`): one GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload and the unpack of packed network video; the edit overlay; LED sampling; the send stage (network video packed on the GPU and read back without a stall); previews; the GPU HAP encoder |
-```
-
-### `docs/ARCHITECTURE.md`
-
-The module table's `PlayMap.Core` row: after "the frame-lock machine, " insert
-
-```markdown
-the render hardware interface (`Core/Gpu`: the device, resources, programs and their layouts, pipelines, the frame's command list, fences, the upload, read-back, timer and import contracts every backend implements, the platform and presenter seams, the program table as data), 
-```
-
-The module table's `PlayMap.Render` row, whole:
-
-```markdown
-| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows on GLX or EGL, or EGL surfaceless; on Windows the Direct3D 11 flip model through ANGLE, loaded at run time) with a presenter per output feeding Core's vblank clock and present ledger, each output's delay ring, the frame-lock tiers; the decoder-surface importers (dmabuf EGLImages, D3D11 textures through ANGLE) and the context's upload arena; the GL backend (`Render/Gl`: `GlBackend`, the GL device behind Core's `IGpuDevice` with one immediate command list, fences over GL syncs, the pixel-pack and unpack rings, timestamp queries, user programs linked on the compile lane and transients rented from a resource pool; the GL platforms, the importers, the upload arena and the HAP encoder named here live there too), render graph (every frame's drawing goes through the device's frame list — the render engine, the canvases and playlist mixes, the generators, the video conversions, the projector pass, the effect chains, the output stage, the edit overlay, LED sampling, the send stage and the HAP pass: a pass over each target, a program and one `DrawState` per draw, its constants set by name through the program's layout, the windows' pictures recorded into the list and presented after its submit; the GPU times of outputs, generators and effect slots are spans between two timestamps in the list, read frames later, every span a frame asks for measured (on an ES context whose timer extension counts no timestamps, one elapsed-time query per output, the spans inside it unmeasured; a context with no timer queries measures none); the warm-up makes every pipeline the passes list through the device before the first frame, and a pipeline the device cannot make fails the render host's start with the device's words; no code outside `Render/Gl` names a GL or Silk.NET type, save the platform factory naming the GL platforms' maker — `RhiFenceTests` and `EngineFenceTests` hold the line by a scan of the sources and project files and a walk of the Render and Engine assemblies' signatures and IL), shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains (each pass a user program the device makes through `CreateProgramAsync` — on GL compiled and linked on the compile lane, its uniforms and samplers read back into its layout — and lets go of once the last frame that drew it has completed), the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, the send stage (network video packed on the GPU, read back through a fenced ring) and the unpack of packed network layouts, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
-```
-
-§5's first line, whole:
-
-```markdown
-Per frame, on the engine's render thread (one device, all outputs; on GL its one context). Blackout wins before any pass:
-```
-
-§5, a paragraph after the one on the device lock (the paragraph that ends "(docs/OUTPUT.md, docs/DECODE.md)."):
-
-```markdown
-Every pass draws through the render hardware interface (Core's `IGpuDevice` and the frame's `ICommandList`), never through an API:
-the frame code, the passes and the generators name no GL type, and the GL backend (`Render/Gl`) implements the contracts with its
-one immediate list. The five passes that set the most constants a frame (the particle step, the output stage, the quad every
-canvas layer is drawn with, the projector pass's surfaces and the raymarcher) set them by the ids generated with the program table
-(`ProgramIds`: a constant's place in its program's layout), with no look-up by name. Each pass lists the pipelines it can draw on
-a device (`FramePipelines`: every program it draws, in every state, into every target shape it draws into there), and the warm-up
-makes them all before the first frame, so the scripted show's draws make none on the render thread; a pipeline the device cannot
-make fails the start with the device's words. The GPU tests do the same: each runs on a leg of the backend fixture
-(`BackendFixture`, one device on a thread of its own per backend the job has — GL today, a later backend's leg added to
-`BackendLegs.Makers`), draws through the device the leg hands it and reads back through `Pixels.Read(IGpuDevice, RenderTarget)`;
-only the GL backend's own tests, listed by name in `RhiFenceTests` (and the engine suite's in `EngineFenceTests`), name a GL type.
-Every pixel golden is unedited and holds byte for byte on llvmpipe in both dialects. With no lab, L20 (the GL backend behind the
-interface on NVIDIA, AMD and Intel Windows drivers) is not run: the GL backend is proven on llvmpipe and on Mesa WGL only.
-```
-
-### `docs/ROADMAP.md`
-
-After the spine's "**Bench.**" line, before "**Next**":
-
-```markdown
-**Built: the render hardware interface (W1, `wp3-rhi`).** Every frame draws through Core's contracts, and GL stands behind them
-with its pixels unchanged.
-
-- **Contracts.** `Core/Gpu` holds the device, its resources, programs and their layouts (the program table as data,
-  `programs.layout.json`), `DrawState` and `PipelineKey`, the frame's command list with its draw builder, fences as values on a
-  queue's timeline, the upload, read-back, timer, import and transient contracts, user programs made at run time, and the platform
-  and presenter seams (a presenter records the picture into the frame's list, then presents after the submit).
-- **The GL backend.** `Render/Gl` holds GL whole: `GlBackend` behind `IGpuDevice` with one immediate list, fences over GL syncs,
-  the pack and unpack rings, timer-query spans, the importers, user programs linked on the compile lane, transients from a pool.
-  No code outside it names a GL or Silk.NET type but the platform factory's one call (`RhiFenceTests`, `EngineFenceTests`).
-- **The callers.** The render engine, passes, generators, video, LED sampling, sends, the overlay, HAP, effects and the projector
-  pass each draw one `DrawState` a draw, their constants set by name through the program's layout; a warm frame allocates nothing,
-  and after each draw of a scripted show the GL state read back is the recorded one, draw for draw (`DrawStateTests`).
-- **Constant ids and pipeline lists.** The five passes that set the most constants a frame set them by ids generated with the
-  program table (`ProgramIds`), and each pass lists the pipelines it can draw, which the warm-up makes before the first frame.
-- **The tests.** Every GPU test runs on a backend fixture whose legs are the backends the job has (GL today) and draws through the
-  device a leg hands it; only the GL backend's own tests, each listed by name, name a GL type. Every pixel golden and STATE
-  fixture is unedited, byte for byte on llvmpipe in core 3.30 and ES 3.00.
-- **Not proven.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend is
-  proven on llvmpipe and Mesa WGL only.
-```
-
-The item's row in the table under "**Next**", whole:
-
-```markdown
-| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels. **Built** (above); L20 not run | wp3-rhi | — |
-```
+The text of this section stands in `README.md`, `docs/ARCHITECTURE.md` and `docs/ROADMAP.md`.
 
 ## 2. The contracts as built
 

@@ -6,7 +6,7 @@
 
 **Round 3 is the round under way.** Its spine is on main, and its packages build on it in four waves: the installed,
 Windows-native node on Direct3D 12 and the desk's guided workflows (Round 3, below; docs/round3/PLAN.md). Today PlayMap is one
-portable exe that renders through OpenGL.
+portable exe that draws through a rendering hardware interface with OpenGL behind it.
 
 **Round 2 is merged.** Every package of its plan (docs/round2/PLAN.md) is on main, built and tested on CI's Linux and Windows
 jobs. What it does is below and in each item's **Built** note; what only real hardware or a real show can prove is under **Lab
@@ -130,16 +130,16 @@ no hardware tier; and keep the typed console, with every command and feature rea
 The request to Patterns that its Eye keep at least 256 of a node's commands where it keeps a cap, and that the Show Bus contract
 state the cap, is in docs/round2/CARRYOVER.md (call 11).
 
-**Today.** PlayMap is one portable exe. It renders through OpenGL 3.3 core or ES 3.00 on GLFW windows, EGL or a surfaceless context;
-on Windows the Direct3D 11 flip model through ANGLE is an explicit, experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no
-evidence yet marks as in Independent Flip. The NVAPI frame-lock tier reads a sync board and joins no output. A lost device stops the
-drawing after 30 faulting frames while the engine plays on. The engine claims nothing from Windows beyond above-normal thread
-priority. Previews reach the desk through four CPU copies. CI publishes a self-contained folder that nothing installs, signs or
-supervises; every build carries its version, build number and commit from one source (`Version.props`; README, Versions). On the
-desk a half-drawn quad is dropped when the person looks away, only a quad's corner nudges, no output says what it shows, Simple
-hides nothing, the panels are fixed columns and about a third of the catalogue's rows are sent by a desk control of their own; a
-capture card is read through FFmpeg, outside the video I/O hub, with three CPU copies (docs/round3/research/desk-today.md and
-video-today.md).
+**Today.** PlayMap is one portable exe. It draws through the rendering hardware interface (below) with OpenGL 3.3 core or ES 3.00
+behind it, on GLFW windows, EGL or a surfaceless context; on Windows the Direct3D 11 flip model through ANGLE is an explicit,
+experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no evidence yet marks as in Independent Flip. The NVAPI frame-lock
+tier reads a sync board and joins no output. A lost device stops the drawing after 30 faulting frames while the engine plays on.
+The engine claims nothing from Windows beyond above-normal thread priority. Previews reach the desk through four CPU copies. CI
+publishes a self-contained folder that nothing installs, signs or supervises; every build carries its version, build number and
+commit from one source (`Version.props`; README, Versions). On the desk a half-drawn quad is dropped when the person looks away,
+only a quad's corner nudges, no output says what it shows, Simple hides nothing, the panels are fixed columns and about a third of
+the catalogue's rows are sent by a desk control of their own; a capture card is read through FFmpeg, outside the video I/O hub,
+with three CPU copies (docs/round3/research/desk-today.md and video-today.md).
 
 **Built: the spine (W0, `wp3-spine`).** The spine holds the contracts every package of the round builds on. Every lab line
 still waits: nothing in it claims a hardware fact.
@@ -169,13 +169,38 @@ still waits: nothing in it claims a hardware fact.
   are in the job's summary. The Linux job runs the Render suite whole in ES 3.00 too.
 - **Bench.** `bench/r3-present`, the bench for M1 and M3, is built on the Windows job and waits for the lab (L1, L4).
 
+**Built: the render hardware interface (W1, `wp3-rhi`).** Every frame draws through Core's contracts, and GL stands behind them
+with its pixels unchanged.
+
+- **Contracts.** `Core/Gpu` holds the device, its resources, programs and their layouts (the program table as data,
+  `programs.layout.json`), `DrawState` and `PipelineKey`, the frame's command list with its draw builder, fences as values on a
+  queue's timeline, the upload, read-back, timer, import and transient contracts, user programs made at run time, and the platform
+  and presenter seams (a presenter records the picture into the frame's list, then presents after the submit).
+- **The GL backend.** `Render/Gl` holds GL whole: `GlBackend` behind `IGpuDevice` with one immediate list, fences over GL syncs,
+  the pack and unpack rings, timer-query spans, the importers, user programs linked on the compile lane, transients from a pool.
+  No code outside it names a GL type or a type of Silk.NET's GL side (in Render, of any of Silk.NET) but the platform factory,
+  which names the GL platforms' maker (`RhiFenceTests`, `EngineFenceTests`).
+- **The callers.** The render engine, passes, generators, video, LED sampling, sends, the overlay, HAP, effects and the projector
+  pass each draw one `DrawState` a draw, their constants set by name through the program's layout; a warm frame with no modulated
+  layer, surface or effect slot allocates nothing, and after each draw of a scripted show the GL state read back is the recorded
+  one, draw for draw (`DrawStateTests`).
+- **Constant ids and pipeline lists.** Five passes (the particle step, the output stage, the canvas quad, the projector pass's
+  surfaces and the raymarcher) set their constants by ids generated with the program table (`ProgramIds`), and each pass lists the
+  pipelines it can draw, which the warm-up makes before the first frame.
+- **The tests.** Every GPU test of the Render suite runs on a backend fixture whose legs are the backends the job has (GL today)
+  and draws through the device a leg hands it; only the GL backend's own tests, each listed by name, name a GL type. Every pixel
+  golden and STATE fixture is unedited: the goldens hold within their tolerances on llvmpipe in core 3.30 and ES 3.00, and the
+  STATE fixtures are written again byte for byte.
+- **Not proven.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend
+  runs on llvmpipe and, on the Windows job, Mesa WGL only.
+
 **Next** (the plan's packages build these in four waves on the spine — the fifteen of the Windows move and the five for the
 owner's requirements; GL stays the reference backend through the round and retires once the pixel and timing evidence agrees; at
 the round's end the integration pass updates the statuses of the items in the last column):
 
 | Item | Package | Moves |
 |---|---|---|
-| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels | wp3-rhi | — |
+| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels. **Built** (above); L20 not run | wp3-rhi | — |
 | Direct3D 12 behind it: the device, queues, fences, memory, DRED and Aftermath, every pixel scene on WARP in CI | wp3-d3d12-core | — |
 | The render graph compiled on show change; pipelines compiled at arm and keyed by driver; bindless records; zero allocation on a warm frame, modulated layers included | wp3-d3d12-passes, -2 | R2.8 |
 | One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined | wp3-shaders | — |
