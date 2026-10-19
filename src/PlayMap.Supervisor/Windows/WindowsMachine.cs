@@ -28,9 +28,18 @@ public sealed class WindowsMachine : IMachineActions
 
     public IReadOnlyList<string> Remove(string showUser, Action<string> say) => MachineSetup.Uninstall(showUser, say);
 
-    public IReadOnlyList<RunningProgram> RunningFromInstall(bool exceptTheEngine)
+    public IReadOnlyList<RunningProgram> RunningFromInstall(bool exceptTheEngine) =>
+        RunningUnder(InstallDir, exceptTheEngine, CallersOfThisProcess());
+
+    /// <summary>The programs whose images are under <paramref name="dir"/>, but for the supervisor and this command's callers
+    /// (<paramref name="callers"/>: the installer or uninstaller that runs it — Inno Setup's <c>unins000.exe</c> waits in the install's
+    /// folder for its copy that runs this command) and, when <paramref name="exceptTheEngine"/>, the supervised engine and the
+    /// processes it or the service started.</summary>
+    public static IReadOnlyList<RunningProgram> RunningUnder(string dir, bool exceptTheEngine, IReadOnlySet<int> callers)
     {
-        var dir = InstallDir;
+        ArgumentNullException.ThrowIfNull(dir);
+        ArgumentNullException.ThrowIfNull(callers);
+        dir = dir.TrimEnd('\\');
         if (dir.Length == 0)
             return [];
         var supervisor = Path.Combine(dir, "Supervisor", "PlayMap.Supervisor.exe");
@@ -41,7 +50,7 @@ public sealed class WindowsMachine : IMachineActions
         {
             using (process)
             {
-                if (process.Id == Environment.ProcessId)
+                if (process.Id == Environment.ProcessId || callers.Contains(process.Id))
                     continue;
                 var facts = EngineProcess.ReadFacts(process.Id);
                 if (!facts.Exists || !Under(facts.ImagePath, dir))
@@ -62,6 +71,23 @@ public sealed class WindowsMachine : IMachineActions
             running.Add(new RunningProgram(pid, facts.ImagePath));
         }
         return running;
+    }
+
+    /// <summary>This process's callers: its parent, the parent's parent and so on, each read through its handle, as far as a parent
+    /// that started no later than its child (a parent id taken by a later process after the parent ended stops the chain).</summary>
+    public static IReadOnlySet<int> CallersOfThisProcess()
+    {
+        var callers = new HashSet<int>();
+        var child = EngineProcess.ReadFacts(Environment.ProcessId);
+        for (var depth = 0; depth < 16 && child.ParentPid > 0 && !callers.Contains(child.ParentPid); depth++)
+        {
+            var parent = EngineProcess.ReadFacts(child.ParentPid);
+            if (!parent.Exists || parent.StartedUnixMs < 0 || child.StartedUnixMs < 0 || parent.StartedUnixMs > child.StartedUnixMs)
+                break;
+            callers.Add(child.ParentPid);
+            child = parent;
+        }
+        return callers;
     }
 
     private static bool Under(string image, string dir) =>
