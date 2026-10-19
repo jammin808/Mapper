@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlayMap.Assistant;
+using PlayMap.Core.Time;
 using PlayMap.Engine.Tests.Rendering;
 
 namespace PlayMap.Engine.Tests.Spine;
@@ -35,7 +36,11 @@ public sealed class MainStateFixtureTests
     public async Task TodaysStateIsTheCommittedFixture()
     {
         // A local model on its own endpoint: the card shows the settings in force, whatever the node's default provider is.
-        var rig = new OpsRig(assistant: AssistantSettings.Local("show-model", "http://127.0.0.1:11434/v1"), project: BlendSolveTests.TwoProjectorsOnAWall());
+        // The node's clock reads one second at the rig's start, so a generator timed from origin 0 writes the same STATE
+        // whatever the machine's uptime (past 65 536 s the real clock would add a time-precision warning).
+        var clock = new OffsetClock(MonoClock.Instance, 1_000_000_000 - MonoClock.Instance.NowNs);
+        var rig = new OpsRig(assistant: AssistantSettings.Local("show-model", "http://127.0.0.1:11434/v1"), project: BlendSolveTests.TwoProjectorsOnAWall(),
+            clock: clock);
         try
         {
             var solve = await rig.Run("BLEND SOLVE", OpsRig.Desk);
