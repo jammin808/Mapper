@@ -70,9 +70,4 @@
     <ProjectReference Include="..\..\src\PlayMap.Supervisor\PlayMap.Supervisor.csproj" />
   </ItemGroup>
 
-  <!-- The Assistant suite's scripted model, shared rather than copied: the assistant proposes FX RELEASE to a real node. -->
-  <ItemGroup Label="wp3-shaders">
-    <Compile Include="..\PlayMap.Assistant.Tests\ModelFakes.cs" Link="Shaders\ModelFakes.cs" />
-  </ItemGroup>
-
 </Project>
