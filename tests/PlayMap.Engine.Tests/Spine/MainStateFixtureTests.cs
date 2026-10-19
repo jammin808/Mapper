@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlayMap.Assistant;
 using PlayMap.Core.Time;
+using PlayMap.Engine.Tests.Host;
 using PlayMap.Engine.Tests.Rendering;
 
 namespace PlayMap.Engine.Tests.Spine;
