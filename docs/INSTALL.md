@@ -38,7 +38,9 @@ Install quietly with `PlayMap-….exe /VERYSILENT /SUPPRESSMSGBOXES /SHOWUSER=<c
 - asks the running engine first, and fails closed: an engine answering armed stops the install (and the uninstall) with the
   node's words ("the show is armed on this node since 20:31 by Desk: disarm first"); an engine process that does not answer within
   5 s stops it too ("an engine is running here (pid 4120) but does not answer: stop it from the desk or with
-  `PlayMap.Supervisor.exe stop`, then install again"); no engine, or a disarmed one, lets it go on;
+  `PlayMap.Supervisor.exe stop`, then install again"); an engine that answers the check with an error stops it as well, quoting
+  the engine's reason ("the engine (pid 4120) answered the armed check with ERR …: disarm or stop it from the desk, then install
+  again"); no engine, or a disarmed one, lets it go on;
 - while Smart App Control is evaluating, shows one warning page (a quiet install writes it to its log): "Smart App Control is
   evaluating this PC: once it enforces, Windows blocks this unsigned build and the node will not start. Turn it off in Windows
   Security > App & browser control before the show."

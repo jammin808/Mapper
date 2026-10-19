@@ -110,13 +110,17 @@ public sealed class PreinstallCheckTests
     }
 
     [Fact]
-    public async Task AnErrAnswerIsNoShowAndReadsAsSilent()
+    public async Task AnErrAnswerIsRefusedQuotingTheEnginesReason()
     {
         using var folder = new Folder();
-        await using var engine = FakeEngine.Refusing("not paired");
+        await using var engine = FakeEngine.Refusing("not paired: this client holds no pairing");
         Assert.True(new EnginePidRecord(Environment.ProcessId, engine.Port, 1).TryWrite(folder.Path));
         var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, TimeSpan.FromSeconds(5));
-        Assert.Equal(EngineFinding.Silent, facts.Finding);
+        Assert.Equal(new PreinstallFacts(EngineFinding.Refused, Environment.ProcessId, "", 0, "not paired: this client holds no pairing"), facts);
+        var verdict = PreinstallCheck.Decide(facts, TimeZoneInfo.Utc);
+        Assert.False(verdict.GoOn);
+        Assert.Equal($"the engine (pid {Environment.ProcessId}) answered the armed check with ERR not paired: this client holds no pairing: "
+            + "disarm or stop it from the desk, then install again", verdict.Words);
     }
 
     [Fact]

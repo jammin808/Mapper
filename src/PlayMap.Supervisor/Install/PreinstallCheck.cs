@@ -16,11 +16,14 @@ public enum EngineFinding
     Disarmed,
     /// <summary>An engine process is alive and did not answer.</summary>
     Silent,
+    /// <summary>An engine answered the check with <c>ERR</c> and its reason: it answered, and is refused, since its answer says
+    /// nothing of the show.</summary>
+    Refused,
 }
 
 /// <summary>The check's facts: what it found, the engine's pid (0 none), and, when it answered armed, by whom and since when (Unix
-/// ms).</summary>
-public readonly record struct PreinstallFacts(EngineFinding Finding, int Pid, string ArmedBy, long ArmedSinceUnixMs);
+/// ms); <see cref="Reason"/> is the reason of an engine's <c>ERR</c>.</summary>
+public readonly record struct PreinstallFacts(EngineFinding Finding, int Pid, string ArmedBy, long ArmedSinceUnixMs, string Reason = "");
 
 /// <summary>The check's answer: go on, or refused with words.</summary>
 public sealed record PreinstallVerdict(bool GoOn, string Words)
@@ -31,7 +34,8 @@ public sealed record PreinstallVerdict(bool GoOn, string Words)
 
 /// <summary>The installer's armed check (docs/round3/design/installer.md §4). It fails closed: no engine process goes on; an engine
 /// that answers armed is refused with the node's words; one that answers disarmed goes on; an engine process that does not answer is
-/// refused, naming its pid — silence is never read as "not armed".</summary>
+/// refused, naming its pid — silence is never read as "not armed"; an engine that answers with <c>ERR</c> is refused quoting its
+/// reason.</summary>
 public static class PreinstallCheck
 {
     /// <summary>How long a live engine has to answer.</summary>
@@ -50,6 +54,8 @@ public static class PreinstallCheck
             EngineFinding.Disarmed => new PreinstallVerdict(true, string.Create(CultureInfo.InvariantCulture,
                 $"the engine (pid {facts.Pid}) is not armed: the install goes on")),
             EngineFinding.Armed => new PreinstallVerdict(false, ArmedWords(facts, zone)),
+            EngineFinding.Refused => new PreinstallVerdict(false, string.Create(CultureInfo.InvariantCulture,
+                $"the engine (pid {facts.Pid}) answered the armed check with ERR {facts.Reason}: disarm or stop it from the desk, then install again")),
             _ => new PreinstallVerdict(false, string.Create(CultureInfo.InvariantCulture,
                 $"an engine is running here (pid {facts.Pid}) but does not answer: stop it from the desk or with PlayMap.Supervisor.exe stop, then install again")),
         };
@@ -107,9 +113,12 @@ public static class PreinstallCheck
         if (pid == 0)
             return new PreinstallFacts(EngineFinding.NoEngine, 0, "", 0);
         var answer = await LoopbackWire.AskAsync(port, "SHOW STATUS", answerTime, ct).ConfigureAwait(false);
-        return answer is { Ok: true } && ReadShow(pid, answer.Payload) is { } show
-            ? show
-            : new PreinstallFacts(EngineFinding.Silent, pid, "", 0);
+        return answer switch
+        {
+            { Ok: true } when ReadShow(pid, answer.Payload) is { } show => show,
+            { Ok: false } => new PreinstallFacts(EngineFinding.Refused, pid, "", 0, answer.Payload),
+            _ => new PreinstallFacts(EngineFinding.Silent, pid, "", 0),
+        };
     }
 
     /// <summary>Whether a process of that id runs. One this process may not look at is read as running: the check fails closed.</summary>
