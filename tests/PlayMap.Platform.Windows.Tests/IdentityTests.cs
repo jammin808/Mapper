@@ -30,10 +30,11 @@ public sealed class IdentityTests
         var os = EditionTable.Classify(editionId, product, "25H2", 26200, 6899);
         Assert.Equal((editionId, family, ltsc, iot), (os.Edition, os.Family, os.Ltsc, os.Iot));
         Assert.Equal(tier, EditionTable.Tier(os));
-        // The product type alone (no EditionID) reads the same family, where the table knows it.
+        // The product type alone (no EditionID) reads the same family and flags, where the table knows it, and the edition is named by
+        // the product type Windows answered.
         var byType = EditionTable.Classify("", product, "25H2", 26200, 6899);
-        Assert.Equal(family, byType.Family);
-        Assert.Equal(family == EditionFamily.Unknown ? "product 0x1234" : byType.Edition, byType.Edition);
+        Assert.Equal((family, ltsc, iot), (byType.Family, byType.Ltsc, byType.Iot));
+        Assert.Equal(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"product 0x{product:X}"), byType.Edition);
     }
 
     [Fact]
