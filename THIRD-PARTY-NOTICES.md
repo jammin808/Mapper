@@ -166,6 +166,25 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 
 ### wp3-shaders
 
+The shader worker's compilers, each file held to its SHA-256 when the worker loads it
+(`src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs`) and loaded by the worker process only, never by the engine:
+
+- shaderc (Apache-2.0, © The Shaderc Authors), with glslang (BSD-3-Clause, the Khronos Group and contributors; parts under the
+  MIT, Apache-2.0 and GPL-with-the-Bison-exception licences listed in glslang's `LICENSE.txt`) and SPIRV-Tools (Apache-2.0, ©
+  The Khronos Group Inc.) linked inside it: `libshaderc_shared.so` / `shaderc_shared.dll` from Silk.NET.Shaderc.Native 2.23.0
+  (shaderc at commit 9460514). glslang turns a user's ISF effect into SPIR-V; on Linux the same library's SPIRV-Tools validates it.
+- SPIRV-Tools (Apache-2.0, © The Khronos Group Inc.) on Windows: `SPIRV-Tools-shared.dll` from Google's own Visual Studio 2022
+  release build (continuous build 261 of 16 October 2026), fetched by the Windows job at its hash, since shaderc's Windows build
+  exports no validator.
+- SPIRV-Cross (Apache-2.0, © The Khronos Group Inc. and Arm Limited): `libspirv-cross.so` / `spirv-cross.dll` from
+  Silk.NET.SPIRV.Cross.Native 2.23.0. It writes HLSL from the validated SPIR-V.
+- The DirectX Shader Compiler 1.9.2609 (the LLVM Release License (NCSA), © Microsoft Corporation and the LLVM contributors) and
+  its validator `dxil.dll` / `libdxil.so` (Microsoft's licence, redistributable with the compiler, in the package's
+  `LICENSE-MS.txt`): `dxcompiler` and `dxil` from Vortice.Dxc.Native 1.0.6, for the worker and the HLSL library's tests; and
+  Microsoft.Direct3D.DXC 1.9.2609.5's `dxc.exe`, run by the Windows build to compile the HLSL library and never shipped. The
+  notice the NCSA licence asks for: "Copyright (c) Microsoft Corporation. All rights reserved." with its conditions and
+  disclaimer, as the package's `LICENSE-LLVM.txt` carries them.
+
 ### wp3-installer
 
 ### wp3-desk-ux

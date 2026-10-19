@@ -141,6 +141,8 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
                 catch (OperationCanceledException) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested)
                 {
                     worker.Kill(_options.KillWait, _log);
+                    // Answered once the worker has gone, so what STATE reads after the answer is a node with no worker running.
+                    await worker.ExitCodeAsync(_options.KillWait).ConfigureAwait(false);
                     var seconds = _options.Deadline.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
                     return Stopped(hash, name, $"the compile ran past {seconds} s and was ended", retry: false)!;
                 }
@@ -327,10 +329,12 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
             return worker;
         }
 
+        /// <summary>Starts the two readers. Each awaits the worker's output at once, so neither is CPU work handed to the pool: they
+        /// run on I/O completions.</summary>
         private void Listen(ILogger log)
         {
-            _ = Task.Run(() => ReadAsync(log), CancellationToken.None);
-            _ = Task.Run(() => DrainAsync(log), CancellationToken.None);
+            _ = ReadAsync(log);
+            _ = DrainAsync(log);
         }
 
         public Task<ShaderReply?> Expect(long id)

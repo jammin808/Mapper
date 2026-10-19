@@ -9705,7 +9705,7 @@
   {
     "name": "FX CHECK",
     "syntax": "FX CHECK \u003Casset\u003E|\u003Ckind\u003E|\u003Cjson\u003E",
-    "words": "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node\u0027s context and reports its issues by line",
+    "words": "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node\u0027s context and reports its issues by line; on a node with a shader worker, each stage of the Direct3D 12 road too (translate, glslang, validate, cross, dxc)",
     "category": "effects",
     "risk": "low",
     "mutates": false,
