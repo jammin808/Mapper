@@ -40,6 +40,7 @@ public sealed unsafe partial class GlDevice
         BindVertexArrayId(vao.Id);
         _gl.DrawArrays(Primitive(topology), first, (uint)vertexCount);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     /// <summary>Indices of a vertex array as any topology; triangles asked for as a wireframe where the context draws none are not
@@ -53,6 +54,7 @@ public sealed unsafe partial class GlDevice
         BindVertexArrayId(vao.Id);
         _gl.DrawElements(Primitive(topology), (uint)indexCount, GLEnum.UnsignedInt, null);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     internal void DrawInstanced(ShaderProgram program, VertexArray vao, Topology topology, int vertexCount, int instances)
@@ -62,6 +64,7 @@ public sealed unsafe partial class GlDevice
         BindVertexArrayId(vao.Id);
         _gl.DrawArraysInstanced(Primitive(topology), 0, (uint)vertexCount, (uint)instances);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     private static GLEnum Primitive(Topology topology) => topology switch

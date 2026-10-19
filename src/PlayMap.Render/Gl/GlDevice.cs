@@ -106,6 +106,10 @@ public sealed unsafe partial class GlDevice : IDisposable
 
     internal GL Gl => _gl;
 
+    /// <summary>Called after every draw into a target of this context with the program that drew (a test reads the context's state
+    /// there); null for none.</summary>
+    internal Action<ShaderProgram>? AfterDraw { get; set; }
+
     /// <summary>The context the device was made in (its render context sets it), which the backend's compile lane shares.</summary>
     internal RenderContext? Context { get; set; }
 
@@ -408,6 +412,7 @@ public sealed unsafe partial class GlDevice : IDisposable
         BindVertexArrayId(_emptyVao);
         _gl.DrawArrays(GLEnum.Triangles, 0, 3);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     /// <summary>Four vertices as a strip with no buffers (a quad made in the vertex shader from gl_VertexID),
@@ -421,6 +426,7 @@ public sealed unsafe partial class GlDevice : IDisposable
         else
             _gl.DrawArraysInstanced(GLEnum.TriangleStrip, 0, 4, (uint)instances);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     public void Draw(ShaderProgram program, VertexArray vao, PrimitiveKind kind, int vertexCount, int first = 0)
@@ -430,6 +436,7 @@ public sealed unsafe partial class GlDevice : IDisposable
         BindVertexArrayId(vao.Id);
         _gl.DrawArrays(Primitive(kind), first, (uint)vertexCount);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     public void DrawIndexed(ShaderProgram program, VertexArray vao, PrimitiveKind kind, int indexCount)
@@ -441,6 +448,7 @@ public sealed unsafe partial class GlDevice : IDisposable
         BindVertexArrayId(vao.Id);
         _gl.DrawElements(Primitive(kind), (uint)indexCount, GLEnum.UnsignedInt, null);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     public void DrawInstanced(ShaderProgram program, VertexArray vao, PrimitiveKind kind, int vertexCount, int instances)
@@ -450,6 +458,7 @@ public sealed unsafe partial class GlDevice : IDisposable
         BindVertexArrayId(vao.Id);
         _gl.DrawArraysInstanced(Primitive(kind), 0, (uint)vertexCount, (uint)instances);
         Check(program.Name);
+        AfterDraw?.Invoke(program);
     }
 
     /// <summary>Hands the queued commands to the GPU — what another context sharing these objects needs
