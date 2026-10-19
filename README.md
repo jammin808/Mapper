@@ -141,8 +141,9 @@ encoders, surveys from real scanners and total stations, and a group or a backup
 run, never passed, and nothing claims a hardware fact it has not measured.
 
 **Next:** PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11 from build 26100, Home
-included (`docs/round3/PLAN.md`). It will install per machine from an MSI made by the WiX toolset built from its own source,
-with no paid WiX service; builds will stay unsigned for now, named as unsigned, each with a SHA-256 list. A supervising service
+included (`docs/round3/PLAN.md`). It will install per machine from an installer built with Inno Setup this round (an MSI is
+revisited next round); builds will stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer will show
+a licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising service
 will start the engine in the show user's session, never as administrator and never in session 0. The engine will render on
 Direct3D 12 behind a rendering hardware interface, and OpenGL stays the reference backend until the pixel and timing evidence
 says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present barrier on Direct3D 12, its

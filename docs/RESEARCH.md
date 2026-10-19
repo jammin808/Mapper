@@ -135,9 +135,15 @@ decisions (`docs/round3/PLAN.md` §1.2). What they found, in short:
 - **The lock only where the hardware gives one.** Tearing between outputs is phase, and only sync hardware removes it (§6).
 - **Every edition of Windows 11, Home included.** Home runs every API the engine and the desk use and lacks only the management
   layers (Assigned Access, Shell Launcher, specialized displays, the update policies), so each has a fallback and a preflight row.
-- **A per-machine MSI.** It rolls back services and machine-level writes, and the WiX toolset built from its own source needs no
-  paid service. Session 0 cannot drive displays, so the engine is to run in the show user's session under a supervising
-  service.
+- **A per-machine installer.** An MSI rolls back services and machine-level writes, and the WiX toolset built from its own source
+  needs no paid service, but WiX v7.0.0's pinned source does not build on the Windows runner (M17: it needs Visual Studio's v143
+  C++ tools, which the runner's Visual Studio 2026 lacks) and checks a licence gesture in three places that PlayMap never passes.
+  So this round's installer is built with Inno Setup, an EXE without an MSI's rollback, repair or `msiexec`, and an MSI is
+  revisited next round. The Agility SDK's licence lets its Direct3D 12 runtime ship inside the installer only if end users agree to
+  terms protecting the distributor and Microsoft at least as much and the distributor indemnifies Microsoft, so the installer shows
+  a licence page and the owner accepts Microsoft's distribution terms, the indemnity included (docs/round3/PLAN.md §9 decisions 3
+  and 23). Session 0 cannot drive displays,
+  so the engine is to run in the show user's session under a supervising service.
 - **What games and medical devices teach.** Nothing compiled, allocated or waited on during the show; the render graph compiled
   when the show changes; an observer, independent of the engine, of what the audience saw; device loss rehearsed; every hazard
   traced to a fault test.

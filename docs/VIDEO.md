@@ -201,7 +201,7 @@ This round (`docs/round3/PLAN.md`):
   submit-to-sample times in STATE, and a send's read-back is copy-queue work.
 - **Spout on Direct3D 12** (wp3-video): its Direct3D 11 side device is bridged to the Direct3D 12 renderer by an NT-handle texture
   and a shared fence, with no CPU copy either way.
-- **libvmx** ships beside the exe in the MSI (wp3-installer).
+- **libvmx** ships beside the exe in the installer (wp3-installer).
 
 Not in the plan: prewarp taps, multiview sends, smooth and locked pacing (`LivePacing` is accepted and shown as `latest`), PTZ,
 failover sends (`SEND FAILOVER`), `LiveCamera` scans over NDI/OMT, discovery thumbnails, hosting an OMT discovery server, naming

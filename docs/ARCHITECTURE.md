@@ -53,7 +53,7 @@ user effects compile inside the engine, on a shared second context (§5).
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - Once its doors are open the engine the supervisor started (`engine --supervised`) writes its pid record (`engine.pid`: its
   process, the line wire's port, when it started) into the supervisor's folder, `%ProgramData%\PlayMap\supervisor`, where that
-  folder exists — no installer makes it yet (round 3's MSI is to, docs/round3/design/installer.md §2), and the engine never
+  folder exists — no installer makes it yet (round 3's installer is to, docs/round3/design/installer.md §2), and the engine never
   does — never over a record that names another engine still running (that is a fault in STATE, with the other engine's
   pid), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
   installer's armed check needs to ask it on loopback, and no secret.

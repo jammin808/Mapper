@@ -13,10 +13,13 @@ the design; read it first. Round 3 (`docs/round3/PLAN.md`) is the plan of record
 ## The direction (the owner's)
 
 - **An installed Windows-native show node.** Windows 11 from build 26100, every edition, Home included (a fallback for
-  each edition-only feature, said in preflight). A per-machine MSI from the WiX toolset built from its MS-RL source in CI:
-  no WiX paid service, no official WiX binary, the EULA gesture never passed. Unsigned for now, named `-unsigned`, with
-  `SHA256SUMS`. A supervising service starts the engine in the show user's session; the engine never runs as
-  administrator or in session 0. Every build carries its version (`Version.props`, `BuildInfo`).
+  each edition-only feature, said in preflight). A per-machine installer built with Inno Setup this round, every
+  machine-level action done by the supervisor's own commands; an MSI is revisited next round. No WiX paid service or
+  official WiX binary, and WiX's EULA gesture is never passed. Unsigned for now, named `-unsigned`, with `SHA256SUMS`.
+  The Agility SDK's Direct3D 12 runtime ships in the installer under a licence page whose terms protect the owner and
+  Microsoft at least as much as Microsoft's own; the owner accepts Microsoft's distribution terms, including indemnifying
+  Microsoft (round 3 §9 decisions 3 and 23). A supervising service starts the engine in the show user's session; the engine never
+  runs as administrator or in session 0. Every build carries its version (`Version.props`, `BuildInfo`).
 - **Direct3D 12 behind an RHI** (`PlayMap.Core/Gpu`), deep Windows, CPU and GPU features (RTX, Radeon) where measured.
   OpenGL stays the reference backend with unchanged pixels until parity is measured; AUTO stays OpenGL until a lab record
   says otherwise. No Vulkan.
@@ -66,9 +69,11 @@ MCP, desk, menus and right-click menus, papers.
   Structs implement equality (use `record struct`). Dispose what you own.
 - **Comments state the invariant**, not the history. No model or tool identifiers in anything pushed.
 - **Never** skip, disable or quarantine a test to get green; never rewrite pushed history.
-- Module rules: Core references only the runtime; edges reference Core and their own native library; only App
-  references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, never `PlayMap.Render`, so the two backends
-  meet only in Core's contracts. Windows-only types carry `[SupportedOSPlatform("windows")]`.
+- Module rules: Core references only the runtime; edges reference Core and their own native library, and may add
+  build-only tool packages that put nothing in their output (`ExcludeAssets` and `PrivateAssets` all); only App
+  references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, with Microsoft's DXC
+  (`Microsoft.Direct3D.DXC`) as a build-only tool package, never `PlayMap.Render`, so the two backends meet only in
+  Core's contracts. Windows-only types carry `[SupportedOSPlatform("windows")]`.
 - **Round 3's ownership**: a package edits only the files `docs/round3/PLAN.md` §4 gives it and its hook word's stubs; a
   missing seam goes through the spine amendment lane (§5.7). Every new verb is a catalogue row; every new STATE block has
   its fixture written by a test and a card descriptor.
