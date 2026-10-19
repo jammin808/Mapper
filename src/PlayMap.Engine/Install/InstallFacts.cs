@@ -123,6 +123,16 @@ public sealed record InstallFacts(
         }
     }
 
+    /// <summary>Whether a supervisor keeps this machine's engine (HKLM\SOFTWARE\PlayMap, Supervised = 1, which the supervisor's
+    /// <c>install</c> writes once its service runs): the desk then attaches to that engine and never starts its own.</summary>
+    public static bool SupervisedMachine()
+    {
+        if (!OperatingSystem.IsWindows())
+            return false;
+        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\PlayMap");
+        return key?.GetValue("Supervised") is int supervised && supervised != 0;
+    }
+
     /// <summary>The supervisor's folder on this machine.</summary>
     public static string SupervisorFolder() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PlayMap", "supervisor");

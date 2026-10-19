@@ -54,6 +54,6 @@ public sealed class DeskAttachTests
     public void ATestMachineIsNotSupervised()
     {
         // No test machine holds the install's key: Linux has no registry, and the Windows test job installs nothing.
-        Assert.False(EngineSupervisor.IsSupervisedMachine());
+        Assert.False(Engine.Install.InstallFacts.SupervisedMachine());
     }
 }
