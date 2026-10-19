@@ -3,6 +3,9 @@
 What a person does in the first five minutes with a projector and a wall, and how PlayMap keeps, explains and returns to every
 calibration it makes. The verbs are in `docs/wire/wall.md`.
 
+Round 3 keeps a half-drawn quad when a person clicks away, moves every corner and pin by one pixel, and keeps a re-solve from
+overwriting a pose typed by hand; *Not yet*, at the end, says how.
+
 ## First light and a quad
 
 `LIGHT WALL #2` puts an output full screen on the second display in projector mode, gives it a projector (a nominal pose, throw
@@ -159,3 +162,21 @@ The LENS, CODED and DENSE rungs of the ladder (a mover whose pose alone does not
 stored reference look (the project's prediction stands in for it), the drift monitor, lens read-back triggers, before/after on
 the wall, the seam term from the check, the report, `OVERLAY GRID`, overlay names and pins, `HIGHLIGHT`, `PICK PIXEL`, snapping,
 quads on the 3D view and warp handles on the wall.
+
+Round 3 adds the following (`docs/round3/PLAN.md` D12, §3.6 item 6, §3.18, §3.20 item 2; the design is
+`docs/round3/design/desk-workflows.md` §3, §6). None of it is built yet. Its new rows and forms are in the catalogue and answer "not
+available on this node yet".
+
+- **The quad that stays.** An unfinished quad is a draft on the desk for each projector, kept in `desk.json` until Enter or
+  Discard. A tool change, another projector, leaving MAP, a menu entry and a desk restart keep it. Its points drag and nudge before
+  Enter.
+- **Every handle by one pixel.** A quad's corners are dragged, typed in wall pixels and nudged; a pin's pixel is typed and nudged.
+  `PIN MOVE` moves a pin, and `WARP CORNER` and `WARP NODE … PX` move an output's warp. `HANDLE SELECT` takes every kind of handle,
+  so `HANDLE NUDGE` moves a pin as it moves a corner. A move that would change nothing is refused with the words.
+- **What the wall shows.** The overlay draws the selected handle of any kind with a one-pixel crosshair at its exact point, and the
+  pins as rings in the projector's identity colour, each with a line to where the solve predicts it. The projector view zooms, and a
+  loupe magnifies 8×.
+- **A typed pose is a result.** A pose or lens typed or nudged by hand is recorded in the ledger as a result of source `manual`.
+  That is one more cause to stage, beside those of *Re-solving the projector that moved*: over a current result of source
+  `manual`, a solve, a re-solve or a scan's result is staged and names the manual result. `CALIBRATION ACCEPT` applies it, and the
+  history shows the manual result as its parent.

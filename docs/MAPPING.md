@@ -5,6 +5,9 @@ re-solving the projector that moved are in `docs/CALIBRATION.md`; surveys and co
 `docs/ARCHITECTURE.md` §Scanning and `docs/SCAN-MULTIVIEW.md`; camera auto-align of flat screens in `docs/ALIGN.md`. The verbs are
 in `docs/wire/wall.md` and `docs/wire/facade.md`.
 
+Round 3 makes every mapping step doable by hand, from the first setup to adjusting a scan, keeps every automatic result under the
+hand's edits, and gives the common jobs guides; *Not here yet*, at the end, says what that changes here.
+
 ## The stage
 
 The stage is the project's 3D world: metres, right-handed, +Y up. Surfaces place their meshes with a transform (position, rotation
@@ -95,8 +98,8 @@ pixels (docs/SCAN-MULTIVIEW.md): with nothing held, the result keeps the scan's 
 (where the scan's last solve put that camera); with `SCAN SOLVE <scan> HOLD <projector>…`, the held projectors stay at their stage
 poses bit for bit and the solve is in the stage's frame (metric with two held) — re-solving only the projector that moved. A
 single-view scan is placed by its camera (bridged into the model when the camera is calibrated), so the views added to it inherit
-that placement; `SCAN APPLY` then puts the merged mesh and every solved projector on the stage as one edit, and its score names a
-view that disagrees with the rest (`SCAN DROP`).
+that placement; `SCAN APPLY` then puts the merged mesh and every solved projector not locked for the show (naming those it
+leaves) on the stage as one edit, and its score names a view that disagrees with the rest (`SCAN DROP`).
 
 A scan's data lives in its folder, not in the project, so a site move does not reach it: a scan taken before `SITE ORIGIN` moved the
 stage keeps the old frame's points. Each view of a scan keeps the site frame its place was solved in, and the scan's next view `INTO`
@@ -169,3 +172,24 @@ score. Each step has a state (done, waiting, running, failed), words and the lin
 
 LAZ, the night capture profile, measured photometry and glass masks; a camera solved from its own pins; geographic
 and other-zone surveys converted on import (the conversions exist; the import still refuses another system than the site's).
+
+Round 3 adds the hand's part (`docs/round3/PLAN.md` D12, D13, §3.20; the design is `docs/round3/design/desk-workflows.md` §3, §5).
+None of it is built yet. Its new rows are in the catalogue and answer "not available on this node yet".
+
+- **A typed pose is a result** (`docs/CALIBRATION.md`'s *Not yet*). Over a pose typed by hand, `PROJECTOR SOLVE` and `SCAN APPLY`
+  stage that projector's result and name the manual result it would replace.
+- **A scan applied again.** `SCAN APPLY` keeps every surface's content, tags, masks and hand transforms, and every pixel quad as it
+  stands, and applies every solved projector not locked for the show, but those it stages. A surface whose faces the new mesh lacks
+  is kept, hidden and named in the reply, never deleted.
+- **The hand, said.** `HAND <output>|<projector>|<surface>` says what a hand set over each automatic result, and `HAND CLEAR` takes
+  an output's hand layer back to rest. A step that writes a value a person can also type refuses over a value typed since, naming
+  each, unless the line says `KEEP` (the hand's values stay) or `REPLACE` (the reply lists what it replaced).
+- **A film on a wall, seen from a seat.** Content projected from a viewpoint is built (`SurfaceMapping.Projection`, set today with
+  `SET`). Round 3 adds `VIEWPOINT FIT`, which aims a viewpoint and fits its field of view to surfaces from its eye, and
+  `SURFACE MAP <surface> PROJECTION FROM <viewpoint>` as the row that sets it, so the picture reads undistorted from that seat.
+- **The guides.** The facade guide's shape becomes every guide's. `GUIDE` answers the flat-screen, wall, object, facade and
+  first-light guides from pure planners, each step with its state, its facts and its automatic, hand and proposed lines. STATE
+  `guides` lists the guides begun, and `SITE GUIDE` stays as the facade's row.
+
+One canvas across outputs is in `docs/ALIGN.md`'s *Not yet*; every handle by one pixel, `PIN MOVE` among them, in
+`docs/CALIBRATION.md`'s.

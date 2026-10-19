@@ -16,8 +16,10 @@ undo step.
 **Armed is the safe side**, so it survives a restart: the recovery record keeps who armed it, when and why, and a node that comes
 back comes back armed (a panic in force comes back too, at its outcome at once).
 
-**The arm hooks.** Work a part of the node does as the show arms or disarms (plans compiled, pipelines warmed, the collector's mode)
-is an `IShowArmHook` the node is composed with (`EngineServices.ArmHooks`). `SHOW ARM` and `SHOW DISARM` change the mode first,
+**The arm hooks.** Work a part of the node does as the show arms or disarms is an `IShowArmHook` the node is composed with
+(`EngineServices.ArmHooks`). No part registers one yet. Round 3 adds two: the render graph's plans compiled as the show arms, and
+its pipelines warmed (`docs/round3/PLAN.md` §3.8, §3.13). The collector's show mode, a stretch, stays off until a measured pause
+history gives it a cause (§3.3, §9 decision 12). `SHOW ARM` and `SHOW DISARM` change the mode first,
 then run every hook together, each until it answers or its own deadline passes (at most five minutes, which an infinite deadline
 means), and answer once each has: a hook past its deadline is cancelled and named ("pipelines: missed its 2000 ms deadline and was
 cancelled: the show is armed without it"), one that fails — in its work, its name or its deadline — is named with its words, and the
@@ -289,6 +291,15 @@ The node's own checks:
 Every package adds its own checks (`EngineServices.PreflightChecks`). Every row of this node's checks names this node. When the
 calibration ledger's own check runs (its `calibration` rows, one per projector) the mapping check yields to it, so a projector
 never has two verdicts in one report; show-ready's mapping step reads either.
+
+Round 3 is to add the installed machine's rows; none is built yet (`docs/round3/PLAN.md` D4, §3.3, §3.5, §3.11 item 6;
+`docs/round3/design/platform.md` §6, `docs/round3/design/installer.md` §8). Among them, section `machine`: an OS build below 26100
+(red); Smart App Control evaluating while builds are unsigned, a projector output that is the primary display, the show adapter on
+the Public firewall profile with no rule, an OS past its end of servicing, a power plan below High Performance, a display or sleep
+timeout, a reboot pending and drift from the driver set `MACHINE LOCK` kept, each amber; and each layer the edition lacks, a grey
+information row with an **i**. Section `install`: not installed on a node that looks like a show node (amber), the supervisor
+stopped after too many restarts (red), auto-logon off on a supervised node (amber), and the build unsigned (grey, with an **i**).
+And in the `decode` section, show media held as an online-only cloud placeholder is red, the file named.
 
 **The group.** `SHOW ARM ALL`, `SHOW DISARM ALL` and `PREFLIGHT ALL` go to every member of the group this node leads through the
 fleet's fan-out (`IFleetFanout`, wp2-sync): each member runs the line through its own gate as a peer. ARM and DISARM go out once,
