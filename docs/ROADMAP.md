@@ -123,9 +123,35 @@ hides nothing, the panels are fixed columns and about a third of the catalogue's
 capture card is read through FFmpeg, outside the video I/O hub, with three CPU copies (docs/round3/research/desk-today.md and
 video-today.md).
 
-**Next** (the plan's packages will build these in four waves after a spine — the fifteen of the Windows move and the five
-for the owner's requirements; GL will stay the reference backend through the round and retire once the pixel and timing evidence
-agrees; at the round's end the integration pass will update the statuses of the items in the last column):
+**Built: the spine (W0, `wp3-spine`).** The spine holds the contracts every package of the round builds on. Every lab line
+still waits: nothing in it claims a hardware fact.
+
+- **Catalogue.** Round 3's 28 rows are in the catalogue, one block per package, and so are the new forms of earlier rows. Each
+  answers "not available on this node yet" until its package routes it (docs/WIRE.md, Round 3). The Show Bus hello names the
+  build the node runs.
+- **Core.** The presentation types (`VblankClock`, `PresentLedger`, `PresentClock`, `LatencyPlan`, `PresentPath` with
+  `D3D12Flip`) live in Core, so a Direct3D 12 presenter feeds them without Render. Core also holds `GpuApi.D3D12`, PMVB's path
+  3, the node's identity and capability records, thread claims that do nothing until a platform takes them, and the one
+  `capture:` URI grammar. A refused capture URI is never journalled.
+- **Engine seams.** The air observer, the GPU's lifecycle, a shared preview and an arm hook each have a null implementation
+  that says why it does nothing.
+- **Model.** Outputs carry colour bits, HDR and nit target, frames in flight, a watermark and pass-through. Canvases carry a
+  span, viewpoints a fit, and the project its guides. A blend's γ is the hand's override (0 draws the measured γ). Older files
+  read unchanged but for γ, and the load note names each output moved.
+- **Seams packages need.** `UNDO TO` with its store and gate, HEALTH's shown and observed frames and GPU phase (−1 and unknown
+  until filled), the engine's pid record for the supervisor, and arm hooks with deadlines that `SHOW ARM` names in its answer.
+- **Tree.** The Direct3D 12, Windows platform and supervisor projects hold their folders and placeholders. Each hook word has
+  its stubs. Round 3's STATE keys have their places, absent until written. Each package has a placeholder fixture and a wire
+  page.
+- **CI.** The Windows job runs on `windows-2025`. It has WARP and the Agility SDK pinned beside the test hosts. The
+  `Backend=D3D12` tests are a leg listed apart, with a dispatch input that runs one filtered leg and uploads its evidence.
+  The one Direct3D 12 test makes a WARP device through TerraFX and says its feature level. The runner's answers to M7 and M14
+  are in the job's summary. The Linux job runs the Render suite whole in ES 3.00 too.
+- **Bench.** `bench/r3-present`, the bench for M1 and M3, is built on the Windows job and waits for the lab (L1, L4).
+
+**Next** (the plan's packages build these in four waves on the spine — the fifteen of the Windows move and the five for the
+owner's requirements; GL stays the reference backend through the round and retires once the pixel and timing evidence agrees; at
+the round's end the integration pass updates the statuses of the items in the last column):
 
 | Item | Package | Moves |
 |---|---|---|

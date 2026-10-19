@@ -128,7 +128,8 @@ path, align, the facade guide, the sync tab, the present path chips, the per-out
 library.
 
 **Tested, and what is left for the lab.** Every push builds PlayMap and runs every test on Linux and on Windows (Build, below):
-the GPU work on software renderers (Mesa llvmpipe, and WARP for the Direct3D 11 path, Spout and D3D11VA on Windows), cameras,
+the GPU work on software renderers (Mesa llvmpipe, in desktop GL and in ES 3.00; WARP for the Direct3D 11 path, Spout and
+D3D11VA on Windows, and for Direct3D 12 from NuGet beside the Agility SDK), cameras,
 projectors and sync boards as simulators and fakes, NDI against a stand-in for its runtime, OMT for real over loopback, and a sync
 group's nodes in one process. What only real hardware or a real show proves — the Direct3D 11 path, Spout and hardware decode on
 real GPUs, a real NDI runtime and sync board, real projectors, cameras, phones and LED nodes, HAP R and HAP HDR files from other
@@ -138,7 +139,8 @@ encoders, surveys from real scanners and total stations, and a group or a backup
 **Next:** an installed, Windows-native show node on Direct3D 12 for every edition of Windows 11, Home included, with the desk's
 guided workflows, every mapping step by hand or with the assistant, and capture cards passed through to the air, planned in
 `docs/round3/PLAN.md`. The owner answered every decision it put to them (its §9): twenty-one packages, the five for their
-workflow, desk and capture requirements among them.
+workflow, desk and capture requirements among them. The round's spine is built: its rows, contracts, model fields, projects and
+CI legs, which the packages fill (`docs/ROADMAP.md`, round 3).
 
 ## What it is made of
 
@@ -152,6 +154,9 @@ workflow, desk and capture requirements among them.
 | `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, resetting internal geometry before scans, and reading a Panasonic's own geometry and edge blend while PlayMap corrects its picture. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
 | `PlayMap.Vision` | Local AI, offline: click-to-surface segmentation and suggested regions on the smart scan, by a classical segmenter or an optional ONNX segmentation model. Monocular depth previs, pin suggestions and drift watch are in the library; no verb reaches them yet. |
 | `PlayMap.Assistant` | Plain words → PlayMap verbs, with a hosted or a local model. High-risk verbs always wait for a person on the node's own proposal list. |
+| `PlayMap.Render.D3D12` | The Direct3D 12 backend (`docs/round3/design/d3d12.md`), Windows only, on TerraFX's raw bindings: one folder for each part — the device, queues, memory, descriptors, commands, pipelines, shaders, the exporter, the platform, the flip presenters, video, user effects, bindless records, the present barrier and the rebuild path — each a placeholder. Nothing renders through it yet, and neither the engine nor the desk references it; it never references `PlayMap.Render`, so the two backends meet only in Core's contracts |
+| `PlayMap.Platform.Windows` | What a show node claims from Windows (`docs/round3/design/platform.md`), Windows only: a placeholder. The engine runs on Core's null machine platform, which claims nothing and says so |
+| `PlayMap.Supervisor` | The supervising service's exe (`docs/round3/design/installer.md`): it does nothing yet, says so on its standard error and exits 1 |
 | `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words |
 
 ## Talking to Patterns and Stagewatch
@@ -214,15 +219,27 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 ```
 
 GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared
-libraries: set `PLAYMAP_FFMPEG_DIR`. CI does both on every push (`.github/workflows/build.yml`), on Linux and on Windows: it
-builds the whole solution in Release with the analyzers on and runs every test project to its end (on Windows on Mesa llvmpipe
-and WARP, since the runner has no GPU), the Linux job then runs the Companion module's tests, and the Windows job publishes the
-portable exe, named with its version (Versions, below). A test whose subject exists on one platform only (EGL, GLX, dmabufs and
-VA-API on Linux; DXGI, Spout and D3D11VA on Windows) carries that platform's category (`Category=Linux`, `Category=Windows`) and
-is skipped on the other with the words. On Ubuntu 24.04,
-`sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack (PulseAudio with a
-virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints the
-variables to export.
+libraries: set `PLAYMAP_FFMPEG_DIR`. `PLAYMAP_GL_DIALECT=es300` runs the Render suite on an OpenGL ES 3.00 context.
+
+CI does all of this on every push (`.github/workflows/build.yml`), on Linux and on Windows Server 2025 (`windows-2025`). Each
+job builds the whole solution in Release with the analyzers on and runs every test project to its end; on Windows that is on
+Mesa llvmpipe and WARP, since the runner has no GPU. Then:
+
+- **Linux** runs the Render suite again on ES 3.00, and the Companion module's tests.
+- **Windows** runs the Direct3D 12 tests (`Backend=D3D12`) as a leg of their own, on WARP and the Agility SDK, both from NuGet at
+  pinned versions and hashes (`tools/ci-d3d12.ps1`), and lists their results apart in the job's summary. It asks the runner what
+  it gives (`bench/r3-probe`: the Agility runtime in a .NET apphost, MMCSS, the throttling read-back, the GPU scheduling class,
+  HDR10, the session calls) and writes the answers in the summary. It builds the lab's present bench (`bench/r3-present`) without
+  running it, and publishes the portable exe, named with its version (Versions, below).
+- **A dispatched run** with the `d3d12` input runs only the Windows job's Direct3D 12 leg, narrowed by that test filter. It
+  uploads the leg's results, diff images, info-queue log and DRED output, and gives the leg's minutes in the summary.
+
+A test whose subject exists on one platform only (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Direct3D 12, Spout and D3D11VA on
+Windows) carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words.
+
+On Ubuntu 24.04, `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack
+(PulseAudio with a virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints
+the variables to export.
 
 Third-party software, and the licences it comes under, is listed in `THIRD-PARTY-NOTICES.md`.
 

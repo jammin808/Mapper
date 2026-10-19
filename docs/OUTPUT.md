@@ -202,6 +202,9 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 - **On the Windows CI job (WARP, no GPU)**: the device on WARP, ANGLE's context with every program translated, a flip-model swap
   chain on a window, 120 presents with buffer 0 wrapped once, the frame statistics read, and the frame read back from buffer 0 top
   row first (`DxgiWarpPresenterTests`, Category=Windows: skipped with the words off Windows, never passed with nothing run).
+  In the job's Direct3D 12 leg (`Backend=D3D12`, listed apart), a Direct3D 12 device on the pinned WARP says its feature level
+  (`WarpDeviceTests`); no output presents through Direct3D 12 yet, and `PRESENT PATH D3D12` answers "not available on this node
+  yet".
 - **Compile-only**: the NVAPI tier. Its structure sizes and version words are checked against NVIDIA's header here; on the Windows
   CI job it says why it has no board ("no NVIDIA driver on this machine"). The DXGI path on a real GPU and display (lab).
 - **Next round**: DXGI as `auto` once proven in the lab; independent-flip evidence (the PresentMon proof, the media statistics hint);

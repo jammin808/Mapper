@@ -393,3 +393,23 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   latency) · [zerocopy](wire/zerocopy.md) (`DECODE STATUS`, the `decode` object STATE carries with each source's path — the path its
   latest frame came by — and why; `DECODE POLICY AUTO|DIRECT|GPU-COPY|COPY-BACK|SOFTWARE [FORCE]` for decoders opened from now on,
   kept in the node's settings; `PRESENT PATH` and `DECODE POLICY` are set-up lines, refused while the show is armed).
+
+## Round 3
+
+Round 3's rows are in the catalogue in one block per package (docs/round3/PLAN.md §3.1). No node answers one until its
+package routes it. Until then:
+
+- **The rows** answer `ERR <VERB> is not available on this node yet` and change nothing, as round 2's unrouted rows do.
+  `VERBS` lists each with `"available": false`. MCP's `list_verbs`, the assistant's prompt and the context's `commands` leave
+  them out.
+- **The new forms of earlier rows** are refused by that row's handler with the forms that work, and change nothing:
+  `VIEW … SHARED <pid>`, `PRESENT PATH D3D12`, `PATTERN … ON <canvas>`, `WARP NODE … TO|BY … PX`, `HANDLE SELECT` of a pin,
+  a warp corner or node, or a mask node, `INPUT DISCOVER CAPTURE`, and `INPUT ADD` with a `capture:` URI, `MODE` or `FORMAT`.
+  Their words read `<form> is not available on this node yet — <the forms that work>`. A `capture:` URI the grammar refuses
+  gets the grammar's words instead, and no line or journal row repeats any of it (docs/wire/videoio.md).
+- **Round 3's STATE keys** have their places, and no node writes one while its package's hook is empty: an absent key means
+  "not built here", never "none".
+- **Each package's page** lists its rows, its forms and its keys: [machine](wire/machine.md) · [install](wire/install.md) ·
+  [shaders](wire/shaders.md) · [gpu](wire/gpu.md) · [plan](wire/plan.md) · [observe](wire/observe.md) ·
+  [present](wire/present.md) · [undo](wire/undo.md) · [preview](wire/preview.md) · [handles](wire/handles.md) ·
+  [canvas](wire/canvas.md) · [guide](wire/guide.md) · [capture](wire/capture.md).
