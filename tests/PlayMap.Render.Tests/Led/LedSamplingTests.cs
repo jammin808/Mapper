@@ -394,13 +394,6 @@ public sealed class LedSamplingTests(BackendFixture backends)
         }
         for (var k = 1; k <= 30; k++)
             Frame(k);
-        // Every frame of the pool sized to the plan's rows: reads delivered together (a GPU behind by a frame or two hands several
-        // over in one collect) rent frames a frame delivering one never does.
-        var frames = new LedFrame[LedFramePool.Size];
-        for (var i = 0; i < frames.Length; i++)
-            frames[i] = pool.Rent(plan.Rows.Length)!;
-        foreach (var f in frames)
-            pool.Return(f);
         var before = Allocations.Start();
         for (var k = 31; k <= 330; k++)
             Frame(k);
