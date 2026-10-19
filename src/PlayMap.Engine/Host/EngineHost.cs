@@ -202,7 +202,7 @@ public sealed class EngineHost : IAsyncDisposable
         WritePidRecord(startedUnixMs);
         _recovery = Task.Run(() => KeepRecoveryAsync(engine, _stop.Token), CancellationToken.None);
         // A show that came back armed has its arming hooks run now its parts are up (a hook may need the render host).
-        _armedAgain = Task.Run(() => engine.ArmAgainAsync(_stop.Token), CancellationToken.None);
+        _armedAgain = engine.ArmAgainAsync(_stop.Token);
         engine.Journal.Add("node", $"{running.Name} is up: wire {Port(_network.WirePort)}, web {Port(_network.HttpPort)}, renderer {outputs.RendererName} · {engine.Services.Build.Display}");
         _log.LogInformation("{Name} ({Id}) is up: wire {Wire}, web {Web}, renderer {Renderer}.", running.Name, running.NodeId,
             Port(_network.WirePort), Port(_network.HttpPort), outputs.RendererName);

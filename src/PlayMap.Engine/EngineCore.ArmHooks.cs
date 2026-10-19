@@ -60,13 +60,17 @@ public sealed partial class EngineCore
         var hooks = Services.ArmHooks;
         if (hooks.IsDefaultOrEmpty || !reply.Ok)
             return reply;
-        var verb = arming ? "SHOW ARM" : "SHOW DISARM";
-        _ = Task.Run(async () =>
-        {
-            foreach (var r in await RunArmHooksAsync(arming, CancellationToken.None).ConfigureAwait(false))
-                Journal.Add("show", $"{verb}'s arm hook {r.Name}: {(r.Words.Length > 0 ? r.Words : r.Outcome)}", ok: r.Outcome == "done");
-        }, CancellationToken.None);
+        _ = JournalArmHooksBehindAsync(arming);
         return WithArmHooks(reply, [.. hooks.Select(h => new ArmHookResult(NameOf(h), "running", BehindWords))]);
+    }
+
+    /// <summary>The hooks behind an answer: off the caller's thread from their first step, each outcome a journal row. Never faults.</summary>
+    private async Task JournalArmHooksBehindAsync(bool arming)
+    {
+        await Task.Yield();   // the answer goes now: no hook's first step runs on the line's thread
+        var verb = arming ? "SHOW ARM" : "SHOW DISARM";
+        foreach (var r in await RunArmHooksAsync(arming, CancellationToken.None).ConfigureAwait(false))
+            Journal.Add("show", $"{verb}'s arm hook {r.Name}: {(r.Words.Length > 0 ? r.Words : r.Outcome)}", ok: r.Outcome == "done");
     }
 
     /// <summary>A hook's name, or "hook" when it has none or cannot say it.</summary>
