@@ -10,6 +10,12 @@ This build draws the chains on **outputs**, canvas **layers**, stage **surfaces*
 kept in the show, edited with the same verbs and reported in STATE (`"state":"idle"`, with the words "not drawn: this build draws
 a canvas's layers' chains, not the canvas's own"); its layers' chains, and those of the outputs and surfaces that show it, draw.
 
+Today every effect compiles and draws on OpenGL. The direction (docs/round3/PLAN.md D7, §3.4, §3.16): the renderer's own programs
+are written once in HLSL and compiled by DXC at build time; an ISF effect compiles out of the engine's process, in
+`PlayMap shader-worker` (ISF → GLSL 4.50 → SPIR-V → HLSL → DXIL), and draws on the Direct3D 12 device, so no compiler loads into
+the engine on that path. A kind that brought the GPU down is quarantined: its slots draw bypassed, with words, until `FX RELEASE`.
+OpenGL stays the reference path until parity is measured.
+
 ## Where a chain runs
 
 Each chain runs where its owner's picture is made, and at most once a frame however many outputs show it:
@@ -114,6 +120,10 @@ finished program at its next frame. Where a second context cannot be made, the l
 program a frame, and STATE says so (`fx.compile.lane: "render-thread"` with words). `FX CHECK` and `FX IMPORT` compile through
 the same lane, off the control lane, with a 10 s bound.
 
+On the Direct3D 12 device the direction is that nothing compiles during the show (docs/round3/PLAN.md §3.13, §3.16): `SHOW ARM`
+waits, up to its deadline, for every pipeline the armed show can reach, ISF kinds' included, made from the shader worker's DXIL; a
+pipeline still missing then holds its step, named, and is never compiled on the render thread.
+
 ## The built-in library
 
 Ten effects written for PlayMap as ISF files, embedded in the renderer, each with a pixel test at 64 × 36:
@@ -142,7 +152,10 @@ frame the drawn project carries the slot's bound numbers at their live values wh
 
 Each slot's GPU time is measured between two GPU timestamps around its passes and its mix, three frames deep so reading never
 waits, and reported in STATE (`gpuMs`; on a GLES context, which has no timestamp queries, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
-(`NodeSettings.fx.budgetMs`, 4 ms): amber past it, red past twice it. Nothing acts on it.
+(`NodeSettings.fx.budgetMs`, 4 ms): amber past it, red past twice it. Nothing acts on it today. The direction on the Direct3D 12
+device is a GPU-time guard with a measured cause (docs/round3/PLAN.md §3.16 item 4): a user slot that is the cause of its output
+missing vblanks — the frame's GPU time over the output's period, and under it without the slot's own time — on 30 frames in a row is
+bypassed and quarantined, with both numbers in its words.
 
 Once warm, a frame with chains on outputs, layers, surfaces and items — and with chains that are not drawn, saying why —
 allocates nothing on the frame path.
@@ -154,6 +167,9 @@ allocates nothing on the frame path.
   zoom) have nothing to work on until a one-pixel picture is drawn at its owner's size.
 - Live `audio` and `audioFFT` textures, the geometry-aware effects (`PM_POSITION`, `PM_NORMAL`, `PM_EDGE`) and the rest of the
   library.
-- FFGL 2.x: the in-process host, the probe child and quarantine, the isolated host, the Windows GL island.
+- FFGL 2.x plugins (docs/ROADMAP.md M25) are not in round 3's plan. They are OpenGL code, and OpenGL retires once Direct3D 12
+  reaches parity (docs/round3/PLAN.md D2), so a host waits for a design against the Direct3D 12 device.
 - The ES fix-up tokenizer (hoisting non-constant global initialisers, explicit int → float), history pre-roll, ISF generators and
-  transitions, presets and linked looks, audition on a preview, the shader editor.
+  transitions, presets and linked looks, audition on a preview.
+- On the desk, round 3's direction (docs/round3/PLAN.md §3.18 item 5): the effects chain editor, an advanced pane, with ISF import
+  and its compile report by line. No ISF source editor is planned.

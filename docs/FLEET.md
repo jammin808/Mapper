@@ -13,7 +13,13 @@ sync group when its leader dies. The wire's verbs, replies and STATE are in [wir
 projectors (with the device's power, shutter and input folded in), the renderer and its resets, CPU, this process's memory and the
 machine's free memory, the media disk's free space, the GPU's load and temperature, network traffic, uptime, the clock sync's role
 and uncertainty, the devices by light, the media files and how many are missing, and the watchdog: the control lane's widest tick
-gap and the render's p95 frame time. Every number not measured is −1.
+gap and the render's p95 frame time. Every number not measured is −1. It names the build the node runs (`build`, SemVer with
+CI's build number and the commit). It has places for each output's frames shown (by the present ledger's count) and frames observed
+off the air by an independent reader, and for the GPU device's epoch and phase (`starting`, `running`, `rebuilding`); each reads −1
+(the phase `unknown`) until round 3's stability work fills it (docs/round3/PLAN.md §3.9). The direction (docs/round3/PLAN.md D6):
+a supervising service, `PlayMap.Supervisor`, starts the engine in the show user's session and restarts it, and stops an engine whose
+shown frames stop while its GPU phase is `running` — never during a start or a device rebuild, and never while the count is −1. The
+engine never runs as administrator or in session 0.
 
 Eleven categories, always present, in this order — outputs, render, cpu, memory, disk, gpu, network, sync, devices, media, watchdog
 — each with a light and words. The light table (`HealthLights`):
@@ -40,9 +46,10 @@ The numbers come from the **machine sampler**, on its own one-second timer (neve
 Linux reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `/proc/uptime`, the home volume's free space, and the GPU from
 `/sys/class/drm/card*/device` (`gpu_busy_percent`, a hwmon `temp1_input`) where the driver gives it; Windows reads system times,
 `GlobalMemoryStatusEx`, `GetTickCount64`, the interfaces' bytes and the PDH counter `\GPU Engine(*engtype_3D)\Utilization Percentage`
-(compile-only here; its test runs on the Windows CI job). NVIDIA's numbers on Linux and every GPU temperature on Windows need NVML
-(next round), so they read grey with that reason. The lane's gap is measured on the engine's clock from the lane's second second on
-(its first is the node starting). A node without the fleet's part (a bare engine) reads every machine number −1.
+(compile-only here; its test runs on the Windows CI job). NVIDIA's numbers on a Linux development machine and every GPU temperature
+on Windows need NVML, which PlayMap does not load and round 3 does not plan: on Linux the GPU reads grey with that reason, and on
+Windows the light is the load's alone, the temperature −1. The lane's gap is measured on the engine's clock from the lane's second
+second on (its first is the node starting). A node without the fleet's part (a bare engine) reads every machine number −1.
 
 HEALTH is pushed (`SUBSCRIBE HEALTH`, the `/health` WebSocket) at once, once a second, and at once when any light moves — a clock
 that runs only while someone watches. The `/health` WebSocket feeds at most 64 sockets at once (a monitor holds one per peer); one more
@@ -91,6 +98,11 @@ whose hello offers the `context` cap is read (a PlayMap peer's over its line wir
 `/api/context` is behind the node's token) and drawn with the peer; **P3** another app's outputs, projectors, surfaces, playlists and
 media sit on the Video band. PlayMap's own `PatternsEyeContractTests` read its context with a copy of Patterns' `ShowContext.Parse`
 and the show-app section of `EyeGraph.Build` and check its things are drawn lit with its own lights.
+
+Patterns' Eye keeps the first 64 of a context's commands today, so PlayMap lists the panic, air, transport and Show Mode rows first;
+the request to Patterns for a cap of at least 256 is [SHOWBUS-NODE.md](SHOWBUS-NODE.md) §5 item 7. PlayMap's own context reader
+(`Core/Bus/ShowContext.Parse`, which reads Patterns' context over `LINK PATTERNS`) also keeps 64 commands today; the direction is no
+count cap there, since its 512 KB bound already bounds what it holds (docs/round3/PLAN.md §5.6 item 7).
 
 ## The hot backup
 

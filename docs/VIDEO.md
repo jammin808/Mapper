@@ -1,4 +1,4 @@
-# Video I/O: NDI and OMT in and out
+# Video I/O: NDI, OMT and Spout in and out
 
 A PlayMap node receives network video as live inputs and sends any point of its pipeline as a network source. Two protocols:
 **OMT** (Open Media Transport — libomtnet and its VMX codec, vendored, so it works on every node out of the box) and **NDI**
@@ -6,6 +6,9 @@ A PlayMap node receives network video as live inputs and sends any point of its 
 shared with other apps on the same machine (see *Spout* below).
 The verbs, STATE, the context, events, INDEX and preflight are in `docs/wire/videoio.md`; the design is
 `docs/round2/design/netvideo.md`.
+
+The direction (`docs/round3/PLAN.md` D14, wp3-video, wp3-capture; `docs/round3/design/capture.md`) adds capture cards to the hub,
+passed through to the air, and moves NDI, OMT and Spout onto the Direct3D 12 device. *Where it is going*, at the end, says how.
 
 ## A live input
 
@@ -157,7 +160,7 @@ unavailable, so `SEND ADD SPOUT …`, `INPUT ADD spout:…` and `INPUT DISCOVER 
   textures are legacy share handles, as Spout publishes them.
 - A PC set to Spout 2.006 memory share (SpoutSettings) is said in STATE: PlayMap shares GPU textures only.
 
-## Verified here, and in the lab
+## Verified here, and the lab's checklist
 
 Verified on this machine: the GPU pack and unpack of every layout against the CPU twin on GL 3.3 core and GLES 3.00 (llvmpipe); OMT
 for real over loopback, lock-step at 1080p in UYVY, UYVA, BGRA, P216 and PA16, with tally, quality and the 1/8 preview; the engine
@@ -170,7 +173,8 @@ the real render host. On the Windows CI job (WARP): a sender and a receiver roun
 chart through two WARP devices and the kernel's real named objects. Opt-in: `NdiRealRuntimeTests` with `PLAYMAP_NDI_DIR` pointing
 at a real NDI 6 runtime (120 frames sent and received back).
 
-The lab checklist (two machines on one switch):
+The lab checklist (two machines on one switch). It has not run: no lab exists this round, so each line is reported not run, never
+passed, until one runs.
 
 1. OMT: `SEND ADD OMT Main output:op_1` on A; on B `INPUT DISCOVER OMT WAIT 2000` lists `omt:A (Main)` (with avahi or a discovery
    server), `INPUT ADD` it and `SURFACE SOURCE` it; STATE shows `ok`, ~1 frame of age, `tally:"program"` on A's send.
@@ -185,9 +189,21 @@ The lab checklist (two machines on one switch):
    `PlayMap <node> - Main` and show it; blackout reaches them. Send from Resolume; `INPUT DISCOVER SPOUT` lists it; `INPUT ADD
    spout:Arena` shows it on a surface; close Resolume and the input goes `lost`.
 
-## Next round
+## Where it is going
 
-Prewarp taps, multiview sends, smooth and locked pacing (`LivePacing` is accepted and shown as `latest`), PTZ, failover sends
-(`SEND FAILOVER`), `LiveCamera` scans over NDI/OMT, discovery thumbnails, hosting an OMT discovery server, naming sources after Show
-Bus peers, Syphon, capture cards, a per-RID libvmx in the release packaging; Spout's GPU send stage (drawing into the shared texture on
-the renderer's device), the WGL bridge for GL renderers, 16-bit and float Spout formats, and the ANGLE zero-copy receive.
+This round (`docs/round3/PLAN.md`):
+
+- **Capture cards** (wp3-capture): providers in the hub, their runtimes loaded at run time and never shipped. Media Foundation and
+  DeckLink come first, AJA and Magewell as stretch. A pass-through output runs one frame in flight, outside the delay ring. On
+  Direct3D 12 the frame goes from the card's DMA into a wrapped heap with no CPU copy where the card allows it; on OpenGL, AUTO's
+  path this round, it takes one CPU copy, said in STATE and amber in preflight. Each input's time from arrival to shown is published.
+- **NDI and OMT on the copy queue** (wp3-video): each live input is uploaded when its frame arrives, with its arrival-to-submit and
+  submit-to-sample times in STATE, and a send's read-back is copy-queue work.
+- **Spout on Direct3D 12** (wp3-video): its Direct3D 11 side device is bridged to the Direct3D 12 renderer by an NT-handle texture
+  and a shared fence, with no CPU copy either way.
+- **libvmx** ships beside the exe in the MSI (wp3-installer).
+
+Not in the plan: prewarp taps, multiview sends, smooth and locked pacing (`LivePacing` is accepted and shown as `latest`), PTZ,
+failover sends (`SEND FAILOVER`), `LiveCamera` scans over NDI/OMT, discovery thumbnails, hosting an OMT discovery server, naming
+sources after Show Bus peers, and 16-bit and float Spout formats. Syphon is macOS only, and the direction has no macOS node. The WGL
+bridge for GL renderers and the ANGLE zero-copy receive are GL paths, and GL retires next round, once parity is measured.

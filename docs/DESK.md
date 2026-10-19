@@ -1,7 +1,7 @@
 # The desk
 
-The desk (`src/PlayMap.App`) keeps three workspaces (PLAY, MAP, SCAN) and adds a show strip, an attention bar, four
-drawers and generic parts, so most round-2 features add data, not panels. It sends verbs and reads STATE: every button,
+The desk (`src/PlayMap.App`) has three workspaces (PLAY, MAP, SCAN), a show strip, an attention bar, four drawers and
+generic parts, so most features add data, not panels. It sends verbs and reads STATE: every button,
 right-click entry and key names the catalogue line it sends, the same line the wire, MCP and Companion send. A line whose
 catalogue row presses hold, as a Companion key holds it, is held to confirm wherever the desk sends it from a button or a menu — the
 desk's own controls, a card's line, a generated entry (FAILOVER, a pattern, an output closed or identified, a surface hidden or
@@ -14,6 +14,8 @@ the panic banner's Clear (`PANIC CLEAR`) and the master (`MASTER`); PANIC, Black
 A card's `APPROVE`, which a Companion key presses twice, the desk presses once, also by the owner's decision. An inspector's field
 and a drag send their line as they change. Menu entries show their words as they are (underscores and all; a menu has no access
 keys).
+
+Round 3 makes the desk guided, with every command in its menus; *Where the desk is going*, below, says how.
 
 ## Its parts
 
@@ -34,23 +36,23 @@ keys).
 | **Attention bar** | Rebuilt from STATE on every push, worst first, two shown and "+n more". Panic: "PANIC black since 21:04:05 by Desk — op_1: black" with **Clear** and a fade menu; a stack that has lost a member, red in the node's words ("Front lost P3 — matched: the building at 67 %") until the member is back (its card holds its failover); on a hot backup or a fenced node, whose show it is; rehearsal while playing with **Arm** | `PANIC CLEAR FADE 1000` (0 / 1 / 2 / 5 s), `SHOW ARM` |
 | **Locks** | Lock for the show / Unlock in every surface, projector, output, playlist and item menu and on its inspector toolbar; a padlock badge with who and why | `LOCK <id>`, `UNLOCK <id>` |
 | **Drawers** | Outputs (Plan), Inputs (cards of controllers, sound, live video), Health (Fleet, Preflight, Calibration, every card), Network (Links); one open at a time; ⤢ takes the workspace | Ctrl+Shift+O / I / H / N |
-| **Generic STATE cards** | One card per descriptor in `tests/fixtures/state/*.cards.json` (built into the desk): light, title, words, six fields on its face and the rest under "more", actions; under Health, Inputs and in the inspector of the object it is about (a block a list element owns, such as a projector's solve uncertainty, sits with that element). An action's values come from the card's STATE through its placeholders, never from a fixture; a line that needs a value only the operator gives (the scan a stack is aligned from) is no card's button, and since the desk has no line of its own to type, such a line goes over the wire, MCP, Companion or a binding; a button its own card greys says why ("STATE has no node for this card"). A card that comes or goes leaves the others' views as they are. The desk's own cards: solve, cameras, the assistant | each card's action lines |
+| **Generic STATE cards** | One card per descriptor in `tests/fixtures/state/*.cards.json` (built into the desk): light, title, words, six fields on its face and the rest under "more", actions; under Health, Inputs and in the inspector of the object it is about (a block a list element owns, such as a projector's solve uncertainty, sits with that element). An action's values come from the card's STATE through its placeholders, never from a fixture; a line that needs a value only the operator gives (the scan a stack is aligned from) is no card's button; today the desk has no line of its own to type, so such a line goes over the wire, MCP, Companion or a binding (round 3 gives it a menu entry and a console, below); a button its own card greys says why ("STATE has no node for this card"). A card that comes or goes leaves the others' views as they are. The desk's own cards: solve, cameras, the assistant | each card's action lines |
 | **Generated entries** | After a rule in every object's menu, and on its inspector toolbar: Add effect ▸, Modulate ▸, Bind ▸, Optimise ▸, Use input ▸ — built from the node's own answers; an entry whose verb the node does not run hides. An object's entries are the same instances from push to push (an open flyout keeps its anchor); a generator's are made again when its kind changes | `FX ADD <target> <kind>`, `MOD BIND <entity> <param> <source>`, `BIND LEARN <line>`, `MEDIA OPTIMISE <md> TO <target>`, `SURFACE SOURCE <sf> live:<in>` |
 | **Esc ladder** | Esc goes to the first rung that uses it: a pattern task on the wall (`SCAN CANCEL`, `ALIGN CANCEL`, `CALIBRATION CANCEL`, read in the engine's own state words, Core's `PatternTasks`), a learn (`BIND LEARN OFF`), the pen's draft, the overlays (help, a drawer), PANIC (PLAY, with the desk's preference), the selection. A cancel the gate would refuse is not sent and Esc goes on down. For 600 ms after a lower rung used Esc, or after anything closed (a drawer by any means, the help, a right-click menu, a flyout), Esc does not reach PANIC. While a text field types, Esc is the field's: it reaches the field, and only the overlays answer it too | — |
 | **Previews** | Each workspace's pictures of the node — PLAY's output thumbnails, MAP's editor and projector views, SCAN's camera and smart scan — drawn letterboxed from the ring the node names for the view (the `VIEW … SHOW` reply's `ring`, then STATE `machine.views`, a STATE older than the reply's `seq` changing nothing) when it is that node's ring for the view in this machine's preview folder, and from no other file; a new name reopens the view, the old ring let go at once even while the view is off screen; a new link is asked for every view at once, and a reply from the link let go names nothing. While no ring is named, the node refuses the view, it names a file that is not its ring here, or the named ring does not open, the view shows a calm stand-in with its name and the words why (MAP draws the stage itself); the blind panel's draft view is one more view (`editor-draft`), asked, renewed and let go as the others are. Every shown view's lease is renewed every 5 s of the desk's clock, however late the window's ticks come; a view the node let go (a refused KEEP) is asked again | `VIEW <view> SHOW <what> <w>x<h>`, `VIEW <view> KEEP` every 5 s, `VIEW <view> HIDE`, `VIEW editor CAMERA <json>`, `VIEW editor-draft SHOW editor DRAFT` |
-| **Simple / Pro** | A desk preference in desk.json (Ctrl+Shift+P); Simple will hide, never disable, and hides nothing yet; menus and the show strip are the same in both | — |
+| **Simple / Pro** | A desk preference in desk.json (Ctrl+Shift+P); Simple only ever hides, never disables, and today hides nothing; menus and the show strip are the same in both | — |
 
 Not built yet: a confirmation before closing while armed, PANIC's pulse, the master's level bar, the PLAY bin as a panel of its own;
 the blind panel's ON GO and AT boundaries (they run over the wire), its row selecting the entity, the commit's countdown and the
 violet frame; the fleet's alarm banner (STATE.fleet.alarm is always null); Check all and Re-solve moved on Health ▸ Calibration
-(the catalogue has no such rows). The readiness light's
+(the catalogue has no such rows); and everything in *Where the desk is going*, below. The readiness light's
 sync part is the node's own light for the group, `sync.light` (a leader's from its board, a follower's from its feed and clock), in
 the node's words; only a node whose STATE.sync carries no `light` has it read from its keys. A Recall of a kept result the target already stands as exactly (just after
 it was recalled) is offered, and the node refuses it with its words: CALIBRATION HISTORY marks a row current by its id, while the
 node decides "stands as" by the target's geometry, and it names no row so. A drag the gate refuses still moves on screen; its steps are
 not sent and a toast gives the node's words.
 
-## Wire-only in round 2
+## Wire-only today
 
 These run over the wire, HTTP, MCP, Companion and the bindings; on the desk they are a generic STATE card and the generated
 right-click entries, with no view of their own: the effects browser and inspector, modulation sockets, tempo, bindings and learn,
@@ -58,6 +60,42 @@ timecode, LED fixture placement and patching, optimise jobs, live inputs and sen
 the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks, the
 content library. Every package's card renders from its final fixture, and every
 card action sends its catalogue line (`EveryCardTests`).
+
+## Where the desk is going
+
+Round 3 takes the desk there in six packages: desk-ux, desk-gpu, desk-shell, desk-map, canvas and workflows
+(`docs/round3/PLAN.md` D11–D16, §3.6, §3.12, §3.17–§3.20). The design is `docs/round3/design/desk-workflows.md`. None of it is built yet.
+
+- **Guides beside the tools.** Simple opens on a workflows home, a card per guide: two projectors blended or stacked on a flat
+  screen; a film mapped onto a wall so it reads undistorted from the audience, blendable to more projectors; an object mapped with
+  one or two projectors; First light; the facade. A guide docks its step rail beside the live view and shows only the fields each
+  step uses, each step with Do it, By hand, Ask and Explain. The engine computes the steps (`GUIDE`), so Patterns, Companion and an
+  assistant read the same ones. Pro shows every pane, the advanced panes and the console (`SimpleProTests`).
+- **Every command in the menus.** A menu bar (File, Edit, View, Map, Output, Show, Guides, Window, Help) holds every row the desk may
+  send and every desk action. Right-click menus are generated from the catalogue, with Copy line and Ask about this…, and the Ctrl+K
+  palette searches the same entries. A free value is typed in the entry's own field, so no line needs typing (`MenuCoverageTests`).
+  A console (Ctrl+\`) types any line through the desk's gate and refuses a line that carries a secret.
+- **Panes.** The outliner, the inspector, the bin, the cards, the drawers, the assistant, the console and the journal dock, float
+  inside the desk's window (never onto an output) and collapse to a rail that keeps the title and the worst light. A layout is kept
+  for each workspace and each guide. The show strip, the attention bar, PANIC, Blackout and the mode frame stay fixed. The advanced
+  blocks above (effects, modulation and tempo, bindings and learn, timecode, LED, optimise, live inputs and sends, align, the facade,
+  sync) each get an area pane in Pro, and the effects chain and modulation and bindings get editors of their own.
+- **Colour.** Status, identity (which projector, output or client, with its number badge) and workflow stage each keep colours of
+  their own, and none is the only cue.
+- **Safety and previews.** While the node's min-GO window is open, every GO control wears a red border, and a refused GO flashes
+  once with the node's words. Edit blind turns the whole desk grey, with BLIND on every pane of draft content. The Oops panel lists
+  the undo steps (`UNDO LIST`) and undoes back to one (`UNDO TO`). The desk has a dim mode for the dark room and a daylight theme,
+  and every light pairs its colour with a shape and a word. Each preview shows its age, and a stale one says so. Where the desk
+  shares the engine's adapter, a preview is a shared texture with no CPU copy; everywhere else the ring stays (§3.6 items 1–5,
+  §3.12).
+- **The quad and every handle.** The quad that stays and every handle by one pixel are in `docs/CALIBRATION.md`'s *Not yet*.
+  First light reopens from the view's right-click and the help overlay.
+- **What each screen shows.** Every view of an output names what it shows now, from STATE `outputs[].showing`.
+- **One canvas.** One pattern, media or generator spans several outputs as one canvas (`CANVAS SPAN`): side by side, stacked, or
+  both.
+- **By hand, and with the assistant.** Every mapping step can be done by hand. An automatic result is a layer the hand's edits sit
+  on, or a value a re-run stages rather than overwrites, so a re-run never overwrites a hand edit unasked. The assistant's pane
+  holds the conversation and each proposed line with Show me, Approve and Reject; its lines pass the same gate as a person's.
 
 ## The spine other desk packages build on
 
