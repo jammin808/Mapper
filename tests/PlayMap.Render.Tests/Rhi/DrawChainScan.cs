@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Gpu.Programs;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Rhi;
 
@@ -15,7 +16,7 @@ namespace PlayMap.Render.Tests.Rhi;
 /// (<c>ProgramIds.X.uY</c>) must be that program's. A literal a helper sets on a builder it was handed (a parameter or local typed
 /// <see cref="DrawBuilder"/>), outside every chain, must be in one of the file's programs. A chain whose program the file does not name (a parameter, a program made at run time) is allowed
 /// only in a file of <see cref="Unresolved"/>, its names checked against the programs that entry lists. Comments are read as
-/// blank (<see cref="RhiFenceTests.StripComments"/>).</summary>
+/// blank (<c>GlFence.StripComments</c>).</summary>
 internal static partial class DrawChainScan
 {
     /// <summary>The files whose draws name a program the file cannot resolve, the programs those draws are of, and why.</summary>
@@ -60,7 +61,7 @@ internal static partial class DrawChainScan
     /// <paramref name="drawn"/> takes the program of each chain read.</summary>
     public static List<string> Misses(string file, string source, List<string>? drawn = null)
     {
-        var code = RhiFenceTests.StripComments(source);
+        var code = GlFence.StripComments(source);
         var table = ProgramTable.Product.ToDictionary(p => p.Name, StringComparer.Ordinal);
         var misses = new List<string>();
         var assignments = Assignment().Matches(code).Select(m => (m.Index, Ident: m.Groups["ident"].Value,
