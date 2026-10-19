@@ -1,4 +1,4 @@
-namespace PlayMap.Render.Gl.Windows;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The stages the DXGI flip platform comes up through, in order; a start that stops names the stage it stopped at.</summary>
 public enum DxgiStartStage
