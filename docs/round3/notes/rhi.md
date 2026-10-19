@@ -1,0 +1,178 @@
+# The render hardware interface (`wp3-rhi`): papers note
+
+*For the integration pass (`PLAN.md` §4, §5.6). The package writes none of `README.md`, `docs/ARCHITECTURE.md` or
+`docs/ROADMAP.md` during the wave: this note holds the text it gives them, the contracts as they are built where they differ from
+`design/rhi.md`, where the code proves a design wrong, the hunks outside the package's Owns in the order they merge, and what waits
+for the Windows job and the lab.*
+
+## 1. Text for the spine's papers
+
+Each block is the text as it stands at the package's head; the pass applies it at the place named.
+
+### `README.md`
+
+The module table's `PlayMap.Render` row, whole:
+
+```markdown
+| `PlayMap.Render` | The frame drawn through Core's render hardware interface (`IGpuDevice`, its frame list, one `DrawState` per draw), with the GL backend behind it (`Render/Gl`): one GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload and the unpack of packed network video; the edit overlay; LED sampling; the send stage (network video packed on the GPU and read back without a stall); previews; the GPU HAP encoder |
+```
+
+### `docs/ARCHITECTURE.md`
+
+The module table's `PlayMap.Core` row: after "the frame-lock machine, " insert
+
+```markdown
+the render hardware interface (`Core/Gpu`: the device, resources, programs and their layouts, pipelines, the frame's command list, fences, the upload, read-back, timer and import contracts every backend implements, the platform and presenter seams, the program table as data), 
+```
+
+The module table's `PlayMap.Render` row, whole:
+
+```markdown
+| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows on GLX or EGL, or EGL surfaceless; on Windows the Direct3D 11 flip model through ANGLE, loaded at run time) with a presenter per output feeding Core's vblank clock and present ledger, each output's delay ring, the frame-lock tiers; the decoder-surface importers (dmabuf EGLImages, D3D11 textures through ANGLE) and the context's upload arena; the GL backend (`Render/Gl`: `GlBackend`, the GL device behind Core's `IGpuDevice` with one immediate command list, fences over GL syncs, the pixel-pack and unpack rings, timestamp queries, user programs linked on the compile lane and transients rented from a resource pool; the GL platforms, the importers, the upload arena and the HAP encoder named here live there too), render graph (every frame's drawing goes through the device's frame list — the render engine, the canvases and playlist mixes, the generators, the video conversions, the projector pass, the effect chains, the output stage, the edit overlay, LED sampling, the send stage and the HAP pass: a pass over each target, a program and one `DrawState` per draw, its constants set by name through the program's layout, the windows' pictures recorded into the list and presented after its submit; the GPU times of outputs, generators and effect slots are spans between two timestamps in the list, read frames later, every span a frame asks for measured (on an ES context whose timer extension counts no timestamps, one elapsed-time query per output, the spans inside it unmeasured; a context with no timer queries measures none); the warm-up makes every pipeline the passes list through the device before the first frame, and a pipeline the device cannot make fails the render host's start with the device's words; no code outside `Render/Gl` names a GL or Silk.NET type, save the platform factory naming the GL platforms' maker — `RhiFenceTests` and `EngineFenceTests` hold the line by a scan of the sources and project files and a walk of the Render and Engine assemblies' signatures and IL), shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains (each pass a user program the device makes through `CreateProgramAsync` — on GL compiled and linked on the compile lane, its uniforms and samplers read back into its layout — and lets go of once the last frame that drew it has completed), the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, the send stage (network video packed on the GPU, read back through a fenced ring) and the unpack of packed network layouts, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
+```
+
+§5's first line, whole:
+
+```markdown
+Per frame, on the engine's render thread (one device, all outputs; on GL its one context). Blackout wins before any pass:
+```
+
+§5, a paragraph after the one on the device lock (the paragraph that ends "(docs/OUTPUT.md, docs/DECODE.md)."):
+
+```markdown
+Every pass draws through the render hardware interface (Core's `IGpuDevice` and the frame's `ICommandList`), never through an API:
+the frame code, the passes and the generators name no GL type, and the GL backend (`Render/Gl`) implements the contracts with its
+one immediate list. The five passes that set the most constants a frame (the particle step, the output stage, the quad every
+canvas layer is drawn with, the projector pass's surfaces and the raymarcher) set them by the ids generated with the program table
+(`ProgramIds`: a constant's place in its program's layout), with no look-up by name. Each pass lists the pipelines it can draw on
+a device (`FramePipelines`: every program it draws, in every state, into every target shape it draws into there), and the warm-up
+makes them all before the first frame, so the scripted show's draws make none on the render thread; a pipeline the device cannot
+make fails the start with the device's words. The GPU tests do the same: each runs on a leg of the backend fixture
+(`BackendFixture`, one device on a thread of its own per backend the job has — GL today, a later backend's leg added to
+`BackendLegs.Makers`), draws through the device the leg hands it and reads back through `Pixels.Read(IGpuDevice, RenderTarget)`;
+only the GL backend's own tests, listed by name in `RhiFenceTests` (and the engine suite's in `EngineFenceTests`), name a GL type.
+Every pixel golden is unedited and holds byte for byte on llvmpipe in both dialects. With no lab, L20 (the GL backend behind the
+interface on NVIDIA, AMD and Intel Windows drivers) is not run: the GL backend is proven on llvmpipe and on Mesa WGL only.
+```
+
+### `docs/ROADMAP.md`
+
+After the spine's "**Bench.**" line, before "**Next**":
+
+```markdown
+**Built: the render hardware interface (W1, `wp3-rhi`).** Every frame draws through Core's contracts, and GL stands behind them
+with its pixels unchanged.
+
+- **Contracts.** `Core/Gpu` holds the device, its resources, programs and their layouts (the program table as data,
+  `programs.layout.json`), `DrawState` and `PipelineKey`, the frame's command list with its draw builder, fences as values on a
+  queue's timeline, the upload, read-back, timer, import and transient contracts, user programs made at run time, and the platform
+  and presenter seams (a presenter records the picture into the frame's list, then presents after the submit).
+- **The GL backend.** `Render/Gl` holds GL whole: `GlBackend` behind `IGpuDevice` with one immediate list, fences over GL syncs,
+  the pack and unpack rings, timer-query spans, the importers, user programs linked on the compile lane, transients from a pool.
+  No code outside it names a GL or Silk.NET type but the platform factory's one call (`RhiFenceTests`, `EngineFenceTests`).
+- **The callers.** The render engine, passes, generators, video, LED sampling, sends, the overlay, HAP, effects and the projector
+  pass each draw one `DrawState` a draw, their constants set by name through the program's layout; a warm frame allocates nothing,
+  and after each draw of a scripted show the GL state read back is the recorded one, draw for draw (`DrawStateTests`).
+- **Constant ids and pipeline lists.** The five passes that set the most constants a frame set them by ids generated with the
+  program table (`ProgramIds`), and each pass lists the pipelines it can draw, which the warm-up makes before the first frame.
+- **The tests.** Every GPU test runs on a backend fixture whose legs are the backends the job has (GL today) and draws through the
+  device a leg hands it; only the GL backend's own tests, each listed by name, name a GL type. Every pixel golden and STATE
+  fixture is unedited, byte for byte on llvmpipe in core 3.30 and ES 3.00.
+- **Not proven.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend is
+  proven on llvmpipe and Mesa WGL only.
+```
+
+The item's row in the table under "**Next**", whole:
+
+```markdown
+| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels. **Built** (above); L20 not run | wp3-rhi | — |
+```
+
+## 2. The contracts as built
+
+Where `src/PlayMap.Core/Gpu` differs from `design/rhi.md` §3, each with its file and the callers that need it. wp3-d3d12-core
+implements these, not the design's shapes where the two differ.
+
+| Contract | As built | File | Needed by |
+|---|---|---|---|
+| `TextureDesc.Swizzle` | `TextureSwizzle.None` or `Gray`: a one-channel texture sampled as grey (red in red, green and blue, alpha one) | `GpuResources.cs` | `VideoTextureSet` (Gray8 pictures: stills, the folder camera) |
+| `BufferUsage.Dynamic` | 64: data set again every frame or so, kept where the CPU writes cheaply (GL a streaming store, Direct3D 12 upload memory); without it a buffer is static (GL a static store, Direct3D 12 device memory) | `GpuResources.cs` | dynamic: `ParticleGenerator`, `OverlayPass`'s cursors, `StageRenderer`'s lines; static: `GpuCaches`, `StageRenderer`'s meshes, `EffectGenerator`, `OverlayPass`'s shapes |
+| Buffers' content | a desc of 0 bytes makes no store until the first set; a set replaces the content for the draws recorded after it, and the draws recorded or submitted before it keep theirs (the backend renames the store and releases the old one at the last fence that read it); `GpuBuffer.Bytes` is the content's size | `GpuDevice.cs`, `GpuResources.cs` | every buffer maker (each makes at 0 bytes and sets) |
+| `ProgramLayout.Inputs` | each product program's vertex inputs (location, float count, offset, stride, buffer 0 or 1, divisor), in the table as `"inputs"`; empty for a program that makes its geometry from the vertex index and for a user program | `Programs.cs`, `Programs/ProgramTable.cs`, `Programs/programs.layout.json` | a pipeline's input layout before any mesh is at hand (`d3d12.md` §8); `ProgramLayoutTests` hold every mesh a pass draws to it |
+| `ConstantId`, `TextureId`, `ProgramIds` | a constant or texture by its place in a product program's layout, generated with the table (`Programs/ProgramIds.g.cs`, named `ProgramIds` because `Ids` is `PlayMap.Core.Model.Ids`); `DrawBuilder.Set(ConstantId, …)`, `SetInt(ConstantId, …)`, `Texture(TextureId, …)` | `Programs.cs`, `Commands.cs` | the five hottest passes: the particle step (`FlowGenerator`), the canvas quad (`GeneratorRenderer`), the raymarcher, `OutputStage`, `StageRenderer` |
+| `ConstantTypes` | sizes, words and the block's packing rules (a scalar or vector does not cross a register; a matrix row and an array element start one) | `Programs.cs` | `ProgramTable`, both backends' constant blocks, the HLSL build's slot headers |
+| The matrices | a `Float4x4` is a row-vector transform (the shader computes v·M: HLSL `row_major`, `mul(v, M)`); a `Float3x3` a column-vector one (M·v: `row_major`, `mul(M, v)`); both lay one row a register | `Programs.cs`, `Commands.cs` | the HLSL library (`shaders.md`), the normal matrix of `StageRenderer` |
+| `ClipSpace` | clip y = −w is the target's top row, z from −w to w is depth 0 to 1, `CullMode.Back` culls what is clockwise in the raster seen top row first; Direct3D 12 converts as the last step of each vertex stage (`ToDirect3D`: y negated, z to (z + w) / 2) and culls with `FrontCounterClockwise = TRUE`, `CULL_MODE_BACK` | `GpuTypes.cs` | every HLSL vertex entry, d3d12-core's rasteriser state |
+| `BlendMode` | every blended mode leaves the target's alpha as it was; `Opaque` writes all four channels | `GpuTypes.cs` | d3d12-core's blend descriptions (no write mask on `Opaque`) |
+| `DrawBuilder` | a `readonly ref struct` a list builds over its `IDrawSink` (`Record(in DrawCall, constants, textures)`, `Missed(program, name)`), with `DrawCall` and `DrawShape`; the list hands it a zeroed block; a name the layout does not hold, or a value of the wrong kind, writes nothing and is told to `Missed`; `Set(name, x, y, z)` besides the design's overloads | `Commands.cs` | every backend's list |
+| `ICommandList.Wait` | a list waits, outside a pass, for every other-queue value it samples (a ring copy, a block plane, an import) before the pass that samples it; a backend whose queues wait only between submissions holds the whole list until each value completes | `Commands.cs` | `VideoTextureSet`, `PackedUnpack` |
+| `ITransientMemory` | adds `SizeOf(in TargetDesc)` and `PlaceTarget(in TargetDesc, long)` (what a pass draws into: a placed texture is only sampled or copied); a placement lives until the memory is disposed; one that does not fit at its offset is refused | `Commands.cs` | the render graph's plans (wp3-d3d12-passes); `TransientContractTests` |
+| `PipelineKey.For` | the one key a draw of a program with a state into a target takes | `Pipelines.cs` | the lists, `FramePipelines` |
+| `IUploadRing` | adds `TryUploadCompressed` and the upload arena (`Arena`, `OpenArena`, `CloseArena`, `InArena`, `TryUploadStaged`): GPU-visible host memory HAP's decode threads write pictures into, read where written | `Queues.cs` | `VideoTextureSet` (HAP blocks), `RenderHost.Decode` (opens the arena) |
+| Read-backs | `IReadbackRing : IDisposable`; `IGpuDevice.CreateReadbackRing(slots)`, a ring per reader (reads come back in its own order); `IHeldReadbackRing` with `HeldReadback` and `CreateHeldReadbackRing(slots)`, reads kept in place until the reader lets go | `Queues.cs`, `GpuDevice.cs` | `RenderEngine` (previews), `LedPass`, `PackedSend` (a send's frames read by its sender's thread) |
+| `IGpuTimers` | adds `Holds(frame)` (a frame's timestamps still kept) and `Reserve(slots)` (grows the slots between frames); `Slots` is 0 where nothing is measured; `TryElapsedUs` is false for a pair not measured | `Queues.cs` | `GpuSpans` (`GpuTimeSlots`, `GpuSpanTimer`): every span a frame asks for is measured |
+| Imports | `CanImport(GpuSurface, out string?)` takes no `in`; `OpenImport()` gives a reader its own `ITextureImport` (`TryImport`, `Dispose`): a surface is held from its import, while its lease is alive, until the list it was imported in has completed; false with no words means every slot of the reader is in flight | `Imports.cs` | `VideoTextureSet` (one import per set) |
+| `ImportedPlanes` | adds `CodedWidth`, `CodedHeight` (the planes' size, padding included; 0 is the crop) | `Imports.cs` | `VideoTextureSet`'s conversion |
+| `GpuFeatures` | adds `MaxTextureSize` (16384 where a device says nothing), `Readback`, `Refusals` and `RefusalOf(format)` | `GpuDevice.cs` | `GeneratorHost`, `SendStage` (sizes), `LedPass` (read-backs), `VideoTextureSet` and the desk (refusal words) |
+| `GpuException` | a device's refusal or failure in its own words, the one kind frame code catches | `GpuDevice.cs` | `RenderHost`, `RenderEngine.WarmUp`, `OutputWindows`, `FxChainRunner`, `OptimiseWorker` |
+| `IGpuDevice.BeginFrame` | one frame number opens several lists in turn (the frame's own, a list per preview drawn after it, a resolve or an upload between frames, those outside the frames numbered 0); the number is a label, and a backend fences a list's resources by the value its `Submit` returns | `GpuDevice.cs` | `d3d12.md` §3 |
+| `IGpuPlatform` | adds the default members `Dialect`, `ImportBinding`, `OpenImports()` and `CreateHapEncoder()` | `GpuPlatform.cs` | `RenderHost` (STATE's dialect, the decoders' share), `OptimiseWorker` (the HAP encoder) |
+
+Beside the contracts, in Render: `RenderEngine.WarmUp` makes the pipelines the passes list (`FramePipelines`) and no other,
+returns the device's `PipelineWarmResult` (null once `WarmUpBound` passed, the render host journalling a fault), and throws a
+`GpuException` naming each pipeline the device could not make, which fails the render host's start with those words.
+
+## 3. Where the code proves a design wrong
+
+- **`d3d12.md` §8, the input layout.** A key carries no mesh, and `TryGet` and `WarmAsync` take only keys, so the mesh's attributes
+  cannot give the input layout of a pipeline warmed before the show; `sprite`'s instance inputs (buffer 1, divisor 1) cannot be
+  inferred from DXIL at all. The input layout comes from the program table (`ProgramLayout.Inputs`). `d3d12.md` §8 says so now.
+- **`d3d12.md` §3, frames in flight.** One frame number opens several direct lists (the frame's, each preview's, resolves, uploads),
+  so frame resources keyed by frame number or held one per displayed frame either reset an allocator still running or run out of
+  slots. Lists take their resources from pools fenced per submission. `d3d12.md` §3 says so now.
+- **`shaders.md`, the conventions.** The two matrix types are read opposite ways round (`Float4x4` with `mul(v, M)`, `Float3x3`
+  with `mul(M, v)`), and the texture origin agrees with Direct3D's while the rasteriser's does not (clip y = +w is Direct3D's top
+  row, and it clips z < 0): every vertex entry ends with the clip-space conversion. `shaders.md`'s table says so now; wp3-shaders,
+  writing the HLSL in W1, is told.
+- **`rhi.md` §3.5, one importer.** An importer per device shares its slots and its holds between readers of one source (a layer and
+  a draft view's renderer), so each reader opens its own import (`OpenImport`), and a hold is taken at the import, not at the
+  submit after the lease has gone.
+- **`rhi.md` §3.4, the timers.** A fixed table of timestamp slots measures at most half its size in spans a frame, and the lease
+  order is the same each frame, so the same spans go unmeasured every frame; the timers grow (`Reserve`) and say which frames they
+  still hold (`Holds`). An ES context with `EXT_disjoint_timer_query` measures: by timestamps where its counter has bits, by one
+  elapsed-time query per output where it has none.
+- **`rhi.md` §2, the fence.** The platform factory (`Render/Platform/GpuPlatform.cs`) names exactly one GL type, the GL platforms'
+  maker (`Gl.GlPlatforms`); `RhiFenceTests` allow that one name, in the source scan and the IL walk, and nothing else outside
+  `Render/Gl`.
+- **The warm-up's keys.** Warming every product program with the opaque state into an 8-bit target asks Direct3D 12 for pipelines
+  no pass draws, some of them invalid; the warm-up makes the passes' lists only.
+
+## 4. The hunks outside the Owns, in merge order
+
+W1 merges **rhi → shaders → platform → desk-ux → installer** (`PLAN.md` §5.3), so these land on `main` first and the others rebase
+on them.
+
+| File | Hunk | Why the cut forces it |
+|---|---|---|
+| `src/PlayMap.Engine/Optimise/OptimiseWorker.cs` | the HAP encoder from `IGpuPlatform.CreateHapEncoder()`, the hello's words from `Device.Adapter`, `GpuException` in place of `GlException`; `GlfwException` leaves the catch, which changes nothing: `GlPlatforms.Create` rethrows it as `PlatformNotSupportedException`, still caught | the engine names no GL type (`EngineFenceTests`), and `GlHapEncoder` lives in `Render/Gl` |
+| `tests/PlayMap.Core.Tests/Threading/ComputeTests.cs` | one allow-list line for `Render/Effects/FxLane.cs` | FxLane's one `Compute` call: a program made after its lane went is let go when its make lands |
+| `THIRD-PARTY-NOTICES.md` | the Direct3D 11, DXGI, user32 and display-configuration layouts' path, `src/PlayMap.Render/Gl/Windows` | the layouts moved with the ANGLE platform into the GL backend's folder |
+| `bench/r3-present/PlayMap.Bench.Present.csproj`, `PlayMapPath.cs`, `Program.cs` | a `wp3-rhi` using group for `PlayMap.Core.Gpu`, the moved types' namespaces, the presenter's record then present | the presenter seam is Core's and presents in two steps |
+| `src/PlayMap.Core/PlayMap.Core.csproj` | a `wp3-rhi` item group embedding `programs.layout.json` | the program table is data in Core |
+| `src/PlayMap.Engine/PlayMap.Engine.csproj` | a `wp3-rhi` using group for `PlayMap.Core.Gpu` | the engine's render files name the contracts |
+| `src/PlayMap.Core/Led/LedFrames.cs`, `tests/PlayMap.Core.Tests/Led/LedReferenceTests.cs` | the LED frame pool sizes a frame to the plan's high water when it is rented or returned, off the warm path, and two tests hold it | Render's `LedSamplingTests.AWarmFrameAllocatesNothing` measures the pool as a show uses it, without sizing it first |
+| `tests/Shared/GlFence.cs` (new), `tests/PlayMap.Engine.Tests/PlayMap.Engine.Tests.csproj` | the GL fence's source, project-file and IL scan, linked into the Render and Engine suites by a `wp3-rhi` item group | one line around the GL backend, held from both suites |
+| `tests/PlayMap.Engine.Tests/Rendering/EngineFenceTests.cs`, `WarmUpHostTests.cs` (new) | the engine's side of the fence; the start failing on a pipeline the device refuses | the render host's checks, in its own area |
+| `tests/PlayMap.Engine.Tests/Content/ReactiveRealBusTests.cs`, `Decode/DecodeGlApiTests.cs`, `Optimise/HapEncoderTests.cs`, `Optimise/OptimiseClips.cs`, `Presentation/SyncVerbTests.cs`, `Rendering/DeviceLockHostTests.cs` | `Render.Gl` in place of `Render.Gpu` and `Render.Platform`, a renderer over the context's backend, a scripted presenter's `Record` | the GL types moved; these are the engine tests that name GL, listed in `EngineFenceTests`, and they leave with GL |
+| `tests/PlayMap.Core.Tests/Gpu/**` (new) | the contracts' tests (`ProgramTableTests`, `DrawBuilderTests`, `ClipSpaceTests`) | the contracts live in Core |
+| `docs/OUTPUT.md`, `docs/EFFECTS.md`, `docs/OPTIMISE.md` | the presenter's record and present, the backend fixture, GPU times per context, the effects' programs on the device, the encoder's path | the papers of the areas the package changed |
+| `docs/round3/design/d3d12.md` §3 and §8, `docs/round3/design/shaders.md`'s conventions, `docs/round3/design/rhi.md`'s opening | the corrections of §3 above, and a line pointing here | the code proves the designs wrong there |
+
+## 5. What waits
+
+- **The Windows job.** The Render suite on Mesa WGL (the GL backend behind the contracts on Windows); the ANGLE importer behind a
+  reader's `ITextureImport`, built here and run only there; the elapsed-time GPU timers on a counter with no bits (ANGLE's
+  Direct3D 11 back end), proved here only with the mode forced; `EngineFenceTests`' and `RhiFenceTests`' walk of the Windows
+  build's types; `bench/r3-present`'s build.
+- **The lab.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend is
+  proven on llvmpipe here (core 3.30 and ES 3.00) and on Mesa WGL on the Windows job only.
