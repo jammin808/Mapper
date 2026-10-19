@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
-namespace PlayMap.Supervisor.Tests;
+namespace PlayMap.Supervisor.Tests.Install;
 
 /// <summary>The WiX toolset is PlayMap's only from its source (docs/round3/PLAN.md §3.5 item 2): nuget.config maps <c>WixToolset.*</c>
 /// to installer/wix/feed and to no other source, and no licence gesture — an <c>AcceptEula</c> property, an <c>-acceptEula</c> argument

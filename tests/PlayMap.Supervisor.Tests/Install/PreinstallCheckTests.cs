@@ -4,7 +4,7 @@ using System.Text;
 using PlayMap.Core.Machine;
 using PlayMap.Supervisor.Install;
 
-namespace PlayMap.Supervisor.Tests;
+namespace PlayMap.Supervisor.Tests.Install;
 
 /// <summary>The installer's armed check fails closed: the decision is pure, and the look runs against fake engines on loopback (a pid
 /// record naming this test process, a listener answering as the engine would): no engine process → go on; an engine answering armed

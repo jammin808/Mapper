@@ -1,7 +1,7 @@
 using PlayMap.Core;
 using PlayMap.Supervisor.Install;
 
-namespace PlayMap.Supervisor.Tests;
+namespace PlayMap.Supervisor.Tests.Install;
 
 /// <summary>The installer's version (docs/round3/PLAN.md §1.3): MAJOR.MINOR.BUILD from a numbered build; a major or minor of 256 and
 /// build 0 refused; a release lower than the last one refused with "raise MINOR".</summary>

@@ -1,3 +1,5 @@
+using PlayMap.Supervisor.Tests.Install;
+
 namespace PlayMap.Supervisor.Tests;
 
 /// <summary>The supervisor's command line: a line it does not take is answered with its commands and the usage code; off Windows every

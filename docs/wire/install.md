@@ -36,3 +36,7 @@ The node installs per machine with an Inno Setup installer (the WiX toolset does
 the supervisor service, firewall rules, WER dumps, the event source and the show account's right done by the supervisor's commands;
 unsigned builds named `-unsigned` with `SHA256SUMS`; the installer's version MAJOR.MINOR.BUILD; an install refused while armed or
 while a live engine does not answer. `docs/INSTALL.md` is the person's guide.
+
+For `docs/ROADMAP.md`'s round-3 row of wp3-installer (the integration pass writes it): a per-machine installer built by Inno Setup,
+unsigned with `SHA256SUMS`, the supervisor service, its machine-level actions, the version rules, the armed check that fails closed
+and STATE `machine.install`; proven on the Windows runner, not in a lab (`docs/INSTALL.md`).

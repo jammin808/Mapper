@@ -1,4 +1,4 @@
-namespace PlayMap.Supervisor.Tests;
+namespace PlayMap.Supervisor.Tests.Install;
 
 /// <summary>A fact that runs only on Linux (the Linux CI job runs it): elsewhere it is skipped with the words, never passed with
 /// nothing tested.</summary>

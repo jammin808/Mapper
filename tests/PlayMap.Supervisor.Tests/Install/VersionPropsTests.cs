@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace PlayMap.Supervisor.Tests;
+namespace PlayMap.Supervisor.Tests.Install;
 
 /// <summary>Version.props as MSBuild reads it: a numbered build sets the installer's version MAJOR.MINOR.BUILD, a local build sets
 /// none, and a major or minor above 255 fails every build with the words before anything is compiled.</summary>

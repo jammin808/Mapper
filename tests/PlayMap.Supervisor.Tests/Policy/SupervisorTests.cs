@@ -2,7 +2,7 @@ using PlayMap.Core.Fleet;
 using PlayMap.Supervisor.Policy;
 using PlayMap.Supervisor.Status;
 
-namespace PlayMap.Supervisor.Tests;
+namespace PlayMap.Supervisor.Tests.Policy;
 
 /// <summary><see cref="SupervisorCore"/> on a manual clock: the backoff, the freeze rule (and never on a slow HEALTH while frames move),
 /// the rule inactive while the count is −1, a start and a rebuild exempt within the budget and frozen past it, the five-in-ten-minutes
