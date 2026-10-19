@@ -46,8 +46,8 @@ public sealed class QuarantineTests
         await using var rig = Rig(quarantine);
         var slot = await AddInvert(rig);
         Assert.Empty(Quarantine(rig).EnumerateArray());
-        Assert.True(quarantine.Add(Entry()));
-        Assert.False(quarantine.Add(Entry()));
+        Assert.True(quarantine.Add(Entry()).Applied);
+        Assert.Equal(QuarantineOutcome.Unchanged, quarantine.Add(Entry()).Outcome);
 
         var held = Assert.Single(Quarantine(rig).EnumerateArray());
         Assert.Equal(Invert.Hash, held.GetProperty("hash").GetString());
@@ -62,7 +62,7 @@ public sealed class QuarantineTests
         var rows = await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
         Assert.Equal(2, rows.Count);
         Assert.All(rows, r => Assert.Equal(Light.Red, r.Light));
-        Assert.Equal(["FX RELEASE Invert", $"FX REMOVE {slot}"], rows.Select(r => r.Fix));
+        Assert.Equal([$"FX RELEASE {Invert.Hash}", $"FX REMOVE {slot}"], rows.Select(r => r.Fix));
         foreach (var fix in rows.Select(r => r.Fix!))
             Assert.True(WireGrammar.TryParse(fix, out var parsed, out _) && VerbCatalog.Match(parsed) is not null, fix);
         Assert.Contains("1 slot uses it", rows[0].Note, StringComparison.Ordinal);
@@ -146,5 +146,92 @@ public sealed class QuarantineTests
         rig.Engine.Services.Quarantine.Add(Entry());
         rig.Engine.FactsChanged();
         Assert.Single(Quarantine(rig).EnumerateArray());
+    }
+
+    [Fact]
+    public async Task EachKindsRowLiftsItsOwnEntryByItsHashWhateverItsName()
+    {
+        var quarantine = new ShaderQuarantine();
+        await using var rig = Rig(quarantine);
+        string Hash(char c) => new(c, 64);
+        // A kind a person named ALL, another kind, and two entries quarantined under one name (an edited source has a new hash).
+        foreach (var (name, c) in new[] { ("ALL", 'a'), ("Other", 'b'), ("Wobble", 'c'), ("Wobble", 'd') })
+            Assert.True(quarantine.Add(Entry(name, Hash(c))).Applied);
+        var check = Assert.Single(rig.Engine.PreflightChecks, c => c is QuarantinePreflight);
+        var rows = await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
+        Assert.Equal(4, rows.Count);
+        foreach (var (row, entry) in rows.Zip(quarantine.All))
+        {
+            Assert.True(WireGrammar.TryParse(row.Fix!, out var parsed, out var error), error?.Reason);
+            var (spec, words) = VerbCatalog.Match(parsed)!.Value;
+            Assert.Equal("FX RELEASE", spec.Name);
+            Assert.Equal(entry.KindHash, string.Join(' ', parsed.Words.Skip(words)));
+        }
+
+        // The ALL kind's row lifts that kind alone; the second Wobble's row lifts the second Wobble, not the first.
+        await rig.Ok(rows[0].Fix!);
+        Assert.Equal([Hash('b'), Hash('c'), Hash('d')], quarantine.All.Select(e => e.KindHash));
+        await rig.Ok(rows[3].Fix!);
+        Assert.Equal([Hash('b'), Hash('c')], quarantine.All.Select(e => e.KindHash));
+        Assert.Equal([Hash('b'), Hash('c')], Quarantine(rig).EnumerateArray().Select(e => e.GetProperty("hash").GetString()));
+    }
+
+    [Fact]
+    public async Task ARecordThatCouldNotBeReadIsRedInPreflightNeverGreenAndJournalled()
+    {
+        var folder = Directory.CreateTempSubdirectory("playmap-quarantine-").FullName;
+        try
+        {
+            var path = Path.Combine(folder, "playmap.quarantine.json");
+            File.WriteAllText(path, "{ not a record");
+            var quarantine = new ShaderQuarantine(path);
+            await using var rig = Rig(quarantine);
+            var check = Assert.Single(rig.Engine.PreflightChecks, c => c is QuarantinePreflight);
+            var row = Assert.Single(await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None));
+            Assert.Equal(Light.Red, row.Light);
+            Assert.Equal("The quarantine record could not be read", row.Item);
+            Assert.Equal(quarantine.LoadWords, row.Note);
+            var aside = Assert.Single(Directory.GetFiles(folder, "playmap.quarantine.json.unreadable-*"));
+            Assert.Contains(Path.GetFileName(aside), row.Note, StringComparison.Ordinal);
+            Assert.Contains(rig.Engine.Journal.Recent(10), r => r.Kind == "fx.quarantine" && r.Text.Contains(Path.GetFileName(aside), StringComparison.Ordinal));
+
+            // A kind quarantined since is red beside it; the record's row stays until the node starts on a record it reads whole.
+            Assert.True(quarantine.Add(Entry()).Applied);
+            var rows = await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
+            Assert.Equal(["fx.quarantine.record", "fx.quarantine:" + Invert.Hash], rows.Select(r => r.Id));
+            Assert.DoesNotContain(rows, r => r.Light == Light.Green);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AReleaseTheHomeRefusesIsRefusedWithItsWordsAndChangesNothing()
+    {
+        var folder = Directory.CreateTempSubdirectory("playmap-quarantine-").FullName;
+        try
+        {
+            var path = Path.Combine(folder, "playmap.quarantine.json");
+            var quarantine = new ShaderQuarantine(path);
+            await using var rig = Rig(quarantine);
+            Assert.True(quarantine.Add(Entry()).Applied);
+            // The record's write lands beside it first: a folder in that place refuses the write.
+            Directory.CreateDirectory(path + ".saving");
+
+            var words = await rig.Refused($"FX RELEASE {Invert.Hash}");
+            Assert.Contains("could not be written", words, StringComparison.Ordinal);
+            Assert.Single(quarantine.All);
+            Assert.Single(Quarantine(rig).EnumerateArray());
+            Assert.Single(new ShaderQuarantine(path).All);
+            Assert.DoesNotContain(rig.Engine.Journal.Recent(10), r => r.Kind == "fx.release");
+            Assert.Contains("could not be written", await rig.Refused("FX RELEASE ALL"), StringComparison.Ordinal);
+            Assert.Single(quarantine.All);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 }

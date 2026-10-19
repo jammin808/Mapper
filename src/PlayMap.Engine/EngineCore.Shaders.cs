@@ -18,8 +18,9 @@ public sealed partial class EngineCore
         routes.Lane("FX RELEASE", c => FxRelease(c.Args));
     }
 
-    /// <summary>FX RELEASE &lt;kind&gt;|ALL: lifts a quarantine (a kind by its name, its id or its hash). A kind that is not quarantined,
-    /// and ALL with none, are refused with the words why and change nothing.</summary>
+    /// <summary>FX RELEASE &lt;kind&gt;|ALL: lifts a quarantine (a kind by its hash, the name it was quarantined under, or a kind of this
+    /// show by its id or name). A kind that is not quarantined, and ALL with none, are refused with the words why and change nothing;
+    /// a release the node's home refuses to record is refused with the home's words and changes nothing either.</summary>
     private CommandReply FxRelease(List<string> args)
     {
         const string Syntax = "FX RELEASE <kind>|ALL";
@@ -27,11 +28,11 @@ public sealed partial class EngineCore
             return CommandReply.Fail(Syntax);
         var quarantine = Services.Quarantine;
         var key = string.Join(' ', args).Trim().Trim('"');
-        ImmutableArray<QuarantineEntry> released;
+        QuarantineChange change;
         if (key.Equals("ALL", StringComparison.OrdinalIgnoreCase))
         {
-            released = quarantine.ReleaseAll();
-            if (released.IsEmpty)
+            change = quarantine.ReleaseAll();
+            if (change.Outcome == QuarantineOutcome.Unchanged)
                 return CommandReply.Fail("no kind is quarantined on this node");
         }
         else
@@ -43,13 +44,17 @@ public sealed partial class EngineCore
                     ? $"{key} is not quarantined: no kind is quarantined on this node"
                     : $"{key} is not quarantined on this node (quarantined: {string.Join(", ", held.Select(e => e.Kind))})");
             }
-            if (!quarantine.Release(entry.KindHash))
+            change = quarantine.Release(entry.KindHash);
+            if (change.Outcome == QuarantineOutcome.Unchanged)
                 return CommandReply.Fail($"{entry.Kind} was released already");
-            released = [entry];
         }
+        if (!change.Applied)
+            return CommandReply.Fail(change.Words);
+        var released = change.Entries;
         FactsChanged();
+        var doubt = change.Words.Length > 0 ? $" ({change.Words})" : "";
         foreach (var e in released)
-            Journal.Add("fx.release", $"released the quarantine on {e.Kind} ({ShaderQuarantine.Word(e.Reason)}: {e.Words})");
+            Journal.Add("fx.release", $"released the quarantine on {e.Kind} ({e.ReasonWord}: {e.Words}){doubt}");
         var payload = JsonOut(w =>
         {
             w.WriteStartObject();
@@ -60,16 +65,17 @@ public sealed partial class EngineCore
             w.WriteEndObject();
         });
         var names = string.Join(", ", released.Select(e => e.Kind));
-        return CommandReply.Success(payload, $"released {names}: {(released.Length == 1 ? "its slots draw" : "their slots draw")} again");
+        return CommandReply.Success(payload, $"released {names}: {(released.Length == 1 ? "its slots draw" : "their slots draw")} again{doubt}");
     }
 
-    /// <summary>The quarantined kind a word names: its hash, the name it was quarantined under, or a kind of this show (by id or name)
-    /// whose sources are quarantined.</summary>
+    /// <summary>The quarantined kind a word names: its hash first (each entry's own, so two entries quarantined under one name are told
+    /// apart), then the name it was quarantined under, then a kind of this show (by id or name) whose sources are quarantined.</summary>
     private QuarantineEntry? QuarantinedKind(string key)
     {
         var all = Services.Quarantine.All;
-        if (all.FirstOrDefault(e => string.Equals(e.KindHash, key, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(e.Kind, key, StringComparison.OrdinalIgnoreCase)) is { } named)
+        if (all.FirstOrDefault(e => string.Equals(e.KindHash, key, StringComparison.OrdinalIgnoreCase)) is { } hashed)
+            return hashed;
+        if (all.FirstOrDefault(e => string.Equals(e.Kind, key, StringComparison.OrdinalIgnoreCase)) is { } named)
             return named;
         var catalog = FxCatalog.For(Store.Project.FxAssets);
         var id = key.StartsWith("fa", StringComparison.Ordinal) ? FxCatalog.AssetKindId(key) : key;
@@ -132,7 +138,7 @@ public sealed partial class EngineCore
             w.WriteStartObject();
             w.WriteString("hash", e.KindHash);
             w.WriteString("kind", e.Kind);
-            w.WriteString("reason", ShaderQuarantine.Word(e.Reason));
+            w.WriteString("reason", e.ReasonWord);
             w.WriteString("words", e.Words);
             w.WriteNumber("at", e.AtUnixMs);
             w.WriteString("build", e.Build);
