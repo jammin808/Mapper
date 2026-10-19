@@ -613,19 +613,28 @@ public sealed class InstallerTests
     /// held with no engine, the engine gone.</summary>
     private static void HoldTheEngine()
     {
-        var supervisor = Path.Combine(InstallDir, "Supervisor", "PlayMap.Supervisor.exe");
-        var stop = Tool(supervisor, "stop");
-        Assert.True(stop.Exit == 0, stop.Output);
+        var (stopped, status) = TryHoldTheEngine();
+        Assert.True(stopped.Exit == 0, stopped.Output);
+        Assert.True(Held(status), status);
+    }
+
+    /// <summary>Asks the supervisor to hold its engine and waits up to a minute for its status to say so: <c>stop</c>'s answer and the
+    /// last status read.</summary>
+    private static ((int Exit, string Output) Stop, string Status) TryHoldTheEngine()
+    {
+        var stop = Tool(SupervisorExe, "stop");
         var deadline = Stopwatch.StartNew();
-        var status = Tool(supervisor, "status").Output;
-        while (!(status.Contains("\"state\":\"held\"", StringComparison.Ordinal) && status.Contains("\"pid\":0", StringComparison.Ordinal))
-               && deadline.Elapsed < TimeSpan.FromMinutes(1))
+        var status = Tool(SupervisorExe, "status").Output;
+        while (!Held(status) && deadline.Elapsed < TimeSpan.FromMinutes(1))
         {
             Wait("cmd.exe", ["/c", "ping", "-n", "2", "127.0.0.1"]);
-            status = Tool(supervisor, "status").Output;
+            status = Tool(SupervisorExe, "status").Output;
         }
-        Assert.True(status.Contains("\"state\":\"held\"", StringComparison.Ordinal) && status.Contains("\"pid\":0", StringComparison.Ordinal), status);
+        return (stop, status);
     }
+
+    private static bool Held(string status) =>
+        status.Contains("\"state\":\"held\"", StringComparison.Ordinal) && status.Contains("\"pid\":0", StringComparison.Ordinal);
 
     /// <summary>The service's state as sc.exe says it ("RUNNING", "STOPPED", …; "" when it is not installed): the word after the
     /// state's number on its STATE line ("        STATE              : 4  RUNNING ").</summary>
@@ -700,6 +709,10 @@ public sealed class InstallerTests
     {
         if (InstallKey() is not null)
         {
+            // The earlier test's engine held first: one its service started moments ago does not answer the uninstall's armed check
+            // yet, which refuses it (as it would refuse a person).
+            if (File.Exists(SupervisorExe) && ServiceState() == "RUNNING")
+                TryHoldTheEngine();
             var gone = Uninstall();
             Assert.True(InstallKey() is null, "the previous test's install could not be removed: " + gone.Log);
         }
