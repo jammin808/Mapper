@@ -22,6 +22,11 @@
   <Style Selector="Button.goFlash /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="{StaticResource DeskDangerSoftBrush}" />
   </Style>
+  <!-- Map anything: every control whose line can be bound, outlined in the accent; a touch learns its line. -->
+  <Style Selector="Button.bindable">
+    <Setter Property="BorderBrush" Value="{StaticResource DeskAccentBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
   <!-- Blind made unmistakable: the word on every pane that edits this desk's draft, in the blind colour. -->
   <Style Selector="Border.blindTag">
     <Setter Property="Background" Value="#6E4FD8" />

@@ -34,7 +34,7 @@ public sealed partial class MainViewModel
         // the desk holds (nothing is asked of the node).
         Ux.GuardMoved += () => OnState(Session.State);
         ModuleViews.Register<OopsPanelViewModel>(() => new Views.Ux.OopsPanelView());
-        UndoMenu = [Undo, Redo, Ux.Oops.Toggle, Ux.Look];
+        UndoMenu = [Undo, Redo, Ux.Oops.Toggle, Ux.Look, Ux.MapAnything];
         OpenFirstLight = new RelayCommand(() =>
         {
             IsHelpOpen = false;

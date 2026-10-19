@@ -371,6 +371,26 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     /// or refused, for the parts of the desk that show the node's answer (the GO guard).</summary>
     public event Action<string, WireReply>? Replied;
 
+    private bool _mapAnything;
+
+    /// <summary>Map anything: while on, every control whose line can be bound is highlighted, and touching one sends BIND LEARN for its
+    /// line instead of the line (once: the mode ends with it). A desk mode, nothing on the node.</summary>
+    public bool MapAnything
+    {
+        get => _mapAnything;
+        set
+        {
+            if (Set(ref _mapAnything, value))
+            {
+                GateMoved();
+                MapAnythingChanged?.Invoke();
+            }
+        }
+    }
+
+    /// <summary>Raised when <see cref="MapAnything"/> moved (every control re-reads whether it is highlighted).</summary>
+    public event Action? MapAnythingChanged;
+
     /// <summary>The GO guard every GO control draws (null until the desk's look module sets it).</summary>
     public ViewModels.Ux.GoGuard? GoGuard { get; set; }
 

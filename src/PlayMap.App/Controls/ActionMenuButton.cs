@@ -49,6 +49,7 @@ public class ActionMenuButton : HoldButton
         IsEnabled = a.HasChildren || a.IsEnabled;
         Classes.Set("goGuard", a.IsGoGuarded);
         Classes.Set("goFlash", a.IsGoFlash);
+        Classes.Set("bindable", a.IsBindable);
     }
 
     protected override bool Holds => Action is { IsHold: true, HasChildren: false };

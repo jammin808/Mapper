@@ -43,6 +43,13 @@ public sealed class UxModule : DeskModule
         session.Replied += (line, reply) => session.OnUi(() => Guard.Replied(line, reply.Ok, reply.Text, MinGoMs(session.State)));
         Guard.Changed += () => GuardMoved?.Invoke();
         Oops = new OopsPanelViewModel(session);
+        MapAnything = DeskAction.Local("map.anything", "Map anything", () => session.MapAnything = !session.MapAnything,
+            isChecked: () => session.MapAnything).Look("bind");
+        session.MapAnythingChanged += () =>
+        {
+            MapAnything.Refresh();
+            GuardMoved?.Invoke();
+        };
         Themes = [.. Enum.GetValues<DeskTheme>().Select(t => DeskAction.Local("look." + t.ToString().ToLowerInvariant(), ThemeName(t),
             () => prefs.Theme = t, isChecked: () => prefs.Theme == t))];
         Brighter = DeskAction.Local("look.brighter", "Brighter", () => prefs.Brightness += 10, isEnabled: () => prefs.Brightness < DeskPrefs.MaxBrightness);
@@ -74,6 +81,9 @@ public sealed class UxModule : DeskModule
     public GoGuard Guard { get; }
 
     public OopsPanelViewModel Oops { get; }
+
+    /// <summary>Map anything (Ctrl+Alt+M): every bindable control highlighted until one is touched, which sends BIND LEARN for its line.</summary>
+    public DeskAction MapAnything { get; }
 
     /// <summary>The Look button (its sub-actions are <see cref="LookMenu"/>).</summary>
     public DeskAction Look { get; }
@@ -166,6 +176,7 @@ public sealed class UxModule : DeskModule
 
     public override void RefreshActions()
     {
+        MapAnything.Refresh();
         Oops.RefreshActions();
         LookMenu.RefreshAll();
     }
@@ -183,6 +194,8 @@ public sealed class UxModule : DeskModule
     [
         new("Ctrl+Alt+Z", "The Oops history: every undo step, newest first, each with Undo to here (UNDO LIST, UNDO TO)", "Desk", Key.Z,
             KeyModifiers.Control | KeyModifiers.Alt, Oops.Toggle.Command) { WhileTyping = true },
+        new("Ctrl+Alt+M", "Map anything: every control that can be bound lights up; touch one to learn it (BIND LEARN <its line>); again to stop",
+            "Desk", Key.M, KeyModifiers.Control | KeyModifiers.Alt, MapAnything.Command) { WhileTyping = true },
         new("Ctrl+Alt+D", "The look: dark, the dark room, daylight (this desk only)", "Desk", Key.D, KeyModifiers.Control | KeyModifiers.Alt,
             new RelayCommand(() => _prefs.Theme = (DeskTheme)(((int)_prefs.Theme + 1) % 3))) { WhileTyping = true },
         new("Ctrl+Alt+Up", "The desk brighter by 10 % (this desk only, apart from the machine's)", "Desk", Key.Up, KeyModifiers.Control | KeyModifiers.Alt, Brighter.Command),

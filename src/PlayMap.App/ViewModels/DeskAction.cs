@@ -43,10 +43,18 @@ public sealed class DeskAction : ObservableObject
         var command = new AsyncCommand(async ct =>
         {
             var line = verb();
-            if (line is not null)
-                await session.SendAsync(line, ct);
+            if (line is null)
+                return;
+            if (session.MapAnything && Bindable(line))
+            {
+                // Map anything: the touch learns this control's line, once.
+                session.MapAnything = false;
+                await session.SendAsync("BIND LEARN " + line, ct);
+                return;
+            }
+            await session.SendAsync(line, ct);
         }, () => self?.IsEnabled ?? true, ex => session.Notify(ToastKind.Fault, ex.Message), everyPress);
-        self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled) { _session = session, _whyNot = whyNot };
+        self = new DeskAction(id, label, verb, command, dynamicLabel, isChecked, isEnabled) { _session = session, _whyNot = whyNot, _isSend = true };
         return self;
     }
 
@@ -177,6 +185,18 @@ public sealed class DeskAction : ObservableObject
     /// draws the guard's red border (a line that is no GO never does).</summary>
     public bool IsGoGuarded => _session?.GoGuard is { } g && g.IsOpen(Verb);
 
+    /// <summary>True while Map anything is on and this action sends a line a binding can carry: the control is highlighted, and a touch
+    /// sends BIND LEARN for its line.</summary>
+    public bool IsBindable => _session is { MapAnything: true } && _isSend && Bindable(Verb);
+
+    private bool _isSend;
+
+    /// <summary>A line a binding may carry: a catalogue row's, neither node-to-node nor the connection's own, carrying no secret and no
+    /// line of its own (BIND LEARN of a BIND).</summary>
+    public static bool Bindable(string? line) =>
+        !string.IsNullOrWhiteSpace(line) && WireGrammar.TryParse(line, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m
+        && !m.Spec.Internal && !m.Spec.EmbedsLine && m.Spec.SecretFrom is null && m.Spec.Category != VerbCategory.Session;
+
     /// <summary>True for the one flash of a GO the node's fence refused (this action's line a GO).</summary>
     public bool IsGoFlash => _session?.GoGuard is { } g && g.IsFlashing(Verb);
 
@@ -219,7 +239,7 @@ public sealed class DeskAction : ObservableObject
             Raise(nameof(Tip), nameof(MenuLabel));
     }
 
-    private (string Label, string Verb, string Tip, bool IsChecked, bool IsEnabled, string? Refusal, string MenuLabel, bool IsAvailable, bool IsGoGuarded, bool IsGoFlash)? _shown;
+    private (string Label, string Verb, string Tip, bool IsChecked, bool IsEnabled, string? Refusal, string MenuLabel, bool IsAvailable, bool IsGoGuarded, bool IsGoFlash, bool IsBindable)? _shown;
 
     /// <summary>Re-reads the label, the verb, the checked and enabled state (after a STATE push) and raises what moved: a push
     /// that moves nothing of this action repaints nothing of it, and an action nothing shows reads nothing (whatever binds it
@@ -232,19 +252,19 @@ public sealed class DeskAction : ObservableObject
             Command.RaiseCanExecuteChanged();
             return;
         }
-        var now = (Label, Verb, Tip, IsChecked, IsEnabled, Refusal, MenuLabel, IsAvailable, IsGoGuarded, IsGoFlash);
+        var now = (Label, Verb, Tip, IsChecked, IsEnabled, Refusal, MenuLabel, IsAvailable, IsGoGuarded, IsGoFlash, IsBindable);
         var was = _shown;
         _shown = now;
         if (was is not { } w)
         {
             Raise(nameof(Label), nameof(Verb), nameof(Tip), nameof(IsChecked), nameof(IsEnabled), nameof(Refusal), nameof(MenuLabel), nameof(IsAvailable),
-                nameof(IsGoGuarded), nameof(IsGoFlash));
+                nameof(IsGoGuarded), nameof(IsGoFlash), nameof(IsBindable));
             Command.RaiseCanExecuteChanged();
             return;
         }
         if (w == now)
             return;
-        Span<string> moved = new string[10];
+        Span<string> moved = new string[11];
         var n = 0;
         if (!string.Equals(w.Label, now.Label, StringComparison.Ordinal))
             moved[n++] = nameof(Label);
@@ -266,6 +286,8 @@ public sealed class DeskAction : ObservableObject
             moved[n++] = nameof(IsGoGuarded);
         if (w.IsGoFlash != now.IsGoFlash)
             moved[n++] = nameof(IsGoFlash);
+        if (w.IsBindable != now.IsBindable)
+            moved[n++] = nameof(IsBindable);
         Raise(moved[..n]);
         if (w.IsEnabled != now.IsEnabled)
             Command.RaiseCanExecuteChanged();

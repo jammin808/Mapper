@@ -7,7 +7,7 @@
   <!-- Every action control: hidden when the node does not run its verb (as its menu entry is), its tooltip shown even
        while it is disabled (the gate's words are the reason), and a padlock while the gate refuses it. -->
   <DataTemplate x:Key="ActionIcon" x:DataType="vm:DeskAction">
-    <Button Classes="tool" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" Classes.goGuard="{Binding IsGoGuarded}" Classes.goFlash="{Binding IsGoFlash}" IsVisible="{Binding IsAvailable}"
+    <Button Classes="tool" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" Classes.goGuard="{Binding IsGoGuarded}" Classes.goFlash="{Binding IsGoFlash}" Classes.bindable="{Binding IsBindable}" IsVisible="{Binding IsAvailable}"
             Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True" AutomationProperties.Name="{Binding Label}">
       <Panel>
         <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" />
@@ -18,7 +18,7 @@
   </DataTemplate>
 
   <DataTemplate x:Key="ActionSmall" x:DataType="vm:DeskAction">
-    <Button Classes="tool small" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" Classes.goGuard="{Binding IsGoGuarded}" Classes.goFlash="{Binding IsGoFlash}" IsVisible="{Binding IsAvailable}"
+    <Button Classes="tool small" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" Classes.goGuard="{Binding IsGoGuarded}" Classes.goFlash="{Binding IsGoFlash}" Classes.bindable="{Binding IsBindable}" IsVisible="{Binding IsAvailable}"
             Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True" AutomationProperties.Name="{Binding Label}">
       <Panel>
         <PathIcon Data="{Binding Icon, Converter={StaticResource Icon}}" Width="15" Height="15" />
@@ -29,7 +29,7 @@
   </DataTemplate>
 
   <DataTemplate x:Key="ActionText" x:DataType="vm:DeskAction">
-    <Button Classes="secondary" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" Classes.goGuard="{Binding IsGoGuarded}" Classes.goFlash="{Binding IsGoFlash}" IsVisible="{Binding IsAvailable}"
+    <Button Classes="secondary" Classes.danger="{Binding IsDanger}" Classes.checked="{Binding IsChecked}" Classes.goGuard="{Binding IsGoGuarded}" Classes.goFlash="{Binding IsGoFlash}" Classes.bindable="{Binding IsBindable}" IsVisible="{Binding IsAvailable}"
             Command="{Binding Command}" ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
       <StackPanel Orientation="Horizontal" Spacing="8">
         <PathIcon Data="{StaticResource Icon.lock}" Width="13" Height="13" IsVisible="{Binding Refusal, Converter={x:Static ObjectConverters.IsNotNull}}" />
