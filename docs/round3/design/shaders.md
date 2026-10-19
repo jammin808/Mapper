@@ -63,7 +63,7 @@ float4 OutputPS(VsOut i) : SV_Target
 - An MSBuild target in `PlayMap.Render.D3D12.csproj` runs DXC (`Microsoft.Direct3D.DXC`) for each entry of `programs.json`:
   `-T vs_6_6` / `-T ps_6_6`, `-HV 2021`, `-Zi` with the PDB written beside, reflection kept in a separate blob, the DXIL validated
   and signed by `dxil.dll`. The DXIL and reflection blobs are embedded resources; the PDBs go to the CI's symbols artifact, never
-  into the MSI. Only changed files compile again.
+  into the installer. Only changed files compile again.
 - The slot headers (`<Program>Slots.hlsli`) are generated before DXC runs from the program table's file
   (`src/PlayMap.Core/Gpu/Programs/programs.layout.json`, wp3-rhi's), read as data by an MSBuild step, so a texture's slot has one
   source and `Render.D3D12` never references `Render`. Before wp3-rhi merges, this package works against a parse of the GLSL

@@ -144,9 +144,9 @@ observer's status file; its rule, inactive while a count is −1, is in `install
 - `AppDomain.UnhandledException` flushes the journal (whose header carries `BuildInfo.Informational`) and writes a "stopping" STATE
   line, then lets the process end; there is no in-process crash reporter, because WER's LocalDumps does not support an application
   that does its own.
-- WER (configured by the MSI) keeps a full dump in `%ProgramData%\PlayMap\dumps`, five at most; the supervisor writes a manifest
-  beside each new dump (build, commit, the last journal sequence). Full dumps stay on the machine; what leaves it is a triage dump
-  (paths and secrets stripped), next round's diagnostics bundle.
+- WER (configured by the installer) keeps a full dump in `%ProgramData%\PlayMap\dumps`, five at most; the supervisor writes a
+  manifest beside each new dump (build, commit, the last journal sequence). Full dumps stay on the machine; what leaves it is a
+  triage dump (paths and secrets stripped), next round's diagnostics bundle.
 
 ## 7. Facts and verbs, Part A
 
