@@ -2,8 +2,9 @@
 # Builds PlayMap's installer from a numbered build (installer/PlayMap.iss; docs/round3/design/installer.md): the published exe's
 # folder, FFmpeg's LGPL shared libraries under ffmpeg\ with their licence texts (the build's LICENSE.txt, the LGPL version 3, and the
 # GPL version 3 it incorporates), the Agility SDK's D3D12Core.dll under D3D12\ (its debug layer left out), libvmx beside the exe with
-# its licence, OpenAL Soft's licence beside soft_oal.dll, THIRD-PARTY-NOTICES.md, licence.txt (the terms the licence page shows and
-# the install keeps: installer/licence.txt, byte for byte), and the supervisor under Supervisor\; then the
+# its licence, the publish's notices (notices.ps1: THIRD-PARTY-NOTICES.md, OpenAL Soft's licence beside soft_oal.dll, and licenses\
+# with every package's own licence and notice files), licence.txt (the terms the licence page shows and the install keeps:
+# installer/licence.txt, byte for byte), and the supervisor under Supervisor\; then the
 # payload's SHA256SUMS of every file it lays down, shipped with it; compiled by Inno Setup's ISCC with the version Version.props gives
 # this run. -Ffmpeg is the LGPL build's extracted folder (bin\ and LICENSE.txt). A local build is refused with words: its installer
 # would read as MAJOR.MINOR.0 and could not be upgraded in order.
@@ -49,9 +50,7 @@ Copy-Item (Join-Path $licences 'GPL-3.0.txt') (Join-Path $payload 'ffmpeg\GPL-3.
 Copy-Item (Join-Path $D3D12 'D3D12Core.dll') (Join-Path $payload 'D3D12')
 Copy-Item $Vmx (Join-Path $payload 'libvmx.dll')
 Copy-Item (Join-Path $repo 'src/ThirdParty/libvmx/LICENSE.txt') (Join-Path $payload 'libvmx-LICENSE.txt')
-if (-not (Test-Path (Join-Path $payload 'soft_oal.dll'))) { throw 'the publish carries no soft_oal.dll: OpenAL Soft''s licence has nothing to sit beside' }
-Copy-Item (Join-Path $licences 'LGPL-2.0.txt') (Join-Path $payload 'soft_oal-LICENSE.txt')
-Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $payload
+& (Join-Path $PSScriptRoot 'notices.ps1') -Folder $payload
 Copy-Item (Join-Path $PSScriptRoot 'licence.txt') (Join-Path $payload 'licence.txt')
 Copy-Item (Join-Path $Supervisor 'PlayMap.Supervisor.exe') (Join-Path $payload 'Supervisor')
 if (Get-ChildItem $payload -Recurse -Filter 'D3D12SDKLayers.dll') { throw 'the Agility SDK''s debug layer is in the payload: releases leave it out' }

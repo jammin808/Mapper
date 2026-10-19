@@ -71,7 +71,7 @@ public sealed class InstallerTests
     }
 
     [Fact]
-    public void TheLicencePageShowsTheTermsBeforeAnythingIsLaidDownAndTheInstallKeepsThem()
+    public void TheLicencePageHoldsTheTermsBeforeAnythingIsLaidDownAndTheInstallKeepsThem()
     {
         EnsureUninstalled();
         try
@@ -79,7 +79,8 @@ public sealed class InstallerTests
             var run = Install(This, "/SHOWUSER=" + ShowUser);
             Assert.True(run.Exit == 0, run.Log);
             // The page as the built installer holds it: the terms' heading first, Microsoft's DISTRIBUTABLE CODE section on it, decoded
-            // as UTF-8; a quiet install accepts it on its command line, and Inno Setup lays nothing down before.
+            // as UTF-8; a quiet install, which shows no page, goes on only with /ACCEPTTERMS=yes, and Inno Setup lays nothing down
+            // before.
             var page = run.Log.IndexOf(LicencePage, StringComparison.Ordinal);
             Assert.True(page >= 0, "the installer's log reads back no licence page showing the terms whole: " + run.Log);
             var laying = run.Log.IndexOf("Starting the installation process.", StringComparison.Ordinal);
@@ -90,6 +91,28 @@ public sealed class InstallerTests
         finally
         {
             EnsureUninstalled();
+        }
+    }
+
+    /// <summary>A quiet install shows no licence page, so one whose command line does not carry /ACCEPTTERMS=yes is refused with
+    /// words before anything else runs: /VERYSILENT, /SILENT, and any other value of the word.</summary>
+    [Fact]
+    public void AQuietInstallWithoutAcceptTermsIsRefusedAndLaysNothingDown()
+    {
+        EnsureUninstalled();
+        foreach (var quiet in new[] { new[] { "/VERYSILENT" }, ["/SILENT"], ["/VERYSILENT", "/ACCEPTTERMS=no"] })
+        {
+            var log = Path.Combine(Path.GetTempPath(), "playmap-install-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".log");
+            var exit = Wait(This, [.. quiet, "/SUPPRESSMSGBOXES", "/NORESTART", "/SHOWUSER=" + ShowUser, "/LOG=" + log]);
+            var said = ReadShared(log);
+            var asked = string.Join(' ', quiet);
+            Assert.True(exit != 0, asked + " installed: " + said);
+            Assert.Contains("refused: A quiet install shows no licence page, so it lays nothing down unless its command line carries /ACCEPTTERMS=yes",
+                said, StringComparison.Ordinal);
+            Assert.DoesNotContain("preinstall-check", said, StringComparison.Ordinal);
+            Assert.Null(InstallKey());
+            Assert.False(ServiceExists(), asked + " left a service");
+            Assert.Empty(Left());
         }
     }
 
@@ -464,7 +487,13 @@ public sealed class InstallerTests
         foreach (var file in new[] { "PlayMap.exe", @"Supervisor\PlayMap.Supervisor.exe", @"D3D12\D3D12Core.dll", "libvmx.dll", @"ffmpeg\avcodec-63.dll" })
             Assert.True(File.Exists(Path.Combine(InstallDir, file)), file + " is not installed");
         // The notices and the licence texts the shipped third-party files ask for, beside them.
-        foreach (var file in new[] { "THIRD-PARTY-NOTICES.md", "licence.txt", @"ffmpeg\LICENSE.txt", @"ffmpeg\GPL-3.0.txt", "libvmx-LICENSE.txt", "soft_oal-LICENSE.txt" })
+        foreach (var file in new[]
+                 {
+                     "THIRD-PARTY-NOTICES.md", "licence.txt", @"ffmpeg\LICENSE.txt", @"ffmpeg\GPL-3.0.txt", "libvmx-LICENSE.txt", "soft_oal-LICENSE.txt",
+                     @"licenses\Apache-2.0.txt", @"licenses\Inter-OFL.txt", @"licenses\Microsoft.NETCore.App.Runtime.win-x64\THIRD-PARTY-NOTICES.TXT",
+                     @"licenses\Microsoft.AspNetCore.App.Runtime.win-x64\THIRD-PARTY-NOTICES.TXT", @"licenses\SkiaSharp.NativeAssets.Win32\THIRD-PARTY-NOTICES.txt",
+                     @"licenses\Microsoft.ML.OnnxRuntime\ThirdPartyNotices.txt",
+                 })
             Assert.True(File.Exists(Path.Combine(InstallDir, file)), file + " is not installed");
         Assert.Equal(File.ReadAllBytes(RepositoryTerms), File.ReadAllBytes(Path.Combine(InstallDir, "licence.txt")));
         Assert.Contains("GNU LESSER GENERAL PUBLIC LICENSE", File.ReadAllText(Path.Combine(InstallDir, "ffmpeg", "LICENSE.txt")), StringComparison.Ordinal);
@@ -704,7 +733,7 @@ public sealed class InstallerTests
     private static Run Install(string installer, params string[] extra)
     {
         var log = Path.Combine(Path.GetTempPath(), "playmap-install-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".log");
-        var exit = Wait(installer, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=" + log, .. extra]);
+        var exit = Wait(installer, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/ACCEPTTERMS=yes", "/LOG=" + log, .. extra]);
         return new Run(exit, ReadShared(log));
     }
 

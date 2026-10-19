@@ -1,2 +1,4 @@
 # The installer's terms carry Microsoft's licence text byte for byte (InstallerTermsTests): never converted on checkout.
 licence.txt -text
+# The Apache License 2.0 is the Apache Software Foundation's text byte for byte (InstallerTermsTests hashes it): never converted.
+licenses/Apache-2.0.txt -text

@@ -13,8 +13,9 @@
 ;   OutputDir    where the installer is written
 ;
 ; Its licence page shows the payload's licence.txt (installer/licence.txt: PlayMap's terms, none named yet, and Microsoft's terms for
-; D3D12Core.dll, verbatim from the Agility SDK package), which a person accepts before anything is laid down; a quiet install
-; (/VERYSILENT) accepts it on its command line.
+; D3D12Core.dll, verbatim from the Agility SDK package), which a person accepts before anything is laid down. A quiet install
+; (/SILENT or /VERYSILENT) shows no page, so InitializeSetup refuses it, before anything else runs, unless its command line carries
+; /ACCEPTTERMS=yes.
 ;
 ; Two test words are read from the command line and nowhere else: /PLAYMAPTESTBUILD=<n> stands in for Windows' build number and
 ; /PLAYMAPTESTSAC=<0|1|2> for Smart App Control's state, so the runner proves the launch condition and the warning without changing
@@ -83,6 +84,7 @@ const
   TermsHeading = 'PlayMap: the terms for the software this installer lays down';
   SacEvaluating = 2;
   SacWords = 'Smart App Control is evaluating this PC: once it enforces, Windows blocks this unsigned build and the node will not start. Turn it off in Windows Security > App & browser control before the show.';
+  QuietTermsWords = 'A quiet install shows no licence page, so it lays nothing down unless its command line carries /ACCEPTTERMS=yes, which accepts the terms that page holds; run the installer without /SILENT or /VERYSILENT to read them first. Nothing was changed.';
 
 var
   MachineSetupFailed: Boolean;
@@ -174,11 +176,23 @@ begin
     Result := Refuse('The armed check refused the install and said nothing (exit ' + IntToStr(Code) + '): nothing was changed.');
 end;
 
+{ Whether the command line accepts the licence page's terms: /ACCEPTTERMS=yes and no other value. }
+function TermsAcceptedOnCommandLine(): Boolean;
+begin
+  Result := CompareText(ExpandConstant('{param:ACCEPTTERMS|}'), 'yes') = 0;
+end;
+
 function InitializeSetup(): Boolean;
 var
   Installed: String;
   Build: Integer;
 begin
+  { The licence page is a wizard page, and a quiet install shows none: its terms are accepted only by the command line's own word. }
+  if WizardSilent and not TermsAcceptedOnCommandLine() then
+  begin
+    Result := Refuse(QuietTermsWords);
+    Exit;
+  end;
   Build := WindowsBuild();
   if Build < MinBuild then
   begin

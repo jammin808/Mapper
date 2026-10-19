@@ -1,6 +1,6 @@
 ﻿PlayMap: the terms for the software this installer lays down
 
-Read these terms before installing. The installer lays nothing down until they are accepted. An install run quietly (/VERYSILENT) accepts them on its command line, so an organisation that installs PlayMap quietly accepts them for its users.
+Read these terms before installing. The installer lays nothing down until they are accepted. A quiet install (/SILENT or /VERYSILENT) shows no page: it lays nothing down unless its command line carries /ACCEPTTERMS=yes.
 
 The installer lays down PlayMap's own files and the third-party components named in section 3. Section 1 is for PlayMap's own terms; section 2 holds the terms for Microsoft's D3D12Core.dll.
 
@@ -183,7 +183,8 @@ de votre pays si celles-ci ne le permettent pas.
 
 Each other component's notice and licence text is laid down with it in the install folder (C:\Program Files\PlayMap):
 
-- THIRD-PARTY-NOTICES.md: the third-party components PlayMap ships, each with its licence and the notice its licence asks for.
+- THIRD-PARTY-NOTICES.md: the third-party components PlayMap ships, each with its copyright and licence, and the notice its licence asks for or where in the install that notice is.
+- licenses\: the licence and notice files of the packages PlayMap's files come from, the .NET runtime's among them, each in a folder named for its package, with the Apache License 2.0 and Inter's SIL Open Font License.
 - ffmpeg\LICENSE.txt and ffmpeg\GPL-3.0.txt: FFmpeg's shared libraries in ffmpeg\, under the GNU Lesser General Public License version 3 or later. THIRD-PARTY-NOTICES.md says where their source is and how to replace them.
 - soft_oal-LICENSE.txt: OpenAL Soft (soft_oal.dll), under the GNU Library General Public License version 2 or later.
 - libvmx-LICENSE.txt: libvmx (libvmx.dll), under the MIT License.
