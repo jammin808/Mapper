@@ -173,15 +173,22 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 ### wp3-installer
 
 What the installer lays down beside PlayMap's own files is listed here, and `{app}\SHA256SUMS` names every file with its hash. This
-file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text sits beside the files it covers.
+file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text sits beside the files it covers, and `{app}\licence.txt` holds
+the terms the installer's licence page shows.
 
 - **FFmpeg** (https://ffmpeg.org) `n9.0.2-17-g2a571b6068`, commit `2a571b6068` of its `release/9.0` branch, as FFmpeg-Builds'
   `lgpl-shared` build (https://github.com/BtbN/FFmpeg-Builds, release `autobuild-2026-09-30-13-08`, the win64 zip pinned by its
   SHA-256 `7157177b8a6cb2174c1650ba8c71b363f2c78cba5330f88c4c02cf5b2b880646`). The build is configured with `--enable-version3`,
   so its libraries are under the GNU Lesser General Public License version 3 or later: the build's own `LICENSE.txt` (the LGPL
   version 3) is laid down as `ffmpeg\LICENSE.txt`, and the GNU General Public License version 3, whose terms the LGPL version 3
-  adds to, as `ffmpeg\GPL-3.0.txt`. Its shared libraries are inside the installer as replaceable files in `ffmpeg\`: a person may
-  put other builds of them in their place. Its source is https://git.ffmpeg.org/ffmpeg.git at that commit, and FFmpeg-Builds'
+  adds to, as `ffmpeg\GPL-3.0.txt`. Its shared libraries are inside the installer as replaceable files in `ffmpeg\`, and a person
+  may put other builds of them in their place: with the engine stopped (`PlayMap.Supervisor.exe stop` on a supervised machine; on
+  any other, the desk and any engine run by hand closed), replace `avutil-61.dll`, `swresample-7.dll`, `swscale-10.dll`,
+  `avcodec-63.dll`, `avformat-63.dll`, `avfilter-12.dll` and `avdevice-63.dll` in `C:\Program Files\PlayMap\ffmpeg\` with 64-bit
+  Windows builds of FFmpeg 9.0 of the same names, then start it again (`PlayMap.Supervisor.exe resume`, or the desk). The engine
+  loads them from that folder by full path and refuses, with words, a library whose major version is not the one it is built for.
+  The install's `SHA256SUMS` then no longer matches those files, and an upgrade lays the installer's own build down again. Its
+  source is https://git.ffmpeg.org/ffmpeg.git at that commit, and FFmpeg-Builds'
   scripts at that release name the source and revision of every library below. Linked into those libraries, as the build's
   configuration names them, each under its project's licence: libiconv (LGPL-2.1-or-later), zlib (Zlib), libxml2 (MIT), libvmaf
   (BSD-2-Clause-Patent), fontconfig (MIT-style), HarfBuzz (MIT), FreeType (FreeType License), FriBidi (LGPL-2.1-or-later), the
@@ -198,11 +205,12 @@ file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text sits besi
   (ZPL-2.1 and MIT) and GCC's libgomp (GPL-3.0-or-later with the GCC Runtime Library Exception). The GPL command-line build of the
   same release is used on CI only, to encode test media, and is never shipped.
 - **The DirectX Agility SDK's `D3D12Core.dll`** (Microsoft, the `Microsoft.Direct3D.D3D12` package 1.619.6 from nuget.org,
-  `tools/ci-d3d12.ps1`'s pin), under the MICROSOFT DIRECTX licence terms that ship in that package: `D3D12Core.dll` is on the
-  package's list of distributable files and is laid down in `D3D12\`; its debug layer (`d3d12SDKLayers.dll`), distributable too,
-  is left out. The terms let a distributor ship those files inside its own program on conditions that include its end users
-  agreeing to terms that protect Microsoft at least as much as those terms do; how PlayMap's installer meets that condition is the
-  owner's decision (`docs/INSTALL.md`, what the owner decides).
+  `tools/ci-d3d12.ps1`'s pin), under the MICROSOFT DIRECTX licence terms that ship in that package, whose DISTRIBUTABLE CODE section
+  lets it be shipped: `D3D12Core.dll` is on the package's list of distributable files and is laid down in `D3D12\`; its debug layer
+  (`d3d12SDKLayers.dll`) and `d3dconfig.exe`, distributable too, are left out. The installer's licence page shows those terms,
+  copied verbatim from the package's `LICENSE.txt`, as the terms a person agrees to for `D3D12Core.dll` before anything is laid
+  down; they are laid down with it in `{app}\licence.txt`. A quiet install accepts them on its command line. The portable folder
+  carries no file of the Agility SDK.
 - **OpenAL Soft** (https://openal-soft.org, source https://github.com/kcat/openal-soft at tag `1.23.1`), under the GNU Library
   General Public License version 2 or later: `soft_oal.dll`, the file the `Silk.NET.OpenAL.Soft.Native` package 1.23.1 puts beside
   the exe (the portable folder carries it too), with the licence's text laid down beside it as `soft_oal-LICENSE.txt`. It is a
@@ -216,12 +224,6 @@ file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text sits besi
   installer EXE. The licence allows any use; its authors ask a commercial user to buy a licence, a request and not a condition, which
   is the owner's own to meet (`docs/round3/PLAN.md` §9 decision 3). The installer is downloaded on CI from the project's release,
   pinned by hash, and checked against the release's own digest and its publisher's signature.
-- **WiX Toolset** (https://github.com/wixtoolset/wix, MS-RL): CI's `wix-toolset` job builds it from its source at the pinned tag
-  `v7.0.0` (commit `b8977d6f88e7b68e000bac226a2814f236770570`, `installer/wix/toolset.json`) to measure it (M17), and the job's
-  summary says what the build answered. No WiX release, package or tool is downloaded, and nothing of WiX is inside what PlayMap
-  ships: its source carries licence checks that PlayMap never answers, patches or passes (the owner decides them), so the installer
-  is Inno Setup's. Were WiX to build the MSI, its Util and Firewall custom-action DLLs inside the MSI would be MS-RL files, named
-  here with that tag's source.
 
 ### wp3-desk-ux
 
