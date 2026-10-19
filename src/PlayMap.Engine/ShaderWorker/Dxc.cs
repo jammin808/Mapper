@@ -54,12 +54,17 @@ public sealed unsafe class Dxc : IDisposable
     private readonly nint _compiler;
     private readonly nint _utils;
     private readonly nint _validator;
+    private readonly nint _includes;
 
     private Dxc(nint compiler, nint utils, nint validator)
     {
         _compiler = compiler;
         _utils = utils;
         _validator = validator;
+        // DXC's own include handler: an #include is read from the including file's folder or a -I folder.
+        nint includes = 0;
+        _ = ((delegate* unmanaged<nint, nint*, int>)Slot(utils, 9))(utils, &includes);
+        _includes = includes;
     }
 
     /// <summary>The pinned DXC and validator; null with words when either cannot be loaded or made.</summary>
@@ -117,8 +122,9 @@ public sealed unsafe class Dxc : IDisposable
     private static byte[] Wide(string s) =>
         OperatingSystem.IsWindows() ? Encoding.Unicode.GetBytes(s + "\0") : Encoding.UTF32.GetBytes(s + "\0");
 
-    /// <summary>Compiles one entry of an HLSL source with DXC's own arguments after <c>-E</c> and <c>-T</c>; the DXIL is validated
-    /// (and signed) by the validator before it is answered.</summary>
+    /// <summary>Compiles one entry of an HLSL source with DXC's own arguments after <c>-E</c> and <c>-T</c> (<c>-I</c> folders among
+    /// them); <paramref name="name"/> is the file's path, the folder its includes are read from first. The DXIL is validated (and
+    /// signed) by the validator before it is answered.</summary>
     public DxilOutput Compile(string source, string entry, string target, IReadOnlyList<string> arguments, string name = "effect.hlsl")
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -139,7 +145,7 @@ public sealed unsafe class Dxc : IDisposable
                 var buffer = new Buffer { Ptr = s, Size = (nuint)text.Length, Encoding = Utf8 };
                 var iid = IidResult;
                 hr = ((delegate* unmanaged<nint, Buffer*, nint*, uint, nint, Guid*, nint*, int>)Slot(_compiler, 3))(
-                    _compiler, &buffer, args, (uint)pointers.Length, 0, &iid, &result);
+                    _compiler, &buffer, args, (uint)pointers.Length, _includes, &iid, &result);
             }
             if (hr < 0 || result == 0)
                 return new DxilOutput(false, [], [], [], $"DXC did not run (0x{hr:x8})");
@@ -312,6 +318,7 @@ public sealed unsafe class Dxc : IDisposable
 
     public void Dispose()
     {
+        Release(_includes);
         Release(_validator);
         Release(_utils);
         Release(_compiler);
