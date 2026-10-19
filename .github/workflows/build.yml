@@ -302,6 +302,17 @@ jobs:
           }
           $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           Get-Content $answers, $system -ErrorAction SilentlyContinue | Write-Host
+      # wp3-platform: what Windows answered each machine claim, the identity and facts it read, and both waits' lateness, as
+      # PlatformCallsTests wrote them on this runner, in the log and the summary. A suite that ran and wrote none fails here.
+      - name: The machine platform's answers (wp3-platform)
+        if: ${{ !cancelled() && !inputs.d3d12 }}
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'platform-evidence.md'
+          if (-not (Test-Path $evidence)) { Write-Host "::error::PlatformCallsTests wrote no evidence to $evidence"; exit 1 }
+          '## The machine platform on this runner (wp3-platform)', '' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          Get-Content $evidence | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          Get-Content $evidence | Write-Host
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5

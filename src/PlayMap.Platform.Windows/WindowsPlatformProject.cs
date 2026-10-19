@@ -1,15 +1,15 @@
 using System.Runtime.Versioning;
+using PlayMap.Core.Machine;
+using PlayMap.Core.Time;
 
 namespace PlayMap.Platform.Windows;
 
-/// <summary>The Windows machine platform's project. It claims nothing yet: no node composes it, so a hosted node's services carry
-/// Core's null platform, which claims nothing and says so, and a thread claim made outside a host answers
-/// ThreadClaims.NoPlatformWords.</summary>
+/// <summary>The Windows machine platform as a node composes it: <see cref="WindowsMachinePlatform"/>, which claims what a show node
+/// needs from Windows and says what Windows answered.</summary>
 [SupportedOSPlatform("windows")]
 public static class WindowsPlatformProject
 {
-    // wp3-platform fills this.
-
-    /// <summary>Why no claim is made of Windows on this node.</summary>
-    public static string Words => "the Windows machine platform is not built yet: no claim is made of Windows";
+    /// <summary>The node's platform on its clocks, with the runtimes their owners fill.</summary>
+    public static WindowsMachinePlatform Create(IMonoClock clock, Func<long> unixMs, Func<RuntimeIdentity>? runtimes = null) =>
+        new(clock, unixMs, runtimes);
 }

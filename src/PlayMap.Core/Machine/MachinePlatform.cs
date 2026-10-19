@@ -53,13 +53,6 @@ public interface IDeadlineTimer : IDisposable
 /// verb does (else null, and the words say what a person does).</summary>
 public sealed record MachineFact(string Item, Light Light, string Value, string Words, string? Fix = null);
 
-/// <summary>MACHINE SET's settings, one per claim, kept in this node's own settings by its settings writer (never in the project, so a
-/// hot backup keeps its own). A claim's setting lands with the claim, with its default and the cause of that default.</summary>
-public sealed record MachineSettings
-{
-    public static MachineSettings Default { get; } = new();
-}
-
 /// <summary>The platform of a node that claims nothing from its operating system: every claim is a no-op that says so with
 /// <see cref="Words"/>, the timer waits at the runtime's own resolution, and the identity carries this build and what the runtime
 /// itself reports (the logical processors, the vector width it accelerates), every other field unread.</summary>
