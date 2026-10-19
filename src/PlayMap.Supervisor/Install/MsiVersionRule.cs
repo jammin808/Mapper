@@ -40,6 +40,24 @@ public static class MsiVersionRule
         return string.Create(CultureInfo.InvariantCulture, $"{v.Major}.{v.Minor}.{build}");
     }
 
+    /// <summary>The build an upgrade from is proven with: the build before this one, numbered so an installer reads it as lower —
+    /// one build lower within a release line, or, at build 1 (a raised MAJOR or MINOR starts the count again), build 1 of the line
+    /// below (MINOR − 1, or MAJOR − 1 with MINOR 255). Null with <paramref name="why"/> when none is lower.</summary>
+    public static (string Version, int Build)? Previous(string version, int build, out string why)
+    {
+        if (Compose(version, build, out why) is null)
+            return null;
+        var v = System.Version.Parse(version);
+        if (build > 1)
+            return (version, build - 1);
+        if (v.Minor > 0)
+            return (string.Create(CultureInfo.InvariantCulture, $"{v.Major}.{v.Minor - 1}.0"), 1);
+        if (v.Major > 0)
+            return (string.Create(CultureInfo.InvariantCulture, $"{v.Major - 1}.{MaxMajorMinor}.0"), 1);
+        why = version + " at build 1 has no lower installer version: raise MINOR";
+        return null;
+    }
+
     /// <summary>Why release <paramref name="next"/> may not follow the last release <paramref name="last"/> (both MAJOR.MINOR.BUILD;
     /// <paramref name="last"/> empty when there is none yet), or null when it may.</summary>
     public static string? Refusal(string next, string last)

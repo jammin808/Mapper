@@ -3,10 +3,13 @@
 # folder, FFmpeg's LGPL shared libraries under ffmpeg\, the Agility SDK's D3D12Core.dll under D3D12\ (its debug layer left out),
 # libvmx beside the exe and the supervisor under Supervisor\, compiled by Inno Setup's ISCC with the version Version.props gives this
 # run. A local build is refused with words: its installer would read as MAJOR.MINOR.0 and could not be upgraded in order.
+# -Version builds the same files under another product version (the build before this one, when this one is build 1 of a raised
+# MAJOR or MINOR: MsiVersionRule.Previous).
 #   installer/build-installer.ps1 -Run 412 -Commit <sha> -Publish publish/PlayMap -Supervisor publish/supervisor -Ffmpeg .ffmpeg/lib
-#       -D3D12 d3d12/D3D12 -Vmx vmx/libvmx.dll -Iscc <ISCC.exe> -Out out
+#       -D3D12 d3d12/D3D12 -Vmx vmx/libvmx.dll -Iscc <ISCC.exe> -Out out [-Version 0.1.0]
 param(
     [Parameter(Mandatory)] [string] $Run,
+    [string] $Version = '',
     [Parameter(Mandatory)] [string] $Commit,
     [Parameter(Mandatory)] [string] $Publish,
     [Parameter(Mandatory)] [string] $Supervisor,
@@ -22,7 +25,8 @@ Set-StrictMode -Version Latest
 $repo = Split-Path $PSScriptRoot -Parent
 $core = Join-Path $repo 'src/PlayMap.Core/PlayMap.Core.csproj'
 $env:DOTNET_NOLOGO = '1'
-$said = (& dotnet msbuild $core -nologo "-p:PlayMapRun=$Run" "-p:PlayMapCommit=$Commit" '-getProperty:PlayMapVersion' '-getProperty:PlayMapMsiVersion' '-getProperty:FileVersion' '-getProperty:_PlayMapBuildNumber') -join "`n"
+$versionArgument = @(if ($Version) { "-p:PlayMapVersion=$Version" })
+$said = (& dotnet msbuild $core -nologo "-p:PlayMapRun=$Run" "-p:PlayMapCommit=$Commit" @versionArgument '-getProperty:PlayMapVersion' '-getProperty:PlayMapMsiVersion' '-getProperty:FileVersion' '-getProperty:_PlayMapBuildNumber') -join "`n"
 if ($LASTEXITCODE -ne 0) { throw "Version.props could not be read: $said" }
 $props = ($said.Substring($said.IndexOf('{')) | ConvertFrom-Json).Properties
 if (-not $props.PlayMapMsiVersion) {

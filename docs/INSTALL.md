@@ -72,7 +72,10 @@ transactional rollback of service and registry changes is what the Inno Setup in
 Add/Remove Programs shows the installer's version, `MAJOR.MINOR.BUILD` (`0.2.17`), where BUILD is CI's build number; the product's
 name carries the SemVer ("PlayMap 0.2.0 (build 17)"), as the desk's about line and HEALTH's `build` do. Every numbered build upgrades
 the one before it. A major or minor above 255 is refused by every build; a local build makes no installer. A release's version is
-greater than the last release's, or the release job refuses it with "raise MINOR".
+greater than the last release's, or the installer job's release-order step refuses it with "raise MINOR": it reads the last
+release's version from its installer's name, and stops when a release exists whose version it cannot read, or when GitHub cannot be
+asked. The installer job proves each upgrade from the build before it: one build lower, or, for the first build of a raised MAJOR or
+MINOR, the first build of the line below.
 
 ## The supervisor
 
@@ -126,7 +129,7 @@ Before downloading, know what Windows does with it:
   own block (logged as event 3077 in `Microsoft-Windows-CodeIntegrity/Operational`), and a desk on another machine shows the node as
   not answering in the fleet's board. Turn it off in Windows Security ▸ App & browser control ▸ Smart App Control before installing.
 
-**Checking a download.** Beside each artifact and release is a `SHA256SUMS` file, one line per file: its SHA-256 and its name.
+**Checking a download.** Beside each artifact is a `SHA256SUMS` file, one line per file: its SHA-256 and its name.
 In PowerShell:
 
 ```powershell

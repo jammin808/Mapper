@@ -396,8 +396,15 @@ jobs:
         with:
           path: wix-feed
           key: wix-toolset-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
-      - name: Build the WiX toolset from its source (M17)
+      - name: M17's answer, kept from the run that measured it
+        id: answer
         if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: wix-answer
+          key: wix-answer-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+      - name: Build the WiX toolset from its source (M17)
+        if: steps.cache.outputs.cache-hit != 'true' && steps.answer.outputs.cache-hit != 'true'
         id: build
         # A toolset that does not build within the job is M17's answer, not this run's failure: the next step says it.
         continue-on-error: true
@@ -405,6 +412,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $answer = New-Item -ItemType Directory -Force -Path wix-answer
+          trap {
+            # What stopped the build is M17's answer: kept by the pin (below), so later runs report it without building again.
+            "- it stopped: $($_.Exception.Message)" | Out-File -FilePath (Join-Path $answer 'answer.md') -Append -Encoding utf8NoBOM
+            break
+          }
           $pin = Get-Content installer/wix/toolset.json -Raw | ConvertFrom-Json
           $src = Join-Path $env:RUNNER_TEMP 'wix'
           git config --global core.autocrlf false
@@ -423,20 +436,29 @@ jobs:
           $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
           $components = Get-Content installer/wix/vs-components.txt | Where-Object { $_ -and -not $_.StartsWith('#') }
           $vsArgs = @('modify', '--installPath', $vs, '--quiet', '--norestart', '--force') + ($components | ForEach-Object { '--add', $_ })
-          $p = Start-Process $installer -ArgumentList $vsArgs -Wait -PassThru
-          "- Visual Studio's v143 components added in $([math]::Round($clock.Elapsed.TotalMinutes, 1)) minutes (installer exit $($p.ExitCode))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
-          if ($p.ExitCode -notin 0, 3010) {
+          # Called directly, each element passed as one argument (the install path holds spaces), and waited on through the pipe.
+          & $installer @vsArgs | Out-Host
+          $vsCode = $LASTEXITCODE
+          $vsWords = "Visual Studio's v143 components added in $([math]::Round($clock.Elapsed.TotalMinutes, 1)) minutes (installer exit $vsCode)"
+          "- $vsWords" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          "- $vsWords" | Out-File -FilePath (Join-Path $answer 'answer.md') -Append -Encoding utf8NoBOM
+          if ($vsCode -notin 0, 3010) {
             Get-ChildItem $env:TEMP -Filter 'dd_*.log' | Sort-Object LastWriteTime | Select-Object -Last 3 |
               Select-String -Pattern 'error|not found|invalid|unknown|does not exist' | Select-Object -Last 40 | ForEach-Object { Write-Host $_.Line }
-            throw "Visual Studio's installer answered $($p.ExitCode)"
+            throw "Visual Studio's installer answered $vsCode"
           }
           $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
           $clock = [System.Diagnostics.Stopwatch]::StartNew()
-          cmd /c "`"$dev`" -no_logo && `"$PWD\installer\wix\build-toolset.cmd`" `"$src\src`""
+          $log = Join-Path $env:RUNNER_TEMP 'wix-build.log'
+          cmd /c "`"$dev`" -no_logo && `"$PWD\installer\wix\build-toolset.cmd`" `"$src\src`"" 2>&1 | Tee-Object -FilePath $log | Out-Host
           $code = $LASTEXITCODE
           $minutes = [math]::Round($clock.Elapsed.TotalMinutes, 1)
           "minutes=$minutes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
-          if ($code -ne 0) { throw "the toolset did not build ($code) after $minutes minutes" }
+          if ($code -ne 0) {
+            # Whether the source's own licence check stopped it: WIX7015 named in the build's output.
+            $gesture = if (Select-String -Path $log -Pattern 'WIX7015' -List) { 'WIX7015 (the licence check) is reported' } else { 'no WIX7015 is reported' }
+            throw "the toolset did not build ($code) after $minutes minutes; $gesture"
+          }
           New-Item -ItemType Directory -Force -Path wix-feed | Out-Null
           foreach ($id in 'WixToolset.Sdk', 'WixToolset.Util.wixext', 'WixToolset.Firewall.wixext') {
             $pkg = Get-ChildItem (Join-Path $src 'build\artifacts') -Filter "$id.*.nupkg" | Where-Object { $_.Name -match "^$([regex]::Escape($id))\.\d" } | Select-Object -First 1
@@ -452,12 +474,20 @@ jobs:
         with:
           path: wix-feed
           key: wix-toolset-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+      - name: Keep M17's answer (a toolset that did not build)
+        if: steps.build.outcome == 'failure'
+        uses: actions/cache/save@v4
+        with:
+          path: wix-answer
+          key: wix-answer-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
       - name: M17's answer
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if ('${{ steps.build.outcome }}' -eq 'failure') {
-            "#### M17: the WiX toolset did not build from its source on the runner", '', "- $(if ('${{ steps.build.outputs.minutes }}') { 'it stopped after ${{ steps.build.outputs.minutes }} minutes of building' } else { 'it stopped before the build, preparing Visual Studio' }) (the build step's log says where); Inno Setup builds the installer (PLAN.md §9 decision 3)", '' |
+          if ('${{ steps.build.outcome }}' -eq 'failure' -or '${{ steps.answer.outputs.cache-hit }}' -eq 'true') {
+            $kept = if (Test-Path wix-answer/answer.md) { Get-Content wix-answer/answer.md } else { @('- the build step wrote no answer (its log says where it stopped)') }
+            $when = if ('${{ steps.answer.outputs.cache-hit }}' -eq 'true') { ' (measured by an earlier run of this pin, kept)' } else { '' }
+            @("#### M17: the WiX toolset did not build from its source on the runner$when", '') + $kept + @("- Inno Setup builds the installer (PLAN.md §9 decision 3)", '') |
               Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
             exit 0
           }
@@ -495,14 +525,28 @@ jobs:
         run: ./tools/ci-d3d12.ps1 -Restore -Into d3d12
       - name: Inno Setup 7.1 (pinned)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Inno Setup 7.1.0 (Jordan Russell's licence: any use; a commercial user is asked, not required, to buy a licence), pinned
-          # by hash and installed for this job only.
+          # by hash and installed for this job only. The pin is the release's own: on every run it equals the digest GitHub's release
+          # API gives the asset (computed by GitHub when the asset was uploaded), and the file carries a valid Authenticode signature
+          # by its publisher, Pyrsys B.V.; a pin that is not both is refused.
           $ErrorActionPreference = 'Stop'
-          $url = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
+          $pin = '0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F'
+          $asset = 'innosetup-7.1.0-x64.exe'
+          $url = "https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/$asset"
           Invoke-WebRequest -Uri $url -OutFile is.exe
           $hash = (Get-FileHash is.exe -Algorithm SHA256).Hash
-          if ($hash -ne '0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F') { throw "$url is not the pinned build ($hash)" }
+          if ($hash -ne $pin) { throw "$url is not the pinned build ($hash)" }
+          $digest = gh api repos/jrsoftware/issrc/releases/tags/is-7_1_0 --jq ".assets[] | select(.name == \"$asset\") | .digest"
+          if ($LASTEXITCODE -ne 0) { throw "the release API could not be read ($LASTEXITCODE): $digest" }
+          if ("$digest".Trim() -ne "sha256:$($pin.ToLowerInvariant())") { throw "the release API's digest of $asset is '$digest', not the pin's" }
+          $signature = Get-AuthenticodeSignature is.exe
+          if ($signature.Status -ne 'Valid') { throw "$asset carries no valid signature: $($signature.Status) $($signature.StatusMessage)" }
+          if ($signature.SignerCertificate.Subject -notmatch '(^|, )CN=Pyrsys B\.V\.(,|$)') { throw "$asset is signed by $($signature.SignerCertificate.Subject), not its publisher" }
+          "- Inno Setup 7.1.0: the pin equals the release API's digest; signed by $($signature.SignerCertificate.Subject)" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           $dir = Join-Path $env:RUNNER_TEMP 'inno'
           Start-Process .\is.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$dir`"" -Wait
           $iscc = Join-Path $dir 'ISCC.exe'
@@ -524,9 +568,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "libvmx did not build ($LASTEXITCODE)" }
       - name: Publish (ReadyToRun) and the supervisor
         id: publish
+        shell: pwsh
         run: |
+          # Each publish's exit code checked on its own line: a step answers only its last command's.
           dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { throw "the app's publish failed ($LASTEXITCODE)" }
           dotnet publish src/PlayMap.Supervisor -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/supervisor -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { throw "the supervisor's publish failed ($LASTEXITCODE)" }
       - name: The installers (this build and the one before it)
         id: build
         shell: pwsh
@@ -534,9 +582,18 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $run = [long]'${{ github.run_number }}'
           $common = @{ Commit = '${{ github.sha }}'; Publish = 'publish/PlayMap'; Supervisor = 'publish/supervisor'; Ffmpeg = '.ffmpeg/lib'; D3D12 = 'd3d12/D3D12'; Vmx = 'vmx/libvmx.dll'; Iscc = $env:ISCC }
-          # The previous build: the same files numbered one build lower, which this build upgrades.
+          # This run's version and build number, as Version.props gives them, and the build before it, numbered lower to an
+          # installer (MsiVersionRule.Previous): one build lower, or at build 1 (a raised MAJOR or MINOR) build 1 of the line below.
+          $said = (& dotnet msbuild src/PlayMap.Core/PlayMap.Core.csproj -nologo "-p:PlayMapRun=$run" '-p:PlayMapCommit=${{ github.sha }}' '-getProperty:PlayMapVersion' '-getProperty:_PlayMapBuildNumber') -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "Version.props could not be read: $said" }
+          $props = ($said.Substring($said.IndexOf('{')) | ConvertFrom-Json).Properties
+          $build = [long]$props._PlayMapBuildNumber
+          $before = (& ./publish/supervisor/PlayMap.Supervisor.exe previous-build $props.PlayMapVersion $build) -join ' '
+          if ($LASTEXITCODE -ne 0) { throw "no build comes before this one: $before" }
+          $previousVersion, $previousBuild = $before.Trim() -split ' '
+          # The previous build: the same files under that version and build, which this build upgrades.
           $GITHUB_OUTPUT_SAVED = $env:GITHUB_OUTPUT; $env:GITHUB_OUTPUT = Join-Path $env:RUNNER_TEMP 'previous.txt'
-          ./installer/build-installer.ps1 -Run ($run - 1) -Out previous @common
+          ./installer/build-installer.ps1 -Run ($run - $build + [long]$previousBuild) -Version $previousVersion -Out previous @common
           $previous = @{}; Get-Content $env:GITHUB_OUTPUT | ForEach-Object { $k, $v = $_ -split '=', 2; $previous[$k] = $v }
           $env:GITHUB_OUTPUT = $GITHUB_OUTPUT_SAVED
           ./installer/build-installer.ps1 -Run $run -Out artifact @common
@@ -546,11 +603,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # An installer's version is greater than the last release's, or nothing is released (docs/round3/PLAN.md §1.3, rule 3).
+          # An installer's version is greater than the last release's, or nothing is released (docs/round3/PLAN.md §1.3, rule 3). The
+          # last release's version is read from its installer's name (PlayMap-<MAJOR.MINOR.PATCH>.<BUILD>-win-x64-unsigned.exe gives
+          # MAJOR.MINOR.BUILD). It fails closed: only "release not found" means there is none yet; a release whose version cannot be
+          # read, or gh failing for any other reason, stops the step with gh's words.
           $ErrorActionPreference = 'Stop'
+          $errors = Join-Path $env:RUNNER_TEMP 'gh-release.txt'
+          $json = gh release view --repo '${{ github.repository }}' --json tagName,assets 2> $errors
+          $code = $LASTEXITCODE
+          $said = if (Test-Path $errors) { (Get-Content $errors -Raw) } else { '' }
           $last = ''
-          $tag = gh release view --repo '${{ github.repository }}' --json tagName --jq .tagName 2>$null
-          if ($LASTEXITCODE -eq 0 -and $tag) { $last = gh release view $tag --repo '${{ github.repository }}' --json body --jq '.body' | Select-String -Pattern 'installer version (\d+\.\d+\.\d+)' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1 }
+          if ($code -ne 0) {
+            if ("$said" -notmatch 'release not found') { throw "the last release could not be read (gh answered $code): $said" }
+          } else {
+            $release = ($json -join "`n") | ConvertFrom-Json
+            $found = @($release.assets | ForEach-Object { if ($_.name -match '^PlayMap-(\d+)\.(\d+)\.\d+\.(\d+)-win-x64-unsigned\.exe$') { "$($Matches[1]).$($Matches[2]).$($Matches[3])" } })
+            if ($found.Count -ne 1) { throw "the last release $($release.tagName) carries $($found.Count) installers named PlayMap-<version>.<build>-win-x64-unsigned.exe: its version cannot be read" }
+            $last = $found[0]
+          }
           ./publish/supervisor/PlayMap.Supervisor.exe version-check '${{ steps.build.outputs.version }}' "$last" --out order.txt
           $code = $LASTEXITCODE
           $words = (Get-Content order.txt -Raw).Trim()
@@ -568,9 +638,72 @@ jobs:
           $ErrorActionPreference = 'Stop'
           ./installer/sums.ps1 -Folder artifact -Notice
           dotnet test installer/tests/PlayMap.Installer.Tests -c Release --logger "trx;LogFileName=PlayMap.Installer.Tests.trx" --blame-hang --blame-hang-timeout 20m --blame-hang-dump-type none
-          if ($LASTEXITCODE -ne 0) { throw "the installer's tests failed ($LASTEXITCODE)" }
+          $code = $LASTEXITCODE
+          # What ran, from the results: every test of the project executed and passed, none left out (a run that found no test
+          # answers 0 too).
+          $trx = 'installer/tests/PlayMap.Installer.Tests/TestResults/PlayMap.Installer.Tests.trx'
+          if (-not (Test-Path $trx)) { throw "the installer's tests left no results ($trx; dotnet test answered $code)" }
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          $counters = (Select-Xml -Path $trx -XPath '//t:ResultSummary/t:Counters' -Namespace $ns).Node
+          $expected = @(Select-String -Path installer/tests/PlayMap.Installer.Tests/*.cs -Pattern '^\s*\[Fact\]').Count
+          $counts = "$($counters.executed) of $expected executed, $($counters.passed) passed, $($counters.failed) failed, $($counters.notExecuted) not executed"
+          "- InstallerTests and UnsignedArtifactTests: $counts" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          if ($code -ne 0) { throw "the installer's tests failed ($code): $counts" }
+          if ([int]$counters.executed -ne $expected -or [int]$counters.passed -ne $expected -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0) {
+            throw "the installer's tests did not all run: $counts"
+          }
           "#### The installer", '', "- ``$(Split-Path $env:PLAYMAP_INSTALLER -Leaf)`` (installer version $env:PLAYMAP_INSTALLER_VERSION, $([math]::Round((Get-Item $env:PLAYMAP_INSTALLER).Length / 1MB, 1)) MB): installed, upgraded from $env:PLAYMAP_INSTALLER_PREVIOUS_VERSION, a downgrade refused, uninstalled, on windows-2025 (InstallerTests)", '' |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+      - name: mDNS beside Windows' own responder (a probe, not a gate)
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          # The published engine announces _playmap._tcp on 5353 beside Windows' own mDNS responder (docs/round3/PLAN.md §3.5 item 4).
+          # Asked twice, the answer of each in the summary: through Windows' resolver (Resolve-DnsName), and as a DNS-SD browser on
+          # the wire does (a PTR query to 224.0.0.251:5353, every answer for 3 s). A refusal is an answer too: it decides stretch 10.
+          $nodeHome = Join-Path $env:RUNNER_TEMP 'mdns-node'
+          New-Item -ItemType Directory -Force -Path $nodeHome | Out-Null
+          $engine = Start-Process (Resolve-Path publish/PlayMap/PlayMap.exe).Path -ArgumentList 'engine', 'headless', '--home', $nodeHome, '--name', 'mdns-probe', '--http', '19940', '--wire', '19941' -PassThru -WindowStyle Hidden
+          $lines = @("#### mDNS: _playmap._tcp beside Windows' own responder", '')
+          try {
+            Start-Sleep -Seconds 20
+            if ($engine.HasExited) { $lines += "- the engine ended before it was asked (exit $($engine.ExitCode)); its log: $nodeHome" }
+            try {
+              $found = @(Resolve-DnsName -Name '_playmap._tcp.local' -Type PTR -ErrorAction Stop | ForEach-Object { "$($_.Name) -> $($_.NameHost)" })
+              $lines += "- Windows' resolver (Resolve-DnsName PTR _playmap._tcp.local): $(if ($found) { $found -join '; ' } else { 'no record' })"
+            } catch { $lines += "- Windows' resolver (Resolve-DnsName PTR _playmap._tcp.local) refused: $($_.Exception.Message)" }
+            $query = [byte[]](0,0, 0,0, 0,1, 0,0, 0,0, 0,0) + [byte[]](8) + [Text.Encoding]::ASCII.GetBytes('_playmap') + [byte[]](4) + [Text.Encoding]::ASCII.GetBytes('_tcp') + [byte[]](5) + [Text.Encoding]::ASCII.GetBytes('local') + [byte[]](0, 0,12, 0,1)
+            $udp = [Net.Sockets.UdpClient]::new([Net.Sockets.AddressFamily]::InterNetwork)
+            try {
+              $udp.Client.SetSocketOption([Net.Sockets.SocketOptionLevel]::Socket, [Net.Sockets.SocketOptionName]::ReuseAddress, $true)
+              $udp.Client.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Any, 5353))
+              $udp.JoinMulticastGroup([Net.IPAddress]::Parse('224.0.0.251'))
+              $udp.Client.ReceiveTimeout = 500
+              [void]$udp.Send($query, $query.Length, '224.0.0.251', 5353)
+              $answers = @()
+              $deadline = [DateTime]::UtcNow.AddSeconds(3)
+              while ([DateTime]::UtcNow -lt $deadline) {
+                try {
+                  $from = [Net.IPEndPoint]::new([Net.IPAddress]::Any, 0)
+                  $packet = $udp.Receive([ref]$from)
+                  # Responses only (QR set), and only those that carry an answer naming the service.
+                  if ($packet.Length -gt 12 -and ($packet[2] -band 0x80) -and ((($packet[6] -shl 8) + $packet[7]) -gt 0)) {
+                    $text = [Text.Encoding]::ASCII.GetString($packet)
+                    if ($text.Contains('_playmap')) { $answers += "$($from.Address) ($(if ($text.Contains('mdns-probe')) { 'names the instance mdns-probe' } else { 'names another instance' }))" }
+                  }
+                } catch [Net.Sockets.SocketException] {
+                  # No packet within the half second: the next look, until the 3 s are up.
+                }
+              }
+              $lines += "- a DNS-SD browse on the wire (PTR _playmap._tcp.local to 224.0.0.251:5353, 3 s): $(if ($answers) { 'answered by ' + (($answers | Select-Object -Unique) -join ', ') } else { 'no answer' })"
+            } catch { $lines += "- a DNS-SD browse on the wire could not be asked: $($_.Exception.Message)" }
+            finally { $udp.Dispose() }
+          } finally {
+            if (-not $engine.HasExited) { Stop-Process -Id $engine.Id -Force }
+          }
+          $lines += ''
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          $lines | Write-Host
       - name: M9 on the runner (a probe, not a gate)
         if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
         shell: pwsh

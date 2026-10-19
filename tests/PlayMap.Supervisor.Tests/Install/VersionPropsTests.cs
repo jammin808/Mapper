@@ -18,6 +18,14 @@ public sealed class VersionPropsTests
         Assert.Equal("", local.Properties["PlayMapMsiVersion"]);
     }
 
+    [Fact]
+    public async Task TheRunAfterARaisedRunBaseIsBuildOne()
+    {
+        // A release line's raise sets PlayMapRunBase to the last run's number: the next run is build 1.
+        var first = await Evaluate("-p:PlayMapVersion=0.3.0", "-p:PlayMapRun=413", "-p:PlayMapRunBase=412", "-p:PlayMapCommit=" + Sha);
+        Assert.Equal("0.3.1", first.Properties["PlayMapMsiVersion"]);
+    }
+
     [Theory]
     [InlineData("256.0.0")]
     [InlineData("0.256.0")]

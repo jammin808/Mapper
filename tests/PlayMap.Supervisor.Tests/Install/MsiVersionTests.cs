@@ -61,6 +61,40 @@ public sealed class MsiVersionTests
         Assert.Equal("'0.2.0.1' is not an installer version (MAJOR.MINOR.BUILD)", MsiVersionRule.Refusal("0.2.0.1", ""));
     }
 
+    [Theory]
+    // Within a release line the build before is one lower.
+    [InlineData("0.2.0", 17, "0.2.0", 16)]
+    [InlineData("1.4.2", 2, "1.4.2", 1)]
+    // A raised MAJOR or MINOR starts the count again at 1: the build before is a lower line, so it is still lower to an installer.
+    [InlineData("0.3.0", 1, "0.2.0", 1)]
+    [InlineData("1.0.0", 1, "0.255.0", 1)]
+    public void TheBuildBeforeThisOneIsLowerToAnInstaller(string version, int build, string previousVersion, int previousBuild)
+    {
+        Assert.Equal((previousVersion, previousBuild), MsiVersionRule.Previous(version, build, out var why));
+        Assert.Equal("", why);
+        var before = new Version(MsiVersionRule.Compose(previousVersion, previousBuild, out _)!);
+        Assert.True(before < new Version(MsiVersionRule.Compose(version, build, out _)!));
+    }
+
+    [Fact]
+    public void TheFirstBuildOfTheFirstLineHasNoneBeforeIt()
+    {
+        Assert.Null(MsiVersionRule.Previous("0.0.4", 1, out var why));
+        Assert.Equal("0.0.4 at build 1 has no lower installer version: raise MINOR", why);
+        Assert.Null(MsiVersionRule.Previous("0.2.0", 0, out why));
+        Assert.Equal("an installer is made from a numbered build only: a local build's would read as 0.2.0 and could not be upgraded in order", why);
+    }
+
+    [Fact]
+    public async Task ThePreviousBuildCommandAnswersVersionAndBuild()
+    {
+        using var said = new StringWriter();
+        Assert.Equal(Program.Done, await Program.RunAsync(["previous-build", "0.3.0", "1"], said));
+        Assert.Equal("0.2.0 1", said.ToString().Trim());
+        using var refused = new StringWriter();
+        Assert.Equal(Program.Refused, await Program.RunAsync(["previous-build", "0.0.4", "1"], refused));
+    }
+
     [Fact]
     public async Task TheVersionCheckCommandAnswersWithItsExitCode()
     {

@@ -25,7 +25,7 @@ public static class Program
         "PlayMap.Supervisor run | status | resume | stop | preinstall-check [--out <file>] | install --dir <folder> [--show-user <account>] "
         + "[--previous-show-user <account>] [--public] [--out <file>] | "
         + "uninstall [--show-user <account>] [--out <file>] | upgrade-stop [--out <file>] | grant <account> | revoke <account> | "
-        + "version-check <next> <last> | session-probe --out <file>";
+        + "version-check <next> <last> | previous-build <version> <build> | session-probe --out <file>";
 
     public static async Task<int> Main(string[] args)
     {
@@ -71,6 +71,16 @@ public static class Program
                 var why = MsiVersionRule.Refusal(args[1], args[2]);
                 say(why ?? $"{args[1]} follows the last release {(args[2].Length > 0 ? args[2] : "(none yet)")}");
                 return why is null ? Done : Refused;
+            case "previous-build" when args.Count == 3:
+                if (!int.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out var build))
+                    build = -1;
+                if (MsiVersionRule.Previous(args[1], build, out var none) is { } previous)
+                {
+                    say(string.Create(CultureInfo.InvariantCulture, $"{previous.Version} {previous.Build}"));
+                    return Done;
+                }
+                say(none);
+                return Refused;
             case "preinstall-check":
                 return await PreinstallCheckAsync(say).ConfigureAwait(false);
             case "help":
