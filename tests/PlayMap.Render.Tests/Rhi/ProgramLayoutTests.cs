@@ -10,7 +10,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// declarations: every program in the library's order, each listing exactly the uniforms and samplers its sources declare, by name and
 /// type, packed by the block's rules; no two programs share a name. GL itself agrees: every uniform the linked program keeps active is
 /// in the table with the same type and count, in both dialects. PLAYMAP_WRITE_FIXTURES=1 writes the file from the sources; the table
-/// changes only with them.</summary>
+/// changes only with them. Every name the renderer's sources set or bind in a draw is in the layout of the program that draw is of
+/// (<see cref="DrawChainScan"/>).</summary>
 [Collection("gpu")]
 public sealed class ProgramLayoutTests(BackendFixture backends)
 {
@@ -95,6 +96,58 @@ public sealed class ProgramLayoutTests(BackendFixture backends)
             }
             Assert.Empty(c.Device.TakeErrors());
         });
+    }
+
+    [Fact]
+    public void EveryNameTheRenderersDrawsSetOrBindIsInItsProgramsLayout()
+    {
+        var sources = DrawChainScan.RenderSources();
+        Assert.NotEmpty(sources);
+        var drawn = new List<string>();
+        var misses = sources.SelectMany(f => DrawChainScan.Misses(f.File, f.Source, drawn)).ToList();
+        Assert.Empty(misses);
+        Assert.All(DrawChainScan.Unresolved.Keys, k => Assert.Contains(sources, s => s.File == k));
+        // The chains the frames draw, the LED rig's, the sends', HAP's and the effects' mix among them, are read.
+        string[] expected = ["led_sample", "led_patch", "video.pack", "video.unpack", "hap", "fxmix", "yuv", "output", "quad", "blit", "mix",
+            "stage", "pixelsurface", "lines", "overlay.shapes", "sprite", "content.pstep", "content.psprite", "content.raymarch", "checker",
+            "motion", "colorcycle", "syncmarks", "fractal.mandelbrot", "reactive.plasma"];
+        Assert.All(expected, p => Assert.Contains(p, drawn));
+    }
+
+    [Fact]
+    public void TheScanCatchesAMisspeltNameAndReadsNoneInComments()
+    {
+        const string Good = """
+            private readonly ProgramId _blit = device.Programs.Id("blit");
+            private readonly ProgramId _cycle = device.Programs.Id("colorcycle");
+            void Copy(ICommandList list, GpuTexture t) =>
+                list.Draw(_blit, Copied).Set("uSrc", 0, 0, 1, 1).Texture("uTex", t).Fullscreen();
+            void Cycle(ICommandList list)
+            {
+                var draw = list.Draw(_cycle, Copied);
+                draw.Set("uColors[3]", 1f, 0f, 0f);
+                draw.Fullscreen();
+            }
+            // list.Draw(_blit, Copied).Set("uSrcc", 0, 0, 1, 1).Fullscreen();
+            /* list.Draw(_blit, Copied).Texture("uTx", t).Fullscreen(); */
+            """;
+        Assert.Empty(DrawChainScan.Misses("Sample.cs", Good));
+        Assert.Equal(["Sample.cs:4: 'uScr' is no constant of blit"],
+            DrawChainScan.Misses("Sample.cs", Good.Replace("Set(\"uSrc\"", "Set(\"uScr\"", StringComparison.Ordinal)));
+        Assert.Equal(["Sample.cs:4: 'uTx' is no texture of blit"],
+            DrawChainScan.Misses("Sample.cs", Good.Replace("Texture(\"uTex\"", "Texture(\"uTx\"", StringComparison.Ordinal)));
+        Assert.Equal(["Sample.cs:8: 'uColor[3]' is no constant of colorcycle"],
+            DrawChainScan.Misses("Sample.cs", Good.Replace("uColors[3]", "uColor[3]", StringComparison.Ordinal)));
+        // A generated id of another program, in a chain.
+        Assert.Equal(["Sample.cs:4: ProgramIds.Quad.uRect is quad's, set in a draw of blit"],
+            DrawChainScan.Misses("Sample.cs", Good.Replace(".Set(\"uSrc\", 0, 0, 1, 1)", ".Set(ProgramIds.Quad.uRect, 0, 0, 1, 1)", StringComparison.Ordinal)));
+        // A helper the chain hands its builder to: its names are the file's programs'.
+        Assert.Equal(["Sample.cs:13: 'uNope' is no constant of blit or colorcycle"],
+            DrawChainScan.Misses("Sample.cs", Good + "\nstatic void Helper(DrawBuilder d) => d.Set(\"uNope\", 1f);\n"));
+        // A program the file does not name, in a file not listed.
+        var unnamed = DrawChainScan.Misses("Sample.cs", "void Draw(ICommandList list, ProgramId p) => list.Draw(p, Copied).Set(\"uSrc\", 0f).Fullscreen();\n");
+        Assert.Single(unnamed);
+        Assert.StartsWith("Sample.cs:1: the draw's program (p) is not named in the file", unnamed[0], StringComparison.Ordinal);
     }
 
     [Fact]
