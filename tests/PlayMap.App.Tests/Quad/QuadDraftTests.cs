@@ -74,12 +74,24 @@ public class QuadDraftTests
                 DeskHarness.Pump();
                 Assert.Equal(2, map.Quad.Clicks.Count);
 
-                // A control of the bar and an entry of a right-click menu (the projector's own Select in the outliner).
-                await desk.Main.Blackout.Command.ExecuteAsync();
-                await desk.Main.Blackout.Command.ExecuteAsync();
-                var pj = map.Outliner[1].Nodes.Single(n => n.Id == "pj_left");
-                await pj.Actions.Single(a => a.Id == "select").Command.ExecuteAsync();
+                // A control of the bar clicked (Blackout, on and off) and an entry chosen from a right-click menu (the projector's own
+                // Select, in the menu its outliner row opens).
+                var blackout = MainWindowTests.Find<Button>(window, "BlackoutButton");
+                DeskHarness.Click(window, blackout);
+                await DeskHarness.Drain([desk.Main.Blackout]);
+                DeskHarness.Click(window, blackout);
+                await DeskHarness.Drain([desk.Main.Blackout]);
+                var row = window.GetVisualDescendants().OfType<Border>()
+                    .First(b => b.DataContext is OutlinerNode { Id: "pj_left" } && b.ContextMenu is not null && b.IsEffectivelyVisible);
+                DeskHarness.Click(window, row, Avalonia.Input.MouseButton.Right);
+                var menu = row.ContextMenu!;
+                Assert.True(menu.IsOpen);
+                var select = menu.Items.OfType<MenuItem>().First(i => i.Tag is DeskAction { Id: "select" });
+                select.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
                 DeskHarness.Pump();
+                menu.Close();
+                DeskHarness.Pump();
+                Assert.Equal(("projector", "pj_left"), (map.SelectedKind, map.SelectedId));
                 AssertDraft(map, 2);
                 Assert.Equal(2, map.Quad.Clicks.Count);
 
@@ -169,6 +181,217 @@ public class QuadDraftTests
         Assert.Equal(Math.Round(standing[0].X * 1920, 2), Math.Round(first.X * 1920, 2) + 1, 1);
         window.Close();
     }
+
+    [AvaloniaFact]
+    public async Task APlacedPointsDragIsWrittenToDeskJsonOnceWhenItIsLetGo()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-quad-");
+        var path = Path.Combine(dir.FullName, "desk.json");
+        try
+        {
+            var prefs = DeskPrefs.Load(path);
+            await using var desk = new DeskHarness(prefs: prefs);
+            var (window, canvas, map) = QuadRig.OpenMap(desk);
+            QuadRig.Key(window, Avalonia.Input.Key.Q);
+            QuadRig.ClickWall(window, canvas, 0.25, 0.25);
+            QuadRig.ClickWall(window, canvas, 0.75, 0.25);
+            var writes = prefs.Writes;
+
+            // Three moves of the first point, then the release: desk.json is written once, with the point where it was let go.
+            QuadRig.Drag(window, canvas, canvas.PointForDraft(0), canvas.PointFor(new Vec2d(0.28, 0.25)), canvas.PointFor(new Vec2d(0.31, 0.25)),
+                canvas.PointFor(new Vec2d(0.34, 0.25)));
+            Assert.Equal(writes + 1, prefs.Writes);
+            Assert.Equal(map.Quad.Clicks[0].X, DeskPrefs.Load(path).QuadDraft("demo0001", "pj_left")![0].X, 6);
+
+            // Arrows on the draft move it on the desk alone; the draft is written once the person is elsewhere (a tool change).
+            writes = prefs.Writes;
+            QuadRig.Key(window, Avalonia.Input.Key.Right);
+            QuadRig.Key(window, Avalonia.Input.Key.Right);
+            Assert.Equal(writes, prefs.Writes);
+            var nudged = map.Quad.Clicks[0];
+            QuadRig.Key(window, Avalonia.Input.Key.S);
+            Assert.Equal(writes + 1, prefs.Writes);
+            Assert.Equal(nudged.X, DeskPrefs.Load(path).QuadDraft("demo0001", "pj_left")![0].X, 6);
+            window.Close();
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task AnotherNodeWithTheSameProjectorShowsItsOwnDraftsNeverTheLastNodes()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-quad-");
+        var path = Path.Combine(dir.FullName, "desk.json");
+        try
+        {
+            await using var desk = new DeskHarness(prefs: DeskPrefs.Load(path));
+            var (window, canvas, map) = QuadRig.OpenMap(desk);
+            QuadRig.Key(window, Avalonia.Input.Key.Q);
+            QuadRig.ClickWall(window, canvas, 0.25, 0.25);
+            QuadRig.ClickWall(window, canvas, 0.75, 0.25);
+            AssertDraft(map, 2);
+
+            // The desk attaches to node B, whose show has a pj_left too: B's view shows none of A's points, and B has no chip.
+            await using var b = new PlayMap.App.Link.FakeEngineLink(clock: desk.Clock) { NodeId = "demo0002" };
+            desk.Main.Attach(b, "Node B");
+            DeskHarness.Pump();
+            Assert.Equal("demo0002", desk.Session.NodeId);
+            Assert.Equal(MapTool.Quad, map.Tool);
+            Assert.False(map.Quad.IsDrawing);
+            Assert.False(map.ToolIsOnView);
+            Assert.Empty(map.DraftChips);
+            b.ClearSent();
+            Key(window, Avalonia.Input.Key.Enter);
+            Assert.DoesNotContain(b.SentLines, l => l.StartsWith("SURFACE QUAD", StringComparison.Ordinal));
+
+            // A click on B's wall is B's first point; A's two are A's still, and nothing was dropped.
+            QuadRig.ClickWall(window, canvas, 0.4, 0.4);
+            AssertDraft(map, 1);
+            var kept = DeskPrefs.Load(path);
+            Assert.Equal(2, kept.QuadDraft("demo0001", "pj_left")!.Count);
+            Assert.Single(kept.QuadDraft("demo0002", "pj_left")!);
+            Assert.DoesNotContain(desk.Session.Toasts, t => t.Text.Contains("dropped", StringComparison.Ordinal));
+            window.Close();
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task LightingANewWallLeavesItsViewEmptyAndTheDraftWithItsOwnProjector()
+    {
+        await using var desk = new DeskHarness();
+        var (window, canvas, map) = QuadRig.OpenMap(desk);
+        QuadRig.Key(window, Avalonia.Input.Key.Q);
+        QuadRig.ClickWall(window, canvas, 0.25, 0.25);
+        QuadRig.ClickWall(window, canvas, 0.75, 0.25);
+        AssertDraft(map, 2);
+        map.Guide.Reopen();
+        await map.Guide.Reading;
+        DeskHarness.Pump();
+        var light = map.Guide.Lights.Single(a => a.Verb == "LIGHT WALL DISPLAY1");
+
+        // LIGHT WALL of the desk's own screen answers before the project that names the new projector arrives.
+        desk.Link.HoldsProject = true;
+        await light.Command.ExecuteAsync();
+        await map.Guide.Lighting;
+        DeskHarness.Pump();
+        Assert.Equal(MapTool.Quad, map.Tool);
+        Assert.False(map.ToolIsOnView);
+        Assert.False(map.IsDraftShown);
+        AssertDraft(map, 2);
+
+        desk.Link.HoldsProject = false;
+        desk.Link.PushProject();
+        DeskHarness.Pump();
+        var lit = map.ViewProjector!.Id;
+        Assert.NotEqual("pj_left", lit);
+        Assert.Null(map.Drafts.Of(lit));
+        Assert.False(map.Quad.IsDrawing);
+        QuadRig.ClickWall(window, canvas, 0.4, 0.4);
+        Assert.Single(map.Drafts.Of(lit)!);
+        Assert.Equal("Quad 1/4", map.ViewDraftChip!.Text);
+        AssertDraft(map, 2);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task APushBetweenEnterAndItsReplyTakesNothingUpAgain()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-quad-");
+        var path = Path.Combine(dir.FullName, "desk.json");
+        try
+        {
+            await using var desk = new DeskHarness(prefs: DeskPrefs.Load(path));
+            var (window, canvas, map) = QuadRig.OpenMap(desk);
+            QuadRig.Key(window, Avalonia.Input.Key.Q);
+            foreach (var (x, y) in new[] { (0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75) })
+                QuadRig.ClickWall(window, canvas, x, y);
+            var reply = new TaskCompletionSource();
+            desk.Link.ReplyAfter = line => line.StartsWith("SURFACE QUAD", StringComparison.Ordinal) ? reply.Task : Task.CompletedTask;
+            desk.Link.ClearSent();
+
+            // Enter: the node draws the quad and pushes its project before the reply comes back.
+            QuadRig.Key(window, Avalonia.Input.Key.Enter);
+            DeskHarness.Pump();
+            Assert.Empty(map.DraftChips);
+            Assert.False(map.Quad.IsDrawing);
+            reply.SetResult();
+            await map.LastQuad;
+            DeskHarness.Pump();
+            desk.Link.ReplyAfter = null;
+
+            // No chip came back, desk.json holds no draft, and Q then Enter sends no second quad.
+            Assert.Empty(map.DraftChips);
+            Assert.Null(DeskPrefs.Load(path).QuadDraft("demo0001", "pj_left"));
+            QuadRig.Key(window, Avalonia.Input.Key.Q);
+            QuadRig.Key(window, Avalonia.Input.Key.Enter);
+            await map.LastQuad;
+            DeskHarness.Pump();
+            Assert.Single(desk.Verbs(), l => l.StartsWith("SURFACE QUAD", StringComparison.Ordinal));
+            window.Close();
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task TheBandIsOnTheWallOnlyWhileTheProjectorViewShowsTheDraft()
+    {
+        await using var desk = new DeskHarness();
+        var (window, canvas, map) = QuadRig.OpenMap(desk);
+        QuadRig.Key(window, Avalonia.Input.Key.Q);
+        foreach (var (x, y) in new[] { (0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75) })
+            QuadRig.ClickWall(window, canvas, x, y);
+        await desk.FlushThrottle();
+
+        // PLAY and back: the band leaves the wall and is back on return.
+        desk.Main.Workspace = Workspace.Play;
+        DeskHarness.Pump();
+        desk.Link.ClearSent();
+        desk.Main.Workspace = Workspace.Map;
+        DeskHarness.Pump();
+        await desk.FlushThrottle();
+        Assert.True(map.IsDraftShown);
+        Assert.Contains(desk.Link.SentLines, l => l.StartsWith("CURSOR op_1 ", StringComparison.Ordinal) && l.Contains(" TRAIL ", StringComparison.Ordinal));
+
+        // V to the 3D view: the band goes, nobody sees the draft, and Enter, the arrows and Tab do nothing to it.
+        desk.Link.ClearSent();
+        QuadRig.Key(window, Avalonia.Input.Key.V);
+        await desk.FlushThrottle();
+        Assert.False(map.IsProjectorView);
+        Assert.False(map.IsDraftShown);
+        Assert.Equal(["CURSOR OFF"], desk.Link.SentLines.Where(l => l.StartsWith("CURSOR", StringComparison.Ordinal)));
+        var standing = map.Drafts.Of("pj_left")!.ToArray();
+        QuadRig.Key(window, Avalonia.Input.Key.Enter);
+        QuadRig.Key(window, Avalonia.Input.Key.Right);
+        QuadRig.Key(window, Avalonia.Input.Key.Tab);
+        await map.LastQuad;
+        await desk.FlushThrottle();
+        Assert.DoesNotContain(desk.Verbs(), l => l.StartsWith("SURFACE QUAD", StringComparison.Ordinal) || l.StartsWith("CURSOR op_1", StringComparison.Ordinal));
+        Assert.Equal(standing, map.Drafts.Of("pj_left")!);
+
+        // V back: the band is on the wall again, and Enter draws the quad.
+        desk.Link.ClearSent();
+        QuadRig.Key(window, Avalonia.Input.Key.V);
+        await desk.FlushThrottle();
+        Assert.True(map.IsDraftShown);
+        Assert.Contains(desk.Link.SentLines, l => l.StartsWith("CURSOR op_1 ", StringComparison.Ordinal) && l.Contains(" TRAIL ", StringComparison.Ordinal));
+        QuadRig.Key(window, Avalonia.Input.Key.Enter);
+        await map.LastQuad;
+        DeskHarness.Pump();
+        Assert.Single(desk.Verbs(), l => l.StartsWith("SURFACE QUAD", StringComparison.Ordinal));
+        window.Close();
+    }
+
+    private static void Key(Window window, Avalonia.Input.Key key) => QuadRig.Key(window, key);
 
     [AvaloniaFact]
     public async Task DiscardAndEscDropTheDraftAndAGoneProjectorsDraftIsDroppedWithWords()

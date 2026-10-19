@@ -245,7 +245,7 @@
               <Grid ColumnDefinitions="28,*,96,64,Auto" Margin="4,1" Background="Transparent" ui:DeskMenu.Actions="{Binding Remove, Converter={x:Static vm:ActionLists.One}}">
                 <CheckBox IsChecked="{Binding Enabled}" MinWidth="0" Padding="0" ToolTip.Tip="Use this pin in the solve" />
                 <Button Grid.Column="1" Classes="tool small" Classes.checked="{Binding IsSelected}" Command="{Binding SelectCommand}" HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Left" ToolTip.Tip="Pick the pin: the arrows move it by one pixel (SET &lt;pin&gt; pixel)" x:Name="PinPick">
+                        HorizontalContentAlignment="Left" Focusable="False" ToolTip.Tip="Pick the pin: the arrows move it by one pixel (SET &lt;pin&gt; pixel)" x:Name="PinPick">
                   <TextBlock Text="{Binding World}" FontSize="12" />
                 </Button>
                 <Grid Grid.Column="2" ColumnDefinitions="*,*" ColumnSpacing="2" x:Name="PinPixel">

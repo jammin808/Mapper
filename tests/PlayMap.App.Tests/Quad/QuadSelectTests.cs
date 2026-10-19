@@ -44,6 +44,71 @@ public class QuadSelectTests
     }
 
     [AvaloniaFact]
+    public async Task ArmedTheWallIsToldNothingAndOnDisarmItIsToldTheSelectedHandle()
+    {
+        await using var desk = new DeskHarness();
+        var (window, canvas, map) = QuadRig.OpenMap(desk);
+        var quad = await QuadRig.DrawQuad(desk, window, canvas);
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        Assert.True((await desk.Session.SendAsync("SHOW ARM", Ct)).Ok);
+        DeskHarness.Pump();
+        Assert.NotNull(desk.Session.GateWords($"HANDLE SELECT {quad.Id} TL"));
+        var refusals = desk.Session.Toasts.Count(t => t.IsRefusal);
+        desk.Link.ClearSent();
+
+        // Armed (HANDLE SELECT is setup): selecting and deselecting the quad tells the wall nothing and says nothing.
+        var node = map.Outliner[0].Nodes.Single(n => n.Id == quad.Id);
+        node.SelectCommand.Execute(null);
+        DeskHarness.Pump();
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        node.SelectCommand.Execute(null);
+        DeskHarness.Pump();
+        Assert.DoesNotContain(desk.Link.SentLines, l => l.StartsWith("HANDLE", StringComparison.Ordinal));
+        Assert.Equal(refusals, desk.Session.Toasts.Count(t => t.IsRefusal));
+
+        // Disarmed: the wall is told the handle the desk shows now; reselecting tells it nothing more (it shows it already).
+        Assert.True((await desk.Session.SendAsync("SHOW DISARM", Ct)).Ok);
+        DeskHarness.Pump();
+        Assert.Equal([$"HANDLE SELECT {quad.Id} TL"], desk.Link.SentLines.Where(l => l.StartsWith("HANDLE", StringComparison.Ordinal)));
+        desk.Link.ClearSent();
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        node.SelectCommand.Execute(null);
+        DeskHarness.Pump();
+        Assert.Equal(["HANDLE SELECT NONE", $"HANDLE SELECT {quad.Id} TL"], desk.Link.SentLines.Where(l => l.StartsWith("HANDLE", StringComparison.Ordinal)));
+
+        // Another client moves the wall's handle: reselecting the quad tells the wall again.
+        Assert.True((await desk.Session.SendAsync($"HANDLE SELECT {quad.Id} BR", Ct)).Ok);
+        DeskHarness.Pump();
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        desk.Link.ClearSent();
+        node.SelectCommand.Execute(null);
+        DeskHarness.Pump();
+        Assert.Contains($"HANDLE SELECT {quad.Id} TL", desk.Link.SentLines);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task ANewLinkIsToldTheSelectedQuadsHandleAgain()
+    {
+        await using var desk = new DeskHarness();
+        var (window, canvas, map) = QuadRig.OpenMap(desk);
+        var quad = await QuadRig.DrawQuad(desk, window, canvas);
+        Assert.Equal(quad.Id, map.SelectedQuad!.Id);
+
+        // The node again over a new link (it started again: its wall shows no handle): the selected quad's handle is told again.
+        await using var again = new PlayMap.App.Link.FakeEngineLink(desk.Link.CurrentProject, desk.Clock);
+        desk.Main.Attach(again, "Demo node");
+        DeskHarness.Pump();
+        Assert.Equal(quad.Id, map.SelectedQuad?.Id);
+        Assert.Equal($"HANDLE SELECT {quad.Id} TL", Assert.Single(again.SentLines, l => l.StartsWith("HANDLE", StringComparison.Ordinal)));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task AnOutlinerPickShowsTheQuadsProjectorAndKeepQuadToolDrawsSeveral()
     {
         await using var desk = new DeskHarness();

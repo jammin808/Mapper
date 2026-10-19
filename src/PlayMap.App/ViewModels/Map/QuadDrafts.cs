@@ -9,12 +9,14 @@ namespace PlayMap.App.ViewModels.Map;
 
 /// <summary>The unfinished quads of one desk on one node, a draft per projector: the points placed so far (wall-normalised), kept on the
 /// desk — never in the project — until Enter draws the quad or a Discard drops it, and written to the user's desk.json by node and
-/// projector so a desk restart and a reattach to the same node keep them. A draft whose projector the project no longer names is
-/// dropped (the map says so).</summary>
+/// projector so a desk restart and a reattach to the same node keep them. A gesture's moves (a placed point dragged, an arrow) are kept
+/// in memory and written once the gesture ends (<see cref="Persist"/>), never at every pointer move. A draft whose projector the project
+/// no longer names is dropped (the map says so).</summary>
 public sealed class QuadDrafts
 {
     private readonly DeskPrefs _prefs;
     private readonly Dictionary<string, List<Vec2d>> _drafts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _unsaved = new(StringComparer.Ordinal);
     private string _node = "";
 
     public QuadDrafts(DeskPrefs prefs)
@@ -35,8 +37,11 @@ public sealed class QuadDrafts
         ArgumentNullException.ThrowIfNull(node);
         if (node == _node)
             return;
+        foreach (var pj in _unsaved.ToList())
+            Persist(pj);
         _node = node;
         _drafts.Clear();
+        _unsaved.Clear();
         if (node.Length > 0)
         {
             foreach (var pj in _prefs.QuadDraftProjectors(node))
@@ -50,8 +55,9 @@ public sealed class QuadDrafts
 
     public IReadOnlyList<Vec2d>? Of(string projector) => _drafts.TryGetValue(projector, out var d) ? d : null;
 
-    /// <summary>Keeps a projector's points (none: forgets the draft) and writes desk.json.</summary>
-    public void Keep(string projector, IReadOnlyList<Vec2d> points)
+    /// <summary>Keeps a projector's points (none: forgets the draft) and writes desk.json, or, with <paramref name="persist"/> false (a
+    /// gesture's move), holds them in memory until <see cref="Persist"/>.</summary>
+    public void Keep(string projector, IReadOnlyList<Vec2d> points, bool persist = true)
     {
         ArgumentNullException.ThrowIfNull(points);
         if (points.Count == 0)
@@ -59,16 +65,31 @@ public sealed class QuadDrafts
             Drop(projector);
             return;
         }
-        if (_drafts.TryGetValue(projector, out var had) && had.SequenceEqual(points))
+        var moved = !(_drafts.TryGetValue(projector, out var had) && had.SequenceEqual(points));
+        if (moved)
+        {
+            _drafts[projector] = [.. points];
+            _unsaved.Add(projector);
+        }
+        if (persist)
+            Persist(projector);
+        if (moved)
+            Changed?.Invoke();
+    }
+
+    /// <summary>Writes a projector's draft to desk.json if a gesture moved it since it was last written (a drag let go, Enter refused,
+    /// the person elsewhere, Resume).</summary>
+    public void Persist(string projector)
+    {
+        if (!_unsaved.Remove(projector) || !_drafts.TryGetValue(projector, out var points))
             return;
-        _drafts[projector] = [.. points];
         if (_node.Length > 0)
             _prefs.SetQuadDraft(_node, projector, points);
-        Changed?.Invoke();
     }
 
     public bool Drop(string projector)
     {
+        _unsaved.Remove(projector);
         if (!_drafts.Remove(projector))
             return false;
         if (_node.Length > 0)
@@ -167,13 +188,24 @@ public sealed class QuadWall
     public Vec2d Pixels(Vec2d raster)
     {
         var a = _field.Evaluate(raster.X, raster.Y);
+        return PixelsAt(a);
+    }
+
+    /// <summary>A point of the projector view in the wall's pixels: the view draws the output's warp but not its quarter turns, so the
+    /// turns are applied here, as the node's wall frame applies them.</summary>
+    public Vec2d PixelsAt(Vec2d view)
+    {
         var turned = _quarters switch
         {
-            1 => new Vec2d(1 - a.Y, a.X),
-            2 => new Vec2d(1 - a.X, 1 - a.Y),
-            3 => new Vec2d(a.Y, 1 - a.X),
-            _ => a,
+            1 => new Vec2d(1 - view.Y, view.X),
+            2 => new Vec2d(1 - view.X, 1 - view.Y),
+            3 => new Vec2d(view.Y, 1 - view.X),
+            _ => view,
         };
         return new Vec2d(turned.X * Width, turned.Y * Height);
     }
+
+    /// <summary>The raster-normalised point under a point of the projector view (the output's warp taken back); null where no point of
+    /// the warped picture lands there.</summary>
+    public Vec2d? RasterAt(Vec2d view) => _field.Invert(view.X, view.Y);
 }

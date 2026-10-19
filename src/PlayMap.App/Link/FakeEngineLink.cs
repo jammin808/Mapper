@@ -124,7 +124,8 @@ public sealed partial class FakeEngineLink : IEngineLink
 
     public string NodeName => "Demo node";
 
-    public string NodeId => "demo0001";
+    /// <summary>The demo node's id ("demo0001"; a test that attaches a desk to a second node gives it another).</summary>
+    public string NodeId { get; init; } = "demo0001";
 
     /// <summary>The pairing token this demo node shows (machine-local; never sent on a line).</summary>
     public string PairingToken
@@ -255,6 +256,25 @@ public sealed partial class FakeEngineLink : IEngineLink
     /// for tests. Null answers at once.</summary>
     public Func<string, Task>? ReplyAfter { get; set; }
 
+    /// <summary>While true the store's edits are applied and answered but the project is not pushed (its mirror and its push wait), as
+    /// a node whose trailing project push is late; <see cref="PushProject"/> pushes it. For tests.</summary>
+    public bool HoldsProject { get; set; }
+
+    /// <summary>Pushes the project as the store holds it now (the late trailing push), whether or not it is held.</summary>
+    public void PushProject()
+    {
+        long projectRev;
+        long stateRev;
+        lock (_gate)
+        {
+            Publish(projectMoved: true);
+            projectRev = _projectMirror.Revision;
+            stateRev = _stateSeq;
+        }
+        ProjectChanged?.Invoke(projectRev);
+        StateChanged?.Invoke(stateRev);
+    }
+
     /// <summary>Sends a line, as the wire client does: carried while the link is live or stale (quiet, still open).</summary>
     public Task<WireReply> SendAsync(string line, CancellationToken ct = default)
     {
@@ -294,6 +314,7 @@ public sealed partial class FakeEngineLink : IEngineLink
             var mutated = reply.Ok && (projectMoved || IsMutating(line) || _extraMoved || beforeAir != (_blackout, _frozen, _pattern));
             if (!mutated)
                 return Task.FromResult(reply);
+            projectMoved &= !HoldsProject;
             Publish(projectMoved);
             stateRev = _stateSeq;
             if (projectMoved)
@@ -326,7 +347,7 @@ public sealed partial class FakeEngineLink : IEngineLink
             }
             if (!moving)
                 return;
-            var projectMoved = _store.Current.Revision != before;
+            var projectMoved = _store.Current.Revision != before && !HoldsProject;
             Publish(projectMoved);
             stateRev = _stateSeq;
             if (projectMoved)

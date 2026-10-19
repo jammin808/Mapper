@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using PlayMap.App.Scene;
+using PlayMap.App.Infrastructure;
 using PlayMap.App.ViewModels;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
@@ -148,8 +149,11 @@ public sealed class ProjectorCanvas : PreviewSurface
         }
         DrawPen(context, r, map.Pen);
         DrawQuads(context, r, map, pj);
-        DrawQuadTool(context, r, map.Quad, map.IsDraftShown);
-        DrawPins(context, v, pj, map.Tool == MapTool.Pin);
+        if (map.ToolIsOnView)
+            DrawQuadTool(context, r, map.Quad.Clicks, map.Quad.Selected, map.Quad.Pointer, map.IsDraftShown);
+        else if (map.Drafts.Of(pj.Id) is { Count: > 0 } kept)
+            DrawQuadTool(context, r, kept, -1, null, shown: false);
+        DrawPins(context, v, pj, map.Tool == MapTool.Pin, map.SelectedPinId);
         context.DrawRectangle(new Pen(new SolidColorBrush(StageDrawing.ColorOf(pj.Color)), 2), r.Deflate(1), 0);
         StageDrawing.Label(context, map.ViewTitle + "  ·  " + pj.Intrinsics.Width.ToString(CultureInfo.InvariantCulture) + "×" + pj.Intrinsics.Height.ToString(CultureInfo.InvariantCulture),
             new Point(r.X + 12, r.Bottom - 28));
@@ -202,10 +206,10 @@ public sealed class ProjectorCanvas : PreviewSurface
     }
 
     /// <summary>The draft's points so far, joined in order, the selected one large, and the rubber band from the last to the pointer;
-    /// a draft kept while another tool is in hand is drawn dashed (its chip offers Resume).</summary>
-    private static void DrawQuadTool(DrawingContext ctx, Rect r, ViewModels.Map.QuadTool quad, bool shown)
+    /// the viewed projector's draft kept while another tool is in hand (or the view is elsewhere) is drawn dashed (its chip offers
+    /// Resume). Only the viewed projector's own points are ever drawn.</summary>
+    private static void DrawQuadTool(DrawingContext ctx, Rect r, IReadOnlyList<Vec2d> clicks, int selected, Vec2d? pointer, bool shown)
     {
-        var clicks = quad.Clicks;
         if (clicks.Count == 0)
             return;
         var pen = shown ? new Pen(StageDrawing.Accent, 2) : new Pen(StageDrawing.Accent, 1.2, dashStyle: new DashStyle([4, 3], 0));
@@ -213,10 +217,10 @@ public sealed class ProjectorCanvas : PreviewSurface
             ctx.DrawLine(pen, Norm(r, clicks[i - 1]), Norm(r, clicks[i]));
         if (clicks.Count == 4)
             ctx.DrawLine(pen, Norm(r, clicks[3]), Norm(r, clicks[0]));
-        else if (shown && quad.Pointer is { } to)
+        else if (shown && pointer is { } to)
             ctx.DrawLine(new Pen(StageDrawing.Accent, 1.2, dashStyle: new DashStyle([4, 3], 0)), Norm(r, clicks[^1]), Norm(r, to));
         for (var i = 0; i < clicks.Count; i++)
-            ctx.DrawEllipse(shown ? StageDrawing.Accent : null, HandlePen, Norm(r, clicks[i]), shown && i == quad.Selected ? 8 : 6, shown && i == quad.Selected ? 8 : 6);
+            ctx.DrawEllipse(shown ? StageDrawing.Accent : null, HandlePen, Norm(r, clicks[i]), shown && i == selected ? 8 : 6, shown && i == selected ? 8 : 6);
     }
 
     /// <summary>A quad corner under the pointer in this projector's picture (the selected quad's first), or null.</summary>
@@ -371,7 +375,9 @@ public sealed class ProjectorCanvas : PreviewSurface
         }
     }
 
-    private void DrawPins(DrawingContext ctx, StageView v, Projector pj, bool active)
+    /// <summary>The pins as crosses in their residual's light, each with its light's shape beside it (✓ △ ✕, never the colour alone),
+    /// the picked one (the arrows move it) enlarged in a ring of the accent with its words.</summary>
+    private void DrawPins(DrawingContext ctx, StageView v, Projector pj, bool active, string? picked)
     {
         for (var i = 0; i < pj.Pins.Length; i++)
         {
@@ -380,8 +386,12 @@ public sealed class ProjectorCanvas : PreviewSurface
             var at = v.FromPixel(pixel);
             var predicted = CameraModel.Project(pin.World, pj.Intrinsics, pj.Lens, pj.Pose);
             var residual = predicted is { } pr ? (pr - pixel).Length : double.PositiveInfinity;
-            var brush = LightBrushConverter.Brushes.For(PinRow.LevelOf(residual));
-            var pen = new Pen(brush, active ? 2 : 1.4);
+            var level = PinRow.LevelOf(residual);
+            var brush = LightBrushConverter.Brushes.For(level);
+            var isPicked = pin.Id == picked;
+            var pen = new Pen(brush, active || isPicked ? 2 : 1.4);
+            if (isPicked)
+                ctx.DrawEllipse(null, new Pen(StageDrawing.Accent, 2), at, 13, 13);
             if (predicted is { } pp)
             {
                 var ps = v.FromPixel(pp);
@@ -393,11 +403,14 @@ public sealed class ProjectorCanvas : PreviewSurface
             ctx.DrawLine(pen, new Point(at.X, at.Y - 9), new Point(at.X, at.Y - 3));
             ctx.DrawLine(pen, new Point(at.X, at.Y + 3), new Point(at.X, at.Y + 9));
             ctx.DrawEllipse(null, pen, at, 6, 6);
-            if (active || _livePins.ContainsKey(pin.Id))
+            var shape = StatusShapes.Shape(level);
+            if (active || isPicked || _livePins.ContainsKey(pin.Id))
             {
-                var words = double.IsFinite(residual) ? string.Create(CultureInfo.InvariantCulture, $"{i + 1} · {residual:0.0} px") : $"{i + 1} · behind";
+                var words = double.IsFinite(residual) ? string.Create(CultureInfo.InvariantCulture, $"{shape} {i + 1} · {residual:0.0} px") : $"{shape} {i + 1} · behind";
                 StageDrawing.Label(ctx, words, new Point(at.X + 10, at.Y + 6), brush, 10.5);
             }
+            else
+                StageDrawing.Label(ctx, shape, new Point(at.X + 8, at.Y + 4), brush, 9.5);
         }
     }
 
@@ -637,6 +650,9 @@ public sealed class ProjectorCanvas : PreviewSurface
         {
             case "draft" when !_dragMoved && map.Quad.Clicks.Count < 4:
                 map.QuadClick(ToNorm(PictureRect(), _pressedAt));
+                break;
+            case "draft":
+                map.EndDraftDrag();
                 break;
             case "quadcorner" when _liveQuadCorner is { } lq:
                 map.DragQuadCorner(lq.Surface, lq.Corner, lq.Wall, commit: true);
