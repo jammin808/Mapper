@@ -156,6 +156,9 @@ public sealed class BlendGammaTests
         var run = await rig.RunToEnd(group);
         await rig.Ok($"ALIGN ACCEPT {run}");
         Assert.All(rig.Current.Outputs, o => Assert.NotEqual(0, o.Blend.Gamma));
+        // The accept's γ is its result's, not a person's, and it draws the measured γ.
+        Assert.All(rig.Current.Outputs, o => Assert.Equal(0, o.HandGamma(rig.Current)));
+        Assert.All(rig.Current.Outputs, o => Assert.Equal(o.Measured!.Color!.Gamma, o.DrawnBlendGamma()));
 
         await rig.Ok($"ALIGN REVERT {group}");
 

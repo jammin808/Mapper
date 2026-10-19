@@ -58,11 +58,13 @@ of where it reaches on the canvas, over `EdgeWidth` 0.15 of the raster side, thr
 light sums to one), the **black pedestal** (the black lifted to the deepest overlap's floor, shared by weight, as a share of each
 output's own white) and the **uniformity gain** (the white evened out toward the dimmest by `Uniformity`, 0.6 by default: a camera's
 vignetting and a gain screen's angle bias what it measures). Each output's γ from its grey ramp is its measured γ
-(`Measured.Color.Gamma`), and ACCEPT also writes it into `Blend.Gamma`. `Blend.Gamma` is the hand's override of the γ the blend's
-fades are drawn through: 0 draws the output's measured γ where it has one, else 2.2, and every renderer, the 3D blend, the audit and
-the MPCDI export read it so (`Output.DrawnBlendGamma`). A project file of schema 1 is read by that rule: a stored 2.2, or the γ the
-output's current calibration result recorded, reads as 0 wherever 0 draws the same γ, any other γ stays the hand's, and PROJECT
-OPEN's answer and journal row name each output it moved.
+(`Measured.Color.Gamma`), and ACCEPT also writes it into `Blend.Gamma`, as CALIBRATION RECALL and ALIGN REVERT write the γ their
+result recorded. `Blend.Gamma` is the γ the blend's fades are drawn through when above 0 — a person's, or the γ the output's current
+calibration result recorded; 0 draws the output's measured γ where it has one, else 2.2, and every renderer, the 3D blend, the audit
+and the MPCDI export read it so (`Output.DrawnBlendGamma`). A person's γ is told from a result's in one place, `Output.HandGamma`: it
+is `Blend.Gamma` unless that is 0 or the γ the current result recorded. A project file of schema 1 is read by that rule: a stored 2.2,
+or a γ that is not a person's, reads as 0 wherever 0 draws the same γ, any other γ stays the person's, and PROJECT OPEN's answer and
+journal row name each output it moved.
 
 ## On the air (`Render/Passes/MeasuredStage.cs`, the `output` program)
 

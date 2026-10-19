@@ -83,9 +83,9 @@ public static class ProjectJson
     }
 
     /// <summary>Schema 1's blend γ as schema 2 reads it. Schema 1 stored a γ in every output, 2.2 unless a person typed another or an
-    /// accept wrote the measured one; schema 2 stores the hand's override, 0 meaning the measured γ (else 2.2). A stored γ of 2.2, or
-    /// one equal to the γ the output's current calibration result recorded, reads as 0 wherever 0 draws that same γ, so no pixel moves;
-    /// every other γ is the hand's override and stays. Answers the project and the ids of the outputs it moved, in project order.</summary>
+    /// accept wrote the measured one; schema 2's 0 means the measured γ (else 2.2). A stored γ of 2.2, or one a result wrote (it is
+    /// not the output's <see cref="Output.HandGamma"/>), reads as 0 wherever 0 draws that same γ, so no pixel moves; every other γ is
+    /// a person's and stays. Answers the project and the ids of the outputs it moved, in project order.</summary>
     public static (Project Project, ImmutableArray<string> Moved) ReadGammaAsTheHands(Project project)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -97,9 +97,8 @@ public static class ProjectJson
             var stored = o.Blend.Gamma;
             if (stored <= 0)
                 continue;
-            var recorded = o.CalibrationId is { } id && project.FindCalibration(id) is { BlendGamma: > 0 } current ? current.BlendGamma : 0;
             var asZero = o.Blend with { Gamma = 0 };
-            if (!(Same(stored, BlendSettings.AssumedGamma) || Same(stored, recorded)) || !Same(asZero.DrawnGamma(o.Measured), stored))
+            if (!(Same(stored, BlendSettings.AssumedGamma) || o.HandGamma(project) == 0) || !Same(asZero.DrawnGamma(o.Measured), stored))
                 continue;
             outputs = outputs.SetItem(i, o with { Blend = asZero });
             moved.Add(o.Id);

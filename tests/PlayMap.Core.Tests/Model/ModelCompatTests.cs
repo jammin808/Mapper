@@ -442,6 +442,31 @@ public sealed class ModelCompatTests
     }
 
     [Fact]
+    public void AnAcceptsGammaIsTheResultsAndOnlyATypedOneIsAPersons()
+    {
+        var p = Project.CreateDefault("Hand");
+        var o = p.Outputs[0];
+        var measured = new MeasuredCorrection(null, null, null, new MeasuredColor(1, 1, 1, 2.31, 1), 0, "", "", "", 1);
+        var result = new CalibrationSnapshot("cs00000001", "Align", CalibrationTarget.Output, o.Id, 1, CalibrationSource.Align, null, null,
+            QualityScore.None, "desk", false) { Output = measured, BlendGamma = 2.31 };
+        // An accept: the measured layer, the result current, and its γ written into the blend.
+        var accepted = o with { Measured = measured, CalibrationId = result.Id, Blend = o.Blend with { Gamma = 2.31 } };
+        p = p with { Outputs = [accepted], Stage = p.Stage with { Calibrations = [result] } };
+
+        Assert.Equal(2.31, accepted.RecordedBlendGamma(p));
+        Assert.Equal(0, accepted.HandGamma(p));
+        Assert.Equal(2.31, accepted.DrawnBlendGamma());
+        // A γ typed over it is a person's, and so is one equal to the measured γ with no result current.
+        var typed = accepted with { Blend = accepted.Blend with { Gamma = 1.8 } };
+        Assert.Equal(1.8, typed.HandGamma(p));
+        Assert.Equal(1.8, typed.DrawnBlendGamma());
+        var noResult = accepted with { CalibrationId = null };
+        Assert.Equal(0, noResult.RecordedBlendGamma(p));
+        Assert.Equal(2.31, noResult.HandGamma(p));
+        Assert.Equal(0, (accepted with { Blend = accepted.Blend with { Gamma = 0 } }).HandGamma(p));
+    }
+
+    [Fact]
     public void EveryRoundThreeFieldHoldsItsDefaultAndRoundTripsThroughTheFile()
     {
         var p = ProjectJson.Read(RoundTwoSample.RoundOneFile()).Project;

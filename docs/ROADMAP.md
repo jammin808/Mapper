@@ -137,7 +137,8 @@ still waits: nothing in it claims a hardware fact.
   implementation that says why it does nothing, and every node's services carry each of them, so a package's extension sets its
   own; the host points thread claims at the node's platform once at start.
 - **Model.** Outputs carry colour bits, HDR and nit target, frames in flight, a watermark and pass-through. Canvases carry a
-  span, viewpoints a fit, and the project its guides. A blend's γ is the hand's override (0 draws the measured γ). Older files
+  span, viewpoints a fit, and the project its guides. A blend's γ above 0 is a person's or the current calibration result's (`Output.HandGamma` tells them apart); 0 draws the
+  measured γ. Older files
   read unchanged but for γ, and the load note names each output moved.
 - **Seams packages need.** `UNDO TO` with its store and gate, HEALTH's shown and observed frames and GPU phase (−1 and unknown
   until filled), the engine's pid record for the supervisor, and arm hooks with deadlines that `SHOW ARM` names in its answer.

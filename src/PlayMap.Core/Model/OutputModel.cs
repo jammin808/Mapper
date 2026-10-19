@@ -105,8 +105,10 @@ public sealed record BlendSettings(
     bool Auto3D,
     EdgeBlend Edges,
     BlendCurve Curve,
-    /// <summary>The hand's γ for the blend's fades, or 0: the output's measured γ (<see cref="MeasuredColor.Gamma"/>) where it has
-    /// one, else <see cref="AssumedGamma"/>. <see cref="DrawnGamma"/> is the γ every renderer uses.</summary>
+    /// <summary>The γ the fades are drawn through when above 0 — a person's, or the γ the output's current calibration result
+    /// recorded (ALIGN ACCEPT, CALIBRATION RECALL and ALIGN REVERT write it); 0 draws the output's measured γ
+    /// (<see cref="MeasuredColor.Gamma"/>) where it has one, else <see cref="AssumedGamma"/>. <see cref="DrawnGamma"/> is the γ every
+    /// renderer uses; <see cref="Output.HandGamma"/> tells a person's from a result's.</summary>
     double Gamma,
     /// <summary>The projector's black as a fraction of its white (0..0.25) for black-level matching.</summary>
     double BlackLevel,
@@ -118,8 +120,8 @@ public sealed record BlendSettings(
 
     public static readonly BlendSettings Default = new(true, EdgeBlend.None, BlendCurve.Cosine, 0, 0, false);
 
-    /// <summary>The γ the fades are drawn through: the hand's (<see cref="Gamma"/> above 0), else the measured γ where
-    /// <paramref name="measured"/> has one above 0, else <see cref="AssumedGamma"/>.</summary>
+    /// <summary>The γ the fades are drawn through: <see cref="Gamma"/> above 0, else the measured γ where <paramref name="measured"/>
+    /// has one above 0, else <see cref="AssumedGamma"/>.</summary>
     public double DrawnGamma(MeasuredCorrection? measured) =>
         Gamma > 0 ? Gamma : measured?.Color is { Gamma: > 0 } colour ? colour.Gamma : AssumedGamma;
 }
@@ -222,6 +224,23 @@ public sealed record Output(
 
     /// <summary>The γ the output's blend fades are drawn through (<see cref="BlendSettings.DrawnGamma"/> with its measured layer).</summary>
     public double DrawnBlendGamma() => Blend.DrawnGamma(Measured);
+
+    /// <summary>The γ the output's current calibration result recorded (an accept or a recall wrote it into the blend), or 0 when it
+    /// has no current result or the result recorded none.</summary>
+    public double RecordedBlendGamma(Project project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        return CalibrationId is { } id && project.FindCalibration(id) is { BlendGamma: > 0 } current ? current.BlendGamma : 0;
+    }
+
+    /// <summary>A person's γ for the blend's fades, or 0 when there is none: <see cref="BlendSettings.Gamma"/> unless it is 0 or the γ
+    /// the output's current calibration result recorded (<see cref="RecordedBlendGamma"/>), which a result wrote, not a hand. The one
+    /// test of a person's γ: the schema-1 reading rule and wp3-canvas' HAND read it here.</summary>
+    public double HandGamma(Project project)
+    {
+        var gamma = Blend.Gamma;
+        return gamma <= 0 || Math.Abs(gamma - RecordedBlendGamma(project)) < 1e-9 ? 0 : gamma;
+    }
 }
 
 /// <summary>The signal an HDR output sends: off (SDR), HDR10 (PQ in BT.2020), or scRGB (linear light, 1.0 = 80 cd/m²).</summary>
