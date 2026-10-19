@@ -8,10 +8,16 @@
     <TargetFramework>$(PlayMapTfm)</TargetFramework>
     <RootNamespace>PlayMap.Supervisor</RootNamespace>
     <AssemblyName>PlayMap.Supervisor</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ServiceBase for the Windows service; its types are Windows only and sit behind the platform checks. -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>

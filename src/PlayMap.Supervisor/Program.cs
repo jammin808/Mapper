@@ -1,21 +1,245 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.IO.Pipes;
+using System.Runtime.Versioning;
+using System.ServiceProcess;
+using System.Text;
+using PlayMap.Core.Machine;
+using PlayMap.Supervisor.Install;
+using PlayMap.Supervisor.Windows;
+
 namespace PlayMap.Supervisor;
 
-/// <summary>"PlayMap.Supervisor …": the supervisor's entry. It does nothing yet: it starts and watches no engine, reads no command,
-/// writes nowhere and changes nothing on the machine; it exits <see cref="NothingDone"/>, so no caller reads its run as a supervised
-/// engine, and <see cref="Words"/> say why. A service has no console: the built supervisor logs to its own file and the Event
-/// Log.</summary>
+/// <summary>"PlayMap.Supervisor &lt;command&gt;": the service (<c>run</c>, as Windows starts it) and the installer's and a person's
+/// commands. Each answers in words on its standard output (and into <c>--out &lt;file&gt;</c> where the installer reads them) and with
+/// its exit code: 0 done, 2 refused with words, 3 not on this OS, 64 a command line it does not take. The machine-level commands need
+/// an elevated caller; the engine itself never runs elevated.</summary>
 public static class Program
 {
-    /// <summary>The exit code of a run that did nothing.</summary>
-    public const int NothingDone = 1;
+    public const int Done = 0;
+    public const int Refused = 2;
+    public const int NotHere = 3;
+    public const int Usage = 64;
 
-    /// <summary>What the supervisor answers every command line with until it is built.</summary>
-    public const string Words = "PlayMap.Supervisor does nothing yet: it starts and watches no engine and changes nothing on this machine";
+    /// <summary>The commands, as <c>help</c> lists them.</summary>
+    public const string Words =
+        "PlayMap.Supervisor run | status | resume | stop | preinstall-check [--out <file>] | install --dir <folder> [--show-user <account>] [--public] [--out <file>] | "
+        + "uninstall [--show-user <account>] [--out <file>] | grant <account> | revoke <account> | version-check <next> <last> | session-probe --out <file>";
 
-    public static int Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        // wp3-installer fills this.
-        return NothingDone;
+        await using var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
+        return await RunAsync(args, stdout).ConfigureAwait(false);
+    }
+
+    /// <summary>Runs one command line; the words go to <paramref name="said"/> and, with <c>--out</c>, into that file too.</summary>
+    public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter said)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(said);
+        var outFile = Option(args, "--out");
+        var words = new StringBuilder();
+        void Say(string line)
+        {
+            words.AppendLine(line);
+            said.WriteLine(line);
+        }
+        int code;
+        try
+        {
+            code = await DispatchAsync(WithoutOut(args), Say).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+                                       or System.ComponentModel.Win32Exception or System.Security.Principal.IdentityNotMappedException)
+        {
+            Say("refused: " + ex.Message);
+            code = Refused;
+        }
+        if (outFile is { Length: > 0 })
+            await File.WriteAllTextAsync(outFile, words.ToString(), new UTF8Encoding(false)).ConfigureAwait(false);
+        return code;
+    }
+
+    private static async Task<int> DispatchAsync(IReadOnlyList<string> args, Action<string> say)
+    {
+        var command = args.Count > 0 ? args[0] : "";
+        switch (command)
+        {
+            case "version-check" when args.Count == 3:
+                var why = MsiVersionRule.Refusal(args[1], args[2]);
+                say(why ?? $"{args[1]} follows the last release {(args[2].Length > 0 ? args[2] : "(none yet)")}");
+                return why is null ? Done : Refused;
+            case "preinstall-check":
+                return await PreinstallCheckAsync(say).ConfigureAwait(false);
+            case "help":
+                say(Words);
+                return Done;
+        }
+        if (!OperatingSystem.IsWindows())
+        {
+            if (command is "run" or "status" or "resume" or "stop" or "install" or "uninstall" or "grant" or "revoke" or "session-probe" or "report-session")
+            {
+                say("the supervisor runs on Windows only: '" + command + "' changes nothing here");
+                return NotHere;
+            }
+            say(Words);
+            return Usage;
+        }
+        return OnWindows(command, args, say);
+    }
+
+    private static async Task<int> PreinstallCheckAsync(Action<string> say)
+    {
+        var facts = await PreinstallCheck.LookAsync(EnginePidRecord.MachineFolder(), FindEngine, PreinstallCheck.AnswerTime).ConfigureAwait(false);
+        var verdict = PreinstallCheck.Decide(facts, TimeZoneInfo.Local);
+        say(verdict.Words);
+        return verdict.GoOn ? Done : PreinstallVerdict.RefusedExit;
+    }
+
+    /// <summary>An engine running from the installed exe (a process named PlayMap whose command line runs it as the engine), with no
+    /// port known: the check asks it on the default wire port.</summary>
+    private static (int Pid, int Port)? FindEngine()
+    {
+        if (!OperatingSystem.IsWindows())
+            return null;
+        foreach (var p in Process.GetProcessesByName("PlayMap"))
+        {
+            using (p)
+            {
+                var line = SessionLauncher.CommandLineOf(p.Id);
+                // A process whose command line cannot be read may be an engine: the check fails closed.
+                if (line.Length == 0 || line.Contains(" engine", StringComparison.OrdinalIgnoreCase))
+                    return (p.Id, 0);
+            }
+        }
+        return null;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int OnWindows(string command, IReadOnlyList<string> args, Action<string> say)
+    {
+        var showUser = Option(args, "--show-user") ?? "";
+        switch (command)
+        {
+            case "run":
+                ServiceBase.Run(new SupervisorService());
+                return Done;
+            case "install" when Option(args, "--dir") is { Length: > 0 } dir:
+                MachineSetup.Install(dir, showUser, args.Contains("--public"), say);
+                return Done;
+            case "uninstall":
+                MachineSetup.StopService(say);
+                StopEngine(say);
+                MachineSetup.Uninstall(showUser, say);
+                return Done;
+            case "grant" when args.Count == 2:
+                MachineSetup.Grant(args[1]);
+                say(MachinePlan.ShowUserRight + " granted to " + args[1]);
+                return Done;
+            case "revoke" when args.Count == 2:
+                MachineSetup.Revoke(args[1]);
+                say(MachinePlan.ShowUserRight + " taken back from " + args[1]);
+                return Done;
+            case "status" or "resume" or "stop":
+                return PipeCommand(command, say);
+            case "session-probe":
+                return SessionProbe.Run(say);
+            case "report-session":
+                say(string.Create(CultureInfo.InvariantCulture, $"session {Process.GetCurrentProcess().SessionId}"));
+                return Done;
+            default:
+                say(Words);
+                return Usage;
+        }
+    }
+
+    /// <summary>Asks the running service on its pipe; with no service, <c>status</c> reads the status file and <c>stop</c> stops the
+    /// engine itself.</summary>
+    [SupportedOSPlatform("windows")]
+    private static int PipeCommand(string word, Action<string> say)
+    {
+        try
+        {
+            using var client = new NamedPipeClientStream(".", MachinePlan.PipeName, PipeDirection.InOut);
+            client.Connect(2000);
+            var bytes = Encoding.UTF8.GetBytes(word + "\n");
+            client.Write(bytes);
+            client.Flush();
+            using var reader = new StreamReader(client, Encoding.UTF8);
+            var answer = reader.ReadLine() ?? "";
+            say(answer);
+            return answer.StartsWith("ERR", StringComparison.Ordinal) ? Refused : Done;
+        }
+        catch (System.TimeoutException)
+        {
+            switch (word)
+            {
+                case "status":
+                    var status = Status.SupervisorStatus.Read(EnginePidRecord.MachineFolder());
+                    say(status is null ? "the supervisor is not running and has written no status" : "the supervisor is not running; its last status: " + status.ToJson());
+                    return status is null ? Refused : Done;
+                case "stop":
+                    StopEngine(say);
+                    return Done;
+                default:
+                    say("the supervisor is not running: there is nothing to resume (start the service PlayMapSupervisor)");
+                    return Refused;
+            }
+        }
+    }
+
+    /// <summary>Stops the engine the pid record names: the service holds it when it runs; otherwise the stop event, the grace, then
+    /// termination.</summary>
+    [SupportedOSPlatform("windows")]
+    private static void StopEngine(Action<string> say)
+    {
+        var folder = EnginePidRecord.MachineFolder();
+        if (Directory.Exists(folder) && EnginePidRecord.Named(folder) is { } record && PreinstallCheck.IsAlive(record.Pid))
+        {
+            if (EventWaitHandle.TryOpenExisting(MachinePlan.StopEvent, out var stop))
+            {
+                using (stop)
+                    stop.Set();
+            }
+            using var process = Process.GetProcessById(record.Pid);
+            if (!process.WaitForExit(5000))
+            {
+                SupervisorService.Terminate(record.Pid);
+                say(string.Create(CultureInfo.InvariantCulture, $"the engine (pid {record.Pid}) did not stop within 5 s and was terminated"));
+            }
+            else
+            {
+                say(string.Create(CultureInfo.InvariantCulture, $"the engine (pid {record.Pid}) stopped"));
+            }
+        }
+        else
+        {
+            say("no supervised engine runs");
+        }
+    }
+
+    /// <summary>The command line less its <c>--out &lt;file&gt;</c>, which every command takes.</summary>
+    private static List<string> WithoutOut(IReadOnlyList<string> args)
+    {
+        var rest = new List<string>(args.Count);
+        for (var i = 0; i < args.Count; i++)
+        {
+            if (args[i] == "--out" && i + 1 < args.Count)
+                i++;
+            else
+                rest.Add(args[i]);
+        }
+        return rest;
+    }
+
+    private static string? Option(IReadOnlyList<string> args, string name)
+    {
+        for (var i = 0; i < args.Count - 1; i++)
+        {
+            if (args[i] == name)
+                return args[i + 1];
+        }
+        return null;
     }
 }

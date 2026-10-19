@@ -31,6 +31,13 @@
     <VersionSuffix Condition="'$(PlayMapRun)' == ''">dev</VersionSuffix>
     <AssemblyVersion Condition="$(_PlayMapVersionWellFormed)">$([System.Version]::Parse('$(PlayMapVersion)').Major).$([System.Version]::Parse('$(PlayMapVersion)').Minor).0.0</AssemblyVersion>
     <FileVersion>$(PlayMapVersion).$(_PlayMapBuildNumber)</FileVersion>
+    <!-- An MSI's ProductVersion holds a major and a minor of at most 255 (Windows Installer reads MAJOR.MINOR.BUILD), so no build
+         carries a version above it: a version a release could not install is refused for every build, not only an installer's. -->
+    <_PlayMapOver255 Condition="$(_PlayMapVersionWellFormed) and ($([System.Version]::Parse('$(PlayMapVersion)').Major) &gt; 255 or $([System.Version]::Parse('$(PlayMapVersion)').Minor) &gt; 255)">true</_PlayMapOver255>
+    <_PlayMapOver255Words>PlayMapVersion '$(PlayMapVersion)' has a major or minor above 255, the most an MSI's ProductVersion holds: no build may carry a version a release cannot install.</_PlayMapOver255Words>
+    <!-- The installer's version, MAJOR.MINOR.BUILD, set for a numbered build only: a local build's would read as MAJOR.MINOR.0 and
+         could never be upgraded in order, so a local build makes no installer (installer/README.md). -->
+    <PlayMapMsiVersion Condition="'$(PlayMapRun)' != '' and $(_PlayMapVersionWellFormed) and '$(_PlayMapOver255)' != 'true' and $(_PlayMapRunWellFormed) and $(_PlayMapRunBaseWellFormed) and $(_PlayMapBuildNumber) &gt;= 1 and $(_PlayMapBuildNumber) &lt;= 65535">$([System.Version]::Parse('$(PlayMapVersion)').Major).$([System.Version]::Parse('$(PlayMapVersion)').Minor).$(_PlayMapBuildNumber)</PlayMapMsiVersion>
     <!-- The informational version is composed by PlayMapStampVersion below, with the commit; the SDK appends nothing to it. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
@@ -47,6 +54,7 @@
            Text="PlayMapVersion '$(PlayMapVersion)' is not MAJOR.MINOR.PATCH with each part a whole number of at most five digits (Version.props)." />
     <Error Condition="$(_PlayMapVersionWellFormed) and ($([System.Version]::Parse('$(PlayMapVersion)').Major) &gt; 65535 or $([System.Version]::Parse('$(PlayMapVersion)').Minor) &gt; 65535 or $([System.Version]::Parse('$(PlayMapVersion)').Build) &gt; 65535)"
            Text="PlayMapVersion '$(PlayMapVersion)' has a part past 65535, the most a Windows file version's part holds." />
+    <Error Condition="'$(_PlayMapOver255)' == 'true'" Text="$(_PlayMapOver255Words)" />
     <Error Condition="!$(_PlayMapRunBaseWellFormed)"
            Text="PlayMapRunBase '$(PlayMapRunBase)' is not a whole number: the CI run this version's build numbers count from (Version.props)." />
     <Error Condition="'$(PlayMapRun)' != '' and !$(_PlayMapRunWellFormed)"
