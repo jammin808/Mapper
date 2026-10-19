@@ -70,9 +70,10 @@ MCP, desk, menus and right-click menus, papers.
 - **Round 3's ownership**: a package edits only the files `docs/round3/PLAN.md` §4 gives it and its hook word's stubs; a
   missing seam goes through the spine amendment lane (§5.7). Every new verb is a catalogue row; every new STATE block has
   its fixture written by a test and a card descriptor.
-- **Native libraries the user installs** (NDI, NVIDIA's Aftermath, vendor SDKs) load at run time by absolute path, never
-  shipped and never found by a bare-name search. FFmpeg ships only as the LGPL build's replaceable shared libraries. No
-  GPL code is copied.
+- **Native libraries the user installs** (NDI, NVIDIA's Aftermath, vendor SDKs) are never shipped and load at run time.
+  A new loader finds its library by absolute path only, never by a bare-name search, which on Windows takes in the
+  current directory and `PATH` (Aftermath: round 3 §9 decision 7; NDI's and libvmx's loaders still end with one, an open
+  fix in `docs/ROADMAP.md`). FFmpeg ships only as the LGPL build's replaceable shared libraries. No GPL code is copied.
 
 ## The loop
 
@@ -98,7 +99,7 @@ CI runs both jobs on every push: Linux (with the ES 3.00 leg) and Windows on `wi
 | The wire, STATE, the verbs | `docs/WIRE.md`, `src/PlayMap.Core/Wire/VerbCatalog.cs` (the one table) |
 | The Show Bus node (Patterns/Stagewatch interop) | `docs/SHOWBUS-NODE.md` |
 | Mapping and scanning | `docs/MAPPING.md` |
-| Playback, sync, media distribution | `docs/PLAYBACK.md` |
+| Playback, sync, media distribution | `docs/SYNC.md`, `docs/DECODE.md`, `docs/VIDEO.md`, `docs/OPTIMISE.md`, `docs/FLEET.md` |
 | The desk | `docs/DESK.md`, `docs/UX.md` |
 | Research behind the choices | `docs/RESEARCH.md` |
 | What is built, what is next, the lab's list | `docs/ROADMAP.md` |
