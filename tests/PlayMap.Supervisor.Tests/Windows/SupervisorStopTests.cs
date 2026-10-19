@@ -123,7 +123,8 @@ public sealed class SupervisorStopTests
     }
 
     /// <summary>The installer's fake engine copied into <paramref name="folder"/> as PlayMap.exe (its apphost finds its assembly by the
-    /// name built into it).</summary>
+    /// name built into it). It is built as this project's reference: in this test's configuration, or, when the solution built it (a
+    /// project outside the solution builds in its own default configuration), in the newest of its configurations' folders.</summary>
     private static void CopyFakeEngine(string folder)
     {
         var configuration = typeof(SupervisorStopTests).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration ?? "Release";
@@ -131,8 +132,15 @@ public sealed class SupervisorStopTests
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))
             dir = dir.Parent;
         Assert.NotNull(dir);
-        var built = Path.Combine(dir.FullName, "installer", "tests", "PlayMap.FakeEngine", "bin", configuration, "net10.0");
-        Assert.True(File.Exists(Path.Combine(built, "PlayMap.FakeEngine.exe")), "the fake engine is not built in " + built);
+        var bin = Path.Combine(dir.FullName, "installer", "tests", "PlayMap.FakeEngine", "bin");
+        var own = Path.Combine(bin, configuration, "net10.0");
+        var built = File.Exists(Path.Combine(own, "PlayMap.FakeEngine.exe"))
+            ? own
+            : Directory.Exists(bin)
+                ? Directory.GetDirectories(bin).Select(c => Path.Combine(c, "net10.0")).Where(d => File.Exists(Path.Combine(d, "PlayMap.FakeEngine.exe")))
+                    .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "PlayMap.FakeEngine.exe"))).FirstOrDefault() ?? own
+                : own;
+        Assert.True(File.Exists(Path.Combine(built, "PlayMap.FakeEngine.exe")), "the fake engine is not built in " + bin);
         foreach (var file in Directory.GetFiles(built))
             File.Copy(file, Path.Combine(folder, Path.GetFileName(file)));
         File.Move(Path.Combine(folder, "PlayMap.FakeEngine.exe"), Path.Combine(folder, "PlayMap.exe"));

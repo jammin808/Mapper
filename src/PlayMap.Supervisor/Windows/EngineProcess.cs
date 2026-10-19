@@ -72,10 +72,11 @@ public sealed class EngineProcess : IDisposable
         return process;
     }
 
-    /// <summary>What Windows says of the process of that id now (<see cref="ProcessFacts.Gone"/> when no process has it).</summary>
+    /// <summary>What Windows says of the process of that id now (<see cref="ProcessFacts.Gone"/> when no process has it). The handle
+    /// is opened to read and to wait on, as every handle <see cref="FactsOf"/> reads is: whether the process runs is a wait.</summary>
     public static ProcessFacts ReadFacts(int pid)
     {
-        using var handle = Native.OpenProcessHandle(QueryLimited, false, pid);
+        using var handle = Native.OpenProcessHandle(QueryLimited | Synchronize, false, pid);
         if (handle.IsInvalid)
         {
             // An id no process has is refused as a bad parameter; any other refusal is a process this one may not read.

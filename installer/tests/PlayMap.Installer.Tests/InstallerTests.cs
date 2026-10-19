@@ -348,17 +348,13 @@ public sealed class InstallerTests
         Assert.True(status.Contains("\"state\":\"held\"", StringComparison.Ordinal) && status.Contains("\"pid\":0", StringComparison.Ordinal), status);
     }
 
-    /// <summary>The service's state as sc.exe says it ("RUNNING", "STOPPED", …; "" when it is not installed).</summary>
+    /// <summary>The service's state as sc.exe says it ("RUNNING", "STOPPED", …; "" when it is not installed): the word after the
+    /// state's number on its STATE line ("        STATE              : 4  RUNNING ").</summary>
     private static string ServiceState()
     {
         var query = Tool("sc.exe", "query", "PlayMapSupervisor");
-        foreach (var line in query.Output.Split('\n'))
-        {
-            var at = line.IndexOf("STATE", StringComparison.Ordinal);
-            if (at >= 0)
-                return line.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.Trim() ?? "";
-        }
-        return "";
+        var state = System.Text.RegularExpressions.Regex.Match(query.Output, @"STATE\s*:\s*\d+\s+([A-Z_]+)");
+        return state.Success ? state.Groups[1].Value : "";
     }
 
     /// <summary>The service's state once it is <paramref name="state"/>, or as it stands after a minute.</summary>

@@ -522,6 +522,9 @@ public sealed class SupervisorHost : IDisposable
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
         if (showUser.Length > 0 && Sid(showUser) is { } user)
             security.AddAccessRule(new PipeAccessRule(user, PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        // The account serving the pipe makes its further instances (SYSTEM for the service, which holds full control already).
+        if (WindowsIdentity.GetCurrent().User is { } self && !self.IsWellKnown(WellKnownSidType.LocalSystemSid))
+            security.AddAccessRule(new PipeAccessRule(self, PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance, AccessControlType.Allow));
         return security;
     }
 
@@ -558,9 +561,19 @@ public sealed class SupervisorHost : IDisposable
         EventWaitHandle stop;
         try
         {
-            stop = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, name, out var createdNew, security);
-            if (createdNew)
-                return stop;
+            // One that exists already is opened with the rights the supervisor uses (set, clear, wait, read its owner); otherwise it
+            // is made with the ACL above.
+            if (EventWaitHandleAcl.TryOpenExisting(name, EventWaitHandleRights.Modify | EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions,
+                    out var existing))
+            {
+                stop = existing;
+            }
+            else
+            {
+                stop = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, name, out var createdNew, security);
+                if (createdNew)
+                    return stop;
+            }
         }
         catch (UnauthorizedAccessException ex)
         {
