@@ -4,6 +4,12 @@ How a PlayMap node gets its outputs' pictures to the displays, how it knows what
 different input lags light the same picture at the same instant, and how outputs on one or many machines share one vblank. The
 wire's side is in `docs/wire/output.md` and `docs/wire/d3d11.md`.
 
+Today an output presents through OpenGL, or, on Windows when `PRESENT PATH DXGI` asks for it, through the experimental Direct3D 11
+flip path. The direction (`docs/round3/PLAN.md` D1, D2, D5) is Direct3D 12 behind a rendering hardware interface (the RHI), each
+output on its own flip-model swap chain. OpenGL stays the reference backend, its pixels unchanged, until pixel and timing parity is
+measured. Outputs are to lock where the hardware locks; everywhere else they are to run the honest software lock, the same frame with
+its phase measured and said. *Where it is going*, at the end, says the rest.
+
 ## The platform and the presenters
 
 The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Platform`) from the node's settings
@@ -37,6 +43,10 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
   have one API.
 
 ## The DXGI flip path
+
+The DXGI path is a bridge, not the direction. It retires with GL's other paths once Direct3D 12 reaches parity, and the Direct3D 12
+flip presenter takes its place on the same flip model; it gets no hardware lock tier (*The frame lock*, below; `docs/round3/PLAN.md`
+§9 decision 21).
 
 `AnglePlatform` (`src/PlayMap.Render/Platform/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
 stops names its stage (`adapter`, `device`, `angle`, `extensions`, `context`, `programs`) in `machine.present.why` while the node
@@ -106,6 +116,9 @@ ring starts again: nothing from before the break is shown after it, and the dela
 `outputs[].present.delayFrames`, `latencyResidualMs` (|residual| ≤ half a frame), `machine.present.airLatencyMs`, `latencyWords`.
 At most six frames: an input lag that would need more is refused with the words.
 
+The direction for capture cards (`docs/round3/PLAN.md` D14): a pass-through output runs outside the delay ring with one frame in
+flight. It samples its input late, by its measured render time, and the input's time from arrival to shown is published.
+
 ## Vblank truth and the present ledger
 
 Every output keeps a **present clock** (`src/PlayMap.Core/Presentation`, pure, so any backend's presenter feeds it):
@@ -164,6 +177,16 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   the output runs free, measured; on the DXGI path the join is refused too ("this build joins no DXGI swap chain to a swap group
   yet") and the output runs free, measured. `none` elsewhere ("NVAPI is Windows only"). `fake` scripts a board for tests and rehearsals.
   The board is polled off the render thread once a second.
+- **Two more states.** The machine also names `grouped` (a swap group inside one node, with no barrier to other nodes) and
+  `soft-locked`. Nothing enters either today.
+
+**Where the lock is going** (`docs/round3/PLAN.md` D5, wp3-framelock): each output has a lock tier. The hardware tiers run on
+NVIDIA's professional GPUs with an RTX PRO Sync board: NVAPI's present barrier on Direct3D 12, and the `WGL_NV_swap_group` swap
+group and barrier on OpenGL. Each output counts as locked only by its own evidence, and an output the driver does not take runs free
+with its phase and words. Everywhere else the tier is `software`, with the words "software lock: same frame, phase +6.2 ms ±
+0.3 ms". No output is in a locked state (`framelocked`, `house-locked`, `grouped`) without its own tier's evidence, and
+`soft-locked` retires: software is a tier, not a state. The DXGI path gets no hardware tier: a node with a board whose outputs
+present there is amber, with `PRESENT PATH D3D12` or `GL` as the fix.
 
 ## Preflight, INDEX, context
 
@@ -179,7 +202,7 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   from each output with the Eye's verbs (`follows` while locked, `hears` while free); a `machine:present` item (amber) when the
   platform is not what was asked.
 
-## Verified here, compile-only, next
+## Verified here, compile-only, and where it is going
 
 - **Here** (Mesa llvmpipe on Xvfb): every program on core 3.3 and on ES 3.00 (EGL surfaceless and GLFW); BGRA swizzle, float
   targets, an output through the whole frame on ES; the presenter seam with the GL window and a scripted presenter; vblank and
@@ -207,7 +230,12 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   yet".
 - **Compile-only**: the NVAPI tier. Its structure sizes and version words are checked against NVIDIA's header here; on the Windows
   CI job it says why it has no board ("no NVIDIA driver on this machine"). The DXGI path on a real GPU and display (lab).
-- **Next round**: DXGI as `auto` once proven in the lab; independent-flip evidence (the PresentMon proof, the media statistics hint);
-  10-bit output, device-lost rebuild (the DXGI path's included), the DRS stop-gap, scanline sampling; `SYNC MARKS`,
-  `SYNC CERTIFY`, `SYNC REPORT`, the frame code and certificate, `LATENCY MEASURE`; the IGCL and GLX swap-group tiers; the board
-  helper; the D3D12 present barrier; HDR; macOS; OML sync control on Linux.
+- **Where it is going** (`docs/round3/PLAN.md`): Direct3D 12 flip presenters behind the RHI (wp3-present). Each output has one
+  waitable swap chain, and STATE says whether it is in Independent Flip and how that is known. Outputs get HDR10 and 10-bit, and each
+  frame has one predicted display time. A lost device is rebuilt by the same path that started it, rehearsed in CI (wp3-stability-2).
+  An independent observer reads a watermark off the air, and `LATENCY STEP` measures glass to glass, with each stage's share
+  (wp3-stability). The lock takes the tiers of *Where the lock is going*, above. AUTO stays GL until a lab parity record exists for a
+  vendor tier, then becomes Direct3D 12 on that tier; GL, ANGLE and the DXGI path retire next round, once parity is measured. Show
+  nodes become Windows 11 machines: Linux keeps the development loop, and no macOS node is planned. Not in the plan: the DRS stop-gap,
+  scanline sampling, `SYNC MARKS`, `SYNC CERTIFY`, `SYNC REPORT`, the sync certificate, the IGCL and GLX swap-group tiers, the board
+  helper, and OML sync control on Linux. No lab exists this round, so every hardware line is reported not run, never passed.

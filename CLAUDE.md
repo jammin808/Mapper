@@ -33,7 +33,9 @@ the design; read it first. Round 3 (`docs/round3/PLAN.md`) is the plan of record
   several outputs as one canvas. Every mapping step can be done by hand, and every automatic result is a layer the
   hand's edits sit over. Capture cards pass through to the air with one frame in flight.
 - **AI integration throughout.** Guides are data the assistant reads; it proposes lines through the same gate as
-  everyone, and a person approves. A still of a view goes to an off-machine model only when a person turns it on.
+  everyone, which decides by the line's risk, the operator's settings and Show Mode what waits for a person's approval;
+  a person's Check and a secret are never the assistant's. A still of a view goes to an off-machine model only when a
+  person turns it on.
 - **No lab this round.** Every lab line keeps its script and pass mark and is reported "not run"; nothing claims a
   hardware fact it has not measured.
 
@@ -110,5 +112,5 @@ CI runs both jobs on every push: Linux (with the ES 3.00 leg) and Windows on `wi
 **the air** — what the audience sees; **a lane** — a single-writer path; **a seam** — an interface where a platform
 or heavy implementation is swapped; **STATE** — the node's JSON; **the context** — Show Bus §6; **a surface** — a
 mappable mesh face set with content; **pins** — 3D↔2D calibration pairs; **the smart scan** — the camera image
-seen from the projector's point of view; **the RHI** — the render hardware interface in `Core/Gpu` every backend
+seen from the projector's point of view; **the RHI** — the rendering hardware interface in `Core/Gpu` every backend
 implements; **a lab line** — a check only real hardware runs (`docs/round3/PLAN.md` §7).
