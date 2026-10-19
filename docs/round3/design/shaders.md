@@ -35,8 +35,10 @@ Direct3D backend supplies the same names in HLSL with the same uniforms". User I
 | geometry from `gl_VertexID` | `SV_VertexID` |
 | `texelFetch(t, p, 0)` (exact reads) | `t.Load(int3(p, 0))` |
 | `texture(t, uv)` | `t.Sample(s, uv)` with the slot's sampler |
-| row-vector matrices (`v * M`) | `row_major` matrices, `mul(v, M)` |
-| targets top row first, UV v down | Direct3D's texture origin is top-left: nothing changes, and the GL present's flip does not exist here |
+| a `mat4` constant: a row-vector transform (`m * v` of the block as set computes v·M) | `row_major float4x4`, `mul(v, M)` |
+| a `mat3` constant (the normal matrix N = R·S⁻¹): a column-vector transform (`m * v` computes M·v) | `row_major float3x3`, `mul(M, v)` |
+| targets top row first, UV v down | the texture origin agrees (top-left, v down): sampling changes nothing, and the GL present's flip does not exist here |
+| the RHI's clip space (`ClipSpace`, Core): clip y = −w is the target's top row, z from −w to w is depth 0 to 1, back faces clockwise in the raster seen top row first | Direct3D's rasteriser differs (clip y = +w is its top row, z < 0 is clipped): every vertex entry ends with `pos.y = -pos.y; pos.z = (pos.z + pos.w) * 0.5;` (`ClipSpace.ToDirect3D`), and pipelines cull with `FrontCounterClockwise = TRUE` and `CULL_MODE_BACK`; without it every offscreen pass draws upside down |
 | integer-exact maths (`video.pack`, `hapenc.*`) | `uint` arithmetic and `asuint`/`asfloat`, never float round trips |
 | a uniform left unset reads 0 | the constant ring is zeroed per draw before the builder writes |
 
