@@ -25,11 +25,14 @@ public enum MapTool
 /// overlays — frusta, pins, selection, gizmo) or the projector view (what one projector sees, with its warp
 /// handles, its pen masks, its pins and its quads), the tools, the inspector, on-wall editing and the first-light guide.
 /// Every edit is a verb; drags go through the throttle and land as one undo step on the engine (it coalesces a key's
-/// edits). The quad tool's four clicks are wall points: Enter sends one SURFACE QUAD; a selected quad's corner moves by the
-/// arrows (SURFACE CORNER … BY … PX) and Tab picks the next corner (HANDLE SELECT), so the wall shows it; O puts the edit
-/// overlay on the wall (OVERLAY ON ON &lt;output&gt;), its lease renewed every 5 s of the desk's clock while this desk holds it, and off
-/// again when the desk leaves MAP, closes or leaves the node. A quad half drawn belongs to the projector it was begun on: it is
-/// dropped when the view shows another.</summary>
+/// edits). The quad tool's four clicks are wall points: Enter sends one SURFACE QUAD and leaves the new quad selected with the Select
+/// tool; a selected quad's corner drags in the view (SURFACE CORNER … TO … through the throttle), is typed in its inspector and moves
+/// by the arrows (SURFACE CORNER … BY … PX), and Tab picks the next corner; selecting a quad restores the corner last selected on it
+/// and tells the wall (HANDLE SELECT), deselecting tells it too (HANDLE SELECT NONE); a selected pin's pixel moves by the arrows (SET
+/// &lt;pin&gt; pixel). O puts the edit overlay on the wall (OVERLAY ON ON &lt;output&gt;), its lease renewed every 5 s of the desk's clock while
+/// this desk holds it, and off again when the desk leaves MAP, closes or leaves the node. A quad half drawn is a draft of the projector
+/// it was begun on (<see cref="ViewModels.Map.QuadDrafts"/>): kept on the desk and in desk.json through a tool change, another projector,
+/// leaving MAP, a menu entry, a push, a restart and a reattach, until Enter or a Discard.</summary>
 public sealed class MapViewModel : ObservableObject, IDisposable
 {
     private readonly DeskSession _session;
@@ -45,22 +48,27 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     private readonly Func<long> _nowMs;
 
     /// <param name="nowMs">The desk's monotonic clock in milliseconds (the overlay's lease is renewed on it); the machine's when null.</param>
-    public MapViewModel(DeskSession session, Func<long>? nowMs = null)
+    /// <param name="prefs">The desk's preferences: its unfinished quads are kept there (in memory when null).</param>
+    public MapViewModel(DeskSession session, Func<long>? nowMs = null, DeskPrefs? prefs = null)
     {
         _session = session;
         _nowMs = nowMs ?? EscapeLadder.MonotonicMs(System.Diagnostics.Stopwatch.GetTimestamp());
+        Drafts = new ViewModels.Map.QuadDrafts(prefs ?? DeskPrefs.InMemory());
+        Drafts.Changed += SyncDraftChips;
         Inspector = new InspectorHost(session);
         Pen.Closed += path => LastPenCommit = CommitPenAsync(path);
         Quad.Changed += () => SceneChanged?.Invoke();
         QuadTool = new RelayCommand(() => Tool = MapTool.Quad);
-        FinishQuad = new RelayCommand(() => LastQuad = FinishQuadAsync(), () => Quad.IsReady);
-        NextCorner = new RelayCommand(() => StepCorner(+1), () => SelectedQuad is not null);
-        PrevCorner = new RelayCommand(() => StepCorner(-1), () => SelectedQuad is not null);
+        FinishQuad = new RelayCommand(() => LastQuad = FinishQuadAsync(), () => Quad.IsReady && IsDraftShown);
+        NextCorner = new RelayCommand(() => StepCorner(+1), () => CanNudge);
+        PrevCorner = new RelayCommand(() => StepCorner(-1), () => CanNudge);
         OnWall = DeskAction.Run(session, "map.onWall", "On the wall", ToggleWallAsync, OnWallLine, isChecked: () => WallOutput is { } o && OverlayCovers(o.Id),
             isEnabled: () => session.IsLive && WallOutput is not null).Look("projector", "O");
         QuadToolAction = DeskAction.Local("map.quadTool", "Quad tool", () => Tool = MapTool.Quad, isChecked: () => _tool == MapTool.Quad).Look("surface", "Q");
-        ViewActions = [QuadToolAction, OnWall];
+        KeepQuadToolAction = DeskAction.Local("map.keepQuadTool", "Keep quad tool", () => KeepQuadTool = !KeepQuadTool, isChecked: () => KeepQuadTool).Look("surface");
         Guide = new ViewModels.Map.FirstLightGuide(session, LitOn, () => ArmQuad(null));
+        FirstLight = DeskAction.Local("map.firstLight", "First light guide", () => Guide.Reopen()).Look("guide");
+        ViewActions = [QuadToolAction, KeepQuadToolAction, OnWall, FirstLight];
         SelectTool = new RelayCommand(() => Tool = MapTool.Select);
         PinTool = new RelayCommand(() => Tool = MapTool.Pin);
         WarpTool = new RelayCommand(() => Tool = MapTool.Warp);
@@ -134,9 +142,39 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     /// <summary>Q as an entry: the quad tool (the projector view's right-click menu).</summary>
     public DeskAction QuadToolAction { get; }
 
-    /// <summary>The projector view's own entries, its right-click menu where no quad or surface is under the pointer: the quad tool
-    /// and On the wall.</summary>
+    /// <summary>The projector view's own entries, its right-click menu where no quad or surface is under the pointer: the quad tool,
+    /// Keep quad tool, On the wall and the first-light guide.</summary>
     public IReadOnlyList<DeskAction> ViewActions { get; }
+
+    /// <summary>"Keep quad tool": after Enter the quad tool stays armed, to draw several in a row (a desk toggle).</summary>
+    public DeskAction KeepQuadToolAction { get; }
+
+    /// <summary>Opens the first-light guide again (the view's right-click and the help overlay).</summary>
+    public DeskAction FirstLight { get; }
+
+    private bool _keepQuadTool;
+
+    public bool KeepQuadTool
+    {
+        get => _keepQuadTool;
+        set
+        {
+            if (Set(ref _keepQuadTool, value))
+                KeepQuadToolAction.Refresh();
+        }
+    }
+
+    /// <summary>The unfinished quads, a draft per projector.</summary>
+    public ViewModels.Map.QuadDrafts Drafts { get; }
+
+    /// <summary>A chip per draft: "Quad 2/4" with Resume and Discard (the outliner lists them under Surfaces).</summary>
+    public ObservableCollection<ViewModels.Map.QuadDraftChip> DraftChips { get; } = [];
+
+    /// <summary>The chip of the viewed projector's draft (the view's corner), or null.</summary>
+    public ViewModels.Map.QuadDraftChip? ViewDraftChip => ViewProjector is { } pj ? DraftChips.FirstOrDefault(c => c.Projector == pj.Id) : null;
+
+    /// <summary>True while the projector view has the keyboard (the view sets it): Esc then discards the draft it shows.</summary>
+    public bool ViewHasKeyboard { get; set; }
 
     /// <summary>The first-light guide (Light a wall → the quad → a clip).</summary>
     public ViewModels.Map.FirstLightGuide Guide { get; }
@@ -167,12 +205,20 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             if (!Set(ref _tool, value))
                 return;
             Raise(nameof(IsSelectTool), nameof(IsPinTool), nameof(IsWarpTool), nameof(IsPenTool), nameof(IsQuadTool), nameof(ToolHint));
+            if (value != MapTool.Pin)
+                SelectPin(null);
             if (value is MapTool.Warp or MapTool.Pen or MapTool.Pin or MapTool.Quad && !_isProjectorView)
                 IsProjectorView = true;
             if (value != MapTool.Pen)
                 Pen.Cancel();
-            if (value != MapTool.Quad)
-                CancelQuad();
+            if (value == MapTool.Quad)
+                ResumeQuad();
+            else
+                ParkQuad();
+            FinishQuad.RaiseCanExecuteChanged();
+            NextCorner.RaiseCanExecuteChanged();
+            PrevCorner.RaiseCanExecuteChanged();
+            Raise(nameof(IsDraftShown), nameof(CanNudge));
             SceneChanged?.Invoke();
         }
     }
@@ -320,15 +366,24 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     public void Select(string kind, string? id)
     {
         var viewed = ViewProjector?.Id;
+        if (SelectedQuad is { } was)
+            _lastCorner[was.Id] = _selectedCorner;
         _drawn = null;
         _selectedKind = id is null ? "" : kind;
         _selectedId = id;
         _selectedMaskId = null;
-        _selectedCorner = 0;
+        _selectedPinId = null;
+        _selectedCorner = id is not null && _lastCorner.TryGetValue(id, out var last) ? last : 0;
         if (kind == "projector" && id is not null)
             _viewProjectorId = id;
         else if (kind == "output" && id is not null && _project?.FindOutput(id)?.ProjectorId is { } pj)
             _viewProjectorId = pj;
+        else if (kind == "surface" && _project?.FindSurface(id)?.Pixel is { } quad)
+        {
+            // A quad is drawn in its projector's picture: the view shows that projector, so the arrows move what the view shows.
+            _viewProjectorId = quad.ProjectorId;
+            IsProjectorView = true;
+        }
         foreach (var g in Outliner)
             foreach (var n in g.Nodes)
                 n.IsSelected = n.Id == id;
@@ -342,11 +397,12 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             _ => null,
         });
         Raise(nameof(SelectedId), nameof(SelectedKind), nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ViewId), nameof(ToolHint),
-            nameof(SelectedQuad), nameof(SelectedCorner));
+            nameof(SelectedQuad), nameof(SelectedCorner), nameof(ViewDraftChip), nameof(CanNudge), nameof(SelectedPinId));
         NextCorner.RaiseCanExecuteChanged();
         PrevCorner.RaiseCanExecuteChanged();
         if (ViewProjector?.Id != viewed)
-            CancelQuad();
+            SwitchDraft();
+        TellWallHandle();
         OnWall.Refresh();
         SceneChanged?.Invoke();
     }
@@ -378,9 +434,21 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         Inspector.Refresh(p, _session.State);
         Guide.OnProject(p);
         HoldLitOverlay();
-        if (_quadProjector is { } begun && ViewProjector?.Id != begun)
-            CancelQuad();
-        Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ToolHint), nameof(NodeId), nameof(ViewId), nameof(SelectedQuad));
+        Drafts.UseNode(_session.NodeId);
+        foreach (var gone in Drafts.DropGone(p))
+        {
+            if (_quadProjector == gone)
+            {
+                _quadProjector = null;
+                Quad.Cancel();
+            }
+            _session.Notify(ToastKind.Info, $"The unfinished quad on {gone} was dropped: the project has no such projector now");
+        }
+        if (_quadProjector is null && ViewProjector is { } shown && Drafts.Of(shown.Id) is { } kept)
+            TakeUpDraft(shown.Id, kept);
+        SyncDraftChips();
+        Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ToolHint), nameof(NodeId), nameof(ViewId), nameof(SelectedQuad),
+            nameof(ViewDraftChip), nameof(CanNudge));
         NextCorner.RaiseCanExecuteChanged();
         PrevCorner.RaiseCanExecuteChanged();
         OnWall.Refresh();
@@ -476,14 +544,15 @@ public sealed class MapViewModel : ObservableObject, IDisposable
     /// <summary>The desk shows MAP: the guide's first step reads the displays again.</summary>
     public void EnterMap() => Guide.Shown();
 
-    /// <summary>The desk left MAP: the overlay it put on the wall comes off, and a quad in progress is dropped.</summary>
+    /// <summary>The desk left MAP: the overlay it put on the wall comes off, and a quad in progress is kept as its projector's draft.</summary>
     public void LeaveMap() => _ = LeaveMapAsync();
 
     /// <summary>The desk leaves MAP, closes or leaves the node: the overlay it put on the wall comes off (OVERLAY OFF ON &lt;output&gt;,
-    /// the send awaited so a closing desk sends it before its link goes), and a quad in progress is dropped.</summary>
+    /// the send awaited so a closing desk sends it before its link goes), and a quad in progress is kept as its projector's draft (its
+    /// rubber band off the wall).</summary>
     public Task LeaveMapAsync(CancellationToken ct = default)
     {
-        CancelQuad();
+        ParkQuad();
         var held = HoldsOverlay ? _overlayMine : null;
         _overlayMine = null;
         return held is not null && _session.CanSend ? _session.SendAsync("OVERLAY OFF ON " + held, ct) : Task.CompletedTask;
@@ -534,43 +603,171 @@ public sealed class MapViewModel : ObservableObject, IDisposable
         Raise(nameof(ViewProjector), nameof(ViewOutput), nameof(ViewTitle), nameof(ViewId), nameof(ToolHint));
     }
 
-    private void CancelQuad()
+    /// <summary>The corner last selected on each quad: reselecting one restores it.</summary>
+    private readonly Dictionary<string, int> _lastCorner = new(StringComparer.Ordinal);
+
+    /// <summary>The handle the wall was last told of ("&lt;sf&gt; TL", "NONE"), or null before any.</summary>
+    private string? _wallHandle;
+
+    private string? _selectedPinId;
+
+    /// <summary>The pin the arrows move (picked with the Pin tool or in its row), or null.</summary>
+    public string? SelectedPinId => _selectedPinId;
+
+    /// <summary>True while the quad tool shows a draft on the view: its points take the arrows and Tab, and the wall shows its rubber
+    /// band.</summary>
+    public bool IsDraftShown => _tool == MapTool.Quad && Quad.IsDrawing && _quadProjector is { } pj && ViewProjector?.Id == pj;
+
+    /// <summary>The quad in progress becomes its projector's kept draft and the wall's rubber band goes (the person is elsewhere): a
+    /// tool change, another projector, leaving MAP. Nothing is dropped.</summary>
+    private void ParkQuad()
     {
-        _quadProjector = null;
-        if (!Quad.IsDrawing)
-            return;
-        Quad.Cancel();
-        if (_session.CanSend)
-            _ = _session.SendQuietAsync("CURSOR OFF");
-        Raise(nameof(ToolHint));
+        if (_quadProjector is { } pj && Quad.IsDrawing)
+            Drafts.Keep(pj, [.. Quad.Clicks]);
+        CursorOff();
+        Raise(nameof(ToolHint), nameof(IsDraftShown));
     }
 
-    /// <summary>Esc's draft rung for the quad: the clicks so far are dropped.</summary>
+    /// <summary>The quad tool armed on the view: the viewed projector's draft is taken up again and its rubber band back on the wall.</summary>
+    private void ResumeQuad()
+    {
+        if (ViewProjector is { } pj && Drafts.Of(pj.Id) is { } kept && _quadProjector != pj.Id)
+            TakeUpDraft(pj.Id, kept);
+        if (IsDraftShown)
+            SendCursor();
+        Raise(nameof(ToolHint), nameof(IsDraftShown));
+    }
+
+    /// <summary>The view shows another projector: the quad in progress is kept as its own projector's draft, and the shown projector's
+    /// draft, if it has one, is taken up.</summary>
+    private void SwitchDraft()
+    {
+        if (_quadProjector is { } begun && ViewProjector?.Id == begun)
+            return;
+        ParkQuad();
+        _quadProjector = null;
+        Quad.Cancel();
+        if (ViewProjector is { } pj && Drafts.Of(pj.Id) is { } kept)
+            TakeUpDraft(pj.Id, kept);
+        if (IsDraftShown)
+            SendCursor();
+        Raise(nameof(ViewDraftChip), nameof(IsDraftShown));
+    }
+
+    private void TakeUpDraft(string projector, IReadOnlyList<Vec2d> points)
+    {
+        _quadProjector = projector;
+        Quad.Restore(points);
+        FinishQuad.RaiseCanExecuteChanged();
+        Raise(nameof(ToolHint), nameof(IsDraftShown));
+    }
+
+    /// <summary>Drops a projector's draft (its chip's Discard, or Esc while the view has the keyboard and shows it).</summary>
+    public void DiscardDraft(string projector)
+    {
+        Drafts.Drop(projector);
+        if (_quadProjector != projector)
+            return;
+        _quadProjector = null;
+        Quad.Cancel();
+        CursorOff();
+        FinishQuad.RaiseCanExecuteChanged();
+        Raise(nameof(ToolHint), nameof(IsDraftShown));
+    }
+
+    /// <summary>Resume: the draft's projector shown in the projector view with the quad tool armed.</summary>
+    public void ResumeDraft(string projector)
+    {
+        if (_project?.FindProjector(projector) is not null && ViewProjector?.Id != projector)
+            Select("projector", projector);
+        IsProjectorView = true;
+        if (Tool == MapTool.Quad)
+            ResumeQuad();
+        else
+            Tool = MapTool.Quad;
+    }
+
+    private void SyncDraftChips()
+    {
+        var projectors = Drafts.Projectors;
+        for (var i = DraftChips.Count - 1; i >= 0; i--)
+        {
+            if (!projectors.Contains(DraftChips[i].Projector))
+                DraftChips.RemoveAt(i);
+        }
+        foreach (var pj in projectors)
+        {
+            if (DraftChips.FirstOrDefault(c => c.Projector == pj) is not { } chip)
+            {
+                var id = pj;
+                chip = new ViewModels.Map.QuadDraftChip(id,
+                    DeskAction.Local("quad.resume." + id, "Resume", () => ResumeDraft(id)).Look("surface"),
+                    DeskAction.Local("quad.discard." + id, "Discard", () => DiscardDraft(id)).Look("close"));
+                DraftChips.Add(chip);
+            }
+            chip.Update(Drafts.Of(pj)?.Count ?? 0, _project?.FindProjector(pj)?.Name ?? pj);
+        }
+        Raise(nameof(ViewDraftChip), nameof(HasDraftChips));
+    }
+
+    /// <summary>True while any projector holds an unfinished quad.</summary>
+    public bool HasDraftChips => DraftChips.Count > 0;
+
+    private void CursorOff()
+    {
+        if (_cursorShown && _session.CanSend)
+            _ = _session.SendQuietAsync("CURSOR OFF");
+        _cursorShown = false;
+    }
+
+    private bool _cursorShown;
+
+    /// <summary>The wall shows the draft's rubber band (CURSOR at its newest point with the others as its trail): an ephemeral line that
+    /// changes nothing in the project.</summary>
+    private void SendCursor()
+    {
+        if (WallOutput is not { } o || !_session.CanSend || !Quad.IsDrawing)
+            return;
+        var clicks = Quad.Clicks;
+        var last = clicks[^1];
+        var trail = clicks.Count > 1 ? " TRAIL " + string.Join(' ', clicks.Take(clicks.Count - 1).Select(c => VerbText.Num(Math.Round(c.X, 4)) + " " + VerbText.Num(Math.Round(c.Y, 4)))) : "";
+        _session.Throttle.Post("cursor", $"CURSOR {o.Id} {VerbText.Num(Math.Round(last.X, 4))} {VerbText.Num(Math.Round(last.Y, 4))}{trail}");
+        _cursorShown = true;
+    }
+
+    /// <summary>Esc's draft rung for the quad: while the view has the keyboard and shows the draft, the draft is discarded.</summary>
     public bool CancelQuadDraft()
     {
-        if (!Quad.IsDrawing)
+        if (!IsDraftShown || !ViewHasKeyboard || _quadProjector is not { } pj)
             return false;
-        CancelQuad();
+        DiscardDraft(pj);
         return true;
     }
 
-    /// <summary>A click of the quad tool at a wall point: drawn at once, and the wall shows the same rubber band (CURSOR with its trail).</summary>
+    /// <summary>A click of the quad tool at a wall point: drawn at once, kept as the projector's draft, and the wall shows the same rubber
+    /// band (CURSOR with its trail).</summary>
     public void QuadClick(Vec2d wall)
     {
-        var first = !Quad.IsDrawing;
-        if (!Quad.Click(wall))
+        if (ViewProjector is not { } pj || !Quad.Click(wall))
             return;
-        if (first)
-            _quadProjector = ViewProjector?.Id;
-        Raise(nameof(ToolHint));
+        _quadProjector = pj.Id;
+        Drafts.Keep(pj.Id, [.. Quad.Clicks]);
+        Raise(nameof(ToolHint), nameof(IsDraftShown));
         FinishQuad.RaiseCanExecuteChanged();
-        if (WallOutput is { } o && _session.CanSend)
+        SendCursor();
+    }
+
+    /// <summary>A placed point of the draft dragged to a wall point (the desk alone: nothing reaches the project before Enter).</summary>
+    public void MoveDraftPoint(int index, Vec2d wall)
+    {
+        if (!IsDraftShown)
+            return;
+        if (Quad.MovePoint(index, wall))
         {
-            var clicks = Quad.Clicks;
-            var last = clicks[^1];
-            var trail = clicks.Count > 1 ? " TRAIL " + string.Join(' ', clicks.Take(clicks.Count - 1).Select(c => VerbText.Num(Math.Round(c.X, 4)) + " " + VerbText.Num(Math.Round(c.Y, 4)))) : "";
-            _session.Throttle.Post("cursor", $"CURSOR {o.Id} {VerbText.Num(Math.Round(last.X, 4))} {VerbText.Num(Math.Round(last.Y, 4))}{trail}");
+            Drafts.Keep(_quadProjector!, [.. Quad.Clicks]);
+            SendCursor();
         }
+        SceneChanged?.Invoke();
     }
 
     /// <summary>The line the four corners make: wall pixels of the output that shows the projector, or raster pixels when none does.</summary>
@@ -587,18 +784,28 @@ public sealed class MapViewModel : ObservableObject, IDisposable
 
     private async Task FinishQuadAsync()
     {
-        if (!Quad.IsReady || QuadLine(Quad.Clicks) is not { } line)
+        if (!Quad.IsReady || QuadLine(Quad.Clicks) is not { } line || _quadProjector is not { } pj)
             return;
         Quad.Take();
         _quadProjector = null;
         FinishQuad.RaiseCanExecuteChanged();
-        Raise(nameof(ToolHint));
+        Raise(nameof(ToolHint), nameof(IsDraftShown));
         await _session.Throttle.CommitAsync();
-        _ = _session.SendQuietAsync("CURSOR OFF");
+        CursorOff();
         var reply = await _session.SendAsync(line);
-        if (!reply.Ok || ViewModels.Map.QuadTool.Field(reply.Text, "id") is not { Length: > 0 } id)
+        if (!reply.Ok)
+        {
+            // The node refused the quad (too small, crossed): the four points stay the projector's draft to move and send again.
+            if (!Quad.IsDrawing && ViewProjector?.Id == pj && Drafts.Of(pj) is { } kept)
+                TakeUpDraft(pj, kept);
             return;
-        // The quad is selected with its first corner, on the desk and on the wall, so the arrows move it at once.
+        }
+        Drafts.Drop(pj);
+        if (ViewModels.Map.QuadTool.Field(reply.Text, "id") is not { Length: > 0 } id)
+            return;
+        // The new quad is selected with the Select tool (unless Keep quad tool), its first corner on the desk and on the wall.
+        if (!_keepQuadTool)
+            Tool = MapTool.Select;
         if (_project?.FindSurface(id) is not null)
             Select("surface", id);
         else
@@ -606,32 +813,122 @@ public sealed class MapViewModel : ObservableObject, IDisposable
             _selectedKind = "surface";
             _selectedId = id;
             _drawn = id;
+            _selectedCorner = 0;
+            Raise(nameof(SelectedQuad), nameof(SelectedCorner));
+            TellWall($"{id} {PixelQuadMath.CornerNames[0]}");
         }
-        _selectedCorner = 0;
-        Raise(nameof(SelectedQuad), nameof(SelectedCorner));
-        SendGated($"HANDLE SELECT {id} {PixelQuadMath.CornerNames[0]}", quiet: true);
+    }
+
+    /// <summary>The wall shows the selected quad's selected corner (HANDLE SELECT &lt;sf&gt; &lt;c&gt;), or nothing selected (HANDLE SELECT
+    /// NONE) once a quad's selection goes; told only when that moves.</summary>
+    private void TellWallHandle()
+    {
+        if (SelectedQuad is { } q)
+            TellWall($"{q.Id} {PixelQuadMath.CornerNames[_selectedCorner]}");
+        else if (_drawn is null && _wallHandle is not null and not "NONE")
+            TellWall("NONE");
+    }
+
+    private void TellWall(string handle)
+    {
+        if (handle == _wallHandle)
+            return;
+        _wallHandle = handle;
+        SendGated("HANDLE SELECT " + handle, quiet: true);
     }
 
     private void StepCorner(int step)
     {
+        if (IsDraftShown)
+        {
+            Quad.Step(step);
+            SceneChanged?.Invoke();
+            return;
+        }
         if (SelectedQuad is not { } q)
             return;
         _selectedCorner = (_selectedCorner + step + 4) % 4;
+        _lastCorner[q.Id] = _selectedCorner;
         Raise(nameof(SelectedCorner));
         SceneChanged?.Invoke();
-        SendGated($"HANDLE SELECT {q.Id} {PixelQuadMath.CornerNames[_selectedCorner]}", quiet: true);
+        TellWall($"{q.Id} {PixelQuadMath.CornerNames[_selectedCorner]}");
     }
 
-    /// <summary>An arrow on the selected quad's corner: its wall-pixel move (Shift ×10, Alt ×0.1), SURFACE CORNER … BY … PX.</summary>
+    /// <summary>An arrow (Shift ×10, Alt ×0.1): the draft's selected point while the quad tool shows a draft (on the desk alone), else a
+    /// selected pin's pixel by that many raster pixels (SET &lt;pin&gt; pixel), else the selected quad's corner by that many wall pixels
+    /// (SURFACE CORNER … BY … PX).</summary>
     public void Nudge(double dx, double dy)
     {
+        if (IsDraftShown && ViewProjector is { } pj)
+        {
+            var (w, h) = WallOutput is { } o ? (o.Width, o.Height) : (pj.Intrinsics.Width, pj.Intrinsics.Height);
+            var i = Quad.Selected;
+            MoveDraftPoint(i, Quad.Clicks[i] + new Vec2d(dx / Math.Max(1, w), dy / Math.Max(1, h)));
+            return;
+        }
+        if (SelectedPin is { } pin)
+        {
+            SendGated(VerbText.SetJson(pin.Id, "pixel", new Vec2d(Math.Round(pin.Pixel.X + dx, 3), Math.Round(pin.Pixel.Y + dy, 3))), quiet: false);
+            return;
+        }
         if (SelectedQuad is not { } q)
             return;
         SendGated($"SURFACE CORNER {q.Id} {PixelQuadMath.CornerNames[_selectedCorner]} BY {VerbText.Num(dx)} {VerbText.Num(dy)} PX", quiet: false);
     }
 
-    /// <summary>True when the arrows move a corner now (MAP, a quad selected).</summary>
-    public bool CanNudge => SelectedQuad is not null;
+    /// <summary>True when the arrows move something now (MAP: the draft shown, a pin or a quad selected).</summary>
+    public bool CanNudge => IsDraftShown || SelectedPin is not null || SelectedQuad is not null;
+
+    /// <summary>The selected pin as the mirrored project has it, on the viewed projector, or null.</summary>
+    public CalibrationPin? SelectedPin => _selectedPinId is { } id && ViewProjector?.Pins.Find(id) is { } pin ? pin : null;
+
+    /// <summary>A pin picked (the Pin tool's press on it, or its row): the arrows move it.</summary>
+    public void SelectPin(string? pinId)
+    {
+        if (_selectedPinId == pinId)
+            return;
+        _selectedPinId = pinId;
+        if (Inspector.Current is ProjectorInspector pi)
+        {
+            foreach (var row in pi.Pins)
+                row.IsSelected = row.Id == pinId;
+        }
+        Raise(nameof(SelectedPinId), nameof(CanNudge));
+        NextCorner.RaiseCanExecuteChanged();
+        PrevCorner.RaiseCanExecuteChanged();
+        SceneChanged?.Invoke();
+    }
+
+    /// <summary>A quad's corner dragged in the projector view to a wall point: SURFACE CORNER &lt;sf&gt; &lt;c&gt; TO &lt;x&gt; &lt;y&gt; in the wall's
+    /// pixels (raster pixels where no output shows the projector), through the throttle (the newest in each interval); the release
+    /// commits. The node keeps a burst of one corner's moves as one undo step.</summary>
+    public void DragQuadCorner(string surfaceId, int corner, Vec2d wall, bool commit)
+    {
+        if (ViewProjector is not { } pj)
+            return;
+        var (w, h, units) = WallOutput is { } o ? (o.Width, o.Height, "PX") : (pj.Intrinsics.Width, pj.Intrinsics.Height, "RASTER");
+        var x = Math.Round(Math.Clamp(wall.X, 0, 1) * w, 2);
+        var y = Math.Round(Math.Clamp(wall.Y, 0, 1) * h, 2);
+        _session.Throttle.Post($"quad {surfaceId} {corner}",
+            $"SURFACE CORNER {surfaceId} {PixelQuadMath.CornerNames[corner]} TO {VerbText.Num(x)} {VerbText.Num(y)} {units}");
+        if (commit)
+            _ = _session.Throttle.CommitAsync();
+    }
+
+    /// <summary>A corner of a quad picked in the view (a press on it with the Select tool): the quad selected with that corner, on the
+    /// desk and on the wall.</summary>
+    public void PickQuadCorner(string surfaceId, int corner)
+    {
+        if (SelectedQuad?.Id != surfaceId)
+            Select("surface", surfaceId);
+        if (SelectedQuad is not { } q || _selectedCorner == corner)
+            return;
+        _selectedCorner = corner;
+        _lastCorner[q.Id] = corner;
+        Raise(nameof(SelectedCorner));
+        SceneChanged?.Invoke();
+        TellWall($"{q.Id} {PixelQuadMath.CornerNames[corner]}");
+    }
 
     /// <summary>Sends a line the gate lets through; one it refuses is not sent and the toast gives the node's words.</summary>
     private void SendGated(string line, bool quiet)
@@ -840,6 +1137,9 @@ public sealed class OutlinerGroup : ObservableObject
     public string Title { get; }
 
     public string Icon { get; }
+
+    /// <summary>The Surfaces group: its unfinished quads' chips sit under it.</summary>
+    public bool IsSurfaces => Icon == "surface";
 
     public ObservableCollection<OutlinerNode> Nodes { get; } = [];
 

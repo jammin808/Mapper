@@ -90,7 +90,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
                 session.Dismiss(toast);
         });
         Play = new PlayViewModel(session);
-        Map = new MapViewModel(session, clock);
+        Map = new MapViewModel(session, clock, Prefs);
         _connections.Leaving = Map.LeaveMapAsync;
         Scan = new ScanWizardViewModel(session);
         Outputs = new OutputsDrawerViewModel(session);

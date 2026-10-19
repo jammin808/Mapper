@@ -23,6 +23,9 @@ public sealed partial class MainViewModel
     /// <summary>Undo's right-click: Undo, Redo, the Oops history and the look (the bar's narrow forms keep them here).</summary>
     public IReadOnlyList<DeskAction> UndoMenu { get; private set; } = [];
 
+    /// <summary>The help overlay's "First light guide": MAP with the guide open again.</summary>
+    public RelayCommand OpenFirstLight { get; private set; } = null!;
+
     partial void ComposeUxDesk(List<DeskModule> modules)
     {
         Ux = new UxModule(Session, Prefs, _nowMs, () => ShowModule.Strip.Blind.OwnsDraft);
@@ -32,6 +35,12 @@ public sealed partial class MainViewModel
         Ux.GuardMoved += () => OnState(Session.State);
         ModuleViews.Register<OopsPanelViewModel>(() => new Views.Ux.OopsPanelView());
         UndoMenu = [Undo, Redo, Ux.Oops.Toggle, Ux.Look];
+        OpenFirstLight = new RelayCommand(() =>
+        {
+            IsHelpOpen = false;
+            Workspace = Workspace.Map;
+            Map.Guide.Reopen();
+        });
         modules.Add(Ux);
     }
 }

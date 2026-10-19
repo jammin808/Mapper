@@ -13,6 +13,9 @@ public sealed partial class FakeEngineLink
 {
     private readonly Dictionary<string, long> _lastGoMs = new(StringComparer.Ordinal);
 
+    /// <summary>How many undo steps the live project holds (tests count a gesture's steps here).</summary>
+    public int UndoSteps => _store.Steps.Length;
+
     partial void TryUxVerbs(WireLine line, ref WireReply? reply)
     {
         if (VerbCatalog.Match(line) is not { } m)

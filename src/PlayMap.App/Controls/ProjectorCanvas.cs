@@ -38,12 +38,25 @@ public sealed class ProjectorCanvas : PreviewSurface
     private (int C, int R, Vec2d Offset)? _liveNode;
     private (int Corner, Vec2d Offset)? _liveCorner;
     private (int Mask, BezierPath Path)? _liveMask;
+    private (string Surface, int Corner, Vec2d Wall)? _liveQuadCorner;
+    private Point _pressedAt;
+    private bool _dragMoved;
 
     private readonly record struct DragTarget(string Kind, string Id, int A, int B, int Part);
 
     public ProjectorCanvas()
     {
         Focusable = true;
+        GotFocus += (_, _) =>
+        {
+            if (Map is { } m)
+                m.ViewHasKeyboard = true;
+        };
+        LostFocus += (_, _) =>
+        {
+            if (Map is { } m)
+                m.ViewHasKeyboard = false;
+        };
     }
 
     public MapViewModel? Map
@@ -81,6 +94,7 @@ public sealed class ProjectorCanvas : PreviewSurface
             _liveNode = null;
             _liveCorner = null;
             _liveMask = null;
+            _liveQuadCorner = null;
         }
         if (Map?.ViewProjector is { } pj)
             Aspect = pj.Intrinsics.Width / (double)Math.Max(1, pj.Intrinsics.Height);
@@ -92,6 +106,9 @@ public sealed class ProjectorCanvas : PreviewSurface
 
     /// <summary>Where a point in normalised output units is on this control (tests drive the pointer here).</summary>
     internal Point PointFor(Vec2d n) => Norm(PictureRect(), n);
+
+    /// <summary>The normalised output point under a point of this control (the inverse of <see cref="PointFor"/>).</summary>
+    internal Vec2d NormFor(Point p) => ToNorm(PictureRect(), p);
 
     /// <summary>Where a projector pixel is on this control.</summary>
     internal Point PointForPixel(Vec2d pixel) => View(PictureRect()) is { } v ? v.FromPixel(pixel) : default;
@@ -131,7 +148,7 @@ public sealed class ProjectorCanvas : PreviewSurface
         }
         DrawPen(context, r, map.Pen);
         DrawQuads(context, r, map, pj);
-        DrawQuadTool(context, r, map.Quad);
+        DrawQuadTool(context, r, map.Quad, map.IsDraftShown);
         DrawPins(context, v, pj, map.Tool == MapTool.Pin);
         context.DrawRectangle(new Pen(new SolidColorBrush(StageDrawing.ColorOf(pj.Color)), 2), r.Deflate(1), 0);
         StageDrawing.Label(context, map.ViewTitle + "  ·  " + pj.Intrinsics.Width.ToString(CultureInfo.InvariantCulture) + "×" + pj.Intrinsics.Height.ToString(CultureInfo.InvariantCulture),
@@ -169,6 +186,8 @@ public sealed class ProjectorCanvas : PreviewSurface
                 continue;
             var selected = map.SelectedKind == "surface" && map.SelectedId == s.Id;
             var c = QuadCorners(map, q);
+            if (_liveQuadCorner is { } live && live.Surface == s.Id)
+                c[live.Corner] = live.Wall;
             var pen = new Pen(selected ? StageDrawing.Accent : new SolidColorBrush(StageDrawing.ColorOf(s.Color)), selected ? 2 : 1.4);
             for (var i = 0; i < 4; i++)
                 ctx.DrawLine(pen, Norm(r, c[i]), Norm(r, c[(i + 1) % 4]));
@@ -182,22 +201,49 @@ public sealed class ProjectorCanvas : PreviewSurface
         }
     }
 
-    /// <summary>The quad tool's corners so far, joined in order, and the rubber band from the last to the pointer.</summary>
-    private static void DrawQuadTool(DrawingContext ctx, Rect r, ViewModels.Map.QuadTool quad)
+    /// <summary>The draft's points so far, joined in order, the selected one large, and the rubber band from the last to the pointer;
+    /// a draft kept while another tool is in hand is drawn dashed (its chip offers Resume).</summary>
+    private static void DrawQuadTool(DrawingContext ctx, Rect r, ViewModels.Map.QuadTool quad, bool shown)
     {
         var clicks = quad.Clicks;
         if (clicks.Count == 0)
             return;
-        var pen = new Pen(StageDrawing.Accent, 2);
+        var pen = shown ? new Pen(StageDrawing.Accent, 2) : new Pen(StageDrawing.Accent, 1.2, dashStyle: new DashStyle([4, 3], 0));
         for (var i = 1; i < clicks.Count; i++)
             ctx.DrawLine(pen, Norm(r, clicks[i - 1]), Norm(r, clicks[i]));
         if (clicks.Count == 4)
             ctx.DrawLine(pen, Norm(r, clicks[3]), Norm(r, clicks[0]));
-        else if (quad.Pointer is { } to)
+        else if (shown && quad.Pointer is { } to)
             ctx.DrawLine(new Pen(StageDrawing.Accent, 1.2, dashStyle: new DashStyle([4, 3], 0)), Norm(r, clicks[^1]), Norm(r, to));
-        foreach (var c in clicks)
-            ctx.DrawEllipse(StageDrawing.Accent, HandlePen, Norm(r, c), 6, 6);
+        for (var i = 0; i < clicks.Count; i++)
+            ctx.DrawEllipse(shown ? StageDrawing.Accent : null, HandlePen, Norm(r, clicks[i]), shown && i == quad.Selected ? 8 : 6, shown && i == quad.Selected ? 8 : 6);
     }
+
+    /// <summary>A quad corner under the pointer in this projector's picture (the selected quad's first), or null.</summary>
+    private (string Surface, int Corner)? QuadCornerAt(Rect r, MapViewModel map, Projector pj, Point p)
+    {
+        if (map.Project is not { } project)
+            return null;
+        var quads = project.Stage.Surfaces.Where(s => s.Pixel is { } q && q.ProjectorId == pj.Id && s.Visible)
+            .OrderByDescending(s => s.Id == map.SelectedId);
+        foreach (var s in quads)
+        {
+            var c = QuadCorners(map, s.Pixel!);
+            for (var i = 0; i < 4; i++)
+            {
+                if (Point.Distance(Norm(r, c[i]), p) <= Grab)
+                    return (s.Id, i);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Where a placed point of the draft is on this control (tests drive the pointer here).</summary>
+    internal Point PointForDraft(int index) => Map is { } m && index >= 0 && index < m.Quad.Clicks.Count ? Norm(PictureRect(), m.Quad.Clicks[index]) : default;
+
+    /// <summary>Where a quad's corner is drawn on this control (tests drive the pointer here).</summary>
+    internal Point PointForQuadCorner(string surfaceId, int corner) =>
+        Map is { Project: { } p } m && p.FindSurface(surfaceId)?.Pixel is { } q ? Norm(PictureRect(), QuadCorners(m, q)[corner]) : default;
 
     /// <summary>The quad of this projector under a point of the picture (wall-normalised), topmost first, or null.</summary>
     private string? QuadAt(MapViewModel map, Projector pj, Vec2d n)
@@ -376,6 +422,14 @@ public sealed class ProjectorCanvas : PreviewSurface
         _drag = default;
         switch (map.Tool)
         {
+            case MapTool.Quad when map.IsDraftShown && map.Quad.PointAt(n, hit) is var point and >= 0:
+                // A placed point of the draft: it drags with the pointer once the pointer moves (on the desk alone) and the arrows take it;
+                // a press that does not move places a corner there while fewer than four are placed.
+                _drag = new DragTarget("draft", "", point, 0, 0);
+                _pressedAt = p;
+                _dragMoved = false;
+                map.MoveDraftPoint(point, map.Quad.Clicks[point]);
+                break;
             case MapTool.Quad:
                 map.QuadClick(n);
                 break;
@@ -387,6 +441,7 @@ public sealed class ProjectorCanvas : PreviewSurface
                 break;
             case MapTool.Pin:
                 _drag = HitPin(r, pj, p);
+                map.SelectPin(_drag.Kind == "pin" ? _drag.Id : null);
                 if (_drag.Kind is null && View(r) is { } v)
                 {
                     var pixel = v.ToPixel(p);
@@ -400,6 +455,13 @@ public sealed class ProjectorCanvas : PreviewSurface
                 if (output is not null && HitMaskNode(r, output, map, p) is { Kind: not null } m)
                 {
                     _drag = m;
+                    break;
+                }
+                if (QuadCornerAt(r, map, pj, p) is { } corner)
+                {
+                    // A quad's corner: picked (the quad selected with it, the wall told) and dragged.
+                    map.PickQuadCorner(corner.Surface, corner.Corner);
+                    _drag = new DragTarget("quadcorner", corner.Surface, corner.Corner, 0, 0);
                     break;
                 }
                 SelectAt(r, p, map, output);
@@ -511,6 +573,15 @@ public sealed class ProjectorCanvas : PreviewSurface
         }
         switch (_drag.Kind)
         {
+            case "draft":
+                _dragMoved |= Point.Distance(_pressedAt, p) > 3;
+                if (_dragMoved)
+                    map.MoveDraftPoint(_drag.A, n);
+                break;
+            case "quadcorner":
+                _liveQuadCorner = (_drag.Id, _drag.A, new Vec2d(Math.Clamp(n.X, 0, 1), Math.Clamp(n.Y, 0, 1)));
+                map.DragQuadCorner(_drag.Id, _drag.A, n, commit: false);
+                break;
             case "corner" when output is not null:
                 Vec2d[] rest = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
                 _liveCorner = (_drag.A, n - rest[_drag.A]);
@@ -564,6 +635,12 @@ public sealed class ProjectorCanvas : PreviewSurface
             map.Pen.Release();
         switch (_drag.Kind)
         {
+            case "draft" when !_dragMoved && map.Quad.Clicks.Count < 4:
+                map.QuadClick(ToNorm(PictureRect(), _pressedAt));
+                break;
+            case "quadcorner" when _liveQuadCorner is { } lq:
+                map.DragQuadCorner(lq.Surface, lq.Corner, lq.Wall, commit: true);
+                break;
             case "corner" when output is not null && _liveCorner is { } lc:
                 map.MoveCorner(output, lc.Corner, lc.Offset, commit: true);
                 break;

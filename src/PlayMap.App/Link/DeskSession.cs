@@ -53,7 +53,8 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     /// <param name="post">Runs an action on the UI thread later (the dispatcher's Post); tests pass the
     /// headless dispatcher's.</param>
-    public DeskSession(Action<Action> post)
+    /// <param name="time">The clock the throttle's interval runs on (the machine's when null; tests pass a manual one).</param>
+    public DeskSession(Action<Action> post, TimeProvider? time = null)
     {
         _post = post;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
@@ -66,7 +67,7 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
                 return Task.CompletedTask;
             }
             return SendAsync(line, ct);
-        });
+        }, time: time);
     }
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>

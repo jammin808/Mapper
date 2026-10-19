@@ -13,7 +13,9 @@ namespace PlayMap.App.ViewModels.Map;
 /// click its four corners on the wall (the quad tool on the lit projector's view), and drop a clip on it (SURFACE SOURCE &lt;the
 /// quad&gt; media:&lt;id&gt; or playlist:&lt;id&gt;). It shows only on the first-light path: on a show with no projector before any light,
 /// then — once a wall was lit in this run (onboarding.litAt) — until the first content, which it marks with "First map in 1:24"
-/// (onboarding.seconds) as it closes. A show that draws a quad without a light never sees it; × closes it for good on this desk.</summary>
+/// (onboarding.seconds) as it closes. A show that draws a quad without a light never sees it; × closes it on this desk, and the projector
+/// view's right-click and the help overlay open it again (then it shows at whatever step the show is at, until × closes it once more).
+/// Closing it keeps whatever quad is half drawn.</summary>
 public sealed class FirstLightGuide : ObservableObject
 {
     private readonly DeskSession _session;
@@ -22,6 +24,7 @@ public sealed class FirstLightGuide : ObservableObject
     private string _stage = "";
     private double _seconds = -1;
     private bool _dismissed;
+    private bool _reopened;
     private bool _hasProjector;
     private bool _litThisRun;
     private bool _asking;
@@ -38,6 +41,7 @@ public sealed class FirstLightGuide : ObservableObject
         Dismiss = new RelayCommand(() =>
         {
             _dismissed = true;
+            _reopened = false;
             Changed();
         });
         DrawQuad = DeskAction.Local("guide.quad", "Draw the quad (Q)", drawQuad).Look("surface");
@@ -67,7 +71,19 @@ public sealed class FirstLightGuide : ObservableObject
     /// <summary>The DISPLAYS read in flight, or the last one (tests wait on it).</summary>
     public Task Reading => _reading;
 
-    public bool IsVisible => !_dismissed && (_stage == "none" ? !_hasProjector : _stage is "lit" or "quad" && _litThisRun);
+    public bool IsVisible => !_dismissed && (_reopened || (_stage == "none" ? !_hasProjector : _stage is "lit" or "quad" && _litThisRun));
+
+    /// <summary>Opens the guide again after × (the view's right-click, the help overlay): it shows at the show's step until × again.</summary>
+    public void Reopen()
+    {
+        if (IsVisible)
+            return;
+        _dismissed = false;
+        _reopened = true;
+        if (Step == 1)
+            _ = ReadDisplays();
+        Changed();
+    }
 
     /// <summary>1 light a wall · 2 the quad · 3 a clip.</summary>
     public int Step => _stage switch
