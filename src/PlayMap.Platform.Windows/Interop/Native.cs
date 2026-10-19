@@ -160,6 +160,15 @@ internal static unsafe partial class Native
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial int RtlGetVersion(ref OsVersionInfoEx info);
 
+    /// <summary>SYSTEM_INFORMATION_CLASS.SystemCodeIntegrityInformation, and CODEINTEGRITY_OPTION_HVCI_KMCI_ENABLED: Memory Integrity
+    /// running.</summary>
+    public const int SystemCodeIntegrityInformation = 103;
+    public const uint CodeIntegrityHvciKmciEnabled = 0x400;
+
+    [LibraryImport("ntdll.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial int NtQuerySystemInformation(int informationClass, void* information, uint length, out uint returned);
+
     // ---- avrt: MMCSS -------------------------------------------------------------------------------------------------------
 
     [LibraryImport("avrt.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
@@ -185,6 +194,23 @@ internal static unsafe partial class Native
     [LibraryImport("gdi32.dll")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial int D3DKMTGetProcessSchedulingPriorityClass(nint process, out int priority);
+
+    // ---- gdi32: an adapter's kernel-mode caps (HAGS), read-only ------------------------------------------------------------
+
+    /// <summary>KMTQAITYPE_WDDM_2_7_CAPS: D3DKMT_WDDM_2_7_CAPS, the hardware scheduler's flags.</summary>
+    public const int KmtQaiTypeWddm27Caps = 70;
+
+    [LibraryImport("gdi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial int D3DKMTOpenAdapterFromLuid(ref KmtOpenAdapterFromLuid open);
+
+    [LibraryImport("gdi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial int D3DKMTQueryAdapterInfo(in KmtQueryAdapterInfo query);
+
+    [LibraryImport("gdi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial int D3DKMTCloseAdapter(in KmtCloseAdapter close);
 
     // ---- advapi32: the token's privileges ---------------------------------------------------------------------------------
 

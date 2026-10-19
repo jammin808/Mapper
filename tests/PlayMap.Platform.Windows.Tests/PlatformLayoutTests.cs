@@ -7,8 +7,10 @@ namespace PlayMap.Platform.Windows.Tests;
 
 /// <summary>The platform's own probe structures have the Windows SDK's and NVAPI's sizes and field offsets for x64, and its vtable slots
 /// the SDK's counts: DXGI_ADAPTER_DESC1 (dxgi.h), SYSTEM_CPU_SET_INFORMATION (winnt.h), the power throttling states (processthreadsapi.h),
-/// OSVERSIONINFOEXW (winnt.h), REASON_CONTEXT (minwinbase.h), LUID_AND_ATTRIBUTES and a one-privilege TOKEN_PRIVILEGES (winnt.h), and
-/// NVAPI's NvAPI_ShortString (nvapi.h) with the probe's interface ids (nvapi_interface.h). Runs everywhere: only layouts are read.</summary>
+/// OSVERSIONINFOEXW (winnt.h), REASON_CONTEXT (minwinbase.h), LUID_AND_ATTRIBUTES and a one-privilege TOKEN_PRIVILEGES (winnt.h), the
+/// kernel thunks' D3DKMT_OPENADAPTERFROMLUID, D3DKMT_QUERYADAPTERINFO, D3DKMT_CLOSEADAPTER and D3DKMT_WDDM_2_7_CAPS with
+/// KMTQAITYPE_WDDM_2_7_CAPS (d3dkmthk.h), SYSTEM_CODEINTEGRITY_INFORMATION (winternl.h), and NVAPI's NvAPI_ShortString (nvapi.h) with
+/// the probe's interface ids (nvapi_interface.h). Runs everywhere: only layouts are read.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class PlatformLayoutTests
 {
@@ -64,6 +66,27 @@ public sealed class PlatformLayoutTests
         Assert.Equal(8, Off<LuidAndAttributes>("Attributes"));
         Assert.Equal(16, Unsafe.SizeOf<TokenPrivilege>());
         Assert.Equal(4, Off<TokenPrivilege>("Privilege"));
+    }
+
+    [Fact]
+    public void TheKernelThunkAndCodeIntegrityStructuresHaveTheHeadersSizesAndOffsets()
+    {
+        Assert.Equal(12, Unsafe.SizeOf<KmtOpenAdapterFromLuid>());
+        Assert.Equal(8, Off<KmtOpenAdapterFromLuid>("Adapter"));
+        Assert.Equal(24, Unsafe.SizeOf<KmtQueryAdapterInfo>());
+        Assert.Equal(4, Off<KmtQueryAdapterInfo>("Type"));
+        Assert.Equal(8, Off<KmtQueryAdapterInfo>("PrivateDriverData"));
+        Assert.Equal(16, Off<KmtQueryAdapterInfo>("PrivateDriverDataSize"));
+        Assert.Equal(4, Unsafe.SizeOf<KmtCloseAdapter>());
+        Assert.Equal(4, Unsafe.SizeOf<KmtWddm27Caps>());
+        Assert.Equal(70, Native.KmtQaiTypeWddm27Caps);
+        // HwSchSupported is bit 0 and HwSchEnabled bit 1 of the caps' one UINT.
+        Assert.Equal((true, false), (new KmtWddm27Caps(0x1).HwSchSupported, new KmtWddm27Caps(0x1).HwSchEnabled));
+        Assert.Equal((false, true), (new KmtWddm27Caps(0x2).HwSchSupported, new KmtWddm27Caps(0x2).HwSchEnabled));
+
+        Assert.Equal(8, Unsafe.SizeOf<CodeIntegrityInformation>());
+        Assert.Equal(4, Off<CodeIntegrityInformation>("CodeIntegrityOptions"));
+        Assert.Equal((103, 0x400u), (Native.SystemCodeIntegrityInformation, Native.CodeIntegrityHvciKmciEnabled));
     }
 
     [Fact]

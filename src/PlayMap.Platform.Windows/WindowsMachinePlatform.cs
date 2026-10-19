@@ -31,6 +31,8 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
     private ImmutableArray<Claim> _process = [];
     private CpuPlacement? _placement;
     private NodeIdentity? _identity;
+    private string _adapterWords = "";
+    private string _nvapiWords = "";
     private CapabilitySnapshot? _capabilities;
     private AwakeRequest? _awake;
     private int _awakeHolders;
@@ -276,8 +278,13 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         var bits = Vector512.IsHardwareAccelerated ? 512 : Vector256.IsHardwareAccelerated ? 256 : Vector128.IsHardwareAccelerated ? 128 : 0;
         var cpu = new CpuIdentity(WindowsReadings.CpuModel(), Environment.ProcessorCount, CpuSetPlan.ByEfficiencyClass(sets), bits,
             Avx512F.IsSupported, Avx10v1.IsSupported);
-        var dxgi = AdapterProbe.Read(out _);
-        var nvidia = NvApiProbe.TryRead(out var nvDriver, out var nvBranch, out var workstation, out _);
+        var dxgi = AdapterProbe.Read(out var dxgiWords);
+        var nvidia = NvApiProbe.TryRead(out var nvDriver, out var nvBranch, out var workstation, out var nvWords);
+        lock (_gate)
+        {
+            _adapterWords = dxgiWords;
+            _nvapiWords = nvidia ? "" : nvWords;
+        }
         var adapters = dxgi.Select(a =>
         {
             bool? pro = a.VendorId == VendorPolicy.Nvidia && nvidia ? workstation.Contains(a.Luid) : null;
@@ -304,12 +311,16 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
 
     private CapabilitySnapshot ReadCapabilities()
     {
+        var identity = Identity();
+        string adapterWords, nvapiWords;
+        lock (_gate)
+            (adapterWords, nvapiWords) = (_adapterWords, _nvapiWords);
         var probes = ImmutableArray.CreateBuilder<CapabilityProbe>();
         var privileged = WindowsReadings.HoldsIncreaseBasePriority();
         probes.Add(new CapabilityProbe(MachineCapabilities.RealtimePrivilege, 0, privileged, privileged ? "" : PlatformPolicy.RealtimeWithoutPrivilegeWords, ""));
-        var hags = WindowsReadings.Hags();
-        probes.Add(new CapabilityProbe(MachineCapabilities.Hags, 0, hags == true,
-            hags switch { true => "", false => "hardware-accelerated GPU scheduling is off", _ => "hardware-accelerated GPU scheduling is unset: the driver's default" }, ""));
+        probes.AddRange(MachineCapabilities.Unread(adapterWords, nvapiWords, identity.Adapters));
+        foreach (var adapter in identity.Adapters)
+            probes.Add(HagsProbe.Read(adapter));
         using (var timer = HighResolutionTimer.TryCreate(_clock, new Lateness(), out var why))
             probes.Add(new CapabilityProbe(MachineCapabilities.HighResolutionTimer, 0, timer is not null, why, ""));
         Claim? qos = null;

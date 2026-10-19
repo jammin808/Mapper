@@ -212,11 +212,17 @@ internal static unsafe class WindowsReadings
         return key?.GetValue("AutoGameModeEnabled") is int on ? (on != 0 ? 1 : 0) : 1;
     }
 
-    /// <summary>Memory Integrity (<c>DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity\Enabled</c>): 1 on, 0 off or never set.</summary>
+    /// <summary>Memory Integrity as it runs: <c>NtQuerySystemInformation(SystemCodeIntegrityInformation)</c>'s
+    /// <c>CODEINTEGRITY_OPTION_HVCI_KMCI_ENABLED</c> (1 on, 0 off); where Windows does not answer, the setting
+    /// (<c>DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity\Enabled</c>), and −1 when that value is absent (set by policy, or
+    /// never set): unknown, never a guess.</summary>
     public static int MemoryIntegrity()
     {
+        var info = new CodeIntegrityInformation((uint)sizeof(CodeIntegrityInformation), 0);
+        if (Native.NtQuerySystemInformation(Native.SystemCodeIntegrityInformation, &info, (uint)sizeof(CodeIntegrityInformation), out _) >= 0)
+            return (info.CodeIntegrityOptions & Native.CodeIntegrityHvciKmciEnabled) != 0 ? 1 : 0;
         using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity");
-        return key?.GetValue("Enabled") is int on && on != 0 ? 1 : 0;
+        return key?.GetValue("Enabled") is int on ? (on != 0 ? 1 : 0) : -1;
     }
 
     /// <summary>Windows Update's policy: held when quality updates are deferred, automatic updates are off or only notify, or updates are

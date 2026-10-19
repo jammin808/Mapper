@@ -190,3 +190,34 @@ internal static unsafe class NvApiProbe
         return set.ToImmutable();
     }
 }
+
+/// <summary>Hardware-accelerated GPU scheduling as the adapter's kernel driver answers it (<c>D3DKMTQueryAdapterInfo</c>,
+/// <c>KMTQAITYPE_WDDM_2_7_CAPS</c>): whether it supports the hardware scheduler and whether the scheduler is on, one probe per adapter by
+/// its LUID with its driver. The adapter is opened by LUID for the query and closed after it; nothing is changed.</summary>
+[SupportedOSPlatform("windows")]
+internal static unsafe class HagsProbe
+{
+    public static CapabilityProbe Read(AdapterIdentity adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        var open = new KmtOpenAdapterFromLuid(new Luid((uint)(adapter.Luid & 0xFFFFFFFF), (int)(adapter.Luid >> 32)), 0);
+        var status = Native.D3DKMTOpenAdapterFromLuid(ref open);
+        if (status < 0)
+            return Probe(false, "the adapter did not open for its kernel caps (" + Native.StatusWords(status) + "): hardware-accelerated GPU scheduling is unread");
+        try
+        {
+            var caps = new KmtWddm27Caps(0);
+            var query = new KmtQueryAdapterInfo(open.Adapter, Native.KmtQaiTypeWddm27Caps, (nint)(&caps), (uint)sizeof(KmtWddm27Caps));
+            status = Native.D3DKMTQueryAdapterInfo(query);
+            if (status < 0)
+                return Probe(false, "the driver did not answer its WDDM 2.7 caps (" + Native.StatusWords(status) + "): hardware-accelerated GPU scheduling is unread");
+            return MachineCapabilities.HagsOf(adapter, caps.HwSchSupported, caps.HwSchEnabled);
+        }
+        finally
+        {
+            _ = Native.D3DKMTCloseAdapter(new KmtCloseAdapter(open.Adapter));
+        }
+
+        CapabilityProbe Probe(bool supported, string words) => new(MachineCapabilities.Hags, adapter.Luid, supported, words, adapter.Driver);
+    }
+}

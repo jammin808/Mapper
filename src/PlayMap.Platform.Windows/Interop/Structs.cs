@@ -92,6 +92,41 @@ internal record struct DxgiAdapterDesc1(
     public const uint SoftwareFlag = 0x2;
 }
 
+/// <summary>D3DKMT_OPENADAPTERFROMLUID (d3dkmthk.h): the adapter's LUID in, its kernel handle out.</summary>
+[SupportedOSPlatform("windows")]
+[StructLayout(LayoutKind.Sequential)]
+internal record struct KmtOpenAdapterFromLuid(Luid AdapterLuid, uint Adapter);
+
+/// <summary>D3DKMT_QUERYADAPTERINFO (d3dkmthk.h): the handle, the query's type, and the caller's buffer and its size.</summary>
+[SupportedOSPlatform("windows")]
+[StructLayout(LayoutKind.Explicit, Size = 24)]
+internal record struct KmtQueryAdapterInfo(
+    [field: FieldOffset(0)] uint Adapter,
+    [field: FieldOffset(4)] int Type,
+    [field: FieldOffset(8)] nint PrivateDriverData,
+    [field: FieldOffset(16)] uint PrivateDriverDataSize);
+
+/// <summary>D3DKMT_CLOSEADAPTER (d3dkmthk.h): the handle.</summary>
+[SupportedOSPlatform("windows")]
+[StructLayout(LayoutKind.Sequential)]
+internal record struct KmtCloseAdapter(uint Adapter);
+
+/// <summary>D3DKMT_WDDM_2_7_CAPS (d3dkmthk.h): one UINT of flags — HwSchSupported (bit 0), HwSchEnabled (bit 1),
+/// HwSchEnabledByDefault (bit 2), IndependentVidPnVSyncControl (bit 3).</summary>
+[SupportedOSPlatform("windows")]
+[StructLayout(LayoutKind.Sequential)]
+internal record struct KmtWddm27Caps(uint Value)
+{
+    public readonly bool HwSchSupported => (Value & 0x1) != 0;
+
+    public readonly bool HwSchEnabled => (Value & 0x2) != 0;
+}
+
+/// <summary>SYSTEM_CODEINTEGRITY_INFORMATION (winternl.h): its length (set by the caller) and the code integrity options.</summary>
+[SupportedOSPlatform("windows")]
+[StructLayout(LayoutKind.Sequential)]
+internal record struct CodeIntegrityInformation(uint Length, uint CodeIntegrityOptions);
+
 /// <summary>NVAPI's NvAPI_ShortString: 64 bytes of a NUL-terminated string.</summary>
 [SupportedOSPlatform("windows")]
 [StructLayout(LayoutKind.Sequential, Size = Length)]
