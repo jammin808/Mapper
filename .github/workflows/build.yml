@@ -166,6 +166,35 @@ jobs:
         # package's d3d12.h. WARP's binaries are CI's only: nothing published carries them.
         shell: pwsh
         run: ./tools/ci-d3d12.ps1 -Restore -Into d3d12
+      # wp3-shaders: the shader worker's pinned compiler natives. glslang (in shaderc), SPIRV-Cross and DXC come from NuGet at the
+      # versions the engine's project pins, and each file is held to its SHA-256 when the worker loads it
+      # (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs). shaderc's Windows build exports no SPIRV-Tools validator, so Google's own
+      # SPIRV-Tools build (Apache-2.0) is fetched here at its hash, cached by that hash, and its library copied beside every build of
+      # the engine through PLAYMAP_SPIRV_TOOLS_DIR.
+      - name: SPIRV-Tools for the shader worker (cached by its pin)
+        id: spirv-tools-cache
+        uses: actions/cache@v4
+        with:
+          path: .natives/spirv-tools
+          key: spirv-tools-c6be6878878df8b9cf799126824e19275f7751a62947b70c177a74bc65ddbc0a
+      - name: SPIRV-Tools for the shader worker (pinned)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE '.natives/spirv-tools'
+          $dll = Join-Path $dir 'SPIRV-Tools-shared.dll'
+          if (-not (Test-Path $dll)) {
+            Invoke-WebRequest -Uri 'https://storage.googleapis.com/spirv-tools/artifacts/prod/graphics_shader_compiler/spirv_tools/windows-vs2022-amd64-release/continuous/261/20261016-105527/install.zip' -OutFile spirv-tools.zip
+            $hash = (Get-FileHash spirv-tools.zip -Algorithm SHA256).Hash
+            if ($hash -ne 'C6BE6878878DF8B9CF799126824E19275F7751A62947B70C177A74BC65DDBC0A') { throw "spirv-tools.zip is not the pinned build ($hash)" }
+            Expand-Archive spirv-tools.zip -DestinationPath spirv-tools
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            Copy-Item spirv-tools/install/bin/SPIRV-Tools-shared.dll $dll
+          }
+          $pinned = '288DD59CBD1473B02927950B076016641B59E9E3AA7D5C029F7E0C896397C0BB'
+          $hash = (Get-FileHash $dll -Algorithm SHA256).Hash
+          if ($hash -ne $pinned) { throw "SPIRV-Tools-shared.dll is not the pinned build ($hash)" }
+          "PLAYMAP_SPIRV_TOOLS_DIR=$dir" >> $env:GITHUB_ENV
       - name: Restore
         run: dotnet restore
       - name: Build

@@ -24,4 +24,14 @@
     <InternalsVisibleTo Include="PlayMap.Engine.Tests" />
   </ItemGroup>
 
+  <!-- The shader worker's compilers (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs pins each file by hash): glslang and
+       SPIRV-Tools inside shaderc, SPIRV-Cross, DXC and its validator. Only the worker process loads them. On Windows SPIRV-Tools'
+       own library comes from CI's pinned download (PLAYMAP_SPIRV_TOOLS_DIR), copied beside every build of the engine. -->
+  <ItemGroup Label="wp3-shaders">
+    <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
+    <PackageReference Include="Vortice.Dxc.Native" Version="1.0.6" />
+    <None Include="$(PLAYMAP_SPIRV_TOOLS_DIR)/SPIRV-Tools-shared.dll" Condition="'$(PLAYMAP_SPIRV_TOOLS_DIR)' != '' And Exists('$(PLAYMAP_SPIRV_TOOLS_DIR)/SPIRV-Tools-shared.dll')" Link="SPIRV-Tools-shared.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
 </Project>
