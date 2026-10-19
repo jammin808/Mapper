@@ -1,11 +1,14 @@
 #!/usr/bin/env pwsh
 # Builds PlayMap's installer from a numbered build (installer/PlayMap.iss; docs/round3/design/installer.md): the published exe's
-# folder, FFmpeg's LGPL shared libraries under ffmpeg\, the Agility SDK's D3D12Core.dll under D3D12\ (its debug layer left out),
-# libvmx beside the exe and the supervisor under Supervisor\, compiled by Inno Setup's ISCC with the version Version.props gives this
-# run. A local build is refused with words: its installer would read as MAJOR.MINOR.0 and could not be upgraded in order.
+# folder, FFmpeg's LGPL shared libraries under ffmpeg\ with their licence texts (the build's LICENSE.txt, the LGPL version 3, and the
+# GPL version 3 it incorporates), the Agility SDK's D3D12Core.dll under D3D12\ (its debug layer left out), libvmx beside the exe with
+# its licence, OpenAL Soft's licence beside soft_oal.dll, THIRD-PARTY-NOTICES.md, and the supervisor under Supervisor\; then the
+# payload's SHA256SUMS of every file it lays down, shipped with it; compiled by Inno Setup's ISCC with the version Version.props gives
+# this run. -Ffmpeg is the LGPL build's extracted folder (bin\ and LICENSE.txt). A local build is refused with words: its installer
+# would read as MAJOR.MINOR.0 and could not be upgraded in order.
 # -Version builds the same files under another product version (the build before this one, when this one is build 1 of a raised
 # MAJOR or MINOR: MsiVersionRule.Previous).
-#   installer/build-installer.ps1 -Run 412 -Commit <sha> -Publish publish/PlayMap -Supervisor publish/supervisor -Ffmpeg .ffmpeg/lib
+#   installer/build-installer.ps1 -Run 412 -Commit <sha> -Publish publish/PlayMap -Supervisor publish/supervisor -Ffmpeg lgpl/ffmpeg-n9.0.2-…
 #       -D3D12 d3d12/D3D12 -Vmx vmx/libvmx.dll -Iscc <ISCC.exe> -Out out [-Version 0.1.0]
 param(
     [Parameter(Mandatory)] [string] $Run,
@@ -33,16 +36,25 @@ if (-not $props.PlayMapMsiVersion) {
     throw 'An installer is made from a numbered build only (PlayMapRun and PlayMapCommit from CI): a local build''s would read as MAJOR.MINOR.0 and could not be upgraded in order.'
 }
 
-$payload = Join-Path ([System.IO.Path]::GetTempPath()) ("playmap-payload-" + $props._PlayMapBuildNumber)
+$payload = Join-Path ([System.IO.Path]::GetTempPath()) ("playmap-payload-" + $props.FileVersion)
 if (Test-Path $payload) { Remove-Item $payload -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $payload, (Join-Path $payload 'ffmpeg'), (Join-Path $payload 'D3D12'), (Join-Path $payload 'Supervisor') | Out-Null
 Copy-Item (Join-Path $Publish '*') $payload -Recurse
-Get-ChildItem $payload -Filter SHA256SUMS -File | Remove-Item
-Copy-Item (Join-Path $Ffmpeg '*.dll') (Join-Path $payload 'ffmpeg')
+$licences = Join-Path $PSScriptRoot 'licenses'
+if (-not (Test-Path (Join-Path $Ffmpeg 'LICENSE.txt'))) { throw "$Ffmpeg holds no LICENSE.txt: -Ffmpeg is the LGPL build's extracted folder" }
+Copy-Item (Join-Path $Ffmpeg 'bin\*.dll') (Join-Path $payload 'ffmpeg')
+Copy-Item (Join-Path $Ffmpeg 'LICENSE.txt') (Join-Path $payload 'ffmpeg\LICENSE.txt')
+Copy-Item (Join-Path $licences 'GPL-3.0.txt') (Join-Path $payload 'ffmpeg\GPL-3.0.txt')
 Copy-Item (Join-Path $D3D12 'D3D12Core.dll') (Join-Path $payload 'D3D12')
 Copy-Item $Vmx (Join-Path $payload 'libvmx.dll')
+Copy-Item (Join-Path $repo 'src/ThirdParty/libvmx/LICENSE.txt') (Join-Path $payload 'libvmx-LICENSE.txt')
+if (-not (Test-Path (Join-Path $payload 'soft_oal.dll'))) { throw 'the publish carries no soft_oal.dll: OpenAL Soft''s licence has nothing to sit beside' }
+Copy-Item (Join-Path $licences 'LGPL-2.0.txt') (Join-Path $payload 'soft_oal-LICENSE.txt')
+Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $payload
 Copy-Item (Join-Path $Supervisor 'PlayMap.Supervisor.exe') (Join-Path $payload 'Supervisor')
 if (Get-ChildItem $payload -Recurse -Filter 'D3D12SDKLayers.dll') { throw 'the Agility SDK''s debug layer is in the payload: releases leave it out' }
+# The sums of every file laid down, shipped with them ({app}\SHA256SUMS); any sums the publish carried are replaced.
+& (Join-Path $PSScriptRoot 'sums.ps1') -Folder $payload
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $commit7 = $Commit.Substring(0, 7).ToLowerInvariant()

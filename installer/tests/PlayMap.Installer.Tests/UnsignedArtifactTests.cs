@@ -44,6 +44,18 @@ public sealed class UnsignedArtifactTests
     }
 
     [Fact]
+    public void ThePayloadsSumsRideBesideTheInstaller()
+    {
+        // The artifact's SHA256SUMS covers SHA256SUMS.payload, the sums of every file the installer lays down (its {app}\SHA256SUMS).
+        var payload = Path.Combine(Artifact, "SHA256SUMS.payload");
+        Assert.True(File.Exists(payload));
+        var names = File.ReadAllLines(payload).Where(l => l.Length > 66).Select(l => l[66..]).ToList();
+        foreach (var name in new[] { "PlayMap.exe", "Supervisor/PlayMap.Supervisor.exe", "D3D12/D3D12Core.dll", "ffmpeg/avcodec-63.dll", "ffmpeg/LICENSE.txt",
+                     "THIRD-PARTY-NOTICES.md" })
+            Assert.Contains(name, names);
+    }
+
+    [Fact]
     public void TheSummaryCarriesTheUnsignedNotice()
     {
         var summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");

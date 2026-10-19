@@ -172,22 +172,56 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 
 ### wp3-installer
 
+What the installer lays down beside PlayMap's own files is listed here, and `{app}\SHA256SUMS` names every file with its hash. This
+file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text sits beside the files it covers.
+
+- **FFmpeg** (https://ffmpeg.org) `n9.0.2-17-g2a571b6068`, commit `2a571b6068` of its `release/9.0` branch, as FFmpeg-Builds'
+  `lgpl-shared` build (https://github.com/BtbN/FFmpeg-Builds, release `autobuild-2026-09-30-13-08`, the win64 zip pinned by its
+  SHA-256 `7157177b8a6cb2174c1650ba8c71b363f2c78cba5330f88c4c02cf5b2b880646`). The build is configured with `--enable-version3`,
+  so its libraries are under the GNU Lesser General Public License version 3 or later: the build's own `LICENSE.txt` (the LGPL
+  version 3) is laid down as `ffmpeg\LICENSE.txt`, and the GNU General Public License version 3, whose terms the LGPL version 3
+  adds to, as `ffmpeg\GPL-3.0.txt`. Its shared libraries are inside the installer as replaceable files in `ffmpeg\`: a person may
+  put other builds of them in their place. Its source is https://git.ffmpeg.org/ffmpeg.git at that commit, and FFmpeg-Builds'
+  scripts at that release name the source and revision of every library below. Linked into those libraries, as the build's
+  configuration names them, each under its project's licence: libiconv (LGPL-2.1-or-later), zlib (Zlib), libxml2 (MIT), libvmaf
+  (BSD-2-Clause-Patent), fontconfig (MIT-style), HarfBuzz (MIT), FreeType (FreeType License), FriBidi (LGPL-2.1-or-later), the
+  Vulkan headers (Apache-2.0; the Vulkan loader is the driver's), dav1d (BSD-2-Clause), libogg and libvorbis (BSD-3-Clause), rav1e
+  (BSD-2-Clause), librsvg (LGPL-2.1-or-later), GMP (LGPL-3.0-or-later), liblzma (0BSD), LCEVCdec (BSD-3-Clause-Clear), the OpenCL
+  ICD loader (Apache-2.0), AMF's headers (MIT), libaom (BSD-2-Clause), Chromaprint (MIT), nv-codec-headers (MIT), Game_Music_Emu
+  (LGPL-2.1-or-later), Kvazaar (BSD-3-Clause), aribb24 (LGPL-3.0-or-later), libaribcaption (MIT), libass (ISC), libbluray
+  (LGPL-2.1-or-later), libjxl (BSD-3-Clause), LAME (LGPL-2.0-or-later), Opus (BSD-3-Clause), libplacebo (LGPL-2.1-or-later),
+  librist (BSD-2-Clause), libssh (LGPL-2.1), libtheora (BSD-3-Clause), libvpx (BSD-3-Clause), libwebp (BSD-3-Clause), libzmq
+  (MPL-2.0), LV2 and lilv (ISC), libvpl (MIT), OpenAL Soft (LGPL-2.0-or-later), OpenAPV (BSD-3-Clause), opencore-amr
+  (Apache-2.0), OpenH264 (BSD-2-Clause), OpenJPEG (BSD-2-Clause), libopenmpt (BSD-3-Clause), SDL2 (Zlib), Snappy (BSD-3-Clause),
+  libsoxr (LGPL-2.1-or-later), SRT (MPL-2.0), SVT-AV1 (BSD-3-Clause-Clear), TwoLAME (LGPL-2.1-or-later), uavs3d (BSD-3-Clause),
+  libva (MIT), VVenC (BSD-3-Clause-Clear), zimg (WTFPL), ZVBI (LGPL-2.1-or-later), and the MinGW-w64 runtime with winpthreads
+  (ZPL-2.1 and MIT) and GCC's libgomp (GPL-3.0-or-later with the GCC Runtime Library Exception). The GPL command-line build of the
+  same release is used on CI only, to encode test media, and is never shipped.
+- **The DirectX Agility SDK's `D3D12Core.dll`** (Microsoft, the `Microsoft.Direct3D.D3D12` package 1.619.6 from nuget.org,
+  `tools/ci-d3d12.ps1`'s pin), under the MICROSOFT DIRECTX licence terms that ship in that package: `D3D12Core.dll` is on the
+  package's list of distributable files and is laid down in `D3D12\`; its debug layer (`d3d12SDKLayers.dll`), distributable too,
+  is left out. The terms let a distributor ship those files inside its own program on conditions that include its end users
+  agreeing to terms that protect Microsoft at least as much as those terms do; how PlayMap's installer meets that condition is the
+  owner's decision (`docs/INSTALL.md`, what the owner decides).
+- **OpenAL Soft** (https://openal-soft.org, source https://github.com/kcat/openal-soft at tag `1.23.1`), under the GNU Library
+  General Public License version 2 or later: `soft_oal.dll`, the file the `Silk.NET.OpenAL.Soft.Native` package 1.23.1 puts beside
+  the exe (the portable folder carries it too), with the licence's text laid down beside it as `soft_oal-LICENSE.txt`. It is a
+  replaceable file loaded at run time.
+- **libvmx** (src/ThirdParty/libvmx, MIT, © 2025 Open Media Transport Contributors) is inside the installer as `libvmx.dll`, built
+  from the vendored source with its upstream Windows command, with its licence laid down beside it as `libvmx-LICENSE.txt`.
+- The GNU licence texts the payload carries (`installer/licenses/GPL-3.0.txt`, `installer/licenses/LGPL-2.0.txt`) are the Free
+  Software Foundation's, copied verbatim as they allow.
 - **Inno Setup 7.1.0** (Jordan Russell and Martijn Laan, https://jrsoftware.org/isinfo.php; source https://github.com/jrsoftware/issrc
   at `is-7_1_0`), under the Inno Setup License: it builds the installer, and its setup and uninstall programs are inside the
   installer EXE. The licence allows any use; its authors ask a commercial user to buy a licence, a request and not a condition, which
   is the owner's own to meet (`docs/round3/PLAN.md` §9 decision 3). The installer is downloaded on CI from the project's release,
-  pinned by hash.
-- **WiX Toolset** (https://github.com/wixtoolset/wix, MS-RL): CI builds it from its source at the pinned tag `v7.0.0` (commit
-  `b8977d6f88e7b68e000bac226a2814f236770570`, `installer/wix/toolset.json`) to measure it (M17). No WiX release, package or tool is
-  downloaded, and nothing of WiX is inside what PlayMap ships this round: it does not build on the runner (M17), and its
-  source carries a licence check PlayMap never answers, so it builds no installer. Were it to build the MSI, its Util and Firewall custom-action DLLs inside the MSI
-  would be MS-RL files, named here with that tag's source.
-- **FFmpeg 9.0.2** (https://ffmpeg.org, the LGPL 2.1-or-later build `lgpl-shared` of FFmpeg-Builds,
-  https://github.com/BtbN/FFmpeg-Builds, `autobuild-2026-09-30-13-08`, pinned by hash): its shared libraries are inside the
-  installer as replaceable files in `ffmpeg\`; its source is at https://git.ffmpeg.org/ffmpeg.git, tag `n9.0.2`. The GPL command-line
-  build of the same release is used on CI only, to encode test media, and is never shipped.
-- **libvmx** (src/ThirdParty/libvmx, its own licence there) is inside the installer, built from the vendored source with its upstream
-  Windows command.
+  pinned by hash, and checked against the release's own digest and its publisher's signature.
+- **WiX Toolset** (https://github.com/wixtoolset/wix, MS-RL): CI's `wix-toolset` job builds it from its source at the pinned tag
+  `v7.0.0` (commit `b8977d6f88e7b68e000bac226a2814f236770570`, `installer/wix/toolset.json`) to measure it (M17), and the job's
+  summary says what the build answered. No WiX release, package or tool is downloaded, and nothing of WiX is inside what PlayMap
+  ships: its source carries licence checks that PlayMap never answers, patches or passes (the owner decides them), so the installer
+  is Inno Setup's. Were WiX to build the MSI, its Util and Firewall custom-action DLLs inside the MSI would be MS-RL files, named
+  here with that tag's source.
 
 ### wp3-desk-ux
 

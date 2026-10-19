@@ -16,8 +16,8 @@ through the supervisor's own commands, so the engine itself never runs as admini
 
 | Where | What |
 |---|---|
-| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe |
-| `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, replaceable files (the same hash-pinned build every decode test on CI loads) |
+| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe; `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, and `SHA256SUMS` of every file laid down |
+| `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, replaceable files (the same hash-pinned build every decode test on CI loads), with the build's `LICENSE.txt` (the LGPL version 3) and `GPL-3.0.txt` |
 | `…\D3D12\` | the Agility SDK's `D3D12Core.dll` (its debug layer is left out) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the supervisor |
 | `%ProgramData%\PlayMap\` | `dumps\` (WER's dumps) and `supervisor\` (its status file, log and the engine's pid record); the show user may write both |
@@ -66,6 +66,12 @@ the supervised mark first, then the service, the firewall rules, WER's values, t
 whatever the others did. Any refusal, or anything it could not take back, stops the uninstall with every file still in place, its
 words in the uninstall's log. The dumps and the node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The MSI's
 transactional rollback of service and registry changes is what the Inno Setup installer gives up; the order above stands in for it.
+
+**What the owner decides.** The Agility SDK's terms let `D3D12Core.dll` ship inside PlayMap's installer on conditions that include
+its end users agreeing to terms that protect Microsoft at least as much as Microsoft's own do; the installer shows no licence page,
+so how that condition is met is the owner's decision (`THIRD-PARTY-NOTICES.md`, wp3-installer). So is Inno Setup's request that a
+commercial user buy a licence (`docs/round3/PLAN.md` §9 decision 3), and the WiX toolset's licence checks, which PlayMap never
+answers, patches or passes.
 
 ## The two version numbers
 
@@ -140,6 +146,10 @@ Select-String -Path .\SHA256SUMS -Pattern 'PlayMap-0.2.0.17-win-x64-unsigned.exe
 The two hashes match when the download is intact. That is the only check this round, and it shows a download is intact, not who
 built it: the sums sit on the same page as the files, so whoever could change one could change the other. There is no updater, so
 nothing verifies an update automatically.
+
+**Checking an install.** The installer's artifact carries `SHA256SUMS.payload` beside its `SHA256SUMS`: the sums of every file the
+installer lays down, which the install keeps as `C:\Program Files\PlayMap\SHA256SUMS`. `Get-FileHash` of an installed file matches
+its line there (the uninstaller Inno Setup writes, `unins000.*`, is the one file not listed).
 
 ## The show machine
 

@@ -260,6 +260,11 @@ public sealed class InstallerTests
 
         foreach (var file in new[] { "PlayMap.exe", @"Supervisor\PlayMap.Supervisor.exe", @"D3D12\D3D12Core.dll", "libvmx.dll", @"ffmpeg\avcodec-63.dll" })
             Assert.True(File.Exists(Path.Combine(InstallDir, file)), file + " is not installed");
+        // The notices and the licence texts the shipped third-party files ask for, beside them.
+        foreach (var file in new[] { "THIRD-PARTY-NOTICES.md", @"ffmpeg\LICENSE.txt", @"ffmpeg\GPL-3.0.txt", "libvmx-LICENSE.txt", "soft_oal-LICENSE.txt" })
+            Assert.True(File.Exists(Path.Combine(InstallDir, file)), file + " is not installed");
+        Assert.Contains("GNU LESSER GENERAL PUBLIC LICENSE", File.ReadAllText(Path.Combine(InstallDir, "ffmpeg", "LICENSE.txt")), StringComparison.Ordinal);
+        AssertEveryFileMatchesItsSum();
         Assert.Empty(Directory.GetFiles(InstallDir, "d3d12SDKLayers.dll", SearchOption.AllDirectories));
         // FFmpeg is the LGPL build every decode test on CI loads: each library hashes to the pinned build's.
         var pinned = Required("PLAYMAP_FFMPEG_DIR");
@@ -297,6 +302,30 @@ public sealed class InstallerTests
         Assert.Equal(2, wer.GetValue("DumpType"));
         Assert.Equal(5, wer.GetValue("DumpCount"));
         Assert.NotNull(Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\EventLog\Application\PlayMap"));
+    }
+
+    /// <summary>{app}\SHA256SUMS lists every file the install laid down, each with the hash it has, and no file is missing from it but
+    /// the uninstaller Inno Setup writes there and the sums themselves.</summary>
+    private static void AssertEveryFileMatchesItsSum()
+    {
+        var sums = Path.Combine(InstallDir, "SHA256SUMS");
+        Assert.True(File.Exists(sums), "the install laid down no SHA256SUMS");
+        var listed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in File.ReadAllLines(sums).Where(l => l.Length > 0))
+        {
+            Assert.Matches("^[0-9a-f]{64}  [^ ].*$", line);
+            listed.Add(line[66..].Replace('/', '\\'), line[..64]);
+        }
+        foreach (var (name, hash) in listed)
+        {
+            var file = Path.Combine(InstallDir, name);
+            Assert.True(File.Exists(file), name + " is listed and not installed");
+            Assert.Equal(hash, Sha256(file).ToLowerInvariant());
+        }
+        var laid = Directory.GetFiles(InstallDir, "*", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(InstallDir, f))
+            .Where(f => !string.Equals(f, "SHA256SUMS", StringComparison.OrdinalIgnoreCase) && !f.StartsWith("unins", StringComparison.OrdinalIgnoreCase));
+        Assert.All(laid, f => Assert.True(listed.ContainsKey(f), f + " is installed and not in SHA256SUMS"));
     }
 
     private static RegistryKey? InstallKey() => Registry.LocalMachine.OpenSubKey(@"SOFTWARE\PlayMap");

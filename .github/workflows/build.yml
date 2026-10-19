@@ -581,7 +581,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $run = [long]'${{ github.run_number }}'
-          $common = @{ Commit = '${{ github.sha }}'; Publish = 'publish/PlayMap'; Supervisor = 'publish/supervisor'; Ffmpeg = '.ffmpeg/lib'; D3D12 = 'd3d12/D3D12'; Vmx = 'vmx/libvmx.dll'; Iscc = $env:ISCC }
+          # FFmpeg from the LGPL build's extracted folder (its DLLs and its LICENSE.txt), the same pinned build .ffmpeg\lib holds.
+          $ffmpeg = (Get-ChildItem lgpl -Directory | Select-Object -First 1).FullName
+          $common = @{ Commit = '${{ github.sha }}'; Publish = 'publish/PlayMap'; Supervisor = 'publish/supervisor'; Ffmpeg = $ffmpeg; D3D12 = 'd3d12/D3D12'; Vmx = 'vmx/libvmx.dll'; Iscc = $env:ISCC }
           # This run's version and build number, as Version.props gives them, and the build before it, numbered lower to an
           # installer (MsiVersionRule.Previous): one build lower, or at build 1 (a raised MAJOR or MINOR) build 1 of the line below.
           $said = (& dotnet msbuild src/PlayMap.Core/PlayMap.Core.csproj -nologo "-p:PlayMapRun=$run" '-p:PlayMapCommit=${{ github.sha }}' '-getProperty:PlayMapVersion' '-getProperty:_PlayMapBuildNumber') -join "`n"
@@ -598,6 +600,8 @@ jobs:
           $env:GITHUB_OUTPUT = $GITHUB_OUTPUT_SAVED
           ./installer/build-installer.ps1 -Run $run -Out artifact @common
           "previous=$($previous.installer)", "previousVersion=$($previous.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
+          # The artifact's sums cover the installer and, through the payload's own sums beside it, every file it lays down.
+          Copy-Item (Join-Path (Get-Content $env:GITHUB_OUTPUT | Where-Object { $_ -like 'payload=*' } | Select-Object -Last 1).Substring(8) 'SHA256SUMS') artifact/SHA256SUMS.payload
       - name: The release order
         shell: pwsh
         env:

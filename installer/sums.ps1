@@ -17,9 +17,10 @@ $root = (Resolve-Path $Folder).Path
 $sums = Join-Path $root 'SHA256SUMS'
 if (Test-Path $sums) { Remove-Item $sums }
 $lines = [System.Collections.Generic.List[string]]::new()
-$files = Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
+# An array whatever the count, so a one-file folder takes -Also's additions too.
+$files = @(Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
     [pscustomobject]@{ Path = $_.FullName; Name = [System.IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/') }
-}
+})
 foreach ($a in $Also) {
     $full = (Resolve-Path $a).Path
     if (-not ($files | Where-Object { $_.Path -eq $full })) { $files += [pscustomobject]@{ Path = $full; Name = Split-Path $full -Leaf } }
