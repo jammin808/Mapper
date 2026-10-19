@@ -94,7 +94,7 @@ public sealed class ShadersExtension(ExtensionSetup setup, ShaderWorkerOptions o
     {
         ArgumentNullException.ThrowIfNull(services);
         var quarantine = new ShaderQuarantine(ShaderParts.QuarantinePath(setup.Home));
-        _worker = new ShaderWorkerHost(options, quarantine, setup.Logs.CreateLogger("shaders"), () => setup.Wall.UnixMs, services.Build.Informational);
+        _worker = new ShaderWorkerHost(options, quarantine, setup.Logs.CreateLogger("shaders"));
         return ShaderParts.Compose(services, quarantine, _worker);
     }
 

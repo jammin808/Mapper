@@ -2,20 +2,28 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Core.Effects;
+using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Optimise;
 using PlayMap.Engine.ShaderWorker;
 using PlayMap.Engine.Tests.Fleet;
+using PlayMap.Engine.Tests.Show;
 using PlayMap.Engine.Tests.Spine;
 using PlayMap.Render.Effects;
+using PlayMap.Render.Gpu;
+using PlayMap.Render.Platform;
 
 namespace PlayMap.Engine.Tests.Shaders;
 
 /// <summary>The shader worker as the engine runs it (the node host in its "shader-worker" role): a good source answers validated
 /// DXIL and a layout; a syntax error answers its stage and the ISF line; a fake compiler that aborts is started again after a backoff
-/// that doubles (counted on a manual clock), and the third stop fails the kind with words and quarantines it; a compile past the
-/// deadline is ended; and the engine's own process holds no compiler module while its worker does. No test asserts a time: the
-/// clocks the host waits on are moved by hand.</summary>
+/// that doubles (counted on a manual clock), and the third stop fails the source with words in the host's own memory, writing no
+/// quarantine; a compile past the deadline is ended and counts no stop; a compile its caller abandons ends its worker, so the next
+/// source meets a fresh one; a node that stops mid-compile answers so and fails nothing; the worker's own process ends when its input
+/// closes, mid-compile too, and runs below normal priority; FX CHECK on an
+/// armed node reads the host's own words when its bound ends a check, and three such ends change no quarantine, so a GL runner given
+/// the node's quarantine still draws the kind; and the engine's own process holds no compiler module while its worker does. No test
+/// asserts a time: the clocks the host waits on are moved by hand.</summary>
 public sealed class ShaderWorkerTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
@@ -24,7 +32,7 @@ public sealed class ShaderWorkerTests
         new() { Worker = WorkerLaunch.Dll(NodeExe.Locate()), Arguments = [.. arguments], Time = time ?? TimeProvider.System };
 
     private static ShaderWorkerHost Host(ShaderWorkerOptions options, ShaderQuarantine? quarantine = null) =>
-        new(options, quarantine ?? new ShaderQuarantine(), NullLogger.Instance, () => 1_760_000_000_000, "0.2.0-dev+test");
+        new(options, quarantine ?? new ShaderQuarantine(), NullLogger.Instance);
 
     private static FxSource Builtin(string id) => FxCatalog.Builtin.Source(id)!;
 
@@ -36,6 +44,19 @@ public sealed class ShaderWorkerTests
         {
             Assert.True(waited.Elapsed < Patience, "never: " + what);
             await Task.Delay(5);
+        }
+    }
+
+    private static bool Gone(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return p.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return true;
         }
     }
 
@@ -81,7 +102,7 @@ public sealed class ShaderWorkerTests
     }
 
     [Fact]
-    public async Task AWorkerThatStopsIsStartedAgainWithBackoffAndTheThirdStopQuarantinesTheKind()
+    public async Task AWorkerThatStopsIsStartedAgainWithBackoffAndTheThirdStopFailsTheSourceWithoutAQuarantine()
     {
         var time = new ManualTime();
         var quarantine = new ShaderQuarantine();
@@ -108,20 +129,20 @@ public sealed class ShaderWorkerTests
         Assert.Contains($"exit {ShaderWorkerMain.AbortedExit}", reply.Words, StringComparison.Ordinal);
         Assert.Equal(2, host.Facts.Restarts);
 
-        // The kind is quarantined for its stops, and never sent again: the next request is answered without a worker.
-        Assert.True(quarantine.IsQuarantined(invert.Hash, out var entry));
-        Assert.Equal(QuarantineReason.CompilerStopped, entry.Reason);
-        Assert.Equal("Invert", entry.Kind);
-        Assert.Equal("0.2.0-dev+test", entry.Build);
+        // The source fails in the host's memory, not the node's quarantine: nothing the air reads changed. It is never sent again:
+        // the next request is answered at once with the same words, and no worker is started for it.
+        Assert.Empty(quarantine.All);
         var again = await host.CompileAsync("Invert", invert.Fragment, invert.Vertex, CancellationToken.None);
-        Assert.Equal(ShaderWorkerHost.QuarantineStage, again.Stage);
-        Assert.Contains("FX RELEASE", again.Words, StringComparison.Ordinal);
+        Assert.Equal(ShaderWorkerHost.WorkerStage, again.Stage);
+        Assert.Equal(reply.Words, again.Words);
         Assert.Equal(2, host.Facts.Restarts);
+        Assert.False(host.Facts.Running);
         Assert.All(again.Stages.Skip(1), s => Assert.Null(s.Ok));
+        Assert.Empty(quarantine.All);
     }
 
     [Fact]
-    public async Task ACompilePastTheDeadlineIsEndedWithWords()
+    public async Task ACompilePastTheDeadlineIsEndedWithWordsAndCountsNoStop()
     {
         var time = new ManualTime();
         await using var host = Host(Options(time, ShaderWorkerMain.FakeWord, "hang"));
@@ -134,10 +155,180 @@ public sealed class ShaderWorkerTests
         time.Advance(TimeSpan.FromTicks(1));
         var reply = await compile.WaitAsync(Patience);
         Assert.Equal(ShaderWorkerHost.WorkerStage, reply.Stage);
-        Assert.Contains("ran past 10 s and was ended", reply.Words, StringComparison.Ordinal);
-        Assert.Contains("1 of 3", reply.Words, StringComparison.Ordinal);
+        Assert.Contains("the compile ran past 10 s and was ended", reply.Words, StringComparison.Ordinal);
+        Assert.DoesNotContain(" of 3", reply.Words, StringComparison.Ordinal);
+        Assert.Equal(0, host.StopsOf(blur.Hash));
         Assert.False(host.Facts.Running);
-        Assert.Throws<ArgumentException>(() => Process.GetProcessById(pid).Kill());
+        Assert.True(Gone(pid));
+    }
+
+    [Fact]
+    public async Task ACompileItsCallerAbandonsEndsItsWorkerAndTheNextSourceMeetsAFreshOne()
+    {
+        var time = new ManualTime();
+        await using var host = Host(Options(time, ShaderWorkerMain.FakeWord, "hang"));
+        var blur = Builtin("fx.blur");
+        var levels = Builtin("fx.levels");
+        using var caller = new CancellationTokenSource();
+        var abandoned = host.CompileAsync("Blur", blur.Fragment, blur.Vertex, caller.Token);
+        await Until(() => host.Facts.Running && time.Waiting > 0, "the first compile in hand");
+        var first = host.Facts.Pid!.Value;
+
+        await caller.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => abandoned.WaitAsync(Patience));
+        // The worker that held the abandoned source is gone before the lane is let go, and nothing is counted against anyone.
+        Assert.True(Gone(first));
+        Assert.Equal(0, host.StopsOf(blur.Hash));
+
+        var next = host.CompileAsync("Levels", levels.Fragment, levels.Vertex, CancellationToken.None);
+        await Until(() => host.Facts is { Running: true, Pid: { } pid } && pid != first && time.Waiting > 0, "a fresh worker");
+        Assert.Equal(1, host.Facts.Restarts);
+        time.Advance(TimeSpan.FromSeconds(10));
+        var reply = await next.WaitAsync(Patience);
+        Assert.Contains("the compile ran past 10 s and was ended", reply.Words, StringComparison.Ordinal);
+        Assert.Equal(0, host.StopsOf(levels.Hash));
+        Assert.Equal(0, host.StopsOf(blur.Hash));
+    }
+
+    [Fact]
+    public async Task ANodeThatStopsMidCompileAnswersSoAndFailsNothing()
+    {
+        var time = new ManualTime();
+        var quarantine = new ShaderQuarantine();
+        // One stop would fail the source: the stop of the node is not one.
+        await using var host = Host(Options(time, ShaderWorkerMain.FakeWord, "hang") with { StopsToFail = 1 }, quarantine);
+        var blur = Builtin("fx.blur");
+        var compile = host.CompileAsync("Blur", blur.Fragment, blur.Vertex, CancellationToken.None);
+        await Until(() => host.Facts.Running && time.Waiting > 0, "the compile in hand");
+        var pid = host.Facts.Pid!.Value;
+
+        await host.DisposeAsync();
+        var reply = await compile.WaitAsync(Patience);
+        Assert.Equal(ShaderWorkerHost.WorkerStage, reply.Stage);
+        Assert.Contains("the node is stopping", reply.Words, StringComparison.Ordinal);
+        Assert.DoesNotContain("stopped the shader worker", reply.Words, StringComparison.Ordinal);
+        Assert.Equal(0, host.StopsOf(blur.Hash));
+        Assert.Empty(quarantine.All);
+        Assert.True(Gone(pid));
+        // A source after the stop is answered so too, with no worker started and nothing thrown.
+        var after = await host.CompileAsync("Blur", blur.Fragment, blur.Vertex, CancellationToken.None);
+        Assert.Contains("the node is stopping", after.Words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChecksTheirBoundEndsOnAnArmedNodeReadTheHostsWordsAndQuarantineNothing()
+    {
+        var time = new ManualTime();
+        var quarantine = new ShaderQuarantine();
+        var options = Options(time, ShaderWorkerMain.FakeWord, "hang");
+        await using var host = Host(options, quarantine);
+        await using var rig = new ShowRig(services: s => ShaderParts.Compose(s, quarantine, host));
+        ShaderParts.Attach(rig.Engine);
+        await rig.Ok("SHOW ARM");
+        var blur = Builtin("fx.blur");
+        var seconds = options.CheckBound.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+        // FX CHECK is a query the armed gate lets through. Each check is ended by the host's own bound, inside the engine's 10 s:
+        // the report's worker stage carries the host's words, and its worker is ended.
+        for (var check = 1; check <= 3; check++)
+        {
+            var started = host.Facts.Restarts;
+            var running = rig.Run("FX CHECK fx.blur");
+            await Until(() => host.Facts.Running && time.Waiting >= 2, $"check {check}'s compile in hand");
+            time.Advance(options.CheckBound);
+            var reply = await running.WaitAsync(Patience);
+            Assert.True(reply.Ok, reply.Payload);
+            using var report = JsonDocument.Parse(reply.Payload!);
+            var worker = Assert.Single(report.RootElement.GetProperty("stages").EnumerateArray(),
+                st => st.GetProperty("name").GetString() == ShaderWorkerHost.WorkerStage);
+            Assert.False(worker.GetProperty("ok").GetBoolean());
+            Assert.Contains($"the check ran past {seconds} s and was ended", worker.GetProperty("words").GetString(), StringComparison.Ordinal);
+            Assert.False(host.Facts.Running);
+            Assert.True(check == 1 || host.Facts.Restarts == started + 1);
+        }
+
+        // Nothing was counted or quarantined: STATE's list is as it was, and a GL runner given the node's quarantine draws the kind.
+        Assert.Equal(0, host.StopsOf(blur.Hash));
+        Assert.Empty(quarantine.All);
+        Assert.Empty(rig.State().GetProperty("fx").GetProperty("quarantine").EnumerateArray());
+        Assert.Equal(FxSlotState.Ok, DrawnThrough(quarantine, "fx.blur"));
+    }
+
+    /// <summary>A slot of <paramref name="kind"/> drawn on GL by a runner given <paramref name="quarantine"/>, frame after frame on a
+    /// thread that holds its own context, until it is no longer compiling: its observed state.</summary>
+    private static FxSlotState DrawnThrough(ShaderQuarantine quarantine, string kind)
+    {
+        var state = FxSlotState.Compiling;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
+        var gl = new Thread(() =>
+        {
+            try
+            {
+                var options = new GlDeviceOptions(CheckErrors: true, DebugOutput: false);
+                using var context = OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
+                    ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options);
+                using var lane = new FxCompileLane(context, sharedContext: false);
+                using var runner = new FxChainRunner(context.Device, lane) { Quarantine = quarantine };
+                using var picture = context.Device.CreateTexture(16, 9, TextureFormat.Rgba8);
+                var chain = new FxChain([new FxSlot("fx00000001", kind, "", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0)]);
+                var show = Project.CreateDefault("Drawn");
+                var waited = Stopwatch.StartNew();
+                for (long frame = 1; state == FxSlotState.Compiling && waited.Elapsed < Patience; frame++)
+                {
+                    lane.Collect(frame);
+                    runner.BeginFrame(frame, show);
+                    runner.Apply(chain, "op_1", picture, new FxFrame(frame, 1_000_000_000, 60, 1_760_000_000_000, 0));
+                    runner.EndFrame();
+                    state = runner.Stats.TryGet("fx00000001", out var live) ? live.State : FxSlotState.Compiling;
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+            }
+        })
+        { IsBackground = true, Name = "gl quarantine" };
+        gl.Start();
+        gl.Join();
+        failure?.Throw();
+        return state;
+    }
+
+    [Fact]
+    public async Task TheWorkersOwnProcessRunsBelowNormalAndEndsWhenItsInputClosesMidCompile()
+    {
+        var launch = WorkerLaunch.Dll(NodeExe.Locate());
+        var info = new ProcessStartInfo(launch.FileName)
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var a in launch.Prefix)
+            info.ArgumentList.Add(a);
+        foreach (var a in new[] { ShaderWorkerMain.Word, ShaderWorkerMain.FakeWord, "hang" })
+            info.ArgumentList.Add(a);
+        using var worker = Process.Start(info)!;
+        try
+        {
+            var hello = await worker.StandardOutput.ReadLineAsync().WaitAsync(Patience);
+            Assert.IsType<ShaderHello>(ShaderWorkerProtocol.Parse(hello!));
+            Assert.Equal(ProcessPriorityClass.BelowNormal, worker.PriorityClass);
+            var blur = Builtin("fx.blur");
+            await worker.StandardInput.WriteLineAsync(ShaderWorkerProtocol.Compile(new ShaderRequest(1, blur.Hash, "Blur", blur.Fragment, blur.Vertex)));
+            await worker.StandardInput.FlushAsync();
+
+            // Only the engine's side of its input is closed: the compile that never returns does not keep the process.
+            worker.StandardInput.Close();
+            await worker.WaitForExitAsync().WaitAsync(Patience);
+            Assert.True(worker.HasExited);
+        }
+        finally
+        {
+            if (!worker.HasExited)
+                worker.Kill(entireProcessTree: true);
+        }
     }
 
     [Fact]

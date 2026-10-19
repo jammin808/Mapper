@@ -7,8 +7,8 @@ namespace PlayMap.Engine;
 public sealed partial record EngineServices
 {
     /// <summary>The kinds this node will not draw, kept in the node's home by wp3-shaders' extension (a node composed without it
-    /// holds one in memory, empty until something quarantines a kind); filled by the shader worker's stops, wp3-shaders-2's GPU-time
-    /// guard and wp3-stability-2's removal breadcrumbs; lifted by FX RELEASE.</summary>
+    /// holds one in memory, empty until something quarantines a kind); filled by wp3-shaders-2's GPU-time guard and wp3-stability-2's
+    /// removal breadcrumbs; lifted by FX RELEASE. Its lock orders every add and release, from whichever thread makes it.</summary>
     public ShaderQuarantine Quarantine { get; init; } = new();
 
     /// <summary>The shader worker user effects compile in (wp3-shaders sets it; wp3-shaders-2 hands its DXIL to the device); null: no

@@ -9,8 +9,10 @@ using PlayMap.Render.Effects;
 namespace PlayMap.Engine.ShaderWorker;
 
 /// <summary>How the engine runs its shader worker: the process (this exe in its "shader-worker" role) and the words after the word
-/// (a test's fake compiler), the clock its deadline and backoff run on, the deadline of one compile, the backoff between restarts
-/// (doubling from the first to the most), how many stops fail a source, and how long a start and a kill are waited for.</summary>
+/// (a test's fake compiler), the clock its deadlines and backoff run on, the deadline of one compile, the bound of one FX CHECK (the
+/// whole check: waiting for the worker, its start, the compile and the end of a worker that did not answer — inside the 10 s the
+/// engine gives a stage check, so the check reads the host's own words), the backoff between restarts (doubling from the first to
+/// the most), how many stops fail a source, and how long a start and a kill are waited for.</summary>
 public sealed record ShaderWorkerOptions
 {
     public WorkerLaunch Worker { get; init; } = WorkerLaunch.ThisProcess();
@@ -20,6 +22,8 @@ public sealed record ShaderWorkerOptions
     public TimeProvider Time { get; init; } = TimeProvider.System;
 
     public TimeSpan Deadline { get; init; } = TimeSpan.FromSeconds(10);
+
+    public TimeSpan CheckBound { get; init; } = TimeSpan.FromSeconds(8);
 
     public TimeSpan FirstBackoff { get; init; } = TimeSpan.FromSeconds(1);
 
@@ -37,13 +41,15 @@ public sealed record ShaderWorkerOptions
 public sealed record ShaderWorkerFacts(bool Running, int? Pid, int Restarts, long LastMs, int Compiled, int Failed,
     ImmutableArray<NativeState> Natives, string Words);
 
-/// <summary>The engine's side of the shader worker: started on the first source, one source at a time, each answered within the
-/// deadline or ended with words (the worker is killed and the next source starts another). A worker that stops while it compiles
-/// is started again after a backoff (1 s doubling to 30 s) and handed the source again; a source that stops it
-/// <see cref="ShaderWorkerOptions.StopsToFail"/> times fails with words and its kind is quarantined
-/// (<see cref="QuarantineReason.CompilerStopped"/>), so it is never sent again until a person releases it or its source changes
-/// (a changed source is another kind). A quarantined kind is answered at once, never sent. It is FX CHECK's stage check: the road's
-/// stages beside the GL dialects'. The engine never loads a compiler: every native is the worker's.</summary>
+/// <summary>The engine's side of the shader worker: started on the first source, one source at a time. A source that is not answered
+/// — past the compile's deadline, past an FX CHECK's bound, or abandoned by its caller — ends the worker that holds it before the next
+/// source is sent, so no source ever waits behind another's compile; running long is not stopping the worker, and counts nothing. A
+/// worker that stops while it compiles is started again after a backoff (1 s doubling to 30 s) and handed the source again; a source
+/// that stops it <see cref="ShaderWorkerOptions.StopsToFail"/> times fails with words and is answered at once from then on, never sent
+/// again until its source changes (a changed source is another hash). That is the host's own memory: it writes no quarantine, so an
+/// FX CHECK (a query) changes nothing on the air, and the worker serves Direct3D 12 only. A kind the node's quarantine holds is
+/// answered at once too. It is FX CHECK's stage check: the road's stages beside the GL dialects'. The engine never loads a compiler:
+/// every native is the worker's.</summary>
 public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
 {
     /// <summary>The stage a reply the engine makes itself names.</summary>
@@ -55,11 +61,11 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
     private readonly ShaderWorkerOptions _options;
     private readonly ShaderQuarantine _quarantine;
     private readonly ILogger _log;
-    private readonly Func<long> _unixMs;
-    private readonly string _build;
     private readonly SemaphoreSlim _one = new(1, 1);
+    private readonly CancellationTokenSource _stopping = new();
     private readonly Lock _gate = new();
     private readonly Dictionary<string, int> _stops = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _failedSources = new(StringComparer.Ordinal);
     private Worker? _worker;
     private TimeSpan _backoff;
     private long _nextId;
@@ -71,17 +77,14 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
     private string _words = "the shader worker starts with the first effect to compile";
     private bool _closed;
 
-    public ShaderWorkerHost(ShaderWorkerOptions options, ShaderQuarantine quarantine, ILogger log, Func<long> unixMs, string build)
+    public ShaderWorkerHost(ShaderWorkerOptions options, ShaderQuarantine quarantine, ILogger log)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(quarantine);
         ArgumentNullException.ThrowIfNull(log);
-        ArgumentNullException.ThrowIfNull(unixMs);
         _options = options;
         _quarantine = quarantine;
         _log = log;
-        _unixMs = unixMs;
-        _build = build;
         _backoff = options.FirstBackoff;
     }
 
@@ -104,47 +107,116 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
         }
     }
 
+    /// <summary>The node has begun to stop: whatever ends now is the stop's, never a source's.</summary>
+    private bool NodeStopping
+    {
+        get
+        {
+            lock (_gate)
+                return _closed;
+        }
+    }
+
+    /// <summary>The stops counted against a source (its kind's hash) since it was last answered.</summary>
+    internal int StopsOf(string kindHash)
+    {
+        lock (_gate)
+            return _stops.GetValueOrDefault(kindHash);
+    }
+
+    /// <summary>FX CHECK's stages, answered within <see cref="ShaderWorkerOptions.CheckBound"/> of the call.</summary>
     public async Task<ImmutableArray<FxStage>> CheckAsync(string name, string fragment, string? vertex, CancellationToken ct) =>
-        (await CompileAsync(name, fragment, vertex, ct).ConfigureAwait(false)).Stages;
+        (await RunAsync(name, fragment, vertex, _options.CheckBound, ct).ConfigureAwait(false)).Stages;
 
     /// <summary>A source through the worker's road: its reply, or one the engine made when the worker could not answer.</summary>
-    public async Task<ShaderReply> CompileAsync(string name, string fragment, string? vertex, CancellationToken ct)
+    public Task<ShaderReply> CompileAsync(string name, string fragment, string? vertex, CancellationToken ct) =>
+        RunAsync(name, fragment, vertex, null, ct);
+
+    private async Task<ShaderReply> RunAsync(string name, string fragment, string? vertex, TimeSpan? bound, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(fragment);
         var hash = FxCatalog.ContentHash(fragment, vertex);
         if (_quarantine.IsQuarantined(hash, out var held))
             return ShaderReply.Refused(0, QuarantineStage, $"{held.Kind} is quarantined on this node: {held.Words} (FX RELEASE lifts it)");
-        await _one.WaitAsync(ct).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (_failedSources.TryGetValue(hash, out var failed))
+                return ShaderReply.Refused(0, WorkerStage, failed);
+            if (_closed)
+                return Stopping(name);
+        }
+        // The check's bound runs from the call, on the host's clock; the node's stop and the caller end every wait too.
+        using var whole = new CancellationTokenSource(bound ?? Timeout.InfiniteTimeSpan, _options.Time);
+        CancellationTokenSource life;
+        try
+        {
+            life = CancellationTokenSource.CreateLinkedTokenSource(whole.Token, _stopping.Token, ct);
+        }
+        catch (ObjectDisposedException)
+        {
+            return Stopping(name);
+        }
+        using (life)
+            return await HeldAsync(name, fragment, vertex, hash, bound, whole, life, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The source through the one lane, once the bound and the tokens are set.</summary>
+    private async Task<ShaderReply> HeldAsync(string name, string fragment, string? vertex, string hash, TimeSpan? bound,
+        CancellationTokenSource whole, CancellationTokenSource life, CancellationToken ct)
+    {
+        try
+        {
+            await _one.WaitAsync(life.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return NodeStopping ? Stopping(name)
+                : Fail(ShaderReply.Refused(0, WorkerStage, $"the check ran past {Seconds(bound)} s waiting for the shader worker, busy with another source"));
+        }
+        catch (ObjectDisposedException)
+        {
+            return Stopping(name);
+        }
         try
         {
             while (true)
             {
-                var (worker, why) = await StartedAsync(ct).ConfigureAwait(false);
+                Worker? worker;
+                string why;
+                try
+                {
+                    (worker, why) = await StartedAsync(life.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    return NodeStopping ? Stopping(name)
+                        : Fail(ShaderReply.Refused(0, WorkerStage, $"the check ran past {Seconds(bound)} s and was ended while the shader worker started"));
+                }
                 if (worker is null)
-                    return Fail(ShaderReply.Refused(0, WorkerStage, why));
+                    return NodeStopping ? Stopping(name) : Fail(ShaderReply.Refused(0, WorkerStage, why));
                 var id = Interlocked.Increment(ref _nextId);
                 var reply = worker.Expect(id);
-                if (!worker.Send(ShaderWorkerProtocol.Compile(new ShaderRequest(id, hash, name, fragment, vertex))))
-                {
-                    // A worker that takes no line is past use: it is ended, and counted as a stop.
-                    worker.Kill(_options.KillWait, _log);
-                    reply = Task.FromResult<ShaderReply?>(null);
-                }
+                var line = ShaderWorkerProtocol.Compile(new ShaderRequest(id, hash, name, fragment, vertex));
                 using var deadline = new CancellationTokenSource(_options.Deadline, _options.Time);
-                using var both = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, ct);
+                using var both = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, life.Token);
                 ShaderReply? answered;
                 try
                 {
-                    answered = await reply.WaitAsync(both.Token).ConfigureAwait(false);
+                    answered = await SendThenWaitAsync(worker, line, reply, both.Token).WaitAsync(both.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested)
+                catch (OperationCanceledException)
                 {
-                    worker.Kill(_options.KillWait, _log);
-                    // Answered once the worker has gone, so what STATE reads after the answer is a node with no worker running.
-                    await worker.ExitCodeAsync(_options.KillWait).ConfigureAwait(false);
-                    var seconds = _options.Deadline.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
-                    return Stopped(hash, name, $"the compile ran past {seconds} s and was ended", retry: false)!;
+                    // Whatever ended the wait, the worker that holds the source is ended before the lane is let go: the next source
+                    // meets a worker with nothing in hand. Running long, or being abandoned, is not a stop: nothing is counted.
+                    await EndAsync(worker).ConfigureAwait(false);
+                    if (ct.IsCancellationRequested)
+                        throw;
+                    if (NodeStopping)
+                        return Stopping(name);
+                    return Fail(ShaderReply.Refused(0, WorkerStage, whole.IsCancellationRequested
+                        ? $"the check ran past {Seconds(bound)} s and was ended"
+                        : $"the compile ran past {Seconds(_options.Deadline)} s and was ended"));
                 }
                 if (answered is not null)
                 {
@@ -161,14 +233,24 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
                     Changed?.Invoke();
                     return answered;
                 }
-                // The worker went while it held the source: started again after the backoff, and the source handed to it again.
+                // The worker went while it held the source (or took no line, and is ended): unless the node is stopping, that is
+                // counted against this source, and the worker is started again after the backoff and handed the source again.
+                if (!worker.Gone)
+                    worker.Kill(_options.KillWait, _log);
                 var code = await worker.ExitCodeAsync(_options.KillWait).ConfigureAwait(false);
-                if (Stopped(hash, name, $"the shader worker stopped while it compiled {name} (exit {code})", retry: true) is { } failed)
-                    return failed;
+                if (NodeStopping)
+                    return Stopping(name);
+                if (Stopped(hash, $"the shader worker stopped while it compiled {name} (exit {code})") is { } failedNow)
+                    return failedNow;
                 BackingOff = true;
                 try
                 {
-                    await Task.Delay(_backoff, _options.Time, ct).ConfigureAwait(false);
+                    await Task.Delay(_backoff, _options.Time, life.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    return NodeStopping ? Stopping(name)
+                        : Fail(ShaderReply.Refused(0, WorkerStage, $"the check ran past {Seconds(bound)} s while the shader worker was started again"));
                 }
                 finally
                 {
@@ -184,6 +266,33 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
         }
     }
 
+    /// <summary>Sends the source, then waits for its reply; null when the worker took no line or went without answering.</summary>
+    private static async Task<ShaderReply?> SendThenWaitAsync(Worker worker, string line, Task<ShaderReply?> reply, CancellationToken ct)
+    {
+        if (!await worker.SendAsync(line, ct).ConfigureAwait(false))
+            return null;
+        return await reply.ConfigureAwait(false);
+    }
+
+    /// <summary>Kills a worker and waits for it to go, so what STATE reads after the answer is a node with no worker running.</summary>
+    private async Task EndAsync(Worker worker)
+    {
+        worker.Kill(_options.KillWait, _log);
+        await worker.ExitCodeAsync(_options.KillWait).ConfigureAwait(false);
+    }
+
+    private ShaderReply Stopping(string name)
+    {
+        var reply = ShaderReply.Refused(0, WorkerStage, $"the node is stopping: {name} was not compiled");
+        lock (_gate)
+            _words = reply.Words;
+        Changed?.Invoke();
+        return reply;
+    }
+
+    private static string Seconds(TimeSpan? span) =>
+        (span ?? TimeSpan.Zero).TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
     private ShaderReply Fail(ShaderReply reply)
     {
         lock (_gate)
@@ -195,10 +304,9 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
         return reply;
     }
 
-    /// <summary>Counts a stop of the worker on a source. At <see cref="ShaderWorkerOptions.StopsToFail"/> the kind is quarantined and
-    /// its reply answered; below it, null when the source is to be sent again (a stop), else its reply (a deadline: the caller
-    /// decides whether to try again).</summary>
-    private ShaderReply? Stopped(string hash, string name, string words, bool retry)
+    /// <summary>Counts a stop of the worker on a source: null below <see cref="ShaderWorkerOptions.StopsToFail"/> (the source is sent
+    /// again); at it, the source fails with words and is remembered, so it is answered at once and never sent again.</summary>
+    private ShaderReply? Stopped(string hash, string words)
     {
         int stops;
         lock (_gate)
@@ -208,18 +316,19 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
         }
         _log.LogWarning("Shader worker: {Words} ({Stops} of {Of}).", words, stops, _options.StopsToFail);
         Changed?.Invoke();
-        if (stops >= _options.StopsToFail)
+        if (stops < _options.StopsToFail)
+            return null;
+        var said = $"the source stopped the shader worker {stops} times ({words}): it fails, and is not sent again until it changes";
+        lock (_gate)
         {
-            lock (_gate)
-                _stops.Remove(hash);
-            var said = $"the source stopped the shader worker {stops} times ({words}): it is quarantined and never sent again until it is released or changed";
-            _quarantine.Add(new QuarantineEntry(hash, name, QuarantineReason.CompilerStopped, said, _unixMs(), _build));
-            return Fail(ShaderReply.Refused(0, WorkerStage, said));
+            _stops.Remove(hash);
+            _failedSources[hash] = said;
         }
-        return retry ? null : Fail(ShaderReply.Refused(0, WorkerStage, $"{words} ({stops} of {_options.StopsToFail} before the kind is quarantined)"));
+        return Fail(ShaderReply.Refused(0, WorkerStage, said));
     }
 
-    /// <summary>The worker, started and greeted; null with words when it cannot be.</summary>
+    /// <summary>The worker, started and greeted; null with words when it cannot be. A start the caller abandons ends the worker it
+    /// started.</summary>
     private async Task<(Worker? Worker, string Words)> StartedAsync(CancellationToken ct)
     {
         Worker? worker;
@@ -244,10 +353,19 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
             _started++;
         }
         Changed?.Invoke();
-        var hello = await worker.HelloAsync(_options.StartWait, ct).ConfigureAwait(false);
+        ShaderHello? hello;
+        try
+        {
+            hello = await worker.HelloAsync(_options.StartWait, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            await EndAsync(worker).ConfigureAwait(false);
+            throw;
+        }
         if (hello is null)
         {
-            worker.Kill(_options.KillWait, _log);
+            await EndAsync(worker).ConfigureAwait(false);
             lock (_gate)
                 _words = "the shader worker did not say hello";
             return (null, "the shader worker did not say hello");
@@ -262,14 +380,31 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
         return (worker, "");
     }
 
+    /// <summary>Ends any compile in hand first (it kills its worker and answers that the node is stopping), then, once no compile
+    /// holds the lane, stops an idle worker (the stop line, its input closed, killed if it has not gone in time) and lets the lane go.
+    /// The worker's input is written by one compile at a time, never by the stop while a compile writes it.</summary>
     public async ValueTask DisposeAsync()
     {
+        lock (_gate)
+        {
+            if (_closed)
+                return;
+            _closed = true;
+        }
+        await _stopping.CancelAsync().ConfigureAwait(false);
+        var held = await _one.WaitAsync(_options.KillWait * 3, CancellationToken.None).ConfigureAwait(false);
         Worker? worker;
         lock (_gate)
         {
-            _closed = true;
             worker = _worker;
             _worker = null;
+        }
+        if (!held)
+        {
+            // A compile still holds the lane: its worker is ended here, and the compile lets the lane go itself.
+            _log.LogWarning("A shader compile still held the worker {Wait} after the node began to stop.", _options.KillWait * 3);
+            worker?.Kill(_options.KillWait, _log);
+            return;
         }
         if (worker is not null)
         {
@@ -277,6 +412,7 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
             worker.Dispose();
         }
         _one.Dispose();
+        _stopping.Dispose();
     }
 
     /// <summary>One worker process: its replies by id, its hello and its end, read from its output on a worker thread.</summary>
@@ -349,11 +485,28 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
             return tcs.Task;
         }
 
-        public bool Send(string line)
+        /// <summary>Writes a line to the worker; false when it takes none (it has gone, or was ended mid-write). The caller's token
+        /// ends a write the worker does not read.</summary>
+        public async Task<bool> SendAsync(string line, CancellationToken ct)
         {
             try
             {
-                _process.StandardInput.WriteLine(line);
+                await _process.StandardInput.WriteLineAsync(line.AsMemory(), ct).ConfigureAwait(false);
+                await _process.StandardInput.FlushAsync(ct).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Writes the stop line if the worker takes it at once; false when it does not.</summary>
+        private bool TrySendStop()
+        {
+            try
+            {
+                _process.StandardInput.WriteLine(ShaderWorkerProtocol.Stop);
                 _process.StandardInput.Flush();
                 return true;
             }
@@ -412,7 +565,7 @@ public sealed class ShaderWorkerHost : IFxStageCheck, IAsyncDisposable
         {
             if (Gone)
                 return;
-            Send(ShaderWorkerProtocol.Stop);
+            TrySendStop();
             try
             {
                 _process.StandardInput.Close();

@@ -56,7 +56,7 @@ public sealed class ShadersFixtureTests
     {
         var quarantine = new ShaderQuarantine();
         await using var worker = new ShaderWorkerHost(new ShaderWorkerOptions { Worker = WorkerLaunch.Dll(NodeExe.Locate()) }, quarantine,
-            NullLogger.Instance, () => 1_760_000_000_000, "0.2.0+17.abc1234");
+            NullLogger.Instance);
         // An ISF file the show carries, written here: its hash is the same on every platform (a built-in's file is checked out
         // with the platform's line ends, and its hash with them).
         const string slot = "fx00000001";
@@ -72,8 +72,8 @@ public sealed class ShadersFixtureTests
         var hash = FxCatalog.For(show.FxAssets).Source(FxCatalog.AssetKindId(asset.Id))!.Hash;
         await using var rig = new ShowRig(show, s => ShaderParts.Compose(s, quarantine, worker));
         ShaderParts.Attach(rig.Engine);
-        quarantine.Add(new QuarantineEntry(hash, "Wobble", QuarantineReason.DeviceRemoved,
-            "the GPU stopped inside this effect's pass on Output 1", 1_760_000_000_000, "0.2.0+17.abc1234"));
+        Assert.True(quarantine.Add(new QuarantineEntry(hash, "Wobble", QuarantineReason.DeviceRemoved,
+            "the GPU stopped inside this effect's pass on Output 1", 1_760_000_000_000, "0.2.0+17.abc1234")).Applied);
 
         var fx = JsonNode.Parse(rig.Engine.State().Json)!["fx"]!;
         var fixture = new JsonObject
@@ -102,6 +102,8 @@ public sealed class ShadersFixtureTests
             Assert.NotEmpty(bases);
             foreach (var field in card["fields"]!.AsArray())
                 Assert.All(bases, b => Assert.NotEmpty(Resolve(b, field!["path"]!.GetValue<string>())));
+            foreach (var rule in card["light"]!.AsArray().Where(r => r!["if"] is not null))
+                Assert.All(bases, b => Assert.NotEmpty(Resolve(b, rule!["if"]!.GetValue<string>())));
             foreach (var action in card["actions"]!.AsArray())
             {
                 var line = action!["line"]!.GetValue<string>().Replace("$(hash)", new string('0', 64), StringComparison.Ordinal);
