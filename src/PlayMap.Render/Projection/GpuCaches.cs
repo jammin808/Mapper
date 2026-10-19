@@ -1,16 +1,17 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
+using PlayMap.Render.Generators;
 
 namespace PlayMap.Render.Projection;
 
-/// <summary>A mesh (or a face subset of one) on the GPU: interleaved position, normal and UV, its indices,
-/// and its object-space bounds.</summary>
-internal sealed class GpuMesh : IDisposable
+/// <summary>A surface's mesh (or a face subset of one) on the GPU: interleaved position, normal and UV, its indices, and its
+/// object-space bounds.</summary>
+internal sealed class SurfaceMesh : IDisposable
 {
     public static readonly VertexAttribute[] Layout =
     [
@@ -19,7 +20,7 @@ internal sealed class GpuMesh : IDisposable
         new(2, 2, 32, 24),
     ];
 
-    public required VertexArray Vao { get; init; }
+    public required GpuMesh Mesh { get; init; }
     public required GpuBuffer Vertices { get; init; }
     public required GpuBuffer Indices { get; init; }
     public required int IndexCount { get; init; }
@@ -28,7 +29,7 @@ internal sealed class GpuMesh : IDisposable
 
     public void Dispose()
     {
-        Vao.Dispose();
+        Mesh.Dispose();
         Vertices.Dispose();
         Indices.Dispose();
     }
@@ -43,14 +44,14 @@ internal sealed class GpuWarp : IDisposable
         new(1, 2, 16, 8),
     ];
 
-    public required VertexArray Vao { get; init; }
+    public required GpuMesh Mesh { get; init; }
     public required GpuBuffer Vertices { get; init; }
     public required GpuBuffer Indices { get; init; }
     public required int IndexCount { get; init; }
 
     public void Dispose()
     {
-        Vao.Dispose();
+        Mesh.Dispose();
         Vertices.Dispose();
         Indices.Dispose();
     }
@@ -58,7 +59,8 @@ internal sealed class GpuWarp : IDisposable
 
 /// <summary>GPU copies of the objects the stage hands over, keyed by the object itself: an instance is
 /// uploaded once and kept while it keeps coming back; one no frame has used for <see cref="IdleFrames"/>
-/// frames is deleted. Identity is the change test — the stage's objects are immutable once handed over.</summary>
+/// frames is deleted. Identity is the change test — the stage's objects are immutable once handed over. Buffers and textures are
+/// the device's, filled when made (a texture through the open frame's list).</summary>
 internal sealed class GpuCaches : IDisposable
 {
     public const int IdleFrames = 120;
@@ -71,17 +73,19 @@ internal sealed class GpuCaches : IDisposable
         public long LastUsed;
     }
 
-    private readonly GlDevice _device;
-    private readonly Dictionary<MeshKey, Entry<GpuMesh>> _meshes = [];
+    private readonly RenderServices _services;
+    private readonly IGpuDevice _device;
+    private readonly Dictionary<MeshKey, Entry<SurfaceMesh>> _meshes = [];
     private readonly Dictionary<object, Entry<GpuTexture>> _textures = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<WarpMeshGeometry, Entry<GpuWarp>> _warps = new(ReferenceEqualityComparer.Instance);
     private readonly List<object> _stale = [];
     private GpuWarp? _identity;
     private long _frame;
 
-    public GpuCaches(GlDevice device)
+    public GpuCaches(RenderServices services)
     {
-        _device = device;
+        _services = services;
+        _device = services.Device;
     }
 
     public void BeginFrame(long frame) => _frame = frame;
@@ -93,19 +97,19 @@ internal sealed class GpuCaches : IDisposable
     public int WarpUploads { get; private set; }
 
     /// <summary>The GPU mesh of a surface: the whole mesh, or the listed triangles of it.</summary>
-    public GpuMesh Mesh(MeshData mesh, ImmutableArray<int> faces)
+    public SurfaceMesh Mesh(MeshData mesh, ImmutableArray<int> faces)
     {
         var key = new MeshKey(mesh, faces.IsDefault ? [] : faces);
         if (!_meshes.TryGetValue(key, out var e))
         {
-            e = new Entry<GpuMesh> { Value = UploadMesh(mesh, key.Faces) };
+            e = new Entry<SurfaceMesh> { Value = UploadMesh(mesh, key.Faces) };
             _meshes[key] = e;
         }
         e.LastUsed = _frame;
         return e.Value;
     }
 
-    private GpuMesh UploadMesh(MeshData mesh, ImmutableArray<int> faces)
+    private SurfaceMesh UploadMesh(MeshData mesh, ImmutableArray<int> faces)
     {
         var source = mesh.HasNormals ? mesh : mesh.WithComputedNormals();
         var n = source.VertexCount;
@@ -143,13 +147,9 @@ internal sealed class GpuCaches : IDisposable
             indices = [.. list];
         }
         var (min, max) = source.Bounds();
-        var vb = _device.CreateBuffer(BufferKind.Vertex);
-        _device.SetBufferData<float>(vb, data, dynamic: false);
-        var ib = _device.CreateBuffer(BufferKind.Index);
-        _device.SetBufferData<uint>(ib, indices, dynamic: false);
-        var vao = _device.CreateVertexArray(GpuMesh.Layout, vb, ib);
+        var (vb, ib, gpu) = Upload(SurfaceMesh.Layout, data, indices);
         MeshUploads++;
-        return new GpuMesh { Vao = vao, Vertices = vb, Indices = ib, IndexCount = indices.Length, Min = min, Max = max };
+        return new SurfaceMesh { Mesh = gpu, Vertices = vb, Indices = ib, IndexCount = indices.Length, Min = min, Max = max };
     }
 
     /// <summary>A coverage map as a one-channel float texture.</summary>
@@ -189,8 +189,8 @@ internal sealed class GpuCaches : IDisposable
     {
         if (!_textures.TryGetValue(key, out var e))
         {
-            var tex = _device.CreateTexture(Math.Max(1, width), Math.Max(1, height), format, filter);
-            _device.Upload(tex, GlDevice.Bytes<float>(values), upload);
+            var tex = _device.CreateTexture(new TextureDesc(Math.Max(1, width), Math.Max(1, height), format, FrameLists.Uploaded, filter));
+            _services.List.Upload(tex, MemoryMarshal.AsBytes(values.AsSpan()), upload);
             e = new Entry<GpuTexture> { Value = tex };
             _textures[key] = e;
         }
@@ -224,12 +224,18 @@ internal sealed class GpuCaches : IDisposable
             data[i * 4 + 2] = i * 2 + 1 < texCoords.Length ? texCoords[i * 2] : 0;
             data[i * 4 + 3] = i * 2 + 1 < texCoords.Length ? texCoords[i * 2 + 1] : 0;
         }
-        var vb = _device.CreateBuffer(BufferKind.Vertex);
-        _device.SetBufferData<float>(vb, data, dynamic: false);
-        var ib = _device.CreateBuffer(BufferKind.Index);
-        _device.SetBufferData<uint>(ib, indices, dynamic: false);
-        var vao = _device.CreateVertexArray(GpuWarp.Layout, vb, ib);
-        return new GpuWarp { Vao = vao, Vertices = vb, Indices = ib, IndexCount = indices.Length };
+        var (vb, ib, mesh) = Upload(GpuWarp.Layout, data, indices);
+        return new GpuWarp { Mesh = mesh, Vertices = vb, Indices = ib, IndexCount = indices.Length };
+    }
+
+    /// <summary>A vertex and an index buffer filled with the data, and the mesh that reads them with the layout.</summary>
+    private (GpuBuffer Vertices, GpuBuffer Indices, GpuMesh Mesh) Upload(VertexAttribute[] layout, float[] vertices, uint[] indices)
+    {
+        var vb = _device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
+        _device.SetBufferData<float>(vb, vertices);
+        var ib = _device.CreateBuffer(new BufferDesc(0, BufferUsage.Index));
+        _device.SetBufferData<uint>(ib, indices);
+        return (vb, ib, _device.CreateMesh(layout, vb, ib));
     }
 
     /// <summary>Deletes what no frame has used for a while.</summary>

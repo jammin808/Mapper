@@ -88,7 +88,7 @@ internal sealed class OutputStage
                 .Set("uMeasuredGamma", measured?.Gamma ?? MeasuredStage.ContentGamma)
                 .Set("uMeasuredPedestal", measured?.Pedestal ?? 0f)
                 .Set("uAir", input.Gain ?? 1f)
-                .Indexed(input.Warp.Vao, input.Warp.IndexCount);
+                .Indexed(input.Warp.Mesh, input.Warp.IndexCount);
         target.Color.Version++;
     }
 

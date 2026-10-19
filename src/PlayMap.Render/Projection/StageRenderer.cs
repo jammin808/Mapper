@@ -7,7 +7,6 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Projection;
 
@@ -26,10 +25,12 @@ public sealed record EditorCamera(
 ///
 /// The projection is <see cref="CameraModel.GlMatrices"/> with one more mirror in y, because targets are
 /// drawn top row first; the mirror turns the winding over, which the device's cull state accounts for. Depth
-/// testing is on. A surface's content is sampled through its UVs (with the region's offset and scale), from
-/// a canvas region, or projected from a viewpoint; a surface-aware effect is drawn from the surface's own
-/// world position, normal and UVs at the generator's own time (the time it draws at anywhere else), and its draw
-/// is reported to the frame's content stats. The surface mask (UV space) and the opacity scale the light.
+/// testing is on. Every source a pass samples is resolved before its pass begins (a source may draw in passes of its own); then
+/// the pass clears its target and draws every surface into the frame's list, each draw setting every constant it reads. A
+/// surface's content is sampled through its UVs (with the region's offset and scale), from a canvas region, or projected from a
+/// viewpoint; a surface-aware effect is drawn from the surface's own world position, normal and UVs at the generator's own time
+/// (the time it draws at anywhere else), and its draw is reported to the frame's content stats. The surface mask (UV space) and
+/// the opacity scale the light.
 ///
 /// A surface whose effect chain draws has its content made once a frame, at the frame's chain size (<see cref="BeginFrame"/>),
 /// and passed through the frame's passes; every projector pass that frame, and a preview after it, samples that one picture, so
@@ -46,10 +47,28 @@ internal sealed class StageRenderer : IDisposable
 
     private static readonly Matrix4x4 FlipY = new(1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
 
+    /// <summary>A surface: opaque, depth tested and written, both faces.</summary>
+    private static readonly DrawState Surface = new(BlendMode.Opaque, DepthMode.TestWrite, CullMode.None, Topology.Triangles);
+
+    /// <summary>A selected surface's edges, over its fill.</summary>
+    private static readonly DrawState Edges = Surface with { Wireframe = true };
+
+    /// <summary>A pixel quad: a layer over the stage, no depth.</summary>
+    private static readonly DrawState Flat = DrawState.Opaque;
+
+    /// <summary>The editor's floor and frusta: depth tested, not written.</summary>
+    private static readonly DrawState Lines = new(BlendMode.Opaque, DepthMode.TestOnly, CullMode.None, Topology.Lines);
+
+    private static readonly PassDesc ProjectorClear = PassDesc.ClearBlack;
+    private static readonly PassDesc EditorClear = FrameLists.Clear(0.07f, 0.075f, 0.09f, 1);
+
     private readonly RenderServices _services;
     private readonly GpuCaches _caches;
+    private readonly ProgramId _stage;
+    private readonly ProgramId _pixel;
+    private readonly ProgramId _lineProgram;
     private readonly GpuBuffer _lineBuffer;
-    private readonly VertexArray _lineVao;
+    private readonly GpuMesh _lineMesh;
     private float[] _lines = new float[LineFloats * 512];
     private int _lineCount;
     private int _chainWidth;
@@ -63,9 +82,13 @@ internal sealed class StageRenderer : IDisposable
     {
         _services = services;
         _caches = caches;
-        _lineBuffer = services.Gl.CreateBuffer(BufferKind.Vertex);
-        services.Gl.SetBufferData<float>(_lineBuffer, new float[LineFloats * 2]);
-        _lineVao = services.Gl.CreateVertexArray(LineLayout, _lineBuffer);
+        var device = services.Device;
+        _stage = device.Programs.Id("stage");
+        _pixel = device.Programs.Id("pixelsurface");
+        _lineProgram = device.Programs.Id("lines");
+        _lineBuffer = device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
+        device.SetBufferData<float>(_lineBuffer, new float[LineFloats * 2]);
+        _lineMesh = device.CreateMesh(LineLayout, _lineBuffer);
     }
 
     /// <summary>The size a chained surface's content is made at this frame (the largest projector raster); 0 × 0 makes it at the
@@ -140,11 +163,15 @@ internal sealed class StageRenderer : IDisposable
         var haveBounds = WorldBounds(project, resources, out var min, out var max);
         var (near, far) = Planes(projector.Pose, haveBounds, min, max);
         var viewProj = ViewProjection(k, projector.Pose, near, far);
-        var d = _services.Gl;
-        d.BindTarget(target);
-        d.ClearWithDepth(0, 0, 0, 1);
-        DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, projector.Pose.Position, haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: false, null,
-            projector.Id);
+        var list = _services.List;
+        var surfaces = Resolve(target, project, sources, context, tint: false, projector.Id);
+        using (list.Pass(target, ProjectorClear))
+        {
+            DrawSurfaces(list, project, resources, sources, in frame, viewProj, projector.Pose.Position, haveBounds ? min : Vec3d.Zero,
+                haveBounds ? max : Vec3d.Zero, tint: false, null);
+            DrawPixelSurfaces(list, target, project, resources, projector.Id);
+        }
+        Array.Clear(_textures, 0, surfaces);
         target.Color.Version++;
     }
 
@@ -176,12 +203,8 @@ internal sealed class StageRenderer : IDisposable
         var (near, far) = Planes(camera.Pose, haveBounds, min, max);
         far = Math.Max(far, 100);
         var viewProj = ViewProjection(k, camera.Pose, near, far);
-        var d = _services.Gl;
-        d.BindTarget(target);
-        d.ClearWithDepth(0.07f, 0.075f, 0.09f, 1);
         var context = new GeneratorContext("Editor", 0, "#3EC1F3", false);
-        DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, camera.Pose.Position,
-            haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: !camera.ShowContent, camera.Selected, null);
+        var surfaces = Resolve(target, project, sources, context, tint: !camera.ShowContent, null);
 
         _lineCount = 0;
         if (camera.ShowFloor)
@@ -204,20 +227,24 @@ internal sealed class StageRenderer : IDisposable
                 AddFrustum(pj, dist, selected ? ColorRgb.Lerp(c, ColorRgb.White, 0.5f) : c);
             }
         }
-        DrawLines(viewProj);
+        if (_lineCount > 0)
+            _services.Device.SetBufferData<float>(_lineBuffer, _lines.AsSpan(0, _lineCount * LineFloats));
+        var list = _services.List;
+        using (list.Pass(target, EditorClear))
+        {
+            DrawSurfaces(list, project, resources, sources, in frame, viewProj, camera.Pose.Position, haveBounds ? min : Vec3d.Zero,
+                haveBounds ? max : Vec3d.Zero, tint: !camera.ShowContent, camera.Selected);
+            DrawLines(list, viewProj);
+        }
+        Array.Clear(_textures, 0, surfaces);
         target.Color.Version++;
     }
 
-    /// <summary>The 3D surfaces, then — in the projector pass of <paramref name="pixelProjector"/> — that projector's pixel quads over
-    /// them (2D is a layer on top, depth test off), each in surface-list order.</summary>
-    private void DrawSurfaces(RenderTarget target, Project project, IStageResources resources, SourceResolver sources, in GeneratorFrame frame,
-        GeneratorContext context, Matrix4x4 viewProj, Vec3d eye, Vec3d boundsMin, Vec3d boundsMax, bool tint, IReadOnlySet<string>? selected,
+    /// <summary>Every surface's source the pass samples, resolved before the pass begins: a source may draw (a generator, a canvas)
+    /// and must not do so between this pass's draws. Answers how many surfaces there are (the textures to clear after the pass).</summary>
+    private int Resolve(RenderTarget target, Project project, SourceResolver sources, GeneratorContext context, bool tint,
         string? pixelProjector)
     {
-        var d = _services.Gl;
-        var p = d.Program("stage");
-        // Resolve every surface's source before drawing: a source may draw (a generator, a canvas) and must
-        // not do so between this pass's draws.
         var surfaces = project.Stage.Surfaces;
         if (_textures.Length < surfaces.Length)
         {
@@ -236,15 +263,14 @@ internal sealed class StageRenderer : IDisposable
                 : !FxChains.Draws(s.Fx) ? sources.Resolve(s.Content.Source, target.Width, target.Height, context)
                 : Chained(i, s, sources, target, context);
         }
+        return surfaces.Length;
+    }
 
-        d.BindTarget(target);
-        d.SetBlend(BlendMode.Opaque);
-        d.SetDepth(true, true);
-        d.SetCull(CullMode.None);
-        p.Set("uViewProj", viewProj);
-        p.Set("uEye", (float)eye.X, (float)eye.Y, (float)eye.Z);
-        p.Set("uBoundsMin", (float)boundsMin.X, (float)boundsMin.Y, (float)boundsMin.Z);
-        p.Set("uBoundsMax", (float)boundsMax.X, (float)boundsMax.Y, (float)boundsMax.Z);
+    /// <summary>The 3D surfaces into the open pass, each in surface-list order, from the textures <see cref="Resolve"/> made.</summary>
+    private void DrawSurfaces(ICommandList list, Project project, IStageResources resources, SourceResolver sources, in GeneratorFrame frame,
+        Matrix4x4 viewProj, Vec3d eye, Vec3d boundsMin, Vec3d boundsMax, bool tint, IReadOnlySet<string>? selected)
+    {
+        var surfaces = project.Stage.Surfaces;
         for (var i = 0; i < surfaces.Length; i++)
         {
             var s = surfaces[i];
@@ -253,50 +279,62 @@ internal sealed class StageRenderer : IDisposable
             var gpu = _caches.Mesh(mesh, s.Faces);
             if (gpu.IndexCount == 0)
                 continue;
-            SetTransform(p, s.Transform);
-            p.Set("uOpacity", (float)Math.Clamp(s.Opacity, 0, 1));
             var mask = resources.SurfaceMask(s.Id);
-            p.SetInt("uHasMask", mask is null ? 0 : 1);
-            d.BindSampler(p, "uMask", 1, mask is null ? _services.White : _caches.Coverage(mask));
-            p.Set("uProjector", Matrix4x4.Identity);
+            var maskTexture = mask is null ? _services.White : _caches.Coverage(mask);
+            var draw = Placed(list.Draw(_stage, Surface), viewProj, eye, boundsMin, boundsMax, s.Transform)
+                .Set("uOpacity", (float)Math.Clamp(s.Opacity, 0, 1))
+                .SetInt("uHasMask", mask is null ? 0 : 1)
+                .Texture("uMask", maskTexture)
+                .Set("uProjector", Matrix4x4.Identity);
             var isSelected = selected?.Contains(s.Id) == true;
             if (tint)
             {
                 var c = ColorRgb.Parse(s.Color, new ColorRgb(0.6f, 0.6f, 0.6f));
-                p.SetInt("uMode", 5);
-                p.Set("uColorA", c.R, c.G, c.B, 1);
-                p.Set("uColorB", 1f, 0.85f, 0.2f, isSelected ? 0.45f : 0);
-                d.BindSampler(p, "uSource", 0, _services.Black);
+                draw.SetInt("uMode", 5)
+                    .Set("uColorA", c.R, c.G, c.B, 1)
+                    .Set("uColorB", 1f, 0.85f, 0.2f, isSelected ? 0.45f : 0)
+                    .Texture("uSource", _services.Black);
             }
             else if (sources.EffectOf(s.Content.Source) is { } effect)
             {
                 // The effect's own time, as it draws anywhere else: its origin moves it here too, and the shader is handed the small
                 // number of seconds since that origin, never the leader's.
                 var uniforms = EffectUniforms.For(GeneratorCatalog.Find(effect.Kind)!, effect.Params);
-                uniforms.Apply(p, sources.EffectFrame(effect, in frame).Seconds);
-                d.BindSampler(p, "uSource", 0, _services.Black);
+                uniforms.Apply(draw, sources.EffectFrame(effect, in frame).Seconds);
+                draw.Texture("uSource", _services.Black);
             }
             else
             {
-                SetContent(p, project, s.Content, _textures[i] ?? _services.Black);
-                d.BindSampler(p, "uSource", 0, _textures[i] ?? _services.Black);
+                var texture = _textures[i] ?? _services.Black;
+                SetContent(draw, project, s.Content, texture);
+                draw.Texture("uSource", texture);
             }
-            d.DrawIndexed(p, gpu.Vao, PrimitiveKind.Triangles, gpu.IndexCount);
+            draw.Indexed(gpu.Mesh, gpu.IndexCount);
             if (isSelected)
             {
-                d.SetWireframe(true);
-                p.SetInt("uMode", 6);
-                p.Set("uColorA", 1f, 0.85f, 0.2f, 1);
-                p.Set("uOpacity", 1f);
-                p.SetInt("uHasMask", 0);
-                d.DrawIndexed(p, gpu.Vao, PrimitiveKind.Triangles, gpu.IndexCount);
-                d.SetWireframe(false);
+                Placed(list.Draw(_stage, Edges), viewProj, eye, boundsMin, boundsMax, s.Transform)
+                    .SetInt("uMode", 6)
+                    .Set("uColorA", 1f, 0.85f, 0.2f, 1)
+                    .Set("uOpacity", 1f)
+                    .SetInt("uHasMask", 0)
+                    .Texture("uMask", maskTexture)
+                    .Texture("uSource", _services.Black)
+                    .Set("uProjector", Matrix4x4.Identity)
+                    .Indexed(gpu.Mesh, gpu.IndexCount);
             }
         }
-        d.SetDepth(false, false);
-        if (pixelProjector is not null)
-            DrawPixelSurfaces(target, project, resources, pixelProjector);
-        Array.Clear(_textures, 0, surfaces.Length);
+    }
+
+    /// <summary>A stage draw's camera and its surface's placement: the view-projection, the eye, the stage's bounds, the model and
+    /// normal matrices.</summary>
+    private static DrawBuilder Placed(DrawBuilder draw, Matrix4x4 viewProj, Vec3d eye, Vec3d boundsMin, Vec3d boundsMax, Transform3 transform)
+    {
+        draw.Set("uViewProj", viewProj)
+            .Set("uEye", (float)eye.X, (float)eye.Y, (float)eye.Z)
+            .Set("uBoundsMin", (float)boundsMin.X, (float)boundsMin.Y, (float)boundsMin.Z)
+            .Set("uBoundsMax", (float)boundsMax.X, (float)boundsMax.Y, (float)boundsMax.Z);
+        SetTransform(draw, transform);
+        return draw;
     }
 
     private GpuTexture?[] _textures = new GpuTexture?[16];
@@ -329,13 +367,13 @@ internal sealed class StageRenderer : IDisposable
         public required int Width { get; init; }
         public required int Height { get; init; }
         public required GpuBuffer Buffer { get; init; }
-        public required VertexArray Vao { get; init; }
+        public required GpuMesh Mesh { get; init; }
         public required int Count { get; init; }
         public long LastUsed;
 
         public void Dispose()
         {
-            Vao.Dispose();
+            Mesh.Dispose();
             Buffer.Dispose();
         }
     }
@@ -371,23 +409,17 @@ internal sealed class StageRenderer : IDisposable
             pattern.Draw(new Generators.Skia.PatternCanvas(canvas, _services.Kit, Size, Size, kind, ParamSet.Empty, new GeneratorContext("Quad", 0, "#FFFFFF", false)));
             canvas.Flush();
         }
-        _uvChecker = _services.Gl.CreateTexture(Size, Size, TextureFormat.Rgba8);
-        _services.Gl.UploadPointer(_uvChecker, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
+        _uvChecker = _services.Device.CreateTexture(new TextureDesc(Size, Size, TextureFormat.Rgba8, FrameLists.Uploaded));
+        RenderServices.Upload(_services.List, _uvChecker, bitmap);
         return _uvChecker;
     }
 
-    /// <summary>Every visible pixel quad of this projector over what the pass drew: depth test off, its content through its own
-    /// homogeneous coordinates, the surface mask and the opacity as for a stage surface. Its texture was resolved with the 3D
-    /// surfaces' (a source may draw, and must not between this pass's draws).</summary>
-    private void DrawPixelSurfaces(RenderTarget target, Project project, IStageResources resources, string projectorId)
+    /// <summary>Every visible pixel quad of this projector over what the pass drew, into the open pass: depth test off, its content
+    /// through its own homogeneous coordinates, the surface mask and the opacity as for a stage surface. Its texture was resolved with
+    /// the 3D surfaces' (a source may draw, and must not between this pass's draws).</summary>
+    private void DrawPixelSurfaces(ICommandList list, RenderTarget target, Project project, IStageResources resources, string projectorId)
     {
         _pixelPass++;
-        var d = _services.Gl;
-        var p = d.Program("pixelsurface");
-        d.BindTarget(target);
-        d.SetBlend(BlendMode.Opaque);
-        d.SetDepth(false, false);
-        p.Set("uTarget", (float)target.Width, (float)target.Height);
         var surfaces = project.Stage.Surfaces;
         for (var i = 0; i < surfaces.Length; i++)
         {
@@ -397,13 +429,15 @@ internal sealed class StageRenderer : IDisposable
             if (PixelGeometry(s.Id, quad, target.Width, target.Height) is not { } entry)
                 continue;
             var r = s.Content.Region;
-            p.Set("uRegion", (float)r.X, (float)r.Y, (float)(r.IsEmpty ? 1 : r.W), (float)(r.IsEmpty ? 1 : r.H));
-            p.Set("uOpacity", (float)Math.Clamp(s.Opacity, 0, 1));
             var mask = resources.SurfaceMask(s.Id);
-            p.SetInt("uHasMask", mask is null ? 0 : 1);
-            d.BindSampler(p, "uMask", 1, mask is null ? _services.White : _caches.Coverage(mask));
-            d.BindSampler(p, "uSource", 0, texture);
-            d.Draw(p, entry.Vao, PrimitiveKind.Triangles, entry.Count);
+            list.Draw(_pixel, Flat)
+                .Set("uTarget", (float)target.Width, (float)target.Height)
+                .Set("uRegion", (float)r.X, (float)r.Y, (float)(r.IsEmpty ? 1 : r.W), (float)(r.IsEmpty ? 1 : r.H))
+                .Set("uOpacity", (float)Math.Clamp(s.Opacity, 0, 1))
+                .SetInt("uHasMask", mask is null ? 0 : 1)
+                .Texture("uMask", mask is null ? _services.White : _caches.Coverage(mask))
+                .Texture("uSource", texture)
+                .Vertices(entry.Mesh, entry.Count);
         }
         if (_pixelPass % 60 == 0)
             SweepPixels();
@@ -426,11 +460,11 @@ internal sealed class StageRenderer : IDisposable
         var count = PixelQuadMath.VertexCount(quad);
         var data = new float[count * PixelQuadMath.VertexFloats];
         PixelQuadMath.WriteVertices(shape, width, height, data);
-        var d = _services.Gl;
-        var buffer = d.CreateBuffer(BufferKind.Vertex);
-        d.SetBufferData<float>(buffer, data, dynamic: false);
-        var vao = d.CreateVertexArray(PixelLayout, buffer);
-        e = new PixelEntry { Quad = quad, Width = width, Height = height, Buffer = buffer, Vao = vao, Count = count, LastUsed = _pixelPass };
+        var device = _services.Device;
+        var buffer = device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
+        device.SetBufferData<float>(buffer, data);
+        var mesh = device.CreateMesh(PixelLayout, buffer);
+        e = new PixelEntry { Quad = quad, Width = width, Height = height, Buffer = buffer, Mesh = mesh, Count = count, LastUsed = _pixelPass };
         _pixels[surfaceId] = e;
         PixelQuadBuilds++;
         return e;
@@ -451,7 +485,7 @@ internal sealed class StageRenderer : IDisposable
 
     /// <summary>The content uniforms of a surface: mode 0 through its UVs (Region offsets and scales them in
     /// UV units; a canvas region is in canvas pixels), mode 1 projected from its viewpoint.</summary>
-    private static void SetContent(ShaderProgram p, Project project, SurfaceContent content, GpuTexture texture)
+    private static void SetContent(DrawBuilder p, Project project, SurfaceContent content, GpuTexture texture)
     {
         var r = content.Region;
         switch (content.Mode)
@@ -481,7 +515,7 @@ internal sealed class StageRenderer : IDisposable
     }
 
     /// <summary>The model matrix (row-vector form: world = R·(S∘local) + P) and the normal matrix R·S⁻¹.</summary>
-    private static void SetTransform(ShaderProgram p, Transform3 t)
+    private static void SetTransform(DrawBuilder p, Transform3 t)
     {
         var r = Mat3d.FromRotationVector(t.Rotation);
         var s = t.Scale;
@@ -543,22 +577,17 @@ internal sealed class StageRenderer : IDisposable
         _lineCount++;
     }
 
-    private void DrawLines(Matrix4x4 viewProj)
+    /// <summary>The floor and frusta into the open pass (their vertices set before it began).</summary>
+    private void DrawLines(ICommandList list, Matrix4x4 viewProj)
     {
         if (_lineCount == 0)
             return;
-        var d = _services.Gl;
-        d.SetBufferData<float>(_lineBuffer, _lines.AsSpan(0, _lineCount * LineFloats));
-        var p = d.Program("lines");
-        p.Set("uViewProj", viewProj);
-        d.SetDepth(true, false);
-        d.Draw(p, _lineVao, PrimitiveKind.Lines, _lineCount);
-        d.SetDepth(false, false);
+        list.Draw(_lineProgram, Lines).Set("uViewProj", viewProj).Vertices(_lineMesh, _lineCount);
     }
 
     public void Dispose()
     {
-        _lineVao.Dispose();
+        _lineMesh.Dispose();
         _lineBuffer.Dispose();
         foreach (var e in _pixels.Values)
             e.Dispose();

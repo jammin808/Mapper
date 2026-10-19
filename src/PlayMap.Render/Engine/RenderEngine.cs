@@ -143,7 +143,7 @@ public sealed class RenderEngine : IDisposable
         _services = new RenderServices(device);
         _generators = new GeneratorHost(_services);
         _sources = new SourceResolver(_services, _generators, _options.StreamUploads);
-        _caches = new GpuCaches(_services.Gl);
+        _caches = new GpuCaches(_services);
         _stage = new StageRenderer(_services, _caches);
         _outputStage = new OutputStage(_services);
     }
@@ -166,11 +166,27 @@ public sealed class RenderEngine : IDisposable
     /// <summary>The generators faulted now (each shows its error card until its settings change).</summary>
     public IReadOnlyList<GeneratorFault> GeneratorFaults() => _generators.Faults();
 
-    /// <summary>Compiles every shader now, so the first show frame does not.</summary>
+    /// <summary>How long <see cref="WarmUp"/> waits for the device's warm-up; what it has not made by then its first draw makes.</summary>
+    public static readonly TimeSpan WarmUpBound = TimeSpan.FromSeconds(20);
+
+    /// <summary>Makes every product program's pipeline now, so the first show frame makes none: the device's warm-up moves on frame
+    /// by frame, so empty frames are submitted until it answers or <see cref="WarmUpBound"/> passes. A program it could not make is
+    /// tried again by its first draw. Render thread, before the first frame.</summary>
     public void WarmUp()
     {
-        foreach (var name in Shaders.ShaderLibrary.Names)
-            _services.Gl.Program(name);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var programs = _device.Programs;
+        var keys = new PipelineKey[programs.Names.Count];
+        for (var i = 0; i < keys.Length; i++)
+            keys[i] = new PipelineKey(programs.Id(programs.Names[i]), DrawState.Opaque, TextureFormat.Rgba8, null, Depth: false);
+        var warm = _device.Pipelines.WarmAsync(keys, CancellationToken.None);
+        var until = MonoClock.Instance.NowNs + (long)(WarmUpBound.TotalMilliseconds * 1e6);
+        var spin = default(SpinWait);
+        while (!warm.IsCompleted && MonoClock.Instance.NowNs < until)
+        {
+            _device.Submit(_device.BeginFrame(Frame));
+            spin.SpinOnce(sleep1Threshold: 10);
+        }
     }
 
     /// <summary>Shows an output through a presenter (a window). The first presenter attached paces the loop (its present waits

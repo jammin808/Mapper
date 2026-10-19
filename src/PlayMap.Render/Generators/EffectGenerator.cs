@@ -3,7 +3,6 @@ using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Generators;
 
@@ -45,17 +44,6 @@ public readonly record struct EffectUniforms(int Mode, Vector4 Params, ColorRgb 
             .Set("uColorA", ColorA.R, ColorA.G, ColorA.B, 1)
             .Set("uColorB", ColorB.R, ColorB.G, ColorB.B, 1)
             .Set("uTime", (float)seconds);
-
-    /// <summary>Sets the stage program's effect uniforms.</summary>
-    public void Apply(ShaderProgram p, double seconds)
-    {
-        ArgumentNullException.ThrowIfNull(p);
-        p.SetInt("uMode", Mode);
-        p.Set("uParams", Params);
-        p.Set("uColorA", ColorA.R, ColorA.G, ColorA.B, 1);
-        p.Set("uColorB", ColorB.R, ColorB.G, ColorB.B, 1);
-        p.Set("uTime", (float)seconds);
-    }
 }
 
 /// <summary>An effect drawn flat (on a canvas, an output): the stage shader over a picture-shaped plane one
