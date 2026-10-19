@@ -5,6 +5,15 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      d3d12:
+        description: >-
+          Run only the Direct3D 12 leg on Windows, narrowed by this dotnet test filter within Backend=D3D12
+          (FullyQualifiedName~WarpDevice, say): its results, diff images, info-queue log and DRED output come back as artifacts.
+          Empty runs both jobs whole.
+        required: false
+        default: ""
+        type: string
 
 jobs:
   # Every suite on Linux: headless OpenGL through Mesa (llvmpipe) under Xvfb, and FFmpeg 9.0's shared
@@ -12,6 +21,8 @@ jobs:
   # user machine with Microsoft's .NET: no VA-API, no system OpenAL (a sound server is not installed: Ubuntu's
   # PulseAudio pulls the distro FFmpeg and with it libva), so the suites prove the node falls back with words there.
   test:
+    # A dispatched Direct3D 12 leg (the d3d12 input) is the Windows job's alone.
+    if: ${{ !inputs.d3d12 }}
     runs-on: ubuntu-latest
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}/.ffmpeg/lib
@@ -106,12 +117,19 @@ jobs:
 
   # The Windows build: the exe the show machine runs, and every suite to its end on a runner with no GPU and no audio
   # endpoint. Each project's exit code is checked on its own line: a multi-line pwsh step otherwise answers only its last
-  # command's, and a failed suite before it would read as green.
+  # command's, and a failed suite before it would read as green. The runner is pinned to Windows Server 2025 (build 26100, the
+  # floor the node's installer asks), and Direct3D 12 runs on WARP from NuGet beside the Agility SDK (tools/ci-d3d12.ps1): the
+  # Backend=D3D12 tests are a leg of their own, listed apart in the summary. Dispatched with the d3d12 input, the job runs that
+  # leg alone, narrowed by the input, and uploads what a reader on Linux needs to see a failure.
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\bin
       GALLIUM_DRIVER: llvmpipe
+      # Where a Direct3D 12 test leaves its diff images, its info queue's messages and DRED's output (uploaded below).
+      PLAYMAP_D3D12_EVIDENCE: ${{ github.workspace }}\d3d12-evidence
+      # The dispatched leg's filter, read by the leg's script from the environment, never pasted into a command.
+      D3D12_FILTER: ${{ inputs.d3d12 }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -142,6 +160,12 @@ jobs:
           7z e mesa.7z -omesa x64/opengl32.dll x64/libgallium_wgl.dll | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "7z could not extract Mesa ($LASTEXITCODE)" }
           Get-ChildItem mesa
+      - name: Direct3D 12 on WARP and the Agility SDK (pinned)
+        # Microsoft.Direct3D.WARP and Microsoft.Direct3D.D3D12 (the Agility SDK, its debug layer included) from nuget.org at the
+        # versions tools/ci-d3d12.ps1 pins, each .nupkg refused unless its SHA-256 is the pin's; the SDK version is read from the
+        # package's d3d12.h. WARP's binaries are CI's only: nothing published carries them.
+        shell: pwsh
+        run: ./tools/ci-d3d12.ps1 -Restore -Into d3d12
       - name: Restore
         run: dotnet restore
       - name: Build
@@ -189,17 +213,19 @@ jobs:
           }
           Copy-Item $dlls (Split-Path (Get-Command dotnet).Source)
       - name: Test (every project to its end; one crash hides no other result)
+        if: ${{ !inputs.d3d12 }}
         shell: pwsh
         run: |
           # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
-          # project runs. No test project fails the step, and so does a suite that answers 0 but leaves no results file.
+          # project runs. No test project fails the step, and so does a suite that answers 0 but leaves no results file. The
+          # Backend=D3D12 tests run in the Direct3D 12 leg below, so each result is counted once.
           $failed = @()
           $projects = @(Get-ChildItem tests/*/*.csproj)
           if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
           foreach ($project in $projects) {
             $name = $project.BaseName
             Write-Host "::group::$name"
-            dotnet test $project.FullName -c Release --no-build --logger "trx;LogFileName=$name.trx" `
+            dotnet test $project.FullName -c Release --no-build --filter "Backend!=D3D12" --logger "trx;LogFileName=$name.trx" `
               --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
             if ($LASTEXITCODE -ne 0) { $failed += $name }
             elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
@@ -207,7 +233,7 @@ jobs:
           }
           # Every failed test with the first lines of its message, read from the results, so the whole list is at the log's end.
           $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
-          foreach ($trx in Get-ChildItem tests/*/TestResults/*.trx) {
+          foreach ($trx in Get-ChildItem tests/*/TestResults/*.trx -Exclude *.d3d12.trx) {
             foreach ($hit in Select-Xml -Path $trx.FullName -XPath "//t:UnitTestResult[@outcome='Failed']" -Namespace $ns) {
               $message = ($hit.Node.Output.ErrorInfo.Message -split "`n" | Select-Object -First 4) -join ' | '
               Write-Host "FAILED $($trx.BaseName): $($hit.Node.testName) :: $message"
@@ -215,6 +241,57 @@ jobs:
           }
           if ($failed.Count -gt 0) { Write-Host "::error::failed: $($failed -join ' ')"; exit 1 }
           exit 0
+      - name: Direct3D 12 beside the test hosts
+        # After the suites above, so they ran on Windows' own WARP as before: d3d10warp.dll beside every test project's Release
+        # host and dotnet.exe, and the Agility runtime in a D3D12 folder beside each; PLAYMAP_D3D12_REQUIRED=1 then makes the
+        # Direct3D 12 tests assert the pinned WARP made their devices.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: ./tools/ci-d3d12.ps1 -Beside -From d3d12
+      - name: Direct3D 12 on WARP (the Backend=D3D12 leg, listed apart)
+        # Every test project's Backend=D3D12 tests with results files of their own (<project>.d3d12.trx), each result and the
+        # leg's minutes in the summary; narrowed by the dispatched d3d12 input when it is given. It runs whatever the suites above
+        # said, and fails when a Direct3D 12 test failed or none ran.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: ./tools/ci-d3d12.ps1 -Leg -Filter "$env:D3D12_FILTER"
+      - name: The runner's answers (M7, M14)
+        # bench/r3-probe asks Windows on this runner and writes each answer, yes or no, in the summary; it fails only when it
+        # writes none. M9's session calls are asked again as LocalSystem, through a scheduled task, the way the supervisor asks.
+        if: ${{ !cancelled() && !inputs.d3d12 }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet build bench/r3-probe/PlayMap.Bench.Probe.csproj -c Release -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { throw "the probe did not build ($LASTEXITCODE)" }
+          $bin = (Resolve-Path bench/r3-probe/bin/Release/net10.0).Path
+          New-Item -ItemType Directory -Force -Path (Join-Path $bin 'D3D12') | Out-Null
+          Copy-Item d3d12/d3d10warp.dll $bin
+          Copy-Item d3d12/D3D12/* (Join-Path $bin 'D3D12')
+          $exe = Join-Path $bin 'PlayMap.Bench.Probe.exe'
+          $answers = Join-Path $env:RUNNER_TEMP 'probe.md'
+          & $exe --out $answers --sdk $env:PLAYMAP_AGILITY_SDK
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $answers)) { throw "the probe wrote no answers ($LASTEXITCODE)" }
+          Get-Content $answers | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          # As LocalSystem: a scheduled task runs the probe's session questions and the step waits up to 90 s for its answers.
+          $system = Join-Path $env:RUNNER_TEMP 'probe-system.md'
+          $task = 'PlayMap probe as LocalSystem'
+          $action = New-ScheduledTaskAction -Execute $exe -Argument "--session --out `"$system`""
+          $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+          Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Force | Out-Null
+          try {
+            Start-ScheduledTask -TaskName $task
+            $deadline = [DateTime]::UtcNow.AddSeconds(90)
+            while (-not (Test-Path $system) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 2 }
+          }
+          finally {
+            Unregister-ScheduledTask -TaskName $task -Confirm:$false
+          }
+          $lines = if (Test-Path $system) { Get-Content $system } else {
+            "#### M9's calls as LocalSystem", '', 'The scheduled task as LocalSystem wrote no answer within 90 s: the calls could not be asked that way here.', ''
+          }
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          Get-Content $answers, $system -ErrorAction SilentlyContinue | Write-Host
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
@@ -222,15 +299,33 @@ jobs:
           name: test-results-windows
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
+      - name: Upload the Direct3D 12 evidence
+        # Diff images, the info queue's messages and DRED's output, one folder per Direct3D 12 test, with the leg's results.
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: d3d12-evidence
+          path: |
+            d3d12-evidence/
+            tests/*/TestResults/*.d3d12.trx
+          if-no-files-found: ignore
+      - name: The lab's bench (built, not run)
+        # bench/r3-present answers M1 and M3 on real displays in the lab (L1, L4); the runner has no GPU, so it is only built here,
+        # against this tree, to stay buildable while it waits.
+        if: ${{ !cancelled() && !inputs.d3d12 }}
+        run: dotnet build bench/r3-present/PlayMap.Bench.Present.csproj -c Release -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
       - name: Publish the portable exe
+        if: ${{ !inputs.d3d12 }}
         # Publishing compiles again for win-x64, so it is given the same build number and commit as the build.
         run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
       - name: The published exe's version
+        if: ${{ !inputs.d3d12 }}
         id: version
         # The published exe's Windows version resource, checked against this run's build number and commit: it names the artifact.
         shell: pwsh
         run: ./tools/ci-stamp.ps1 -File publish/PlayMap/PlayMap.exe -Label 'The published exe' -Artifact 'PlayMap-{0}-win-x64'
       - name: Upload the exe
+        if: ${{ !inputs.d3d12 }}
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.version.outputs.artifact }}

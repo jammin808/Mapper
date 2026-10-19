@@ -4,6 +4,8 @@
     <TargetFramework>$(PlayMapTfm)</TargetFramework>
     <IsPackable>false</IsPackable>
     <RootNamespace>PlayMap.Render.D3D12.Tests</RootNamespace>
+    <!-- The Direct3D 12 tests call TerraFX's raw bindings: pointers to COM interfaces and native structures. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
