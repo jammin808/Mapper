@@ -10,7 +10,7 @@ self-contained folder, with no installer, no signing, no firewall rules and no d
 release tag (no WiX binary, package or paid service is used; `PLAN.md` D6, M17), installs to Program Files on every edition of Windows
 11 and does every machine-level action once: firewall rules, WER's dump settings, two privileges for the show account, the event
 source, the supervisor service. Builds are unsigned this round and say so, with a SHA-256 list beside each. The
-supervisor (LocalSystem) starts `PlayMap.exe engine` in the auto-logged-on show user's session — never session 0, where display
+supervisor (LocalSystem) starts `PlayMap.exe engine --supervised` (the one run that writes the machine's pid record) in the auto-logged-on show user's session — never session 0, where display
 devices are out of reach — restarts it with backoff, and stops an engine whose shown-frame count has stopped while HEALTH says it should be moving — never
 during a start or a device rebuild within its measured budget.
 The MSI's `ProductVersion` is MAJOR.MINOR.BUILD from CI's build number, so every numbered build upgrades the one before it;

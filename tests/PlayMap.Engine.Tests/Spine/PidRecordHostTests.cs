@@ -7,7 +7,8 @@ namespace PlayMap.Engine.Tests.Spine;
 
 /// <summary>The engine's pid record as a node comes up: written into the supervisor's folder where it exists, with this process, the
 /// line wire's port as it listens and the start, and taken back on a clean stop; nothing written, and no folder made, where it does
-/// not exist or the host names none.</summary>
+/// not exist or the host names none; only an engine the supervisor started (--supervised) names the machine's folder, so no other run
+/// takes the supervised engine's record.</summary>
 public sealed class PidRecordHostTests
 {
     private static async Task<EngineHost> StartAsync(DirectoryInfo dir, string? supervisor)
@@ -80,5 +81,20 @@ public sealed class PidRecordHostTests
         {
             dir.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public void OnlyAnEngineTheSupervisorStartedNamesTheMachinesFolder()
+    {
+        var plain = EngineOptions.Parse(["engine", "headless"], out var error);
+        Assert.Null(error);
+        Assert.False(plain.Supervised);
+        Assert.Null(EngineEntry.SupervisorFolderFor(plain));
+
+        var supervised = EngineOptions.Parse(["engine", "headless", "--supervised"], out error);
+        Assert.Null(error);
+        Assert.True(supervised.Supervised);
+        Assert.Equal(EnginePidRecord.MachineFolder(), EngineEntry.SupervisorFolderFor(supervised));
+        Assert.Contains("[--supervised]", EngineEntry.Usage, StringComparison.Ordinal);
     }
 }

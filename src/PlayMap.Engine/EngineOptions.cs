@@ -4,7 +4,7 @@ namespace PlayMap.Engine;
 
 /// <summary>How an engine process was asked to run: "PlayMap engine [headless] [--home &lt;folder&gt;]
 /// [--project &lt;file&gt;] [--name &lt;node name&gt;] [--http &lt;port&gt;] [--wire &lt;port&gt;] [--no-recover]
-/// [--desk-pid &lt;pid&gt;]".</summary>
+/// [--desk-pid &lt;pid&gt;] [--supervised]".</summary>
 public sealed record EngineOptions(
     bool Headless,
     string? Home,
@@ -15,6 +15,10 @@ public sealed record EngineOptions(
     bool Recover,
     int? DeskPid)
 {
+    /// <summary>The supervisor started this engine ("--supervised", on the supervisor's command line only): it writes the machine's
+    /// pid record. Any other run (the desk's, a portable exe's, a test's) writes none.</summary>
+    public bool Supervised { get; init; }
+
     public static EngineOptions Parse(IReadOnlyList<string> args, out string? error)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -66,6 +70,9 @@ public sealed record EngineOptions(
                     break;
                 case "--no-recover":
                     o = o with { Recover = false };
+                    break;
+                case "--supervised":
+                    o = o with { Supervised = true };
                     break;
                 default:
                     error = $"unknown option {a}";

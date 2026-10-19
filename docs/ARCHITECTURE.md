@@ -36,10 +36,12 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
 - A desk that faults or closes never blanks a projector: the engine keeps playing. The desk restarts and
   re-attaches; the engine restarts (watchdog) and puts back the recovery record (project, playlists' transports,
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
-- Once its doors are open the engine writes its pid record (`engine.pid`: its process, the line wire's port, when it
-  started) into the supervisor's folder, `%ProgramData%\PlayMap\supervisor`, where that folder exists — the installer makes it;
-  the engine never does — and takes it back on a clean stop while it still names this process. It holds what a supervisor needs
-  to adopt a running engine and an installer's armed check needs to ask it on loopback, and no secret.
+- Once its doors are open the engine the supervisor started (`engine --supervised`) writes its pid record (`engine.pid`: its
+  process, the line wire's port, when it started) into the supervisor's folder, `%ProgramData%\PlayMap\supervisor`, where that
+  folder exists — the installer makes it; the engine never does — never over a record that names another engine still running (that
+  is a fault in STATE, with the other engine's pid), and takes it back on a clean stop while it still names this process. Any other
+  run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
+  installer's armed check needs to ask it on loopback, and no secret.
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with

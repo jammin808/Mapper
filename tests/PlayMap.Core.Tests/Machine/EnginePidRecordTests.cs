@@ -3,7 +3,8 @@ using PlayMap.Core.Machine;
 namespace PlayMap.Core.Tests.Machine;
 
 /// <summary>The engine's pid record: it reads back as written; a text that is not one reads null; it is written only into a folder that
-/// exists (never making one), and removed only while it still names its own process.</summary>
+/// exists (never making one), never over a record that names another engine still running, and removed only while it still names its
+/// own process.</summary>
 public sealed class EnginePidRecordTests
 {
     [Fact]
@@ -61,6 +62,38 @@ public sealed class EnginePidRecordTests
             Assert.True(record.TryRemove(missing));
             Assert.False(File.Exists(path));
             Assert.False(record.TryRemove(missing));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ARecordThatNamesAnotherRunningProcessIsNeverReplacedAndOneWhoseProcessIsGoneIs()
+    {
+        var root = Directory.CreateTempSubdirectory("playmap-pid-");
+        try
+        {
+            var path = Path.Combine(root.FullName, EnginePidRecord.FileName);
+            // The running engine: this test's own process, alive for as long as the test runs.
+            var running = new EnginePidRecord(Environment.ProcessId, 7900, 1_760_000_000_000);
+            Assert.True(running.TryWrite(root.FullName));
+            var second = new EnginePidRecord(Environment.ProcessId == 4120 ? 4121 : 4120, 7901, 1_760_000_000_500);
+
+            Assert.False(second.TryWrite(root.FullName));
+            Assert.Equal(running, EnginePidRecord.Parse(File.ReadAllText(path)));
+            Assert.Equal(Environment.ProcessId, EnginePidRecord.Named(root.FullName)?.Pid);
+
+            // The same engine writes its own record again; a record whose process is gone (no pid that high runs) is replaced.
+            Assert.True((running with { WirePort = 7902 }).TryWrite(root.FullName));
+            File.WriteAllText(path, new EnginePidRecord(int.MaxValue, 7900, 1).ToJson());
+            Assert.True(second.TryWrite(root.FullName));
+            Assert.Equal(second, EnginePidRecord.Parse(File.ReadAllText(path)));
+            // A file that is not a record names no engine and is replaced.
+            File.WriteAllText(path, "not a record");
+            Assert.True(running.TryWrite(root.FullName));
+            Assert.Equal(running, EnginePidRecord.Parse(File.ReadAllText(path)));
         }
         finally
         {

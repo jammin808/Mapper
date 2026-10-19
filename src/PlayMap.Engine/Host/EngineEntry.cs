@@ -27,7 +27,7 @@ public static partial class EngineEntry
     public const int BindRefused = 3;
 
     public const string Usage =
-        "PlayMap engine [headless] [--home <folder>] [--project <file>] [--name <node name>] [--http <port>] [--wire <port>] [--no-recover] [--desk-pid <pid>]";
+        "PlayMap engine [headless] [--home <folder>] [--project <file>] [--name <node name>] [--http <port>] [--wire <port>] [--no-recover] [--desk-pid <pid>] [--supervised]";
 
     /// <summary>Runs the node with the exe's standard parts (<see cref="EngineParts.Standard"/>) until it is asked to
     /// stop, and answers the exit code. Blocks the calling thread for the node's life.</summary>
@@ -136,7 +136,7 @@ public static partial class EngineEntry
             {
                 Parts = parts,
                 Logs = logs,
-                SupervisorFolder = Core.Machine.EnginePidRecord.MachineFolder(),
+                SupervisorFolder = SupervisorFolderFor(options),
             });
             try
             {
@@ -168,6 +168,11 @@ public static partial class EngineEntry
             AppDomain.CurrentDomain.UnhandledException -= OnUnhandled;
         }
     }
+
+    /// <summary>The supervisor's folder a run writes its pid record into: the machine's for an engine the supervisor started, none for
+    /// any other run, so a second engine on a supervised machine never takes the supervised one's record.</summary>
+    internal static string? SupervisorFolderFor(EngineOptions options) =>
+        options.Supervised ? Core.Machine.EnginePidRecord.MachineFolder() : null;
 
     /// <summary>Notes when the desk that started this engine goes away. The engine keeps playing: a desk that closes or
     /// faults never blanks a projector, and a desk that comes back attaches again.</summary>

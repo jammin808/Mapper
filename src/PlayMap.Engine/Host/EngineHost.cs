@@ -31,7 +31,8 @@ public sealed record EngineHostOptions
     public TimeSpan RecoveryEvery { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>The supervisor's folder the node writes its pid record into, where that folder exists (null: none; the process's
-    /// entry passes the machine's, <see cref="Core.Machine.EnginePidRecord.MachineFolder"/>).</summary>
+    /// entry passes the machine's, <see cref="Core.Machine.EnginePidRecord.MachineFolder"/>, only for an engine the supervisor
+    /// started).</summary>
     public string? SupervisorFolder { get; init; }
 }
 
@@ -206,7 +207,8 @@ public sealed class EngineHost : IAsyncDisposable
     private static string Port(int port) => port > 0 ? port.ToString(System.Globalization.CultureInfo.InvariantCulture) : "closed";
 
     /// <summary>The pid record, once the doors are open (its port is the wire's as it listens), into the supervisor's folder where it
-    /// exists. A folder that exists but takes no record is a fault: the supervisor cannot adopt this engine, nor the installer ask it.</summary>
+    /// exists. A folder that exists but takes no record is a fault: the supervisor cannot adopt this engine, nor the installer ask it;
+    /// a record that names another engine still running stays that engine's.</summary>
     private void WritePidRecord(long startedUnixMs)
     {
         if (_host.SupervisorFolder is not { Length: > 0 } folder)
@@ -214,8 +216,11 @@ public sealed class EngineHost : IAsyncDisposable
         var record = new Core.Machine.EnginePidRecord(Environment.ProcessId, _network?.WirePort ?? 0, startedUnixMs);
         try
         {
-            if (record.TryWrite(folder))
+            if (record.TryWrite(folder, out var holder))
                 _pid = record;
+            else if (holder is not null)
+                Fault("supervisor", string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"engine.pid names a running engine (pid {holder.Pid}): this engine is not the supervised one, and its record stays that engine's"));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
