@@ -1,14 +1,17 @@
 using System.Collections.Immutable;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Wire;
 using PlayMap.Render.Platform;
 
 namespace PlayMap.Engine;
 
 // The seams round 3's packages implement and call across each other. Each has a null implementation that answers with words why
-// nothing happens, so a node composes every seam before the package that fills it merges. The machine platform's seam
-// (IMachinePlatform) lives in Core (PlayMap.Core.Machine): Media's and Net's threads claim their roles through Core's ThreadClaims,
-// and the Windows platform project references Core alone.
+// nothing happens, and EngineServices carries every one at its null implementation (the observer, the preview share, the GPU
+// lifecycle listeners, the machine platform, the arm hooks), so a node composes each seam before the package that fills it merges:
+// that package's extension sets it in its Configure. The machine platform's seam (IMachinePlatform) lives in Core
+// (PlayMap.Core.Machine): Media's and Net's threads claim their roles through Core's ThreadClaims, which the host points at the
+// composed platform once at start, and the Windows platform project references Core alone.
 
 /// <summary>An observer's latest reading of one output's air: the verdict's word ("ok", "held", "black", "stale", "torn", "wrong",
 /// "late", "lost") and its light, the counter the marks carried, how many frames it has decoded (−1: unknown), the instant it
@@ -169,9 +172,25 @@ public interface IShowArmHook
     Task<string> DisarmingAsync(CancellationToken ct) => Task.FromResult("");
 }
 
-/// <summary>The arm hooks a node is composed with, and the timers their deadlines run on.</summary>
+/// <summary>Round 3's seams a node is composed with, each at its null implementation until a package's extension sets it in its
+/// Configure: the air observer, the preview share, the GPU lifecycle listeners, the machine platform, and the arm hooks with the
+/// timers their deadlines run on.</summary>
 public sealed partial record EngineServices
 {
+    /// <summary>What an independent observer saw of the air (wp3-stability sets it).</summary>
+    public IAirObserver Observer { get; init; } = NoAirObserver.Instance;
+
+    /// <summary>Previews shared with a local desk without a CPU copy (wp3-desk-gpu sets it).</summary>
+    public IPreviewShare PreviewShare { get; init; } = NoPreviewShare.Instance;
+
+    /// <summary>Every listener told when the render device is lost and stands again, in order: a package adds its own (wp3-present,
+    /// wp3-video, wp3-desk-gpu, wp3-framelock); the render host calls them (wp3-stability-2).</summary>
+    public ImmutableArray<IGpuLifecycle> GpuLifecycles { get; init; } = [];
+
+    /// <summary>What the node claims from its operating system (wp3-platform sets it). The host points <see cref="ThreadClaims"/> at
+    /// it once at start, before any part starts a thread.</summary>
+    public IMachinePlatform MachinePlatform { get; init; } = new NullMachinePlatform();
+
     /// <summary>The hooks SHOW ARM and SHOW DISARM run before they answer, each named in the answer (none: the mode's answer alone).</summary>
     public ImmutableArray<IShowArmHook> ArmHooks { get; init; } = [];
 

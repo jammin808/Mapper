@@ -133,8 +133,9 @@ still waits: nothing in it claims a hardware fact.
   `D3D12Flip`) live in Core, so a Direct3D 12 presenter feeds them without Render. Core also holds `GpuApi.D3D12`, PMVB's path
   3, the node's identity and capability records, thread claims that do nothing until a platform takes them, and the one
   `capture:` URI grammar. A refused capture URI is never journalled.
-- **Engine seams.** The air observer, the GPU's lifecycle, a shared preview and an arm hook each have a null implementation
-  that says why it does nothing.
+- **Engine seams.** The air observer, the GPU's lifecycle, a shared preview, the machine platform and an arm hook each have a null
+  implementation that says why it does nothing, and every node's services carry each of them, so a package's extension sets its
+  own; the host points thread claims at the node's platform once at start.
 - **Model.** Outputs carry colour bits, HDR and nit target, frames in flight, a watermark and pass-through. Canvases carry a
   span, viewpoints a fit, and the project its guides. A blend's γ is the hand's override (0 draws the measured γ). Older files
   read unchanged but for γ, and the load note names each output moved.

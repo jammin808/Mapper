@@ -8,7 +8,8 @@ namespace PlayMap.Core.Machine;
 /// <summary>What a show node claims from its operating system and what it is: the process's claims made once at start, each
 /// thread's claims by role, a deadline timer, keeping the machine awake, the node's identity and capabilities, and the machine's
 /// facts for preflight. Every claim answers what it asked, what the system said and what reading it back shows; nothing on the
-/// machine changes silently. The engine composes one at start and points <see cref="ThreadClaims"/> at it.</summary>
+/// machine changes silently. A node's services carry one (Core's <see cref="NullMachinePlatform"/> until wp3-platform sets its own),
+/// and the node's host points <see cref="ThreadClaims"/> at it once at start.</summary>
 public interface IMachinePlatform : IDisposable
 {
     /// <summary>"windows", or "none" on a node whose platform claims nothing.</summary>

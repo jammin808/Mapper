@@ -32,9 +32,10 @@ public interface IThreadClaim : IDisposable
 }
 
 /// <summary>Where a thread in Media, Net or the engine claims its role in one line at its start (<c>using var claim =
-/// ThreadClaims.Claim(ThreadRole.Decode);</c>), since those projects cannot see the engine's platform. The engine points it at its
-/// platform once at start (<see cref="Use"/>); until then, and on a node whose platform claims nothing, a claim changes nothing
-/// and its one <see cref="Claim"/> says so (not applied, with the words). Any thread.</summary>
+/// ThreadClaims.Claim(ThreadRole.Decode);</c>), since those projects cannot see the engine's platform. The node's host points it at
+/// the platform its services carry once at start (<see cref="Use"/>), before any part starts a thread; until then, and on a node whose
+/// platform claims nothing (Core's null platform, until wp3-platform composes its own), a claim changes nothing and its one
+/// <see cref="Claim"/> says so (not applied, with the words). Any thread.</summary>
 public static class ThreadClaims
 {
     /// <summary>The words of a claim made before any platform is in use.</summary>
@@ -49,7 +50,7 @@ public static class ThreadClaims
     public static IThreadClaim Claim(ThreadRole role) =>
         Platform is { } platform ? platform.ClaimThread(role) : new UnclaimedThread(role, NoPlatformWords);
 
-    /// <summary>Points every claim made from now on at <paramref name="platform"/> (the engine's, once at start). A claim made before
+    /// <summary>Points every claim made from now on at <paramref name="platform"/> (the host's, once at start). A claim made before
     /// keeps what it was.</summary>
     public static void Use(IMachinePlatform platform)
     {

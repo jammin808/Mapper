@@ -2,8 +2,9 @@ using System.Runtime.Versioning;
 
 namespace PlayMap.Platform.Windows;
 
-/// <summary>The Windows machine platform's project. It claims nothing yet: the engine runs on Core's null platform, which claims
-/// nothing and says so, on every machine.</summary>
+/// <summary>The Windows machine platform's project. It claims nothing yet: no node composes it, so a hosted node's services carry
+/// Core's null platform, which claims nothing and says so, and a thread claim made outside a host answers
+/// ThreadClaims.NoPlatformWords.</summary>
 [SupportedOSPlatform("windows")]
 public static class WindowsPlatformProject
 {

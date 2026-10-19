@@ -172,6 +172,8 @@ public sealed class EngineHost : IAsyncDisposable
             }
         }
 
+        // Every thread a part starts from here on claims its role through the node's platform (the process has one host).
+        Core.Machine.ThreadClaims.Use(services.MachinePlatform);
         var engine = new EngineCore(services);
         _engine = engine;
         foreach (var f in _faults.Faults())
