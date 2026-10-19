@@ -164,6 +164,8 @@ them with its pixels unchanged.
 - **The callers.** The render engine, passes, generators, video, LED sampling, sends, the overlay, HAP, effects and the projector
   pass each draw one `DrawState` a draw, their constants set by name through the program's layout; a warm frame allocates
   nothing, and after each draw of a scripted show the GL state read back is the recorded one, draw for draw (`DrawStateTests`).
+- **Constant ids and pipeline lists.** The five passes that set the most constants a frame set them by ids generated with the
+  program table (`ProgramIds`), and each pass lists the pipelines it can draw, which the warm-up makes before the first frame.
 - **The tests.** Every GPU test runs on a backend fixture whose legs are the backends the job has (GL today) and draws through
   the device a leg hands it; only the GL backend's own tests name a GL type. Every pixel golden and STATE fixture is unedited,
   byte for byte on llvmpipe in core 3.30 and ES 3.00.

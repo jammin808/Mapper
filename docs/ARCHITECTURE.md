@@ -226,7 +226,12 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
 
 Every pass draws through the render hardware interface (Core's `IGpuDevice` and the frame's `ICommandList`), never through an
 API: the frame code, the passes and the generators name no GL type, and the GL backend (`Render/Gl`) implements the contracts
-with its one immediate list. The GPU tests do the same: each runs on a leg of the backend fixture (`BackendFixture`, one device
+with its one immediate list. The five passes that set the most constants a frame (the particle step, the output stage, the
+quad every canvas layer is drawn with, the projector pass's surfaces and the raymarcher) set them by the ids generated with the
+program table (`ProgramIds`: a constant's place in its program's layout), with no look-up by name. Each pass lists the pipelines
+it can draw on a device (`FramePipelines`: every program it draws, in every state, into every target shape it draws into there),
+and the warm-up makes them all before the first frame, so the scripted show's draws make none on the render thread. The GPU tests
+do the same: each runs on a leg of the backend fixture (`BackendFixture`, one device
 on a thread of its own per backend the job has — GL today, a later backend's leg added to `BackendLegs.Makers`), draws through
 the device the leg hands it and reads back through `Pixels.Read(IGpuDevice, RenderTarget)`; only the GL backend's own tests,
 listed by name in `RhiFenceTests`, name a GL type. Every pixel golden is unedited and holds byte for byte on llvmpipe in both
