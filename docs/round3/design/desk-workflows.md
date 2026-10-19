@@ -52,7 +52,7 @@ inspector one click away.
 
 | Area | Who it is for | What it holds | How it is reached |
 |---|---|---|---|
-| **Workflows home** (Simple's landing; a pane in Pro) | a person setting up a standard job | a card per guide — Blend two projectors, Stack two projectors, Stack and blend four, Map a video onto a wall, Map an object, First light, Facade — each with its state from STATE `guides` ("Front screen · corners · 4 of 7"), Resume and Start (`GUIDE <kind> <subject> BEGIN`) | the Guides menu, the empty view's right-click, the palette, Simple's start |
+| **Workflows home** (Simple's landing; a pane in Pro) | a person setting up a standard job | a card per guide — Blend two projectors, Stack two projectors, Stack and blend four, Map a video onto a wall, Map an object, First light, Facade — each with its state from STATE `guides` ("Front screen · corners · 4 of 7"), Resume and Start (`GUIDE BEGIN <kind> <subject>`) | the Guides menu, the empty view's right-click, the palette, Simple's start |
 | **A guide** | the same | the step rail docked at the left, the live view in the centre (the projector view, the 3D view or the wall's overlay), the step's object's inspector at the right showing only the fields the step uses, each step with **Do it**, **By hand**, **Ask**, **Explain** and, for a step a person judges, **Check** | the Guides menu (each guide, and each of its steps, acting on the selection), a card, the object's right-click (each step is re-entered from the object it is about), the palette |
 | **Pro** | an operator who knows the tools | every pane, the outliner, the full inspectors, every card and drawer, the advanced panes (below), the generated entries | Ctrl+Shift+P, the View menu |
 | **The advanced panes** (Pro) | an operator who programs a show's looks and controls | the effects chain editor, the modulation and bindings pane, and an area pane per advanced STATE block (below) | the Window menu, the object's right-click, the palette |
@@ -204,17 +204,18 @@ The guides are the assistant's way into every workflow, as they are the desk's:
 
 - `GUIDE LIST` answers every guide begun on the node and its state; `GUIDE <FLAT|WALL|OBJECT|FACADE|FIRST> [<subject>]` answers one
   guide's steps (`FACADE` is `SITE GUIDE`'s list, kept under its old row too). The subject is what the guide is about: a canvas
-  for FLAT, a viewpoint for WALL, a projector or a pair for OBJECT; with none, the first step says which line makes one. `GUIDE <kind>
-  <subject> BEGIN` (a card's Start, from any session, an assistant's included) records the guide as begun and `END` as ended, in
-  `Project.Guides` with who and when.
+  for FLAT, a viewpoint for WALL, a projector or a pair for OBJECT; with none, the first step says which line makes one. `GUIDE BEGIN
+  <kind> <subject>` (a card's Start, from any session, an assistant's included) records the guide as begun and `GUIDE END <kind>
+  <subject>` as ended, in `Project.Guides` with who and when. (The catalogue names a row by a line's first two words, so the second
+  word is the action: `GUIDE FLAT cv BEGIN` would be read as the `GUIDE` query.)
 - Each step: `step` (its key), `state` (`done`, `waiting`, `running`, `failed`, as `SiteGuide`'s), `words`, `facts` (the measured
   numbers it rests on: residuals, coverage, the seam's misregistration, a score's terms), `line` (what does it now), `auto` (the
   automatic way, if any), `hand` (the hand way, with `<…>` where only a person knows the value), and `checked` for a step a person
   judges.
-- A step a person judges — corners lined up by eye, a blend that looks right — is marked by `GUIDE <kind> <subject> CHECK <step>`
-  (and `UNCHECK`): the mark records the step's inputs, and the step reads `done` while they are unchanged and "changed since you
-  checked it" once they move. `CHECK` is a person's mark: an assistant's session is refused with "a person checks a step", as only
-  a person approves.
+- A step a person judges — corners lined up by eye, a blend that looks right — is marked by `GUIDE CHECK <kind> <subject> <step>`
+  (and `GUIDE UNCHECK <kind> <subject> <step>`): the mark records the step's inputs, and the step reads `done` while they are
+  unchanged and "changed since you checked it" once they move. `CHECK` is a person's mark: an assistant's session is refused with
+  "a person checks a step", as only a person approves.
 - STATE `guides` lists every guide begun (kind, subject, the next step, how many of how many, its light); the context carries one
   item per guide (kind `guide`, "Flat blend · Front: corners, 4 of 7"), so Patterns' Eye and a peer's assistant see where a
   setup stands. The Eye keeps the first 64 of a context's commands today, which are the air's, so it sees a guide's state but
@@ -643,7 +644,9 @@ in WAL mode on a lane of its own, never on the render, present or capture thread
 
 | Row | Syntax | Package | Risk / class |
 |---|---|---|---|
-| `GUIDE` | `GUIDE LIST \| GUIDE FLAT\|WALL\|OBJECT\|FACADE\|FIRST [<subject>] \| GUIDE <kind> <subject> BEGIN\|END \| GUIDE <kind> <subject> CHECK\|UNCHECK <step>` | workflows | Low / Query (BEGIN, END, CHECK, UNCHECK: Review / Project; CHECK and UNCHECK refused from an assistant's session) |
+| `GUIDE` | `GUIDE LIST \| GUIDE FLAT\|WALL\|OBJECT\|FACADE\|FIRST [<subject>]` | workflows | Low / Query |
+| `GUIDE BEGIN`, `GUIDE END` | `GUIDE BEGIN\|END FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject>` | workflows | Review / Project |
+| `GUIDE CHECK`, `GUIDE UNCHECK` | `GUIDE CHECK\|UNCHECK FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject> <step>` | workflows | Review / Project (refused from an assistant's session) |
 | `CANVAS SPAN` | `CANVAS SPAN <canvas>\|NEW <output> <output>… [SIDE <c>x<r>] [STACK <n 2-4>] [OVERLAP <px>\|<pct>%] [KEEP\|REPLACE]` | canvas | Review / Layout |
 | `CANVAS SOURCE` | `CANVAS SOURCE <canvas> <source> [FIT\|FILL\|STRETCH]` | canvas | High / Content |
 | `PATTERN` (extended) | `PATTERN <kind>\|OFF [ON <output>\|<canvas>\|ALL]` | canvas | as `PATTERN` |

@@ -20,7 +20,7 @@ None.
 
 ## STATE
 
-top level `observe`; `render.removals` (stability-2).
+top level `observe`; `outputs[].observed`, after wp2-align's `measured` (`OutputObserve`); `render.removals` (stability-2).
 
 ## Papers note
 

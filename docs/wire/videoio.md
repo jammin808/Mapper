@@ -35,7 +35,9 @@ capture grammar (`CaptureUri`: `capture:<provider>/<device>[/<input>]`, the prov
 and `magewell`), never as an FFmpeg location: one the grammar refuses — an unknown provider, user information, a query — is
 answered with the grammar's words, which repeat nothing of it, and every line written down (the journal's rows among them) shows
 it as `capture:‹refused›`; a well-formed one answers "INPUT ADD capture: is not available on this node yet" with the sources that
-are.
+are. `INPUT BACKUP` and `INPUT FALLBACK` read a `capture:` word by the grammar first in the same way ("INPUT BACKUP capture: is not
+available on this node yet — a backup is ndi:, omt: or spout:"), and a generic `ADD media` or `SET` that would store a `capture:`
+location or live backup is refused with the grammar's words, or "capture: sources are not available on this node yet".
 
 **Loss.** `INPUT FALLBACK` sets `live.onLoss` and `live.fallback`: `HOLD` (the last picture stays), `BLACK`, or a source the node
 always has — `media:`, `generator:`, `canvas:`, `playlist:`, `color:#RRGGBB`. Refused: unchanged ("Cam 1 already holds its last

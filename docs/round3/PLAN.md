@@ -312,19 +312,25 @@ named blocks).
 
 | Word | Package | Stubs |
 |---|---|---|
-| `Machine` | wp3-platform | `EngineCore.Machine.cs`, `EngineServices.Machine.cs`, `NodeSettings.Machine.cs` |
-| `Gpu` | wp3-d3d12-core (wp3-d3d12-passes-2 adds `EngineCore.Pipelines.cs`, wp3-stability-2 `EngineCore.Rebuild.cs`) | `EngineCore.Gpu.cs`, `RenderHost.Gpu.cs`, `NodeSettings.Gpu.cs` |
-| `Plan` | wp3-d3d12-passes (wp3-d3d12-passes-2 continues it, then wp3-stability-2 in W4) | `Rendering/RenderHost.Plan.cs` |
-| `Observe` | wp3-stability | `EngineCore.Observe.cs`, `EngineServices.Observe.cs`, `Host/EngineParts.Observe.cs`, `Host/EngineEntry.Observer.cs`, `NodeSettings.Observe.cs` |
-| `Shaders` | wp3-shaders (wp3-shaders-2 continues it) | `Host/EngineEntry.ShaderWorker.cs`, `EngineServices.Shaders.cs` |
+| `Machine` | wp3-platform | `EngineCore.Machine.cs`, `EngineServices.Machine.cs`, `NodeSettings.Machine.cs`, `Host/EngineParts.Machine.cs` (its extension sets `EngineServices.MachinePlatform` and its arm hook) |
+| `Gpu` | wp3-d3d12-core (wp3-d3d12-passes-2 adds `EngineCore.Pipelines.cs`, wp3-stability-2 `EngineCore.Rebuild.cs`) | `EngineCore.Gpu.cs` (its `StateGpu` writes STATE `render` and calls `WriteRenderExtras` last inside it), `RenderHost.Gpu.cs`, `NodeSettings.Gpu.cs` |
+| `Plan` | wp3-d3d12-passes (wp3-d3d12-passes-2 continues it, then wp3-stability-2 in W4) | `Rendering/RenderHost.Plan.cs`, `EngineCore.Plan.cs` (`RenderPlan`: STATE `render.graph`, inside `render`), `Host/EngineParts.Plan.cs` (its arm hook) |
+| `Observe` | wp3-stability | `EngineCore.Observe.cs` (with `OutputObserve`: `outputs[].observed`, after `measured`), `EngineServices.Observe.cs`, `Host/EngineParts.Observe.cs`, `Host/EngineEntry.Observer.cs`, `NodeSettings.Observe.cs` |
+| `Shaders` | wp3-shaders (wp3-shaders-2 continues it) | `Host/EngineEntry.ShaderWorker.cs`, `EngineServices.Shaders.cs`, `EngineCore.Shaders.cs` (`RouteShaders`: `FX RELEASE`; `FxCompileShaders`: `fx.compile.worker`; `FxShaders`: `fx.quarantine`, last in `fx`); FX CHECK's Direct3D 12 stages through `EngineServices.FxStages` (`IFxStageCheck`) |
 | `Undo` | wp3-desk-ux | `EngineCore.Undo.cs` |
-| `Preview` | wp3-desk-gpu | `RenderHost.Preview.cs` (beside the existing `RenderHost.Previews.cs`), `EngineCore.Preview.cs` |
+| `Preview` | wp3-desk-gpu | `RenderHost.Preview.cs` (beside the existing `RenderHost.Previews.cs`), `EngineCore.Preview.cs` (`StatePreview`; `ViewShared` answers `VIEW … SHARED`), `Host/EngineParts.Preview.cs` (its extension sets `EngineServices.PreviewShare` and joins `GpuLifecycles`) |
 | `Handles` | wp3-desk-map | `EngineCore.Handles.cs`, `EngineCore.Showing.cs` |
 | `Canvas` | wp3-canvas | `EngineCore.Canvas.cs`, `Rendering/RenderHost.Canvas.cs` |
 | `Guide` | wp3-workflows | `EngineCore.Guide.cs`, `EngineServices.Guide.cs` |
-| `Capture` | wp3-capture | `EngineCore.Capture.cs`, `EngineServices.Capture.cs`, `Host/EngineParts.Capture.cs`, `NodeSettings.Capture.cs`, `Rendering/RenderHost.Capture.cs` |
+| `Capture` | wp3-capture | `EngineCore.Capture.cs` (its `ValidateCapture` refuses every `capture:` source and `passThrough` until the package fills it), `EngineServices.Capture.cs`, `Host/EngineParts.Capture.cs`, `NodeSettings.Capture.cs`, `Rendering/RenderHost.Capture.cs` |
 
 wp3-desk-shell is the desk's alone and has no engine stub.
+
+The seams of `Seams.Round3.cs` ride on every node's `EngineServices` at their null implementations — `Observer`, `PreviewShare`,
+`GpuLifecycles`, `MachinePlatform`, `ArmHooks` and `FxStages` — and a package sets its own from its extension's Configure; the host
+points `ThreadClaims` at `MachinePlatform` once at start. A round-3 field nothing draws yet (an output's `colorBits`, `hdr`,
+`nitTarget`, `framesInFlight`, `watermark` and `passThrough`, a canvas's `span`, a viewpoint's `fit`) is refused by the generic SET
+and ADD in its owner's Validate hook (present's in `ValidateOutput`), which the owner lifts as it draws the field.
 
 Present and framelock keep the existing Output and Sync files (`EngineCore.Output.cs`, `EngineCore.Sync.cs`,
 `Presentation/*`), owned by them in their waves.
@@ -407,11 +413,16 @@ lab, and its next round.
    and size); for the owner's requirements `Output.PassThrough`, `Canvas.Span` (the outputs, the layout `SIDE <c>x<r>` and `STACK <n>`,
    the overlap and what a span wrote), `Viewpoint.Fit` (the surfaces, margin, aim and field of view `VIEWPOINT FIT` wrote),
    `Project.Guides` (each begun guide's kind, subject, who began it and when, and each checked step with the hash of its inputs), and
-   `BlendSettings.Gamma`'s meaning as the hand's override (0: the output's measured γ, `Measured.Color.Gamma`, where it has one, else
-   2.2; the default 0); the measured γ stays where align already keeps it, and a typed or nudged pose is a calibration result of the
-   existing source `Manual`; `ModelCompatTests` read every round-2 fixture project, unchanged but for γ: a stored `Blend.Gamma` equal to
-   2.2 or to the γ the output's current calibration result recorded (an accept wrote it) reads as 0, any other value as the hand's
-   override, and the reader names each output it moved in the project's load note. (3.5 h)
+   `BlendSettings.Gamma`'s meaning as the override (0: the output's measured γ, `Measured.Color.Gamma`, where it has one, else
+   2.2; the default 0; above 0 a person's γ, or the γ the output's current calibration result recorded, which ALIGN ACCEPT,
+   CALIBRATION RECALL and ALIGN REVERT write until canvas's W4 hunk on `CalibrationLedger.cs` stops the accept writing it, so
+   `Output.HandGamma` is the one test of a person's γ); the measured γ stays where align already keeps it, and a typed or nudged pose is
+   a calibration result of the existing source `Manual`; the file form is schema 2, and writes an output's blend γ twice — `gamma`, the
+   γ drawn (what every earlier build reads, so a round-2 backup or build draws the same fades), and `gammaOverride`, the model's
+   `Blend.Gamma` (a line's `blend.gamma` sets it too); `ModelCompatTests` read every round-2 fixture project, unchanged but for γ: a
+   stored `Blend.Gamma` equal to 2.2 or to the γ the output's current calibration result recorded (an accept wrote it) reads as 0
+   wherever 0 draws the same γ, any other value as the hand's override, and the reader names each output it moved in the project's
+   load note. (3.5 h)
 5. The tree: `src/PlayMap.Render.D3D12` (references Core; TerraFX; every type `[SupportedOSPlatform("windows")]`; its folders as
    `design/d3d12.md` §0 lists them), `src/PlayMap.Platform.Windows` (references Core), `src/PlayMap.Supervisor` (references Core),
    their test projects, the solution's entries (the WiX project stays outside `PlayMap.sln`: an MSI builds on Windows only, so the
@@ -419,13 +430,14 @@ lab, and its next round.
    Render.D3D12 does not reference Render; only App references Avalonia); the stubs of §2.3, each empty body holding `// wp3-<pkg>
    fills this.`; the new STATE keys reserved in their place — `identity`, `capabilities`, `platform`, `locked` and `install` as
    children of the existing `machine` block, after its present keys; `render`, `observe` and `previews` at the top level; for the
-   owner's requirements `guides` at the top level, `outputs[].showing`, `outputs[].hand`, `outputs[].passThrough`, `media[].shownOn`,
+   owner's requirements `guides` at the top level, `outputs[].observed` (stability's), `outputs[].showing`, `outputs[].hand`,
+   `outputs[].passThrough`, `media.shownOn` (STATE's `media` is one object with no per-item rows, so desk-map gives the key its shape),
    `videoio.inputs[].capture` and `.latency` and `air.overlay.handleP95Ms` after their blocks' present keys, and the context's `guide`
    item kind; in `ContextBuilder.cs` the output item's words joined with `ShowingWords(output)`, a partial in desk-map's
    `EngineCore.Showing.cs` stub that answers nothing until desk-map fills it; empty fixtures `machine.json`, `install.json`,
    `shaders.json`, `gpu.json`, `graph.json`, `observe.json`, `previews.json`, `showing.json`, `canvas.json`, `guides.json` and
-   `capture.json` with their card descriptors; `docs/wire/<pkg>.md` generated from the catalogue; one heading per package in
-   `THIRD-PARTY-NOTICES.md`. (5 h)
+   `capture.json` (each package adds its `.cards.json` with its first block: `EveryCardTests` holds every descriptor file to describe a
+   card); `docs/wire/<pkg>.md` generated from the catalogue; one heading per package in `THIRD-PARTY-NOTICES.md`. (5 h)
 6. CI: the Windows job pinned to `windows-2025` (Windows Server 2025, build 26100: the MSI's launch condition holds there);
    it restores `Microsoft.Direct3D.WARP` and `Microsoft.Direct3D.D3D12` (the Agility SDK, with its debug layer) and copies them
    beside the test hosts; a trait `Backend=D3D12` on Direct3D 12 tests so the job lists their results apart; a `workflow_dispatch`
@@ -440,10 +452,12 @@ lab, and its next round.
    (drafted for the blind owner, allowed for an operator while armed); `HealthOutput.ShownFrames` and `ObservedFrames` (−1 meaning
    unknown) and HEALTH's `gpu` record (the device epoch, the phase — `starting`, `running`, `rebuilding` — and since when), read
    from a round-2 HEALTH line as unknown; the engine's pid record (pid, line-wire port, start time), written at start into
-   `%ProgramData%\PlayMap\supervisor\engine.pid` where that folder exists, which the supervisor and the MSI's armed check read;
-   `IShowArmHook` (asynchronous, cancellable, with a deadline: `SHOW ARM` runs the hooks
-   registered before it answers, names in its answer what each did, cancels one that misses its deadline with words, and arms
-   either way). (3 h)
+   `%ProgramData%\PlayMap\supervisor\engine.pid` where that folder exists, by an engine started with `--supervised` (the supervisor's
+   command line) only and never over a record naming another engine still running, which the supervisor and the MSI's armed check
+   read; `IShowArmHook` (asynchronous, cancellable, with a deadline held to five minutes: `SHOW ARM` runs the hooks registered before it
+   answers, names in its answer what each did, cancels one that misses its deadline with words, and arms either way; `ALL` sends the
+   group the line before this node's hooks end; a member answers its leader before its hooks end, journalling each; a node that comes
+   back armed runs its arming hooks once it is up). (3 h)
 8. The W1 bench for M1 and M3: `bench/r3-present` — a flashing quad through a raw Direct3D 12 flip swap chain, the existing GL
    window and the D3D11 path on one display, and the composition swapchain asked to take Direct3D 12 buffers — built on the
    Windows job, run in the lab (L1, L4). (2 h)
@@ -480,9 +494,12 @@ The round-3 rows:
 | `HAND` | `HAND <output>\|<projector>\|<surface>` | canvas | Low | Query |
 | `HAND CLEAR` | `HAND CLEAR <output> WARP\|BLEND\|COLOR\|MASKS\|ALL` | canvas | Review | Layout |
 | `GUIDE` | `GUIDE LIST \| GUIDE FLAT\|WALL\|OBJECT\|FACADE\|FIRST [<subject>]` | workflows | Low | Query |
-| `GUIDE CHECK` | `GUIDE <kind> <subject> BEGIN\|END \| GUIDE <kind> <subject> CHECK\|UNCHECK <step>` (CHECK and UNCHECK a person's mark: refused from an assistant's session) | workflows | Review | Project |
+| `GUIDE BEGIN` | `GUIDE BEGIN FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject>` | workflows | Review | Project |
+| `GUIDE END` | `GUIDE END FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject>` | workflows | Review | Project |
+| `GUIDE CHECK` | `GUIDE CHECK FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject> <step>` (a person's mark: refused from an assistant's session) | workflows | Review | Project |
+| `GUIDE UNCHECK` | `GUIDE UNCHECK FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject> <step>` (a person's mark: refused from an assistant's session) | workflows | Review | Project |
 | `VIEWPOINT FIT` | `VIEWPOINT FIT <viewpoint> <surface>… [MARGIN <pct>] [KEEP\|REPLACE]` | workflows | Review | Target |
-| `SURFACE MAP` | `SURFACE MAP <surface> UV \| CANVAS <canvas> [<x> <y> <w> <h>] \| PROJECTION FROM <viewpoint>` | workflows | Review | Content |
+| `SURFACE MAP` | `SURFACE MAP <surface> UV \| SURFACE MAP <surface> CANVAS <canvas> [<x> <y> <w> <h>] \| SURFACE MAP <surface> PROJECTION FROM <viewpoint>` | workflows | Review | Content |
 | `INPUT DISCOVER` (extended) | `INPUT DISCOVER [NDI\|OMT\|SPOUT\|CAPTURE\|ALL] [WAIT <0-5000 ms>]` | capture | Low | Query |
 | `INPUT ADD` (extended) | `… [MODE <w>x<h>@<rate>] [FORMAT UYVY\|V210\|NV12\|AUTO]`, `capture:` URIs | capture | as `INPUT ADD` | as `INPUT ADD` |
 | `OUTPUT PASSTHROUGH` | `OUTPUT PASSTHROUGH <output> ON\|OFF` | capture | Review | Setup |
@@ -727,7 +744,8 @@ The corpus on the new road (above wp3-shaders-2's cut line) and user effects on 
 **Preflight.** Quarantined kinds (red, section `fx`). **INDEX.** None new.
 
 **Owns.** `src/PlayMap.Render.D3D12/Shaders/**`, `src/PlayMap.Engine/ShaderWorker/**`, the `Shaders` stubs,
-`src/PlayMap.Core/Effects/{IsfTranslator, IsfTranslator.Vulkan, ShaderQuarantine}.cs`, the FX block's `FX CHECK` words and
+`src/PlayMap.Core/Effects/{IsfTranslator, IsfTranslator.Vulkan, ShaderQuarantine}.cs`, the FX block's `FX CHECK` words (its stages
+through `EngineServices.FxStages`; STATE's keys through the `Shaders` stubs' `FxCompileShaders` and `FxShaders`) and
 `FX RELEASE`, `tests/fixtures/state/shaders.json` (`fx.compile`, `fx.quarantine`) and its cards, its named CI block (the pinned
 compiler natives).
 
@@ -790,7 +808,7 @@ wp3-d3d12-core's).
    `SeIncreaseBasePriorityPrivilege` (the realtime GPU queue, used only when measured) by the supervisor's `grant` command
    (`LsaAddAccountRights`, as on every edition) as a deferred custom action; the Event Log source. (4.5 h)
 5. The supervisor (`PlayMap.Supervisor`, a LocalSystem service with recovery actions on crashes and on non-zero stops): starts
-   `PlayMap.exe engine` in the auto-logged-on show user's session (`WTSQueryUserToken`, `CreateProcessAsUser`; M9 — the same on
+   `PlayMap.exe engine --supervised` (the one run that writes the machine's pid record) in the auto-logged-on show user's session (`WTSQueryUserToken`, `CreateProcessAsUser`; M9 — the same on
    every edition, and on Home the only kiosk there is), restarts it with backoff (1 s doubling to 30 s), and stops an engine whose
    shown-frame heartbeat has not advanced for the stale time while HEALTH's `gpu.phase` says `running` (HEALTH over loopback: the
    fields the spine reserves, wp3-stability fills) — the stale time the larger of 3 s and four times the rebuild's first-good-frame
@@ -989,7 +1007,8 @@ area), `tests/PlayMap.Assistant.Tests/Quad/**` (new), `docs/DESK.md`.
    its row of the D3D12 tolerance table — the table filled from the first run, each widening a row with the measured maximum and
    mean difference and the reason, reviewed at the gate; packed video (`video.pack`, `video.unpack`) byte-exact; an offscreen
    D3D12 platform, selected by the platform options (`PRESENT PATH D3D12`'s routing, the Engine suites on it and their STATE twins
-   are wp3-present's), with one render-host scene on it; STATE `render` and `machine.present.api` "d3d12"; `GPU`. (5 h)
+   are wp3-present's), with one render-host scene on it; STATE `render` (its `StateGpu` calls the spine's `WriteRenderExtras` last
+   inside the block, so wp3-d3d12-passes' `render.graph` follows the device's keys) and `machine.present.api` "d3d12"; `GPU`. (5 h)
 
 ⟂ *(≈ 26 h)*
 
@@ -1895,8 +1914,9 @@ reported not run while no lab exists.
 1. Guides as data (D13): pure planners in `Core/Workflows` — FLAT (§5.1 of the design: side by side, stacked, and two positions each
    double-stacked), WALL (§5.2), OBJECT (§5.3), with FACADE (`SiteGuide`, behind the same contract and its old row) and FIRST (the
    first light) — each step's state, words, facts (the pins' coverage meter among them), automatic, hand and proposed lines; `GUIDE
-   LIST`, `GUIDE <kind> [<subject>]`, `GUIDE <kind> <subject> BEGIN|END` (any session) and `GUIDE … CHECK|UNCHECK <step>` (a person's
-   mark, refused from an assistant's session), the begun guides and their checks in `Project.Guides`; STATE `guides`; the context's
+   LIST`, `GUIDE <kind> [<subject>]`, `GUIDE BEGIN <kind> <subject>` and `GUIDE END <kind> <subject>` (any session), and
+   `GUIDE CHECK <kind> <subject> <step>` and `GUIDE UNCHECK <kind> <subject> <step>` (a person's mark, refused from an assistant's
+   session; the catalogue names a row by its first two words, so the verb's second word is BEGIN, END, CHECK or UNCHECK), the begun guides and their checks in `Project.Guides`; STATE `guides`; the context's
    guide items. (6.5 h)
 2. Poses, scans and viewpoints keeping or staging over the hand's edits (D12): a typed or nudged pose recorded as a calibration
    result of the existing source `manual`; over one, `PROJECTOR SOLVE`, `CALIBRATION RESOLVE` and `SCAN APPLY` stage that projector's
@@ -1966,7 +1986,8 @@ run while no lab exists.
 **Slice.**
 1. The seam and the hub: capture providers in the video I/O hub (a receiver per input, the loss policy, backup, tally, health,
    preflight, the context's input item as every hub input has); the spine's `CaptureUri` failing closed, never read as an FFmpeg
-   location; `INPUT DISCOVER CAPTURE` with devices and modes; `INPUT ADD`'s `MODE` and `FORMAT`; the capture contract in
+   location (the spine's `LiveUri` reads no `capture:` location, `INPUT BACKUP` and `INPUT FALLBACK` read one by the grammar, and the
+   `ValidateCapture` stub refuses every stored one until this package fills it); `INPUT DISCOVER CAPTURE` with devices and modes; `INPUT ADD`'s `MODE` and `FORMAT`; the capture contract in
    `Core/Media/LiveVideo.cs` (the slot ring and `ICaptureCopy`, so Media's capture thread submits the copy at arrival through a
    Core seam the Direct3D 12 and GL sides implement, Media referencing Core alone); the `video=` path kept as rung 4 and handed to
    FFmpeg with the platform's input format, not a probe (today's `Format = ""` case first, as a failing test at the seam [vt §1.1]);
@@ -2117,7 +2138,7 @@ nothing in that wave edits it.
 | `tests/fixtures/state/{machine, install, shaders, gpu, graph, observe, previews, showing, canvas, guides, capture}.json` and their cards | platform, installer, shaders → shaders-2, d3d12-core → stability-2, d3d12-passes → d3d12-passes-2, stability → stability-2, desk-gpu, desk-map, canvas, workflows, capture — one writer each per wave | none |
 | `tests/fixtures/state/{main, output, decode, sync}.json` | the package whose keys change: present (`output`), video (`decode`), framelock (`sync`) | Linux keeps GL words; the Windows job writes `*.d3d12.json` twins (present's leg) and compares them there |
 | `integrations/companion-module-playmap/test/fixtures/*` | the integration pass | none |
-| `docs/ARCHITECTURE.md`, `README.md`, the agent brief, `docs/WIRE.md`, `docs/ROADMAP.md`, `docs/COMPETITIVE.md` | the integration pass (§5.6) | none during the waves; packages write papers notes |
+| `docs/ARCHITECTURE.md`, `README.md`, the agent brief, `docs/WIRE.md`, `docs/ROADMAP.md`, `docs/COMPETITIVE.md` | spine (W0: its own lines in README, ARCHITECTURE, WIRE and ROADMAP) → the integration pass (§5.6) | none during the waves; packages write papers notes |
 
 ---
 
