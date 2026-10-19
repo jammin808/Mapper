@@ -121,7 +121,8 @@ public sealed class NullMachinePlatform : IMachinePlatform
 }
 
 /// <summary>A deadline timer on the runtime's own wait (a wait handle's timeout, at the operating system's default resolution): it
-/// waits again while it woke before the instant, so it never answers early, and records how late each wait woke.</summary>
+/// waits again while it woke before the instant, so it never answers early, however far off the instant is, and records how late
+/// each wait woke.</summary>
 public sealed class RuntimeDeadlineTimer : IDeadlineTimer
 {
     private const int Window = 1000;
@@ -146,7 +147,9 @@ public sealed class RuntimeDeadlineTimer : IDeadlineTimer
             var left = monoNs - _clock.NowNs;
             if (left <= 0)
                 break;
-            if (handle.WaitOne(TimeSpan.FromMilliseconds(Math.Ceiling(left / 1e6))))
+            // A wait handle takes at most int.MaxValue ms at once (about 24.8 days): a later instant is waited for in such steps.
+            var ms = Math.Min(Math.Ceiling(left / 1e6), int.MaxValue);
+            if (handle.WaitOne((int)ms))
                 return false;
         }
         if (cancel?.WaitOne(0) == true)

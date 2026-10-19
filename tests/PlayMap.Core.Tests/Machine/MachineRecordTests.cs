@@ -135,6 +135,19 @@ public sealed class MachineRecordTests
         Assert.False(timer.WaitUntil(clock.NowNs + 60_000_000_000, cancel));
         Assert.False(timer.WaitUntil(clock.NowNs - 1, cancel));
     }
+
+    [Fact]
+    public void ADeadlineWeeksAwayIsWaitedForInStepsTheRuntimeTakesAndACancelStillEndsIt()
+    {
+        // A wait handle takes at most int.MaxValue ms (about 24.8 days) at once: a deadline 30 days out waits in such steps.
+        var clock = new ManualClock(1_000_000_000);
+        using var timer = new RuntimeDeadlineTimer(clock);
+        using var cancel = new ManualResetEvent(true);
+
+        Assert.False(timer.WaitUntil(clock.NowNs + 30L * 24 * 3600 * 1_000_000_000, cancel));
+        Assert.False(timer.WaitUntil(long.MaxValue, cancel));
+        Assert.Equal(0, timer.LateP99Us);
+    }
 }
 
 /// <summary>ThreadClaims is one static seam for the process: a claim goes to the platform in use, and before any, changes nothing and
