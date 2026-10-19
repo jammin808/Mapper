@@ -358,10 +358,17 @@ jobs:
         run: ./tools/ci-stamp.ps1 -File publish/PlayMap/PlayMap.exe -Label 'The published exe' -Artifact 'PlayMap-{0}-win-x64-unsigned'
       - name: The portable folder's SHA256SUMS (unsigned)
         # wp3-installer: the build is unsigned (the owner's decision, docs/round3/PLAN.md §9 decision 2): its name says so, and a
-        # SHA256SUMS file of every shipped file rides beside them, which docs/INSTALL.md says how to check.
+        # SHA256SUMS file of every shipped file rides beside them, which docs/INSTALL.md says how to check. The folder carries no file
+        # of the Agility SDK (D3D12Core.dll, d3d12SDKLayers.dll, d3dconfig.exe), whose terms ride with the installer's licence page
+        # alone: a folder that carries one stops the step, and the summary says what the folder carries.
         if: ${{ !inputs.d3d12 }}
         shell: pwsh
-        run: ./installer/sums.ps1 -Folder publish/PlayMap -Notice
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agility = @(Get-ChildItem publish/PlayMap -Recurse -File | Where-Object { $_.Name -in 'D3D12Core.dll', 'd3d12SDKLayers.dll', 'd3dconfig.exe' })
+          if ($agility.Count -gt 0) { throw "the portable folder carries the Agility SDK's $(($agility | ForEach-Object { $_.Name }) -join ', '): its terms ride with the installer's licence page alone" }
+          '- the portable folder carries no file of the Agility SDK (D3D12Core.dll, d3d12SDKLayers.dll, d3dconfig.exe)' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          ./installer/sums.ps1 -Folder publish/PlayMap -Notice
       - name: Upload the exe
         if: ${{ !inputs.d3d12 }}
         uses: actions/upload-artifact@v5
