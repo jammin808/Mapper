@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.IO.Pipes;
 using System.Runtime.Versioning;
 using System.ServiceProcess;
 using System.Text;
@@ -155,37 +154,34 @@ public static class Program
         }
     }
 
-    /// <summary>Asks the running service on its pipe; with no service, <c>status</c> reads the status file and <c>stop</c> stops the
-    /// engine itself.</summary>
+    /// <summary>Asks the running service on its pipe, its server first held to <see cref="PipeServerRule"/>; with no service,
+    /// <c>status</c> reads the status file and <c>stop</c> stops the engine itself.</summary>
     [SupportedOSPlatform("windows")]
     private static int PipeCommand(string word, Action<string> say)
     {
-        try
+        var dir = SupervisorHost.InstallValue("InstallDir");
+        var installed = dir.Length > 0 ? Path.Combine(dir, "Supervisor", "PlayMap.Supervisor.exe") : Environment.ProcessPath ?? "";
+        if (SupervisorPipe.Ask(MachinePlan.PipeName, word, SupervisorPipe.ThisMachinesSupervisor(installed)) is { } answer)
         {
-            using var client = new NamedPipeClientStream(".", MachinePlan.PipeName, PipeDirection.InOut);
-            client.Connect(2000);
-            var bytes = Encoding.UTF8.GetBytes(word + "\n");
-            client.Write(bytes);
-            client.Flush();
-            using var reader = new StreamReader(client, Encoding.UTF8);
-            var answer = reader.ReadLine() ?? "";
-            say(answer);
-            return answer.StartsWith("ERR", StringComparison.Ordinal) ? Refused : Done;
-        }
-        catch (System.TimeoutException)
-        {
-            switch (word)
+            if (!answer.FromSupervisor)
             {
-                case "status":
-                    var status = Status.SupervisorStatus.Read(EnginePidRecord.MachineFolder());
-                    say(status is null ? "the supervisor is not running and has written no status" : "the supervisor is not running; its last status: " + status.ToJson());
-                    return status is null ? Refused : Done;
-                case "stop":
-                    return StopEngine(say) is EngineStop.Failed or EngineStop.NotTheEngine ? Refused : Done;
-                default:
-                    say("the supervisor is not running: there is nothing to resume (start the service PlayMapSupervisor)");
-                    return Refused;
+                say("the supervisor's pipe is served by " + answer.Words + ": its answer is not taken");
+                return Refused;
             }
+            say(answer.Words);
+            return answer.Words.StartsWith("ERR", StringComparison.Ordinal) ? Refused : Done;
+        }
+        switch (word)
+        {
+            case "status":
+                var status = Status.SupervisorStatus.Read(EnginePidRecord.MachineFolder());
+                say(status is null ? "the supervisor is not running and has written no status" : "the supervisor is not running; its last status: " + status.ToJson());
+                return status is null ? Refused : Done;
+            case "stop":
+                return StopEngine(say) is EngineStop.Failed or EngineStop.NotTheEngine ? Refused : Done;
+            default:
+                say("the supervisor is not running: there is nothing to resume (start the service PlayMapSupervisor)");
+                return Refused;
         }
     }
 

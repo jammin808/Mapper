@@ -46,6 +46,18 @@ public sealed class SupervisorHost : IDisposable
     private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan HealthTime = TimeSpan.FromMilliseconds(400);
 
+    /// <summary>The pipe's instances at most: three connections served at once and the one that listens.</summary>
+    public const int MaxPipeInstances = 4;
+
+    /// <summary>The longest line the pipe reads: its words are at most six bytes.</summary>
+    public const int WordBytes = 64;
+
+    /// <summary>How long a connection has to send its line and read its answer.</summary>
+    public static readonly TimeSpan ConnectionTime = TimeSpan.FromSeconds(2);
+
+    /// <summary>The answer to anything but a word the pipe takes.</summary>
+    public const string NotAWord = "ERR the supervisor's pipe answers status, resume and stop";
+
     private readonly SupervisorPlaces _places;
     private readonly SupervisorCore _core = new(SupervisorPolicy.Default);
     private readonly object _gate = new();
@@ -53,6 +65,11 @@ public sealed class SupervisorHost : IDisposable
     private readonly CountdownEvent _ended = new(2);
     private EventWaitHandle? _stopEvent;
     private EngineProcess? _engine;
+    private readonly object _pipeGate = new();
+    private readonly SemaphoreSlim _connections = new(MaxPipeInstances - 1);
+    private int _pipeInstances;
+    private bool _pipeRefused;
+    private string _unmappedSaid = "";
     private string _lastStatus = "";
     private string _refusedRecord = "";
 
@@ -112,6 +129,7 @@ public sealed class SupervisorHost : IDisposable
     {
         _stopEvent?.Dispose();
         _engine?.Dispose();
+        _connections.Dispose();
         _stop.Dispose();
         _ended.Dispose();
     }
@@ -247,21 +265,10 @@ public sealed class SupervisorHost : IDisposable
         ? dir
         : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..")), "PlayMap.exe");
 
-    /// <summary>The show user's SID ("" when no show user is named; an account Windows cannot find adopts nothing).</summary>
-    private string SidOf(string showUser)
-    {
-        if (showUser.Length == 0)
-            return "";
-        try
-        {
-            return ((SecurityIdentifier)new NTAccount(showUser).Translate(typeof(SecurityIdentifier))).Value;
-        }
-        catch (IdentityNotMappedException ex)
-        {
-            Log("the show user " + showUser + " cannot be found (" + ex.Message + "): no engine is adopted");
-            return "S-1-0-0";
-        }
-    }
+    /// <summary>The show user's SID ("" when no show user is named; an account Windows cannot find is the null SID, which no engine
+    /// runs as, so nothing is adopted).</summary>
+    private string SidOf(string showUser) =>
+        showUser.Length == 0 ? "" : Sid(showUser)?.Value ?? new SecurityIdentifier(WellKnownSidType.NullSid, null).Value;
 
     /// <summary>The facts from what was read: HEALTH's open outputs' shown frames (−1 when any is unknown) and its GPU record.</summary>
     internal static SupervisorFacts Facts(bool sessionOk, bool alive, HealthRecord? health)
@@ -357,20 +364,125 @@ public sealed class SupervisorHost : IDisposable
         }
     }
 
-    /// <summary>The pipe: one word a line, answered with one line.</summary>
+    /// <summary>The pipe: one word a line (at most <see cref="WordBytes"/> bytes, within <see cref="ConnectionTime"/>), answered with
+    /// one line. The name is this supervisor's only: its first instance is made with FirstPipeInstance (a name another process holds
+    /// is said once in the log and tried again each half second, never served on), and the next instance is made before a connection
+    /// is answered, so the name never has no instance of this supervisor's that another process could take. Each connection is served
+    /// on its own task, at most three at once beside the listening one, and one that fails, sends too much or sends nothing ends
+    /// alone.</summary>
     public async Task ServePipeAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        NamedPipeServerStream? listening = null;
+        try
         {
-            await using var server = NamedPipeServerStreamAcl.Create(_places.PipeName, PipeDirection.InOut, 4, PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous, 0, 0, PipeAcl(_places.ShowUser()));
-            await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
-            using var reader = new StreamReader(server, Encoding.UTF8, false, 1024, leaveOpen: true);
-            var word = (await reader.ReadLineAsync(ct).ConfigureAwait(false) ?? "").Trim();
-            var bytes = Encoding.UTF8.GetBytes(Answer(word) + "\n");
-            await server.WriteAsync(bytes, ct).ConfigureAwait(false);
-            await server.FlushAsync(ct).ConfigureAwait(false);
+            while (!ct.IsCancellationRequested)
+            {
+                listening ??= PipeInstance();
+                if (listening is null)
+                {
+                    await Task.Delay(Tick, ct).ConfigureAwait(false);
+                    continue;
+                }
+                await listening.WaitForConnectionAsync(ct).ConfigureAwait(false);
+                // A slot for this connection; while every slot is taken, this connected instance keeps the name.
+                await _connections.WaitAsync(ct).ConfigureAwait(false);
+                var connected = listening;
+                listening = PipeInstance();
+                _ = ServeConnectionAsync(connected, ct);
+            }
         }
+        finally
+        {
+            if (listening is not null)
+                ClosePipe(listening);
+        }
+    }
+
+    /// <summary>A new instance of the pipe: the first with FirstPipeInstance; others only while one of this supervisor's exists, which
+    /// the lock keeps from ending between the count and the make. Null, said once, when Windows refuses it.</summary>
+    private NamedPipeServerStream? PipeInstance()
+    {
+        lock (_pipeGate)
+        {
+            var first = _pipeInstances == 0;
+            try
+            {
+                var server = NamedPipeServerStreamAcl.Create(_places.PipeName, PipeDirection.InOut, MaxPipeInstances, PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : PipeOptions.None), 0, 0, PipeAcl(_places.ShowUser()));
+                _pipeInstances++;
+                _pipeRefused = false;
+                return server;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (!_pipeRefused)
+                {
+                    _pipeRefused = true;
+                    Log(first
+                        ? "the pipe name " + _places.PipeName + " is held by another process (" + ex.Message + "): the pipe is not served until the name is free"
+                        : "the pipe took no further instance (" + ex.Message + "): it is made again when one ends");
+                }
+                return null;
+            }
+        }
+    }
+
+    private void ClosePipe(NamedPipeServerStream pipe)
+    {
+        lock (_pipeGate)
+        {
+            pipe.Dispose();
+            _pipeInstances--;
+        }
+    }
+
+    /// <summary>One connection: its word, read within the time and the cap, and its answer; any failure ends this connection alone.</summary>
+    private async Task ServeConnectionAsync(NamedPipeServerStream pipe, CancellationToken ct)
+    {
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(ConnectionTime);
+            var word = await ReadWordAsync(pipe, deadline.Token).ConfigureAwait(false);
+            var answer = word is null ? NotAWord : Answer(word);
+            await pipe.WriteAsync(Encoding.UTF8.GetBytes(answer + "\n"), deadline.Token).ConfigureAwait(false);
+            await pipe.FlushAsync(deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            Log("a pipe client was cut off: no line within " + ConnectionTime.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) + " s, or its answer not read");
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            Log("a pipe client left before its answer: " + ex.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            // The supervisor is halting.
+        }
+        finally
+        {
+            ClosePipe(pipe);
+            _connections.Release();
+        }
+    }
+
+    /// <summary>The line a client sent, up to its newline (or its end), or null when it runs past <see cref="WordBytes"/> bytes.</summary>
+    internal static async Task<string?> ReadWordAsync(Stream pipe, CancellationToken ct)
+    {
+        var buffer = new byte[WordBytes];
+        var count = 0;
+        while (count < buffer.Length)
+        {
+            var read = await pipe.ReadAsync(buffer.AsMemory(count), ct).ConfigureAwait(false);
+            if (read == 0)
+                return Encoding.UTF8.GetString(buffer, 0, count).Trim();
+            var newline = Array.IndexOf(buffer, (byte)'\n', count, read);
+            if (newline >= 0)
+                return Encoding.UTF8.GetString(buffer, 0, newline).Trim();
+            count += read;
+        }
+        return null;
     }
 
     /// <summary>The pipe's answer to one word.</summary>
@@ -383,7 +495,7 @@ public sealed class SupervisorHost : IDisposable
                 "status" => SupervisorStatus.Of(_core, _engine?.Pid ?? 0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToJson(),
                 "resume" => _core.Resume() ? "OK resumed: the supervisor starts the engine again" : "ERR there is nothing to resume: " + SupervisorStatus.Word(_core.State),
                 "stop" => StopAnswer(),
-                _ => "ERR the supervisor's pipe answers status, resume and stop",
+                _ => NotAWord,
             };
         }
     }
@@ -397,14 +509,33 @@ public sealed class SupervisorHost : IDisposable
         return "OK held: the engine is asked to stop and is not started again until resume";
     }
 
-    private static PipeSecurity PipeAcl(string showUser)
+    /// <summary>The pipe's ACL: SYSTEM, administrators and the show user; a show user Windows cannot find is left out, said once.</summary>
+    private PipeSecurity PipeAcl(string showUser)
     {
         var security = new PipeSecurity();
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
-        if (showUser.Length > 0)
-            security.AddAccessRule(new PipeAccessRule(new NTAccount(showUser), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        if (showUser.Length > 0 && Sid(showUser) is { } user)
+            security.AddAccessRule(new PipeAccessRule(user, PipeAccessRights.ReadWrite, AccessControlType.Allow));
         return security;
+    }
+
+    /// <summary>An account's SID, or null, said once, when Windows cannot find the account.</summary>
+    private SecurityIdentifier? Sid(string account)
+    {
+        try
+        {
+            return (SecurityIdentifier)new NTAccount(account).Translate(typeof(SecurityIdentifier));
+        }
+        catch (IdentityNotMappedException ex)
+        {
+            if (_unmappedSaid != account)
+            {
+                _unmappedSaid = account;
+                Log("the show user " + account + " cannot be found (" + ex.Message + "): SYSTEM and administrators alone may use the pipe, and no engine is adopted");
+            }
+            return null;
+        }
     }
 
     /// <summary>The engine's stop event, which the show user's engine may wait on and the supervisor sets.</summary>

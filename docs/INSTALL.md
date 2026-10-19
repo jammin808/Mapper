@@ -83,6 +83,11 @@ when the record names anything else. The armed check asks the engine a record na
 | `PlayMap.Supervisor.exe preinstall-check` | the installer's armed check |
 | `PlayMap.Supervisor.exe grant <account>` / `revoke <account>` | the show account's right |
 
+`status`, `stop` and `resume` ask the service on its pipe (`\\.\pipe\PlayMap.Supervisor`, open to the show user and
+administrators), and take an answer only from the service itself: a process running as SYSTEM or from the installed
+`Supervisor\PlayMap.Supervisor.exe`. The service keeps the pipe's name its own (another program that holds the name is never served
+on), answers each connection on its own within 2 s and a line of at most 64 bytes, and goes on answering whatever one client does.
+
 On a supervised machine the desk attaches to the engine on loopback and never starts its own.
 
 ## Unsigned builds
