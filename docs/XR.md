@@ -73,7 +73,7 @@ The high end has the world model and APIs but keeps the operator at a workstatio
 
 Every XR device is another client of the Show Bus, HTTP/WS and MCP. It adds a **pointer** (a ray in PlayMap's world) and sometimes a **camera** (posed frames).
 
-| Verb | Returns or does | Round |
+| Verb | Returns or does | Roadmap round |
 |---|---|---|
 | `PICK RAY <origin> <dir> [t]` | `{surface, uv, projector, pixel, distance, candidates[]}`, ranked so clients can cycle | 1 |
 | `PICK PIXEL <device> <x> <y> [t]` | Same, from a pixel in a registered camera frame (the rig camera, a phone or glasses) | 1 |
@@ -83,6 +83,8 @@ Every XR device is another client of the Show Bus, HTTP/WS and MCP. It adds a **
 | `REGISTER <device> {correspondences\|rays\|marker}` | Stores `T_world←deviceWorld`, RMS error and an anchor ID | 3 |
 | `POSE <device>` stream | Timestamped head pose; also OpenTrackIO or PSN | 3 |
 | Roles | `xr-observer`, `xr-rehearsal` (+ HIGHLIGHT, FIDUCIAL, content), `xr-operator` (+ warp, pin and mask edits). Armed behaviour follows docs/UX.md §7.1: operators drop to transport-only, everyone else to observer | 3 |
+
+Rounds here are `docs/ROADMAP.md`'s Rounds 0–4. The build round of `docs/round3/` carries no XR work.
 
 `PICK`, `HIGHLIGHT` and `CURSOR` give the desk its on-wall cursor and hover highlight, so they are Round 1 desk work (ROADMAP R1.12), not a side project. `CURSOR` is built, as `CURSOR <output> <x> <y>` (0–1 across the output) rather than a ray; `PICK` and `HIGHLIGHT` are not.
 

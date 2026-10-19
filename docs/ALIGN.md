@@ -5,6 +5,9 @@ the screen, and gives every output a measured warp and a measured blend so the o
 reaches the air until a person accepts the result, and every accepted result goes into the calibration ledger with the correction
 it replaced kept as its fallback (`docs/CALIBRATION.md`). The verbs are in `docs/wire/align.md`.
 
+Round 3 puts this inside a guide for projectors blended or stacked on a flat screen, each camera step beside its hand step, and keeps
+the measured layer under the hand's; *Not yet*, at the end, says how.
+
 ## The flow
 
 1. `ALIGN NEW Wall cm1 ALL` groups the outputs that make one picture, the camera that sees them and the canvas they share (the
@@ -138,5 +141,21 @@ pixels) and `drift<n>=<px>` (the same, only after the scan: seen by the verify p
 
 Grouped capture, curved screens (cylinder, then dome), FULL colour (the primaries matched, not only white), a colour step on its
 own, the warm-up gate, the projectors' own processing snapshot, neutral and restore, the shutter knock, the free-form hand-over to
-the scan solver, auditing a vendor's built-in result, two cameras, camera control, `ALIGN PLAN` (the dry run) and the desk's Align
-tab.
+the scan solver, auditing a vendor's built-in result, two cameras, camera control and `ALIGN PLAN` (the dry run).
+
+Round 3 adds the following (`docs/round3/PLAN.md` D12, §3.19, §3.20, §9 decision 22; the design is
+`docs/round3/design/desk-workflows.md` §2, §3, §5.1, §8). None of it is built yet. Its new rows and forms are in the catalogue and
+answer "not available on this node yet".
+
+- **The flat guide.** Two projectors blended side by side, two stacked, or four as two stacked positions blended, on a flat screen.
+  Each step is done by hand or by a camera run: the corners by `WARP CORNER` and `WARP NODE … PX`, or by `ALIGN NEW … CANVAS`,
+  `ALIGN RUN` and `ALIGN ACCEPT`; the match by the output's colour trims, or by `ALIGN RUN … COLOR WHITE`.
+- **One canvas in one line.** `CANVAS SPAN` makes the canvas, each output's rectangle and its edges as one edit, and `PATTERN … ON
+  <canvas>` draws one test card across the whole canvas. A re-span over a rectangle a hand moved, or over an output drawing a
+  measured warp, is refused naming each unless the line says `KEEP` or `REPLACE`.
+- **The measured layer under the hand's.** An accept replaces the measured layer only, and its reply lists every hand edit it kept
+  with the line that clears it (`HAND`, `HAND CLEAR`). It writes no `Blend.Gamma`, and neither does `ALIGN REVERT`: the measured γ
+  stays in `Measured.Color.Gamma`, and `Blend.Gamma` holds only a person's γ (0 draws the measured one, else 2.2), so a re-run never
+  overwrites the hand's γ (*The measured blend*, above, is today's rule).
+- **On the desk.** An Align area pane in Pro lists the runs' cards with their actions, and the flat guide's camera steps sit beside
+  their hand steps.

@@ -4,7 +4,9 @@
 
 ## 1. Where we start from
 
-The desk is merged: the window, the PLAY | MAP | SCAN workspaces, the show strip, the attention bar, the Outputs, Inputs, Health and Network drawers, view models, a demo engine (`FakeEngineLink`) for offline use and drag tests through the real input path. It starts and watches this machine's engine, or attaches to a node on the network over the line wire. What is built of this paper's frame, show strip, Esc ladder and armed desk is in docs/DESK.md; every package's STATE shows on a generic card built from its descriptor (`tests/fixtures/state/README.md`). Round 2's own desk views are the readiness light, the blind chip and its panel, Health ▸ Fleet, Preflight and Calibration (the score card and the history strip), MAP's quad tool with on-wall editing, and the first-light guide (§5.2). **Wire-only in round 2:** the effects browser and inspector, modulation sockets, tempo, bindings and learn, timecode, LED fixture placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks and the content library run over the wire, HTTP, MCP, Companion and the bindings, and show on the desk only as a generic card and generated right-click entries. Nothing in this paper has been tried on a real wall.
+The desk is merged: the window, the PLAY | MAP | SCAN workspaces, the show strip, the attention bar, the Outputs, Inputs, Health and Network drawers, view models, a demo engine (`FakeEngineLink`) for offline use and drag tests through the real input path. It starts and watches this machine's engine, or attaches to a node on the network over the line wire. What is built of this paper's frame, show strip, Esc ladder and armed desk is in docs/DESK.md; every package's STATE shows on a generic card built from its descriptor (`tests/fixtures/state/README.md`). The desk's own views are the readiness light, the blind chip and its panel, Health ▸ Fleet, Preflight and Calibration (the score card and the history strip), MAP's quad tool with on-wall editing, and the first-light guide (§5.2). **Wire-only today:** the effects browser and inspector, modulation sockets, tempo, bindings and learn, timecode, LED fixture placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks and the content library run over the wire, HTTP, MCP, Companion and the bindings, and show on the desk only as a generic card and generated right-click entries. Nothing in this paper has been tried on a real wall.
+
+**Where the desk is going.** Round 3 makes the desk guided (`docs/round3/PLAN.md` D11–D16; the design is `docs/round3/design/desk-workflows.md`, *the round-3 design* below): simple guided workflows beside advanced panes and a typed console; every command and feature in the menu bar and the right-click menus, never only typed; panes that dock, float and collapse; colour for status, identity and stage, never alone; the quad that stays, and every corner, pin and handle moved by one pixel; each screen saying what it shows; one canvas across outputs; every map by hand; the assistant in every step. This paper gives the reasons and the round-3 design gives the rows. P4, P14, §3.1, §3.2, §4.1, §4.4, §5.0, §5.6 and §10 say where it changes this paper's design.
 
 Three foundations are worth keeping:
 
@@ -24,7 +26,7 @@ The peers teach one thing above all: **smoothness comes from three sources, not 
 | P1 | **Latency is a feature. Budget it per interaction.** | On direct touch, users notice drag latency at about 11 ms and tap latency at about 69 ms; on indirect input, about 55 ms and 96 ms ([Deber et al., CHI 2015](https://dl.acm.org/doi/10.1145/2702123.2702300)). With a ~1 ms prototype, the average user noticed drag latency at about 6 ms, the most sensitive at about 2 ms ([Ng et al., UIST 2012](https://dl.acm.org/doi/10.1145/2380116.2380174)). These are touch studies; applying them to mouse, pen and glasses is our inference | The desk draws handles, lattice lines, mask paths and snap guides itself on the next UI frame. The engine re-renders behind them. See §6 |
 | P2 | **The operator looks at the wall, not the laptop.** | HeavyM's cursor lets you "draw while looking directly at the projection" ([HeavyM](https://help.heavym.net/hc/en-us/articles/4407417515026-The-Cursor)); MadMapper's video cursor ([shortcuts](https://docs.madmapper.com/madmapper/6/2.-the-interface/keyboard-shortcuts)); Watchout draws the warp mesh on the surface ([Stage](https://docs.dataton.com/watchout-7-new/watchout/the-interface/the-stage-window.html)) | An **edit overlay pass** in the output stage. It is also the display for the smart-glasses goal (docs/XR.md) |
 | P3 | **Do first, then adjust. No modal dialogs.** | Blender runs each operator with defaults, then offers Adjust Last Operation generated from the operator's properties ([manual](https://docs.blender.org/manual/en/5.2/interface/undo_redo.html)) | A **last-action panel** generated from the verb's typed parameters. Changing a field re-runs the verb as one undo step |
-| P4 | **One vocabulary, reachable many ways.** | Blender F3 search shows each item's menu path ([manual](https://docs.blender.org/manual/en/latest/interface/operators.html)); Figma's actions menu ([Figma](https://help.figma.com/hc/en-us/articles/23570416033943-Use-the-actions-menu-in-Figma-Design)); users objected when Figma ranked by recency ([forum](https://forum.figma.com/archive-21/new-quick-actions-menu-21400)) | Ctrl+K palette over the verb catalogue with deterministic ranking. Each item shows its shortcut and wire verb. Text that matches no verb becomes a staged assistant proposal (§10) |
+| P4 | **One vocabulary, reachable many ways.** | Blender F3 search shows each item's menu path ([manual](https://docs.blender.org/manual/en/latest/interface/operators.html)); Figma's actions menu ([Figma](https://help.figma.com/hc/en-us/articles/23570416033943-Use-the-actions-menu-in-Figma-Design)); users objected when Figma ranked by recency ([forum](https://forum.figma.com/archive-21/new-quick-actions-menu-21400)) | One action table with three doors: the menu bar, the Ctrl+K palette (deterministic ranking; each entry shows its shortcut, its menu path and its line) and the object's right-click menu, generated from the catalogue. No command lives only in a right-click menu, the palette, the console or on a key, and a free value is typed in the entry's own field. Text that matches no verb becomes a staged assistant proposal (§10). Round 3 builds the menu bar and the palette (the round-3 design §9) |
 | P5 | **Consistent micro-gestures everywhere.** | Blender 5.0 and Pixera 25.2 added F2 rename ([Blender](https://developer.blender.org/docs/release_notes/5.0/user_interface/), [Pixera](https://help.pixera.one/pixera-252-overview-changelog)) | Double-click a value to type. Right-click to reset or bind. Shift = coarse ×10, Ctrl = fine ÷10. Alt-drag duplicates. F2 renames. Holding Ctrl suspends snapping |
 | P6 | **Separate editing from running.** | QLab Show Mode locks editing and keeps transport live, with no password ([QLab](https://qlab.app/docs/v5/fundamentals/workspace/)); Mitti's panic outcomes ([Mitti](https://imimot.com/help/mitti/getting-started/playback)) | Show Mode, blind edit, a panic menu and locks. See §7 |
 | P7 | **Make quality visible where it is, and make reverting trivial.** | OmniCal colours points by quality and keeps a fallback result ([calibration](https://help.disguise.one/workflows/calibration-projection/omnical-calibration)) | Every solve and scan is a named result with a score, its reasons and a one-click revert. The confidence map can be projected onto the object itself (§4.8) |
@@ -34,7 +36,7 @@ The peers teach one thing above all: **smoothness comes from three sources, not 
 | P11 | **A web remote and a Companion module are expected.** | Resolume's web server and REST API ([blog](https://resolume.com/blog/21137)); Bitfocus Companion ([releases](https://github.com/bitfocus/companion/releases/tag/v4.0.0)) | `/remote` PWA and a Companion module generated from the verbs (§8) |
 | P12 | **Dark rooms and accessibility.** | An ETC operator asked for a dark mode that keeps cues visible ([ETC forum](https://community.etcconnect.com/control_consoles/eos-family-consoles/f/eos-family/60986/brightness-settings)); red light disturbs dark adaptation least ([Mantiuk et al.](https://dl.acm.org/doi/pdf/10.1145/1620993.1621005)); Ableton 12 screen reader support ([manual](https://www.ableton.com/en/live-manual/12/accessibility-and-keyboard-navigation/)) | Day, dark and night-red themes; a UI brightness slider; Avalonia automation names taken from verb names |
 | P13 | **First success in minutes.** | MadMapper's first guide is one quad, a test pattern and arrow nudges ([guide](https://madmapper.com/files/02-My%20First%20Video%20Mapping.pdf)) | A first-run "Light a wall" path (§9) |
-| P14 | **Simple and Pro are presentations, not products.** | HeavyM's speed for simple jobs vs the depth 3D artists need | One key switches Simple (quad, drop, effect) and Pro (full inspector). Same verbs, same project |
+| P14 | **Simple and Pro are presentations, not products.** | HeavyM's speed for simple jobs vs the depth 3D artists need | Simple opens on the guides: two projectors on a flat screen, a film on a wall, an object with one or two projectors. Each step shows only the fields it uses, with Do it, By hand, Ask and Explain. Pro shows every pane, the advanced panes and the console. One key switches; the verbs, the project and the menus are the same in both. Today Simple hides nothing, and round 3 builds the rest (the round-3 design §2) |
 | P15 | **Learn an object once, use it everywhere.** | — (our design) | One **object card** for a surface or projector (name, content, health, score, three most-used verbs) in the desk inspector, the phone, the glasses HUD and as Companion variables |
 
 ## 3. Information architecture
@@ -58,13 +60,16 @@ PLAY | MAP | SCAN follow the engineering pipeline, but operators think in object
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+Round 3 keeps the workspaces and the object spine, and changes how much a person sees at once (the round-3 design §2, §10). The window gains a menu bar (File, Edit, View, Map, Output, Show, Guides, Window, Help). The outliner, the inspector, the media bin, the cards and the drawers become panes that dock, split, float inside the desk's window (never onto an output) and collapse to a rail showing the pane's title and its worst light. A layout is kept for each workspace and each guide. Simple opens on the workflows home, and a guide docks its step rail at the left. Pro adds the advanced panes (the effects chain, modulation and bindings, an area pane for each advanced STATE block) and the console. The show strip, the attention bar, PANIC, Blackout and the mode frame stay fixed.
+
 ### 3.2 Always-visible elements
 
 - **Mode frame.** A full-width frame colour: neutral = rehearsal; amber = patterns or overlays are on the wall (scan, identify, edit overlay); red = ARMED. Watchout colours its top bar in display-edit mode ([Stage](https://docs.dataton.com/watchout-7-new/watchout/the-interface/the-stage-window.html)); we colour the whole frame so the mode cannot be missed.
 - **On-wall-now chip per output.** What the audience sees on that output: show content, test pattern override, blackout or freeze, from the engine's `AirState` precedence.
 - **Readiness light.** Green, amber or red across all nodes and projectors. Click it to open the fleet board.
-- **Presence.** Each connected client (desk, phone, glasses, Companion, assistant) has a colour. Its cursor and selection are drawn in that colour on every desk and, in rehearsal, on the wall. Whoever is about to change the wall is visible in the room.
+- **Presence.** Each connected client (desk, phone, glasses, Companion, assistant) has an identity colour (below). Its cursor and selection are drawn in that colour on every desk and, in rehearsal, on the wall. Whoever is about to change the wall is visible in the room.
 - **PANIC.** A dedicated button and key that never opens a dialog.
+- **Colour, three meanings** (round 3; the round-3 design §11). Status (red, amber, green, and grey for off, unknown and information) belongs to the air and the node's condition alone. Identity (which projector, output or client) takes colour-blind-safe hues with a number badge, never a status hue or a grey. Stage (Setup, MAP, SCAN) is a 2–4 % tint and a thin bar on tabs, pane headers and a guide's steps. None is ever the only cue: every light has a shape and a word.
 
 ### 3.3 Where geometry lives, said out loud
 
@@ -72,7 +77,7 @@ Playlists show no mapping fields. The surface inspector shows a "Mapping is shar
 
 ### 3.4 The verb-first contract
 
-A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test fails if any button, menu item, card action or generated entry the desk can reach sends a line the catalogue does not parse or one that carries a secret, or if a toolbar holds an action its menu lacks (`DeskVerbRuleTests`, ROADMAP R1.8). The catalogue has 298 rows (`VERBS` marks which a node answers). Projector power, shutter and lens (`DEVICE …`), click-to-surface (`SCAN SURFACE`), pixel quads (`SURFACE QUAD`), sound input (`AUDIO …`) and bindings (`BIND`, `MOD BIND`) have verbs; pin warp, masks and the pen, coverage, playback volume, live inputs and output layout have none of their own yet beyond the generic `SET`, `ADD` and `REMOVE`.
+A desk feature is not done until it has a verb with typed parameters, a STATE key, a model field and a `DeskAction`. A CI test fails if any button, menu item, card action or generated entry the desk can reach sends a line the catalogue does not parse or one that carries a secret, or if a toolbar holds an action its menu lacks (`DeskVerbRuleTests`, ROADMAP R1.8). The catalogue has 327 rows (`VERBS` marks which a node answers). Projector power, shutter and lens (`DEVICE …`), click-to-surface (`SCAN SURFACE`), pixel quads (`SURFACE QUAD`), sound input (`AUDIO …`), live inputs (`INPUT …`) and bindings (`BIND`, `MOD BIND`) have verbs; pin warp, masks and the pen, coverage, playback volume and output layout have none of their own yet beyond the generic `SET`, `ADD` and `REMOVE`. Round 3's 28 rows are in the catalogue and answer "not available on this node yet" until their package routes them; among them are a calibration pin's pixel (`PIN MOVE`), an output's corner pin (`WARP CORNER`) and outputs spanning one canvas (`CANVAS SPAN`).
 
 Typed parameters then generate, at no extra cost: the last-action panel, the palette entry, the "Bind…" target, the Companion action, the MCP tool and the integrator command sheet.
 
@@ -92,6 +97,7 @@ Edits to one surface from two clients take a **soft lock**: the first editor hol
 **Path A: no camera (the MadMapper path).** Many club and corporate gigs have no time to scan (estimate), so this path must be as fast as HeavyM.
 - Press Q, then click 4 corners while looking at the wall; the projector draws the crosshair.
 - Arrow keys nudge 1 px, Shift+Arrow 10 px, Tab cycles corners.
+- **The quad stays** (round 3; the round-3 design §6.1). An unfinished quad is a draft for each projector, kept until Enter or Discard. A tool change, another projector, leaving MAP, a menu entry and a desk restart keep its clicks, and a chip offers Resume or Discard. Each placed point drags and nudges before Enter. After Enter each corner drags, is typed in wall pixels and nudges by one pixel.
 - A UV checker fills the quad live.
 - The last-action panel offers "Convert to 3×3 lattice" and "Add mask". Promoting a quad to a lattice keeps its shape exactly.
 
@@ -128,7 +134,8 @@ The pen magnetises to scan edges and depth discontinuities; Ctrl suppresses it. 
 - **Split view.** The model on the left, with pins snapping to vertices, edges and creases. The projector output on the right; the operator places each pin with the video cursor while looking at the wall.
 - **The solve re-runs on every drag** once 4 or more pins exist. Each pin shows a ring coloured by its residual: green under 1 px, amber 1–3 px, red over 3 px (estimate, to tune on hardware). Global RMS is shown.
 - **RANSAC talks in words:** "Pin 4 disagrees by 14 px. Move it or disable it?"
-- **Guidance.** A shaded overlay marks poorly constrained regions and prompts "add a pin here, off this plane" until 6 or more pins are well spread. disguise recommends 10–15 per projector for QuickCal ([QuickCal](https://help.disguise.one/workflows/calibration-projection/quickcal-ref-points)).
+- **Guidance.** A shaded overlay marks poorly constrained regions and prompts "add a pin here, off this plane" until 6 or more pins are well spread. disguise recommends 10–15 per projector for QuickCal ([QuickCal](https://help.disguise.one/workflows/calibration-projection/quickcal-ref-points)). Round 3's object guide reads this as a coverage meter (the picture's four quadrants and the depth spread), so it says where the next pin goes before a solve fails.
+- **Every pin by one pixel** (round 3; the round-3 design §6.1–§6.3). A pin drags. Its projector pixel is typed in its row, and the arrows nudge it 1 px (Shift 10, Alt 0.1). An encoder, a Companion dial or the assistant moves it by a line of its own (`PIN MOVE`, or `HANDLE NUDGE` on the selected handle). The projector view zooms, and a loupe magnifies 8×, so one raster pixel is one move.
 - **Lens locks** (shift, zoom) sit next to the solve, with values read back from the projector over its control protocol. Measured shift beats spec-sheet shift ([Watchout guide](https://dataton.com/watchout-users-guide/displays-and-projectors/3d-mapping-projector?token=35)).
 - **Results.** Every accepted solve is named ("Pose 2, RMS 0.8 px"). Revert is one click.
 
@@ -207,20 +214,23 @@ Bin search and tags; thumbnails with scrub; missing or offline media relink by h
 
 | Workflow | Target | Start → stop | Hardware and conditions | User | Benchmark |
 |---|---|---|---|---|---|
-| First light | ≤3 min new, ≤60 s returning | App launch → content looping on a projector | Laptop, one projector, signed build | New user | MadMapper first guide |
+| First light | ≤3 min new, ≤60 s returning | App launch → content looping on a projector | Laptop, one projector, an unsigned build (today's folder; the MSI once it lands) | New user | MadMapper first guide |
 | Map a box, no camera (3 faces) | ≤3 min first time, ≤90 s regular | Q pressed → three faces with content | One projector | Regular | MadMapper and HeavyM: unmeasured (estimate 5–20 min first time) |
 | **Map a box with one projector and a webcam** | **≤3 min from plugging in; ≤2 min from pressing Scan** | Camera plugged in → content on three faces | Tested webcam, office light, matte box | Regular | Unmeasured. Vendor claims for AI entrants range from seconds to minutes (unverified) |
 | Known object from a model with pins | ≤4 min with 6–8 pins; ≤90 s with scan-bridged registration | Model loaded → accepted solve | One projector | 3D artist | MadMapper manual point matching |
 | Two-projector blend on a curved wall | ≤10 min from rigged projectors; ≤2 min manual touch-up | Scan pressed → accepted blend | Tested webcam, two projectors | Regular | Manual 2D soft edge |
+| Two projectors blended or stacked on a flat screen (round 3's flat guide) | ≤10 min by hand from rigged projectors | Guide begun → blended canvas with content | Two projectors, a flat screen; a camera on a tripod optional | Corporate AV tech | Manual 2D soft edge |
 | Re-align after a bump | ≤60 s, ≤10 s of patterns, no mask rework | Re-align pressed → accepted pose | Rig camera still in place; projector moved, mesh unchanged | Tech | OmniCal one-click recal, Atlas |
 | Late media swap | ≤30 s operator time | File dropped → staged for next boundary | Media already transferred | Operator | Watchout "Create Version" |
 | Preflight, 4 nodes and 8 outputs | ≤90 s | PREFLIGHT pressed → board complete | Wired show network | Tech | Pixera Hub dashboards |
 | Bind a MIDI control | ≤3 s per binding | Bind… → bound | Any class-compliant controller | Operator | MadMapper/Resolume learn |
 | Add a follower node and verify sync | ≤60 s excluding media transfer | Node seen → sync certificate | Wired network | Tech | Watchout spare by name |
-| Assistant builds a look | ≤15 s to staged preview | Prompt sent → diff shown | Claude or local model | Any | — |
+| Assistant builds a look | ≤15 s to staged preview | Prompt sent → diff shown | A hosted or a local model | Any | — |
 | Laser-pointer pick | ≤2 s per surface | Dot appears → surface outlined | Rig camera, calibrated projector | Any | — |
 | Phone pick | ≤20 s to first surface, ≤5 s each after | Page opened → first confirmed surface | Phone on venue Wi-Fi | Any | ETC Augment3d |
 | Headset pick and assign | ≤8 s per surface | Ray on surface → content assigned | Quest 3, rehearsal lighting | Regular | — |
+
+The flat guide's target is the lab's pass mark for it (`docs/round3/PLAN.md` §7, L24), reported not run while no lab exists. The wall guide (a film on a wall, undistorted from a seat) has no target yet; the object guide's two paths are timed by the box and known-object rows.
 
 ### 5.1 Map a box with one projector and a webcam (the headline)
 
@@ -239,8 +249,8 @@ Total ≤2 min from step 2. Everything stays local. **We film this storyboard as
 
 ### 5.2 First light (new user, laptop, one projector)
 
-1. Launch a signed build. A first-run card offers "Light a wall" and "Bring my setup".
-2. If Windows Firewall asks, the desk explains in one sentence why (the engine and desk talk over the network) and that "Private networks only" is fine.
+1. Launch PlayMap. Builds are unsigned for now, so SmartScreen names an unknown publisher on a downloaded build, and so does UAC at round 3's installer; where Smart App Control enforces, it blocks an unsigned build outright until it is turned off (`docs/round3/design/installer.md` §6). A first-run card offers "Light a wall" and "Bring my setup".
+2. Round 3's installer adds the firewall rules once, so an installed node on a private or domain network meets no firewall prompt; on the Public profile preflight names the missing rule. A folder run, today's way, meets Windows Firewall's prompt; the desk explains in one sentence why (the engine and desk talk over the network) and that "Private networks only" is fine.
 3. Displays are listed by EDID name. Click the projector: it goes fullscreen with `pattern.identify`.
 4. Choose "Draw 4 corners" or "Scan with this camera".
 5. With 4 corners: click, nudge, done. Drop any clip; it loops with a 0.5 s fade.
@@ -279,7 +289,7 @@ Total ≤2 min from step 2. Everything stays local. **We film this storyboard as
 5. **Stack alignment:** project a fine grid from each stacked projector in turn, measure misregistration with the camera, and apply a per-projector lattice correction until the residual is sub-pixel (target ≤0.5 px, estimate).
 6. Blend between stacks with the 3D auto-blend; check with W, G and K modes.
 
-This is the most common commercial mapping job, and the one where long throw, ambient light and reflective glass break naive scanning. It is a mid-term workflow (ROADMAP M23).
+This is the most common commercial mapping job, and the one where long throw, ambient light and reflective glass break naive scanning. Much of it is built (`docs/FACADE.md`, `docs/MAPPING.md`, ROADMAP M23): the site frame, survey import, control points, lens and position priors, stacks and their alignment, the light plan and the facade guide. Scanner files, a total station's export and a projector solved at 100 m wait for a lab. LAZ, the night capture profile, measured photometry and glass masks are not built. Round 3 adds the wall guide: a film mapped onto a house wall so it reads undistorted from the audience, blendable to more projectors (the round-3 design §5.2).
 
 ## 6. Latency budgets
 
@@ -328,7 +338,7 @@ This table is the single definition; docs/XR.md uses it.
 | **No heavy compute on an armed node** | Segmentation, depth, drift matching, local LLMs, BC7/BC6H transcodes and scan decoding run on the desk machine or an idle node. On a show node they run at low priority only in rehearsal, and are refused while armed | GPU contention with playback (estimate) |
 | **Beam guard** | With a tracked head in a projector's frustum: in rehearsal, soft-mask the area around the head or dim that projector, warn and log. **While armed, warn the operator only; never blank a projector automatically mid-show.** Configurable per projector. It complements laser hazard-distance practice and does not replace it | Our design |
 | **Destructive verbs never appear on hover or gaze** | Hold or a second confirm | [Apple WWDC25](https://developer.apple.com/videos/play/wwdc2025/303/) |
-| **Updates** | An armed node never updates; show machines never auto-update | Our design |
+| **Updates** | PlayMap has no updater: a person puts each build on the machine, and round 3's installer stops while the node answers armed. On the editions that honour update policy, a show machine defers Windows' updates to a maintenance window. Home honours none, so a person pauses them past the show, and round 3's preflight says the edition cannot defer them (`docs/round3/design/installer.md` §4, §7, §8) | Our design |
 
 ## 8. Touch, tablet and remote
 
@@ -350,7 +360,7 @@ This table is the single definition; docs/XR.md uses it.
 - **Embedded offline help.** Every `DeskAction` links to its help entry. A "What's new" window after updates.
 - **The palette teaches.** Search shows menu path and shortcut, so experts and newcomers share one map.
 - **Collect and Save** puts the project and its content-addressed media in one folder; Merge Project combines two.
-- **Signed builds** and one explained firewall prompt; hardening offered after the first frame, never before.
+- **Unsigned for now, and said so.** Round 3's installer builds are named `-unsigned`, each with its `SHA256SUMS`. The installer adds the firewall rules once, so an installed node on a private or domain network meets no firewall prompt; on the Public profile preflight names the missing rule; a folder run's one prompt is explained (§5.2). Hardening is offered after the first frame, never before.
 - **Localisation.** Strings externalised from day one; verb names stay English on the wire.
 
 ## 10. AI in the loop
@@ -358,6 +368,8 @@ This table is the single definition; docs/XR.md uses it.
 - **Staged by default.** The assistant returns a diff ("12 surfaces change source; 4 outline effects; `PLAYLIST GO windows AT 20:00`"). Lines can be switched off individually. Approval applies everything as one undo step.
 - **Wall diff.** In rehearsal, a wipe between before and after on the real surface, with changed surfaces pulsing in the assistant's presence colour. While armed, the diff is shown on the desk preview or a headset overlay only. A journal scrubber replays what changed, when, and who did it.
 - **One box.** Text in the Ctrl+K palette that matches no verb becomes a staged assistant proposal.
+- **Guides as data** (round 3; the round-3 design §4). The engine answers each guide's steps (`GUIDE`): their state, words, the facts they rest on, the automatic line, the hand line and the line the assistant would propose. The desk, Patterns, Companion and an assistant read the same steps. The assistant proposes a step's lines through the same gate as every line, and only a person checks a step a person judges.
+- **The assistant's pane** (round 3) holds the conversation and each proposed line with Show me, Approve and Reject. Every object's right-click menu has "Ask about this…", and each guide step has Ask and Explain.
 - **"Show me" mode.** The assistant highlights the verb, field or palette entry instead of executing it.
 - **Never overwrite typed values.** Suggestions fill only fields the user has not set.
 - **Risk gate.** Low and review verbs follow the approval policy. High verbs wait for a human. While armed the assistant only queues proposals.

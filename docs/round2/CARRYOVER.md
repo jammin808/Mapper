@@ -1,15 +1,17 @@
 # Round 2: carry-over and the integrator's notes
 
-**Round 2 is merged:** every package of [`PLAN.md`](PLAN.md) is on main. This file keeps what each integration found, from the
-round-1 integration's carry-overs to the last fix batch's notes, oldest first. What stays open of it is in
+**Round 2 is merged:** every package of [`PLAN.md`](PLAN.md) is on main. Round 3 builds on it, toward the installed,
+Windows-native node on Direct3D 12 and the desk's guided workflows, with no lab this round
+([`docs/round3/PLAN.md`](../round3/PLAN.md)). This file keeps what each integration found, from the round-1 integration's
+carry-overs to the last fix batch's notes, oldest first. What stays open of it is in
 [`docs/ROADMAP.md`](../ROADMAP.md) ("Open fixes", with "Lab only" for what only real hardware proves); the owner's calls and their
 answers are here, in one place.
 
 ## The owner's calls, answered
 
-The owner answered calls 1–11 on 18 October 2026, call 11 with a figure that follows round 3's answer to their question (its §9
-decision 18). The plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a decision taken (its §1.2 and §9) and what
-it changes.
+Calls 1–11 are answered, each in the owner's words of 18 October 2026; call 11's answer is a figure that follows round 3's reply
+to the owner's question (its §9 decision 18). The plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a
+decision taken (its §1.2 and §9) and what it changes.
 
 1. **The show nodes' Windows edition** (the plan's D4). *Answered:* "PlayMap also needs to run on Windows 11 Home as well." Every
    Windows 11 edition from build 26100 is supported — Home, Pro, Pro for Workstations, Enterprise, Education, IoT Enterprise — with IoT

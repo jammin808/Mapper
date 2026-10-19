@@ -3,6 +3,9 @@
 **A playback node and a 3D projection-mapping suite, in one portable exe — and a full member of the Patterns /
 Stagewatch show network.**
 
+Today that exe renders through OpenGL. PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11,
+rendering on Direct3D 12, with a desk of guided workflows (**Next**, below).
+
 PlayMap plays anything FFmpeg can decode, the whole HAP family on the GPU, stills, image sequences, network streams, NDI and
 OMT sources, capture devices, test patterns, fractals, particle fields and sound-reactive scenes, through chains of ISF
 effects, and sends any of it back out over NDI and OMT. It runs any number of independent playlists, and a playlist can
@@ -85,14 +88,14 @@ PlayMap engine headless     a rack render node driven by Patterns, with no desk 
   fades running from the leader's instant, each member answering with a receipt, and `SHOW ARM ALL`, `SHOW DISARM ALL` and
   `PREFLIGHT ALL` cover the whole group.
 - **Presents, and measures it.** Each output keeps a vblank clock and a ledger of late and missed presents; a per-output
-  frame-lock machine for sync boards, whose NVAPI tier is compile-only and joins no swap group yet; OpenGL 3.3 core or OpenGL
-  ES 3.00 (EGL, or surfaceless with no window system), and on Windows the Direct3D 11 flip model through ANGLE (`PRESENT PATH
-  DXGI`, experimental; AUTO is OpenGL) with frame statistics as vblank truth and a fuse that falls back to OpenGL after a start
-  that never reached its first frames. Each output names its display's input lag: the node draws every frame for the instant
-  its light leaves the slowest display (its air latency, in STATE), and each faster output holds its picture back whole frames
-  so all of them light the same picture together. A sync group's members report each output's vblank to the leader, whose
-  board gives each output's phase, the next slip and one verdict, and they join and leave the leader's frame lock as it applies
-  and releases it.
+  frame-lock machine for sync boards, whose NVAPI tier is compile-only and locks no output yet, so every output presents free on its
+  own vblank, measured once its clock settles (where the lock is going: **Next**, below); OpenGL 3.3 core or OpenGL ES 3.00 (EGL, or surfaceless with no window
+  system), and on Windows the Direct3D 11 flip model through ANGLE (`PRESENT PATH DXGI`, experimental; AUTO is OpenGL) with
+  frame statistics as vblank truth and a fuse that falls back to OpenGL after a start that never reached its first frames. Each
+  output names its display's input lag: the node draws every frame for the instant its light leaves the slowest display (its air
+  latency, in STATE), and each faster output holds its picture back whole frames so all of them light the same picture together.
+  A sync group's members report each output's vblank to the leader, whose board gives each output's phase, the next slip and one
+  verdict, and they join and leave the leader's frame lock as it applies and releases it.
 - **Takes control.** OSC, MIDI, Art-Net and sACN bound to wire lines, with curves, ranges, pick-up and feedback; a playlist
   chases LTC, MTC, Art-Net timecode or an internal generator; Companion and other controllers get the full line wire over the
   web port, the show's index, its events and key pictures; the node announces itself over mDNS.
@@ -134,13 +137,23 @@ projectors and sync boards as simulators and fakes, NDI against a stand-in for i
 group's nodes in one process. What only real hardware or a real show proves — the Direct3D 11 path, Spout and hardware decode on
 real GPUs, a real NDI runtime and sync board, real projectors, cameras, phones and LED nodes, HAP R and HAP HDR files from other
 encoders, surveys from real scanners and total stations, and a group or a backup across machines — is the lab's list in
-`docs/ROADMAP.md` ("Lab only"), with the fixes still open.
+`docs/ROADMAP.md` ("Lab only"), with the fixes still open. No lab exists this round, so every line on that list is reported not
+run, never passed, and nothing claims a hardware fact it has not measured.
 
-**Next:** an installed, Windows-native show node on Direct3D 12 for every edition of Windows 11, Home included, with the desk's
-guided workflows, every mapping step by hand or with the assistant, and capture cards passed through to the air, planned in
-`docs/round3/PLAN.md`. The owner answered every decision it put to them (its §9): twenty-one packages, the five for their
-workflow, desk and capture requirements among them. The round's spine is built: its rows, contracts, model fields, projects and
-CI legs, which the packages fill (`docs/ROADMAP.md`, round 3).
+**Next:** PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11 from build 26100, Home
+included (`docs/round3/PLAN.md`). It will install per machine from an MSI made by the WiX toolset built from its own source,
+with no paid WiX service; builds will stay unsigned for now, named as unsigned, each with a SHA-256 list. A supervising service
+will start the engine in the show user's session, never as administrator and never in session 0. The engine will render on
+Direct3D 12 behind a rendering hardware interface, and OpenGL stays the reference backend until the pixel and timing evidence
+says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present barrier on Direct3D 12, its
+swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured. The desk will open on
+guided workflows — two projectors blended or stacked on a flat screen, a film mapped onto a wall so it reads undistorted
+from the audience, an object mapped with one or two projectors — beside advanced panes and a typed console, with every command
+and feature in the menu bar and the right-click menus. Every mapping step will be doable by hand or with the assistant, and
+capture cards will pass through to the air. With no lab this round, what only hardware proves stays on the lab's list (above).
+Twenty-one packages build the direction in four waves, each of the plan's decisions answered in its §9, on the round's spine,
+which is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the new projects as placeholders
+and the CI legs (`docs/ROADMAP.md`, round 3).
 
 ## What it is made of
 
@@ -189,7 +202,7 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/AUDIO.md` — listening, the beat clock and the modulation bus
 - `docs/CONTENT.md` — particles, fractals, reactive scenes, stings and looks
 - `docs/LED.md` — LED pixel mapping: fixtures, sampling, patching and sending
-- `docs/VIDEO.md` — video in and out over OMT and NDI: live inputs, sends, the loss policy
+- `docs/VIDEO.md` — video in and out over OMT, NDI and Spout: live inputs, sends, the loss policy
 - `docs/MAPPING.md` — the stage, the site frame and solving a projector from pins and priors
 - `docs/CALIBRATION.md` — the quad on the wall, the edit overlay, the score, the calibration ledger and re-solving the
   projector that moved
@@ -208,7 +221,9 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/XR.md` — phones, smart glasses and headsets: look at a surface and control it
 - `docs/ROADMAP.md` — what is built, what only the lab can prove, the fixes still open, and the prioritised rounds
 - `docs/round2/CARRYOVER.md` — the open fixes in detail, and the owner's calls with their answers in one place
-- `docs/round3/PLAN.md` — the plan for the installed, Windows-native node and the desk's workflows, with the owner's answers
+- `docs/round3/README.md` — where PlayMap is going: the round's index, its plan (`PLAN.md`: the installed, Windows-native node
+  and the desk's workflows, with the owner's answers), the designs that go beyond the plan (`design/`) and the research behind
+  its choices (`research/`)
 - `THIRD-PARTY-NOTICES.md` — what PlayMap ships or loads from others, with their licences
 
 ## Build
