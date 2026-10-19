@@ -175,6 +175,8 @@ public sealed partial class FakeEngineLink
                 var store = new PlayMap.Core.Model.ProjectStore(_store.Project, () => _clock.NowNs / 1_000_000)
                 {
                     Guard = (before, after) => LockGuard.Check(WithLocks(before), WithLocks(after), armed: false),
+                    Who = () => ClientName,
+                    WallMs = () => UnixMs,
                 };
                 _draft = new FakeDraft(ClientName, store, _store.Project);
                 DraftMoved();

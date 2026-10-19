@@ -10,7 +10,7 @@
   <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding IsPresent}">
     <Button x:Name="ReadyButton" Classes="pill" Command="{Binding Ready.Command}" ToolTip.Tip="{Binding ReadyTip}" ui:DeskMenu.Actions="{Binding ReadyMenu}">
       <StackPanel Orientation="Horizontal" Spacing="6">
-        <Ellipse Classes="light" Fill="{Binding ReadyLight, Converter={StaticResource LightBrush}}" />
+        <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding ReadyLight, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding ReadyLight}" /></StackPanel>
         <TextBlock Text="{Binding ReadyText}" VerticalAlignment="Center" />
       </StackPanel>
     </Button>
@@ -24,7 +24,10 @@
     </Button>
     <Button x:Name="ArmButton" Classes="pill" Classes.armed="{Binding IsArmed}" Command="{Binding Arm.Command}" ToolTip.Tip="{Binding ArmTip}"
             ui:DeskMenu.Actions="{Binding ArmMenu}">
-      <TextBlock Text="{Binding Arm.Label}" FontWeight="SemiBold" />
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock Text="■" IsVisible="{Binding IsArmed}" x:Name="ArmedShape" VerticalAlignment="Center" />
+        <TextBlock Text="{Binding Arm.Label}" FontWeight="SemiBold" />
+      </StackPanel>
     </Button>
     <Button x:Name="PanicButton" Classes="blackout panic" Classes.on="{Binding IsPanic}" Command="{Binding Panic.Command}" ToolTip.Tip="{Binding PanicTip}"
             ui:DeskMenu.Actions="{Binding PanicMenu}">

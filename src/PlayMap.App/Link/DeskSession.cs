@@ -349,9 +349,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         var link = _link;
         if (link is null || link.Status is not (LinkStatus.Live or LinkStatus.Stale))
             return new WireReply(false, "not connected to an engine — nothing was sent");
+        WireReply reply;
         try
         {
-            return await link.SendAsync(line, ct);
+            reply = await link.SendAsync(line, ct);
         }
         catch (OperationCanceledException)
         {
@@ -361,7 +362,16 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         {
             return new WireReply(false, "the link failed: " + ex.Message);
         }
+        Replied?.Invoke(line, reply);
+        return reply;
     }
+
+    /// <summary>Raised when the node answered a line this session sent (on the thread the reply came back on): what the node accepted
+    /// or refused, for the parts of the desk that show the node's answer (the GO guard).</summary>
+    public event Action<string, WireReply>? Replied;
+
+    /// <summary>The GO guard every GO control draws (null until the desk's look module sets it).</summary>
+    public ViewModels.Ux.GoGuard? GoGuard { get; set; }
 
     /// <summary>Runs an action on the UI thread later (for notes that arrive from a worker).</summary>
     public void OnUi(Action action) => _post(action);

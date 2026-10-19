@@ -53,6 +53,59 @@ public partial class MainWindow : Window
         });
         Opened += (_, _) => _tick.Start();
         Closed += (_, _) => _tick.Stop();
+        DataContextChanged += (_, _) => Bind(DataContext as MainViewModel);
+    }
+
+    private MainViewModel? _bound;
+    private DispatcherTimer? _wake;
+
+    /// <summary>The desk's look follows its module (the window recolours the tokens at once), the GO guard wakes the desk when it is next
+    /// due, and closing while armed waits for the person's choice.</summary>
+    private void Bind(MainViewModel? vm)
+    {
+        if (ReferenceEquals(vm, _bound))
+            return;
+        if (_bound is { } old)
+        {
+            old.Ux.LookChanged -= ApplyLook;
+            old.Ux.GuardMoved -= WakeWhenDue;
+            old.Ux.CloseNow = null;
+        }
+        _bound = vm;
+        if (vm is null)
+            return;
+        vm.Ux.LookChanged += ApplyLook;
+        vm.Ux.GuardMoved += WakeWhenDue;
+        vm.Ux.CloseNow = Close;
+        ApplyLook(vm.Ux.Palette);
+    }
+
+    private static void ApplyLook(Infrastructure.DeskPalette palette)
+    {
+        if (Application.Current is { } app)
+            Controls.DeskLookApply.Apply(app, palette);
+    }
+
+    /// <summary>One wake at the GO guard's next change (a window closing, a flash ending), so its border goes when the node's window does.</summary>
+    private void WakeWhenDue()
+    {
+        _wake?.Stop();
+        if (_bound?.Ux.Guard.DueInMs is not { } ms)
+            return;
+        _wake = new DispatcherTimer(TimeSpan.FromMilliseconds(Math.Max(1, ms)), DispatcherPriority.Normal, (_, _) =>
+        {
+            _wake?.Stop();
+            _bound?.Ux.Guard.Tick();
+        });
+        _wake.Start();
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        if (_bound is { } vm && vm.Ux.HoldClose())
+            e.Cancel = true;
+        base.OnClosing(e);
     }
 
     /// <summary>The bar's width drives its compact forms (the panel itself decides one row or two).</summary>

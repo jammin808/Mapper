@@ -173,6 +173,16 @@ public sealed class DeskAction : ObservableObject
         return fresh;
     }
 
+    /// <summary>True while the node's min-GO window after an accepted GO is open on the playlist this action's GO line names: the control
+    /// draws the guard's red border (a line that is no GO never does).</summary>
+    public bool IsGoGuarded => _session?.GoGuard is { } g && g.IsOpen(Verb);
+
+    /// <summary>True for the one flash of a GO the node's fence refused (this action's line a GO).</summary>
+    public bool IsGoFlash => _session?.GoGuard is { } g && g.IsFlashing(Verb);
+
+    /// <summary>The node's words for the GO it refused while the window that refused it is open, on a GO control; null otherwise.</summary>
+    private string? GoWords => _session?.GoGuard is { RefusedWords: { } w } && Ux.GoGuard.GoPlaylist(Verb) is not null ? w : null;
+
     /// <summary>The menu's words: the label, and the gate's tag while it refuses ("· armed", "· locked", "· mirror", "· fenced",
     /// "· not paired", "· blind draft").</summary>
     public string MenuLabel => Ask().Refusal is { } why ? Label + " · " + why.Tag : Label;
@@ -190,6 +200,8 @@ public sealed class DeskAction : ObservableObject
             var verb = Verb;
             var tip = verb.Length == 0 ? head : head + "\n" + verb;
             var why = Refusal ?? (_whyNot is { } w && _isEnabled?.Invoke() == false ? w() : null);
+            if (GoWords is { } go)
+                tip += "\n" + go;
             return why is not null ? tip + "\n" + why : tip;
         }
     }
@@ -207,7 +219,7 @@ public sealed class DeskAction : ObservableObject
             Raise(nameof(Tip), nameof(MenuLabel));
     }
 
-    private (string Label, string Verb, string Tip, bool IsChecked, bool IsEnabled, string? Refusal, string MenuLabel, bool IsAvailable)? _shown;
+    private (string Label, string Verb, string Tip, bool IsChecked, bool IsEnabled, string? Refusal, string MenuLabel, bool IsAvailable, bool IsGoGuarded, bool IsGoFlash)? _shown;
 
     /// <summary>Re-reads the label, the verb, the checked and enabled state (after a STATE push) and raises what moved: a push
     /// that moves nothing of this action repaints nothing of it, and an action nothing shows reads nothing (whatever binds it
@@ -220,18 +232,19 @@ public sealed class DeskAction : ObservableObject
             Command.RaiseCanExecuteChanged();
             return;
         }
-        var now = (Label, Verb, Tip, IsChecked, IsEnabled, Refusal, MenuLabel, IsAvailable);
+        var now = (Label, Verb, Tip, IsChecked, IsEnabled, Refusal, MenuLabel, IsAvailable, IsGoGuarded, IsGoFlash);
         var was = _shown;
         _shown = now;
         if (was is not { } w)
         {
-            Raise(nameof(Label), nameof(Verb), nameof(Tip), nameof(IsChecked), nameof(IsEnabled), nameof(Refusal), nameof(MenuLabel), nameof(IsAvailable));
+            Raise(nameof(Label), nameof(Verb), nameof(Tip), nameof(IsChecked), nameof(IsEnabled), nameof(Refusal), nameof(MenuLabel), nameof(IsAvailable),
+                nameof(IsGoGuarded), nameof(IsGoFlash));
             Command.RaiseCanExecuteChanged();
             return;
         }
         if (w == now)
             return;
-        Span<string> moved = new string[8];
+        Span<string> moved = new string[10];
         var n = 0;
         if (!string.Equals(w.Label, now.Label, StringComparison.Ordinal))
             moved[n++] = nameof(Label);
@@ -249,6 +262,10 @@ public sealed class DeskAction : ObservableObject
             moved[n++] = nameof(MenuLabel);
         if (w.IsAvailable != now.IsAvailable)
             moved[n++] = nameof(IsAvailable);
+        if (w.IsGoGuarded != now.IsGoGuarded)
+            moved[n++] = nameof(IsGoGuarded);
+        if (w.IsGoFlash != now.IsGoFlash)
+            moved[n++] = nameof(IsGoFlash);
         Raise(moved[..n]);
         if (w.IsEnabled != now.IsEnabled)
             Command.RaiseCanExecuteChanged();

@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:PlayMap.App.Controls"
              xmlns:vm="using:PlayMap.App.ViewModels"
              x:Class="PlayMap.App.Views.NetworkDrawer"
              x:DataType="vm:NetworkDrawerViewModel">
@@ -14,7 +15,7 @@
           <DataTemplate x:DataType="vm:PeerRow">
             <Border Classes="card" Margin="0,0,0,6" Padding="10,8">
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" />
+                <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
                 <StackPanel Grid.Column="1">
                   <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                   <TextBlock Classes="faint" Text="{Binding Headline}" TextTrimming="CharacterEllipsis" />

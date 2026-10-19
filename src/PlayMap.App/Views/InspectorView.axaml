@@ -207,7 +207,7 @@
           <StackPanel>
             <TextBlock Classes="h2" Text="PINS" />
             <StackPanel Orientation="Horizontal" Spacing="6">
-              <Ellipse Classes="light" Fill="{Binding ResidualLevel, Converter={StaticResource LightBrush}}" />
+              <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding ResidualLevel, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding ResidualLevel}" /></StackPanel>
               <TextBlock Classes="faint" Text="{Binding SolveText}" />
             </StackPanel>
           </StackPanel>
@@ -338,6 +338,11 @@
     </DataTemplate>
   </UserControl.DataTemplates>
 
+  <Panel>
+  <Border Classes="blindTag" x:Name="BlindTag" ZIndex="10" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,2,0,0" IsHitTestVisible="False"
+          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsBlindMine, FallbackValue=False}">
+    <TextBlock Text="{Binding $parent[Window].((vm:MainViewModel)DataContext).BlindTag, FallbackValue=''}" />
+  </Border>
   <Grid RowDefinitions="Auto,*">
     <Border Padding="14,12" BorderBrush="{StaticResource DeskBorderBrush}" BorderThickness="0,0,0,1" Background="Transparent"
             ui:DeskMenu.Actions="{Binding Current.Actions, FallbackValue={x:Null}}">
@@ -372,4 +377,5 @@
       </StackPanel>
     </ScrollViewer>
   </Grid>
+  </Panel>
 </UserControl>

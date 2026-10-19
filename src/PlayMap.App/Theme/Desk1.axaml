@@ -13,4 +13,25 @@
     <Setter Property="BorderBrush" Value="{StaticResource LightRedBrush}" />
     <Setter Property="BorderThickness" Value="2" />
   </Style>
+  <!-- The GO guard: while the node's min-GO window after a GO is open, every GO control of that playlist draws a red border (a GO
+       touches the air); a GO the node refused flashes once. -->
+  <Style Selector="Button.goGuard">
+    <Setter Property="BorderBrush" Value="{StaticResource LightRedBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Button.goFlash /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource DeskDangerSoftBrush}" />
+  </Style>
+  <!-- Blind made unmistakable: the word on every pane that edits this desk's draft, in the blind colour. -->
+  <Style Selector="Border.blindTag">
+    <Setter Property="Background" Value="#6E4FD8" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="8,2" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <Style Selector="Border.blindTag TextBlock">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="LetterSpacing" Value="1" />
+  </Style>
 </Styles>

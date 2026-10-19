@@ -113,6 +113,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         ComposeShowDesk(Modules);
         ComposeContentDesk(Modules);
         ComposeMapDesk(Modules);
+        ComposeUxDesk(Modules);
         ShowSlot = Modules.Select(m => m.Slot("show")).FirstOrDefault(v => v is not null);
         TimecodeSlot = Modules.Select(m => m.Slot("timecode")).FirstOrDefault(v => v is not null);
         TempoSlot = Modules.Select(m => m.Slot("tempo")).FirstOrDefault(v => v is not null);
@@ -259,8 +260,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     public RelayCommand TogglePro { get; }
 
-    /// <summary>The mode frame round the window: "red" armed, "amber" when anything but the show is on a wall, "" in
-    /// rehearsal with only the show on the wall.</summary>
+    /// <summary>The mode frame round the window: "blind" while this desk edits its own blind draft (armed or not: the ARM pill stays
+    /// red), "red" armed, "amber" when anything but the show is on a wall, "" in rehearsal with only the show on the wall.</summary>
     public string Frame
     {
         get => _frame;
@@ -277,7 +278,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
 
     public Avalonia.Thickness FrameThickness => _frame switch
     {
-        "red" => new Avalonia.Thickness(4),
+        "red" or "blind" => new Avalonia.Thickness(4),
         "amber" => new Avalonia.Thickness(3),
         _ => new Avalonia.Thickness(0),
     };
@@ -291,6 +292,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     partial void ComposeContentDesk(List<DeskModule> modules);
 
     partial void ComposeMapDesk(List<DeskModule> modules);
+
+    partial void ComposeUxDesk(List<DeskModule> modules);
 
     public TransportViewModel Master { get; }
 
@@ -809,7 +812,7 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
         }
         foreach (var b in Banners)
             b.Actions.RefreshAll();
-        Frame = FrameOf(s);
+        Frame = Ux.IsBlindMine ? "blind" : FrameOf(s);
         RefreshEverything();
         UpdateViews();
     }

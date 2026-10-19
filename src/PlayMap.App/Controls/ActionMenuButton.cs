@@ -47,6 +47,8 @@ public class ActionMenuButton : HoldButton
         ToolTip.SetShowOnDisabled(this, true);
         IsVisible = a.HasChildren ? a.Children.Any(c => c.IsAvailable) : a.IsAvailable;
         IsEnabled = a.HasChildren || a.IsEnabled;
+        Classes.Set("goGuard", a.IsGoGuarded);
+        Classes.Set("goFlash", a.IsGoFlash);
     }
 
     protected override bool Holds => Action is { IsHold: true, HasChildren: false };

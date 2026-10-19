@@ -4,10 +4,12 @@
         xmlns:link="using:PlayMap.App.Link"
         xmlns:views="using:PlayMap.App.Views"
         xmlns:ui="using:PlayMap.App.Controls"
+        xmlns:ux="using:PlayMap.App.ViewModels.Ux"
         x:Class="PlayMap.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="{Binding ProjectName, StringFormat={x:Static vm:DeskAbout.TitleFormat}}"
         ui:PreviewSurface.Names="{Binding Session.Previews}"
+        ui:PreviewSurface.LinkLive="{Binding Session.IsLive}"
         Width="1600" Height="960" MinWidth="1100" MinHeight="680">
   <Panel>
   <Grid RowDefinitions="Auto,Auto,*,Auto">
@@ -27,8 +29,10 @@
             <TextBlock Classes="faint" Text="{Binding SaveText}" IsVisible="{Binding !IsDirty}" />
           </StackPanel>
           <ContentControl Content="{Binding Save}" ContentTemplate="{StaticResource ActionSmall}" />
-          <ContentControl Content="{Binding Undo}" ContentTemplate="{StaticResource ActionSmall}" />
+          <ContentControl x:Name="UndoButton" Content="{Binding Undo}" ContentTemplate="{StaticResource ActionSmall}" ui:DeskMenu.Actions="{Binding UndoMenu}" />
           <ContentControl Content="{Binding Redo}" ContentTemplate="{StaticResource ActionSmall}" />
+          <ContentControl x:Name="OopsButton" Content="{Binding Ux.Oops.Toggle}" ContentTemplate="{StaticResource ActionSmall}" IsVisible="{Binding !IsTwoRow}" />
+          <ui:ActionMenuButton x:Name="LookButton" Classes="tool small" Action="{Binding Ux.Look}" IsVisible="{Binding !IsTwoRow}" />
         </StackPanel>
 
         <Border ui:TopBarPanel.Slot="Left" Classes="chip" Padding="3" Margin="8,0,0,0" VerticalAlignment="Center" x:Name="Workspaces">
@@ -84,15 +88,17 @@
         <StackPanel ui:TopBarPanel.Slot="Right" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4" x:Name="Pills">
           <Button x:Name="NetworkPill" Classes="pill" Command="{Binding ToggleNetwork}" ToolTip.Tip="{Binding NetworkTip}" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" />
+              <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" /><ui:StatusMark Compact="True" Light="{Binding NetworkLight}" /></StackPanel>
               <TextBlock Text="{Binding NetworkText}" VerticalAlignment="Center" IsVisible="{Binding ShowPillWords}" MaxWidth="160" TextTrimming="CharacterEllipsis" />
               <Border Width="1" Height="14" Background="{StaticResource DeskBorderStrongBrush}" />
               <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Patterns link">
                 <Ellipse Width="6" Height="6" Fill="{Binding PatternsLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
+                <ui:StatusMark Compact="True" Light="{Binding PatternsLight}" />
                 <TextBlock Text="P" Classes="faint" VerticalAlignment="Center" />
               </StackPanel>
               <StackPanel Orientation="Horizontal" Spacing="3" ToolTip.Tip="Stagewatch link">
                 <Ellipse Width="6" Height="6" Fill="{Binding StagewatchLight, Converter={StaticResource LightBrush}}" VerticalAlignment="Center" />
+                <ui:StatusMark Compact="True" Light="{Binding StagewatchLight}" />
                 <TextBlock Text="S" Classes="faint" VerticalAlignment="Center" />
               </StackPanel>
               <TextBlock Text="{Binding SyncText}" Classes="faint" VerticalAlignment="Center" FontFeatures="+tnum"
@@ -136,7 +142,7 @@
         <DataTemplate x:DataType="vm:Banner">
           <Border Classes="toast" Classes.refused="{Binding IsRed}" Padding="12,4">
             <StackPanel Orientation="Horizontal" Spacing="10">
-              <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" />
+              <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
               <TextBlock Text="{Binding Words}" VerticalAlignment="Center" FontWeight="SemiBold" />
               <ItemsControl ItemsSource="{Binding Actions}" ItemTemplate="{StaticResource ActionMenu}" ItemsPanel="{StaticResource Row}" />
             </StackPanel>
@@ -182,6 +188,9 @@
         </ItemsControl.ItemTemplate>
       </ItemsControl>
 
+      <!-- The Oops history, over the workspace under the bar's Undo. -->
+      <ContentControl x:Name="OopsHost" Content="{Binding Ux.Oops}" IsVisible="{Binding Ux.Oops.IsOpen}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,8" />
+
       <views:HelpOverlay IsVisible="{Binding IsHelpOpen}" />
       <views:ConnectOverlay DataContext="{Binding Connect}" IsVisible="{Binding IsOpen}" />
     </Panel>
@@ -190,7 +199,7 @@
     <Border Grid.Row="3" Background="{StaticResource DeskPanelBrush}" BorderBrush="{StaticResource DeskBorderBrush}" BorderThickness="0,1,0,0" Padding="12,4">
       <Grid ColumnDefinitions="Auto,*,Auto">
         <StackPanel Orientation="Horizontal" Spacing="8">
-          <Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" />
+          <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" /><ui:StatusMark Compact="True" Light="{Binding NetworkLight}" /></StackPanel>
           <TextBlock Classes="faint" Text="{Binding Session.LinkLabel}" VerticalAlignment="Center" />
         </StackPanel>
         <TextBlock Grid.Column="1" x:Name="StatusLine" Margin="16,0" Classes="dim" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
@@ -199,6 +208,21 @@
       </Grid>
     </Border>
   </Grid>
+  <!-- The desk's own brightness: a veil over everything, taking no input. -->
+  <Border x:Name="BrightnessVeil" IsHitTestVisible="False" Background="Black" Opacity="{Binding VeilOpacity}" />
+  <!-- Closing the desk while the show is armed asks first: the desk going changes nothing on the node. -->
+  <Border x:Name="CloseArmed" IsVisible="{Binding IsCloseAsked}" Background="#C0080A0C">
+    <Border Classes="toast" Padding="20,16" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460">
+      <StackPanel Spacing="12">
+        <TextBlock Classes="h1" Text="Close the desk while the show is armed?" TextWrapping="Wrap" />
+        <TextBlock x:Name="CloseArmedWords" Text="{x:Static ux:UxModule.CloseArmedWords}" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+          <Button x:Name="StayOpenButton" Classes="secondary" Content="Keep the desk open" Command="{Binding Ux.StayOpen}" />
+          <Button x:Name="CloseAnywayButton" Classes="secondary" Content="Close the desk" Command="{Binding Ux.CloseAnyway}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+  </Border>
   <!-- The mode frame (red armed, amber with anything but the show on a wall) is drawn over the window's edge and takes no room:
        arming never moves or reflows anything under it. -->
   <Border x:Name="ModeFrame" IsHitTestVisible="False" BorderBrush="{Binding Frame, Converter={StaticResource LightBrush}}" BorderThickness="{Binding FrameThickness}" />

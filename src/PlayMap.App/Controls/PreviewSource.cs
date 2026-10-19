@@ -25,6 +25,10 @@ public interface IPreviewSource : IDisposable
     /// null otherwise.</summary>
     string? Words => null;
 
+    /// <summary>The node's stamp on the picture <see cref="Poll"/> returned last (its ring slot's), in the node's own nanoseconds; 0
+    /// when the source has none.</summary>
+    long LastStampNs => 0;
+
     /// <summary>One tick while the view is off screen: nothing is read or copied, but what the source no longer has to hold (a ring
     /// the node names no more) is let go now, not when the view shows again.</summary>
     void Idle()
@@ -96,6 +100,8 @@ public sealed class RingPreviewSource : IPreviewSource
 
     public string? Words => _reader is null ? _words : null;
 
+    public long LastStampNs { get; private set; }
+
     /// <summary>The ring files this source opened, oldest first (the last <see cref="OpenedKept"/>): each one the node named.</summary>
     internal IReadOnlyList<string> Opened => [.. _opened];
 
@@ -134,6 +140,7 @@ public sealed class RingPreviewSource : IPreviewSource
             return null;
         }
         _sequence = info.Sequence;
+        LastStampNs = info.StampNs;
         _lastNews = Stopwatch.GetTimestamp();
         if (_bitmap is null || _bitmap.PixelSize.Width != info.Width || _bitmap.PixelSize.Height != info.Height)
         {
