@@ -1,0 +1,23 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="PlayMap toolset probe" Manufacturer="jammin808" Version="$(ProbeVersion)" UpgradeCode="3C0F6A52-2E11-4D7B-9E0B-6E4B5A1D9C27"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer PlayMap toolset probe is installed: uninstall it first to go back." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="PlayMapProbe">
+        <Component>
+          <File Id="ProbeExe" Source="$(ProbeExe)" Name="PlayMapProbe.exe" KeyPath="yes">
+            <fw:FirewallException Name="PlayMap toolset probe" Port="9999" Protocol="tcp" Scope="localSubnet" />
+          </File>
+          <ServiceInstall Name="PlayMapProbe" DisplayName="PlayMap toolset probe" Type="ownProcess" Start="demand" ErrorControl="normal"
+                          Account="LocalSystem">
+            <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="none"
+                                RestartServiceDelayInSeconds="5" ResetPeriodInDays="1" />
+          </ServiceInstall>
+          <ServiceControl Name="PlayMapProbe" Remove="uninstall" Stop="both" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>

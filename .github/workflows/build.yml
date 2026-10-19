@@ -40,13 +40,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libegl1 libgles2 libgl1 libglx-mesa0 libglfw3 libfontconfig1 fonts-dejavu-core
           Xvfb :99 -screen 0 1920x1080x24 &
-      - name: FFmpeg 9.0 shared libraries
+      - name: FFmpeg 9.0 shared libraries (LGPL, as the installer carries them)
         run: |
-          # The Windows job's FFmpeg 9.0.2 build for linux64, pinned by its hash the same way (see there).
-          mkdir -p .ffmpeg
-          curl -sSfL -o ff.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-shared-9.0.tar.xz"
-          echo "01a9764d0b5364b66cfeb4617557c64321b0e232e172ec73f0a701c5f7694326  ff.tar.xz" | sha256sum -c -
-          tar -xJf ff.tar.xz -C .ffmpeg --strip-components=1
+          # wp3-installer: FFmpeg 9.0.2's LGPL shared libraries (FFmpeg-Builds' lgpl-shared build of the same month as the Windows
+          # job's, pinned by hash) are the ones every decode test loads, as the installer ships them; the GPL command-line build
+          # (static, no libraries) is on the path only to encode test media with libx264 and libx265, in .ffmpeg/bin, never beside the
+          # libraries or a test host.
+          mkdir -p .ffmpeg/lib .ffmpeg/bin lgpl gpl
+          curl -sSfL -o lgpl.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-lgpl-shared-9.0.tar.xz"
+          echo "7a1ba2af36e5beeb98151e766a903b1d115f2206a86571f17f873cd7292c424f  lgpl.tar.xz" | sha256sum -c -
+          curl -sSfL -o gpl.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz"
+          echo "68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269  gpl.tar.xz" | sha256sum -c -
+          tar -xJf lgpl.tar.xz -C lgpl --strip-components=1
+          tar -xJf gpl.tar.xz -C gpl --strip-components=1
+          cp -a lgpl/lib/*.so* .ffmpeg/lib/
+          cp gpl/bin/ffmpeg gpl/bin/ffprobe .ffmpeg/bin/
+          rm -rf lgpl gpl lgpl.tar.xz gpl.tar.xz
           echo "$GITHUB_WORKSPACE/.ffmpeg/bin" >> "$GITHUB_PATH"
       - name: Restore
         run: dotnet restore
@@ -124,7 +133,7 @@ jobs:
   windows:
     runs-on: windows-2025
     env:
-      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\bin
+      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
       GALLIUM_DRIVER: llvmpipe
       # Where a Direct3D 12 test leaves its diff images, its info queue's messages and DRED's output (uploaded below).
       PLAYMAP_D3D12_EVIDENCE: ${{ github.workspace }}\d3d12-evidence
@@ -135,18 +144,31 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
-      - name: FFmpeg 9.0 shared libraries
+      - name: FFmpeg 9.0 shared libraries (LGPL, as the installer carries them)
         shell: pwsh
         run: |
-          # FFmpeg 9.0.2 (GPL, shared libraries) as built by FFmpeg-Builds (https://github.com/BtbN/FFmpeg-Builds), pinned by its
-          # hash. The release is a month's last build, which that project keeps for two years; a daily build is kept for 14 days
-          # and "latest" is rebuilt every day, so neither can carry a hash.
+          # wp3-installer: FFmpeg 9.0.2 as built by FFmpeg-Builds (https://github.com/BtbN/FFmpeg-Builds), pinned by hash. The LGPL
+          # shared libraries (lgpl-shared) are the ones every decode test loads and the installer ships (.ffmpeg\lib); the GPL
+          # command-line build (static, no DLLs) is on the path only to encode test media with libx264 and libx265 (.ffmpeg\bin),
+          # never beside the libraries or a test host. The release is a month's last build, which that project keeps for two years.
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-shared-9.0.zip" -OutFile ff.zip
-          $hash = (Get-FileHash ff.zip -Algorithm SHA256).Hash
-          if ($hash -ne '3DA6C7B60BB9CCD73EC5B5E815BA804A0879EB362BA0E3BEEBCE50174C022696') { throw "ff.zip is not the pinned build ($hash)" }
-          Expand-Archive ff.zip -DestinationPath ff
-          Move-Item (Get-ChildItem ff -Directory | Select-Object -First 1).FullName .ffmpeg
+          $base = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068'
+          $pins = [ordered]@{
+            'win64-lgpl-shared-9.0.zip' = '7157177B8A6CB2174C1650BA8C71B363F2C78CBA5330F88C4C02CF5B2B880646'
+            'win64-gpl-9.0.zip' = 'A0E45723C72141975F51D8666302E614711745F3102B704CA3F82C897A58D278'
+          }
+          foreach ($name in $pins.Keys) {
+            Invoke-WebRequest -Uri "$base-$name" -OutFile $name
+            $hash = (Get-FileHash $name -Algorithm SHA256).Hash
+            if ($hash -ne $pins[$name]) { throw "$name is not the pinned build ($hash)" }
+            Expand-Archive $name -DestinationPath ($name -replace '\.zip$', '')
+          }
+          New-Item -ItemType Directory -Force -Path .ffmpeg\lib, .ffmpeg\bin | Out-Null
+          $lgpl = (Get-ChildItem 'win64-lgpl-shared-9.0' -Directory | Select-Object -First 1).FullName
+          $gpl = (Get-ChildItem 'win64-gpl-9.0' -Directory | Select-Object -First 1).FullName
+          Copy-Item (Join-Path $lgpl 'bin\*.dll') .ffmpeg\lib
+          Copy-Item (Join-Path $gpl 'bin\ffmpeg.exe'), (Join-Path $gpl 'bin\ffprobe.exe') .ffmpeg\bin
+          Get-ChildItem .ffmpeg -Recurse | Select-Object FullName, Length
       - name: OpenGL 3.3 in software (Mesa llvmpipe)
         shell: pwsh
         run: |
@@ -333,10 +355,230 @@ jobs:
         id: version
         # The published exe's Windows version resource, checked against this run's build number and commit: it names the artifact.
         shell: pwsh
-        run: ./tools/ci-stamp.ps1 -File publish/PlayMap/PlayMap.exe -Label 'The published exe' -Artifact 'PlayMap-{0}-win-x64'
+        run: ./tools/ci-stamp.ps1 -File publish/PlayMap/PlayMap.exe -Label 'The published exe' -Artifact 'PlayMap-{0}-win-x64-unsigned'
+      - name: The portable folder's SHA256SUMS (unsigned)
+        # wp3-installer: the build is unsigned (the owner's decision, docs/round3/PLAN.md §9 decision 2): its name says so, and a
+        # SHA256SUMS file of every shipped file rides beside them, which docs/INSTALL.md says how to check.
+        if: ${{ !inputs.d3d12 }}
+        shell: pwsh
+        run: ./installer/sums.ps1 -Folder publish/PlayMap -Notice
       - name: Upload the exe
         if: ${{ !inputs.d3d12 }}
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.version.outputs.artifact }}
           path: publish/PlayMap
+
+  # wp3-installer: the installer's block (docs/round3/PLAN.md §3.5). wix-toolset answers M17 on the runner: the WiX toolset built from
+  # its MS-RL source at the tag installer/wix/toolset.json pins (cached by the tag's commit and the build script), its minutes and the
+  # feed's size, the restore of WixToolset.* from that feed alone, and whether the self-built tool asks for the licence gesture, which
+  # is never passed. installer builds PlayMap's installer with Inno Setup (the fallback §9 decision 3 names while the self-built tool
+  # asks and no patch to the pinned source answers it), proves its life cycle elevated on the runner, checks the release order, and
+  # publishes the unsigned installer with its SHA256SUMS.
+  wix-toolset:
+    if: ${{ !inputs.d3d12 }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - name: The pin
+        id: pin
+        shell: pwsh
+        run: |
+          $pin = Get-Content installer/wix/toolset.json -Raw | ConvertFrom-Json
+          $key = (Get-FileHash installer/wix/toolset.json).Hash.Substring(0, 12) + '-' + (Get-FileHash installer/wix/build-toolset.cmd).Hash.Substring(0, 12)
+          "commit=$($pin.commit)", "key=$key" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
+      - name: The toolset's cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: wix-feed
+          key: wix-toolset-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+      - name: Build the WiX toolset from its source (M17)
+        if: steps.cache.outputs.cache-hit != 'true'
+        id: build
+        # A toolset that does not build within the job is M17's answer, not this run's failure: the next step says it.
+        continue-on-error: true
+        timeout-minutes: 180
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pin = Get-Content installer/wix/toolset.json -Raw | ConvertFrom-Json
+          $src = Join-Path $env:RUNNER_TEMP 'wix'
+          git config --global core.autocrlf false
+          git init -q $src
+          git -C $src fetch -q --depth 1 $pin.repository $pin.commit
+          if ($LASTEXITCODE -ne 0) { throw "the pinned commit $($pin.commit) could not be fetched" }
+          git -C $src checkout -q FETCH_HEAD
+          if ((git -C $src rev-parse HEAD) -ne $pin.commit) { throw "the checkout is not the pinned commit $($pin.commit)" }
+          # The packages carry a version of PlayMap's own (the tag with its suffix), so none is ever taken for nuget.org's.
+          git -C $src tag "$($pin.tag)-$($pin.suffix)"
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $clock = [System.Diagnostics.Stopwatch]::StartNew()
+          cmd /c "`"$dev`" -no_logo && `"$PWD\installer\wix\build-toolset.cmd`" `"$src\src`""
+          $code = $LASTEXITCODE
+          $minutes = [math]::Round($clock.Elapsed.TotalMinutes, 1)
+          "minutes=$minutes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
+          if ($code -ne 0) { throw "the toolset did not build ($code) after $minutes minutes" }
+          New-Item -ItemType Directory -Force -Path wix-feed | Out-Null
+          foreach ($id in 'WixToolset.Sdk', 'WixToolset.Util.wixext', 'WixToolset.Firewall.wixext') {
+            $pkg = Get-ChildItem (Join-Path $src 'build\artifacts') -Filter "$id.*.nupkg" | Where-Object { $_.Name -match "^$([regex]::Escape($id))\.\d" } | Select-Object -First 1
+            if (-not $pkg) { throw "the build made no $id package" }
+            Copy-Item $pkg.FullName wix-feed
+          }
+          $mb = [math]::Round(((Get-ChildItem wix-feed -File | Measure-Object Length -Sum).Sum / 1MB), 1)
+          "#### M17: the WiX toolset built from its source at $($pin.tag) ($($pin.commit))", '', "- built in $minutes minutes on windows-2025 (upstream's own test runs left out); the feed holds $mb MB", '' |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+      - name: M17's answer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ steps.build.outcome }}' -eq 'failure') {
+            "#### M17: the WiX toolset did not build from its source on the runner", '', "- after ${{ steps.build.outputs.minutes }} minutes; Inno Setup builds the installer (PLAN.md §9 decision 3)", '' |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+            exit 0
+          }
+          if ('${{ steps.cache.outputs.cache-hit }}' -eq 'true') {
+            "#### M17: the WiX toolset from the cache (built from its source at the pinned commit)", '' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          }
+          New-Item -ItemType Directory -Force -Path installer/wix/feed | Out-Null
+          Copy-Item wix-feed/*.nupkg installer/wix/feed
+          ./installer/wix/probe.ps1 -Feed installer/wix/feed -Exe "$env:SystemRoot\System32\whoami.exe"
+
+  installer:
+    if: ${{ !inputs.d3d12 }}
+    runs-on: windows-2025
+    env:
+      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - name: FFmpeg 9.0.2's LGPL shared libraries (the installer's)
+        shell: pwsh
+        run: |
+          # The same pinned lgpl-shared build both test jobs load (see the windows job).
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-win64-lgpl-shared-9.0.zip' -OutFile lgpl.zip
+          $hash = (Get-FileHash lgpl.zip -Algorithm SHA256).Hash
+          if ($hash -ne '7157177B8A6CB2174C1650BA8C71B363F2C78CBA5330F88C4C02CF5B2B880646') { throw "lgpl.zip is not the pinned build ($hash)" }
+          Expand-Archive lgpl.zip -DestinationPath lgpl
+          New-Item -ItemType Directory -Force -Path .ffmpeg\lib | Out-Null
+          Copy-Item ((Get-ChildItem lgpl -Directory | Select-Object -First 1).FullName + '\bin\*.dll') .ffmpeg\lib
+      - name: The Agility SDK (its runtime for the installer)
+        shell: pwsh
+        run: ./tools/ci-d3d12.ps1 -Restore -Into d3d12
+      - name: Inno Setup 7.1 (pinned)
+        shell: pwsh
+        run: |
+          # Inno Setup 7.1.0 (Jordan Russell's licence: any use; a commercial user is asked, not required, to buy a licence), pinned
+          # by hash and installed for this job only.
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri 'https://files.jrsoftware.org/is/7/innosetup-7.1.0.exe' -OutFile is.exe
+          $hash = (Get-FileHash is.exe -Algorithm SHA256).Hash
+          $pin = 'UNPINNED'
+          if ($hash -ne $pin) { throw "innosetup-7.1.0.exe is not the pinned build ($hash)" }
+          $dir = Join-Path $env:RUNNER_TEMP 'inno'
+          Start-Process .\is.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$dir`"" -Wait
+          $iscc = Join-Path $dir 'ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "Inno Setup did not install ISCC.exe in $dir" }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8NoBOM
+      - name: libvmx (OMT's codec, beside the exe)
+        shell: pwsh
+        run: |
+          # Built from the vendored source with its upstream Windows command (src/ThirdParty/libvmx/build/buildwinx64clang.cmd).
+          $ErrorActionPreference = 'Stop'
+          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
+          if (-not $clang) {
+            $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+            $clang = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang++.exe'
+          }
+          New-Item -ItemType Directory -Force -Path vmx | Out-Null
+          $src = 'src/ThirdParty/libvmx'
+          & $clang -O3 -std=c++17 -fdeclspec -mlzcnt -mavx2 -mbmi -shared "-Wl,/DEF:$src/exports.def" "$src/src/vmxcodec_x86.cpp" "$src/src/vmxcodec_avx2.cpp" "$src/src/vmxcodec.cpp" -o vmx/libvmx.dll
+          if ($LASTEXITCODE -ne 0) { throw "libvmx did not build ($LASTEXITCODE)" }
+      - name: Publish (ReadyToRun) and the supervisor
+        run: |
+          dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          dotnet publish src/PlayMap.Supervisor -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/supervisor -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      - name: The installers (this build and the one before it)
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $run = [long]'${{ github.run_number }}'
+          $common = @{ Commit = '${{ github.sha }}'; Publish = 'publish/PlayMap'; Supervisor = 'publish/supervisor'; Ffmpeg = '.ffmpeg/lib'; D3D12 = 'd3d12/D3D12'; Vmx = 'vmx/libvmx.dll'; Iscc = $env:ISCC }
+          # The previous build: the same files numbered one build lower, which this build upgrades.
+          $GITHUB_OUTPUT_SAVED = $env:GITHUB_OUTPUT; $env:GITHUB_OUTPUT = Join-Path $env:RUNNER_TEMP 'previous.txt'
+          ./installer/build-installer.ps1 -Run ($run - 1) -Out previous @common
+          $previous = @{}; Get-Content $env:GITHUB_OUTPUT | ForEach-Object { $k, $v = $_ -split '=', 2; $previous[$k] = $v }
+          $env:GITHUB_OUTPUT = $GITHUB_OUTPUT_SAVED
+          ./installer/build-installer.ps1 -Run $run -Out artifact @common
+          "previous=$($previous.installer)", "previousVersion=$($previous.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
+      - name: The release order
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An installer's version is greater than the last release's, or nothing is released (docs/round3/PLAN.md §1.3, rule 3).
+          $ErrorActionPreference = 'Stop'
+          $last = ''
+          $tag = gh release view --repo '${{ github.repository }}' --json tagName --jq .tagName 2>$null
+          if ($LASTEXITCODE -eq 0 -and $tag) { $last = gh release view $tag --repo '${{ github.repository }}' --json body --jq '.body' | Select-String -Pattern 'installer version (\d+\.\d+\.\d+)' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1 }
+          ./publish/supervisor/PlayMap.Supervisor.exe version-check '${{ steps.build.outputs.version }}' "$last" --out order.txt
+          $code = $LASTEXITCODE
+          $words = (Get-Content order.txt -Raw).Trim()
+          "#### The release order", '', "- $words", '' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          if ($code -ne 0) { throw $words }
+      - name: InstallerTests and UnsignedArtifactTests (elevated)
+        shell: pwsh
+        env:
+          PLAYMAP_INSTALLER: ${{ steps.build.outputs.installer }}
+          PLAYMAP_INSTALLER_VERSION: ${{ steps.build.outputs.version }}
+          PLAYMAP_INSTALLER_PREVIOUS: ${{ steps.build.outputs.previous }}
+          PLAYMAP_INSTALLER_PREVIOUS_VERSION: ${{ steps.build.outputs.previousVersion }}
+          PLAYMAP_ARTIFACT_DIR: ${{ github.workspace }}\artifact
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./installer/sums.ps1 -Folder artifact -Notice
+          dotnet test installer/tests/PlayMap.Installer.Tests -c Release --logger "trx;LogFileName=PlayMap.Installer.Tests.trx" --blame-hang --blame-hang-timeout 20m --blame-hang-dump-type none
+          if ($LASTEXITCODE -ne 0) { throw "the installer's tests failed ($LASTEXITCODE)" }
+          "#### The installer", '', "- ``$(Split-Path $env:PLAYMAP_INSTALLER -Leaf)`` (installer version $env:PLAYMAP_INSTALLER_VERSION, $([math]::Round((Get-Item $env:PLAYMAP_INSTALLER).Length / 1MB, 1)) MB): installed, upgraded from $env:PLAYMAP_INSTALLER_PREVIOUS_VERSION, a downgrade refused, uninstalled, on windows-2025 (InstallerTests)", '' |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+      - name: M9 on the runner (a probe, not a gate)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          # The supervisor's session calls asked as LocalSystem through a scheduled task, as the service asks them; the answer, yes
+          # or no, goes to the summary. A task the runner refuses is an answer too.
+          $exe = (Resolve-Path publish/supervisor/PlayMap.Supervisor.exe).Path
+          $out = Join-Path $env:RUNNER_TEMP 'session-probe.md'
+          $task = 'PlayMap session probe'
+          try {
+            Register-ScheduledTask -TaskName $task -Action (New-ScheduledTaskAction -Execute $exe -Argument "session-probe --out `"$out`"") `
+              -Principal (New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest) -Force | Out-Null
+            Start-ScheduledTask -TaskName $task
+            $deadline = [DateTime]::UtcNow.AddSeconds(90)
+            while (-not (Test-Path $out) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 2 }
+            Unregister-ScheduledTask -TaskName $task -Confirm:$false
+          } catch { "#### M9: the supervisor's session calls", '', "- could not be asked: $($_.Exception.Message)", '' | Out-File -FilePath $out -Encoding utf8NoBOM }
+          if (-not (Test-Path $out)) { "#### M9: the supervisor's session calls", '', '- no answer within 90 s', '' | Out-File -FilePath $out -Encoding utf8NoBOM }
+          Get-Content $out | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          Get-Content $out | Write-Host
+      - name: Upload the installer
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: PlayMap-${{ steps.build.outputs.file }}-win-x64-unsigned-installer
+          path: artifact
+      - name: Upload the installer's test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-installer
+          path: "installer/tests/**/TestResults/*.trx"
+          if-no-files-found: ignore

@@ -1,0 +1,13 @@
+<Project Sdk="WixToolset.Sdk">
+  <!-- M17's probe (docs/round3/PLAN.md §1.5): the WiX toolset built from its source makes a package with a service, a major upgrade
+       and a firewall rule. Its SDK's version is the feed's (global.json, written by installer/wix/probe.ps1); no licence property is
+       set here or anywhere: the build says whether the self-built tool asks for one. -->
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <DefineConstants>ProbeVersion=$(ProbeVersion);ProbeExe=$(ProbeExe)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="$(WixVersion)" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="$(WixVersion)" />
+  </ItemGroup>
+</Project>

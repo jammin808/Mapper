@@ -1,0 +1,3 @@
+<Project>
+  <!-- The probe stands alone: none of the root's C# settings or analyzers apply to a WiX project. -->
+</Project>

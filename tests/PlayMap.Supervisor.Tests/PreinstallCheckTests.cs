@@ -200,7 +200,7 @@ public sealed class PreinstallCheckTests
         public async ValueTask DisposeAsync()
         {
             await _stop.CancelAsync();
-            _listener.Stop();
+            _listener.Dispose();
             try
             {
                 await _serving;
