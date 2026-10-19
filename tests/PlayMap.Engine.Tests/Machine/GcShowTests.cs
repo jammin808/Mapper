@@ -8,7 +8,8 @@ namespace PlayMap.Engine.Tests.Machine;
 
 /// <summary>The GC's show mode through the arm hook: under DEFAULT arming changes nothing and says so; under SHOW the collector is asked
 /// for SustainedLowLatency as the show arms, read back and published, and put back as it was at disarm; MACHINE SET GC applies from the
-/// next arm; the pause histogram counts each pause into its bucket. The collector's mode is the process's, so these run alone.</summary>
+/// next arm; the pause histogram pairs the runtime's events into pauses and counts each into its bucket, on an instance no listener
+/// feeds. The collector's mode is the process's, so these run alone.</summary>
 [Collection(GcShowCollection.Name)]
 public sealed class GcShowTests
 {
@@ -85,17 +86,50 @@ public sealed class GcShowTests
     [Fact]
     public void ThePauseHistogramCountsEachPauseIntoItsBucket()
     {
-        using var pauses = new GcPauses();
-        var before = pauses.Summary().Count;
-        foreach (var ms in new[] { 0.4, 1.5, 3, 7, 15, 30, 80 })
+        var pauses = new GcPauseHistogram();
+        var empty = pauses.Summary();
+        Assert.Equal((0, 0.0, 0.0), (empty.Count, empty.P99Ms, empty.MaxMs));
+        Assert.Equal([0, 0, 0, 0, 0, 0, 0], empty.Buckets.ToArray());
+        foreach (var ms in new[] { 0.4, 1.5, 3, 7, 15, 30, 80, 0.9 })
             pauses.Record(ms);
         var summary = pauses.Summary();
-        // The listener may also have counted the runtime's own pauses meanwhile: the recorded ones are in on top of them.
-        Assert.True(summary.Count >= before + 7);
-        Assert.True(summary.MaxMs >= 80);
-        Assert.Equal(7, summary.Buckets.Length);
-        Assert.All(summary.Buckets, b => Assert.True(b >= 1));
+        Assert.Equal((8, 80.0), (summary.Count, summary.MaxMs));
+        // Under 1, 2, 5, 10, 20, 50 ms, and over 50: each pause in its own bucket, the two short ones together.
+        Assert.Equal([2, 1, 1, 1, 1, 1, 1], summary.Buckets.ToArray());
         Assert.Equal(GcPauses.EdgesMs.Length + 1, summary.Buckets.Length);
+        Assert.Equal(80, summary.P99Ms);
+    }
+
+    [Fact]
+    public void TheEventsArePairedFromASuspensionsBeginToTheRestartsEnd()
+    {
+        var pauses = new GcPauseHistogram();
+        // A restart with no suspension before it is no pause.
+        pauses.Pair(GcPauseHistogram.RestartEnd, 5_000_000);
+        Assert.Equal(0, pauses.Summary().Count);
+        // Begin at 1 000 000 ticks, restart 25 000 ticks (2.5 ms) later: one pause of the difference.
+        pauses.Pair(GcPauseHistogram.SuspendBegin, 1_000_000);
+        pauses.Pair(42, 1_010_000);
+        pauses.Pair(GcPauseHistogram.RestartEnd, 1_025_000);
+        var one = pauses.Summary();
+        Assert.Equal((1, 2.5), (one.Count, one.MaxMs));
+        Assert.Equal([0, 0, 1, 0, 0, 0, 0], one.Buckets.ToArray());
+        // The restart closed it: a second restart is no pause.
+        pauses.Pair(GcPauseHistogram.RestartEnd, 1_030_000);
+        Assert.Equal(1, pauses.Summary().Count);
+        // A later suspension pairs with its own restart.
+        pauses.Pair(GcPauseHistogram.SuspendBegin, 2_000_000);
+        pauses.Pair(GcPauseHistogram.RestartEnd, 2_004_000);
+        Assert.Equal([1, 0, 1, 0, 0, 0, 0], pauses.Summary().Buckets.ToArray());
+    }
+
+    [Fact]
+    public void TheListenerHandsTheRuntimesEventsToOneHistogram()
+    {
+        using var listener = new GcPauses();
+        // One histogram for the listener's life (its events may arrive before its constructor ran), summarised with the edges' buckets.
+        Assert.Same(listener.Histogram, listener.Histogram);
+        Assert.Equal(GcPauses.EdgesMs.Length + 1, listener.Summary().Buckets.Length);
     }
 }
 

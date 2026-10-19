@@ -55,22 +55,18 @@ internal sealed class GcShowHook(Func<MachineSettings> settings, MachineNode? no
 }
 
 /// <summary>The collector's pauses as the runtime reports them in-process (EventPipe's <c>Microsoft-Windows-DotNETRuntime</c> GC
-/// events: each pause from the execution engine's suspension to its restart), counted into a histogram beside the frame time — the
-/// measurement the GC's show mode waits for. Its own listener thread; the summary is read on any thread.</summary>
+/// events), each event handed to <see cref="Histogram"/>, which pairs them into pauses — the measurement the GC's show mode waits for.
+/// Its own listener thread; the summary is read on any thread.</summary>
 internal sealed class GcPauses : EventListener
 {
     /// <summary>The histogram's upper edges (ms); the last bucket holds every longer pause.</summary>
-    public static readonly ImmutableArray<double> EdgesMs = [1, 2, 5, 10, 20, 50];
+    public static ImmutableArray<double> EdgesMs => GcPauseHistogram.EdgesMs;
 
-    private const int Window = 1000;
-    private const int SuspendBegin = 9, RestartEnd = 3;
-    private readonly Lock _gate = new();
-    private readonly int[] _buckets = new int[7];
-    private readonly double[] _recent = new double[Window];
-    private long _suspendTicks;
-    private int _count;
-    private int _next;
-    private double _maxMs;
+    // The listener's events can arrive before the derived constructor runs: the histogram is made on first use.
+    private GcPauseHistogram? _histogram;
+
+    /// <summary>The pauses this listener paired and counted.</summary>
+    public GcPauseHistogram Histogram => LazyInitializer.EnsureInitialized(ref _histogram);
 
     protected override void OnEventSourceCreated(EventSource eventSource)
     {
@@ -79,12 +75,39 @@ internal sealed class GcPauses : EventListener
             EnableEvents(eventSource, EventLevel.Informational, (EventKeywords)0x1);
     }
 
-    protected override void OnEventWritten(EventWrittenEventArgs eventData)
+    protected override void OnEventWritten(EventWrittenEventArgs eventData) => Histogram.Pair(eventData.EventId, eventData.TimeStamp.Ticks);
+
+    /// <summary>The pauses counted, the p99 of the last 1 000, the longest, and each bucket's count.</summary>
+    public GcPauseSummary Summary() => Histogram.Summary();
+}
+
+/// <summary>The collector's pauses, pure: <see cref="Pair"/> takes the GC events in order (a suspension's begin, then the execution
+/// engine's restart end) and counts each pause from one to the other, ignoring a restart with no suspension before it;
+/// <see cref="Record"/> counts one pause into the histogram's bucket. Any thread.</summary>
+internal sealed class GcPauseHistogram
+{
+    /// <summary>The histogram's upper edges (ms); the last bucket holds every longer pause.</summary>
+    public static readonly ImmutableArray<double> EdgesMs = [1, 2, 5, 10, 20, 50];
+
+    /// <summary>GCSuspendEEBegin_V1 and GCRestartEEEnd_V1's event ids.</summary>
+    public const int SuspendBegin = 9, RestartEnd = 3;
+
+    private const int Window = 1000;
+    private readonly Lock _gate = new();
+    private readonly int[] _buckets = new int[7];
+    private readonly double[] _recent = new double[Window];
+    private long _suspendTicks;
+    private int _count;
+    private int _next;
+    private double _maxMs;
+
+    /// <summary>One GC event at <paramref name="ticks"/> (100 ns): a suspension's begin starts a pause, the restart's end closes it.</summary>
+    public void Pair(int eventId, long ticks)
     {
-        if (eventData.EventId == SuspendBegin)
-            Interlocked.Exchange(ref _suspendTicks, eventData.TimeStamp.Ticks);
-        else if (eventData.EventId == RestartEnd && Interlocked.Exchange(ref _suspendTicks, 0) is var begin and > 0)
-            Record((eventData.TimeStamp.Ticks - begin) / (double)TimeSpan.TicksPerMillisecond);
+        if (eventId == SuspendBegin)
+            Interlocked.Exchange(ref _suspendTicks, ticks);
+        else if (eventId == RestartEnd && Interlocked.Exchange(ref _suspendTicks, 0) is var begin and > 0)
+            Record((ticks - begin) / (double)TimeSpan.TicksPerMillisecond);
     }
 
     /// <summary>Counts one pause (ms).</summary>
