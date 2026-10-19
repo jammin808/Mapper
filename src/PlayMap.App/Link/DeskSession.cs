@@ -59,14 +59,14 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _post = post;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
         // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said.
-        Throttle = new ThrottledSender((line, ct) =>
+        Throttle = new ThrottledSender(async (line, ct) =>
         {
             if (GateWords(line) is { } why)
             {
                 _post(() => Notify(ToastKind.Refused, why, line));
-                return Task.CompletedTask;
+                return false;
             }
-            return SendAsync(line, ct);
+            return (await SendAsync(line, ct)).Ok;
         }, time: time);
     }
 
