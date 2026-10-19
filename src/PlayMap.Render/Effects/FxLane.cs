@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using PlayMap.Core.Effects;
 using PlayMap.Core.Gpu;
+using PlayMap.Core.Threading;
 using PlayMap.Render.Engine;
 using SkiaSharp;
 
@@ -140,7 +141,7 @@ public sealed class FxLane : IDisposable
             return;
         var source = new ProgramSource(name, key, ProgramCode.Glsl, Utf8.GetBytes(vertex), Utf8.GetBytes(fragment), default);
         var program = _device.CreateProgramAsync(source, CancellationToken.None);
-        var decoded = images.Count > 0 ? Task.Run(() => DecodeAll(images)) : null;
+        var decoded = images.Count > 0 ? Compute.RunAsync(() => DecodeAll(images)) : null;
         _asked[key] = new Asked(key, program, decoded);
         Volatile.Write(ref _pending, _asked.Count);
     }
