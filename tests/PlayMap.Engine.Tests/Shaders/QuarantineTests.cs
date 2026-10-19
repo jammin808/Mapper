@@ -65,7 +65,7 @@ public sealed class QuarantineTests
         Assert.Equal(["FX RELEASE Invert", $"FX REMOVE {slot}"], rows.Select(r => r.Fix));
         foreach (var fix in rows.Select(r => r.Fix!))
             Assert.True(WireGrammar.TryParse(fix, out var parsed, out _) && VerbCatalog.Match(parsed) is not null, fix);
-        Assert.Contains("1 slot draw it bypassed", rows[0].Note, StringComparison.Ordinal);
+        Assert.Contains("1 slot uses it", rows[0].Note, StringComparison.Ordinal);
 
         // Taken out: the kind's row stays until it is released, and says no slot uses it.
         await rig.Ok(rows[1].Fix!);

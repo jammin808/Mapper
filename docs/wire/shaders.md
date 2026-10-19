@@ -33,12 +33,13 @@ Inside wp2-fx's `fx` block (`tests/fixtures/state/shaders.json`, cards in `shade
   last compile's own time, recorded, never a pass mark), `compiled`, `failed`, `natives` (each native's `name`, `ok` and `words`
   from the worker's hello) and `words` (its last trouble, or how it starts).
 - `fx.quarantine` (a node composed with the shader worker, or any node that holds a quarantined kind): a list of `hash`, `kind`,
-  `reason` (`gpuTime`, `deviceRemoved`, `compilerStopped`), `words`, `at` (Unix ms), `build`, and `slots` — the show's slots that
-  draw the kind, bypassed.
+  `reason` (`gpuTime`, `deviceRemoved`, `compilerStopped`), `words`, `at` (Unix ms), `build`, and `slots` — the show's slots whose
+  kind it is.
 
-A quarantined kind's slots are drawn bypassed by the renderer (`FxChainRunner`), their input passing unchanged, with
-`state: "bypassed"` and words that say so in `fx.slots[]`; preflight's `fx` section is red for each quarantined kind (fix
-`FX RELEASE <kind>`) and for each slot that draws one (fix `FX REMOVE <slot>`), and one green row when none is quarantined.
+The renderer (`FxChainRunner.Quarantine`) draws a quarantined kind's slots bypassed, their input passing unchanged, and says so in
+the slot's observed state (`fx.slots[].state` "bypassed", with words); the render host hands the runner the node's quarantine once
+the seam named in the papers note lands. Preflight's `fx` section is red for each quarantined kind (fix `FX RELEASE <kind>`) and for
+each slot that uses one (fix `FX REMOVE <slot>`), and one green row when none is quarantined.
 
 ## The shader worker
 
@@ -63,6 +64,10 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
   conventions: `PmClip` turns GL's clip space into Direct3D's so targets stay top row first, one root signature with the binding
   block read through `ResourceDescriptorHeap`), `programs.json`, the layout table and the build step that writes each program's
   `Layout.hlsli`, embeds the library and, on Windows, its DXIL.
+- Seams this package needs from the spine and from wp3-rhi's files (it works behind its own until they land): an
+  `AddShaderParts` hook in `EngineParts.Standard` so the exe composes `ShadersExtension` (the worker, the home-kept quarantine, FX
+  CHECK's stages, the preflight check); one line each in `FxPass` and `RenderHost.Fx` handing the node's quarantine to
+  `FxChainRunner.Quarantine`; and `fx.library.quarantined` (wp2-fx's `EngineCore.Fx.cs`) reading the quarantine's count.
 - What CI proves: DXC's Linux build emits validated, signed DXIL (M6 answered yes), so every program compiles and is held to the
   table by reflection on both jobs; the build embeds DXIL on Windows only, where the DXC executable is packaged. Pixel parity of
   the HLSL with the GLSL is wp3-d3d12-core's; nothing here was drawn on a device.

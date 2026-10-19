@@ -7,7 +7,7 @@ using PlayMap.Engine.Host;
 namespace PlayMap.Engine.ShaderWorker;
 
 /// <summary>Preflight's quarantine rows (section fx): each quarantined kind red with the line that lifts it (FX RELEASE), and each
-/// slot of the show that draws one red with the line that takes it out (FX REMOVE). A node that quarantines nothing answers one green
+/// slot of the show that uses one red with the line that takes it out (FX REMOVE). A node that quarantines nothing answers one green
 /// row.</summary>
 internal sealed class QuarantinePreflight : IPreflightCheck
 {
@@ -28,12 +28,12 @@ internal sealed class QuarantinePreflight : IPreflightCheck
         foreach (var e in all)
         {
             var users = slots[e.KindHash].ToList();
-            var drawn = users.Count == 0 ? "no slot of this show uses it" : $"{users.Count} slot{(users.Count == 1 ? "" : "s")} draw it bypassed";
+            var drawn = users.Count == 0 ? "no slot of this show uses it" : $"{users.Count} slot{(users.Count == 1 ? " uses" : "s use")} it";
             rows.Add(new PreflightRow("fx.quarantine:" + e.KindHash, node, Section, $"{e.Kind} is quarantined", Light.Red,
                 ShaderQuarantine.Word(e.Reason), $"{e.Words}; {drawn}", $"FX RELEASE {e.Kind}"));
             foreach (var s in users)
-                rows.Add(new PreflightRow("fx.quarantine:" + s.Id, node, Section, $"{(s.Name.Length > 0 ? s.Name : e.Kind)} draws bypassed",
-                    Light.Red, "quarantined", $"its kind {e.Kind} is quarantined on this node: the slot passes its input unchanged", $"FX REMOVE {s.Id}"));
+                rows.Add(new PreflightRow("fx.quarantine:" + s.Id, node, Section, $"{(s.Name.Length > 0 ? s.Name : e.Kind)} uses a quarantined kind",
+                    Light.Red, "quarantined", $"its kind {e.Kind} is quarantined on this node (its slot's state says what the renderer draws)", $"FX REMOVE {s.Id}"));
         }
         if (rows.Count == 0)
             rows.Add(new PreflightRow("fx.quarantine", node, Section, "Quarantine", Light.Green, "none", "no effect kind is quarantined on this node", null));
