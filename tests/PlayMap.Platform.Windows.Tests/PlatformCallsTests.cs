@@ -44,6 +44,8 @@ public sealed class PlatformCallsTests
         (".mmcss", ["MMCSS did not take the thread ("]),
         (".cpusets", ["Windows refused the CPU sets: "]),
         (".qos", ["Windows refused EcoQoS: "]),
+        // A thread whose handle could not be taken claimed nothing, and says so.
+        ("", ["the thread's handle could not be taken ("]),
     ];
 
     private static void Answers(Claim c)
