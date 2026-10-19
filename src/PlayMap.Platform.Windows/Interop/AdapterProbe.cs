@@ -107,8 +107,8 @@ internal static unsafe class AdapterProbe
 }
 
 /// <summary>NVIDIA's facts through the driver's own NVAPI (nvapi64.dll, never shipped): the driver's version and branch, and, per
-/// physical GPU by its LUID, whether it answers the professional visualisation feature (RTX PRO). The library is loaded for the probe
-/// and unloaded after it.</summary>
+/// physical GPU by its LUID, whether it answers the professional visualisation feature (RTX PRO). The library is loaded from the system
+/// directory by its absolute path for the probe and unloaded after it.</summary>
 [SupportedOSPlatform("windows")]
 internal static unsafe class NvApiProbe
 {
@@ -119,7 +119,8 @@ internal static unsafe class NvApiProbe
         driver = "";
         branch = "";
         workstation = [];
-        if (!NativeLibrary.TryLoad("nvapi64.dll", typeof(NvApiProbe).Assembly, DllImportSearchPath.System32, out var library))
+        // The driver installs NVAPI in the system directory: loaded by that absolute path, never a search by name.
+        if (!NativeLibrary.TryLoad(Path.Combine(Environment.SystemDirectory, "nvapi64.dll"), out var library))
         {
             words = "no NVIDIA driver on this machine (nvapi64.dll is not there)";
             return false;

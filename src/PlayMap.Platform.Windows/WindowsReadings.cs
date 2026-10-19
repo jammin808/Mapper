@@ -243,7 +243,8 @@ internal static unsafe class WindowsReadings
     /// "balanced", "best performance", or "" unread.</summary>
     private static string PowerMode()
     {
-        if (!NativeLibrary.TryLoad("powrprof.dll", typeof(WindowsReadings).Assembly, DllImportSearchPath.System32, out var library))
+        // By its absolute path in the system directory, never a search by name.
+        if (!NativeLibrary.TryLoad(Path.Combine(Environment.SystemDirectory, "powrprof.dll"), out var library))
             return "";
         try
         {

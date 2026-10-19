@@ -80,7 +80,7 @@ keyword at Informational: each pause from the execution engine's suspension to i
 - **CPU** — its name, its logical processors by efficiency class, the widest vector .NET accelerates, AVX-512 and AVX10.
 - **GPUs** — every DXGI 1.6 adapter by LUID with vendor and device ids, name, the user-mode driver's version, whether an output is
   attached and its memory; on NVIDIA the driver's version and branch from NVAPI, and RTX PRO told from RTX by
-  `NvAPI_GPU_QueryWorkstationFeatureSupport(PROVIZ)`, never by the name. The vendor tier and support level follow `docs/INSTALL.md`:
+  `NvAPI_GPU_QueryWorkstationFeatureSupport(PROVIZ)`, never by the name. NVAPI is the driver's (`nvapi64.dll`, never shipped), loaded from the system directory by its absolute path, never by a search by name. The vendor tier and support level follow `docs/INSTALL.md`:
   NVIDIA RTX and RTX PRO tier 1; AMD's RDNA 3 and 4 Radeons validated per driver (none is validated before the lab runs); Intel Arc
   best effort; software adapters and anything else unsupported.
 - **Runtimes** — the Agility runtime, FFmpeg's build and the sync board's firmware, each filled by its owner through
