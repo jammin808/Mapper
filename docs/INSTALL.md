@@ -6,12 +6,13 @@
 ## What the installer is
 
 PlayMap installs per machine with one installer, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned.exe`, built by Inno Setup
-7.1. The plan's MSI is built by the WiX toolset compiled from its MS-RL source (`docs/round3/PLAN.md` D6). On the Windows runner
-the pinned source (v7.0.0) does not build as it stands: it asks for Visual Studio 2022's C++ tools (v143), the runner's Visual
-Studio 2026 carries only its own, and adding them through Visual Studio's installer fails on the runner (M17, CI's `wix-toolset`
-job). The source also carries its licence check (the SDK's WIX7015 target and `wix.exe`'s own), which PlayMap never answers with
-the gesture and which no patch in this tree answers. So Inno Setup builds the installer with the same acceptance (§9 decision 3).
-It runs elevated once and does every machine-level action
+7.1. The plan names an MSI built by the WiX toolset compiled from its MS-RL source (`docs/round3/PLAN.md` D6); none is built. The
+pinned source (v7.0.0) carries licence checks (the SDK's WIX7015 target and `wix.exe`'s own) that PlayMap never answers with the
+gesture, and that no patch in this tree answers or bypasses: what to do about them is the owner's decision. So Inno Setup builds the
+installer, with the same acceptance (§9 decision 3). M17, CI's `wix-toolset` job, measures whether the pinned source builds on the
+runner at all, and its summary says what it answered: on windows-2025, Visual Studio 2026's installer holds none of the v143 C++
+components WiX's native parts ask for (it exits having added none), and the build stops at MSB8020, the v143 build tools not
+found, after a minute, before any licence check runs. The installer runs elevated once and does every machine-level action
 through the supervisor's own commands, so the engine itself never runs as administrator:
 
 | Where | What |
@@ -90,8 +91,9 @@ which cannot drive displays), restarts it after an exit with backoff (1 s doubli
 minutes and says so, and stops an engine whose open outputs' shown frames have stood still for the stale time (3 s, or four of the
 rebuild's first good frames) while HEALTH says the GPU runs — never while the engine reports no shown frames, never during a start or
 a device rebuild within its budget (30 s while the first good frame is unmeasured on a real node), never for a slow HEALTH while
-frames move. Its status (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install` and preflight's `install`
-section. Stopping the service leaves the engine running; the next supervisor adopts it.
+frames move. Its status (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install`. Preflight's `install`
+section reads it too, but the exe does not show that section yet: its registration waits on the round's spine (an install hook in
+the engine's composition), so today STATE alone carries the supervisor's status. Stopping the service leaves the engine running; the next supervisor adopts it.
 
 **Every stop is a termination after 5 s.** To stop the engine — the freeze rule's stop, `PlayMap.Supervisor.exe stop`, an upgrade's
 or an uninstall's — the supervisor sets the engine's stop event (`Global\PlayMap-Engine-Stop`, which the show user may only wait on)
@@ -161,8 +163,10 @@ floor every edition shares, so Home or Pro 24H2, out of servicing since 13 Oct 2
 it gets no security updates. S mode (Home only) runs no installer: switch out of it first (free and one-way). Windows 10 is not
 supported.
 
-**The GPU support tiers** are the ones `machine.identity` publishes (`docs/round3/design/platform.md`); this round no lab has
-measured any of them, and each says so.
+**The GPU support tiers.** NVIDIA RTX and RTX PRO: tier 1, validated. AMD RDNA 3 and RDNA 4: tier 2, validated per driver, so a
+driver outside the validated list reads amber. Intel Arc: best effort, and said so. Any other GPU: unsupported, and said so. This
+round no lab has measured any of them, so no tier is validated yet and each says that too. Once wp3-platform lands,
+`machine.identity.adapters[].tier` carries each adapter's tier (`docs/round3/design/platform.md`).
 
 **The show account.** A local standard user, "show". Auto-logon through Sysinternals Autologon, which keeps the password as an LSA
 secret — never `DefaultPassword` in plain text in the registry. Give the account to the installer (`/SHOWUSER=`). On Home, whose
@@ -178,7 +182,8 @@ and setup screens open.
 **Updates.** On the editions with Update client policies: feature updates deferred 365 days, quality updates 30, no automatic
 restart with a user logged on, a maintenance window. On Home, which honours none of them: pause updates past the show (35 days at a
 time), set active hours, restart without updating from the power menu, choose the maintenance window by hand. This build writes no
-update policy; preflight's `install` section says so as an information row.
+update policy; preflight's `install` section has an information row that says so, which the exe shows once that section is
+registered (above, the supervisor).
 
 **Security defaults.** Smart App Control off for an unsigned build; Memory Integrity left as it is (a capture or sync driver that
 does not load under it says so); the device-encryption recovery key kept where it can be found; show media outside OneDrive
@@ -206,4 +211,5 @@ and serves HTTP on 9940 with no URL reservation; an uninstall straight after the
 machine-level action back, the account right read back with `rights`; a pid record naming a process that is not the engine ends
 nothing; the artifact's `SHA256SUMS` matches every file. No lab ran this round: a real IoT Enterprise LTSC node with auto-logon, the
 supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the unsigned installer
-on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23) are not run.
+on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23; their scripts are in `docs/round3/lab/`)
+are not run.
