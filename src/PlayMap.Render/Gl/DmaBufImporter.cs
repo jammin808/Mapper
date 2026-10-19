@@ -252,9 +252,10 @@ public sealed unsafe class DmaBufShare : IGpuShare
 
 /// <summary>Imports dmabuf frames into the context current on the render thread (EGL_EXT_image_dma_buf_import): one EGLImage per
 /// plane, each the storage of a texture the importer owns (R8/RG8 for NV12, R16/RG16 for P010), sampled in place by the `yuv`
-/// pass. After the frame's read of the planes is recorded, <see cref="Retain"/> holds the surface (one hold on its producer's slot)
-/// behind a fence; <see cref="Collect"/> lets go of it, destroying its images, once the GPU has passed the fence. Two slots: the
-/// frame being drawn and at most one in flight behind it, so the renderer never holds more than two; when both are in flight a new frame is not imported (the last
+/// pass. An import holds the surface at once (one hold on its producer's slot, taken while the lease that carried it is alive);
+/// the frame's submit puts a fence behind it (<see cref="Fence"/>), and <see cref="Collect"/> lets go of it, destroying its images,
+/// once the GPU has passed that fence — a hold with no fence yet is never let go. Two slots: the frame being drawn and at most one
+/// in flight behind it, so one reader never holds more than two; when both are in flight a new frame is not imported (the last
 /// picture holds) rather than waiting for the GPU. Render thread only; nothing allocates per frame.</summary>
 public sealed unsafe class DmaBufImporter : IDisposable
 {
@@ -293,26 +294,36 @@ public sealed unsafe class DmaBufImporter : IDisposable
     public static DmaBufImporter? ForCurrentContext(GlDevice device, out string words)
     {
         ArgumentNullException.ThrowIfNull(device);
-        words = "";
-        var display = EglImages.CurrentDisplay();
+        return Refusal(out var display, out var create, out var destroy) is { } why
+            ? Refused(why, out words)
+            : Made(new DmaBufImporter(device, display, create, destroy), out words);
+    }
+
+    /// <summary>Why the context current on this thread imports no dmabufs, or null when it does (its display and image entry points
+    /// out). Makes nothing.</summary>
+    internal static string? Refusal(out nint display, out nint create, out nint destroy)
+    {
+        create = destroy = 0;
+        display = EglImages.CurrentDisplay();
         if (display == 0)
-        {
-            words = "the render context is not EGL: dmabuf frames cannot be imported";
-            return null;
-        }
+            return "the render context is not EGL: dmabuf frames cannot be imported";
         if (!EglImages.Text(EglImages.QueryString(display, EglImages.Extensions)).Contains("EGL_EXT_image_dma_buf_import", StringComparison.Ordinal))
-        {
-            words = "the EGL display does not import dmabufs (EGL_EXT_image_dma_buf_import)";
-            return null;
-        }
-        var create = EglImages.GetProcAddress("eglCreateImageKHR");
-        var destroy = EglImages.GetProcAddress("eglDestroyImageKHR");
-        if (create == 0 || destroy == 0)
-        {
-            words = "EGL has no eglCreateImageKHR";
-            return null;
-        }
-        return new DmaBufImporter(device, display, create, destroy);
+            return "the EGL display does not import dmabufs (EGL_EXT_image_dma_buf_import)";
+        create = EglImages.GetProcAddress("eglCreateImageKHR");
+        destroy = EglImages.GetProcAddress("eglDestroyImageKHR");
+        return create == 0 || destroy == 0 ? "EGL has no eglCreateImageKHR" : null;
+    }
+
+    private static DmaBufImporter? Refused(string why, out string words)
+    {
+        words = why;
+        return null;
+    }
+
+    private static DmaBufImporter Made(DmaBufImporter importer, out string words)
+    {
+        words = "";
+        return importer;
     }
 
     /// <summary>Surfaces held behind a fence (imported, their reads not yet completed).</summary>
@@ -328,10 +339,11 @@ public sealed unsafe class DmaBufImporter : IDisposable
         }
     }
 
-    /// <summary>Imports the surface's planes into the next free slot: true with the luma and chroma textures; false with words when
-    /// the EGL import or the texture binding failed (<paramref name="busy"/> false: a real failure, the source steps down), or when
-    /// every slot is still in flight (<paramref name="busy"/> true: hold the last picture, nothing failed).</summary>
-    public bool TryImport(GpuSurface surface, out GpuTexture luma, out GpuTexture chroma, out bool busy, out string words)
+    /// <summary>Imports the surface's planes into the next free slot and holds the surface there (<paramref name="slotIndex"/>, to
+    /// fence at the frame's submit): true with the luma and chroma textures; false with words when the EGL import or the texture
+    /// binding failed (<paramref name="busy"/> false: a real failure, the source steps down; nothing held), or when every slot is
+    /// still in flight (<paramref name="busy"/> true: hold the last picture, nothing failed).</summary>
+    public bool TryImport(GpuSurface surface, out GpuTexture luma, out GpuTexture chroma, out bool busy, out string words, out int slotIndex)
     {
         ArgumentNullException.ThrowIfNull(surface);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -339,6 +351,7 @@ public sealed unsafe class DmaBufImporter : IDisposable
         chroma = null!;
         busy = false;
         words = "";
+        slotIndex = -1;
         Collect();
         if (surface.Api != GpuApi.DmaBuf || surface.PlaneCount != 2)
         {
@@ -385,32 +398,37 @@ public sealed unsafe class DmaBufImporter : IDisposable
         }
         slot.LumaImage = lumaImage;
         slot.ChromaImage = chromaImage;
+        // Held now, while the lease that carried the surface is alive: its producer cannot reuse it before the GPU read it.
+        surface.Retain();
+        slot.Surface = surface;
+        slot.Fence = 0;
+        slot.Pending = true;
         _current = index;
+        slotIndex = index;
         luma = slot.Luma;
         chroma = slot.Chroma;
         return true;
     }
 
-    /// <summary>After the frame's last read of the imported planes was recorded: holds the surface until the GPU has done it.</summary>
-    public void Retain(GpuSurface surface)
+    /// <summary>At the submit of the frame that imported into <paramref name="slot"/>: the fence its hold waits for (after every read
+    /// the frame recorded of the planes). A slot fenced already, or holding nothing, is left as it is.</summary>
+    public void Fence(int slot)
     {
-        ArgumentNullException.ThrowIfNull(surface);
-        if (_current < 0)
-            return;
-        ref var slot = ref _slots[_current];
-        surface.Retain();
-        slot.Surface = surface;
-        slot.Fence = _device.InsertFence();
-        slot.Pending = true;
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, Slots);
+        ref var s = ref _slots[slot];
+        if (s.Pending && s.Fence == 0)
+            s.Fence = _device.InsertFence();
     }
 
-    /// <summary>Lets go of every surface whose reads have completed (destroying its images). Never waits.</summary>
+    /// <summary>Lets go of every surface whose reads have completed (destroying its images); a hold whose frame is not yet submitted
+    /// (no fence) stays. Never waits.</summary>
     public void Collect()
     {
         for (var i = 0; i < Slots; i++)
         {
             ref var slot = ref _slots[i];
-            if (!slot.Pending || !_device.IsSignaled(slot.Fence))
+            if (!slot.Pending || slot.Fence == 0 || !_device.IsSignaled(slot.Fence))
                 continue;
             _device.DeleteFence(slot.Fence);
             slot.Fence = 0;
@@ -483,13 +501,16 @@ public sealed unsafe class DmaBufImporter : IDisposable
         return new string(c).TrimEnd();
     }
 
-    /// <summary>Lets go of every surface (after the GPU finished with them: render thread, at the set's end) and deletes the textures.</summary>
+    /// <summary>Lets go of every surface and deletes the textures (render thread). Holds still in flight are waited for first (the
+    /// device's own end); an importer that holds nothing (<see cref="Held"/> 0: every read completed) goes without waiting.</summary>
     public void Dispose()
     {
         if (_disposed)
             return;
         _disposed = true;
-        _device.Finish();
+        Collect();
+        if (Held > 0)
+            _device.Finish();
         for (var i = 0; i < Slots; i++)
         {
             ref var slot = ref _slots[i];

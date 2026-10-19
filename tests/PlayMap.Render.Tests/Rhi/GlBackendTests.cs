@@ -382,8 +382,11 @@ public sealed class GlBackendTests(BackendFixture backends)
             var surface = new GpuSurface { Api = GpuApi.OpenGl, Width = 16, Height = 16 };
             Assert.False(importer.CanImport(surface, out var words));
             Assert.Equal("this renderer imports no OpenGl frames", words);
-            Assert.False(importer.TryImport(surface, out _, out var tried));
-            Assert.Equal(words, tried);
+            using (var import = importer.OpenImport())
+            {
+                Assert.False(import.TryImport(surface, out _, out var tried));
+                Assert.Equal(words, tried);
+            }
             var dmabuf = new GpuSurface { Api = GpuApi.DmaBuf, Width = 16, Height = 16 };
             var expected = DmaBufImporter.ForCurrentContext(c.Device, out var why);
             using (expected)

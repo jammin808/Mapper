@@ -20,10 +20,11 @@ namespace PlayMap.Render.Video;
 /// A block format this device cannot sample is refused with the device's words (<see cref="Refusal"/>, and a
 /// NotSupportedException), never shown as a black frame.
 ///
-/// A lease with a GPU surface (a hardware decoder's own picture) is not uploaded: its planes are imported by the device's importer
-/// (<see cref="IGpuDevice.Importer"/>: dmabuf EGLImages on Linux, ANGLE plane images of the D3D11 texture on Windows) and converted
-/// by the same `yuv` pass, cropped to the visible size when the planes carry the decoder's padding. The importer holds the surface
-/// past the lease until the GPU has read it. An import that fails keeps the last picture on the GPU (never a black frame), the
+/// A lease with a GPU surface (a hardware decoder's own picture) is not uploaded: its planes are imported through the set's own
+/// import from the device's importer (<see cref="IGpuDevice.Importer"/>: dmabuf EGLImages on Linux, ANGLE plane images of the D3D11
+/// texture on Windows; another set of the same source imports through its own) and converted by the same `yuv` pass, cropped to the
+/// visible size when the planes carry the decoder's padding. The import holds the surface from the moment it is imported, while the
+/// lease is alive, until the GPU has read it. An import that fails keeps the last picture on the GPU (never a black frame), the
 /// importer tells the share the source's import failed (the source then steps down the ladder and sends its next frame through
 /// memory), and the set says why (<see cref="Refusal"/>).
 ///
@@ -38,6 +39,7 @@ public sealed class VideoTextureSet : IDisposable
     private readonly ProgramId _yuv;
     private readonly ProgramId _hap;
     private PackedUnpack? _packed;
+    private ITextureImport? _import;
     private readonly GpuTexture?[] _planes = new GpuTexture?[3];
     private RenderTarget? _converted;
     private bool _imported;
@@ -250,7 +252,8 @@ public sealed class VideoTextureSet : IDisposable
     /// (the last picture holds) when the import failed or every import slot is still in flight.</summary>
     private bool UpdateSurface(ICommandList list, VideoFrameLease lease, GpuSurface surface)
     {
-        if (!_device.Importer.TryImport(surface, out var planes, out var words))
+        _import ??= _device.Importer.OpenImport();
+        if (!_import.TryImport(surface, out var planes, out var words))
         {
             if (words is not null)
             {
@@ -456,6 +459,8 @@ public sealed class VideoTextureSet : IDisposable
         if (_disposed)
             return;
         DisposeTextures();
+        _import?.Dispose();
+        _import = null;
         _disposed = true;
     }
 }

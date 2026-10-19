@@ -231,7 +231,7 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         ThrowIfDisposed();
         if (_list.IsOpen)
             throw new InvalidOperationException("The last frame's list was not submitted: every BeginFrame ends with its Submit.");
-        _importer.Collect(frame);
+        _importer.Collect();
         PumpMakes(frame);
         SweepReleases();
         _pipelines.Pump();
