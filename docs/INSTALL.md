@@ -8,18 +8,18 @@
 PlayMap installs per machine with one installer, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned.exe`, an EXE built by Inno
 Setup 7.1: the owner's choice for this round. An MSI is revisited next round. Beside an MSI, this EXE gives up the automatic undo of
 service and registry changes (the order under Upgrades and Uninstall stands in for it), repair, and `msiexec` for IT departments.
-The plan names an MSI built by the WiX toolset compiled from its MS-RL source (`docs/round3/PLAN.md` D6); M17's answer on the runner
-is that WiX v7.0.0's pinned source does not build on windows-2025. Its native parts need Visual Studio's v143 C++ tools; the
-runner's Visual Studio 2026 carries v145 only, its installer adds none of the v143 components (it exits having added none), and the
-build stops at MSB8020, the v143 build tools not found, in its first minute, before any licence check runs. The source checks its
-licence in three places — `wix.exe`'s command line, the SDK target's WIX7015, and the `CheckLicenseAcceptance.targets` every
-extension package carries — and WiX's own build sets `AcceptEula` for itself. PlayMap never passes that gesture and patches none of
-it. The installer shows a licence page (below), runs elevated once and does every machine-level action through the supervisor's own
-commands, so the engine itself never runs as administrator:
+`docs/round3/PLAN.md` D6 names Inno Setup this round; the plan's MSI (`docs/round3/design/installer.md` §1a–§4) is kept for next
+round. M17's answer on the runner is that WiX v7.0.0's pinned source does not build on windows-2025. Its native parts need Visual
+Studio's v143 C++ tools; the runner's Visual Studio 2026 carries v145 only, its installer adds none of the v143 components (it exits
+having added none), and the build stops at MSB8020, the v143 build tools not found, in its first minute, before any licence check
+runs. The source checks its licence in three places — `wix.exe`'s command line, the SDK target's WIX7015, and the
+`CheckLicenseAcceptance.targets` every extension package carries — and WiX's own build sets `AcceptEula` for itself. PlayMap never
+passes that gesture and patches none of it. The installer shows a licence page (below), runs elevated once and does every
+machine-level action through the supervisor's own commands, so the engine itself never runs as administrator:
 
 | Where | What |
 |---|---|
-| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe; `licence.txt` (the terms the licence page shows), `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, and `SHA256SUMS` of every file laid down |
+| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe; `licence.txt` (the terms the licence page shows), `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, `licenses\` (the licence and notice files of the packages the publish comes from, the .NET runtime's among them), and `SHA256SUMS` of every file laid down |
 | `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, replaceable files (the same hash-pinned build every decode test on CI loads), with the build's `LICENSE.txt` (the LGPL version 3) and `GPL-3.0.txt` |
 | `…\D3D12\` | the Agility SDK's `D3D12Core.dll`, under Microsoft's terms the licence page shows (its debug layer and `d3dconfig.exe` are left out) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the supervisor |
@@ -37,11 +37,11 @@ reservation is made: the node binds its own sockets.
 PlayMap's own terms, which the owner has not named yet and which states none; Microsoft's licence terms for the DirectX Agility SDK,
 copied verbatim from the pinned `Microsoft.Direct3D.D3D12` package's `LICENSE.txt`, as the terms the person agrees to for
 `D3D12Core.dll`; and where the other components' notices and licence texts are in the install. The install keeps the terms as
-`C:\Program Files\PlayMap\licence.txt`. A quiet install (`/VERYSILENT`) accepts the terms on its command line: an organisation
-that deploys PlayMap quietly accepts them for its users.
+`C:\Program Files\PlayMap\licence.txt`. A quiet install (`/SILENT` or `/VERYSILENT`) shows no page, so it must pass
+`/ACCEPTTERMS=yes`: without it the installer refuses with words and lays nothing down.
 
-Install quietly with `PlayMap-….exe /VERYSILENT /SUPPRESSMSGBOXES /SHOWUSER=<computer>\show /LOG=install.log`, which accepts the
-licence page's terms. The installer:
+Install quietly with `PlayMap-….exe /VERYSILENT /SUPPRESSMSGBOXES /ACCEPTTERMS=yes /SHOWUSER=<computer>\show /LOG=install.log`;
+read `licence.txt`'s terms first (an install with its page shows them). The installer:
 
 - refuses Windows builds older than 26100 (Windows 11 24H2), with the build it found;
 - refuses an older build over a newer one ("PlayMap 0.2.17 is newer than this installer's 0.2.12: uninstall it first to go back")
@@ -164,9 +164,13 @@ built it: the sums sit on the same page as the files, so whoever could change on
 nothing verifies an update automatically.
 
 **The portable folder.** The Windows job's portable artifact, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned`, is the
-exe's publish with its `SHA256SUMS`. It carries no file of the Agility SDK (no `D3D12Core.dll`, `d3d12SDKLayers.dll` or
+exe's publish with its `SHA256SUMS`. Beside the files it carries the notices they ask for, as the installer lays them down:
+`THIRD-PARTY-NOTICES.md`, `soft_oal-LICENSE.txt` beside OpenAL Soft's `soft_oal.dll`, and `licenses\` with the licence and notice
+files of the packages the publish comes from (ANGLE's among them); the job stops when the publish carries a package
+`THIRD-PARTY-NOTICES.md` does not name. It carries no file of the Agility SDK (no `D3D12Core.dll`, `d3d12SDKLayers.dll` or
 `d3dconfig.exe`), so no licence page and no Microsoft terms come with it; the job lists those files on every build, says in its
-summary that there are none, and stops if one appears.
+summary that there are none, and stops if one appears. It carries no FFmpeg either: its engine loads the shared libraries a person
+puts in place.
 
 **Checking an install.** The installer's artifact carries `SHA256SUMS.payload` beside its `SHA256SUMS`: the sums of every file the
 installer lays down, which the install keeps as `C:\Program Files\PlayMap\SHA256SUMS`. `Get-FileHash` of an installed file matches
@@ -217,21 +221,25 @@ where Windows Update installs drivers with the monthly update, `MACHINE LOCK` ob
 ## What is proven, and where
 
 CI's installer job (windows-2025, elevated) builds the installer and the one numbered a build before it, then: the licence page,
-read back from the built installer, shows the terms — their heading first, Microsoft's DISTRIBUTABLE CODE section on it, decoded as
-UTF-8 — before Inno Setup lays anything down, and the install keeps them byte for byte; the launch condition refuses build 22631;
+read back from the built installer, holds the terms — their heading first, Microsoft's DISTRIBUTABLE CODE section on it, decoded as
+UTF-8 — before Inno Setup lays anything down, and the install keeps them byte for byte; a quiet install without `/ACCEPTTERMS=yes`
+(`/VERYSILENT`, `/SILENT`, or another value) is refused with words and lays nothing down; the launch condition refuses build 22631;
 fake engines (run as `PlayMap.exe engine`) stop the install armed and silent, and the uninstall armed; the earlier build installs
-and lays the files, each matching its line in `SHA256SUMS`, with the notices and licence texts, the service with its recovery
-actions, the firewall rules on the private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the show user's
-write access to `dumps\` and `supervisor\`, the show user's account right and the install's key; this build upgrades it with Smart
-App Control evaluating and keeps the node's data; the earlier build is refused as a downgrade; a folder other than Program Files, a
-show user Windows cannot find (exit 3, the machine left unsupervised), an upgrade while another program runs from the install, and
-an upgrade that cannot replace a file (the earlier service running again) each end as this guide says; `stop` holds the engine and
-`resume` starts it again, and the show user may only wait on the stop event; a standard account runs the installed engine and serves
-HTTP on 9940 with no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every
-machine-level action back, the account right read back with `rights`; a pid record naming a process that is not the engine ends
-nothing; the artifact's `SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned
-Agility SDK package, its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte. The
-Windows job finds no Agility SDK file in the portable folder. No lab ran this round: a real IoT Enterprise LTSC node with
+and lays the files, each matching its line in `SHA256SUMS`, with the notices and licence texts (the runtime's, SkiaSharp's and ONNX
+Runtime's third-party notices under `licenses\` among them), the service with its recovery actions, the firewall rules on the
+private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the show user's write access to `dumps\` and
+`supervisor\`, the show user's account right and the install's key; this build upgrades it with Smart App Control evaluating and
+keeps the node's data; the earlier build is refused as a downgrade; a folder other than Program Files, a show user Windows cannot
+find (exit 3, the machine left unsupervised), an upgrade while another program runs from the install, and an upgrade that cannot
+replace a file (the earlier service running again) each end as this guide says; `stop` holds the engine and `resume` starts it
+again, and the show user may only wait on the stop event; a standard account runs the installed engine and serves HTTP on 9940 with
+no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every machine-level action back,
+the account right read back with `rights`; a pid record naming a process that is not the engine ends nothing; the artifact's
+`SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned Agility SDK package,
+its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte; on both jobs it finds
+nothing in `PlayMap.iss` that skips the licence page or answers it (no `ShouldSkipPage`, no change to its choices, no licence file
+named but [Setup]'s), and every package the publish's restore carries named in `THIRD-PARTY-NOTICES.md`. The Windows job finds no
+Agility SDK file in the portable folder, and lays the notices into it. No lab ran this round: a real IoT Enterprise LTSC node with
 auto-logon, the supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the
 unsigned installer on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23; their scripts are in
 `docs/round3/lab/`) are not run.
