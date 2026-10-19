@@ -7,12 +7,15 @@ using PlayMap.Supervisor.Install;
 namespace PlayMap.Supervisor.Tests.Install;
 
 /// <summary>The installer's armed check fails closed: the decision is pure, and the look runs against fake engines on loopback (a pid
-/// record naming this test process, a listener answering as the engine would): no engine process → go on; an engine answering armed
-/// → refused with its words; disarmed → go on; an engine process alive but silent → refused, naming its pid; a pid record whose
-/// process is gone → go on.</summary>
+/// record naming this test process, which the look is told is the engine, and a listener answering as the engine would): no engine
+/// process → go on; an engine answering armed → refused with its words; disarmed → go on; an engine process alive but silent →
+/// refused, naming its pid; a pid record whose process is gone, or whose process is not PlayMap's engine, → go on.</summary>
 public sealed class PreinstallCheckTests
 {
     private static readonly TimeSpan Quick = TimeSpan.FromMilliseconds(400);
+
+    /// <summary>The fakes declare themselves: the record names this test process, which the look takes for the engine.</summary>
+    private static bool Declared(EnginePidRecord record) => record.Pid == Environment.ProcessId;
 
     [Fact]
     public void TheDecisionIsPure()
@@ -44,7 +47,7 @@ public sealed class PreinstallCheckTests
     public async Task NoEngineProcessGoesOn()
     {
         using var folder = new Folder();
-        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Quick);
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Declared, Quick);
         Assert.Equal(EngineFinding.NoEngine, facts.Finding);
         Assert.True(PreinstallCheck.Decide(facts, TimeZoneInfo.Utc).GoOn);
     }
@@ -54,8 +57,21 @@ public sealed class PreinstallCheckTests
     {
         using var folder = new Folder();
         Assert.True(new EnginePidRecord(2_147_480_000, 9941, 1).TryWrite(folder.Path));
-        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Quick);
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, EngineIdentity.NamesRunningEngine, Quick);
         Assert.Equal(EngineFinding.NoEngine, facts.Finding);
+    }
+
+    [Fact]
+    public async Task ARecordWhosePidIsAliveButIsNotTheEngineGoesOn()
+    {
+        // The record names this test process, which is no PlayMap engine, and a listener that would answer armed: the record is passed
+        // over, so nothing it names is asked, and with no engine found the install goes on.
+        using var folder = new Folder();
+        await using var engine = FakeEngine.Answering("{\"armed\":true,\"by\":\"Desk\",\"since\":1,\"words\":\"armed\"}");
+        Assert.True(new EnginePidRecord(Environment.ProcessId, engine.Port, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(folder.Path));
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, EngineIdentity.NamesRunningEngine, Quick);
+        Assert.Equal(new PreinstallFacts(EngineFinding.NoEngine, 0, "", 0), facts);
+        Assert.Equal(0, engine.Asked);
     }
 
     [Fact]
@@ -65,7 +81,7 @@ public sealed class PreinstallCheckTests
         var since = new DateTimeOffset(2026, 10, 19, 20, 31, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
         await using var engine = FakeEngine.Answering($"{{\"armed\":true,\"by\":\"Desk\",\"since\":{since},\"words\":\"armed\"}}");
         Assert.True(new EnginePidRecord(Environment.ProcessId, engine.Port, 1).TryWrite(folder.Path));
-        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, TimeSpan.FromSeconds(5));
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Declared, TimeSpan.FromSeconds(5));
         Assert.Equal(new PreinstallFacts(EngineFinding.Armed, Environment.ProcessId, "Desk", since), facts);
         var verdict = PreinstallCheck.Decide(facts, TimeZoneInfo.Utc);
         Assert.False(verdict.GoOn);
@@ -80,7 +96,7 @@ public sealed class PreinstallCheckTests
         using var folder = new Folder();
         await using var engine = FakeEngine.Answering("{\"armed\":false,\"by\":\"\",\"since\":0}");
         Assert.True(new EnginePidRecord(Environment.ProcessId, engine.Port, 1).TryWrite(folder.Path));
-        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, TimeSpan.FromSeconds(5));
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Declared, TimeSpan.FromSeconds(5));
         Assert.Equal(EngineFinding.Disarmed, facts.Finding);
         Assert.True(PreinstallCheck.Decide(facts, TimeZoneInfo.Utc).GoOn);
     }
@@ -91,7 +107,7 @@ public sealed class PreinstallCheckTests
         using var folder = new Folder();
         await using var engine = FakeEngine.Silent();
         Assert.True(new EnginePidRecord(Environment.ProcessId, engine.Port, 1).TryWrite(folder.Path));
-        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Quick);
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Declared, Quick);
         Assert.Equal(new PreinstallFacts(EngineFinding.Silent, Environment.ProcessId, "", 0), facts);
         var verdict = PreinstallCheck.Decide(facts, TimeZoneInfo.Utc);
         Assert.False(verdict.GoOn);
@@ -104,7 +120,7 @@ public sealed class PreinstallCheckTests
         using var folder = new Folder();
         // A port nothing listens on: the connection is refused, which is silence.
         var port = FreePort();
-        var facts = await PreinstallCheck.LookAsync(folder.Path, () => (Environment.ProcessId, port), Quick);
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => (Environment.ProcessId, port), Declared, Quick);
         Assert.Equal(EngineFinding.Silent, facts.Finding);
         Assert.False(PreinstallCheck.Decide(facts, TimeZoneInfo.Utc).GoOn);
     }
@@ -115,7 +131,7 @@ public sealed class PreinstallCheckTests
         using var folder = new Folder();
         await using var engine = FakeEngine.Refusing("not paired: this client holds no pairing");
         Assert.True(new EnginePidRecord(Environment.ProcessId, engine.Port, 1).TryWrite(folder.Path));
-        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, TimeSpan.FromSeconds(5));
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Declared, TimeSpan.FromSeconds(5));
         Assert.Equal(new PreinstallFacts(EngineFinding.Refused, Environment.ProcessId, "", 0, "not paired: this client holds no pairing"), facts);
         var verdict = PreinstallCheck.Decide(facts, TimeZoneInfo.Utc);
         Assert.False(verdict.GoOn);

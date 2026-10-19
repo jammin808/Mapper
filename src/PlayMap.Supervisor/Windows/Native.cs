@@ -1,10 +1,12 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Win32.SafeHandles;
 
 namespace PlayMap.Supervisor.Windows;
 
 /// <summary>The few Windows calls the supervisor makes: the console session and its user's token, a process started in that session,
-/// the account rights of the show user, and a process's command line. Thin: the logic around them is in their callers.</summary>
+/// the account rights of the show user, and what a process is (its image, start, command line, user, session and parent) read, waited
+/// on and ended through its handle. Thin: the logic around them is in their callers.</summary>
 [SupportedOSPlatform("windows")]
 internal static partial class Native
 {
@@ -16,6 +18,10 @@ internal static partial class Native
     public const int WtsUserName = 5;
     public const uint PolicyCreateAccount = 0x10;
     public const uint PolicyLookupNames = 0x800;
+    public const uint TokenQuery = 0x0008;
+    public const int TokenUser = 1;
+    public const int TokenSessionId = 12;
+    public const int ProcessBasicInformation = 0;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct StartupInfo
@@ -64,9 +70,43 @@ internal static partial class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool CloseHandle(nint handle);
 
+    [LibraryImport("kernel32.dll", EntryPoint = "OpenProcess", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial SafeProcessHandle OpenProcessHandle(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, int pid);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, nint name, ref int size);
+
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    public static partial nint OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, int pid);
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetProcessTimes(SafeProcessHandle process, out long creation, out long exit, out long kernel, out long user);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial uint WaitForSingleObject(SafeProcessHandle handle, uint milliseconds);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool TerminateProcess(SafeProcessHandle process, uint exitCode);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool ProcessIdToSessionId(int pid, out uint session);
+
+    [LibraryImport("advapi32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool OpenProcessToken(SafeProcessHandle process, uint access, out nint token);
+
+    [LibraryImport("advapi32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetTokenInformation(nint token, int infoClass, nint buffer, int length, out int returned);
 
     [LibraryImport("wtsapi32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -122,5 +162,5 @@ internal static partial class Native
 
     [LibraryImport("ntdll.dll")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    public static partial int NtQueryInformationProcess(nint process, int infoClass, nint buffer, int length, out int returned);
+    public static partial int NtQueryInformationProcess(SafeProcessHandle process, int infoClass, nint buffer, int length, out int returned);
 }

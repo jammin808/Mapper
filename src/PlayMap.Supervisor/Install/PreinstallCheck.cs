@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Machine;
@@ -93,14 +92,17 @@ public static class PreinstallCheck
         }
     }
 
-    /// <summary>Looks on this machine: the pid record in <paramref name="supervisorFolder"/>, then any engine process
-    /// <paramref name="findEngine"/> names (the installed exe run as an engine); a live one is asked SHOW on loopback.</summary>
-    public static async Task<PreinstallFacts> LookAsync(string supervisorFolder, Func<(int Pid, int Port)?> findEngine, TimeSpan answerTime,
-        CancellationToken ct = default)
+    /// <summary>Looks on this machine: the pid record in <paramref name="supervisorFolder"/> when <paramref name="isEngine"/> holds
+    /// that it names a running engine (<see cref="EngineIdentity.NamesRunningEngine"/>: a record the show user wrote naming another
+    /// process is passed over), then any engine process <paramref name="findEngine"/> names (PlayMap.exe run as an engine); a live
+    /// one is asked SHOW on loopback.</summary>
+    public static async Task<PreinstallFacts> LookAsync(string supervisorFolder, Func<(int Pid, int Port)?> findEngine,
+        Func<EnginePidRecord, bool> isEngine, TimeSpan answerTime, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(findEngine);
+        ArgumentNullException.ThrowIfNull(isEngine);
         int pid = 0, port = DefaultWirePort;
-        if (Directory.Exists(supervisorFolder) && EnginePidRecord.Named(supervisorFolder) is { } record && IsAlive(record.Pid))
+        if (Directory.Exists(supervisorFolder) && EnginePidRecord.Named(supervisorFolder) is { } record && isEngine(record))
         {
             pid = record.Pid;
             port = record.WirePort > 0 ? record.WirePort : DefaultWirePort;
@@ -119,27 +121,5 @@ public static class PreinstallCheck
             { Ok: false } => new PreinstallFacts(EngineFinding.Refused, pid, "", 0, answer.Payload),
             _ => new PreinstallFacts(EngineFinding.Silent, pid, "", 0),
         };
-    }
-
-    /// <summary>Whether a process of that id runs. One this process may not look at is read as running: the check fails closed.</summary>
-    public static bool IsAlive(int pid)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(pid);
-            return !process.HasExited;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return true;
-        }
     }
 }

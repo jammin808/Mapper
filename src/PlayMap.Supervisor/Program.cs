@@ -91,25 +91,26 @@ public static class Program
 
     private static async Task<int> PreinstallCheckAsync(Action<string> say)
     {
-        var facts = await PreinstallCheck.LookAsync(EnginePidRecord.MachineFolder(), FindEngine, PreinstallCheck.AnswerTime).ConfigureAwait(false);
+        var facts = await PreinstallCheck.LookAsync(EnginePidRecord.MachineFolder(), FindEngine, EngineIdentity.NamesRunningEngine,
+            PreinstallCheck.AnswerTime).ConfigureAwait(false);
         var verdict = PreinstallCheck.Decide(facts, TimeZoneInfo.Local);
         say(verdict.Words);
         return verdict.GoOn ? Done : PreinstallVerdict.RefusedExit;
     }
 
-    /// <summary>An engine running from the installed exe (a process named PlayMap whose command line runs it as the engine), with no
-    /// port known: the check asks it on the default wire port.</summary>
+    /// <summary>An engine running on this machine (a process named PlayMap whose command line runs it as the engine), with no port
+    /// known: the check asks it on the default wire port.</summary>
     private static (int Pid, int Port)? FindEngine()
     {
         if (!OperatingSystem.IsWindows())
             return null;
-        foreach (var p in Process.GetProcessesByName("PlayMap"))
+        foreach (var p in Process.GetProcessesByName(EngineIdentity.ImageName))
         {
             using (p)
             {
-                var line = SessionLauncher.CommandLineOf(p.Id);
+                var facts = EngineProcess.ReadFacts(p.Id);
                 // A process whose command line cannot be read may be an engine: the check fails closed.
-                if (line.Length == 0 || line.Contains(" engine", StringComparison.OrdinalIgnoreCase))
+                if (facts.Exists && (facts.CommandLine.Length == 0 || EngineIdentity.IsEngineLine(facts.CommandLine)))
                     return (p.Id, 0);
             }
         }
@@ -130,7 +131,7 @@ public static class Program
                 return Done;
             case "uninstall":
                 MachineSetup.StopService(say);
-                StopEngine(say);
+                _ = StopEngine(say);
                 MachineSetup.Uninstall(showUser, say);
                 return Done;
             case "grant" when args.Count == 2:
@@ -180,8 +181,7 @@ public static class Program
                     say(status is null ? "the supervisor is not running and has written no status" : "the supervisor is not running; its last status: " + status.ToJson());
                     return status is null ? Refused : Done;
                 case "stop":
-                    StopEngine(say);
-                    return Done;
+                    return StopEngine(say) is EngineStop.Failed or EngineStop.NotTheEngine ? Refused : Done;
                 default:
                     say("the supervisor is not running: there is nothing to resume (start the service PlayMapSupervisor)");
                     return Refused;
@@ -189,35 +189,10 @@ public static class Program
         }
     }
 
-    /// <summary>Stops the engine the pid record names: the service holds it when it runs; otherwise the stop event, the grace, then
-    /// termination.</summary>
+    /// <summary>Stops the engine this machine's pid record names, when it is the installed engine (<see cref="EngineStopper"/>).</summary>
     [SupportedOSPlatform("windows")]
-    private static void StopEngine(Action<string> say)
-    {
-        var folder = EnginePidRecord.MachineFolder();
-        if (Directory.Exists(folder) && EnginePidRecord.Named(folder) is { } record && PreinstallCheck.IsAlive(record.Pid))
-        {
-            if (EventWaitHandle.TryOpenExisting(MachinePlan.StopEvent, out var stop))
-            {
-                using (stop)
-                    stop.Set();
-            }
-            using var process = Process.GetProcessById(record.Pid);
-            if (!process.WaitForExit(5000))
-            {
-                SupervisorService.Terminate(record.Pid);
-                say(string.Create(CultureInfo.InvariantCulture, $"the engine (pid {record.Pid}) did not stop within 5 s and was terminated"));
-            }
-            else
-            {
-                say(string.Create(CultureInfo.InvariantCulture, $"the engine (pid {record.Pid}) stopped"));
-            }
-        }
-        else
-        {
-            say("no supervised engine runs");
-        }
-    }
+    private static EngineStop StopEngine(Action<string> say) =>
+        EngineStopper.Stop(EnginePidRecord.MachineFolder(), SupervisorHost.InstallValue("InstallDir"), MachinePlan.StopEvent, say);
 
     /// <summary>The command line less its <c>--out &lt;file&gt;</c>, which every command takes.</summary>
     private static List<string> WithoutOut(IReadOnlyList<string> args)

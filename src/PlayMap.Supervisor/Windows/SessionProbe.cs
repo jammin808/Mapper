@@ -27,16 +27,10 @@ public static class SessionProbe
         try
         {
             var exe = Environment.ProcessPath ?? throw new InvalidOperationException("this process has no path");
-            var pid = SessionLauncher.Start(s, exe, "report-session --out \"" + report + "\"");
-            say(string.Create(CultureInfo.InvariantCulture, $"- WTSQueryUserToken and CreateProcessAsUser: a child started (pid {pid})"));
-            try
+            using (var child = SessionLauncher.Start(s, exe, "report-session --out \"" + report + "\""))
             {
-                using var child = Process.GetProcessById(pid);
-                child.WaitForExit(15000);
-            }
-            catch (ArgumentException)
-            {
-                // It ended before it was looked at: its report is read below.
+                say(string.Create(CultureInfo.InvariantCulture, $"- WTSQueryUserToken and CreateProcessAsUser: a child started (pid {child.Pid})"));
+                child.WaitForExit(TimeSpan.FromSeconds(15));
             }
             say(File.Exists(report)
                 ? "- the child reports: " + File.ReadAllText(report).Trim()

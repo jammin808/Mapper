@@ -68,6 +68,13 @@ a device rebuild within its budget (30 s while the first good frame is unmeasure
 frames move. Its status (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install` and preflight's `install`
 section. Stopping the service leaves the engine running; the next supervisor adopts it.
 
+The engine's pid record (`%ProgramData%\PlayMap\supervisor\engine.pid`) sits in a folder the show user may write, so it only says
+which process to look at. The service adopts an engine it did not start only when that process is the installed `PlayMap.exe` run as
+the engine, as the show user, in the console session, started when its record was written (a pid another process took after a power
+cut fails here); any other record is removed, with the reason in `supervisor.log`. The elevated commands (`stop` with no service,
+`uninstall`, an upgrade) end only the installed engine the record names, through the handle opened when it was checked, and say so
+when the record names anything else. The armed check asks the engine a record names only when it is PlayMap's engine.
+
 | Command (elevated where it changes the machine) | Does |
 |---|---|
 | `PlayMap.Supervisor.exe status` | the supervisor's state, restarts and last cause |

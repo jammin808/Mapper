@@ -1,12 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Net;
-using System.Net.Sockets;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Win32;
-using PlayMap.Core.Machine;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
@@ -54,30 +50,29 @@ public sealed class InstallerTests
     }
 
     [Fact]
-    public async Task AnEngineAnsweringArmedStopsTheInstallWithItsWords()
+    public void AnEngineAnsweringArmedStopsTheInstallWithItsWords()
     {
         EnsureUninstalled();
         var since = DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds();
-        await using var engine = FakeEngine.Answering($"{{\"armed\":true,\"by\":\"Desk\",\"since\":{since},\"words\":\"armed\"}}");
-        using var record = PidRecord.Naming(engine.Port);
+        using var engine = FakeEngineProcess.Start("--answer", $"{{\"armed\":true,\"by\":\"Desk\",\"since\":{since},\"words\":\"armed\"}}",
+            "--record", SupervisorFolder());
         var run = Install(This);
         Assert.NotEqual(0, run.Exit);
         var at = TimeZoneInfo.ConvertTimeFromUtc(DateTimeOffset.FromUnixTimeMilliseconds(since).UtcDateTime, TimeZoneInfo.Local)
             .ToString("HH:mm", CultureInfo.InvariantCulture);
         Assert.Contains($"the show is armed on this node since {at} by Desk: disarm first", run.Log, StringComparison.Ordinal);
-        Assert.True(engine.Asked >= 1);
+        Assert.Contains("@pmsup SHOW STATUS", engine.Asked);
         Assert.Null(InstallKey());
     }
 
     [Fact]
-    public async Task AnEngineProcessThatNeverAnswersStopsTheInstallWithDoesNotAnswer()
+    public void AnEngineProcessThatNeverAnswersStopsTheInstallWithDoesNotAnswer()
     {
         EnsureUninstalled();
-        await using var engine = FakeEngine.Silent();
-        using var record = PidRecord.Naming(engine.Port);
+        using var engine = FakeEngineProcess.Start("--silent", "--record", SupervisorFolder());
         var run = Install(This);
         Assert.NotEqual(0, run.Exit);
-        Assert.Contains($"an engine is running here (pid {Environment.ProcessId}) but does not answer", run.Log, StringComparison.Ordinal);
+        Assert.Contains($"an engine is running here (pid {engine.Pid}) but does not answer", run.Log, StringComparison.Ordinal);
         Assert.Null(InstallKey());
     }
 
@@ -268,86 +263,12 @@ public sealed class InstallerTests
         return Convert.ToHexString(SHA256.HashData(stream));
     }
 
-    /// <summary>A pid record in the machine's supervisor folder naming this test process and a fake engine's port; removed after.</summary>
-    private sealed class PidRecord : IDisposable
+    /// <summary>The machine's supervisor folder, where a supervised engine writes its pid record (made when it is missing, as the
+    /// installer makes it).</summary>
+    private static string SupervisorFolder()
     {
-        private readonly string _folder = Path.Combine(MachineFolder, "supervisor");
-        private readonly EnginePidRecord _record;
-
-        private PidRecord(int port)
-        {
-            Directory.CreateDirectory(_folder);
-            _record = new EnginePidRecord(Environment.ProcessId, port, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            Assert.True(_record.TryWrite(_folder));
-        }
-
-        public static PidRecord Naming(int port) => new(port);
-
-        public void Dispose() => _record.TryRemove(_folder);
-    }
-
-    /// <summary>An engine on loopback as the installer's check meets it: it answers the line it is asked with <c>OK</c> and the line's
-    /// request id, or never answers.</summary>
-    private sealed class FakeEngine : IAsyncDisposable
-    {
-        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
-        private readonly CancellationTokenSource _stop = new();
-        private readonly Task _serving;
-
-        private FakeEngine(Func<string, string?> answer)
-        {
-            _listener.Start();
-            _serving = ServeAsync(answer, _stop.Token);
-        }
-
-        public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
-
-        public int Asked { get; private set; }
-
-        public static FakeEngine Answering(string payload) => new(line => "OK " + line.Split(' ')[0] + " " + payload);
-
-        public static FakeEngine Silent() => new(_ => null);
-
-        private async Task ServeAsync(Func<string, string?> answer, CancellationToken ct)
-        {
-            try
-            {
-                while (!ct.IsCancellationRequested)
-                {
-                    using var client = await _listener.AcceptTcpClientAsync(ct);
-                    var stream = client.GetStream();
-                    using var reader = new StreamReader(stream, Encoding.UTF8, false, 1024, leaveOpen: true);
-                    var line = await reader.ReadLineAsync(ct) ?? "";
-                    Asked++;
-                    if (answer(line) is { } reply)
-                        await stream.WriteAsync(Encoding.UTF8.GetBytes(reply + "\n"), ct);
-                    else
-                        await Task.Delay(Timeout.Infinite, ct);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // The test is done with this engine.
-            }
-            catch (IOException)
-            {
-                // The check hung up first.
-            }
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await _stop.CancelAsync();
-            _listener.Dispose();
-            try
-            {
-                await _serving;
-            }
-            catch (SocketException)
-            {
-                // The listener stopped under an accept.
-            }
-            _stop.Dispose();
-        }
+        var folder = Path.Combine(MachineFolder, "supervisor");
+        Directory.CreateDirectory(folder);
+        return folder;
     }
 }

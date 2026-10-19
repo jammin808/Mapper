@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Win32.SafeHandles;
 
 namespace PlayMap.Supervisor.Windows;
 
@@ -34,9 +35,9 @@ public static class SessionLauncher
     }
 
     /// <summary>Starts <paramref name="exe"/> with <paramref name="arguments"/> as the user of <paramref name="session"/>, in that
-    /// session, on its interactive desktop, with that user's environment; its process id. Throws with Windows' words when a call is
-    /// refused.</summary>
-    public static int Start(uint session, string exe, string arguments)
+    /// session, on its interactive desktop, with that user's environment: the process, held by the handle Windows gave it. Throws with
+    /// Windows' words when a call is refused.</summary>
+    public static EngineProcess Start(uint session, string exe, string arguments)
     {
         if (!Native.WTSQueryUserToken(session, out var token))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "WTSQueryUserToken refused session " + session.ToString(CultureInfo.InvariantCulture));
@@ -52,8 +53,7 @@ public static class SessionLauncher
                     environment, Path.GetDirectoryName(exe), ref startup, out var info))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcessAsUser refused " + exe);
             Native.CloseHandle(info.Thread);
-            Native.CloseHandle(info.Process);
-            return info.ProcessId;
+            return EngineProcess.Started(new SafeProcessHandle(info.Process, ownsHandle: true), info.ProcessId);
         }
         finally
         {
@@ -67,9 +67,14 @@ public static class SessionLauncher
     /// <summary>A process's command line ("" when it cannot be read: gone, or not this process's to read).</summary>
     public static string CommandLineOf(int pid)
     {
-        var process = Native.OpenProcess(Native.ProcessQueryLimitedInformation, false, pid);
-        if (process == 0)
-            return "";
+        using var process = Native.OpenProcessHandle(Native.ProcessQueryLimitedInformation, false, pid);
+        return process.IsInvalid ? "" : CommandLineOf(process);
+    }
+
+    /// <summary>The command line of the process <paramref name="process"/> holds ("" when it cannot be read).</summary>
+    public static string CommandLineOf(SafeProcessHandle process)
+    {
+        ArgumentNullException.ThrowIfNull(process);
         var buffer = Marshal.AllocHGlobal(64 * 1024);
         try
         {
@@ -83,7 +88,6 @@ public static class SessionLauncher
         finally
         {
             Marshal.FreeHGlobal(buffer);
-            Native.CloseHandle(process);
         }
     }
 }

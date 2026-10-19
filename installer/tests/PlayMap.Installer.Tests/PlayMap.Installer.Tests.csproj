@@ -23,6 +23,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\PlayMap.Core\PlayMap.Core.csproj" />
+    <!-- Built beside the tests and copied by them as PlayMap.exe: an engine the supervisor's identity rule takes for one. -->
+    <ProjectReference Include="..\PlayMap.FakeEngine\PlayMap.FakeEngine.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
