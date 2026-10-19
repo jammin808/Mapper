@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Text;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Mapping;
@@ -191,10 +190,10 @@ public sealed class DrawStateTests(GlFixture gl)
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            PlayMap.Core.Storage.DurableFile.WriteAllText(path, text);
         }
         Assert.True(File.Exists(path), "the frames' draw states are recorded: run this test once with PLAYMAP_WRITE_FIXTURES=1");
-        var want = File.ReadAllText(path).Split('\n');
+        var want = PlayMap.Core.Storage.DurableFile.ReadAllText(path).ReplaceLineEndings("\n").Split('\n');
         var got = text.Split('\n');
         for (var i = 0; i < Math.Min(want.Length, got.Length); i++)
             Assert.True(want[i] == got[i], $"draw line {i + 1}: recorded '{want[i]}', drawn '{got[i]}'");
