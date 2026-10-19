@@ -13,9 +13,12 @@ namespace PlayMap.Platform.Windows;
 /// honoured and its GPU scheduling class, each thread's claims by role, the high-resolution timer, keep-awake by a power request,
 /// the node's identity (OS edition and build, CPU, every adapter by LUID with its driver, its vendor tier and support level) and the
 /// machine's facts for preflight. Every claim answers what it asked, what Windows said and what reading it back shows; nothing on the
-/// machine is changed silently, and what a standard user cannot claim is a fact with words. Any thread.</summary>
+/// machine is changed silently, and what a standard user cannot claim is a fact with words. Every saved setting reaches it
+/// (<see cref="Use"/>): each thread's next claim, the next timer, keep-awake and the facts follow the settings in use. A thread claimed
+/// twice (two listeners fed by one capture thread) holds one claim, joined: its claims are the first's, and they revert when the last
+/// holder lets go. Any thread.</summary>
 [SupportedOSPlatform("windows")]
-public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
+public sealed unsafe class WindowsMachinePlatform : IMachinePlatform, IMachineReadBack
 {
     public const string PlatformWords =
         "Windows: the process's and each thread's claims, the high-resolution timer, keep-awake and the node's identity";
@@ -34,6 +37,7 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
     private string _adapterWords = "";
     private string _nvapiWords = "";
     private CapabilitySnapshot? _capabilities;
+    private PowerReading _power = PowerReading.Unread;
     private AwakeRequest? _awake;
     private int _awakeHolders;
 
@@ -50,7 +54,7 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
 
     public string Words => PlatformWords;
 
-    /// <summary>The settings the last process claim was made under.</summary>
+    /// <summary>The settings in use: the last process claim's, or the last handed to <see cref="Use"/>.</summary>
     public MachineSettings Settings
     {
         get
@@ -72,10 +76,26 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         lock (_gate)
         {
             _settings = settings;
+            _placement = null;
             _process = made;
-            _capabilities = null;
         }
+        // The capabilities read the process's claims (whether timer requests are honoured): read again here, on the claimant's thread,
+        // so no reader of them waits on the registry or the token.
+        Reread();
         return made;
+    }
+
+    /// <summary>Claims from now on under <paramref name="settings"/>: each thread's next claim (MMCSS, CPU sets, placed afresh), the
+    /// next timer (TIMER), the next keep-awake (AWAKE) and the facts follow them. The process's claims are made again only by
+    /// <see cref="ClaimProcess"/>.</summary>
+    public void Use(MachineSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        lock (_gate)
+        {
+            _settings = settings;
+            _placement = null;
+        }
     }
 
     private static Claim PriorityClass(nint process, uint asked, string word)
@@ -212,6 +232,8 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         return new RecordedTimer(_clock, _late);
     }
 
+    public string TimerMode(IDeadlineTimer timer) => timer is HighResolutionTimer ? "high" : "default";
+
     /// <summary>Keeps the display and the system awake while any holder holds it: one power request (display and system required)
     /// shared by every holder, cleared when the last lets go. Under AWAKE OFF nothing is held.</summary>
     public IDisposable KeepAwake()
@@ -236,6 +258,22 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         }
     }
 
+    public Claim? AwakeClaim
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_awakeHolders == 0 || _awake is not { } request)
+                    return null;
+                return request.Set ? new Claim(AwakeWhat, "on", true, "held", "") : new Claim(AwakeWhat, "on", false, "", request.Words);
+            }
+        }
+    }
+
+    /// <summary>Keep-awake's claim in STATE and preflight.</summary>
+    public const string AwakeWhat = "process.awake";
+
     private void LetGo()
     {
         lock (_gate)
@@ -259,15 +297,14 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         return identity;
     }
 
-    /// <summary>Reads the identity again (after a device change or a rebuild); the next <see cref="Identity"/> answers it.</summary>
+    /// <summary>Reads the identity again (after a device change or a rebuild), and the capabilities with it; the next
+    /// <see cref="Identity"/> answers it.</summary>
     public NodeIdentity RefreshIdentity()
     {
         var identity = ReadIdentity();
         lock (_gate)
-        {
             _identity = identity;
-            _capabilities = null;
-        }
+        Reread();
         return identity;
     }
 
@@ -297,19 +334,37 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         return new NodeIdentity(BuildInfo.Current, os, cpu, adapters, _runtimes());
     }
 
-    /// <summary>The platform's own probes, read once and again after the process's claims or the identity are made again.</summary>
+    /// <summary>The platform's own probes, read once and again where the process's claims or the identity are made again (on that
+    /// caller's thread), never on a reader's path once read.</summary>
     public CapabilitySnapshot Capabilities()
     {
         lock (_gate)
             if (_capabilities is not null)
                 return _capabilities;
-        var read = ReadCapabilities();
+        return Reread();
+    }
+
+    public PowerReading Power
+    {
+        get
+        {
+            lock (_gate)
+                return _power;
+        }
+    }
+
+    private CapabilitySnapshot Reread()
+    {
+        var (read, power) = ReadCapabilities();
         lock (_gate)
-            _capabilities ??= read;
+        {
+            _capabilities = read;
+            _power = power;
+        }
         return read;
     }
 
-    private CapabilitySnapshot ReadCapabilities()
+    private (CapabilitySnapshot Snapshot, PowerReading Power) ReadCapabilities()
     {
         var identity = Identity();
         string adapterWords, nvapiWords;
@@ -328,29 +383,26 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
             foreach (var c in _process)
                 if (c.What == "process.qos")
                     qos = c;
-        probes.Add(qos is { } claimed
-            ? new CapabilityProbe(MachineCapabilities.TimerResolutionHonoured, 0, claimed.Applied && claimed.Asked == "high",
-                claimed.Applied ? (claimed.Asked == "high" ? "" : "QoS is AUTO: Windows may ignore the timer requests of a hidden process") : claimed.Words, "")
-            : new CapabilityProbe(MachineCapabilities.TimerResolutionHonoured, 0, false, "no process claim has been made yet", ""));
-        return new CapabilitySnapshot(_unixMs(), probes.ToImmutable());
+        probes.Add(MachineCapabilities.TimerHonoured(qos));
+        return (new CapabilitySnapshot(_unixMs(), probes.ToImmutable()), WindowsReadings.Power());
     }
 
     public ImmutableArray<MachineFact> Facts()
     {
         MachineSettings settings;
-        ImmutableArray<Claim> claims;
         lock (_gate)
-        {
             settings = _settings;
-            claims = [.. _process, .. _threadClaims];
-        }
+        var claims = Claims;
         var networksRead = WindowsReadings.TryNetworks(Environment.ProcessPath ?? "", out var networks, out _);
+        var power = WindowsReadings.Power();
+        lock (_gate)
+            _power = power;
         var readings = new MachineReadings
         {
             Os = Identity().Os,
             Signed = WindowsReadings.Signed(Environment.ProcessPath),
             SmartAppControl = WindowsReadings.SmartAppControl(),
-            Power = WindowsReadings.Power(),
+            Power = power,
             ScreenSaver = WindowsReadings.ScreenSaver(),
             RebootPending = WindowsReadings.RebootPending(),
             RebootRead = true,
@@ -371,13 +423,14 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         return MachineRows.Build(readings, DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds(_unixMs()).UtcDateTime));
     }
 
-    /// <summary>The claims made so far: the process's, then each role's latest.</summary>
+    /// <summary>The claims made so far: the process's, keep-awake's while it is asked, then each role's latest.</summary>
     public ImmutableArray<Claim> Claims
     {
         get
         {
+            var awake = AwakeClaim;
             lock (_gate)
-                return [.. _process, .. _threadClaims];
+                return awake is { } a ? [.. _process, a, .. _threadClaims] : [.. _process, .. _threadClaims];
         }
     }
 
@@ -442,7 +495,8 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
 }
 
 /// <summary>A power request keeping the display and the system awake (<c>PowerCreateRequest</c>, display and system required): a
-/// handle any thread holds and clears, unlike a thread's execution state, which ends with the thread that set it.</summary>
+/// handle any thread holds and clears, unlike a thread's execution state, which ends with the thread that set it. Made even where Windows
+/// refuses it, so the refusal's words are kept: <see cref="Set"/> is whether both requests are in force.</summary>
 [SupportedOSPlatform("windows")]
 internal sealed unsafe class AwakeRequest : IDisposable
 {
@@ -450,25 +504,31 @@ internal sealed unsafe class AwakeRequest : IDisposable
 
     private nint _request;
 
-    private AwakeRequest(nint request, bool set)
+    private AwakeRequest(nint request, bool set, string words)
     {
         _request = request;
         Set = set;
+        Words = words;
     }
 
     public bool Set { get; }
 
-    public static AwakeRequest? TryCreate()
+    /// <summary>Why the request is not in force ("" when it is): Windows' words.</summary>
+    public string Words { get; }
+
+    public static AwakeRequest TryCreate()
     {
         fixed (char* reason = Reason)
         {
             var context = new ReasonContext(Native.PowerRequestContextVersion, Native.PowerRequestContextSimpleString, (nint)reason);
             var request = Native.PowerCreateRequest(context);
             if (request == 0 || request == -1)
-                return null;
-            var display = Native.PowerSetRequest(request, Native.PowerRequestDisplayRequired);
-            var system = Native.PowerSetRequest(request, Native.PowerRequestSystemRequired);
-            return new AwakeRequest(request, display && system);
+                return new AwakeRequest(0, false, "Windows made no power request: " + Native.LastErrorWords());
+            if (!Native.PowerSetRequest(request, Native.PowerRequestDisplayRequired))
+                return new AwakeRequest(request, false, "Windows refused the display-required request: " + Native.LastErrorWords());
+            if (!Native.PowerSetRequest(request, Native.PowerRequestSystemRequired))
+                return new AwakeRequest(request, false, "Windows refused the system-required request: " + Native.LastErrorWords());
+            return new AwakeRequest(request, true, "");
         }
     }
 

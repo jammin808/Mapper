@@ -46,6 +46,10 @@
         "path": "timer.waits"
       },
       {
+        "label": "Power plan",
+        "path": "powerPlan.name"
+      },
+      {
         "label": "GC while armed",
         "path": "gc.setting"
       },
@@ -57,7 +61,9 @@
     "actions": [
       "MACHINE STATUS",
       "PREFLIGHT QUICK",
+      "MACHINE SET QOS AUTO",
       "MACHINE SET QOS HIGH",
+      "MACHINE SET AWAKE OFF",
       "MACHINE SET AWAKE ON"
     ]
   },

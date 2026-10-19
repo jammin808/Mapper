@@ -214,7 +214,7 @@ public static class MachineRows
             }
             var after = $"{what} after {Number(minutes)} min on mains";
             rows.Add(awakeOn
-                ? new MachineFact(item, Light.Amber, Number(minutes) + " min", after + ": keep-awake holds it off only while an output is open; set it to never in Settings ▸ System ▸ Power & battery")
+                ? new MachineFact(item, Light.Amber, Number(minutes) + " min", after + ": keep-awake holds it off only while the project has an enabled display output; set it to never in Settings ▸ System ▸ Power & battery")
                 : new MachineFact(item, Light.Amber, Number(minutes) + " min", after + " and keep-awake is off", "MACHINE SET AWAKE ON"));
         }
     }

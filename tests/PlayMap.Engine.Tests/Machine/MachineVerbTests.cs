@@ -21,8 +21,10 @@ public sealed class MachineVerbTests
         var receipt = await rig.Ok("MACHINE SET GPU-PRIORITY REALTIME");
         Assert.Equal(("GPU-PRIORITY", "realtime", "normal", "now"), (receipt.GetProperty("word").GetString(), receipt.GetProperty("asked").GetString(),
             receipt.GetProperty("was").GetString(), receipt.GetProperty("applies").GetString()));
-        Assert.True(receipt.GetProperty("claim").GetProperty("applied").GetBoolean());
-        Assert.EndsWith("the direct queue asks for global realtime at the device's next start", receipt.GetProperty("words").GetString(), StringComparison.Ordinal);
+        var made = receipt.GetProperty("claim");
+        Assert.Equal(("process.gpuPriority", "realtime", true, "realtime", "green"), (made.GetProperty("what").GetString(), made.GetProperty("asked").GetString(),
+            made.GetProperty("applied").GetBoolean(), made.GetProperty("readBack").GetString(), made.GetProperty("light").GetString()));
+        Assert.Equal("realtime", rig.Platform.Asked[^1].GpuPriority);
         Assert.Equal("realtime", Assert.Single(rig.Saved).GpuPriority);
         var claim = rig.Machine().GetProperty("platform").GetProperty("claims").EnumerateArray().Single(c => c.GetProperty("what").GetString() == "process.gpuPriority");
         Assert.Equal(("realtime", true, "realtime"), (claim.GetProperty("asked").GetString(), claim.GetProperty("applied").GetBoolean(), claim.GetProperty("readBack").GetString()));
@@ -65,9 +67,12 @@ public sealed class MachineVerbTests
         Assert.Equal("auto", platform.GetProperty("settings").GetProperty("qos").GetString());
 
         var mmcss = await rig.Ok("MACHINE SET MMCSS OFF");
-        Assert.Equal(("next start", "MMCSS OFF is kept and applies from each claimed thread's next start"),
-            (mmcss.GetProperty("applies").GetString(), mmcss.GetProperty("words").GetString()));
+        Assert.Equal("next start", mmcss.GetProperty("applies").GetString());
         Assert.Equal(System.Text.Json.JsonValueKind.Null, mmcss.GetProperty("claim").ValueKind);
+        // The platform has the setting now: the next thread claimed joins no MMCSS task.
+        Assert.Equal("off", rig.Platform.Used[^1].Mmcss);
+        using (var render = rig.Recorded.ClaimThread(ThreadRole.Render))
+            Assert.DoesNotContain(render.Claims, c => c.What == "thread.render.mmcss");
         Assert.Equal(["auto", "off"], [rig.Saved[0].Qos, rig.Saved[1].Mmcss]);
         Assert.Equal("off", rig.Machine().GetProperty("platform").GetProperty("settings").GetProperty("mmcss").GetString());
         var journal = rig.Engine.Journal.Recent(10).Where(e => e.Kind == "machine").Select(e => e.Text).ToList();
@@ -117,6 +122,8 @@ public sealed class MachineVerbTests
         Assert.Equal("the node's settings could not be written: Access to the path 'playmap.node.json' is denied.", await refusing.Refused("MACHINE SET AWAKE OFF"));
         Assert.Equal("on", refusing.Node.Saved.Awake);
         Assert.Equal("on", refusing.Machine().GetProperty("platform").GetProperty("settings").GetProperty("awake").GetString());
+        // A write that failed reaches no platform.
+        Assert.All(refusing.Platform.Used, u => Assert.Equal("on", u.Awake));
     }
 
     [Fact]
@@ -127,7 +134,7 @@ public sealed class MachineVerbTests
         _ = rig.Recorded.ClaimProcess(MachineSettings.Default);
         var status = await rig.Ok("MACHINE");
         var words = status.GetProperty("words").GetString()!;
-        Assert.StartsWith("PlayMap 0.2.0 (build 17, abc1234) · Windows 11 IoT Enterprise LTSC 24H2 · build 26100.4061 · tier ltsc; 3 claims, 1 refused (process.priority: Windows refused it here); no driver set is locked",
+        Assert.StartsWith("PlayMap 0.2.0 (build 17, abc1234) · Windows 11 IoT Enterprise LTSC 24H2 · build 26100.4061 · tier ltsc; 4 claims, 1 refused (process.priority: Windows refused it here); no driver set is locked",
             words, StringComparison.Ordinal);
         Assert.Equal("windows", status.GetProperty("platform").GetString());
         Assert.Equal("ltsc", status.GetProperty("identity").GetProperty("os").GetProperty("tier").GetString());

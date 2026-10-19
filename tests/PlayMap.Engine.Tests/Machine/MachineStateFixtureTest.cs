@@ -8,7 +8,8 @@ namespace PlayMap.Engine.Tests.Machine;
 
 /// <summary>tests/fixtures/state/machine.json is the machine block's round-3 keys (identity, capabilities, platform, locked) from a
 /// scenario on a fake Windows node — IoT Enterprise LTSC 24H2, an RTX PRO, the runtimes filled by their owners, a render thread's claims,
-/// one claim refused, the driver set locked and then a driver changed — and machine.cards.json the cards the desk draws from them. This
+/// one claim refused, keep-awake held for the project's display output, a deadline timer made, the driver set locked and then a driver
+/// changed — and machine.cards.json the cards the desk draws from them. This
 /// test writes both (PLAYMAP_WRITE_FIXTURES=1) and otherwise checks the committed files are what the engine writes now; every card's
 /// path and fields resolve in the fixture and every action is a line of the catalogue.</summary>
 public sealed class MachineStateFixtureTest
@@ -30,8 +31,10 @@ public sealed class MachineStateFixtureTest
             ["fields"] = new JsonArray(Field("QoS", "settings.qos"), Field("Process", "settings.process"), Field("MMCSS", "settings.mmcss"),
                 Field("Timer", "timer.mode"), Field("Timer p99 (µs)", "timer.lateP99Us"), Field("Awake", "awake"), Field("CPU sets", "settings.cpuSets"),
                 Field("GPU priority", "settings.gpuPriority"), Field("Keep-awake", "settings.awake"), Field("Waits timed", "timer.waits"),
-                Field("GC while armed", "gc.setting"), Field("GC held", "gc.held")),
-            ["actions"] = new JsonArray("MACHINE STATUS", "PREFLIGHT QUICK", "MACHINE SET QOS HIGH", "MACHINE SET AWAKE ON"),
+                Field("Power plan", "powerPlan.name"), Field("GC while armed", "gc.setting"), Field("GC held", "gc.held")),
+            // Both values of each switch: the one the node has is refused with its words, the other is live.
+            ["actions"] = new JsonArray("MACHINE STATUS", "PREFLIGHT QUICK", "MACHINE SET QOS AUTO", "MACHINE SET QOS HIGH", "MACHINE SET AWAKE OFF",
+                "MACHINE SET AWAKE ON"),
         },
         new JsonObject
         {
@@ -131,6 +134,7 @@ public sealed class MachineStateFixtureTest
         rig.Platform.Refuse.Add("thread.render.priority");
         using (rig.Recorded.ClaimThread(ThreadRole.Render))
         using (rig.Recorded.ClaimThread(ThreadRole.Decode))
+        using (rig.Recorded.CreateTimer())
         {
             await rig.Ok("MACHINE LOCK");
             rig.Platform.Ident = MachineRig.Identity("591.44");

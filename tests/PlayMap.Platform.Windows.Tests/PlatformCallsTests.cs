@@ -33,15 +33,51 @@ public sealed class PlatformCallsTests
 
     private static string Row(Claim c) => $"| {c.What} | {c.Asked} | {(c.Applied ? "applied" : "refused")} | {c.ReadBack} | {c.Words} |";
 
+    /// <summary>The words a refusal of each claim starts with: Windows' own answer, named.</summary>
+    private static readonly (string Suffix, string[] Words)[] Refusals =
+    [
+        ("process.priority", ["Windows refused the priority class: "]),
+        ("process.qos", ["Windows refused the power throttling state: "]),
+        ("process.gpuPriority", ["Windows refused the GPU scheduling class (", PlatformPolicy.RealtimeWithoutPrivilegeWords]),
+        ("process.awake", ["Windows made no power request: ", "Windows refused the display-required request: ", "Windows refused the system-required request: "]),
+        (".priority", ["Windows refused the priority: "]),
+        (".mmcss", ["MMCSS did not take the thread ("]),
+        (".cpusets", ["Windows refused the CPU sets: "]),
+        (".qos", ["Windows refused EcoQoS: "]),
+    ];
+
     private static void Answers(Claim c)
     {
         Assert.False(string.IsNullOrEmpty(c.What));
         Assert.False(string.IsNullOrEmpty(c.Asked));
-        // Applied: something was read back (or said unread). Refused: the words say why.
+        // Applied: something was read back (or said unread). Refused: Windows' named words say why.
         if (c.Applied)
+        {
             Assert.False(string.IsNullOrEmpty(c.ReadBack), c.What);
-        else
-            Assert.False(string.IsNullOrWhiteSpace(c.Words), c.What);
+            return;
+        }
+        var (_, words) = Refusals.First(r => c.What.EndsWith(r.Suffix, StringComparison.Ordinal));
+        Assert.True(words.Any(w => c.Words.StartsWith(w, StringComparison.Ordinal)), $"{c.What}: {c.Words}");
+    }
+
+    /// <summary>Runs <paramref name="body"/> on a thread of its own, so a claim there is that thread's only one.</summary>
+    private static void OnThread(Action body)
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                body();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failure = ex;
+            }
+        });
+        thread.Start();
+        thread.Join();
+        Assert.Null(failure);
     }
 
     [WindowsFact]
@@ -68,9 +104,23 @@ public sealed class PlatformCallsTests
         Assert.Same(MachineSettings.Default, platform.Settings);
 
         var probes = platform.Capabilities();
-        Assert.Equal([MachineCapabilities.RealtimePrivilege, MachineCapabilities.Hags, MachineCapabilities.HighResolutionTimer, MachineCapabilities.TimerResolutionHonoured],
-            probes.Probes.Select(p => p.Feature));
+        var identity = platform.Identity();
+        // The realtime privilege, DXGI's words only where it failed, NVAPI's only where an NVIDIA adapter is there, HAGS for each adapter
+        // by its LUID with its driver, the high-resolution timer and whether timer requests are honoured.
+        Assert.Equal(MachineCapabilities.RealtimePrivilege, probes.Probes[0].Feature);
+        Assert.Equal([MachineCapabilities.HighResolutionTimer, MachineCapabilities.TimerResolutionHonoured], probes.Probes.TakeLast(2).Select(p => p.Feature));
+        Assert.Equal(identity.Adapters.Select(a => (a.Luid, a.Driver)),
+            probes.Probes.Where(p => p.Feature == MachineCapabilities.Hags).Select(p => (p.AdapterLuid, p.Driver)));
+        if (identity.Adapters.IsEmpty)
+            Assert.False(Assert.Single(probes.Probes, p => p.Feature == MachineCapabilities.Adapters).Supported);
+        if (!identity.Adapters.Any(a => a.VendorId == VendorPolicy.Nvidia))
+            Assert.DoesNotContain(probes.Probes, p => p.Feature == MachineCapabilities.NvApi);
         Assert.All(probes.Probes, p => Assert.True(p.Supported || p.Words.Length > 0, p.Feature));
+        // Honoured only where the QoS claim reads back high; set and unread is not observed.
+        var honoured = Assert.Single(probes.Probes, p => p.Feature == MachineCapabilities.TimerResolutionHonoured);
+        Assert.Equal(again[1].Applied && again[1].ReadBack == "high", honoured.Supported);
+        // The power plan is read with the capabilities: a name and a kind, or unread.
+        Assert.True(platform.Power.Kind is "" or "high" or "ultimate" or "balanced" or "saver" or "other", platform.Power.Kind);
 
         Evidence("Process claims (default settings, then QOS AUTO with PROCESS NORMAL)",
             ["| claim | asked | answer | read back | words |", "|---|---|---|---|---|", .. claims.Select(Row), .. auto.Select(Row)]);
@@ -92,8 +142,12 @@ public sealed class PlatformCallsTests
                 try
                 {
                     var before = Native.GetThreadPriority(Native.GetCurrentThread());
+                    WindowsThreadClaim made;
+                    bool mmcssTaken;
                     using (var claim = platform.ClaimThread(role))
                     {
+                        made = Assert.IsType<WindowsMachinePlatform.ThreadHold>(claim).Shared;
+                        mmcssTaken = claim.Claims.Any(c => c.What.EndsWith(".mmcss", StringComparison.Ordinal) && c.Applied);
                         Assert.NotEmpty(claim.Claims);
                         Assert.All(claim.Claims, Answers);
                         var expected = PlatformPolicy.For(role);
@@ -115,7 +169,8 @@ public sealed class PlatformCallsTests
                         lock (rows)
                             rows.AddRange(claim.Claims.Select(Row));
                     }
-                    // Disposed: the thread's priority is back as it was.
+                    // Disposed: the thread left its MMCSS task (Windows' answer kept) and its priority is back as it was.
+                    Assert.Equal(mmcssTaken ? (bool?)true : null, made.MmcssReverted);
                     Assert.Equal(before, Native.GetThreadPriority(Native.GetCurrentThread()));
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -129,6 +184,112 @@ public sealed class PlatformCallsTests
         }
         Assert.NotEmpty(platform.Claims);
         Evidence("Thread claims by role", rows.Distinct());
+    }
+
+    [WindowsFact]
+    public void ASecondClaimOnAClaimedThreadJoinsItAndTheLastHolderReverts()
+    {
+        using var platform = new WindowsMachinePlatform();
+        _ = platform.ClaimProcess(MachineSettings.Default);
+        OnThread(() =>
+        {
+            var before = Native.GetThreadPriority(Native.GetCurrentThread());
+            var first = platform.ClaimThread(ThreadRole.Timecode);
+            var second = platform.ClaimThread(ThreadRole.Timecode);
+            // Two listeners on one capture thread hold one claim: the second never reads the first's priority as the thread's own.
+            var shared = Assert.IsType<WindowsMachinePlatform.ThreadHold>(first).Shared;
+            Assert.Same(shared, Assert.IsType<WindowsMachinePlatform.ThreadHold>(second).Shared);
+            Assert.Equal(first.Claims, second.Claims);
+            var mmcss = Assert.Single(first.Claims, c => c.What == "thread.timecode.mmcss");
+            first.Dispose();
+            first.Dispose();
+            // One holder is left: nothing is reverted yet.
+            Assert.Null(shared.MmcssReverted);
+            Assert.True(shared.Running);
+            second.Dispose();
+            Assert.Equal(mmcss.Applied ? (bool?)true : null, shared.MmcssReverted);
+            Assert.Equal(before, Native.GetThreadPriority(Native.GetCurrentThread()));
+            // Claimed again after the last let go: a fresh claim.
+            using var third = platform.ClaimThread(ThreadRole.Timecode);
+            Assert.NotSame(shared, Assert.IsType<WindowsMachinePlatform.ThreadHold>(third).Shared);
+        });
+    }
+
+    [WindowsFact]
+    public void EveryWordHandedToThePlatformReachesTheNextHoldTimerAndThreadClaimAndTheFacts()
+    {
+        using var platform = new WindowsMachinePlatform();
+        _ = platform.ClaimProcess(MachineSettings.Default with { Awake = "off" });
+
+        // AWAKE OFF holds nothing; handed ON, the next hold is a power request, and the facts follow the setting.
+        using (platform.KeepAwake())
+        {
+            Assert.False(platform.Awake);
+            Assert.Null(platform.AwakeClaim);
+        }
+        var displayOff = Assert.Single(platform.Facts(), f => f.Item == "power.display");
+        platform.Use(MachineSettings.Default);
+        Assert.Equal("on", platform.Settings.Awake);
+        MachineFact displayOn;
+        using (platform.KeepAwake())
+        {
+            var held = Assert.NotNull(platform.AwakeClaim);
+            Answers(held);
+            Assert.Equal(("process.awake", "on"), (held.What, held.Asked));
+            Assert.Equal(held.Applied, platform.Awake);
+            Assert.Contains(platform.Claims, c => c.What == "process.awake");
+            displayOn = Assert.Single(platform.Facts(), f => f.Item == "power.display");
+        }
+        Assert.False(platform.Awake);
+        Assert.Null(platform.AwakeClaim);
+        if (displayOff.Light == PlayMap.Core.Bus.Light.Amber)
+        {
+            Assert.Equal("MACHINE SET AWAKE ON", displayOff.Fix);
+            Assert.Null(displayOn.Fix);
+        }
+
+        // TIMER DEFAULT: the next timer is the runtime's wait, and the platform names it so; HIGH again: the high-resolution one.
+        platform.Use(MachineSettings.Default with { Timer = "default" });
+        using (var timer = platform.CreateTimer())
+        {
+            Assert.IsNotType<HighResolutionTimer>(timer);
+            Assert.Equal("default", platform.TimerMode(timer));
+        }
+        platform.Use(MachineSettings.Default);
+        using (var timer = platform.CreateTimer())
+        {
+            Assert.IsType<HighResolutionTimer>(timer);
+            Assert.Equal("high", platform.TimerMode(timer));
+        }
+
+        // MMCSS OFF: the next render thread joins no task; ON again: it does.
+        platform.Use(MachineSettings.Default with { Mmcss = "off" });
+        OnThread(() =>
+        {
+            using var claim = platform.ClaimThread(ThreadRole.Render);
+            Assert.DoesNotContain(claim.Claims, c => c.What == "thread.render.mmcss");
+        });
+        platform.Use(MachineSettings.Default);
+        OnThread(() =>
+        {
+            using var claim = platform.ClaimThread(ThreadRole.Render);
+            Assert.Contains(claim.Claims, c => c.What == "thread.render.mmcss");
+        });
+
+        // CPUSETS OFF places nothing; AUTO again is placed afresh, never with OFF's words.
+        platform.Use(MachineSettings.Default with { CpuSets = "off" });
+        OnThread(() =>
+        {
+            using var claim = platform.ClaimThread(ThreadRole.Render);
+            Assert.DoesNotContain(claim.Claims, c => c.What == "thread.render.cpusets");
+        });
+        platform.Use(MachineSettings.Default);
+        OnThread(() =>
+        {
+            using var claim = platform.ClaimThread(ThreadRole.Render);
+            var cpuSets = Assert.Single(claim.Claims, c => c.What == "thread.render.cpusets");
+            Assert.DoesNotContain(CpuSetPlan.OffWords, cpuSets.Words, StringComparison.Ordinal);
+        });
     }
 
     [WindowsFact]

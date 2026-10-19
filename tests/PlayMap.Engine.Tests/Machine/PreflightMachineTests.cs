@@ -105,8 +105,13 @@ public sealed class PreflightMachineTests
         var parts = new MachineParts(null);
         var services = parts.Configure(EngineServices.ForTests());
         await using var engine = new EngineCore(services, Project.CreateDefault("Null platform"));
+        // The render host starts before the extensions, so a thread claims its role before the machine part starts.
+        using var render = services.MachinePlatform.ClaimThread(ThreadRole.Render);
+        await parts.StartAsync(engine, CancellationToken.None);
+        using var decode = services.MachinePlatform.ClaimThread(ThreadRole.Decode);
         var rows = await services.PreflightChecks.OfType<MachinePreflight>().Single()
             .RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None);
+        engine.FactsChanged();
         using var state = JsonDocument.Parse(engine.State().Json);
         var platform = state.RootElement.GetProperty("machine").GetProperty("platform");
         if (OperatingSystem.IsWindows())
@@ -118,11 +123,23 @@ public sealed class PreflightMachineTests
         {
             Assert.Equal(("none", MachineParts.NotWindowsWords, "grey"), (platform.GetProperty("name").GetString(), platform.GetProperty("words").GetString(),
                 platform.GetProperty("light").GetString()));
+            // The section is the platform's grey row and the driver lock's, nothing amber.
             var row = Assert.Single(rows, r => r.Id == "machine.platform");
             Assert.Equal((Light.Grey, "none", "the platform seam is Windows only"), (row.Light, row.Value, row.Note));
-            // Nothing was claimed: the one process claim asked nothing and is grey.
+            Assert.Equal(["machine.platform", "machine.lock"], rows.Select(r => r.Id));
+            Assert.All(rows, r => Assert.Equal(Light.Grey, r.Light));
+            // Nothing was claimed, threads' claims included: the one process claim asked nothing and is grey.
+            Assert.Equal("", Assert.Single(render.Claims).Asked);
             var claim = Assert.Single(platform.GetProperty("claims").EnumerateArray());
-            Assert.Equal(("", false, "grey"), (claim.GetProperty("asked").GetString(), claim.GetProperty("applied").GetBoolean(), claim.GetProperty("light").GetString()));
+            Assert.Equal(("process", "", false, "grey"), (claim.GetProperty("what").GetString(), claim.GetProperty("asked").GetString(),
+                claim.GetProperty("applied").GetBoolean(), claim.GetProperty("light").GetString()));
+            // Nothing is held either: keep-awake is asked of a platform that holds nothing, and STATE says it is not held.
+            Assert.False(platform.GetProperty("awake").GetBoolean());
+            Assert.Equal(("", ""), (platform.GetProperty("powerPlan").GetProperty("name").GetString(), platform.GetProperty("powerPlan").GetProperty("kind").GetString()));
+            using var index = JsonDocument.Parse(engine.Companion.Index().Json);
+            var section = index.RootElement.GetProperty("sections").EnumerateArray().Single(s => s.GetProperty("section").GetString() == "machine");
+            Assert.DoesNotContain(section.GetProperty("rows").EnumerateArray(), r => r.GetProperty("light").GetString() == "amber");
+            Assert.DoesNotContain(engine.Journal.Recent(50), e => e.Text.Contains("was refused", StringComparison.Ordinal));
         }
         await parts.DisposeAsync();
     }

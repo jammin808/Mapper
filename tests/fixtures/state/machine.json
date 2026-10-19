@@ -58,10 +58,10 @@
       },
       {
         "feature": "hags",
-        "luid": "",
+        "luid": "0x00000000000123a4",
         "supported": true,
-        "words": "",
-        "driver": ""
+        "words": "hardware-accelerated GPU scheduling is on",
+        "driver": "582.16"
       }
     ],
     "platform": {
@@ -94,12 +94,28 @@
           "light": "green"
         },
         {
+          "what": "process.awake",
+          "asked": "on",
+          "applied": true,
+          "readBack": "held",
+          "words": "",
+          "light": "green"
+        },
+        {
           "what": "thread.render.priority",
           "asked": "aboveNormal",
           "applied": false,
           "readBack": "",
           "words": "Windows refused it here",
           "light": "amber"
+        },
+        {
+          "what": "thread.render.mmcss",
+          "asked": "Games",
+          "applied": true,
+          "readBack": "Games",
+          "words": "",
+          "light": "green"
         },
         {
           "what": "thread.decode.priority",
@@ -125,7 +141,11 @@
         "waits": 0,
         "lateP99Us": 0
       },
-      "awake": false,
+      "awake": true,
+      "powerPlan": {
+        "name": "Ultimate Performance",
+        "kind": "ultimate"
+      },
       "gc": {
         "setting": "default",
         "held": "",

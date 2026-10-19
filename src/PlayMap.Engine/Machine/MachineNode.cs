@@ -35,7 +35,8 @@ public sealed class MachineNode
     /// <summary>Raised after a save, on the saving thread.</summary>
     public event Action<MachineSettings>? Changed;
 
-    /// <summary>Whether keep-awake is held now (an enabled display output in the project, AWAKE ON).</summary>
+    /// <summary>Whether keep-awake is held now, as the platform read it back after the machine part asked (an enabled display output in
+    /// the project, AWAKE ON) or let go: never what was wanted.</summary>
     public bool AwakeHeld
     {
         get => Volatile.Read(ref _awakeHeld);
@@ -78,9 +79,11 @@ public sealed class MachineNode
     }
 }
 
-/// <summary>The node's platform as the engine reads it back: every claim made through it (the process's, and each role's latest
-/// thread claims) kept with what Windows answered, every deadline wait's lateness counted, and the identity carrying the runtimes their
-/// owners filled. It changes nothing the platform does. Any thread.</summary>
+/// <summary>The node's platform as the engine reads it back: every claim made through it (the process's, keep-awake's while it is asked,
+/// and each role's latest thread claims) kept with what Windows answered, the kind of the last deadline timer made and every deadline
+/// wait's lateness, whether keep-awake is held and the power plan as the platform read them, and the identity carrying the runtimes their
+/// owners filled. It hands the platform every saved setting (<see cref="Use"/>) and otherwise changes nothing the platform does. A
+/// platform that claims nothing attempts no thread claim, so none is recorded. Any thread.</summary>
 public sealed class RecordedPlatform : IMachinePlatform
 {
     private const int Window = 1000;
@@ -92,8 +95,12 @@ public sealed class RecordedPlatform : IMachinePlatform
     private readonly List<Claim> _threads = [];
     private readonly double[] _lateUs = new double[Window];
     private ImmutableArray<Claim> _process = [];
+    private string _timerMode = NoTimer;
     private int _next;
     private int _waits;
+
+    /// <summary>The timer's mode before any deadline timer is made.</summary>
+    public const string NoTimer = "none";
 
     public RecordedPlatform(IMachinePlatform inner, IMonoClock clock, Func<RuntimeIdentity> runtimes)
     {
@@ -120,6 +127,14 @@ public sealed class RecordedPlatform : IMachinePlatform
         return claims;
     }
 
+    /// <summary>Hands the platform the settings just saved, so each thread's next claim, the next timer, keep-awake and the facts follow
+    /// them; a platform that reads none back takes nothing.</summary>
+    public void Use(MachineSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        (_inner as IMachineReadBack)?.Use(settings);
+    }
+
     public IThreadClaim ClaimThread(ThreadRole role)
     {
         var claim = _inner.ClaimThread(role);
@@ -134,9 +149,28 @@ public sealed class RecordedPlatform : IMachinePlatform
         return claim;
     }
 
-    public IDeadlineTimer CreateTimer() => new Counted(_inner.CreateTimer(), this);
+    public IDeadlineTimer CreateTimer()
+    {
+        var timer = _inner.CreateTimer();
+        Volatile.Write(ref _timerMode, (_inner as IMachineReadBack)?.TimerMode(timer) ?? "default");
+        return new Counted(timer, this);
+    }
+
+    /// <summary>The kind of the last deadline timer made: "high" (the high-resolution waitable timer), "default" (the runtime's own wait),
+    /// <see cref="NoTimer"/> before any.</summary>
+    public string TimerMode => Volatile.Read(ref _timerMode);
 
     public IDisposable KeepAwake() => _inner.KeepAwake();
+
+    /// <summary>Whether keep-awake is held now, as the platform reads it back: false on a platform that holds nothing.</summary>
+    public bool AwakeHeld => (_inner as IMachineReadBack)?.AwakeClaim is { Applied: true };
+
+    /// <summary>Keep-awake's claim while it is asked (applied, or refused with the words), or null.</summary>
+    public Claim? AwakeClaim => (_inner as IMachineReadBack)?.AwakeClaim;
+
+    /// <summary>The power settings as the platform last read them (the active plan's name and kind among them); unread on a platform
+    /// that reads none.</summary>
+    public PowerReading Power => (_inner as IMachineReadBack)?.Power ?? PowerReading.Unread;
 
     public NodeIdentity Identity() => _inner.Identity() with { Runtimes = _runtimes() };
 
@@ -144,13 +178,15 @@ public sealed class RecordedPlatform : IMachinePlatform
 
     public ImmutableArray<MachineFact> Facts() => _inner.Facts();
 
-    /// <summary>Every claim made so far: the process's, then each role's latest, in the order they were made.</summary>
+    /// <summary>Every claim made so far: the process's, keep-awake's while it is asked, then each role's latest, in the order they were
+    /// made.</summary>
     public ImmutableArray<Claim> Claims
     {
         get
         {
+            var awake = AwakeClaim;
             lock (_gate)
-                return [.. _process, .. _threads];
+                return awake is { } a ? [.. _process, a, .. _threads] : [.. _process, .. _threads];
         }
     }
 

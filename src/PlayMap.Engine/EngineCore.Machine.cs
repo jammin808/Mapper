@@ -72,9 +72,10 @@ public sealed partial class EngineCore
         }), words);
     }
 
-    /// <summary>MACHINE SET &lt;word&gt; &lt;value&gt;: kept on the node, applied now where the claim is the process's (QOS, PROCESS,
-    /// GPU-PRIORITY) or keep-awake's, else from the next start, saying which. Refused at its value, for a word or value it does not take,
-    /// REALTIME without the privilege, and on a node that keeps no settings.</summary>
+    /// <summary>MACHINE SET &lt;word&gt; &lt;value&gt;: kept on the node and handed to the platform (the save does both), applied now where
+    /// the claim is the process's (QOS, PROCESS, GPU-PRIORITY: the claim's answer in the receipt) or keep-awake's (the hold as the platform
+    /// reads it back), else from the next thread claim, timer or arm, saying which. Refused at its value, for a word or value it does not
+    /// take, REALTIME without the privilege, and on a node that keeps no settings.</summary>
     private CommandReply MachineSet(List<string> args, SessionInfo session)
     {
         if (args.Count != 2)
@@ -110,13 +111,20 @@ public sealed partial class EngineCore
             words = platform.Name == "none" ? $"{row.Label} {asked} is kept; nothing is claimed on this node: {platform.Words}"
                 : claim is { Applied: true } c ? $"{row.Label} is {asked} now (Windows reads back {c.ReadBack})"
                 : $"{row.Label} {asked} is kept, and Windows refused it now: {claim?.Words ?? "no answer"}";
-            if (word == "GPU-PRIORITY" && asked == "realtime")
-                words += "; the direct queue asks for global realtime at the device's next start";
         }
         else if (word == "AWAKE")
         {
+            // The save handed the platform AWAKE and the machine part took or let go of the hold: the receipt says what is held now.
             applies = "now";
-            words = asked == "on" ? "the machine is kept awake while an enabled display output is open" : "keep-awake is off: the display and the system sleep on their own timeouts";
+            claim = Recorded?.AwakeClaim;
+            words = asked != "on" ? "keep-awake is off: the display and the system sleep on their own timeouts"
+                : platform.Name == "none" ? $"keep-awake ON is kept; nothing is held on this node: {platform.Words}"
+                : claim switch
+                {
+                    { Applied: true } => "the machine is kept awake while the project has an enabled display output: held now",
+                    { } refused => $"keep-awake ON is kept, and Windows refused it now: {refused.Words}",
+                    null => "the machine is kept awake while the project has an enabled display output: none is enabled now, so nothing is held",
+                };
         }
         else
         {
@@ -234,11 +242,17 @@ public sealed partial class EngineCore
         w.WriteEndObject();
         var (waits, late) = Recorded?.Lateness ?? (0, 0);
         w.WriteStartObject("timer");
-        w.WriteString("mode", settings.Timer);
+        // The timer made, as the platform names it: never the setting, which applies from the next timer made.
+        w.WriteString("mode", Recorded?.TimerMode ?? RecordedPlatform.NoTimer);
         w.WriteNumber("waits", waits);
         w.WriteNumber("lateP99Us", Math.Round(late));
         w.WriteEndObject();
         w.WriteBoolean("awake", Services.MachineNode?.AwakeHeld ?? false);
+        var power = Recorded?.Power ?? PowerReading.Unread;
+        w.WriteStartObject("powerPlan");
+        w.WriteString("name", power.Plan);
+        w.WriteString("kind", power.Kind);
+        w.WriteEndObject();
         w.WriteStartObject("gc");
         w.WriteString("setting", settings.Gc);
         w.WriteString("held", Services.MachineNode?.GcHeld ?? "");

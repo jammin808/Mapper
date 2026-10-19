@@ -32,7 +32,7 @@ public sealed record MachineSettings
     /// <summary>default | show: the collector's mode while the show is armed (SHOW: SustainedLowLatency, through the arm hook).</summary>
     public string Gc { get; init; } = "default";
 
-    /// <summary>on | off: the display and the system kept awake while an output is open.</summary>
+    /// <summary>on | off: the display and the system kept awake while the project has an enabled display output.</summary>
     public string Awake { get; init; } = "on";
 
     /// <summary>The driver set this node's shows run on (MACHINE LOCK), or null when none is locked.</summary>

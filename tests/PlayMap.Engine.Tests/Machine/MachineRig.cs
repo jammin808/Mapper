@@ -11,9 +11,14 @@ using PlayMap.Engine.Machine;
 namespace PlayMap.Engine.Tests.Machine;
 
 /// <summary>A machine platform a test sets: its identity, whether the account holds the realtime privilege, its own facts, and claims
-/// that apply (or, for the claims named in <see cref="Refuse"/>, are refused with words) and read back as asked.</summary>
-internal sealed class FakePlatform : IMachinePlatform
+/// that apply (or, for the claims named in <see cref="Refuse"/>, are refused with words) and read back as asked. Like Windows' platform it
+/// claims under the settings it was last handed (<see cref="Used"/>, else its last process claim's): each thread's claims follow the
+/// roles' table under them (MMCSS ON joins its task), the timer it makes is the high one under TIMER HIGH, and keep-awake holds nothing
+/// under AWAKE OFF; a hold is refused with <see cref="RefuseAwake"/>'s words when set.</summary>
+internal sealed class FakePlatform : IMachinePlatform, IMachineReadBack
 {
+    private int _awakeHolders;
+
     public NodeIdentity Ident { get; set; } = MachineRig.Identity("582.16");
 
     public bool Privileged { get; set; }
@@ -23,6 +28,20 @@ internal sealed class FakePlatform : IMachinePlatform
     public HashSet<string> Refuse { get; } = new(StringComparer.Ordinal);
 
     public List<MachineSettings> Asked { get; } = [];
+
+    /// <summary>Every set of settings handed to the platform, in order.</summary>
+    public List<MachineSettings> Used { get; } = [];
+
+    /// <summary>The settings the platform claims under now.</summary>
+    public MachineSettings InUse => Used.Count > 0 ? Used[^1] : Asked.Count > 0 ? Asked[^1] : MachineSettings.Default;
+
+    /// <summary>The AWAKE setting in use at each keep-awake asked of it.</summary>
+    public List<string> AwakeAskedUnder { get; } = [];
+
+    /// <summary>Set: a hold is refused with these words.</summary>
+    public string? RefuseAwake { get; set; }
+
+    public PowerReading Power { get; set; } = new("Ultimate Performance", "ultimate", false, "", 0, 0);
 
     public string Name => "windows";
 
@@ -34,21 +53,43 @@ internal sealed class FakePlatform : IMachinePlatform
         return [Answer("process.priority", settings.Process), Answer("process.qos", settings.Qos), Answer("process.gpuPriority", settings.GpuPriority)];
     }
 
+    public void Use(MachineSettings settings) => Used.Add(settings);
+
     private Claim Answer(string what, string asked) =>
         Refuse.Contains(what) ? new Claim(what, asked, false, "", "Windows refused it here") : new Claim(what, asked, true, asked, "");
 
-    public IThreadClaim ClaimThread(ThreadRole role) => new Claimed([Answer($"thread.{ThreadClaims.Word(role)}.priority", "aboveNormal")]);
+    public IThreadClaim ClaimThread(ThreadRole role)
+    {
+        var claims = PlatformPolicy.For(role, InUse);
+        var word = ThreadClaims.Word(role);
+        ImmutableArray<Claim> made = claims.MmcssTask is { } task
+            ? [Answer($"thread.{word}.priority", PlatformPolicy.Word(claims.Priority)), Answer($"thread.{word}.mmcss", task)]
+            : [Answer($"thread.{word}.priority", PlatformPolicy.Word(claims.Priority))];
+        return new Claimed(made);
+    }
 
-    public IDeadlineTimer CreateTimer() => new RuntimeDeadlineTimer();
+    public IDeadlineTimer CreateTimer() => InUse.Timer == "high" ? new HighTimer() : new RuntimeDeadlineTimer();
 
-    public IDisposable KeepAwake() => new Claimed([]);
+    public string TimerMode(IDeadlineTimer timer) => timer is HighTimer ? "high" : "default";
+
+    public IDisposable KeepAwake()
+    {
+        AwakeAskedUnder.Add(InUse.Awake);
+        if (InUse.Awake != "on")
+            return new Hold(null);
+        _awakeHolders++;
+        return new Hold(this);
+    }
+
+    public Claim? AwakeClaim => _awakeHolders == 0 ? null
+        : RefuseAwake is { } words ? new Claim("process.awake", "on", false, "", words) : new Claim("process.awake", "on", true, "held", "");
 
     public NodeIdentity Identity() => Ident;
 
     public CapabilitySnapshot Capabilities() => new(1_760_600_000_000,
     [
         new CapabilityProbe(MachineCapabilities.RealtimePrivilege, 0, Privileged, Privileged ? "" : PlatformPolicy.RealtimeWithoutPrivilegeWords, ""),
-        new CapabilityProbe(MachineCapabilities.Hags, 0, true, "", ""),
+        new CapabilityProbe(MachineCapabilities.Hags, 0x123a4, true, "hardware-accelerated GPU scheduling is on", "582.16"),
     ]);
 
     public ImmutableArray<MachineFact> Facts() => OwnFacts;
@@ -67,6 +108,27 @@ internal sealed class FakePlatform : IMachinePlatform
             // Nothing to revert.
         }
     }
+
+    private sealed class Hold(FakePlatform? platform) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (platform is not null)
+                platform._awakeHolders--;
+        }
+    }
+
+    /// <summary>The fake's high-resolution timer: the runtime's wait under another name.</summary>
+    private sealed class HighTimer : IDeadlineTimer
+    {
+        private readonly RuntimeDeadlineTimer _inner = new();
+
+        public double LateP99Us => _inner.LateP99Us;
+
+        public bool WaitUntil(long monoNs, WaitHandle? cancel = null) => _inner.WaitUntil(monoNs, cancel);
+
+        public void Dispose() => _inner.Dispose();
+    }
 }
 
 /// <summary>Displays a test names, the first primary.</summary>
@@ -79,8 +141,9 @@ internal sealed class FakeDisplays(params DisplayInfo[] displays) : IOutputBacke
     public string RendererName => "test";
 }
 
-/// <summary>An engine whose machine part is a fake Windows platform, read back through <see cref="RecordedPlatform"/>, with its machine
-/// settings kept in a list (or refused by a test's writer), on a manual clock.</summary>
+/// <summary>An engine whose machine part (the node's own <see cref="MachineParts"/>, configured and started as the host does) runs on a
+/// fake Windows platform, read back through <see cref="RecordedPlatform"/>, with its machine settings kept in a list (or refused by a
+/// test's writer), on a manual clock. The collector's pauses are not counted.</summary>
 internal sealed class MachineRig : IAsyncDisposable
 {
     public static readonly SessionInfo Desk = SessionInfo.Desk("d1");
@@ -90,20 +153,18 @@ internal sealed class MachineRig : IAsyncDisposable
     public readonly MachineNode Node;
     public readonly RecordedPlatform Recorded;
     public readonly EngineCore Engine;
+    private readonly MachineParts _parts;
 
     public MachineRig(Project? project = null, Action<MachineSettings>? save = null, bool home = true, MachineSettings? settings = null,
         IOutputBackend? outputs = null)
     {
         Node = new MachineNode(settings ?? MachineSettings.Default, save ?? Saved.Add);
-        Recorded = new RecordedPlatform(Platform, Clock, () => Node.Runtimes);
-        _ = Recorded.ClaimProcess(Node.Saved);
-        var services = EngineServices.ForTests(Clock) with
-        {
-            MachinePlatform = Recorded,
-            MachineNode = home ? Node : null,
-            Outputs = outputs ?? NullBackends.Instance,
-        };
+        _parts = new MachineParts(home ? Node : null, Platform);
+        var services = _parts.Configure(EngineServices.ForTests(Clock) with { Outputs = outputs ?? NullBackends.Instance });
+        Recorded = (RecordedPlatform)services.MachinePlatform;
         Engine = new EngineCore(services, project ?? Project.CreateDefault("Machine test"));
+        // The part's start does no wait: it attaches to the engine and holds keep-awake as the project asks.
+        Assert.True(_parts.StartAsync(Engine, CancellationToken.None).IsCompletedSuccessfully);
     }
 
     public ManualClock Clock { get; } = new(5_000_000_000);
@@ -116,6 +177,13 @@ internal sealed class MachineRig : IAsyncDisposable
         [new AdapterIdentity(0x123a4, VendorPolicy.Nvidia, 0x2bb1, "NVIDIA RTX PRO 4000 Blackwell", driver, "r580_00", VendorTier.NvidiaRtxPro,
             SupportLevel.Tier1, true, 24_576)],
         RuntimeIdentity.Empty);
+
+    /// <summary>The default project with its one display output disabled: nothing asks for keep-awake.</summary>
+    public static Project WithoutDisplay()
+    {
+        var project = Project.CreateDefault("Machine test");
+        return project with { Outputs = [project.Outputs[0] with { Enabled = false }] };
+    }
 
     public async Task<CommandReply> Run(string line, SessionInfo? session = null)
     {
@@ -146,5 +214,9 @@ internal sealed class MachineRig : IAsyncDisposable
 
     public JsonElement Machine() => State().GetProperty("machine");
 
-    public ValueTask DisposeAsync() => Engine.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        await Engine.DisposeAsync();
+        await _parts.DisposeAsync();
+    }
 }

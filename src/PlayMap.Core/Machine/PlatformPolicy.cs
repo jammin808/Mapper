@@ -67,7 +67,7 @@ public static class PlatformPolicy
             "none documented: Microsoft names animation as SustainedLowLatency's case, but it grows an uncompacted heap; DEFAULT until the lab's GC pause histogram beside the frame time measures it (L10)",
             "the GC's mode while armed"),
         new("AWAKE", ["on", "off"], "on", "now",
-            "documented: the display and the system otherwise sleep on their timeouts while an output is open",
+            "documented: the display and the system otherwise sleep on their timeouts while the project has an enabled display output",
             "keep-awake"),
     ];
 
