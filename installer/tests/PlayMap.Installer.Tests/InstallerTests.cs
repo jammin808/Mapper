@@ -665,10 +665,10 @@ public sealed class InstallerTests
         var log = Path.Combine(Path.GetTempPath(), "playmap-uninstall-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".log");
         var uninstaller = Path.Combine(InstallDir, "unins000.exe");
         var exit = Wait(uninstaller, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=" + log]);
-        // The uninstaller hands the work to a copy of itself and returns: wait until its copy has ended (no process runs from the
-        // temp folder it copied itself to) and the install's key is gone, or two minutes pass.
+        // The uninstaller hands the work to a copy of itself in the temp folder, which removes the uninstaller and the folder last:
+        // wait until no part of it runs (the uninstall done, or refused), or two minutes pass.
         var deadline = Stopwatch.StartNew();
-        while ((InstallKey() is not null || UninstallerRuns()) && deadline.Elapsed < TimeSpan.FromMinutes(2))
+        while (UninstallerRuns() && deadline.Elapsed < TimeSpan.FromMinutes(2))
             Wait("cmd.exe", ["/c", "ping", "-n", "2", "127.0.0.1"]);
         return new Run(exit, ReadShared(log));
     }
@@ -683,12 +683,15 @@ public sealed class InstallerTests
         return reader.ReadToEnd();
     }
 
-    /// <summary>Whether Inno Setup's uninstaller copy (_iu14D2N.tmp and its kin) still runs.</summary>
+    /// <summary>Whether Inno Setup's uninstaller still runs: the install's <c>unins000.exe</c>, which waits for its copy, or the copy in
+    /// the temp folder (<c>_unins.tmp</c>, which removes the uninstaller and the folder once the first has ended; <c>_iu*.tmp</c> in
+    /// earlier versions).</summary>
     private static bool UninstallerRuns() =>
         Process.GetProcesses().Any(p =>
         {
             using (p)
-                return p.ProcessName.StartsWith("_iu", StringComparison.OrdinalIgnoreCase) || p.ProcessName.StartsWith("unins0", StringComparison.OrdinalIgnoreCase);
+                return p.ProcessName.StartsWith("_unins", StringComparison.OrdinalIgnoreCase) || p.ProcessName.StartsWith("_iu", StringComparison.OrdinalIgnoreCase)
+                    || p.ProcessName.StartsWith("unins0", StringComparison.OrdinalIgnoreCase);
         });
 
     /// <summary>Each test starts from a machine with no install: an earlier test's install is uninstalled, and anything an earlier
