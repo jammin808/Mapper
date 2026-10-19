@@ -32,7 +32,7 @@ rows: grey, value `i`). The check is `Install/InstallPreflight.cs`; the exe's co
 
 ## Papers note
 
-The node installs per machine with an Inno Setup installer (the self-built WiX tool asks for its licence gesture, never given), with
+The node installs per machine with an Inno Setup installer (the WiX toolset does not build from its pinned source on the runner, and its source carries a licence check PlayMap never answers), with
 the supervisor service, firewall rules, WER dumps, the event source and the show account's right done by the supervisor's commands;
 unsigned builds named `-unsigned` with `SHA256SUMS`; the installer's version MAJOR.MINOR.BUILD; an install refused while armed or
 while a live engine does not answer. `docs/INSTALL.md` is the person's guide.

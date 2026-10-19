@@ -175,8 +175,8 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
   pinned by hash.
 - **WiX Toolset** (https://github.com/wixtoolset/wix, MS-RL): CI builds it from its source at the pinned tag `v7.0.0` (commit
   `b8977d6f88e7b68e000bac226a2814f236770570`, `installer/wix/toolset.json`) to measure it (M17). No WiX release, package or tool is
-  downloaded, and nothing of WiX is inside what PlayMap ships this round: the self-built tool asks for its licence gesture, which
-  PlayMap never gives, so it builds no installer. Were it to build the MSI, its Util and Firewall custom-action DLLs inside the MSI
+  downloaded, and nothing of WiX is inside what PlayMap ships this round: it does not build on the runner (M17), and its
+  source carries a licence check PlayMap never answers, so it builds no installer. Were it to build the MSI, its Util and Firewall custom-action DLLs inside the MSI
   would be MS-RL files, named here with that tag's source.
 - **FFmpeg 9.0.2** (https://ffmpeg.org, the LGPL 2.1-or-later build `lgpl-shared` of FFmpeg-Builds,
   https://github.com/BtbN/FFmpeg-Builds, `autobuild-2026-09-30-13-08`, pinned by hash): its shared libraries are inside the

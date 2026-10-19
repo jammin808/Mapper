@@ -6,9 +6,12 @@
 ## What the installer is
 
 PlayMap installs per machine with one installer, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned.exe`, built by Inno Setup
-7.1. The plan's MSI is built by the WiX toolset compiled from its MS-RL source (`docs/round3/PLAN.md` D6); that self-built tool still
-asks for its licence gesture, PlayMap never gives it, and no patch to the pinned source answers the check in this tree, so Inno
-Setup builds the installer with the same acceptance (§9 decision 3). It runs elevated once and does every machine-level action
+7.1. The plan's MSI is built by the WiX toolset compiled from its MS-RL source (`docs/round3/PLAN.md` D6). On the Windows runner
+the pinned source (v7.0.0) does not build as it stands: it asks for Visual Studio 2022's C++ tools (v143), the runner's Visual
+Studio 2026 carries only its own, and adding them through Visual Studio's installer fails on the runner (M17, CI's `wix-toolset`
+job). The source also carries its licence check (the SDK's WIX7015 target and `wix.exe`'s own), which PlayMap never answers with
+the gesture and which no patch in this tree answers. So Inno Setup builds the installer with the same acceptance (§9 decision 3).
+It runs elevated once and does every machine-level action
 through the supervisor's own commands, so the engine itself never runs as administrator:
 
 | Where | What |

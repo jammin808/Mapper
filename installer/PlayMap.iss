@@ -1,5 +1,5 @@
-; PlayMap's installer (docs/round3/design/installer.md; docs/INSTALL.md). Inno Setup 7 builds it: the WiX toolset built from its
-; source still asks for its licence gesture, which PlayMap never passes, so this EXE takes the MSI's place with the same acceptance
+; PlayMap's installer (docs/round3/design/installer.md; docs/INSTALL.md). Inno Setup 7 builds it: the WiX toolset does not
+; build from its pinned source on the runner, and that source carries a licence check PlayMap never answers, so this EXE takes the MSI's place with the same acceptance
 ; (docs/round3/PLAN.md §3.5 item 2, §9 decision 3). It installs per machine into Program Files\PlayMap and does every machine-level
 ; action through the supervisor's own commands (install, uninstall, preinstall-check), so the engine never runs as administrator.
 ;
