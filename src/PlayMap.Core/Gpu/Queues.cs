@@ -29,8 +29,10 @@ public interface IUploadRing
 public delegate void ReadbackConsumer<in TState>(TState state, ReadOnlySpan<byte> bgra, int width, int height, long stamp);
 
 /// <summary>Pictures back to the CPU, never waited on: a request after a pass, collected frames later when its value completed.
-/// Replaces the pixel-pack ring; the send stage, LED sampling and previews use it.</summary>
-public interface IReadbackRing
+/// Replaces the pixel-pack ring; the send stage, LED sampling and previews use it, each reader through a ring of its own
+/// (<see cref="IGpuDevice.CreateReadbackRing"/>), since a ring hands its reads back in its own order. A ring a reader made is the
+/// reader's to dispose; the device's own (<see cref="IGpuDevice.Readbacks"/>) goes with the device.</summary>
+public interface IReadbackRing : IDisposable
 {
     /// <summary>Queues a read of the target (BGRA, top row first); false when every slot is still in flight (the request is
     /// skipped: a reader drops a picture rather than wait).</summary>

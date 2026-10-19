@@ -63,7 +63,7 @@ public sealed unsafe class PixelUnpackRing : IDisposable
 /// pixel-pack buffers with a fence behind it; <see cref="TryCollect"/> maps the oldest only once its fence
 /// has passed. With three slots a picture arrives two or three frames after it was drawn and the render
 /// thread never waits for the GPU.</summary>
-public sealed unsafe class PixelPackRing : IReadbackRing, IDisposable
+public sealed unsafe class PixelPackRing : IReadbackRing
 {
     private struct Slot
     {

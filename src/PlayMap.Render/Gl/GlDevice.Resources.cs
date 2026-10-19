@@ -513,19 +513,7 @@ public sealed unsafe partial class GlDevice : IFenceSignals
     internal static (GLEnum Internal, GLEnum Format, GLEnum Type) Describe(TextureFormat format) => GlFormatTable.Describe(GlDialect.Core330, format);
 
     /// <summary>Bytes per pixel of a CPU layout.</summary>
-    public static int BytesPerPixel(UploadFormat format) => format switch
-    {
-        UploadFormat.R8 => 1,
-        UploadFormat.Rg8 => 2,
-        UploadFormat.R16 => 2,
-        UploadFormat.Rg16 => 4,
-        UploadFormat.RgbaHalf => 8,
-        UploadFormat.R32F => 4,
-        UploadFormat.Rg32F => 8,
-        UploadFormat.Rgba32F => 16,
-        UploadFormat.Rgba16 => 8,
-        _ => 4,
-    };
+    public static int BytesPerPixel(UploadFormat format) => UploadFormats.BytesPerPixel(format);
 
     /// <summary>A span over unmanaged memory the caller owns for the duration of a use.</summary>
     internal static Span<byte> Span(byte* p, int bytes) => new(p, bytes);

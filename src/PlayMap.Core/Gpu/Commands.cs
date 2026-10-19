@@ -102,6 +102,12 @@ public readonly record struct DrawCall(ProgramId Program, DrawState State, DrawS
 public interface IDrawSink
 {
     void Record(in DrawCall call, ReadOnlySpan<byte> constants, ReadOnlySpan<GpuTexture?> textures);
+
+    /// <summary>A name the program's layout does not hold, or a value of the wrong kind for its constant, that a draw set: it wrote
+    /// nothing (a programming error, never a failure of the draw). A backend may count these for its tests.</summary>
+    void Missed(ProgramId program, string name)
+    {
+    }
 }
 
 /// <summary>One draw being built: constants by name through the program's layout, textures by slot name, then the draw itself.
@@ -111,7 +117,7 @@ public interface IDrawSink
 /// the layout does not hold writes nothing (a programming error the layout tests catch, never a look-up failure mid-frame), as does
 /// a value of the wrong kind for its constant (a float into an int, a vector into a matrix); a vector of fewer components than its
 /// constant writes those it has. A matrix's rows each start a 16-byte register, row r at offset + 16·r, in System.Numerics' row
-/// order.</summary>
+/// order. Each name that writes nothing is told to the sink (<see cref="IDrawSink.Missed"/>).</summary>
 public readonly ref struct DrawBuilder
 {
     private readonly IDrawSink? _sink;
@@ -154,7 +160,11 @@ public readonly ref struct DrawBuilder
     /// <summary>A 4×4 matrix in System.Numerics' row-vector layout, its rows written in order.</summary>
     public DrawBuilder Set(string name, in Matrix4x4 m)
     {
-        if (TrySlot(name, out var slot) && slot.Type == ConstantType.Float4x4)
+        if (!TrySlot(name, out var slot) || slot.Type != ConstantType.Float4x4)
+        {
+            Miss(name);
+        }
+        else
         {
             var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, 64));
             block[0] = m.M11; block[1] = m.M12; block[2] = m.M13; block[3] = m.M14;
@@ -168,7 +178,11 @@ public readonly ref struct DrawBuilder
     /// <summary>A 3×3 matrix, row-major: its three rows each start a register.</summary>
     public DrawBuilder Set(string name, in Matrix3x3 m)
     {
-        if (TrySlot(name, out var slot) && slot.Type == ConstantType.Float3x3)
+        if (!TrySlot(name, out var slot) || slot.Type != ConstantType.Float3x3)
+        {
+            Miss(name);
+        }
+        else
         {
             var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, 44));
             block[0] = m.M00; block[1] = m.M01; block[2] = m.M02;
@@ -182,6 +196,8 @@ public readonly ref struct DrawBuilder
     {
         if (TrySlot(name, out var slot) && ConstantTypes.IsInt(slot.Type))
             MemoryMarshal.Write(_constants[slot.Offset..], in value);
+        else
+            Miss(name);
         return this;
     }
 
@@ -191,6 +207,8 @@ public readonly ref struct DrawBuilder
         ArgumentNullException.ThrowIfNull(texture);
         if (_layout is not null && _layout.TryTexture(name, out var slot))
             _textures[slot.Slot] = texture;
+        else
+            Miss(name);
         return this;
     }
 
@@ -222,7 +240,10 @@ public readonly ref struct DrawBuilder
     private DrawBuilder SetFloats(string name, Vector4 v, int components)
     {
         if (!TrySlot(name, out var slot) || ConstantTypes.IsInt(slot.Type) || ConstantTypes.IsMatrix(slot.Type))
+        {
+            Miss(name);
             return this;
+        }
         var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, ConstantTypes.Bytes(slot.Type)));
         var n = Math.Min(components, block.Length);
         for (var i = 0; i < n; i++)
@@ -237,6 +258,8 @@ public readonly ref struct DrawBuilder
         slot = default;
         return false;
     }
+
+    private void Miss(string name) => _sink?.Missed(_program, name);
 
     private void Finish(in DrawCall call)
     {

@@ -63,6 +63,11 @@ public sealed class GlBackend : IGpuDevice
         _list = new GlCommandList(this, device, _table.ProductCount == 0 ? 0 : ProgramTable.Product.Max(p => p.ConstantBytes));
         _direct = new FenceRing(QueueKind.Direct, device);
         _copy = new FenceRing(QueueKind.Copy, device);
+        // The binding loads a GL entry point on its first call: the ring's own are called here once, so its first wrap, a ring's
+        // length of frames into the show, loads nothing on the frame path.
+        var probe = device.InsertFence();
+        _ = device.IsSignaled(probe);
+        device.DeleteFence(probe);
         _pool = new ResourcePool(this);
         _uploads = new GlUploadRing(device, _copy);
         _readbacks = new PixelPackRing(device);
@@ -91,6 +96,13 @@ public sealed class GlBackend : IGpuDevice
 
     public IReadbackRing Readbacks => _readbacks;
 
+    /// <summary>A pixel-pack ring of its own: each request reads the target into the next of its buffers with a fence behind it.</summary>
+    public IReadbackRing CreateReadbackRing(int slots = 3)
+    {
+        ThrowIfDisposed();
+        return new PixelPackRing(_device, slots);
+    }
+
     public IGpuTimers Timers => _timers;
 
     public ITextureImporter Importer => _importer;
@@ -103,9 +115,24 @@ public sealed class GlBackend : IGpuDevice
 
     internal ProgramTable ProgramTable => _table;
 
+    /// <summary>The GL device under the backend.</summary>
+    internal GlDevice Device => _device;
+
     internal GlPipelineCache PipelineCache => _pipelines;
 
     internal GlTimers GlTimers => _timers;
+
+    /// <summary>Names a draw set that its program's layout does not hold, or values of the wrong kind for their constants, since the
+    /// backend was made (each wrote nothing); the last one's program and name.</summary>
+    internal long ConstantMisses { get; private set; }
+
+    internal (ProgramId Program, string Name) LastMiss { get; private set; }
+
+    internal void Missed(ProgramId program, string name)
+    {
+        ConstantMisses++;
+        LastMiss = (program, name);
+    }
 
     /// <summary>The direct queue's value the frame being recorded will take at its submit.</summary>
     internal ulong FrameValue => _direct.Last + 1;
@@ -116,9 +143,9 @@ public sealed class GlBackend : IGpuDevice
 
     // ---- resources ----
 
-    /// <summary>A texture of the shape asked. A block format is made at whole 4×4 blocks and sampled nearest, filled only through
-    /// <see cref="ICommandList.UploadCompressed"/>; a depth, storage or shared texture is refused with words (GL 3.3 makes a target's
-    /// depth with the target, and shares nothing).</summary>
+    /// <summary>A texture of the shape asked, a grey one through the texture's swizzle. A block format is made at whole 4×4 blocks
+    /// and sampled nearest, filled only through <see cref="ICommandList.UploadCompressed"/>; a depth, storage or shared texture is
+    /// refused with words (GL 3.3 makes a target's depth with the target, and shares nothing).</summary>
     public GpuTexture CreateTexture(in TextureDesc desc)
     {
         ThrowIfDisposed();
@@ -126,7 +153,10 @@ public sealed class GlBackend : IGpuDevice
             throw new NotSupportedException($"The GL backend makes no {desc.Usage & (TextureUsage.DepthStencil | TextureUsage.Storage | TextureUsage.Shared)} texture: a target's depth is made with the target, and GL shares no texture.");
         if (TextureFormats.IsBlockCompressed(desc.Format))
             return _device.CreateCompressedTexture(desc.Width, desc.Height, desc.Format);
-        return _device.CreateTexture(desc.Width, desc.Height, desc.Format, desc.Filter, desc.Wrap, desc.Usage, desc.Name ?? "");
+        var texture = _device.CreateTexture(desc.Width, desc.Height, desc.Format, desc.Filter, desc.Wrap, desc.Usage, desc.Name ?? "");
+        if (desc.Swizzle == TextureSwizzle.Gray)
+            _device.SetGraySwizzle(texture);
+        return texture;
     }
 
     public RenderTarget CreateTarget(in TargetDesc desc)
@@ -390,7 +420,10 @@ public sealed class GlBackend : IGpuDevice
         if (!device.HasPolygonMode)
             words.Add("no polygon mode (ANGLE_polygon_mode): triangles asked for as a wireframe are not drawn");
         var model = device.Dialect == GlDialect.Es300 ? "GLSL ES 3.00" : "GLSL 3.30";
-        return new GpuFeatures(formats, device.BlockFormats, timers, SharedHandles: false, model, words.ToImmutable());
+        return new GpuFeatures(formats, device.BlockFormats, timers, SharedHandles: false, model, words.ToImmutable())
+        {
+            MaxTextureSize = device.MaxTextureSize,
+        };
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);

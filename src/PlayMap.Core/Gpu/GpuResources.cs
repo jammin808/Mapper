@@ -18,9 +18,21 @@ public enum TextureUsage
     Shared = 64,
 }
 
-/// <summary>A texture to make: its size, format, uses, the filter and wrap it is sampled with, and a name for the debuggers.</summary>
+/// <summary>How a texture's channels are read when it is sampled.</summary>
+public enum TextureSwizzle
+{
+    /// <summary>As stored.</summary>
+    None,
+
+    /// <summary>A one-channel texture read as grey: its red in red, green and blue, alpha one (a Gray8 picture).</summary>
+    Gray,
+}
+
+/// <summary>A texture to make: its size, format, uses, the filter and wrap it is sampled with, a name for the debuggers, and how its
+/// channels are read.</summary>
 public readonly record struct TextureDesc(int Width, int Height, TextureFormat Format, TextureUsage Usage,
-    TextureFilter Filter = TextureFilter.Linear, TextureWrap Wrap = TextureWrap.Clamp, string Name = "");
+    TextureFilter Filter = TextureFilter.Linear, TextureWrap Wrap = TextureWrap.Clamp, string Name = "",
+    TextureSwizzle Swizzle = TextureSwizzle.None);
 
 /// <summary>A target's attachments: one or two colour textures (the particle step writes two) and an optional depth.</summary>
 public readonly record struct TargetDesc(int Width, int Height, TextureFormat Color0, TextureFormat? Color1 = null,

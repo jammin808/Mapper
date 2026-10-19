@@ -18,7 +18,7 @@ public enum PrimitiveKind
 }
 
 /// <summary>Something wrong in the GL: a failed compile, an incomplete framebuffer, an error flag.</summary>
-public sealed class GlException : Exception
+public sealed class GlException : GpuException
 {
     public GlException()
     {

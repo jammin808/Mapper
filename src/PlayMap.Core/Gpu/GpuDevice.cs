@@ -4,6 +4,25 @@ using PlayMap.Core.Media;
 
 namespace PlayMap.Core.Gpu;
 
+/// <summary>What a device refused or failed at, in its own words: a program that did not compile or link, a target it cannot make, an
+/// error the API reported. Each backend's errors are of this kind, so frame code catches them without naming a backend.</summary>
+public class GpuException : Exception
+{
+    public GpuException()
+    {
+    }
+
+    public GpuException(string message)
+        : base(message)
+    {
+    }
+
+    public GpuException(string message, Exception inner)
+        : base(message, inner)
+    {
+    }
+}
+
 /// <summary>The API a device draws through.</summary>
 public enum GpuBackendKind
 {
@@ -16,9 +35,14 @@ public enum GpuBackendKind
 public sealed record GpuAdapterInfo(long Luid, int VendorId, string Name, string Driver, string Api, bool Software);
 
 /// <summary>What the device can do, asked once at creation: per format, sampled, target, blendable; the block formats; timers;
-/// shared handles; the shader model on Direct3D 12. A format the device lacks is refused with words, never silently replaced.</summary>
+/// shared handles; the shader model on Direct3D 12; the largest texture side it makes. A format the device lacks is refused with
+/// words, never silently replaced.</summary>
 public sealed record GpuFeatures(FrozenDictionary<TextureFormat, FormatSupport> Formats, BlockFormats Blocks, bool Timers,
-    bool SharedHandles, string ShaderModel, ImmutableArray<string> Words);
+    bool SharedHandles, string ShaderModel, ImmutableArray<string> Words)
+{
+    /// <summary>The largest width or height of a texture or target, texels (Direct3D 12's floor where a device says nothing).</summary>
+    public int MaxTextureSize { get; init; } = 16384;
+}
 
 /// <summary>What a device does with one format.</summary>
 public readonly record struct FormatSupport(bool Sampled, bool Target, bool Blend);
@@ -83,6 +107,10 @@ public interface IGpuDevice : IDisposable
     IUploadRing Uploads { get; }
 
     IReadbackRing Readbacks { get; }
+
+    /// <summary>A read-back ring of its own for one reader (a preview, a send, an LED map) with <paramref name="slots"/> reads in
+    /// flight: its reads come back in its own order, never another reader's. The reader disposes it.</summary>
+    IReadbackRing CreateReadbackRing(int slots = 3);
 
     IGpuTimers Timers { get; }
 

@@ -159,3 +159,22 @@ public static class TextureFormats
     public static long CompressedSize(TextureFormat f, int width, int height) =>
         (long)((width + 3) / 4) * ((height + 3) / 4) * BlockBytes(f);
 }
+
+/// <summary>What a CPU pixel layout is.</summary>
+public static class UploadFormats
+{
+    /// <summary>Bytes one pixel of the layout takes (1 for R8 up to 16 for four 32-bit floats).</summary>
+    public static int BytesPerPixel(UploadFormat format) => format switch
+    {
+        UploadFormat.R8 => 1,
+        UploadFormat.Rg8 => 2,
+        UploadFormat.R16 => 2,
+        UploadFormat.Rg16 => 4,
+        UploadFormat.RgbaHalf => 8,
+        UploadFormat.R32F => 4,
+        UploadFormat.Rg32F => 8,
+        UploadFormat.Rgba32F => 16,
+        UploadFormat.Rgba16 => 8,
+        _ => 4,
+    };
+}

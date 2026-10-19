@@ -6,8 +6,9 @@ using PlayMap.Tests;
 namespace PlayMap.Core.Tests.Gpu;
 
 /// <summary>A draw built through the builder: each constant lands at its layout's offset in the block the list handed it (a matrix's
-/// rows each starting a register), a name the layout lacks or a value of the wrong kind writes nothing, textures land in their slots,
-/// the terminal call hands the list the draw with its block and textures, and nothing of it allocates.</summary>
+/// rows each starting a register), a name the layout lacks or a value of the wrong kind writes nothing and is told to the list,
+/// textures land in their slots, the terminal call hands the list the draw with its block and textures, and nothing of it
+/// allocates.</summary>
 public sealed class DrawBuilderTests
 {
     private sealed class FakeTexture(int width, int height) : GpuTexture(new TextureDesc(width, height, TextureFormat.Rgba8, TextureUsage.Sampled), 1)
@@ -27,6 +28,9 @@ public sealed class DrawBuilderTests
         public byte[] Constants { get; private set; } = [];
         public GpuTexture?[] Textures { get; private set; } = [];
         public int Draws { get; private set; }
+        public List<(ProgramId Program, string Name)> Missed { get; } = [];
+
+        void IDrawSink.Missed(ProgramId program, string name) => Missed.Add((program, name));
 
         public void Record(in DrawCall call, ReadOnlySpan<byte> constants, ReadOnlySpan<GpuTexture?> textures)
         {
@@ -95,15 +99,23 @@ public sealed class DrawBuilderTests
     {
         var sink = new Sink();
         var block = new byte[Layout.ConstantBytes];
-        new DrawBuilder(sink, new ProgramId(0), DrawState.Opaque, Layout, block, new GpuTexture?[2])
+        new DrawBuilder(sink, new ProgramId(4), DrawState.Opaque, Layout, block, new GpuTexture?[2])
             .Set("uMissing", 1f)
             .Set("uRotation", 9f)
             .SetInt("uGain", 9)
             .Set("uView", 9f)
             .Set("uGain", Matrix4x4.Identity)
+            .Set("uView", new Matrix3x3(1, 0, 0, 0, 1, 0, 0, 0, 1))
             .Texture("uGain", new FakeTexture(1, 1))
+            .Set("uGain", 0.5f)
             .GeneratedQuads(5);
 
+        // Each name that wrote nothing is told to the list, in order; the one that wrote is not.
+        Assert.Equal(["uMissing", "uRotation", "uGain", "uView", "uGain", "uView", "uGain"], sink.Missed.Select(m => m.Name));
+        Assert.All(sink.Missed, m => Assert.Equal(new ProgramId(4), m.Program));
+        Layout.TryConstant("uGain", out var gain);
+        Assert.Equal(0.5f, F(sink.Constants, gain.Offset));
+        sink.Constants.AsSpan(gain.Offset, 4).Clear();
         Assert.All(sink.Constants, b => Assert.Equal(0, b));
         Assert.All(sink.Textures, Assert.Null);
         Assert.Equal(DrawShape.GeneratedQuads, sink.Call.Shape);

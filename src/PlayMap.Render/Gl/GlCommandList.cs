@@ -130,6 +130,9 @@ internal sealed class GlCommandList : ICommandList, IDrawSink
         }
     }
 
+    /// <summary>Counted by the backend (<see cref="GlBackend.ConstantMisses"/>): the draw wrote nothing for the name.</summary>
+    public void Missed(ProgramId program, string name) => _backend.Missed(program, name);
+
     private static VertexArray Mesh(in DrawCall call) =>
         call.Mesh as VertexArray ?? throw new ArgumentException("A GL draw reads a mesh the GL device made.", nameof(call));
 
