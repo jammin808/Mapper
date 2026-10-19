@@ -98,6 +98,39 @@ public class PerformanceTests(ITestOutputHelper output)
         Assert.Equal(0, WaitOnce(prepared, prepareThread: true));
     }
 
+    /// <summary>An event makes its lock object on the first wait that blocks. A frame thread's warm-up wait made it only when
+    /// nothing set the event during the wait: one set then (a reader's packet, a consumer's wake) returns it at once, and the
+    /// allocation falls to the first wait that blocks, at any frame. An event prepared before anything can set it makes nothing
+    /// on its first block.</summary>
+    [Fact]
+    public void APreparedEventsFirstBlockAllocatesNothingWhereARacedWarmUpLeavesItToAFrame()
+    {
+        static long FirstBlock(ManualResetEventSlim wake)
+        {
+            long allocated = -1;
+            var waiter = new Thread(() =>
+            {
+                PlayMap.Media.Frames.LockWaits.PrepareThisThread();
+                var before = Allocations.Start();
+                wake.Wait(5);
+                allocated = Allocations.Since(before);
+            });
+            waiter.Start();
+            waiter.Join();
+            return allocated;
+        }
+        // The old warm-up (reset, wait) with the event set between the two, as another thread may.
+        using var raced = new ManualResetEventSlim(false);
+        raced.Reset();
+        raced.Set();
+        raced.Wait(2);
+        raced.Reset();
+        Assert.True(FirstBlock(raced) > 0, "a warm-up wait that found the event set made nothing");
+        using var prepared = new ManualResetEventSlim(false);
+        PlayMap.Media.Frames.LockWaits.Prepare(prepared);
+        Assert.Equal(0, FirstBlock(prepared));
+    }
+
     /// <summary>On a loaded machine the decode thread may first have to wait for the queue's lock at any frame of a show (a
     /// consumer preempted while it holds it): that wait allocates nothing either. The lock is held here across three of the
     /// decode loop's 100 ms turns, each of which takes it, so the decode thread waits for it.</summary>

@@ -137,6 +137,22 @@ public static class FfmpegLoader
         return string.Create(CultureInfo.InvariantCulture, $"lib{library}.so.{major}");
     }
 
+    /// <summary>The entry points a playing source first calls at a loop point or a seek, which can come at any frame of a show.
+    /// The binding binds an entry point on its first call and allocates as it does, on the calling thread; these are bound as the
+    /// libraries load, so a frame thread's first seek allocates nothing.</summary>
+    internal static readonly IReadOnlyList<string> SeekPath = ["avformat_seek_file", "av_seek_frame", "avcodec_flush_buffers"];
+
+    private static void BindSeekPath(string folder)
+    {
+        vectors.avformat_seek_file = Bind<vectors.avformat_seek_file_delegate>(folder, "avformat", "avformat_seek_file");
+        vectors.av_seek_frame = Bind<vectors.av_seek_frame_delegate>(folder, "avformat", "av_seek_frame");
+        vectors.avcodec_flush_buffers = Bind<vectors.avcodec_flush_buffers_delegate>(folder, "avcodec", "avcodec_flush_buffers");
+    }
+
+    private static T Bind<T>(string folder, string library, string name) =>
+        DynamicallyLoadedBindings.FunctionResolver.GetFunctionDelegate<T>(library, name, false)
+        ?? throw new FfmpegUnavailableException($"The FFmpeg libraries in {folder} loaded but {name} could not be bound.");
+
     /// <summary>A loaded library's handle (for exports the binding does not wrap), or zero.</summary>
     internal static nint Handle(string library)
     {
@@ -212,6 +228,7 @@ public static class FfmpegLoader
             throw new FfmpegUnavailableException(string.Create(CultureInfo.InvariantCulture,
                 $"The FFmpeg libraries in {folder} report avcodec {codecMajor}, avformat {formatMajor}, avutil {utilMajor}; this build needs avcodec {ExpectedMajor("avcodec")}, avformat {ExpectedMajor("avformat")}, avutil {ExpectedMajor("avutil")}."));
         }
+        BindSeekPath(folder);
 
         var devices = !optionalMissing.Contains("avdevice");
         if (devices)

@@ -118,6 +118,8 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
         _queue = new FrameQueue(_options.Queue, _stats, wake);
         _pool = new FramePool(_queue.Capacity + 4, wake);
         LockWaits.Prepare(_queue.Gate, _queue.LeaseGate, _pool.Gate, _stats.Gate);
+        // Before the thread starts: nothing can set the event while it is made to block once.
+        LockWaits.Prepare(_wake);
         _queue.SetLoopInitial(_options.Loop, _options.InNs, _options.OutNs);
         _thread = new Thread(Run) { IsBackground = true, Name = "decode " + System.IO.Path.GetFileName(path) };
         _thread.Start();
@@ -299,11 +301,6 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
 
     private void Loop()
     {
-        // One real block before the first frame: the event makes its lock object lazily on the first wait that
-        // blocks, and that allocation belongs to the start, not to some frame later in the show. A signal lost
-        // to this reset is harmless — the loop reads the queue's state afresh.
-        _wake.Reset();
-        _wake.Wait(2);
         while (!_stop)
         {
             _wake.Reset();

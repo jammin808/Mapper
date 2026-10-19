@@ -45,7 +45,9 @@ public sealed record HapSourceOptions
 /// <see cref="HapWorkers"/> (working chunks itself while it waits) and publishes the frame. A frame's time is its packet's, so
 /// the frame shown for a media time is a pure function of that time. Every HAP frame is a keyframe: a seek reads from the frame
 /// at or before the target.</para>
-/// <para>Nothing allocates per frame once warm: packets, parse tables, slots, leases and chunk jobs are all reused. Disposal
+/// <para>Nothing allocates per frame once warm: packets, parse tables, slots, leases and chunk jobs are all reused, every lock a
+/// frame thread takes and every event it waits on is made ready for a first wait before the first frame (<see cref="LockWaits"/>),
+/// and the seek a loop point makes is bound as FFmpeg loads (<see cref="FfmpegLoader.SeekPath"/>). Disposal
 /// stops both threads (a blocking read is interrupted) and frees the pooled buffers as their last leases end.</para></summary>
 public sealed unsafe class HapVideoSource : IVideoSource
 {
@@ -163,7 +165,11 @@ public sealed unsafe class HapVideoSource : IVideoSource
         var wake = new Action(() => _wake.Set());
         _queue = new FrameQueue(queue, _stats, wake);
         _pool = new FramePool(_queue.Capacity + 4, wake);
-        LockWaits.Prepare(_queue.Gate, _queue.LeaseGate, _pool.Gate, _stats.Gate);
+        // Every lock a frame thread takes: the read and decode threads meet on the ring's, a renderer's UseArena on the arena's.
+        LockWaits.Prepare(_queue.Gate, _queue.LeaseGate, _pool.Gate, _stats.Gate, _ringGate, _arenaGate);
+        // And every event they wait on, before either thread starts and could set one.
+        LockWaits.Prepare(_wake, _readWake);
+        _countdown.Warm();
         _queue.SetLoopInitial(_options.Loop, _options.InNs, _options.OutNs);
         _readThread = new Thread(ReadRun) { IsBackground = true, Name = "hap read " + System.IO.Path.GetFileName(path) };
         _readThread.Start();
@@ -200,6 +206,12 @@ public sealed unsafe class HapVideoSource : IVideoSource
 
     /// <summary>The byte cap of the read-ahead ring.</summary>
     public long ReadAheadCapBytes => _capBytes;
+
+    /// <summary>The read-ahead ring's lock, which both frame threads take (a test holds it to make them wait for it).</summary>
+    internal Lock RingGate => _ringGate;
+
+    /// <summary>The upload arena's lock, which the decode thread takes for every frame (a test holds it to make it wait).</summary>
+    internal Lock ArenaGate => _arenaGate;
 
     /// <summary>The managed bytes the decode thread had allocated at its latest frame (flat once warm).</summary>
     internal long DecodeThreadAllocatedBytes => Interlocked.Read(ref _decodeAllocated);
@@ -450,8 +462,6 @@ public sealed unsafe class HapVideoSource : IVideoSource
 
     private void ReadLoop()
     {
-        _readWake.Reset();
-        _readWake.Wait(2);
         while (!_stop)
         {
             _readWake.Reset();
@@ -670,10 +680,6 @@ public sealed unsafe class HapVideoSource : IVideoSource
 
     private void DecodeLoop()
     {
-        // One real block on each event before the first frame (an event makes its lock object on the first wait that blocks).
-        _wake.Reset();
-        _wake.Wait(2);
-        _countdown.Warm();
         while (!_stop)
         {
             _wake.Reset();

@@ -1,4 +1,5 @@
 using PlayMap.Core.Media.Hap;
+using PlayMap.Media.Frames;
 
 namespace PlayMap.Media.Hap;
 
@@ -29,13 +30,9 @@ internal sealed class FrameCountdown : IDisposable
             _done.Set();
     }
 
-    /// <summary>One real block on the event, so its lock object exists before the first frame (the event makes it lazily on the
-    /// first wait that blocks).</summary>
-    public void Warm()
-    {
-        _done.Reset();
-        _done.Wait(1);
-    }
+    /// <summary>Makes the event's lock object before the first frame (<see cref="LockWaits.Prepare(ManualResetEventSlim[])"/>):
+    /// called before any chunk is posted, so no worker can set it during the wait.</summary>
+    public void Warm() => LockWaits.Prepare(_done);
 
     public void Wait()
     {
@@ -70,6 +67,8 @@ internal sealed unsafe class HapWorkers : IDisposable
 
     internal HapWorkers(int threads)
     {
+        // Decode threads and workers meet on the ring's lock at any frame; its wait event is made before either does.
+        LockWaits.Prepare(_gate);
         _threads = new Thread[threads];
         Threads = threads;
         for (var i = 0; i < threads; i++)
@@ -81,12 +80,23 @@ internal sealed unsafe class HapWorkers : IDisposable
 
     public int Threads { get; }
 
+    /// <summary>The ring's lock, which posting decode threads and the workers take (a test holds it to make a poster wait).</summary>
+    internal Lock Gate => _gate;
+
     /// <summary>The process's pool, made on first use with <paramref name="threads"/> threads (0 = cores − 1, at least one);
     /// later callers share it as it is.</summary>
     public static HapWorkers Shared(int threads)
     {
+        // Once made it is read without the lock: every HAP source's decode thread asks for it every frame, and would meet the
+        // others on the lock.
+        if (Volatile.Read(ref _shared) is { } made)
+            return made;
         lock (CreateGate)
-            return _shared ??= new HapWorkers(threads > 0 ? threads : Math.Max(1, Environment.ProcessorCount - 1));
+        {
+            if (_shared is null)
+                Volatile.Write(ref _shared, new HapWorkers(threads > 0 ? threads : Math.Max(1, Environment.ProcessorCount - 1)));
+            return _shared;
+        }
     }
 
     /// <summary>Queues a job; false when the ring is full (the caller works it).</summary>
@@ -127,6 +137,7 @@ internal sealed unsafe class HapWorkers : IDisposable
 
     private void Work()
     {
+        LockWaits.PrepareThisThread();
         while (true)
         {
             _ready.Wait();

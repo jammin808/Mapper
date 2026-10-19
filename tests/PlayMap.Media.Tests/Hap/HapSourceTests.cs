@@ -2,13 +2,15 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
+using PlayMap.Media.Frames;
 using PlayMap.Media.Hap;
 using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests.Hap;
 
 /// <summary>The HAP source: clips FFmpeg's encoder made and clips of every other HAP codec play 120 frames with frame n =
-/// f(time); the read-ahead stays inside its caps; nothing allocates per frame once warm; refused and corrupt frames are
+/// f(time); the read-ahead stays inside its caps; nothing allocates per frame once warm, across the loop point's seek and a
+/// frame thread's first wait for any lock it takes; refused and corrupt frames are
 /// counted with words while playback carries on; the codecs this renderer cannot sample do not open; probes name every
 /// HAP codec.</summary>
 public class HapSourceTests
@@ -156,23 +158,88 @@ public class HapSourceTests
         Assert.InRange(bytes, 1_048_576, 3_000_000);
     }
 
+    // Plays a source warm and opens an allocation window on its threads; answers their baselines and the next frame to play. A
+    // thread's count is the snapshot it took at its latest frame or packet, so each baseline is one it took inside the window:
+    // twenty frames after it opened, more than the queue (6 frames) and the ring (8 packets) then held. A snapshot from before it
+    // misses what a background collection ending in between counts — the unused rest of the allocation context the warm-up left
+    // the thread — and the window would read that as allocated.
+    private static (long Decode, long Read, int Next) OpenWindow(HapVideoSource source)
+    {
+        for (var n = 0; n < 40; n++)
+            At(source, Rate.TimeOf(n)).Dispose();
+        Allocations.Begin();
+        for (var n = 40; n < 60; n++)
+            At(source, Rate.TimeOf(n)).Dispose();
+        return (source.DecodeThreadAllocatedBytes, source.ReadThreadAllocatedBytes, 60);
+    }
+
     [Fact]
     public async Task NothingAllocatesPerFrameOnceWarm()
     {
         using var source = new HapVideoSource(HapClips.Ffmpeg("hap_q", 8, "snappy"), HapSourceOptions.Default with { Loop = true });
         Assert.True(await source.Opened, source.Health.Status);
-        for (var n = 0; n < 40; n++)
-            At(source, Rate.TimeOf(n)).Dispose();
-        Allocations.Begin();
-        var decode = source.DecodeThreadAllocatedBytes;
-        var read = source.ReadThreadAllocatedBytes;
+        var (decode, read, next) = OpenWindow(source);
         Assert.True(decode > 0 && read > 0);
-        // 160 more frames, across the loop point. One object a frame would be 160 × 24 bytes at the least; what a thread may
-        // still make once (a lock's wait event the first time two threads meet on it) is a few hundred bytes, once.
-        for (var n = 40; n < 200; n++)
+        // 140 more frames, across the loop point (the process's first seek, when no test seeked before): nothing at all. Every
+        // lock either thread takes and every event it waits on is prepared, and the seek is bound, before the window opens; and a
+        // thread that allocated even once here would hold an allocation context, whose unused rest (up to 8 KB) a background
+        // collection ending its mark then counts as allocated — an allowance only hides an allocation until a collection lands.
+        for (var n = next; n < 200; n++)
             At(source, Rate.TimeOf(n)).Dispose();
-        Assert.InRange(source.DecodeThreadAllocatedBytes - decode, 0, 1024);
-        Assert.InRange(source.ReadThreadAllocatedBytes - read, 0, 1024);
+        Assert.Equal(0, source.DecodeThreadAllocatedBytes - decode);
+        Assert.Equal(0, source.ReadThreadAllocatedBytes - read);
+    }
+
+    /// <summary>On a loaded machine a frame thread may first have to wait for a lock at any frame of a show (the thread holding it
+    /// preempted): the read and decode threads meet on the read-ahead ring's lock, and the decode thread takes the upload arena's
+    /// for every frame, which a renderer's UseArena takes too. Each is held here across the loops' 100 ms turns while the play
+    /// head moves on, so the decode thread (and, on the ring's, the read thread) waits for it: that allocates nothing.</summary>
+    [Fact]
+    public async Task AFirstWaitForTheRingsOrTheArenasLockInTheShowAllocatesNothing()
+    {
+        using var source = new HapVideoSource(HapClips.Ffmpeg("hap_q", 8, "snappy"), HapSourceOptions.Default with { Loop = true });
+        Assert.True(await source.Opened, source.Health.Status);
+        var (decode, read, next) = OpenWindow(source);
+        using (var never = new ManualResetEventSlim(false))
+        {
+            foreach (var gate in new[] { source.RingGate, source.ArenaGate })
+            {
+                // Three frames on: their slots come free, so the decode thread wants the next packet and the lock to work it.
+                next += 3;
+                lock (gate)
+                {
+                    source.Prepare(Rate.TimeOf(next), true, 1);
+                    never.Wait(TimeSpan.FromMilliseconds(350));
+                }
+                for (var end = next + 20; next < end; next++)
+                    At(source, Rate.TimeOf(next)).Dispose();
+            }
+        }
+        Assert.Equal(0, source.DecodeThreadAllocatedBytes - decode);
+        Assert.Equal(0, source.ReadThreadAllocatedBytes - read);
+    }
+
+    /// <summary>A decode thread posts its frame's chunks as the workers take them, both under the pool's lock: the pool makes the
+    /// lock's wait event as it is made, so a poster's first wait for it, at any frame, allocates nothing.</summary>
+    [Fact]
+    public void AFirstWaitForTheWorkerPoolsLockAllocatesNothing()
+    {
+        using var workers = new HapWorkers(1);
+        long allocated = -1;
+        lock (workers.Gate)
+        {
+            var poster = new Thread(() =>
+            {
+                LockWaits.PrepareThisThread();
+                var before = Allocations.Start();
+                if (workers.Gate.TryEnter(5))
+                    workers.Gate.Exit();
+                allocated = Allocations.Since(before);
+            });
+            poster.Start();
+            poster.Join();
+        }
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
