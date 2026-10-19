@@ -17,7 +17,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
     /// <summary>A presenter that keeps the pictures it was given and waits, as a vsync'd swap does, for the next vblank of a 60 Hz
     /// grid on the monotonic clock (the one after it when asked to be late), and says it returned just after that vblank — the
     /// instant it scripted, whenever its thread got the CPU back (how the fit copes with late stamps is VblankClockTests').</summary>
-    private sealed class ScriptedPresenter : IImmediatePresenter
+    private sealed class ScriptedPresenter : IOutputPresenter
     {
         private const double Period = 1e9 / 60;
         private readonly long _start = MonoClock.Instance.NowNs;
@@ -41,9 +41,9 @@ public sealed class PresenterSeamTests(GlFixture gl)
 
         public void RecordBlack(ICommandList list) => _recorded = null;
 
-        public PresentResult Present() => _recorded is { } picture ? Present(picture) : PresentBlack();
+        public PresentResult Present() => _recorded is { } picture ? Show(picture) : PresentResult.Done(LastSwapNs);
 
-        public PresentResult Present(GpuTexture picture)
+        private PresentResult Show(GpuTexture picture)
         {
             if (Full)
                 return new PresentResult(false, MonoClock.Instance.NowNs, PresentProblem.Held);
@@ -59,8 +59,6 @@ public sealed class PresenterSeamTests(GlFixture gl)
             LastSwapNs = returns;
             return PresentResult.Done(LastSwapNs);
         }
-
-        public PresentResult PresentBlack() => PresentResult.Done(LastSwapNs);
 
         public void Observe(PresentClock clock) => Observed++;
 
@@ -145,7 +143,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
     [Trait("Category", "Linux")]
     public void ASurfacelessPlatformRefusesPresentersWithWords()
     {
-        using var platform = GpuPlatforms.Create(PlatformRequest.Default with { Surfaceless = true }, new GlDeviceOptions(true, false));
+        using var platform = GpuPlatforms.Create(PlatformRequest.Default with { Surfaceless = true }, new GpuDeviceOptions(true, false));
         Assert.Equal("gl-surfaceless", platform.Name);
         Assert.Equal(PresentPath.Offscreen, platform.Path);
         Assert.Empty(platform.Monitors());
@@ -193,7 +191,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
     public void SettingsWordsThePlatformDoesNotKnowAreSaidNotIgnored()
     {
         using var platform = GpuPlatforms.Create(new PlatformRequest("warp", "gles9", Surfaceless: OperatingSystem.IsLinux()),
-            new GlDeviceOptions(true, false));
+            new GpuDeviceOptions(true, false));
         Assert.Equal(GlDialect.Core330, platform.Context.Dialect);
         Assert.Contains("present path 'warp' is none of auto, gl, dxgi", platform.Words, StringComparison.Ordinal);
         Assert.Contains("GL dialect 'gles9' is none of auto, core330, es300", platform.Words, StringComparison.Ordinal);
@@ -208,7 +206,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
         {
             try
             {
-                using var platform = GpuPlatforms.Create(new PlatformRequest(Dialect: "es300"), new GlDeviceOptions(true, true));
+                using var platform = GpuPlatforms.Create(new PlatformRequest(Dialect: "es300"), new GpuDeviceOptions(true, true));
                 var c = platform.Context;
                 Assert.Equal(GlDialect.Es300, c.Dialect);
                 // On Linux ES is made on EGL (or on GLX, saying so); elsewhere the window system's own API makes it and has nothing to say.

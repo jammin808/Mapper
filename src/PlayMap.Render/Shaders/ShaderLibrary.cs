@@ -3,7 +3,7 @@ using System.Collections.Frozen;
 namespace PlayMap.Render.Shaders;
 
 /// <summary>Every shader the renderer runs, by name, in GLSL 3.30 core (desktop GL 3.3 and up, Mesa included). A source carries
-/// no #version and no precision line: the device prepends its dialect's header (<see cref="Gl.GlDialects.Header"/>).
+/// no #version and no precision line: the GL device prepends its dialect's header.
 /// A Direct3D backend supplies the same names in HLSL with the same uniforms.
 ///
 /// The conventions every source keeps:

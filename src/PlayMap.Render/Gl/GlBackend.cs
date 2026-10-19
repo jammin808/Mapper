@@ -78,12 +78,18 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         _timers = new GlTimers(device);
         _importer = new GlTextureImporter(device);
         Adapter = new GpuAdapterInfo(0, VendorOf(device.Vendor + " " + device.Renderer), device.Renderer, device.Version,
-            string.Create(CultureInfo.InvariantCulture, $"OpenGL {device.GlVersion / 10}.{device.GlVersion % 10} {GlDialects.Word(device.Dialect)}"),
+            ApiWords(device),
             SoftwareRenderers.Any(r => device.Renderer.Contains(r, StringComparison.OrdinalIgnoreCase)));
         Features = FeaturesOf(device, _timers.Measures);
     }
 
     public GpuBackendKind Kind => GpuBackendKind.Gl;
+
+    /// <summary>The API in the words a renderer's name leads with: "OpenGL 3.3" for a desktop context, "OpenGL ES 3.0" for an ES
+    /// one.</summary>
+    internal static string ApiWords(GlDevice device) => device.Dialect == GlDialect.Es300
+        ? string.Create(CultureInfo.InvariantCulture, $"OpenGL ES {device.GlVersion / 10}.{device.GlVersion % 10}")
+        : string.Create(CultureInfo.InvariantCulture, $"OpenGL {device.GlVersion / 10}.{device.GlVersion % 10}");
 
     public GpuAdapterInfo Adapter { get; }
 

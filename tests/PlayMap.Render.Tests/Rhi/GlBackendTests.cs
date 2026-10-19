@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using System.Text;
 using PlayMap.Core.Gpu;
@@ -58,6 +59,9 @@ public sealed class GlBackendTests(GlFixture gl)
             Assert.Equal(c.Device.Renderer, b.Adapter.Name);
             Assert.Equal(c.Device.Version, b.Adapter.Driver);
             Assert.Equal(c.Device.Renderer.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase), b.Adapter.Software);
+            // The API in the words a renderer's name leads with ("OpenGL 3.3 llvmpipe …", "OpenGL ES 3.0 …").
+            var version = string.Create(CultureInfo.InvariantCulture, $"{c.Device.GlVersion / 10}.{c.Device.GlVersion % 10}");
+            Assert.Equal(c.Device.Dialect == GlDialect.Es300 ? "OpenGL ES " + version : "OpenGL " + version, b.Adapter.Api);
             Assert.Equal(ShaderLibrary.Names, b.Programs.Names);
             var caps = c.Device.Caps;
             foreach (var f in Enum.GetValues<TextureFormat>())

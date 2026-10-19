@@ -7,7 +7,6 @@ using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Model;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Optimise;
-using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 
 namespace PlayMap.Engine.Optimise;
@@ -151,19 +150,18 @@ public static class OptimiseWorker
         private void GlThread()
         {
             IGpuPlatform? platform = null;
-            GlHapEncoder? encoder = null;
+            IHapBlockEncoder? encoder = null;
             var why = "";
             try
             {
                 var surfaceless = OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
                     && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
-                platform = GpuPlatforms.Create(new PlatformRequest(Surfaceless: surfaceless), new GlDeviceOptions(CheckErrors: true, DebugOutput: false));
-                encoder = new GlHapEncoder(platform.Context);
-                var d = platform.Context.Device;
-                Say(WorkerProtocol.Hello(Environment.ProcessId, $"{d.Version} · {d.Renderer}", encoder.Id));
+                platform = GpuPlatforms.Create(new PlatformRequest(Surfaceless: surfaceless), new GpuDeviceOptions(CheckErrors: true, DebugOutput: false));
+                encoder = platform.CreateHapEncoder() ?? throw new PlatformNotSupportedException($"the {platform.Name} platform has no HAP encoder");
+                var adapter = platform.Device.Adapter;
+                Say(WorkerProtocol.Hello(Environment.ProcessId, $"{adapter.Driver} · {adapter.Name}", encoder.Id));
             }
-            catch (Exception ex) when (ex is GlException or PlatformNotSupportedException or InvalidOperationException or DllNotFoundException
-                                           or Silk.NET.GLFW.GlfwException)
+            catch (Exception ex) when (ex is GpuException or PlatformNotSupportedException or InvalidOperationException or DllNotFoundException)
             {
                 why = "no GL context for the encoder: " + ex.Message;
                 Say(WorkerProtocol.Hello(Environment.ProcessId, "", ""));
@@ -187,7 +185,7 @@ public static class OptimiseWorker
             }
         }
 
-        private void RunJob(WorkerJob job, GlHapEncoder encoder)
+        private void RunJob(WorkerJob job, IHapBlockEncoder encoder)
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
             lock (_write)
@@ -249,7 +247,7 @@ public static class OptimiseWorker
                 Say(WorkerProtocol.Failed(job.Job, "cancelled"));
             }
             catch (Exception ex) when (ex is MediaOpenException or FfmpegException or FfmpegUnavailableException or InvalidDataException
-                                           or IOException or UnauthorizedAccessException or GlException or NotSupportedException or ArgumentException)
+                                           or IOException or UnauthorizedAccessException or GpuException or NotSupportedException or ArgumentException)
             {
                 Say(WorkerProtocol.Failed(job.Job, ex.Message));
             }

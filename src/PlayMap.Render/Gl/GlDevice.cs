@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using PlayMap.Core.Gpu;
+using PlayMap.Render.Platform;
 using Silk.NET.OpenGL;
 
 namespace PlayMap.Render.Gl;
@@ -22,6 +23,13 @@ public sealed record GlDeviceOptions(
 #else
     public static readonly GlDeviceOptions Default = new(false, false);
 #endif
+
+    /// <summary>A platform's device options as a GL device's, for a context of <paramref name="dialect"/>.</summary>
+    public static GlDeviceOptions From(GpuDeviceOptions device, GlDialect dialect = GlDialect.Core330)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        return new GlDeviceOptions(device.CheckErrors, device.DebugOutput, device.Log, dialect);
+    }
 }
 
 /// <summary>The renderer's seam to the GPU: every GL call the renderer makes goes through this type and the

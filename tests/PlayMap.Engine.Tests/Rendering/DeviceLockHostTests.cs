@@ -46,7 +46,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
 
     /// <summary>A GL platform whose device other threads share through a lock: on a surfaceless context where the platform has one
     /// (EGL, Linux), else on the window system's hidden context.</summary>
-    private sealed class SharedDevicePlatform : IGlPlatform
+    private sealed class SharedDevicePlatform : IGpuPlatform
     {
         private readonly GlPlatform _gl;
 
@@ -64,7 +64,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
 
         public string Words => "";
 
-        public RenderContext Context => _gl.Context;
+        public string Dialect => _gl.Dialect;
 
         public IGpuDevice Device => _gl.Device;
 
@@ -183,7 +183,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         {
             Windows = false,
             Platform = new PlatformRequest("dxgi", Surfaceless: surfaceless),
-            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(o) : RenderContext.CreateHidden(o))),
+            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(GlDeviceOptions.From(o)) : RenderContext.CreateHidden(GlDeviceOptions.From(o)))),
         };
         await using var rig = HostRig.Start(HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Solid("#336699"), 64, 36)), options: options);
         Assert.NotNull(made);
@@ -246,7 +246,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         {
             Windows = false,
             Platform = new PlatformRequest("dxgi", Surfaceless: surfaceless),
-            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(o) : RenderContext.CreateHidden(o))),
+            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(GlDeviceOptions.From(o)) : RenderContext.CreateHidden(GlDeviceOptions.From(o)))),
         };
         var media = new DeviceMedia(() => made!.Share);
         var clip = new MediaItem("md_device", "Device clip", MediaKind.Video, "/clips/device.mp4", "", 0, MediaInfo.Unknown, []);

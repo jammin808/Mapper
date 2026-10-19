@@ -4,7 +4,6 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Modulation;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Generators;
 
@@ -87,10 +86,6 @@ internal sealed class RenderServices : IDisposable
     }
 
     public IGpuDevice Device { get; }
-
-    /// <summary>The GL device under the backend, for the frame code that draws on it directly (the projector pass, the effect
-    /// chains, the GPU timers).</summary>
-    public GlDevice Gl => Device.Gl;
 
     public ResourcePool Pool { get; }
     public SkiaKit Kit { get; }

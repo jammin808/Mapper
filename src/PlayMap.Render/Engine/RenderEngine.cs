@@ -151,6 +151,10 @@ public sealed class RenderEngine : IDisposable
     /// <summary>The device the renderer draws on.</summary>
     public IGpuDevice Device => _device;
 
+    /// <summary>The value the last frame's submit signalled (<see cref="FenceValue.None"/> before the first frame): a wait on it is a
+    /// wait for every output that frame drew.</summary>
+    public FenceValue Submitted { get; private set; } = FenceValue.None;
+
     /// <summary>Frames rendered.</summary>
     public long Frame { get; private set; }
 
@@ -319,7 +323,7 @@ public sealed class RenderEngine : IDisposable
         finally
         {
             _services.End();
-            _device.Submit(list);
+            Submitted = _device.Submit(list);
         }
         PresentFrame(inputs.Project.Outputs);
     }

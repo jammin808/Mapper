@@ -3,7 +3,6 @@ using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Engine.Presentation;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 using PlayMap.Render.Sync;
 
 namespace PlayMap.Engine.Rendering;
@@ -62,7 +61,7 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
                 p95 = _presentMsSorted[Math.Clamp((int)Math.Ceiling(0.95 * frames) - 1, 0, frames - 1)];
             }
         }
-        var dialect = platform?.Context is { } c ? GlDialects.Word(c.Dialect) : "";
+        var dialect = platform?.Dialect ?? "";
         // A headless node, or a platform with no window system, presents nothing: its outputs are offscreen.
         var dxgi = platform?.Path == PresentPath.DxgiFlip;
         var path = dxgi ? "dxgi" : _options.Windows && platform?.Path == PresentPath.GlWindow ? "gl" : "offscreen";

@@ -1,7 +1,6 @@
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 using PlayMap.Render.Projection;
 
 namespace PlayMap.Engine.Rendering;
@@ -139,18 +138,17 @@ public sealed partial class RenderHost : IPreviewFeed
     private void DrawDraftViewsBetweenFrames()
     {
         _draftQueued = false;
-        if (_stopping || _context is null || _draftSnap is not { } snap || Volatile.Read(ref _engine) is not { } engine)
+        if (_stopping || _platform is null || _draftSnap is not { } snap || Volatile.Read(ref _engine) is not { } engine)
             return;
         _draftSnap = null;
         try
         {
             DrawDraftViews(engine, snap, _draftLeaderNs);
         }
-        catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException
+        catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException
             or UnauthorizedAccessException)
         {
             engine.Journal.Add("fault", $"draft view: {ex.GetType().Name}: {ex.Message} — the draft views stop", ok: false);
-            _context.Device.InvalidateState();
             OnContextLostShow();
         }
     }

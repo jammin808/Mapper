@@ -246,7 +246,7 @@ public sealed class FrameLockHostTests
     /// returns four periods late (a software rasteriser, a display server's round trip, a starved thread); on the DXGI flip contract
     /// (<c>DxgiOutputWindow</c>) a held present is a full queue — <c>Present1(DO_NOT_WAIT)</c> answers at once that it queued nothing
     /// — and every fifteenth waits out the waitable's cap of three periods.</summary>
-    private sealed class HeldPresenter(PresentPath path) : IImmediatePresenter
+    private sealed class HeldPresenter(PresentPath path) : IOutputPresenter
     {
         private const double Period = 1e9 / 60;
         private readonly long _start = MonoClock.Instance.NowNs;
@@ -272,11 +272,7 @@ public sealed class FrameLockHostTests
             // As Record.
         }
 
-        public PresentResult Present() => PresentBlack();
-
-        public PresentResult Present(GpuTexture picture) => PresentBlack();
-
-        public PresentResult PresentBlack()
+        public PresentResult Present()
         {
             var hold = ++_presents % 10 == 0;
             if (hold)

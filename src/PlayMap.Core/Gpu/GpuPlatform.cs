@@ -55,6 +55,10 @@ public interface IGpuPlatform : IDisposable
     /// renderer string says it.</summary>
     string Adapter => "";
 
+    /// <summary>The shading dialect the device compiles, in STATE's word ("core330", "es300"); "" for a device that compiles no GL
+    /// dialect.</summary>
+    string Dialect => "";
+
     /// <summary>The window-system binding the device came through, as decoders' facts name it ("egl", "glx", "wgl", "cgl",
     /// "angle"); "" where none answers. Render thread, the device current.</summary>
     string ImportBinding => "";

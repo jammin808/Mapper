@@ -55,7 +55,10 @@ public sealed class DxgiWarpPresenterTests(ITestOutputHelper output)
         int queued = 0, held = 0, occluded = 0;
         for (var f = 0; f < 120; f++)
         {
-            var r = presenter.Present(picture);
+            var list = platform.Device.BeginFrame(f + 1);
+            presenter.Record(list, picture);
+            platform.Device.Submit(list);
+            var r = presenter.Present();
             clock.OnPresented(in r);
             presenter.Observe(clock);
             switch (r.Problem)

@@ -2,8 +2,6 @@ using System.Globalization;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Presentation;
-using PlayMap.Render.Gl;
-using PlayMap.Render.Gl.Windows;
 
 namespace PlayMap.Render.Platform;
 
@@ -25,7 +23,20 @@ public sealed record PlatformRequest(string Path = "auto", string Dialect = "aut
     public string GlApi { get; init; } = "auto";
 }
 
-/// <summary>Makes the platform a node asks for.</summary>
+/// <summary>The checks a device runs with: its error state read after each resource call and draw (a stall on some drivers), and
+/// the driver's debug output subscribed to where it offers one; <see cref="Log"/> takes the notes that are not errors (null drops
+/// them). The build's default checks in debug builds only.</summary>
+public sealed record GpuDeviceOptions(bool CheckErrors, bool DebugOutput, Action<string>? Log = null)
+{
+#if DEBUG
+    public static readonly GpuDeviceOptions Default = new(true, true);
+#else
+    public static readonly GpuDeviceOptions Default = new(false, false);
+#endif
+}
+
+/// <summary>Makes the platform a node asks for. It is the one place the backends are composed: it names the GL backend's platform
+/// maker and no other GL type.</summary>
 public static class GpuPlatforms
 {
     /// <summary>The platform of the asked path and dialect: "dxgi" is the flip-model platform on Windows (experimental, explicit only),
@@ -33,12 +44,15 @@ public static class GpuPlatforms
     /// platform of the asked dialect (auto is desktop 3.3 core) — AUTO is OpenGL on every platform this round. ES on Linux comes up on
     /// EGL, else GLX with words (<see cref="IGpuPlatform.Words"/>); a path or dialect word it does not know is the platform's choice,
     /// with words. Throws with words when no GL context comes up at all.</summary>
-    public static IGpuPlatform Create(PlatformRequest request, GlDeviceOptions device) =>
-        Create(request, device, ThisMachinesDxgi(request));
+    public static IGpuPlatform Create(PlatformRequest request, GpuDeviceOptions device)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Create(request, device, Gl.GlPlatforms.Dxgi(request.Warp));
+    }
 
-    /// <summary>As <see cref="Create(PlatformRequest, GlDeviceOptions)"/>, with the DXGI platform's maker given (null: this machine
+    /// <summary>As <see cref="Create(PlatformRequest, GpuDeviceOptions)"/>, with the DXGI platform's maker given (null: this machine
     /// has none): tests hand in one that fails at a chosen stage.</summary>
-    public static IGpuPlatform Create(PlatformRequest request, GlDeviceOptions device, Func<GlDeviceOptions, IGpuPlatform>? dxgi)
+    public static IGpuPlatform Create(PlatformRequest request, GpuDeviceOptions device, Func<GpuDeviceOptions, IGpuPlatform>? dxgi)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(device);
@@ -69,35 +83,13 @@ public static class GpuPlatforms
                 }
             }
         }
-        else if (!IsAuto(path) && !path.Equals("gl", StringComparison.OrdinalIgnoreCase) && !path.Equals("dxgi", StringComparison.OrdinalIgnoreCase))
+        else if (!IsAuto(path) && !path.Equals("gl", StringComparison.OrdinalIgnoreCase))
         {
             words.Add($"present path '{request.Path}' is none of auto, gl, dxgi: outputs present through GL");
         }
-        var asked = GlDialects.Parse(request.Dialect);
-        if (asked is null && !IsAuto(request.Dialect))
-            words.Add($"GL dialect '{request.Dialect}' is none of auto, core330, es300: the context is desktop 3.3 core");
-        var dialect = asked ?? GlDialect.Core330;
-        var options = device with { Dialect = dialect };
-        var api = GlApis.Parse(request.GlApi);
-        if (api is null)
-            words.Add($"decode.glApi '{request.GlApi}' is none of auto, egl, glx: the context is made the platform's way");
-        var context = request.Surfaceless ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options, api ?? GlApi.Auto);
-        if (context.Words.Length > 0)
-            words.Add(context.Words);
-        return new GlPlatform(context, string.Join("; ", words));
+        return Gl.GlPlatforms.Create(request, device, words);
     }
-
-    /// <summary>This machine's DXGI platform maker: the flip-model platform on Windows, none elsewhere.</summary>
-    private static Func<GlDeviceOptions, IGpuPlatform>? ThisMachinesDxgi(PlatformRequest request)
-    {
-        if (!OperatingSystem.IsWindows())
-            return null;
-        return AngleMaker(request.Warp);
-    }
-
-    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private static Func<GlDeviceOptions, IGpuPlatform> AngleMaker(bool warp) => o => AnglePlatform.Create(o, warp);
 
     /// <summary>A settings word that leaves the choice to the platform: empty, or "auto".</summary>
-    private static bool IsAuto(string? word) => string.IsNullOrWhiteSpace(word) || word.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsAuto(string? word) => string.IsNullOrWhiteSpace(word) || word.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
 }

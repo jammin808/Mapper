@@ -3,7 +3,6 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Engine.Rendering;
 

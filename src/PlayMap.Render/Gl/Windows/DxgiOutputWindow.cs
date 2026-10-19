@@ -24,7 +24,7 @@ namespace PlayMap.Render.Gl.Windows;
 /// </list>
 /// Render thread only; nothing here allocates per frame once the back buffer is wrapped.</summary>
 [SupportedOSPlatform("windows")]
-internal sealed unsafe class DxgiOutputWindow : IImmediatePresenter
+internal sealed unsafe class DxgiOutputWindow : IOutputPresenter
 {
     private const string ClassName = "PlayMapOutput";
     private static readonly ConcurrentDictionary<nint, bool> Closing = new();
@@ -260,14 +260,6 @@ internal sealed unsafe class DxgiOutputWindow : IImmediatePresenter
         _recorded = false;
         return PresentDrawn(picture);
     }
-
-    public PresentResult Present(GpuTexture picture)
-    {
-        ArgumentNullException.ThrowIfNull(picture);
-        return PresentDrawn(picture);
-    }
-
-    public PresentResult PresentBlack() => PresentDrawn(null);
 
     private PresentResult PresentDrawn(GpuTexture? picture)
     {

@@ -7,21 +7,10 @@ using PlayMap.Core.Presentation;
 namespace PlayMap.Render.Gl;
 
 /// <summary>A GL platform (GLFW windows over GLX or WGL, EGL, or ANGLE's ES on Direct3D 11): its primary context, made current on
-/// the render thread, which the renderer draws in through its <see cref="RenderContext.Device"/>.</summary>
+/// the render thread, which the GL backend's own code (the HAP encoder, the windows) draws in.</summary>
 public interface IGlPlatform : IGpuPlatform
 {
     RenderContext Context { get; }
-}
-
-/// <summary>The GL context of a platform, for the frame code that draws through <see cref="GlDevice"/>.</summary>
-public static class GlPlatformContext
-{
-    extension(IGpuPlatform platform)
-    {
-        /// <summary>The platform's GL context; a platform that is not a GL one has none, and is refused.</summary>
-        public RenderContext Context =>
-            platform is IGlPlatform gl ? gl.Context : throw new NotSupportedException($"the {platform.Name} platform has no GL context");
-    }
 }
 
 /// <summary>Today's platform: one hidden GL context (GLFW over GLX, or EGL) and an <see cref="OutputWindow"/> per output sharing
@@ -46,6 +35,9 @@ public sealed class GlPlatform : IGlPlatform
     public string Api => Context.Api;
 
     public string Words { get; }
+
+    /// <summary>The context's dialect word.</summary>
+    public string Dialect => GlDialects.Word(Context.Dialect);
 
     public RenderContext Context { get; }
 

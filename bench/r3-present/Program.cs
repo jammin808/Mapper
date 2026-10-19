@@ -115,7 +115,7 @@ internal static class Program
             }
             case "gl":
             {
-                var options = new GlDeviceOptions(CheckErrors: false, DebugOutput: false);
+                var options = new GpuDeviceOptions(CheckErrors: false, DebugOutput: false);
                 using var gl = new PlayMapPath("gl", GpuPlatforms.Create(new PlatformRequest("gl"), options), display, record);
                 var frames = Loop(seconds, flash, () => gl.Closed, (f, w) => gl.Frame(f, w, record));
                 return $"{frames} frames; {gl.Words()}";

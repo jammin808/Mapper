@@ -5,6 +5,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Presentation;
+using PlayMap.Render.Platform;
 
 namespace PlayMap.Render.Gl.Windows;
 
@@ -194,6 +195,9 @@ public sealed class AnglePlatform : IGlPlatform
 
     public string Words => "";
 
+    /// <summary>The context's dialect word.</summary>
+    public string Dialect => GlDialects.Word(Context.Dialect);
+
     public RenderContext Context { get; }
 
     /// <summary>The GL backend over ANGLE's context on the Direct3D 11 device.</summary>
@@ -220,10 +224,19 @@ public sealed class AnglePlatform : IGlPlatform
 
     public IReadOnlyList<MonitorInfo> Monitors() => DisplayList.Monitors();
 
+    /// <summary>A flip-model window on the display; a window that does not open leaves the platform's context current.</summary>
     public IOutputPresenter CreatePresenter(OutputPresenterOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return DxgiOutputWindow.Create(_adapter, _angle, Context, options, _nudge, _deviceLock);
+        try
+        {
+            return DxgiOutputWindow.Create(_adapter, _angle, Context, options, _nudge, _deviceLock);
+        }
+        catch
+        {
+            Context.MakeCurrent();
+            throw;
+        }
     }
 
     /// <summary>Messages are pumped by each window's frame wait and here, between frames; never blocks.</summary>

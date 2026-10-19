@@ -1,7 +1,6 @@
 using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Engine.Rendering;
 
@@ -178,10 +177,10 @@ internal sealed class OutputWindows : IDisposable
             RepickPacer();
             return true;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or ArgumentException or Render.Gl.GlException)
+        // A presenter that does not open leaves the platform's device as it found it.
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or ArgumentException or GpuException)
         {
             entry.Problem = $"its window could not open on {display}: {ex.Message}";
-            _platform.Context.MakeCurrent();
             return false;
         }
     }

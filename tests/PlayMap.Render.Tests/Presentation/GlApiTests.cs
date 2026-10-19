@@ -13,7 +13,7 @@ namespace PlayMap.Render.Tests.Presentation;
 /// Linux's: those tests run there only. Each platform is made, read and disposed on a thread of its own.</summary>
 public sealed class GlApiTests(ITestOutputHelper log)
 {
-    private static readonly GlDeviceOptions Device = new(CheckErrors: true, DebugOutput: false);
+    private static readonly GpuDeviceOptions Device = new(CheckErrors: true, DebugOutput: false);
 
     private static void OnOwnThread(Action body)
     {
@@ -63,8 +63,12 @@ public sealed class GlApiTests(ITestOutputHelper log)
             using (var window = platform.CreatePresenter(new OutputPresenterOptions("gl api test", null, false, 64, 36, VSync: false)))
             {
                 Assert.Equal(PresentPath.GlWindow, window.Path);
-                using var picture = platform.Context.Device.CreateTexture(64, 36, TextureFormat.Rgba8);
-                Assert.True(window.Present(picture).Queued);
+                var device = platform.Device;
+                using var picture = device.CreateTexture(new TextureDesc(64, 36, TextureFormat.Rgba8, TextureUsage.Sampled));
+                var list = device.BeginFrame(1);
+                window.Record(list, picture);
+                device.Submit(list);
+                Assert.True(window.Present().Queued);
             }
             platform.Context.MakeCurrent();
             Assert.Equal("egl", GlDevice.CurrentBinding());

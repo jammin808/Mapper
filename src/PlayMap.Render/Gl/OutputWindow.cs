@@ -29,7 +29,7 @@ public sealed record OutputWindowOptions(
 /// wait (the pacing window, <see cref="SetSwapInterval"/> 1) and the others swap at once (0); the engine
 /// picks the pacer. A window never makes the primary context lose its state: the present switches to the
 /// window's context and back.</summary>
-public sealed class OutputWindow : IImmediatePresenter
+public sealed class OutputWindow : IOutputPresenter
 {
     private readonly RenderContext _primary;
     private readonly IWindow _window;
@@ -93,13 +93,23 @@ public sealed class OutputWindow : IImmediatePresenter
             PreferredDepthBufferBits = 0,
             PreferredStencilBufferBits = 0,
         };
-        var window = RenderContext.MakeWindow(wo, primary.EglWindows);
-        var output = new OutputWindow(primary, window);
-        window.MakeCurrent();
-        output._vao = primary.Device.CreateContextVertexArray();
-        output.SetSwapIntervalCurrent(options.VSync ? 1 : 0);
-        primary.MakeCurrent();
-        return output;
+        // Whatever stops the window, the primary context is current again when this returns.
+        IWindow? window = null;
+        try
+        {
+            window = RenderContext.MakeWindow(wo, primary.EglWindows);
+            var output = new OutputWindow(primary, window);
+            window.MakeCurrent();
+            output._vao = primary.Device.CreateContextVertexArray();
+            output.SetSwapIntervalCurrent(options.VSync ? 1 : 0);
+            window = null;
+            return output;
+        }
+        finally
+        {
+            window?.Dispose();
+            primary.MakeCurrent();
+        }
     }
 
     /// <summary>1 = wait for the vertical blank (the pacing window), 0 = swap at once.</summary>
@@ -147,15 +157,13 @@ public sealed class OutputWindow : IImmediatePresenter
         var picture = _picture;
         _picture = null;
         _recorded = false;
-        return picture is null ? PresentBlack() : Present(picture);
+        return picture is null ? ShowBlack() : Show(picture);
     }
 
     /// <summary>Shows a finished picture: switches to the window's context, draws it over the window,
     /// swaps, and returns to the primary context.</summary>
-    public PresentResult Present(GpuTexture picture)
+    private PresentResult Show(GpuTexture picture)
     {
-        ArgumentNullException.ThrowIfNull(picture);
-        ObjectDisposedException.ThrowIf(_disposed, this);
         var device = _primary.Device;
         device.Flush();
         _window.MakeCurrent();
@@ -167,9 +175,8 @@ public sealed class OutputWindow : IImmediatePresenter
     }
 
     /// <summary>Shows black (an output with nothing drawn yet).</summary>
-    public PresentResult PresentBlack()
+    private PresentResult ShowBlack()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         _window.MakeCurrent();
         _primary.Device.ClearDefault(Width, Height);
         _window.SwapBuffers();
