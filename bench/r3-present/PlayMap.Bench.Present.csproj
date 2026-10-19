@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The bench for M1 and M3 (bench/r3-present/README.md): a flashing quad on one display through a raw Direct3D 12 flip swap
+       chain, PlayMap's GL window, PlayMap's Direct3D 11 path (DXGI flip through ANGLE) and the composition swapchain asked to take
+       Direct3D 12 buffers, each present's instants written down for the lab's photodiode and PresentMon (L1, L4). Windows only;
+       outside PlayMap.sln: the Windows job builds it and never runs it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Bench.Present</RootNamespace>
+    <AssemblyName>PlayMap.Bench.Present</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TerraFX.Interop.Windows" Version="10.0.26100.6" />
+    <!-- ANGLE for the Direct3D 11 path: the package the desk's exe carries, so the loader finds av_libglesv2.dll beside this
+         exe. -->
+    <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PlayMap.Render\PlayMap.Render.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\BenchWindow.cs" Link="BenchWindow.cs" />
+  </ItemGroup>
+
+</Project>
