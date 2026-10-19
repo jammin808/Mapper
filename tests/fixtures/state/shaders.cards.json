@@ -4,6 +4,10 @@
     "path": "fx.compile.worker",
     "light": [
       {
+        "if": "missing",
+        "light": "amber"
+      },
+      {
         "if": "running",
         "light": "green"
       },

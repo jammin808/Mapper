@@ -14,20 +14,24 @@ public static class ShaderWorkerMain
 {
     public const string Word = "shader-worker";
 
-    /// <summary>"--fake-compiler abort|hang" after the word (tests only): the worker answers every source as a compiler that stops
-    /// its process would (abort: it ends the process mid-compile) or as one that never returns (hang: it answers nothing), so the
-    /// engine's supervision is tested without a compiler that misbehaves.</summary>
+    /// <summary>"--fake-compiler abort|hang|unloaded" after the word (tests only): the worker answers every source as a compiler that
+    /// stops its process would (abort: it ends the process mid-compile), as one that never returns (hang: it answers nothing), or as a
+    /// worker none of whose natives loaded (unloaded: its hello says so, and each source fails at the first stage that needs one), so
+    /// the engine's supervision is tested without a compiler that misbehaves.</summary>
     public const string FakeWord = "--fake-compiler";
 
     /// <summary>The exit code of a fake compiler that aborted (a native abort's).</summary>
     public const int AbortedExit = 134;
+
+    /// <summary>The words of a fake native that did not load.</summary>
+    public const string UnloadedWords = "not loaded (a test's fake)";
 
     /// <summary>The fake the arguments name, or "" for the real road.</summary>
     public static string FakeOf(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
         var at = Array.IndexOf(args, FakeWord);
-        return at >= 0 && at + 1 < args.Length && args[at + 1] is "abort" or "hang" ? args[at + 1] : "";
+        return at >= 0 && at + 1 < args.Length && args[at + 1] is "abort" or "hang" or "unloaded" ? args[at + 1] : "";
     }
 
     public static int Run(string[] args)
@@ -45,7 +49,9 @@ public static class ShaderWorkerMain
         var fake = FakeOf(args);
         using var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
         using var stdin = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8);
-        using var natives = fake.Length > 0 ? new RoadNatives(null, null, null, null, "", "", "", "") : RoadNatives.Load();
+        using var natives = fake.Length > 0
+            ? new RoadNatives(null, null, null, null, UnloadedWords, UnloadedWords, UnloadedWords, UnloadedWords)
+            : RoadNatives.Load();
         var road = new ShaderRoad(natives);
         var write = new Lock();
         void Say(string line)

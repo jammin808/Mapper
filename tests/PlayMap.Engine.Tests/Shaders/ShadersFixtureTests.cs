@@ -25,7 +25,9 @@ public sealed class ShadersFixtureTests
         {
             ["title"] = "Shader worker",
             ["path"] = "fx.compile.worker",
-            ["light"] = new JsonArray(new JsonObject { ["if"] = "running", ["light"] = "green" }, new JsonObject { ["light"] = "grey" }),
+            // A native that did not load fails every compile at its stage, whether the worker runs or not.
+            ["light"] = new JsonArray(new JsonObject { ["if"] = "missing", ["light"] = "amber" }, new JsonObject { ["if"] = "running", ["light"] = "green" },
+                new JsonObject { ["light"] = "grey" }),
             ["words"] = "words",
             ["fields"] = new JsonArray(
                 new JsonObject { ["label"] = "Running", ["path"] = "running" },
@@ -94,6 +96,7 @@ public sealed class ShadersFixtureTests
         var state = JsonNode.Parse(fixture)!;
         Assert.Equal(slot, state["fx"]!["quarantine"]![0]!["slots"]![0]!.GetValue<string>());
         Assert.False(state["fx"]!["compile"]!["worker"]!["running"]!.GetValue<bool>());
+        Assert.Equal(0, state["fx"]!["compile"]!["worker"]!["missing"]!.GetValue<int>());
         foreach (var card in Cards().Select(c => c!.AsObject()))
         {
             var path = card["path"]!.GetValue<string>();

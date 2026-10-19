@@ -111,6 +111,8 @@ public sealed partial class EngineCore
         w.WriteNumber("lastMs", f.LastMs);
         w.WriteNumber("compiled", f.Compiled);
         w.WriteNumber("failed", f.Failed);
+        // The natives its hello named that did not load: every compile fails at the first stage that needs one.
+        w.WriteNumber("missing", f.Natives.Count(n => !n.Ok));
         w.WriteStartArray("natives");
         foreach (var n in f.Natives)
         {

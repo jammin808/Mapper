@@ -11,6 +11,7 @@
         "lastMs": 0,
         "compiled": 0,
         "failed": 0,
+        "missing": 0,
         "natives": [],
         "words": "the shader worker starts with the first effect to compile"
       }

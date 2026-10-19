@@ -20,7 +20,7 @@ namespace PlayMap.Engine.Tests.Shaders;
 /// that doubles (counted on a manual clock), and the third stop fails the source with words in the host's own memory, writing no
 /// quarantine; a compile past the deadline is ended and counts no stop; a compile its caller abandons ends its worker, so the next
 /// source meets a fresh one; a node that stops mid-compile answers so and fails nothing; the worker's own process ends when its input
-/// closes, mid-compile too, and runs below normal priority; FX CHECK on an
+/// closes, mid-compile too, and runs below normal priority; a worker none of whose natives loaded says so in STATE; FX CHECK on an
 /// armed node reads the host's own words when its bound ends a check, and three such ends change no quarantine, so a GL runner given
 /// the node's quarantine still draws the kind; and the engine's own process holds no compiler module while its worker does. No test
 /// asserts a time: the clocks the host waits on are moved by hand.</summary>
@@ -332,6 +332,23 @@ public sealed class ShaderWorkerTests
     }
 
     [Fact]
+    public async Task AWorkerWhoseNativesDidNotLoadSaysSoInStateAndEachSourceFailsAtTheFirstStageThatNeedsOne()
+    {
+        await using var host = Host(Options(null, ShaderWorkerMain.FakeWord, "unloaded"));
+        await using var engine = new EngineCore(ShaderParts.Compose(EngineServices.ForTests(), new ShaderQuarantine(), host));
+        ShaderParts.Attach(engine);
+        var levels = Builtin("fx.levels");
+        var reply = await host.CompileAsync("Levels", levels.Fragment, levels.Vertex, CancellationToken.None);
+        Assert.Equal(ShaderRoad.GlslangStage, reply.Stage);
+        Assert.Contains(ShaderWorkerMain.UnloadedWords, reply.Words, StringComparison.Ordinal);
+
+        var worker = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker");
+        Assert.True(worker.GetProperty("running").GetBoolean());
+        Assert.Equal(4, worker.GetProperty("missing").GetInt32());
+        Assert.All(worker.GetProperty("natives").EnumerateArray(), n => Assert.False(n.GetProperty("ok").GetBoolean()));
+    }
+
+    [Fact]
     public async Task TheEnginesProcessHoldsNoCompilerModuleWhileItsWorkerDoes()
     {
         await using var host = Host(Options());
@@ -348,6 +365,7 @@ public sealed class ShaderWorkerTests
         }
         var worker = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker");
         Assert.True(worker.GetProperty("running").GetBoolean());
+        Assert.Equal(0, worker.GetProperty("missing").GetInt32());
         var pid = worker.GetProperty("pid").GetInt32();
         Assert.Equal(1, worker.GetProperty("compiled").GetInt32());
 
