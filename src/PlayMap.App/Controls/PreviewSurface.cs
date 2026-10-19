@@ -190,7 +190,7 @@ public class PreviewSurface : Control
             InvalidateVisual();
         }
         var now = Clock();
-        var aged = _frame is null ? (null, null) : (_age.Badge(now), _age.FrozenWords(now, _source.Live, GetLinkLive(this)));
+        var aged = _frame is null ? (null, null) : (_age.Badge(now), _age.FrozenWords(now, GetLinkLive(this)));
         if (aged != _aged)
         {
             _aged = aged;

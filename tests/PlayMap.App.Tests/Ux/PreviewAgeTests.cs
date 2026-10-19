@@ -8,8 +8,8 @@ using PlayMap.App.Controls;
 namespace PlayMap.App.Tests.Ux;
 
 /// <summary>Preview age, on a manual desk clock: a preview's rate comes from its ring slots' stamps and its age from when its newest
-/// picture came; a ring that freezes is stale once its picture is older than two frames of its own rate (a badge with the age) and greyed
-/// at one second with the reason — the ring gone, the engine quiet, or no new picture.</summary>
+/// picture arrived; a ring that freezes is stale once its picture is older than two frames of its own rate (a badge with the age) and
+/// greyed at one second with the reason — the engine quiet, or no new picture; a ring gone takes its picture away at once.</summary>
 public class PreviewAgeTests
 {
     /// <summary>A source that hands the surface a picture whenever a test gives it a stamp.</summary>
@@ -51,14 +51,13 @@ public class PreviewAgeTests
         Assert.Equal("stale 67 ms", age.Badge(166 + 67));
         Assert.False(age.IsFrozen(166 + 999));
         Assert.True(age.IsFrozen(166 + 1000));
-        Assert.Equal("Frozen 1.0 s: the ring brings no new picture", age.FrozenWords(166 + 1000, ringLive: true, engineLive: true));
-        Assert.Equal("Frozen 1.0 s: the engine is quiet", age.FrozenWords(166 + 1000, ringLive: true, engineLive: false));
-        Assert.Equal("Frozen 1.0 s: the preview's ring is gone", age.FrozenWords(166 + 1000, ringLive: false, engineLive: true));
+        Assert.Equal("Frozen 1.0 s: the ring brings no new picture", age.FrozenWords(166 + 1000, engineLive: true));
+        Assert.Equal("Frozen 1.0 s: the engine is quiet", age.FrozenWords(166 + 1000, engineLive: false));
         Assert.Equal("stale 1.0 s", age.Badge(166 + 1000));
         // A new picture: fresh again.
         age.Arrived(9_100_000_000, 1200);
         Assert.False(age.IsStale(1200));
-        Assert.Null(age.FrozenWords(1200, true, true));
+        Assert.Null(age.FrozenWords(1200, engineLive: true));
     }
 
     [AvaloniaFact]

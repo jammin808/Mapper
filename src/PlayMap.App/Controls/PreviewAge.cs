@@ -2,10 +2,12 @@ using System.Globalization;
 
 namespace PlayMap.App.Controls;
 
-/// <summary>How old a preview's picture is, read on the desk's clock from the pictures as they arrive: its own frame rate from its ring
-/// slots' stamps (the node's clock: only their differences are read), its age from when the newest picture came. Older than two frames
-/// of its own rate it is stale (a badge with the age); with no new picture for a second it is frozen (the picture greyed with the reason:
-/// the ring gone, the engine quiet, or no new picture). A preview that has had no picture yet has no age.</summary>
+/// <summary>How old a preview's picture is: its own frame rate from its ring slots' stamps (the node's clock: only their differences are
+/// read), its age on the desk's clock since the newest picture arrived (when the desk read it from the ring, not the slot's stamp, which
+/// is on the node's clock). Older than two frames of its own rate it is stale (a badge with the age); with no new picture for a second it
+/// is frozen (the picture greyed with the reason: the engine quiet, or the ring brings no new picture). A ring gone takes its picture
+/// away at once (the stand-in says why), so a frozen picture's ring is always there. A preview that has had no picture yet has no
+/// age.</summary>
 public sealed class PreviewAge
 {
     /// <summary>A picture this long without a successor is frozen.</summary>
@@ -45,15 +47,12 @@ public sealed class PreviewAge
         ? age >= FrozenMs ? string.Create(CultureInfo.InvariantCulture, $"stale {age / 1000.0:0.0} s") : string.Create(CultureInfo.InvariantCulture, $"stale {age} ms")
         : null;
 
-    /// <summary>Why a frozen picture is frozen: the ring the node named is gone, the engine is quiet (the link is not live), or the ring
-    /// brings no new picture.</summary>
-    public string? FrozenWords(long nowMs, bool ringLive, bool engineLive)
+    /// <summary>Why a frozen picture is frozen: the engine is quiet (the link is not live), or the ring brings no new picture.</summary>
+    public string? FrozenWords(long nowMs, bool engineLive)
     {
         if (!IsFrozen(nowMs) || AgeMs(nowMs) is not { } age)
             return null;
         var seconds = string.Create(CultureInfo.InvariantCulture, $"{age / 1000.0:0.0} s");
-        if (!ringLive)
-            return $"Frozen {seconds}: the preview's ring is gone";
         return engineLive ? $"Frozen {seconds}: the ring brings no new picture" : $"Frozen {seconds}: the engine is quiet";
     }
 
