@@ -1,5 +1,6 @@
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Align;
@@ -9,7 +10,8 @@ namespace PlayMap.Engine.Tests.Spine;
 
 /// <summary>Blend γ as the hand's override: an output's blend is drawn through the hand's γ, else its measured one, else 2.2, so a γ of
 /// 0 draws exactly what a stored 2.2 drew; PROJECT OPEN reads an earlier round's file by the γ rule and names, in its answer and its
-/// journal row, every output it moved; ALIGN REVERT after an accept draws the γ the output drew before the run.</summary>
+/// journal row, every output it moved; ALIGN REVERT after an accept draws the γ the output drew before the run; an edit of the measured
+/// layer alone moves the 3D blend's inputs when it moves the γ the blend is drawn through, so BLEND SOLVE runs again.</summary>
 public sealed class BlendGammaTests
 {
     private static readonly SessionInfo Desk = SessionInfo.Desk("t");
@@ -80,6 +82,32 @@ public sealed class BlendGammaTests
             Assert.Equal(stored.For(id)!.Map.Weights, zero.For(id)!.Map.Weights);
             Assert.NotEqual(other.For(id)!.Map.Weights, zero.For(id)!.Map.Weights);
         }
+    }
+
+    [Fact]
+    public async Task AMeasuredGammaEditAloneMovesTheBlendsInputsAndTheSolveRunsAgain()
+    {
+        var wall = BlendSolveTests.TwoProjectorsOnAWall();
+        var before = wall with { Outputs = wall.Outputs.Update("op_right", o => o with { Measured = MeasuredGamma(2.4) }) };
+        Assert.All(before.Outputs, o => Assert.Equal(0, o.Blend.Gamma));
+        var after = before with { Outputs = before.Outputs.Update("op_right", o => o with { Measured = MeasuredGamma(2.2) }) };
+        Assert.False(BlendInputs.Of(before).Equals(BlendInputs.Of(after)));
+        // A measured edit that leaves the drawn γ where it was moves nothing the solve reads.
+        var same = before with { Outputs = before.Outputs.Update("op_right", o => o with { Measured = o.Measured! with { ScanId = "kept" } }) };
+        Assert.True(BlendInputs.Of(before).Equals(BlendInputs.Of(same)));
+
+        await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), before);
+        Assert.True((await Run(engine, "BLEND SOLVE")).Ok);
+        Assert.Equal("done", (await engine.WhenSolved.WaitAsync(Patience))!.State);
+        Assert.True((await engine.Lane.RunAsync(() => engine.Store.Apply("the measured γ",
+            p => p with { Outputs = p.Outputs.Update("op_right", o => o with { Measured = MeasuredGamma(2.2) }) }))).Changed);
+
+        var again = await Run(engine, "BLEND SOLVE");
+
+        Assert.True(again.Ok, again.Payload);
+        Assert.Equal("done", (await engine.WhenSolved.WaitAsync(Patience))!.State);
+        Assert.Equal(2.2, engine.LastBlendSolve!.Inputs.Outputs.Single(o => o.Id == "op_right").DrawnBlendGamma());
+        Assert.True(engine.LastBlendSolve.Inputs.Equals(BlendInputs.Of(engine.Store.Project)));
     }
 
     [Fact]
