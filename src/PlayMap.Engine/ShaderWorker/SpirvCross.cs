@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using PlayMap.Core.Effects;
 
 namespace PlayMap.Engine.ShaderWorker;
@@ -10,10 +11,31 @@ public sealed record HlslStage(bool Ok, string Hlsl, ShaderLayout Layout, string
 
 /// <summary>SPIRV-Cross's C interface: a validated module to HLSL (Shader Model 6.0), with the registers remapped to user effects'
 /// root signature — the default uniform block (the ISF inputs, each image's size, rect and flag) at b0, ISF's built-ins at b1,
-/// image i at t i with its sampler at s i, all in space 0 — and the default block's layout read from the module (its members'
-/// names as the ISF file wrote them, their offsets as the cbuffer packs them). One context per stage.</summary>
-public sealed unsafe class SpirvCross
+/// image i at t i, and every image sampled through the one sampler at s0 (linear and clamped, as the GL path samples ISF images),
+/// all in space 0 — and the default block's layout read from the module (its members' names as the ISF file wrote them, their
+/// offsets as the cbuffer packs them). A module that declares any other resource (a storage buffer or image, a separate texture or
+/// sampler, a push-constant block, a subpass input, an atomic counter, an acceleration structure) is refused with the resource's
+/// name: an ISF effect binds none, and the root signature has no place for it. One context per stage.</summary>
+public sealed unsafe partial class SpirvCross
 {
+    /// <summary>The one sampler every image samples through, at s0.</summary>
+    public const string SharedSampler = "PlayMapIsfSampler";
+
+    /// <summary>The resources an ISF effect never binds, by SPIRV-Cross's resource type, with the words that name each.</summary>
+    private static readonly (int Type, string Words)[] Refused =
+    [
+        (2, "a storage buffer"),
+        (5, "a subpass input"),
+        (6, "a storage image"),
+        (8, "an atomic counter"),
+        (9, "a push-constant block"),
+        (10, "a separate texture"),
+        (11, "a separate sampler"),
+        (12, "an acceleration structure"),
+        (14, "a shader record buffer"),
+        (16, "a tensor"),
+    ];
+
     private const int BackendHlsl = 2;
     private const int CaptureTakeOwnership = 1;
     private const int ResourceUniformBuffer = 1;
@@ -138,7 +160,7 @@ public sealed unsafe class SpirvCross
             byte* source;
             if (_compile(compiler, &source) != 0)
                 return Failed(context, "HLSL was not written");
-            return new HlslStage(true, Marshal.PtrToStringUTF8((nint)source) ?? "", layout, "");
+            return new HlslStage(true, ShareSampler(Marshal.PtrToStringUTF8((nint)source) ?? ""), layout, "");
         }
         finally
         {
@@ -159,6 +181,13 @@ public sealed unsafe class SpirvCross
         layout = ShaderLayout.Empty;
         Resource* list;
         nuint count;
+        foreach (var (type, words) in Refused)
+        {
+            if (_resourceList(resources, type, &list, &count) != 0)
+                return "the module's resources do not read";
+            if (count > 0)
+                return $"{Marshal.PtrToStringUTF8((nint)list[0].Name)}: {words} is not a resource an ISF effect binds";
+        }
         if (_resourceList(resources, ResourceUniformBuffer, &list, &count) != 0)
             return "the module's uniform blocks do not read";
         var constants = ImmutableArray<LayoutConstant>.Empty;
@@ -251,4 +280,23 @@ public sealed unsafe class SpirvCross
             sb.Append((char)('0' + size));
         return sb.ToString();
     }
+
+    /// <summary>SPIRV-Cross declares a sampler beside each image; each is made a name for the one shared sampler, declared once at s0,
+    /// so the HLSL binds no sampler but s0 however many images the effect reads.</summary>
+    public static string ShareSampler(string hlsl)
+    {
+        ArgumentNullException.ThrowIfNull(hlsl);
+        var declared = false;
+        return SamplerDeclaration().Replace(hlsl, m =>
+        {
+            var alias = $"#define {m.Groups[1].Value} {SharedSampler}";
+            if (declared)
+                return alias;
+            declared = true;
+            return $"SamplerState {SharedSampler} : register(s0, space0);\n{alias}";
+        });
+    }
+
+    [GeneratedRegex(@"^SamplerState (\w+) : register\(s\d+, space0\);$", RegexOptions.Multiline)]
+    private static partial Regex SamplerDeclaration();
 }

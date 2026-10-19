@@ -6,7 +6,8 @@ namespace PlayMap.Render.D3D12.Tests.Shaders;
 /// <summary>The whole road in the test process, on both jobs (DXC's Linux build emits validated, signed DXIL: M6): every built-in
 /// and every corpus sample reaches signed DXIL with each entry's reflection; the layout the road answers is the ISF file's own names
 /// at the offsets DXC's reflection reads, the images at their slots; the HLSL binds the default block at b0, the built-ins at b1 (when
-/// an entry reads one) and image i at t i and s i; a stage that fails leaves the later stages not run, with the words why.</summary>
+/// an entry reads one), image i at t i and every image's sampling through the one sampler at s0; a resource an ISF effect never binds
+/// is refused at cross with its name, before DXC; a stage that fails leaves the later stages not run, with the words why.</summary>
 public sealed class ShaderRoadTests
 {
     private static readonly Lazy<RoadNatives> Natives = new(() => RoadNatives.Load());
@@ -43,7 +44,8 @@ public sealed class ShaderRoadTests
         var texture = Assert.Single(result.Layout.Textures);
         Assert.Equal(new LayoutTexture("inputImage", 0, true), texture);
 
-        // DXC's own reflection of the pixel entry: the same offsets in the cbuffer at b0, the built-ins at b1, the image at t0 and s0.
+        // DXC's own reflection of the pixel entry: the same offsets in the cbuffer at b0, the built-ins at b1, the image at t0 and
+        // the one sampler at s0.
         var reflection = Natives.Value.Dxc!.Reflect(result.Reflection[1], out var words);
         Assert.True(reflection is not null, words);
         var b0 = reflection.Bindings.Single(b => b.Kind == "cbuffer" && b.Register == 0);
@@ -66,6 +68,39 @@ public sealed class ShaderRoadTests
         Assert.True(timedReflection is not null, words);
         var b1 = Assert.Single(timedReflection.Bindings, b => b.Kind == "cbuffer" && b.Register == 1);
         Assert.Contains(timedReflection.Constants, c => c.Buffer == b1.Name && c.Name.EndsWith("TIME", StringComparison.Ordinal) && c.Offset == 16);
+    }
+
+    [Fact]
+    public void FiveImagesBindTheirTexturesAtT0ToT4AndSampleThroughTheOneSamplerAtS0()
+    {
+        const string fs = "/*{ \"INPUTS\": [ {\"NAME\":\"a\",\"TYPE\":\"image\"}, {\"NAME\":\"b\",\"TYPE\":\"image\"}, "
+            + "{\"NAME\":\"c\",\"TYPE\":\"image\"}, {\"NAME\":\"d\",\"TYPE\":\"image\"}, {\"NAME\":\"e\",\"TYPE\":\"image\"} ] }*/\n"
+            + "void main() { gl_FragColor = IMG_NORM_PIXEL(a, isf_FragNormCoord) + IMG_NORM_PIXEL(b, isf_FragNormCoord) + "
+            + "IMG_NORM_PIXEL(c, isf_FragNormCoord) + IMG_NORM_PIXEL(d, isf_FragNormCoord) + IMG_NORM_PIXEL(e, isf_FragNormCoord); }\n";
+        var result = Road.Run(fs, null);
+        Assert.True(result.Ok, $"{result.Stage}: {result.Words}");
+        Assert.Equal([0, 1, 2, 3, 4], result.Layout.Textures.Select(t => t.Slot));
+        var reflection = Natives.Value.Dxc!.Reflect(result.Reflection[1], out var words);
+        Assert.True(reflection is not null, words);
+        Assert.Equal([("a", 0), ("b", 1), ("c", 2), ("d", 3), ("e", 4)],
+            reflection.Bindings.Where(b => b.Kind == "texture").OrderBy(b => b.Register).Select(b => (b.Name, b.Register)));
+        var sampler = Assert.Single(reflection.Bindings, b => b.Kind == "sampler");
+        Assert.Equal((SpirvCross.SharedSampler, 0, 0), (sampler.Name, sampler.Register, sampler.Space));
+    }
+
+    [Fact]
+    public void AResourceAnIsfEffectNeverBindsIsRefusedAtCrossWithItsNameBeforeDxc()
+    {
+        const string fs = "/*{ \"INPUTS\": [ {\"NAME\":\"inputImage\",\"TYPE\":\"image\"} ] }*/\n"
+            + "layout(std430, binding = 9) buffer Extra { uint extra[]; };\n"
+            + "void main() { gl_FragColor = IMG_NORM_PIXEL(inputImage, isf_FragNormCoord) * float(extra[0]); }\n";
+        var result = Road.Run(fs, null);
+        Assert.False(result.Ok);
+        Assert.Equal(ShaderRoad.Cross, result.Stage);
+        Assert.Equal("Extra: a storage buffer is not a resource an ISF effect binds", result.Words);
+        Assert.Equal([true, true, true, false, null], result.Stages.Select(s => s.Ok));
+        Assert.Equal("not run: the cross stage failed", result.Stages[4].Words);
+        Assert.Empty(result.Dxil);
     }
 
     [Fact]
