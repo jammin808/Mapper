@@ -21,6 +21,14 @@ internal sealed class ParticleGenerator : GeneratorRenderer
     private static readonly DrawState Sprites = FrameLists.Quads(BlendMode.Premultiplied);
     private static readonly DrawState GlowingSprites = FrameLists.Quads(BlendMode.AddPremultiplied);
 
+    /// <summary>The field's sprites, laid or glowing, into its half-float picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("sprite", Sprites, TargetShape.Rgba16F);
+        keys.Add("sprite", GlowingSprites, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
     private readonly GpuBuffer _instances;
     private readonly GpuMesh _mesh;

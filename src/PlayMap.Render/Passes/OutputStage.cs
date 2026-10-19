@@ -43,6 +43,13 @@ internal sealed class OutputStage
     /// <summary>The stage's state: the warp mesh's triangles written opaque, no depth, no culling.</summary>
     private static readonly DrawState Warped = DrawState.Opaque;
 
+    /// <summary>The stage's draw: into an output's final picture, and into a projector's preview.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("output", Warped, TargetShape.Rgba8, TargetShape.Rgba8Depth);
+    }
+
     private readonly RenderServices _services;
     private readonly ProgramId _output;
 

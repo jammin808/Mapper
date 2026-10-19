@@ -33,6 +33,13 @@ public sealed class OverlayPass : IFramePass
     /// <summary>The overlay's state: straight-alpha triangles over the picture, no depth, no culling.</summary>
     private static readonly DrawState Shapes = new(BlendMode.Normal, DepthMode.Off, CullMode.None, Topology.Triangles);
 
+    /// <summary>The overlay's draws: its outlines, handles and cursors over an output's final picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("overlay.shapes", Shapes, TargetShape.Rgba8);
+    }
+
     private sealed class Entry : IDisposable
     {
         public required GpuBuffer Buffer { get; init; }

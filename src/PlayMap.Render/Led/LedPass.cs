@@ -52,6 +52,14 @@ public sealed class LedPass : IFramePass
     /// <summary>Every LED draw writes its rows whole, opaque.</summary>
     private static readonly DrawState Drawn = DrawState.Opaque;
 
+    /// <summary>The rig's sampling into its float colours and its patch into its 8-bit slots.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("led_sample", Drawn, TargetShape.Rgba32F);
+        keys.Add("led_patch", Drawn, TargetShape.Rgba8);
+    }
+
     private readonly IGpuDevice _device;
     private readonly ILedPictures _pictures;
     private readonly ProgramId _sample;

@@ -46,6 +46,13 @@ public static class HapPass
     /// <summary>The pass writes the picture whole, opaque.</summary>
     private static readonly DrawState Drawn = DrawState.Opaque;
 
+    /// <summary>The pass's draw into pictures of <paramref name="target"/>'s shape.</summary>
+    internal static void Pipelines(PipelineList keys, TargetShape target)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("hap", Drawn, target);
+    }
+
     /// <summary>Draws the pass of <paramref name="program"/> (the device's <c>hap</c>) into <paramref name="target"/> (the picture's
     /// visible size) in a pass of its own on the frame's list.</summary>
     public static void Draw(ICommandList list, ProgramId program, RenderTarget target, GpuTexture first, GpuTexture? second, int mode,

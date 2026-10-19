@@ -387,6 +387,17 @@ internal sealed class SourceResolver : IDisposable
     /// <summary>A covering first layer's state: drawn without blending.</summary>
     private static readonly DrawState Covering = FrameLists.Quads(BlendMode.Opaque);
 
+    /// <summary>The canvases' and playlists' draws, into half-float pictures: a playlist's mix, and each layer's quad in its blend (a
+    /// covering first layer opaque).</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("mix", Mixing, TargetShape.Rgba16F);
+        keys.Add("quad", Covering, TargetShape.Rgba16F);
+        foreach (var blend in (ReadOnlySpan<BlendMode>)[BlendMode.Normal, BlendMode.Add, BlendMode.Multiply, BlendMode.Screen])
+            keys.Add("quad", FrameLists.Quads(blend), TargetShape.Rgba16F);
+    }
+
     /// <summary>A pass that clears the canvas to its background first.</summary>
     private static PassDesc Background(Canvas canvas)
     {

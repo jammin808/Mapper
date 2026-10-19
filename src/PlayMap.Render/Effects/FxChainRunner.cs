@@ -62,6 +62,18 @@ public sealed class FxChainRunner : IDisposable
     /// <summary>The mix of a slot's result over its input writes the owner's target whole, opaque.</summary>
     private static readonly DrawState Mixed = DrawState.Opaque;
 
+    /// <summary>A slot's mix of its effect over its input, into a picture of the input's format (8 bits, half or full float, where the
+    /// device renders it). The effects' own passes are user programs, made at run time and listed by no pass.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        foreach (var format in (ReadOnlySpan<TextureFormat>)[TextureFormat.Rgba8, TextureFormat.Rgba16F, TextureFormat.Rgba32F])
+        {
+            if (IsfRenderer.Renders(keys.Device.Features, format))
+                keys.Add("fxmix", Mixed, new TargetShape(format));
+        }
+    }
+
     private readonly IGpuDevice _device;
     private readonly FxLane _lane;
     private readonly ProgramId _mix;

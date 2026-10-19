@@ -13,6 +13,7 @@ using PlayMap.Render.Projection;
 using PlayMap.Render.Tests.Wall;
 using PlayMap.Render.Video;
 using Silk.NET.OpenGL;
+using Xunit.Abstractions;
 
 namespace PlayMap.Render.Tests.Rhi;
 
@@ -23,9 +24,9 @@ namespace PlayMap.Render.Tests.Rhi;
 /// in every blend, the generators of every family with a surface effect drawn flat, a playlist's mix, a video's conversion, a
 /// projector with a pixel quad and a mesh, the overlay, the identify card, a delay ring, a blackout and the three kinds of preview)
 /// leaves the GL state the loose calls left, draw for draw, as recorded per dialect in <c>DrawStates/frames.&lt;dialect&gt;.txt</c>
-/// (written by this test with PLAYMAP_WRITE_FIXTURES=1).</summary>
+/// (written by this test with PLAYMAP_WRITE_FIXTURES=1), and takes only pipelines the passes list.</summary>
 [Collection("gpu")]
-public sealed class DrawStateTests(BackendFixture backends)
+public sealed class DrawStateTests(BackendFixture backends, ITestOutputHelper log)
 {
     /// <summary>A scripted frame: each step's state, the program it draws and the loose calls the frame code makes for it.</summary>
     private static readonly (DrawState State, string Program)[] Script =
@@ -204,6 +205,76 @@ public sealed class DrawStateTests(BackendFixture backends)
         Assert.Equal(want.Length, got.Length);
         Assert.Contains(got, l => l.StartsWith("blend True", StringComparison.Ordinal));
         Assert.True(got.Count(l => l.StartsWith("blend", StringComparison.Ordinal)) > 100, "the show draws");
+    }
+
+    /// <summary>Every draw of the scripted show takes a pipeline one of the passes lists (<see cref="FramePipelines"/>): on a device of
+    /// its own with the lists made first, the show's draws make no pipeline; on another without them, they make pipelines, so the count
+    /// sees what a draw makes.</summary>
+    [Fact]
+    public void EveryPipelineTheShowDrawsIsOneThePassesList()
+    {
+        var (project, stage, sources) = Show();
+        var (unwarmed, _) = OnAFreshDevice(warm: false, b => DrawShow(b, project, stage, sources));
+        var (warmed, listed) = OnAFreshDevice(warm: true, b => DrawShow(b, project, stage, sources));
+        log.WriteLine($"the passes list {listed} pipelines; the show's draws take {unwarmed} of them");
+
+        Assert.True(unwarmed > 20, $"the show's draws made {unwarmed} pipelines on a device that had made none");
+        Assert.True(warmed == 0, $"{warmed} of the show's draws took a pipeline no pass lists ({listed} listed)");
+        Assert.True(listed > unwarmed, $"the passes list {listed} pipelines; the show drew {unwarmed}");
+    }
+
+    /// <summary>A body on a GL device of its own (a hidden context in the run's dialect on a thread of its own), the frame's listed
+    /// pipelines made first when <paramref name="warm"/>; answers the pipelines the body's draws made and how many the passes list.</summary>
+    private static (long Made, int Listed) OnAFreshDevice(bool warm, Action<GlBackend> body)
+    {
+        using var thread = new GpuThread("pipeline lists");
+        return thread.Run(() =>
+        {
+            using var c = RenderContext.CreateHidden(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlLeg.Dialect));
+            var b = c.Backend;
+            var listed = FramePipelines.Of(b).Keys;
+            if (warm)
+            {
+                var job = b.Pipelines.WarmAsync(listed, CancellationToken.None);
+                Assert.True(BackendFrames.Until(b, () => job.IsCompleted), "the warm-up did not answer");
+                var result = job.GetAwaiter().GetResult();
+                Assert.Empty(result.Failed);
+                Assert.Equal(listed.Count, result.Made + result.FromCache);
+            }
+            var before = b.Pipelines.RenderThreadMakes;
+            body(b);
+            Assert.Empty(c.Device.TakeErrors());
+            return (b.Pipelines.RenderThreadMakes - before, listed.Count);
+        });
+    }
+
+    /// <summary>The show's four frames, each with its three previews, as <see cref="TheShowsFramesLeaveTheStateTheLooseCallsLeftDrawForDraw"/>
+    /// draws them.</summary>
+    private static void DrawShow(GlBackend b, Project project, TestStage stage, ISourceProvider sources)
+    {
+        var ring = PreviewRing.PathFor("pipelines", Guid.NewGuid().ToString("N"));
+        using var writer = new PreviewRingWriter(ring, 64, 64);
+        using var engine = new RenderEngine(b, new RenderEngineOptions(GpuTiming: false));
+        using var overlay = new OverlayPass(b);
+        engine.SetDelay("op1", 2, 0);
+        var eye = Pose.LookAt(new Vec3d(3, 2, 4), new Vec3d(0, 0.3, 0), new Vec3d(0, 1, 0));
+        var camera = new EditorCamera(Intrinsics.FromFieldOfView(64, 36, 60), eye, Selected: new HashSet<string> { "sf_mesh" });
+        for (var f = 0; f < 4; f++)
+        {
+            var inputs = Scene.Inputs(project, 1 + f / 60.0, sources, stage) with
+            {
+                Identify = f == 1,
+                Blackout = f == 3,
+                Overlay = new OverlayState(true, [], OverlayLayers.Outlines | OverlayLayers.Handles, null, 0, "", 0),
+                Passes = [overlay],
+            };
+            overlay.Prepare(in inputs);
+            engine.Render(inputs);
+            engine.Preview(new PreviewRequest("v_out", writer, 32, 18, OutputId: "op1"));
+            engine.Preview(new PreviewRequest("v_editor", writer, 64, 36, Editor: camera));
+            engine.Preview(new PreviewRequest("v_lamp", writer, 40, 30, ProjectorId: "pj1"));
+        }
+        Assert.Empty(engine.GeneratorFaults());
     }
 
     /// <summary>The recorded draws of <see cref="TheShowsFramesLeaveTheStateTheLooseCallsLeftDrawForDraw"/> for this run's dialect.</summary>

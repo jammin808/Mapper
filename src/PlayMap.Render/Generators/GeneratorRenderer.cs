@@ -203,6 +203,14 @@ internal sealed class RenderServices : IDisposable
 /// asked (every frame when <see cref="Animated"/>, once per change otherwise).</summary>
 internal abstract class GeneratorRenderer : IDisposable
 {
+    /// <summary>What every generator may draw over its picture, 8-bit or half float: a sting's flash and a caption.</summary>
+    internal static void OverlayPipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("quad", FrameLists.Quads(BlendMode.Normal), TargetShape.Rgba8, TargetShape.Rgba16F);
+        keys.Add("quad", FrameLists.Quads(BlendMode.Premultiplied), TargetShape.Rgba8, TargetShape.Rgba16F);
+    }
+
     protected GeneratorRenderer(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
     {
         Services = services;

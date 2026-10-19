@@ -189,15 +189,17 @@ public sealed class UserProgramTests(BackendFixture backends)
                 // Asked inside the frame that draws with it: the frame goes on drawing it.
                 DrawWith(list);
             });
-            // Let go only as a frame begins, and only once the frame that drew with it has completed (a value once complete stays so).
+            // Let go only as a frame begins, and only once the frame that drew with it has completed (a value once complete stays so):
+            // while the GPU is still on it, every frame keeps it; once it has completed, the next frame lets it go.
             Assert.True(Held(b, made.Id));
-            var frames = 0;
-            while (Held(b, made.Id) && frames++ < 2000)
+            for (var frames = 0; Held(b, made.Id) && frames < 200; frames++)
             {
                 BackendFrames.Run(b, _ => { });
                 if (!Held(b, made.Id))
                     Assert.True(b.IsComplete(last), "released before the last frame that drew with it completed");
             }
+            b.WaitFor(last);
+            BackendFrames.Run(b, _ => { });
             Assert.False(Held(b, made.Id));
             Assert.True(b.IsComplete(last));
             Assert.Empty(c.Device.TakeErrors());

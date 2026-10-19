@@ -322,6 +322,14 @@ public sealed class VideoTextureSet : IDisposable
     /// <summary>The conversion's state: the picture written whole, opaque.</summary>
     private static readonly DrawState Converting = DrawState.Opaque;
 
+    /// <summary>A frame's conversion to RGB and a HAP frame's decode, both into the set's half-float picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("yuv", Converting, TargetShape.Rgba16F);
+        HapPass.Pipelines(keys, TargetShape.Rgba16F);
+    }
+
     private void Draw(ICommandList list, in YuvConstants k, GpuTexture y, GpuTexture u, GpuTexture v, (float X, float Y, float MaxU, float MaxV) crop)
     {
         using (list.Pass(_converted!, PassDesc.Keep))

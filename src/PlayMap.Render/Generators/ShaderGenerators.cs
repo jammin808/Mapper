@@ -14,6 +14,21 @@ internal abstract class ShaderGenerator : GeneratorRenderer
     /// <summary>The fill's state: opaque, no depth, no culling.</summary>
     protected static readonly DrawState Filled = DrawState.Opaque;
 
+    /// <summary>The shader generators' fills: the test patterns in 8 bits, the 2D fractals and the reactive scenes in half float.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        foreach (var program in (ReadOnlySpan<string>)["checker", "motion", "colorcycle", "syncmarks"])
+            keys.Add(program, Filled, TargetShape.Rgba8);
+        foreach (var kind in GeneratorCatalog.All)
+        {
+            if (kind.Family == "fractal" && !Fractal3DSettings.IsKind(kind.Id))
+                keys.Add(kind.Id, Filled, TargetShape.Rgba16F);
+        }
+        foreach (var scene in Enum.GetValues<ReactiveScene>())
+            keys.Add(ReactiveGenerator.ProgramFor(scene), Filled, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
 
     protected ShaderGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context, TextureFormat format)

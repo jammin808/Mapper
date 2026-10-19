@@ -27,6 +27,15 @@ internal sealed class FlowGenerator : GeneratorRenderer
     private static readonly DrawState Sprites = FrameLists.Quads(BlendMode.Premultiplied);
     private static readonly DrawState GlowingSprites = FrameLists.Quads(BlendMode.AddPremultiplied);
 
+    /// <summary>The field's step into its two float state attachments, and its sprites, laid or glowing, into its half-float picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("content.pstep", Stepped, new TargetShape(TextureFormat.Rgba32F, TextureFormat.Rgba32F));
+        keys.Add("content.psprite", Sprites, TargetShape.Rgba16F);
+        keys.Add("content.psprite", GlowingSprites, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
     private readonly GpuTexture _atlas;
     private readonly FlashGuard _guard = new();

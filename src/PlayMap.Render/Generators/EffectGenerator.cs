@@ -61,6 +61,13 @@ internal sealed class EffectGenerator : GeneratorRenderer
     /// <summary>The plane's state: opaque, no depth, no culling.</summary>
     private static readonly DrawState Flat = DrawState.Opaque;
 
+    /// <summary>A surface effect drawn flat into its half-float picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("stage", Flat, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
     private readonly GpuBuffer _vertices;
     private readonly GpuBuffer _indices;

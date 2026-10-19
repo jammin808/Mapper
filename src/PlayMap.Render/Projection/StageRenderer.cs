@@ -60,6 +60,18 @@ internal sealed class StageRenderer : IDisposable
     /// <summary>The editor's floor and frusta: depth tested, not written.</summary>
     private static readonly DrawState Lines = new(BlendMode.Opaque, DepthMode.TestOnly, CullMode.None, Topology.Lines);
 
+    /// <summary>The stage's surfaces and a selection's edges, and the pixel quads, into a projector's picture and an editor's view; the
+    /// editor's lines into its view.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        var projector = TargetShape.Projector(keys.Device);
+        keys.Add("stage", Surface, projector, TargetShape.Rgba8Depth);
+        keys.Add("stage", Edges, projector, TargetShape.Rgba8Depth);
+        keys.Add("pixelsurface", Flat, projector, TargetShape.Rgba8Depth);
+        keys.Add("lines", Lines, TargetShape.Rgba8Depth);
+    }
+
     private static readonly PassDesc ProjectorClear = PassDesc.ClearBlack;
     private static readonly PassDesc EditorClear = FrameLists.Clear(0.07f, 0.075f, 0.09f, 1);
 

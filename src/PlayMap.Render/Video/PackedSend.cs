@@ -161,6 +161,14 @@ public sealed class PackPass : IDisposable
     /// <summary>The scale and the pack write their targets whole, opaque.</summary>
     private static readonly DrawState Drawn = DrawState.Opaque;
 
+    /// <summary>A send's pack into its 8-bit wire frame, and the picture fitted to the send's raster first, in 8 bits or half float.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("video.pack", Drawn, TargetShape.Rgba8);
+        keys.Add("blit", Drawn, TargetShape.Rgba8, TargetShape.Rgba16F);
+    }
+
     private static readonly PassDesc Black = FrameLists.Clear(0, 0, 0, 1);
 
     private readonly IGpuDevice _device;

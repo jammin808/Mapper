@@ -113,6 +113,15 @@ public sealed class RenderEngine : IDisposable
     /// <summary>The identify card over an output: premultiplied, as Skia draws it.</summary>
     private static readonly DrawState Card = FrameLists.Quads(BlendMode.Premultiplied);
 
+    /// <summary>The engine's own draws: an output's picture copied into its delay ring and into a preview, an identify card over an
+    /// output's final picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("blit", Copied, TargetShape.Rgba8, TargetShape.Rgba8Depth);
+        keys.Add("quad", Card, TargetShape.Rgba8);
+    }
+
     private readonly IGpuDevice _device;
     private readonly RenderEngineOptions _options;
     private readonly ProgramId _blit;
@@ -173,17 +182,17 @@ public sealed class RenderEngine : IDisposable
     /// <summary>How long <see cref="WarmUp"/> waits for the device's warm-up; what it has not made by then its first draw makes.</summary>
     public static readonly TimeSpan WarmUpBound = TimeSpan.FromSeconds(20);
 
-    /// <summary>Makes every product program's pipeline now, so the first show frame makes none: the device's warm-up moves on frame
-    /// by frame, so empty frames are submitted until it answers or <see cref="WarmUpBound"/> passes. A program it could not make is
-    /// tried again by its first draw. Render thread, before the first frame.</summary>
+    /// <summary>Makes now every pipeline the frame's passes list (<see cref="FramePipelines"/>), and every product program's opaque
+    /// 8-bit one (the programs only a backend or a tool draws among them), so the first show frame makes none: the device's warm-up
+    /// moves on frame by frame, so empty frames are submitted until it answers or <see cref="WarmUpBound"/> passes. A pipeline it could
+    /// not make is tried again by its first draw. Render thread, before the first frame.</summary>
     public void WarmUp()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var programs = _device.Programs;
-        var keys = new PipelineKey[programs.Names.Count];
-        for (var i = 0; i < keys.Length; i++)
-            keys[i] = new PipelineKey(programs.Id(programs.Names[i]), DrawState.Opaque, TextureFormat.Rgba8, null, Depth: false);
-        var warm = _device.Pipelines.WarmAsync(keys, CancellationToken.None);
+        var keys = FramePipelines.Of(_device);
+        foreach (var name in _device.Programs.Names)
+            keys.Add(name, DrawState.Opaque, TargetShape.Rgba8);
+        var warm = _device.Pipelines.WarmAsync(keys.Keys, CancellationToken.None);
         var until = MonoClock.Instance.NowNs + (long)(WarmUpBound.TotalMilliseconds * 1e6);
         var spin = default(SpinWait);
         while (!warm.IsCompleted && MonoClock.Instance.NowNs < until)

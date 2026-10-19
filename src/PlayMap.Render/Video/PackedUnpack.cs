@@ -16,6 +16,15 @@ internal sealed class PackedUnpack : IDisposable
     /// <summary>The conversion's state: the picture written whole, opaque.</summary>
     private static readonly DrawState Unpacking = DrawState.Opaque;
 
+    /// <summary>The unpack into half float, or into 16 bits for a deep layout where the device renders them.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("video.unpack", Unpacking, TargetShape.Rgba16F);
+        if (keys.Device.Features.Formats.TryGetValue(TextureFormat.Rgba16, out var deep) && deep.Target)
+            keys.Add("video.unpack", Unpacking, new TargetShape(TextureFormat.Rgba16));
+    }
+
     private readonly IGpuDevice _device;
     private readonly bool _streaming;
     private readonly ProgramId _unpack;

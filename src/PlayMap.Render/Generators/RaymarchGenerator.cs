@@ -14,6 +14,14 @@ internal sealed class RaymarchGenerator : GeneratorRenderer
 {
     private static readonly DrawState Upscaled = FrameLists.Quads(BlendMode.Opaque);
 
+    /// <summary>The march at its inner size and the picture scaled up from it, both half float.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("content.raymarch", DrawState.Opaque, TargetShape.Rgba16F);
+        keys.Add("quad", Upscaled, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
     private readonly FlashGuard _guard = new();
     private readonly ProgramId _march;
