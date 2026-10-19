@@ -1,7 +1,7 @@
-; PlayMap's installer (docs/round3/design/installer.md; docs/INSTALL.md), an EXE built by Inno Setup 7.1 in the MSI's place with the
-; same acceptance (docs/round3/PLAN.md §3.5 item 2, §9 decision 3; why, in docs/INSTALL.md). It installs per machine into
-; Program Files\PlayMap and does every machine-level action through the supervisor's own commands (install, uninstall, upgrade-stop,
-; preinstall-check), so the engine never runs as administrator.
+; PlayMap's installer (docs/round3/design/installer.md; docs/INSTALL.md), an EXE built by Inno Setup 7.1: the owner's choice for this
+; round, with an MSI revisited next round (why, in docs/INSTALL.md). It installs per machine into Program Files\PlayMap and does
+; every machine-level action through the supervisor's own commands (install, uninstall, upgrade-stop, preinstall-check), so the
+; engine never runs as administrator.
 ;
 ; The build passes, from a numbered build only (installer/build-installer.ps1):
 ;   SemVer       the product version, MAJOR.MINOR.PATCH            0.2.0

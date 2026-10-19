@@ -1,7 +1,0 @@
-{
-  "repository": "https://github.com/wixtoolset/wix.git",
-  "tag": "v7.0.0",
-  "commit": "b8977d6f88e7b68e000bac226a2814f236770570",
-  "suffix": "playmap.1",
-  "licence": "MS-RL (LICENSE.TXT at the tag)"
-}

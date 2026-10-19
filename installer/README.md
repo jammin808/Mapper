@@ -2,10 +2,9 @@
 
 PlayMap's per-machine installer (`docs/INSTALL.md` for a person; `docs/round3/design/installer.md` for the design).
 
-- `PlayMap.iss` — the installer, built by Inno Setup 7.1 in the MSI's place with the same acceptance (`docs/round3/PLAN.md` §9
-  decision 3): the WiX toolset's pinned source carries licence checks PlayMap never answers, patches or passes (the owner decides
-  them), and M17 measures whether that source builds on the runner (`wix/`, below; `docs/INSTALL.md` says what it answered). Every
-  machine-level action is the supervisor's own command.
+- `PlayMap.iss` — the installer, an EXE built by Inno Setup 7.1: the owner's choice for this round, with an MSI revisited next round
+  (`docs/INSTALL.md` says why, with M17's answer). Its licence page shows `licence.txt`, and every machine-level action is the
+  supervisor's own command.
 - `licence.txt` — the terms the licence page shows and the install keeps as `{app}\licence.txt`: the section for PlayMap's own
   terms (none named yet), Microsoft's licence terms for `D3D12Core.dll` byte for byte from the pinned Agility SDK package's
   `LICENSE.txt`, and pointers to the other components' notices. UTF-8 with its byte-order mark and CRLF lines, never converted on
@@ -20,5 +19,3 @@ PlayMap's per-machine installer (`docs/INSTALL.md` for a person; `docs/round3/de
 - `tests/PlayMap.Installer.Tests` — the life cycle on the Windows runner, elevated (outside `PlayMap.sln`; the installer job runs it).
 - `tests/PlayMap.FakeEngine` — a stand-in engine, run as `PlayMap.exe engine`, that answers the armed check as told, writes its pid
   record and waits on the stop event: the installer's and the supervisor's Windows tests start it.
-- `wix/` — M17's measurement: the WiX toolset built from its MS-RL source at the tag `wix/toolset.json` pins, into `wix/feed`,
-  the only source `nuget.config` allows for `WixToolset.*`, and the probe that says whether the self-built tool asks for the gesture.
