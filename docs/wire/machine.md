@@ -8,11 +8,12 @@ row, so VERBS, HELP, MCP, the assistant's prompt, the context and the Companion 
 | Verb | Syntax | Answers | Risk | Changes the show |
 |---|---|---|---|---|
 | `MACHINE` | `MACHINE [STATUS]` | JSON `{platform, identity, claims:[{what, asked, applied, readBack, words, light}], locked, drift:[{item, what, locked, now, words}], words}`; the words: "PlayMap 0.2.0 (build 17, abc1234) · Windows 11 IoT Enterprise LTSC 24H2 · build 26100.4061 · tier ltsc; 9 claims, every one applied; the drivers are the locked set". Any other word refused with the syntax | low | no |
-| `MACHINE SET` | `MACHINE SET QOS HIGH\|AUTO \| TIMER HIGH\|DEFAULT \| MMCSS ON\|OFF \| PROCESS HIGH\|NORMAL \| CPUSETS AUTO\|OFF \| GPU-PRIORITY NORMAL\|HIGH\|REALTIME \| AWAKE ON\|OFF` | JSON `{word, asked, was, applies:"now"\|"next start", claim:{what, asked, applied, readBack, words, light}\|null, words}`. Kept in this node's settings (`NodeSettings.Machine`) by the settings file's one writer. QOS, PROCESS and GPU-PRIORITY are claimed again at once and the claim's answer is in the receipt and in STATE (Windows may refuse: the setting is kept and the words say so); AWAKE takes or lets go keep-awake at once; TIMER, MMCSS and CPUSETS apply from the render host's or each claimed thread's next start, said. Refused with words: a value the setting has ("QoS is already high"), a word or value it does not take (the syntax), REALTIME on an account without `SeIncreaseBasePriorityPrivilege` (named, with "the installer grants it to the show account"), a node with no node home, a settings file that cannot be written; while armed, by the Setup class | review (REALTIME: high) | yes |
+| `MACHINE SET` | `MACHINE SET QOS HIGH\|AUTO \| TIMER HIGH\|DEFAULT \| MMCSS ON\|OFF \| PROCESS HIGH\|NORMAL \| CPUSETS AUTO\|OFF \| GPU-PRIORITY NORMAL\|HIGH\|REALTIME \| GC DEFAULT\|SHOW \| AWAKE ON\|OFF` | JSON `{word, asked, was, applies:"now"\|"next start"\|"next arm", claim:{what, asked, applied, readBack, words, light}\|null, words}`. Kept in this node's settings (`NodeSettings.Machine`) by the settings file's one writer. QOS, PROCESS and GPU-PRIORITY are claimed again at once and the claim's answer is in the receipt and in STATE (Windows may refuse: the setting is kept and the words say so); AWAKE takes or lets go keep-awake at once; TIMER, MMCSS and CPUSETS apply from the render host's or each claimed thread's next start, and GC from the show's next arm, said. Refused with words: a value the setting has ("QoS is already high"), a word or value it does not take (the syntax), REALTIME on an account without `SeIncreaseBasePriorityPrivilege` (named, with "the installer grants it to the show account"), a node with no node home, a settings file that cannot be written; while armed, by the Setup class | review (REALTIME: high) | yes |
 | `MACHINE LOCK` | `MACHINE LOCK [CLEAR]` | JSON `{locked, set:{os, playmap, agility, ffmpeg, syncFirmware, adapters:[{vendorId, deviceId, name, driver}]}\|null, drift, words}`: the set this node runs now kept as its shows' (adapters keyed by vendor, device and name, never by LUID), taking the drift the old lock named; `CLEAR` forgets it. Kept in `NodeSettings.Machine.Locked`, never in the project. Refused: the set already locked ("this machine's drivers are already the locked set"), `CLEAR` with none ("no driver set is locked"), nothing written either way; a node with no node home; while armed, by the Setup class | review | yes |
 
-The GC's show mode (`GC SHOW|DEFAULT`, the design's stretch) is not in the catalogue: it waits for its pause histogram and a measured
-cause.
+`SHOW ARM` and `SHOW DISARM` name the arm hook `gc` in their answer: under GC DEFAULT "the collector keeps its own mode (GC DEFAULT)";
+under SHOW "the collector holds back blocking full collections while armed (SustainedLowLatency)", or the mode the runtime kept, and at
+disarm the mode it is back in.
 
 ## STATE
 
@@ -34,9 +35,11 @@ At the end of the `machine` block, after round 2's keys:
   "platform": {
     "name":"windows|none","words":"…","light":"green|amber|grey",
     "claims": [{"what":"process.qos","asked":"high","applied":true,"readBack":"high","words":"","light":"green|amber|grey"}],
-    "settings": {"qos":"high","timer":"high","mmcss":"on","process":"high","cpuSets":"auto","gpuPriority":"normal","awake":"on"},
+    "settings": {"qos":"high","timer":"high","mmcss":"on","process":"high","cpuSets":"auto","gpuPriority":"normal","gc":"default","awake":"on"},
     "timer": {"mode":"high|default","waits":1000,"lateP99Us":550},
-    "awake": true
+    "awake": true,
+    "gc": {"setting":"default|show","held":"sustainedLowLatency"|"",
+           "pauses": null | {"count":412,"p99Ms":1.8,"maxMs":3.1,"buckets":[{"underMs":1,"count":380},…,{"overMs":50,"count":0}]}}
   },
   "locked": null | {"at":1760600000000,"set":{…as MACHINE LOCK answers…},"drift":[{"item":"gpu:10de:2bb1","what":"…","locked":"582.16","now":"591.44","words":"…"}]}
 }
@@ -69,5 +72,4 @@ that is not Windows `platform`. Fix lines: `MACHINE SET AWAKE ON` (a timeout wit
 ## Papers note
 
 For the integration pass: `docs/ARCHITECTURE.md` §2's module table gains `PlayMap.Platform.Windows` (an edge of Core; the engine
-composes it); `docs/ROADMAP.md`'s round-3 row for wp3-platform loses "the GC's latency mode while armed" unless a later package builds
-it; `docs/INSTALL.md` (wp3-installer) names the three support tiers the identity reports and the privilege GPU-PRIORITY REALTIME needs.
+composes it); `docs/ROADMAP.md`'s round-3 row for wp3-platform is built as written (the GC's latency mode while armed is built and DEFAULT); `docs/INSTALL.md` (wp3-installer) names the three support tiers the identity reports and the privilege GPU-PRIORITY REALTIME needs.

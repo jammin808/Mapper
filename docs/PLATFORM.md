@@ -32,9 +32,10 @@ The host points `ThreadClaims` at the composed platform once at start; each thre
 | CPU sets | the critical pool (render, present, decode, capture) on the highest efficiency class, background pools on the rest (`SetThreadSelectedCpuSets`, soft, never a hard affinity); one efficiency class sets nothing and says so | `GetThreadSelectedCpuSets` | AUTO | documented: CPU sets, never affinity, on hybrid processors | `CPUSETS AUTO\|OFF` | each thread's next start |
 | EcoQoS for background pools | `SetThreadInformation(ThreadPowerThrottling)`, `EXECUTION_SPEED` in both masks | `GetThreadInformation` | on | documented: the explicit level for background work | — | — |
 | The deadline timer | `CreateWaitableTimerExW(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)`, the wait taken with the cancel handle | the waits' lateness | HIGH | documented: a high-resolution timer wakes near its due time without raising the system's timer resolution | `TIMER HIGH\|DEFAULT` | the render host's next start |
+| The GC while armed | `GCSettings.LatencyMode = SustainedLowLatency` as the show arms, the mode it found put back at disarm (the arm hook `gc`) | `GCSettings.LatencyMode` | **DEFAULT** | none documented: Microsoft names animation as its case, but it grows an uncompacted heap; the collector's pauses are counted into a histogram in STATE beside the frame time, the measurement this default waits for (L10) | `GC DEFAULT\|SHOW` | the show's next arm |
 | Keep awake | a power request (`PowerCreateRequest`, display and system required) while the project has an enabled display output | whether it is held | ON | documented: the display and the system otherwise sleep on their timeouts | `AWAKE ON\|OFF` | now |
 
-A default is on only where its cause is documented; the GPU scheduling class has none and is NORMAL. Each default changes — on or
+A default is on only where its cause is documented; the GPU scheduling class and the GC's show mode have none and are off. Each default changes — on or
 off — in one commit citing L10's record. A setting already at its value is refused with words ("QoS is already high"), as is a word
 or value MACHINE SET does not take.
 
@@ -62,6 +63,10 @@ on its wake handle's own timeout at the default timer resolution. Measured on th
 
 The runner is shared, so no CI test asserts a time; L10 holds the pass mark on show hardware. Stamps stay QPC (`Stopwatch`, `MonoClock`).
 The platform's waits' p99 lateness is in STATE (`machine.platform.timer`), and a p99 over 1 ms is amber in preflight.
+
+The collector's pauses are read in-process from the runtime's own GC events (EventPipe, `Microsoft-Windows-DotNETRuntime`, the GC
+keyword at Informational: each pause from the execution engine's suspension to its restart) and published as
+`machine.platform.gc.pauses` — the count, the p99 of the last 1 000, the longest and a histogram under 1, 2, 5, 10, 20 and 50 ms.
 
 ## The node's identity
 
@@ -111,6 +116,11 @@ Section `machine`, every row a fact with words, never a silent change; a fix lin
 | Sleep or display timeout on mains | amber | the timeout; with keep-awake off, the fix `MACHINE SET AWAKE ON` |
 | The screen saver | amber when on | "keeping the display awake does not stop the screen saver" |
 | A reboot pending | amber | from Windows Update's `RebootRequired`, servicing's `RebootPending`, `PendingFileRenameOperations` |
+| USB selective suspend on (mains) | amber | the setting and where a person turns it off |
+| PCIe link-state power management saving power (mains) | amber | moderate or maximum, and where a person turns it off |
+| Notifications on | amber | "a toast can open over an output" — Settings ▸ System ▸ Notifications |
+| Windows Update not deferred, paused or held (every edition with the Update client policies; Home has its information row instead) | amber, green when held | the policy values read: a quality-update deferral, automatic updates off or notify-only, a pause and its end |
+| Hardware-accelerated GPU scheduling, Memory Integrity, Game Mode | grey | on, off or unset; never changed |
 | A claim Windows refused | amber | the claim's words |
 | The timer's p99 lateness over 1 ms | amber | the measured value |
 | Drift from MACHINE LOCK's set | amber | "NVIDIA RTX PRO 4000 Blackwell driver 582.16 → 591.44 since the driver set was locked" — fix `MACHINE LOCK` |
@@ -122,7 +132,7 @@ section is one grey row: "the platform seam is Windows only".
 
 `MACHINE [STATUS]`, `MACHINE SET`, `MACHINE LOCK [CLEAR]` (`docs/wire/machine.md`). Both changes are Setup-class: refused while the
 show is armed. STATE's `machine` block carries `identity`, `capabilities`, `platform` (the platform's name and words, its light, every
-claim with its light, the settings, the timer, whether keep-awake is held) and `locked` (null, or the set and its drift). The context's
+claim with its light, the settings, the timer, whether keep-awake is held, the GC's setting, what it holds and its pauses) and `locked` (null, or the set and its drift). The context's
 `machine:platform` item on a Windows node carries the build, the OS line, the tier and the drift count. INDEX's `machine` section lists
 each claim lit by its answer, as feedback.
 
@@ -142,6 +152,5 @@ shared runner's.
 
 ## Next round
 
-Core reservation, large pages for frame pools, a pre-roll measured against NativeAOT (M13); the preflight rows the stretch names (USB
-selective suspend, PCIe link-state power management, notifications, the Update deferral policy, HAGS, Memory Integrity, Game Mode and
-each media volume's encryption); the GC's show mode while armed with its pause histogram (`GC SHOW`), which waits for a measured cause.
+Core reservation, large pages for frame pools, a pre-roll measured against NativeAOT (M13); each media volume's encryption as a
+preflight fact (BitLocker's state is read through WMI or the shell's property store, neither of which the platform declares yet).
