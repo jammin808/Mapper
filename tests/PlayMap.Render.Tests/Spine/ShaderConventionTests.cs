@@ -6,8 +6,8 @@ namespace PlayMap.Render.Tests.Spine;
 /// <summary>Program sources are dialect-free: none carries a #version or a precision line, the device refuses one that does (with
 /// words), and every program compiles and links on the tests' context in the fixture's dialect (core 3.3, or ES 3.00 on the ES leg)
 /// with the header the device writes for it.</summary>
-[Collection("gl")]
-public sealed class ShaderConventionTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class ShaderConventionTests(BackendFixture backends)
 {
     private static bool HoldsHeader(string source) =>
         source.Contains("#version", StringComparison.Ordinal)
@@ -38,7 +38,7 @@ public sealed class ShaderConventionTests(GlFixture gl)
     {
         const string Vs = "void main() { gl_Position = vec4(0.0); }\n";
         const string Fs = "out vec4 oColor;\nvoid main() { oColor = vec4(1.0); }\n";
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var version = Assert.Throws<ArgumentException>(() => c.Device.CreateProgram("t1", "#version 330 core\n" + Vs, Fs));
             Assert.Contains("own #version", version.Message, StringComparison.Ordinal);
@@ -55,9 +55,9 @@ public sealed class ShaderConventionTests(GlFixture gl)
     [Fact]
     public void EveryProgramCompilesAndLinksInTheFixturesDialect()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
-            Assert.Equal(GlFixture.Dialect, c.Device.Dialect);
+            Assert.Equal(GlLeg.Dialect, c.Device.Dialect);
             foreach (var name in ShaderLibrary.Names)
                 Assert.NotNull(c.Device.Program(name));
             Assert.Empty(c.Device.TakeErrors());

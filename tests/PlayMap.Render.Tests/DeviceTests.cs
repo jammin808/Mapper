@@ -1,34 +1,41 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
-using PlayMap.Render.Shaders;
 
 namespace PlayMap.Render.Tests;
 
-/// <summary>The GPU seam: programs compile on the headless driver, targets clear and read back top row first,
-/// pooled resources come back, and the census sees what is alive.</summary>
-[Collection("gl")]
-public class DeviceTests(GlFixture gl)
+/// <summary>The GPU seam: every program of the library makes its pipeline on the device, targets clear and read back top row first,
+/// and pooled resources come back.</summary>
+[Collection("gpu")]
+public class DeviceTests(BackendFixture backends)
 {
     [Fact]
-    public void EveryProgramInTheLibraryCompilesAndLinks()
+    public void EveryProgramInTheLibraryMakesItsPipeline()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            foreach (var name in ShaderLibrary.Names)
-                Assert.NotNull(c.Device.Program(name));
-            Assert.Empty(c.Device.TakeErrors());
+            var d = leg.Device;
+            var keys = d.Programs.Names
+                .Select(n => new PipelineKey(d.Programs.Id(n), DrawState.Opaque, TextureFormat.Rgba8, null, Depth: false))
+                .ToArray();
+            var warm = d.Pipelines.WarmAsync(keys, CancellationToken.None);
+            Assert.True(BackendFrames.Until(d, () => warm.IsCompleted), "the warm-up did not answer");
+            var result = warm.GetAwaiter().GetResult();
+            Assert.Empty(result.Failed);
+            Assert.Equal(keys.Length, result.Asked);
+            Assert.Equal(keys.Length, result.Made + result.FromCache);
+            foreach (var key in keys)
+                Assert.True(d.Pipelines.TryGet(key, out _), $"no pipeline for {d.Programs.Layout(key.Program).Name}");
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
     [Fact]
     public void AnUploadReadsBackTopRowFirst()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var target = d.CreateRenderTarget(4, 2, TextureFormat.Rgba8);
-            using var tex = d.CreateTexture(4, 2, TextureFormat.Rgba8, TextureFilter.Nearest);
+            var d = leg.Device;
+            using var target = d.CreateTarget(new TargetDesc(4, 2, TextureFormat.Rgba8));
             var rgba = new byte[4 * 2 * 4];
             for (var i = 0; i < 4; i++)
             {
@@ -37,25 +44,25 @@ public class DeviceTests(GlFixture gl)
             }
             for (var i = 0; i < 8; i++)
                 rgba[i * 4 + 3] = 255;
-            d.Upload(tex, rgba, UploadFormat.Rgba8);
-            d.BindTarget(target);
-            var blit = d.Program("blit");
-            blit.Set("uSrc", 0, 0, 1, 1);
-            d.BindSampler(blit, "uTex", 0, tex);
-            d.DrawFullscreen(blit);
+            using var tex = Scene.Texture(d, 4, 2, TextureFormat.Rgba8, rgba, UploadFormat.Rgba8, TextureFilter.Nearest);
+            var blit = d.Programs.Id("blit");
+            BackendFrames.Pass(d, target, PassDesc.Keep, list => list.Draw(blit, DrawState.Opaque)
+                .Set("uSrc", 0, 0, 1, 1)
+                .Texture("uTex", tex)
+                .Fullscreen());
             var px = Pixels.Read(d, target);
             Assert.Equal((255, 0, 0), Pixels.At(px, 4, 0, 0));
             Assert.Equal((0, 0, 255), Pixels.At(px, 4, 3, 1));
-            Assert.Empty(d.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
     [Fact]
     public void APooledTargetComesBackForTheSameShape()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var pool = new ResourcePool(c.Backend);
+            using var pool = new ResourcePool(leg.Device);
             var a = pool.RentTarget(32, 16, TextureFormat.Rgba16F);
             pool.Return(a);
             var b = pool.RentTarget(32, 16, TextureFormat.Rgba16F);

@@ -8,8 +8,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// passed it and stays complete, as does every value before it (<see cref="FenceRing.Completed"/> never falls); a ring of 64 signals
 /// that wraps many times answers every value, old ones included, from the signals after it; off the ring's thread a value answers
 /// from the owner's last poll and never polls; and on the fixture's GL context the same holds over real sync objects.</summary>
-[Collection("gl")]
-public sealed class FenceValueTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class FenceValueTests(BackendFixture backends)
 {
     /// <summary>Signals a test passes in order: a signal is its value's number, signalled once the test's GPU reaches it.</summary>
     private sealed class ScriptedGpu : IFenceSignals
@@ -162,7 +162,7 @@ public sealed class FenceValueTests(GlFixture gl)
     [Fact]
     public void OnGlSyncObjectsARingOf64WrapsAndEveryValueCompletes()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var device = c.Device;
             using var target = device.CreateRenderTarget(8, 8, TextureFormat.Rgba8);

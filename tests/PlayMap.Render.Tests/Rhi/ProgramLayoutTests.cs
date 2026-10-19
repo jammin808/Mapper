@@ -11,8 +11,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// type, packed by the block's rules; no two programs share a name. GL itself agrees: every uniform the linked program keeps active is
 /// in the table with the same type and count, in both dialects. PLAYMAP_WRITE_FIXTURES=1 writes the file from the sources; the table
 /// changes only with them.</summary>
-[Collection("gl")]
-public sealed class ProgramLayoutTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class ProgramLayoutTests(BackendFixture backends)
 {
     private static string TablePath()
     {
@@ -71,7 +71,7 @@ public sealed class ProgramLayoutTests(GlFixture gl)
     public void EveryUniformGlKeepsActiveIsInTheTableWithItsTypeAndCount()
     {
         var table = new ProgramTable();
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var api = c.Device.Gl;
             foreach (var name in ShaderLibrary.Names)

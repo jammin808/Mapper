@@ -8,8 +8,8 @@ namespace PlayMap.Render.Tests.Effects;
 /// <summary>Translated ISF compiles and links on the GL 3.3 core context (the device writes the dialect's header): every
 /// built-in, samples that use every feature the translation rewrites, a vertex file that passes a varying to its fragment file,
 /// and — opt-in, with PLAYMAP_ISF_CORPUS naming a checkout of the public ISF files — at least 324 of the corpus's 327.</summary>
-[Collection("gl")]
-public sealed class IsfTranslatorTests(GlFixture gl, ITestOutputHelper log)
+[Collection("gpu")]
+public sealed class IsfTranslatorTests(BackendFixture backends, ITestOutputHelper log)
 {
     /// <summary>Samples, one per feature: multi-pass with sizes, persistent float buffers, every input type, bias sampling, v1's
     /// names and PERSISTENT_BUFFERS, IMG_SIZE, a #version line and a precision line in the body, sound inputs, an import.</summary>
@@ -76,7 +76,7 @@ public sealed class IsfTranslatorTests(GlFixture gl, ITestOutputHelper log)
     [Fact]
     public void EveryBuiltInCompilesOnCore33()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             foreach (var kind in FxCatalog.Builtin.Kinds)
                 Compile(c.Device, kind.Id, FxCatalog.Builtin.Source(kind.Id)!.Fragment, null);
@@ -86,7 +86,7 @@ public sealed class IsfTranslatorTests(GlFixture gl, ITestOutputHelper log)
     [Fact]
     public void EverySampleCompilesOnCore33()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             foreach (var (name, fs, vs) in Samples)
                 Compile(c.Device, name, fs, vs);
@@ -102,7 +102,7 @@ public sealed class IsfTranslatorTests(GlFixture gl, ITestOutputHelper log)
             void main() { gl_FragColor = IMG_NORM_PIXEL(inputImage, shifted); }
             """;
         const string vs = "varying vec2 shifted;\nvoid main() {\n    isf_vertShaderInit();\n    shifted = isf_FragNormCoord + vec2(0.25, 0.0);\n}\n";
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             Compile(c.Device, "varying", fs, vs);
             var broken = IsfTranslator.Translate(IsfParser.Parse(fs.Replace("shifted);", "nowhere);", StringComparison.Ordinal)), vs, IsfDialect.Glsl330);
@@ -125,7 +125,7 @@ public sealed class IsfTranslatorTests(GlFixture gl, ITestOutputHelper log)
         }
         var files = Directory.GetFiles(folder, "*.fs").Order(StringComparer.Ordinal).ToArray();
         var failed = new List<string>();
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             foreach (var file in files)
             {

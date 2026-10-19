@@ -2,8 +2,6 @@ using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
-using PlayMap.Render.Tests.Rhi;
 using SkiaSharp;
 using Xunit.Abstractions;
 
@@ -12,8 +10,8 @@ namespace PlayMap.Render.Tests.Content;
 /// <summary>The raymarched fractals: where the GPU's rays meet the surface is where the CPU twin's do (16 probes per kind); each kind
 /// draws its committed 128×72 golden (tests/fixtures/content, written with PLAYMAP_WRITE_FIXTURES=1) with depth in it; the render
 /// scale draws a smaller picture filtered up.</summary>
-[Collection("gl")]
-public class FractalTests(GlFixture gl, ITestOutputHelper log)
+[Collection("gpu")]
+public class FractalTests(BackendFixture backends, ITestOutputHelper log)
 {
     private const int W = 128;
     private const int H = 72;
@@ -25,16 +23,16 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
     public void TheGpusDepthIsTheCpuTwinsAtSixteenProbes(string kind)
     {
         var g = Scene.Gen(kind, ParamSet.Empty.With("renderScale", 1.0).With("steps", 160), "gn_probe");
-        var (gpu, cpu) = gl.Run(c =>
+        var (gpu, cpu) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            ContentGl.Draw(host, g, 3, 1, W, H);
+            ContentDraws.Draw(host, g, 3, 1, W, H);
             var r = (RaymarchGenerator)host.RendererOf(g.Id, W, H)!;
             var camera = r.Camera(3, EffectSurge.Zero);
-            using var target = c.Backend.CreateTarget(new TargetDesc(W, H, TextureFormat.Rgba32F, Filter: TextureFilter.Nearest));
-            var march = c.Backend.Programs.Id("content.raymarch");
-            BackendFrames.Run(c.Backend, list =>
+            using var target = leg.Device.CreateTarget(new TargetDesc(W, H, TextureFormat.Rgba32F, Filter: TextureFilter.Nearest));
+            var march = leg.Device.Programs.Id("content.raymarch");
+            BackendFrames.Run(leg.Device, list =>
             {
                 list.BeginPass(target, PassDesc.Keep);
                 var draw = list.Draw(march, DrawState.Opaque);
@@ -42,8 +40,7 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
                 draw.Fullscreen();
                 list.EndPass();
             });
-            var depth = new float[W * H * 4];
-            c.Device.ReadPixelsFloat(target, depth);
+            var depth = Pixels.ReadFloat(leg.Device, target);
             var gpuProbes = new List<float>();
             var cpuProbes = new List<float>();
             var cone = Fractal3D.Cone(camera.TanHalfFov, H, 1f);
@@ -80,11 +77,11 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
     public void EachKindDrawsItsGoldenWithDepthInIt(string kind)
     {
         var g = Scene.Gen(kind, ParamSet.Empty.With("renderScale", 1.0), "gn_golden");
-        var bgra = gl.Run(c =>
+        var bgra = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            return Scene.ReadTexture(c.Device, ContentGl.Draw(host, g, 2, 1, W, H));
+            return Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, g, 2, 1, W, H));
         });
         var lit = 0;
         var lumas = new List<double>();
@@ -127,12 +124,12 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
         Assert.Equal((64, 36), RaymarchGenerator.InnerSize(128, 72, 0.5));
         Assert.Equal((32, 18), RaymarchGenerator.InnerSize(128, 72, 0.1));
         Assert.Equal((128, 72), RaymarchGenerator.InnerSize(128, 72, 3));
-        var (full, half) = gl.Run(c =>
+        var (full, half) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            var a = Scene.ReadTexture(c.Device, ContentGl.Draw(host, Scene.Gen("fractal.mandelbulb", ParamSet.Empty.With("renderScale", 1.0), "gn_a"), 2, 1, W, H));
-            var b = Scene.ReadTexture(c.Device, ContentGl.Draw(host, Scene.Gen("fractal.mandelbulb", ParamSet.Empty.With("renderScale", 0.5), "gn_b"), 2, 2, W, H));
+            var a = Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, Scene.Gen("fractal.mandelbulb", ParamSet.Empty.With("renderScale", 1.0), "gn_a"), 2, 1, W, H));
+            var b = Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, Scene.Gen("fractal.mandelbulb", ParamSet.Empty.With("renderScale", 0.5), "gn_b"), 2, 2, W, H));
             return (a, b);
         });
         Assert.Equal(full.Length, half.Length);

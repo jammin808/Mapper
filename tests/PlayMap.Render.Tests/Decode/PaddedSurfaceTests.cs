@@ -1,8 +1,6 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
-using PlayMap.Render.Gl;
 using PlayMap.Render.Video;
-using PlayMap.Render.Tests.Rhi;
 
 namespace PlayMap.Render.Tests.Decode;
 
@@ -11,12 +9,12 @@ namespace PlayMap.Render.Tests.Decode;
 /// the last visible chroma texel's centre): a 1920×1088 NV12 frame whose last eight rows are magenta converts to a 1920×1080
 /// picture with no magenta in its last row or column. The same planes passed as if they had no padding show it, so the crop is
 /// what keeps it out.</summary>
-[Collection("gl")]
-public sealed class PaddedSurfaceTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class PaddedSurfaceTests(BackendFixture backends)
 {
     private const int W = 1920, H = 1080, CodedH = 1088;
 
-    private static (GpuTexture Luma, GpuTexture Chroma) PaddedPlanes(GlDevice device)
+    private static (GpuTexture Luma, GpuTexture Chroma) PaddedPlanes(IGpuDevice device)
     {
         var k = YuvConstants.For(PixelLayout.Nv12, ColorMatrix.Bt709, ColorRange.Limited, TransferFunction.Sdr);
         var grey = k.FromRgb(0.5f, 0.5f, 0.5f);
@@ -32,20 +30,16 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
                 chroma[(y * W) + (2 * x)] = (byte)MathF.Round(c.Cb);
                 chroma[(y * W) + (2 * x) + 1] = (byte)MathF.Round(c.Cr);
             }
-        var l = device.CreateTexture(W, CodedH, TextureFormat.R8);
-        var ch = device.CreateTexture(W / 2, CodedH / 2, TextureFormat.Rg8);
-        device.Upload(l, luma, UploadFormat.R8);
-        device.Upload(ch, chroma, UploadFormat.Rg8);
+        var l = Scene.Texture(device, W, CodedH, TextureFormat.R8, luma, UploadFormat.R8);
+        var ch = Scene.Texture(device, W / 2, CodedH / 2, TextureFormat.Rg8, chroma, UploadFormat.Rg8);
         return (l, ch);
     }
 
-    private static float[] Convert(GlDevice device, VideoTextureSet set, GpuTexture luma, GpuTexture chroma, int codedHeight)
+    private static float[] Convert(IGpuDevice device, VideoTextureSet set, GpuTexture luma, GpuTexture chroma, int codedHeight)
     {
-        BackendFrames.Run(device.Backend, list =>
+        BackendFrames.Run(device, list =>
             set.ConvertCoded(list, PixelLayout.Nv12, luma, chroma, W, H, W, codedHeight, ColorMatrix.Bt709, ColorRange.Limited, TransferFunction.Sdr));
-        var px = new float[W * H * 4];
-        device.ReadPixelsFloat(set.Converted!, px);
-        return px;
+        return Pixels.ReadFloat(device, set.Converted!);
     }
 
     // Grey has R = G = B; any magenta mixed in pulls G under R and B.
@@ -66,13 +60,13 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
     private static IEnumerable<(int, int)> LastColumn() => Enumerable.Range(0, H).Select(y => (W - 1, y));
 
     [Fact]
-    public void ACodedFrameShowsNoPaddingRows() => gl.Run(ctx =>
+    public void ACodedFrameShowsNoPaddingRows() => backends.Run(leg =>
     {
-        var device = ctx.Device;
+        var device = leg.Device;
         var (luma, chroma) = PaddedPlanes(device);
         using var _ = luma;
         using var __ = chroma;
-        using var set = new VideoTextureSet(device.Backend);
+        using var set = new VideoTextureSet(device);
         var px = Convert(device, set, luma, chroma, CodedH);
         Assert.Equal((W, H), (set.Picture!.Width, set.Picture.Height));
         Assert.True(WorstTint(px, LastRow()) < 1 / 255f, $"magenta reached the last row ({WorstTint(px, LastRow())})");
@@ -82,13 +76,13 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
     });
 
     [Fact]
-    public void ThePaddingShowsWhenThePlanesAreTakenForVisibleOnes() => gl.Run(ctx =>
+    public void ThePaddingShowsWhenThePlanesAreTakenForVisibleOnes() => backends.Run(leg =>
     {
-        var device = ctx.Device;
+        var device = leg.Device;
         var (luma, chroma) = PaddedPlanes(device);
         using var _ = luma;
         using var __ = chroma;
-        using var set = new VideoTextureSet(device.Backend);
+        using var set = new VideoTextureSet(device);
         var px = Convert(device, set, luma, chroma, H);
         // The luma padding is magenta's (darker than the grey): the last row is no longer grey.
         var i = (((H - 1) * W) + (W / 2)) * 4;
@@ -96,23 +90,23 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
     });
 
     [Fact]
-    public void TheCropAndTheChromaClampFollowTheVisibleAndCodedSizes() => gl.Run(ctx =>
+    public void TheCropAndTheChromaClampFollowTheVisibleAndCodedSizes() => backends.Run(leg =>
     {
-        using var chroma = ctx.Device.CreateTexture(W / 2, CodedH / 2, TextureFormat.Rg8);
+        using var chroma = leg.Device.CreateTexture(new TextureDesc(W / 2, CodedH / 2, TextureFormat.Rg8, Scene.Uploaded));
         var (x, y, maxU, maxV) = VideoTextureSet.Crop(PixelLayout.Nv12, W, H, W, CodedH, chroma);
         Assert.Equal((1f, 1080f / 1088f, 959.5f / 960f, 539.5f / 544f), (x, y, maxU, maxV));
-        using var tight = ctx.Device.CreateTexture(960, 540, TextureFormat.Rg8);
+        using var tight = leg.Device.CreateTexture(new TextureDesc(960, 540, TextureFormat.Rg8, Scene.Uploaded));
         Assert.Equal((1f, 1f, 959.5f / 960f, 539.5f / 540f), VideoTextureSet.Crop(PixelLayout.Nv12, W, H, W, H, tight));
         // An odd visible size: chroma rounds up, the clamp is the last chroma texel the picture covers.
-        using var odd = ctx.Device.CreateTexture(960, 544, TextureFormat.Rg8);
+        using var odd = leg.Device.CreateTexture(new TextureDesc(960, 544, TextureFormat.Rg8, Scene.Uploaded));
         Assert.Equal((1919f / 1920f, 1079f / 1088f, 959.5f / 960f, 539.5f / 544f), VideoTextureSet.Crop(PixelLayout.P010, 1919, 1079, 1920, 1088, odd));
         // A small picture coded several times its width is still 4:2:0: the clamp stays inside its visible chroma.
-        using var wide = ctx.Device.CreateTexture(64, 16, TextureFormat.Rg8);
+        using var wide = leg.Device.CreateTexture(new TextureDesc(64, 16, TextureFormat.Rg8, Scene.Uploaded));
         Assert.Equal((32f / 128f, 1f, 15.5f / 64f, 15.5f / 16f), VideoTextureSet.Crop(PixelLayout.Nv12, 32, 32, 128, 32, wide));
         // 4:4:4 and 4:2:2 planar keep the full chroma size where they do not halve it.
-        using var full = ctx.Device.CreateTexture(32, 32, TextureFormat.R8);
+        using var full = leg.Device.CreateTexture(new TextureDesc(32, 32, TextureFormat.R8, Scene.Uploaded));
         Assert.Equal((1f, 1f, 31.5f / 32f, 31.5f / 32f), VideoTextureSet.Crop(PixelLayout.Yuv444P, 32, 32, 32, 32, full));
-        using var half = ctx.Device.CreateTexture(16, 32, TextureFormat.R8);
+        using var half = leg.Device.CreateTexture(new TextureDesc(16, 32, TextureFormat.R8, Scene.Uploaded));
         Assert.Equal((1f, 1f, 15.5f / 16f, 31.5f / 32f), VideoTextureSet.Crop(PixelLayout.Yuv422P, 32, 32, 32, 32, half));
     });
 }

@@ -10,8 +10,8 @@ namespace PlayMap.Render.Tests;
 /// <summary>Canvas layers blend as their modes say; the projector pass puts a surface where the camera model
 /// says, lays a UV checker on a box face the right way up, masks in UV space and draws the surface-aware
 /// effects from the geometry.</summary>
-[Collection("gl")]
-public class CanvasAndStageTests(GlFixture gl)
+[Collection("gpu")]
+public class CanvasAndStageTests(BackendFixture backends)
 {
     private const int W = 64;
     private const int H = 36;
@@ -26,13 +26,13 @@ public class CanvasAndStageTests(GlFixture gl)
     {
         var canvas = new Canvas("cv1", "Canvas", W, H, background, layers);
         var project = Scene.Project([], [CanvasOutput("cv1", W, H)], [canvas]);
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project));
             var px = new byte[W * H * 4];
             Assert.True(engine.ReadOutput("op1", px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return Pixels.At(px, W, x, y);
         });
     }
@@ -109,13 +109,13 @@ public class CanvasAndStageTests(GlFixture gl)
         var output = Scene.SourceOutput("op1", SourceRef.None, PW, PH) with { Mode = OutputMode.Projector, ProjectorId = lamp.Id };
         var st = Stage.Empty with { Surfaces = [surface], Projectors = [lamp], Viewpoints = viewpoints ?? [] };
         var project = Scene.Project(generators ?? [], [output], stage: st);
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project, 2.5, stage: stage));
             var px = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op1", px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }
@@ -168,9 +168,9 @@ public class CanvasAndStageTests(GlFixture gl)
         var output = Scene.SourceOutput("op1", SourceRef.None, PW, PH) with { Mode = OutputMode.Projector, ProjectorId = lamp.Id };
         var surface = Surf("ms1", SurfaceContent.Empty with { Source = SourceRef.Media("md1") });
         var project = Scene.Project([], [output], stage: Stage.Empty with { Surfaces = [surface], Projectors = [lamp] });
-        var px = gl.Run(c =>
+        var px = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project, 1, sources, stage));
             var bytes = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op1", bytes));

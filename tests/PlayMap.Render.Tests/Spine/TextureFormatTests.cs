@@ -1,10 +1,9 @@
 using PlayMap.Core.Gpu;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Spine;
 
-/// <summary>Every texture format has its own row in the format table and its block class by name, and a block-compressed level's
-/// size is whole 4×4 blocks (the bench's HAP frames: 1920×1080 BC1 and BC3).</summary>
+/// <summary>Every texture format has its block class by name, and a block-compressed level's size is whole 4×4 blocks (the bench's
+/// HAP frames: 1920×1080 BC1 and BC3); a 16-bit upload is eight bytes a pixel. The GL backend's row for each format is GlCapsTests'.</summary>
 public sealed class TextureFormatTests
 {
     private static readonly HashSet<TextureFormat> Blocks =
@@ -14,12 +13,10 @@ public sealed class TextureFormatTests
     ];
 
     [Fact]
-    public void EveryFormatHasADescriptionAndTheExpectedBlockClass()
+    public void EveryFormatHasTheExpectedBlockClass()
     {
         foreach (var f in Enum.GetValues<TextureFormat>())
         {
-            var (internalFormat, _, _) = GlDevice.Describe(f);
-            Assert.NotEqual(0, (int)internalFormat);
             Assert.Equal(Blocks.Contains(f), TextureFormats.IsBlockCompressed(f));
             var expected = f switch
             {
@@ -43,5 +40,5 @@ public sealed class TextureFormatTests
     }
 
     [Fact]
-    public void TheSixteenBitUploadIsEightBytesAPixel() => Assert.Equal(8, GlDevice.BytesPerPixel(UploadFormat.Rgba16));
+    public void TheSixteenBitUploadIsEightBytesAPixel() => Assert.Equal(8, UploadFormats.BytesPerPixel(UploadFormat.Rgba16));
 }

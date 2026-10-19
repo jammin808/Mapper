@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Runtime.ExceptionServices;
 using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Presentation;
@@ -9,59 +7,19 @@ namespace PlayMap.Render.Tests.Presentation;
 /// surfaceless platform, a hidden ES context made through the window system.</summary>
 public sealed class EsFixture : IDisposable
 {
-    private readonly BlockingCollection<Action> _work = new();
-    private readonly Thread _thread;
-    private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private RenderContext? _context;
+    private readonly GpuThread _thread = new("es tests");
+    private readonly RenderContext _context;
 
     public EsFixture()
     {
-        _thread = new Thread(Loop) { IsBackground = true, Name = "es tests" };
-        _thread.Start();
-        _ready.Task.GetAwaiter().GetResult();
-    }
-
-    private void Loop()
-    {
-        try
-        {
-            var options = new GlDeviceOptions(CheckErrors: true, DebugOutput: true, Dialect: GlDialect.Es300);
-            _context = OperatingSystem.IsLinux() ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options);
-            _ready.SetResult();
-        }
-        catch (Exception ex)
-        {
-            _ready.SetException(ex);
-            return;
-        }
-        foreach (var action in _work.GetConsumingEnumerable())
-            action();
-        _context.Dispose();
+        var options = new GlDeviceOptions(CheckErrors: true, DebugOutput: true, Dialect: GlDialect.Es300);
+        _context = _thread.Run(() => OperatingSystem.IsLinux() ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options));
     }
 
     public T Run<T>(Func<RenderContext, T> body)
     {
-        T result = default!;
-        ExceptionDispatchInfo? failure = null;
-        using var done = new ManualResetEventSlim();
-        _work.Add(() =>
-        {
-            try
-            {
-                result = body(_context!);
-            }
-            catch (Exception ex)
-            {
-                failure = ExceptionDispatchInfo.Capture(ex);
-            }
-            finally
-            {
-                done.Set();
-            }
-        });
-        done.Wait();
-        failure?.Throw();
-        return result;
+        ArgumentNullException.ThrowIfNull(body);
+        return _thread.Run(() => body(_context));
     }
 
     public void Run(Action<RenderContext> body) => Run<bool>(c =>
@@ -72,9 +30,12 @@ public sealed class EsFixture : IDisposable
 
     public void Dispose()
     {
-        _work.CompleteAdding();
-        _thread.Join();
-        _work.Dispose();
+        _thread.Run(() =>
+        {
+            _context.Dispose();
+            return true;
+        });
+        _thread.Dispose();
     }
 }
 

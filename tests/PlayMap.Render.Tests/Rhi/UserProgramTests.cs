@@ -14,8 +14,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// program asked to be released stays until the last frame that drew with it has completed, and an effect's program the lane lets
 /// go of is released by the device; and the effects draw through programs the device made, setting only names their layouts hold.
 /// On the run's dialect (core 3.30, or ES 3.00 with PLAYMAP_GL_DIALECT=es300).</summary>
-[Collection("gl")]
-public sealed class UserProgramTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class UserProgramTests(BackendFixture backends)
 {
     private const int W = 64, H = 36;
 
@@ -92,7 +92,7 @@ public sealed class UserProgramTests(GlFixture gl)
     [Fact]
     public void ATranslatedIsfSourceMadeOnTheDeviceAnswersALayoutEqualToItsUniformsAndSamplers()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var lane = new FxLane(b);
@@ -130,7 +130,7 @@ public sealed class UserProgramTests(GlFixture gl)
                 gl_Position.x += alsoNotDeclared;
             }
             """;
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var lane = new FxLane(b);
@@ -153,9 +153,9 @@ public sealed class UserProgramTests(GlFixture gl)
             // The effect's slot says the same line, through the device's make.
             var asset = new FxAsset("fa00000091", "Broken", FxFormat.Isf, "", FxCatalog.ContentHash(fragment, null)) { Source = fragment };
             using var runner = new FxChainRunner(b, lane);
-            using var input = FxRig.Picture(c.Device, W, H, (_, _) => (40, 70, 100));
+            using var input = FxRig.Picture(c.Backend, W, H, (_, _) => (40, 70, 100));
             long frame = 0;
-            FxRig.Run(c.Device, lane, runner, Project.CreateDefault("Broken") with { FxAssets = [asset] }, FxRig.Chain(FxRig.Slot("isf:fa00000091")),
+            FxRig.Run(c.Backend, lane, runner, Project.CreateDefault("Broken") with { FxAssets = [asset] }, FxRig.Chain(FxRig.Slot("isf:fa00000091")),
                 input, ref frame);
             var live = FxRig.Live(runner, "fx00000001");
             Assert.Equal(FxSlotState.Faulted, live.State);
@@ -167,7 +167,7 @@ public sealed class UserProgramTests(GlFixture gl)
     [Fact]
     public void AProgramAskedToBeReleasedStaysUntilTheLastFrameThatDrewWithItCompleted()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var lane = new FxLane(b);
@@ -175,7 +175,7 @@ public sealed class UserProgramTests(GlFixture gl)
             var made = Make(b, Source("released", translated));
             Assert.True(made.Ok, made.Words);
             using var target = b.CreateTarget(new TargetDesc(W, H, TextureFormat.Rgba8));
-            using var picture = FxRig.Picture(c.Device, W, H, (_, _) => (10, 20, 30));
+            using var picture = FxRig.Picture(c.Backend, W, H, (_, _) => (10, 20, 30));
             void DrawWith(ICommandList list)
             {
                 list.BeginPass(target, PassDesc.ClearBlack);
@@ -207,15 +207,15 @@ public sealed class UserProgramTests(GlFixture gl)
     [Fact]
     public void AnEffectsProgramTheLaneLetsGoOfIsReleasedByTheDevice()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var lane = new FxLane(b);
             using var runner = new FxChainRunner(b, lane);
-            using var input = FxRig.Picture(c.Device, W, H, (_, _) => (40, 70, 100));
+            using var input = FxRig.Picture(c.Backend, W, H, (_, _) => (40, 70, 100));
             var show = Project.CreateDefault("Released");
             long frame = 0;
-            FxRig.Run(c.Device, lane, runner, show, FxRig.Chain(FxRig.Slot("fx.invert")), input, ref frame);
+            FxRig.Run(c.Backend, lane, runner, show, FxRig.Chain(FxRig.Slot("fx.invert")), input, ref frame);
             var kind = FxCatalog.Builtin.Find("fx.invert")!;
             var key = FxCatalog.Builtin.Source(kind.Id)!.Hash;
             var program = lane.Get(key, frame)!;
@@ -239,18 +239,18 @@ public sealed class UserProgramTests(GlFixture gl)
     [Fact]
     public void TheEffectsDrawThroughProgramsTheDeviceMadeSettingOnlyNamesTheirLayoutsHold()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var lane = new FxLane(b);
             using var runner = new FxChainRunner(b, lane);
-            using var input = FxRig.Picture(c.Device, W, H, (_, _) => (40, 100, 200));
+            using var input = FxRig.Picture(c.Backend, W, H, (_, _) => (40, 100, 200));
             var show = Project.CreateDefault("Through");
             long frame = 0;
             var chain = FxRig.Chain(FxRig.Slot("fx.invert"), FxRig.Slot("fx.blur", id: "fx00000002", mix: 0));
-            FxRig.Run(c.Device, lane, runner, show, chain, input, ref frame);
+            FxRig.Run(c.Backend, lane, runner, show, chain, input, ref frame);
             var misses = b.ConstantMisses;
-            var px = FxRig.Run(c.Device, lane, runner, show, chain, input, ref frame);
+            var px = FxRig.Run(c.Backend, lane, runner, show, chain, input, ref frame);
             Pixels.Near((215, 155, 55), Pixels.At(px, W, 10, 10), 1);
             var key = FxCatalog.Builtin.Source("fx.invert")!.Hash;
             var program = lane.Get(key, frame)!;

@@ -11,8 +11,8 @@ namespace PlayMap.Render.Tests.Content;
 /// else: on a plane the projector frames exactly, the stage's sweep is the picture the generator host draws flat at the same own time
 /// (within a code), days into a show; RETIME moves it with its origin; the frame's content stats record the stage's draw (its own
 /// time, ok, on the air) and keep it while a frame draws it; and a warm frame of it allocates nothing.</summary>
-[Collection("gl")]
-public class StageEffectTimeTests(GlFixture gl)
+[Collection("gpu")]
+public class StageEffectTimeTests(BackendFixture backends)
 {
     private const int PW = 160;
     private const int PH = 90;
@@ -99,13 +99,13 @@ public class StageEffectTimeTests(GlFixture gl)
         const long later = 2_000_000_000;
         var stage = Resources();
         var content = new ContentFrame();
-        var (first, retimed, unretimed) = gl.Run(c =>
+        var (first, retimed, unretimed) = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(Dither: false, GpuTiming: false));
             (byte[] OnStage, byte[] Flat) Draw(Generator sweep, long leaderNs)
             {
                 engine.Render(At(Show(sweep), leaderNs, stage, content));
-                Assert.Empty(c.Device.TakeErrors());
+                Assert.Empty(leg.TakeErrors());
                 return (Read(engine, "op_pj"), Read(engine, "op_flat"));
             }
             var a = Draw(Sweep(Days), Days + own);
@@ -140,9 +140,9 @@ public class StageEffectTimeTests(GlFixture gl)
             Generators = [sweep, card],
             Outputs = [.. Show(sweep, flat: false).Outputs, Scene.SourceOutput("op_card", SourceRef.Generator("gn_card"), PW, PH)],
         };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(Dither: false, GpuTiming: false));
             var n = 0;
             for (; n < 3; n++)
                 engine.Render(At(withCard, Tick(n), stage, content));
@@ -166,7 +166,7 @@ public class StageEffectTimeTests(GlFixture gl)
             for (var f = 0; f <= GeneratorHost.IdleFrames + 2; f++, n++)
                 engine.Render(At(hidden, Tick(n), stage, content));
             Assert.False(content.Stats.TryGet("gn_sweep", out _), "a sweep nothing draws is still in the stats");
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -179,9 +179,9 @@ public class StageEffectTimeTests(GlFixture gl)
         var stage = Resources();
         var content = new ContentFrame();
         var sweep = Sweep(Days);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(Dither: false, GpuTiming: false));
             var n = 0;
             for (; n < 5; n++)
                 engine.Render(At(Show(sweep), Tick(n), stage, content));
@@ -195,7 +195,7 @@ public class StageEffectTimeTests(GlFixture gl)
             Assert.True(content.Stats.TryGet("gn_sweep", out live), "the stage's sweep was forgotten");
             Assert.Equal((GeneratorState.Ok, engine.Frame), (live.State, live.LastFrame));
             Assert.Equal((0.0, 0.0), (live.GpuMs, live.GpuMsP95));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -205,16 +205,16 @@ public class StageEffectTimeTests(GlFixture gl)
         var stage = Resources();
         var content = new ContentFrame();
         var project = Show(Sweep(Days), flat: false);
-        var allocated = gl.Run(c =>
+        var allocated = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             for (var n = 0; n < 20; n++)
                 engine.Render(At(project, Tick(n), stage, content));
             var before = Allocations.Start();
             for (var n = 20; n < 80; n++)
                 engine.Render(At(project, Tick(n), stage, content));
             var bytes = Allocations.Since(before);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return bytes;
         });
         Assert.True(allocated == 0, $"sixty warm frames of the stage's sweep allocated {allocated} bytes");

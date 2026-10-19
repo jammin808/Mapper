@@ -3,16 +3,14 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
-using PlayMap.Render.Platform;
 
 namespace PlayMap.Render.Tests.Presentation;
 
 /// <summary>The presenter seam: the renderer presents through <see cref="IOutputPresenter"/> whatever stands behind it — the GL window
 /// (every existing window test runs through it unchanged), or a presenter of the test's own whose presents return on a scripted
 /// 60 Hz vblank — and each output's clock and ledger read what the presenter says.</summary>
-[Collection("gl")]
-public sealed class PresenterSeamTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class PresenterSeamTests(BackendFixture backends)
 {
     /// <summary>A presenter that keeps the pictures it was given and waits, as a vsync'd swap does, for the next vblank of a 60 Hz
     /// grid on the monotonic clock (the one after it when asked to be late), and says it returned just after that vblank — the
@@ -72,9 +70,9 @@ public sealed class PresenterSeamTests(GlFixture gl)
     public void TheRendererPresentsThroughAnyPresenterAndItsClockReadsWhatThePresenterSays()
     {
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36)]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             using var presenter = new ScriptedPresenter();
             engine.Attach("op1", presenter, 60);
             Assert.Equal(1, presenter.SwapInterval);
@@ -108,7 +106,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
             Assert.Null(engine.PresenterOf("op1"));
             engine.Render(Scene.Inputs(project, 3.1));
             Assert.Equal(PresentPath.Offscreen, engine.Present("op1")!.Value.Path);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -116,9 +114,9 @@ public sealed class PresenterSeamTests(GlFixture gl)
     public void TheFirstPresenterPacesAndTheOthersPresentAtOnceUnmeasured()
     {
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36), Scene.SourceOutput("op2", SourceRef.Solid("#996633"), 64, 36)]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             using var first = new ScriptedPresenter();
             using var second = new ScriptedPresenter();
             engine.Attach("op1", first, 60);
@@ -137,110 +135,5 @@ public sealed class PresenterSeamTests(GlFixture gl)
             engine.Render(Scene.Inputs(project, 2));
             Assert.True(engine.Present("op2")!.Value.Measured);
         });
-    }
-
-    [LinuxFact]
-    [Trait("Category", "Linux")]
-    public void ASurfacelessPlatformRefusesPresentersWithWords()
-    {
-        using var platform = GpuPlatforms.Create(PlatformRequest.Default with { Surfaceless = true }, new GpuDeviceOptions(true, false));
-        Assert.Equal("gl-surfaceless", platform.Name);
-        Assert.Equal(PresentPath.Offscreen, platform.Path);
-        Assert.Empty(platform.Monitors());
-        Assert.Equal(Core.Media.GpuApi.OpenGl, platform.Share.Api);
-        Assert.Contains("egl-surfaceless", platform.Share.Describe, StringComparison.Ordinal);
-        var refused = Assert.Throws<PlatformNotSupportedException>(() => platform.CreatePresenter(new OutputPresenterOptions("x", null, false, 64, 36)));
-        Assert.Contains("no window system", refused.Message, StringComparison.Ordinal);
-        Assert.Equal("", platform.Words);
-    }
-
-    [LinuxFact]
-    [Trait("Category", "Linux")]
-    public void ASurfacelessContextGoingLeavesAnotherOnTheSameDisplayWorking()
-    {
-        // Every surfaceless context shares the process's one EGL display: the second one going (on its own thread) must not
-        // terminate the display under the first.
-        using var first = RenderContext.CreateSurfaceless(new GlDeviceOptions(true, false));
-        string? secondRenderer = null;
-        var thread = new Thread(() =>
-        {
-            using var second = RenderContext.CreateSurfaceless(new GlDeviceOptions(true, false));
-            secondRenderer = second.Device.Renderer;
-        }) { Name = "second surfaceless context" };
-        thread.Start();
-        thread.Join();
-        Assert.False(string.IsNullOrEmpty(secondRenderer));
-        Assert.True(first.DisplayLive, "the second context's going terminated the display the first one lives on");
-
-        first.MakeCurrent();
-        var d = first.Device;
-        using var target = d.CreateRenderTarget(4, 4, TextureFormat.Rgba8);
-        d.BindTarget(target);
-        d.Clear(0, 1, 0, 1);
-        var px = new byte[4 * 4 * 4];
-        d.ReadPixels(target, px);
-        Assert.Equal(0, px[2]);   // red
-        Assert.Equal(255, px[1]); // green
-        Assert.Equal(0, px[0]);   // blue
-        Assert.Empty(d.TakeErrors());
-    }
-
-    /// <summary>Unknown path and dialect words are every platform's: made surfaceless where the platform has it (EGL, Linux), else on
-    /// the window system's hidden context.</summary>
-    [Fact]
-    public void SettingsWordsThePlatformDoesNotKnowAreSaidNotIgnored()
-    {
-        using var platform = GpuPlatforms.Create(new PlatformRequest("warp", "gles9", Surfaceless: OperatingSystem.IsLinux()),
-            new GpuDeviceOptions(true, false));
-        Assert.Equal(GlDialect.Core330, platform.Context.Dialect);
-        Assert.Contains("present path 'warp' is none of auto, gl, dxgi", platform.Words, StringComparison.Ordinal);
-        Assert.Contains("GL dialect 'gles9' is none of auto, core330, es300", platform.Words, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void AnEsContextMadeThroughTheWindowSystemRendersAndPresents()
-    {
-        // GLFW makes the ES context on EGL here (or on GLX, saying so); output windows share it the same way.
-        Exception? failure = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                using var platform = GpuPlatforms.Create(new PlatformRequest(Dialect: "es300"), new GpuDeviceOptions(true, true));
-                var c = platform.Context;
-                Assert.Equal(GlDialect.Es300, c.Dialect);
-                // On Linux ES is made on EGL (or on GLX, saying so); elsewhere the window system's own API makes it and has nothing to say.
-                if (OperatingSystem.IsLinux())
-                    Assert.True(c.Api == "egl" || platform.Words.StartsWith("ES through GLX", StringComparison.Ordinal), $"{c.Api}: {platform.Words}");
-                else
-                    Assert.Equal((OperatingSystem.IsWindows() ? "wgl" : "cocoa", ""), (c.Api, platform.Words));
-                var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36)]);
-                using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: c.Device.HasTimerQuery));
-                using (var window = platform.CreatePresenter(new OutputPresenterOptions("ES output", null, false, 64, 36, VSync: false)))
-                {
-                    engine.Attach("op1", window, 60);
-                    for (var f = 0; f < 3; f++)
-                    {
-                        engine.Render(Scene.Inputs(project, 1 + f / 60.0));
-                        platform.PumpEvents();
-                    }
-                    Assert.Equal(3, engine.Present("op1")!.Value.Presented);
-                    engine.Detach("op1");
-                }
-                var px = new byte[64 * 36 * 4];
-                engine.Render(Scene.Inputs(project, 2));
-                Assert.True(engine.ReadOutput("op1", px));
-                Assert.Equal((0x33, 0x66, 0x99), Pixels.At(px, 64, 10, 10));
-                Assert.Empty(c.Device.TakeErrors());
-            }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
-        }) { Name = "es window test" };
-        thread.Start();
-        thread.Join();
-        if (failure is not null)
-            throw new InvalidOperationException("the ES window context failed", failure);
     }
 }

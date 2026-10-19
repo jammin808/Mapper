@@ -3,8 +3,6 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gl;
-using PlayMap.Render.Tests.Rhi;
 
 namespace PlayMap.Render.Tests;
 
@@ -12,8 +10,8 @@ namespace PlayMap.Render.Tests;
 /// field's level, the test card's staircase, the mapping patterns, the moving patterns at known leader
 /// times, the flash guard on a strobe, the fault card — and the fractal and reactive shaders against their
 /// CPU twins.</summary>
-[Collection("gl")]
-public class GeneratorTests(GlFixture gl)
+[Collection("gpu")]
+public class GeneratorTests(BackendFixture backends)
 {
     private const int W = 320;
     private const int H = 180;
@@ -23,7 +21,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void SmpteBarsCarryTheirExactCodeValuesInFullRange()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.bars"), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.bars"), W, H, GeneratorFrame.At(0)));
         (int, int, int)[] expected = [(191, 191, 191), (191, 191, 0), (0, 191, 191), (0, 191, 0), (191, 0, 191), (191, 0, 0), (0, 0, 191)];
         var barW = (W - 2 * 40) / 7.0;
         for (var i = 0; i < 7; i++)
@@ -36,7 +34,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void NarrowRangeBarsStayInSixteenToTwoThirtyFive()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.bars", ParamSet.Empty.With("fullRange", false)), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.bars", ParamSet.Empty.With("fullRange", false)), W, H, GeneratorFrame.At(0)));
         Assert.Equal(Grey(180), Pixels.At(px, W, 57, 50));
         Assert.Equal((16, 180, 180), Pixels.At(px, W, (int)(40 + 2.5 * (240 / 7.0)), 50));
         Assert.Equal(Grey(104), Pixels.At(px, W, 20, 50));
@@ -45,7 +43,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void EbuBarsAreEightFullHeightBarsAtFullAmplitude()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.bars", ParamSet.Empty.With("variant", "ebu100")), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.bars", ParamSet.Empty.With("variant", "ebu100")), W, H, GeneratorFrame.At(0)));
         (int, int, int)[] expected = [(255, 255, 255), (255, 255, 0), (0, 255, 255), (0, 255, 0), (255, 0, 255), (255, 0, 0), (0, 0, 255), (0, 0, 0)];
         for (var i = 0; i < 8; i++)
             Assert.Equal(expected[i], Pixels.At(px, W, i * 40 + 20, 90));
@@ -55,7 +53,7 @@ public class GeneratorTests(GlFixture gl)
     public void GridLinesArePixelExactAndSymmetricAboutTheCentre()
     {
         var ps = ParamSet.Empty.With("subdivisions", 0).With("centerCross", false).With("border", false);
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.grid", ps), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.grid", ps), W, H, GeneratorFrame.At(0)));
         foreach (var x in new[] { 32, 96, 160, 224, 288 })
         {
             Assert.Equal(Grey(255), Pixels.At(px, W, x, 50));
@@ -72,7 +70,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void AFlatFieldIsItsLevelEverywhere()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.flat", ParamSet.Empty.With("level", 40.0)), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.flat", ParamSet.Empty.With("level", 40.0)), W, H, GeneratorFrame.At(0)));
         for (var y = 0; y < H; y += 17)
             for (var x = 0; x < W; x += 23)
                 Assert.Equal(Grey(102), Pixels.At(px, W, x, y));
@@ -81,7 +79,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void TheRigCardsStaircaseReadsItsElevenFixedSteps()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.testcard"), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.testcard"), W, H, GeneratorFrame.At(0)));
         var (x, y, w, h) = TestCardPattern.RigStaircase(W, H);
         for (var i = 0; i < 11; i++)
         {
@@ -94,7 +92,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void TheLevelsCardsStaircaseReadsItsElevenFixedSteps()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.testcard", ParamSet.Empty.With("variant", "levels")), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.testcard", ParamSet.Empty.With("variant", "levels")), W, H, GeneratorFrame.At(0)));
         var (x, y, w, h) = TestCardPattern.LevelsStaircase(W, H);
         for (var i = 0; i < 11; i++)
         {
@@ -107,7 +105,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void IdentifyShowsTheOutputsNumberInItsColour()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.identify"), W, H, GeneratorFrame.At(0), new GeneratorContext("Left wall", 3, "#FF8800", true)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.identify"), W, H, GeneratorFrame.At(0), new GeneratorContext("Left wall", 3, "#FF8800", true)));
         var coloured = 0;
         for (var i = 0; i < W * H; i++)
         {
@@ -121,8 +119,8 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void ConvergenceDrawsEachChannelOnTheSameLines()
     {
-        var all = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.convergence"), W, H, GeneratorFrame.At(0)));
-        var red = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.convergence", ParamSet.Empty.With("channels", "red")), W, H, GeneratorFrame.At(0)));
+        var all = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.convergence"), W, H, GeneratorFrame.At(0)));
+        var red = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.convergence", ParamSet.Empty.With("channels", "red")), W, H, GeneratorFrame.At(0)));
         Assert.Equal((255, 255, 255), Pixels.At(all, W, 64, 30));
         Assert.Equal((255, 255, 255), Pixels.At(all, W, 130, 90));
         Assert.Equal((255, 0, 0), Pixels.At(red, W, 160, 30));
@@ -132,7 +130,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void TheUvCheckersFirstCellIsTopLeftInItsColumnsHue()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.uvchecker"), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.uvchecker"), W, H, GeneratorFrame.At(0)));
         var (r, g, b) = UvCheckerPattern.CellColor(0, 0, 8);
         Assert.Equal((r, g, b), Pixels.At(px, W, 4, 4));
         var (r2, g2, b2) = UvCheckerPattern.CellColor(7, 3, 8);
@@ -145,7 +143,7 @@ public class GeneratorTests(GlFixture gl)
     public void SteppedRampsCarryTheirWedgeValues()
     {
         var ps = ParamSet.Empty.With("variant", "steps").With("steps", 16).With("markers", false);
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.ramp", ps), W, H, GeneratorFrame.At(0)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.ramp", ps), W, H, GeneratorFrame.At(0)));
         for (var i = 0; i < 16; i++)
             Assert.Equal(Grey(17 * i), Pixels.At(px, W, i * 20 + 10, 90));
     }
@@ -154,8 +152,8 @@ public class GeneratorTests(GlFixture gl)
     public void ACheckerSwapsOnItsIntervalWhenAnimated()
     {
         var ps = ParamSet.Empty.With("animate", true).With("interval", 0.5);
-        var still = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.checker", ps), W, H, GeneratorFrame.At(0.2)));
-        var swapped = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.checker", ps), W, H, GeneratorFrame.At(0.6)));
+        var still = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.checker", ps), W, H, GeneratorFrame.At(0.2)));
+        var swapped = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.checker", ps), W, H, GeneratorFrame.At(0.6)));
         Assert.Equal(Grey(255), Pixels.At(still, W, 10, 10));
         Assert.Equal(Grey(0), Pixels.At(still, W, 70, 10));
         Assert.Equal(Grey(0), Pixels.At(swapped, W, 10, 10));
@@ -164,7 +162,7 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void TheMovingBarIsWhereItsSpeedPutsItAtTheLeaderTime()
     {
-        var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.motion"), W, H, GeneratorFrame.At(0.1)));
+        var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.motion"), W, H, GeneratorFrame.At(0.1)));
         Assert.Equal(Grey(255), Pixels.At(px, W, 48, 100));
         Assert.Equal(Grey(255), Pixels.At(px, W, 87, 100));
         Assert.Equal(Grey(0), Pixels.At(px, W, 47, 100));
@@ -174,9 +172,9 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void SyncMarksFlashOnTheLeadersGridThroughTheGuard()
     {
-        var flash = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.syncmarks"), W, H, GeneratorFrame.At(4.01)));
-        var dark = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.syncmarks"), W, H, GeneratorFrame.At(5.0)));
-        var unguarded = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.syncmarks"), W, H, GeneratorFrame.At(4.01, flashGuard: false)));
+        var flash = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.syncmarks"), W, H, GeneratorFrame.At(4.01)));
+        var dark = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.syncmarks"), W, H, GeneratorFrame.At(5.0)));
+        var unguarded = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.syncmarks"), W, H, GeneratorFrame.At(4.01, flashGuard: false)));
         Pixels.Near(Grey(179), Pixels.At(flash, W, 160, 90), 1, "guarded flash");
         Assert.Equal(Grey(0), Pixels.At(dark, W, 160, 90));
         Assert.Equal(Grey(255), Pixels.At(unguarded, W, 160, 90));
@@ -189,7 +187,7 @@ public class GeneratorTests(GlFixture gl)
         (double T, (int, int, int) Rgb)[] cases = [(0.5, (255, 0, 0)), (2.5, (0, 255, 0)), (4.5, (0, 0, 255)), (6.5, (255, 255, 255)), (8.5, (255, 0, 0))];
         foreach (var (t, rgb) in cases)
         {
-            var px = gl.Run(c => Scene.RenderGenerator(c.Device, Scene.Gen("pattern.colorcycle", ps), W, H, GeneratorFrame.At(t)));
+            var px = backends.Run(leg => Scene.RenderGenerator(leg.Device, Scene.Gen("pattern.colorcycle", ps), W, H, GeneratorFrame.At(t)));
             Assert.Equal(rgb, Pixels.At(px, W, 100, 100));
         }
     }
@@ -197,9 +195,9 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void TheFlashGuardHoldsAFrameFlashToThreeFlashesASecond()
     {
-        var rises = gl.Run(c =>
+        var rises = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
             var g = Scene.Gen("pattern.motion", ParamSet.Empty.With("variant", "flash"));
             var count = 0;
@@ -208,7 +206,7 @@ public class GeneratorTests(GlFixture gl)
             {
                 host.BeginFrame(f + 1);
                 var tex = host.Render(g, 64, 36, GeneratorContext.None, GeneratorFrame.At(10 + f / 60.0));
-                var px = Scene.ReadTexture(c.Device, tex);
+                var px = Scene.ReadTexture(leg.Device, tex);
                 var bright = Pixels.At(px, 64, 32, 10).R > 100;
                 if (bright && !wasBright)
                     count++;
@@ -223,8 +221,8 @@ public class GeneratorTests(GlFixture gl)
     public void ParticlesDrawTheSameFieldInTwoHostsAtTheSameTime()
     {
         var g = Scene.Gen("particles.field", ParamSet.Empty.With("preset", "Confetti").With("count", 400));
-        var a = gl.Run(c => Scene.RenderGenerator(c.Device, g, W, H, GeneratorFrame.At(21.5)));
-        var b = gl.Run(c => Scene.RenderGenerator(c.Device, g, W, H, GeneratorFrame.At(21.5)));
+        var a = backends.Run(leg => Scene.RenderGenerator(leg.Device, g, W, H, GeneratorFrame.At(21.5)));
+        var b = backends.Run(leg => Scene.RenderGenerator(leg.Device, g, W, H, GeneratorFrame.At(21.5)));
         Assert.Equal(a, b);
         var lit = 0;
         for (var i = 0; i < W * H; i++)
@@ -236,15 +234,15 @@ public class GeneratorTests(GlFixture gl)
     [Fact]
     public void AGeneratorThatFaultsShowsItsCardUntilItsSettingsChange()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
             var bad = new Generator("gn_x", "Broken", "pattern.nonsense", ParamSet.Empty);
             host.BeginFrame(1);
             var card = host.Render(bad, 160, 90, GeneratorContext.None, GeneratorFrame.At(0));
             Assert.Single(host.Faults());
-            var px = Scene.ReadTexture(c.Device, card);
+            var px = Scene.ReadTexture(leg.Device, card);
             Assert.True(Pixels.At(px, 160, 80, 0).R > 150, "the card's red frame");
 
             host.BeginFrame(2);
@@ -254,8 +252,8 @@ public class GeneratorTests(GlFixture gl)
             host.BeginFrame(3);
             var fixedTex = host.Render(bad with { Kind = "pattern.flat" }, 160, 90, GeneratorContext.None, GeneratorFrame.At(0));
             Assert.Empty(host.Faults());
-            Assert.Equal((255, 255, 255), Pixels.At(Scene.ReadTexture(c.Device, fixedTex), 160, 80, 45));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Equal((255, 255, 255), Pixels.At(Scene.ReadTexture(leg.Device, fixedTex), 160, 80, 45));
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -276,12 +274,12 @@ public class GeneratorTests(GlFixture gl)
                 FractalKind.DomainWarp => "fractal.warp",
                 _ => "fractal.mandelbrot",
             };
-            var shaded = gl.Run(c =>
+            var shaded = backends.Run(leg =>
             {
-                var d = c.Device;
-                using var target = d.CreateRenderTarget(w, h, TextureFormat.Rgba8);
-                var program = c.Backend.Programs.Id(kindId);
-                BackendFrames.Run(c.Backend, list =>
+                var d = leg.Device;
+                using var target = d.CreateTarget(new TargetDesc(w, h, TextureFormat.Rgba8));
+                var program = leg.Device.Programs.Id(kindId);
+                BackendFrames.Run(leg.Device, list =>
                 {
                     list.BeginPass(target, PassDesc.Keep);
                     var draw = list.Draw(program, DrawState.Opaque);
@@ -327,12 +325,12 @@ public class GeneratorTests(GlFixture gl)
         foreach (var scene in Enum.GetValues<ReactiveScene>())
         {
             var view = ReactiveView.Of(settings with { Scene = scene }, 3.7);
-            var shaded = gl.Run(c =>
+            var shaded = backends.Run(leg =>
             {
-                var d = c.Device;
-                using var target = d.CreateRenderTarget(w, h, TextureFormat.Rgba8);
-                var program = c.Backend.Programs.Id(ReactiveGenerator.ProgramFor(scene));
-                BackendFrames.Run(c.Backend, list =>
+                var d = leg.Device;
+                using var target = d.CreateTarget(new TargetDesc(w, h, TextureFormat.Rgba8));
+                var program = leg.Device.Programs.Id(ReactiveGenerator.ProgramFor(scene));
+                BackendFrames.Run(leg.Device, list =>
                 {
                     list.BeginPass(target, PassDesc.Keep);
                     var draw = list.Draw(program, DrawState.Opaque);

@@ -79,7 +79,7 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
                 bgra[i * 4 + 3] = 0xFF;
             }
             d.Upload(tex, bgra, UploadFormat.Bgra8);
-            var px = Scene.ReadTexture(d, tex);
+            var px = Scene.ReadTexture(d.Backend, tex);
             Assert.Equal((0x33, 0x66, 0x99), Pixels.At(px, 4, 1, 1));
 
             // The same texture filled as RGBA afterwards samples as RGBA: the swizzle went with the BGRA upload.
@@ -92,7 +92,7 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
                 rgba[i * 4 + 3] = 0xFF;
             }
             d.Upload(tex, rgba, UploadFormat.Rgba8);
-            Assert.Equal((0x10, 0x20, 0x30), Pixels.At(Scene.ReadTexture(d, tex), 4, 2, 1));
+            Assert.Equal((0x10, 0x20, 0x30), Pixels.At(Scene.ReadTexture(d.Backend, tex), 4, 2, 1));
             Assert.Empty(d.TakeErrors());
         });
     }
@@ -110,7 +110,7 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
             using var target = d.CreateRenderTarget(8, 8, format);
             d.BindTarget(target);
             d.Clear(0.25f, 0.5f, 0.75f, 1);
-            var px = Pixels.Read(d, target);
+            var px = Pixels.Read(d.Backend, target);
             Pixels.Near((64, 128, 191), Pixels.At(px, 8, 3, 3), 1, "a cleared float target");
             Assert.Empty(d.TakeErrors());
         });
@@ -141,16 +141,16 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
 }
 
 /// <summary>The same library on the dialect every other GPU test runs on: desktop 3.30 core, or ES 3.00 on the suite's ES leg.</summary>
-[Collection("gl")]
-public sealed class GlDialectCoreTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class GlDialectCoreTests(BackendFixture backends)
 {
     [Fact]
     public void EveryLibraryProgramCompilesAndLinksOnTheSuitesDialect()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
-            Assert.Equal(GlFixture.Dialect, c.Dialect);
-            Assert.Equal(GlFixture.Dialect == GlDialect.Core330, c.Device.Caps.IsCore);
+            Assert.Equal(GlLeg.Dialect, c.Dialect);
+            Assert.Equal(GlLeg.Dialect == GlDialect.Core330, c.Device.Caps.IsCore);
             foreach (var name in ShaderLibrary.Names)
                 c.Device.Program(name);
             Assert.Empty(c.Device.TakeErrors());

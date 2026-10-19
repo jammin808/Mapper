@@ -1,6 +1,5 @@
 using PlayMap.Render.Effects;
 using PlayMap.Render.Gl;
-using PlayMap.Render.Tests.Rhi;
 
 namespace PlayMap.Render.Tests.Effects;
 

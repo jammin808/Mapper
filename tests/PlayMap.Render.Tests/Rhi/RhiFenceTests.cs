@@ -13,7 +13,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// are composed, which names <c>GlPlatforms</c> and nothing else of GL (the sound's OpenAL binding is the Media module's own); no type
 /// of the Render assembly outside the backend's namespaces takes, holds, returns or calls a backend or Silk.NET type (its signatures
 /// and the code of its methods, read from the IL); Core's Gpu and Presentation namespaces reference no Render type; a pass and the
-/// frame it is handed carry no GL type. The scan reads the code with its comments blanked, its strings kept.</summary>
+/// frame it is handed carry no GL type; and no test of the suite but the GL backend's own (listed by name, to leave with GL) names a GL
+/// type or the fixture's GL leg. The scan reads the code with its comments blanked, its strings kept.</summary>
 public sealed partial class RhiFenceTests
 {
     /// <summary>The backend's namespace (and those under it).</summary>
@@ -70,6 +71,55 @@ public sealed partial class RhiFenceTests
         var factory = Violations(File.ReadAllText(Path.Combine(root, FactoryFile)), allowFactory: false, anySilk: true);
         Assert.NotEmpty(factory);
         Assert.All(factory, v => Assert.Contains("Gl." + FactoryName, v, StringComparison.Ordinal));
+    }
+
+    /// <summary>The test files that may name the GL backend: its own tests and fixtures, and the GL leg of the backend fixture. Each
+    /// leaves with GL, by name; every other test draws through the device a leg hands it.</summary>
+    private static readonly string[] GlTests =
+    [
+        "BackendLegs.cs", "GlLeg.cs",
+        "Decode/DmaBufImportTests.cs", "Decode/EglFixture.cs", "Decode/GlUploadArenaTests.cs",
+        "Effects/FxLaneContextTests.cs", "Effects/IsfTranslatorTests.cs",
+        "Hap/HapGlTests.cs",
+        "Presentation/AngleAssetTests.cs", "Presentation/DxgiLayoutTests.cs", "Presentation/DxgiWarpPresenterTests.cs",
+        "Presentation/EsFixture.cs", "Presentation/GlApiTests.cs", "Presentation/GlDialectTests.cs", "Presentation/GlPlatformTesting.cs",
+        "Presentation/GlPlatformTests.cs", "Presentation/GpuPlatformFaultTests.cs",
+        "Rhi/DrawStateTests.cs", "Rhi/FenceValueTests.cs", "Rhi/GlBackendTests.cs", "Rhi/ProgramLayoutTests.cs", "Rhi/RhiFenceTests.cs",
+        "Rhi/TransientContractTests.cs", "Rhi/UserProgramTests.cs",
+        "Spine/GlCapsTests.cs", "Spine/ShaderConventionTests.cs",
+    ];
+
+    [GeneratedRegex(@"\b(RunGl|GlLeg|GlLegs)\b", RegexOptions.CultureInvariant)]
+    private static partial Regex GlLegNamed();
+
+    [Fact]
+    public void NoTestOutsideTheGlBackendsOwnNamesAGlType()
+    {
+        var root = Path.Combine(RepoRoot(), "tests", "PlayMap.Render.Tests");
+        var violations = new List<string>();
+        var naming = new SortedSet<string>(StringComparer.Ordinal);
+        var scanned = 0;
+        foreach (var file in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
+            if (rel.StartsWith("bin/", StringComparison.Ordinal) || rel.StartsWith("obj/", StringComparison.Ordinal))
+                continue;
+            scanned++;
+            var source = File.ReadAllText(file);
+            var found = Violations(source, allowFactory: false, anySilk: true);
+            var code = StripComments(source);
+            foreach (Match m in GlLegNamed().Matches(code))
+                found.Add($"{LineNumber(code, m.Index)}: {m.Value}");
+            if (found.Count == 0)
+                continue;
+            naming.Add(rel);
+            if (!GlTests.Contains(rel, StringComparer.Ordinal))
+                violations.AddRange(found.Select(v => $"{rel}:{v}"));
+        }
+        Assert.True(scanned > 60, $"the scan read {scanned} test files: the suite is not where the test looks");
+        Assert.True(violations.Count == 0, "GL named by a test that is not the GL backend's own:\n" + string.Join("\n", violations));
+        // The list holds only files that still name GL, so a test that stops naming it leaves the list too.
+        Assert.Equal(GlTests.Order(StringComparer.Ordinal), naming);
     }
 
     [Fact]

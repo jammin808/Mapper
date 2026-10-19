@@ -9,8 +9,8 @@ namespace PlayMap.Render.Tests.Content;
 /// <summary>A surface whose generator names an effect kind this node does not have (a show made on a newer node) is a generator that
 /// faults like any other: the projector pass shows its error card on that surface, the frame's content stats say it faulted, and
 /// every other surface the projector lights is drawn as it would be without it.</summary>
-[Collection("gl")]
-public class StageEffectKindTests(GlFixture gl)
+[Collection("gpu")]
+public class StageEffectKindTests(BackendFixture backends)
 {
     private const int PW = 160;
     private const int PH = 90;
@@ -62,14 +62,14 @@ public class StageEffectKindTests(GlFixture gl)
                 Projectors = [lamp],
             });
         var content = new ContentFrame();
-        var (px, faults) = gl.Run(c =>
+        var (px, faults) = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(Dither: false, GpuTiming: false));
             for (var n = 0; n < 3; n++)
                 engine.Render(new FrameInputs { Project = project, LeaderNs = 1_000_000_000L + n * 16_666_667L, Sources = NoSources.Instance, Stage = stage, Modulation = content });
             var bgra = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op_pj", bgra));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return (bgra, engine.GeneratorFaults());
         });
         // The white surface beside it is lit edge to edge (all but its border pixels).

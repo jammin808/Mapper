@@ -1,7 +1,6 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Spine;
 
@@ -9,8 +8,8 @@ namespace PlayMap.Render.Tests.Spine;
 /// byte); a gain of 0.5 halves one output and leaves the other; a hold keeps one output's last picture while the other moves on; an
 /// override shows its source on its output only; and the packages' passes run at their three points in their order, none of them
 /// in a blackout but the frame's end.</summary>
-[Collection("gl")]
-public sealed class AirPlumbingTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class AirPlumbingTests(BackendFixture backends)
 {
     private const int W = 32;
     private const int H = 18;
@@ -50,16 +49,16 @@ public sealed class AirPlumbingTests(GlFixture gl)
         Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid(first), W, H), Scene.SourceOutput("op2", SourceRef.Solid(second), W, H)]);
 
     /// <summary>Renders frames and answers each output's middle pixel after the last one.</summary>
-    private ((int R, int G, int B) One, (int R, int G, int B) Two, byte[] Raw) Render(params FrameInputs[] frames) => gl.Run(c =>
+    private ((int R, int G, int B) One, (int R, int G, int B) Two, byte[] Raw) Render(params FrameInputs[] frames) => backends.Run(leg =>
     {
-        using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
+        using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(Dither: false, GpuTiming: false));
         foreach (var f in frames)
             engine.Render(f);
         var one = new byte[W * H * 4];
         var two = new byte[W * H * 4];
         Assert.True(engine.ReadOutput("op1", one));
         Assert.True(engine.ReadOutput("op2", two));
-        Assert.Empty(c.Device.TakeErrors());
+        Assert.Empty(leg.TakeErrors());
         return (Pixels.At(one, W, W / 2, H / 2), Pixels.At(two, W, W / 2, H / 2), one);
     });
 

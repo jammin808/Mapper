@@ -10,8 +10,8 @@ namespace PlayMap.Render.Tests.Stacks;
 /// <summary>A stack member's measured lattice on the air (llvmpipe): drawn as the first layer of the output's warp mesh, with no shader
 /// of its own, it moves what the output shows by the lattice's offset — a uniform offset by that many pixels, a zoom-like one by what
 /// the lattice says at each point — each read back within 0.5 px; under an operator's corner pin the measured layer goes first.</summary>
-[Collection("gl")]
-public class StackRenderTests(GlFixture gl, ITestOutputHelper log)
+[Collection("gpu")]
+public class StackRenderTests(BackendFixture backends, ITestOutputHelper log)
 {
     private const int W = 128;
     private const int H = 72;
@@ -51,13 +51,13 @@ public class StackRenderTests(GlFixture gl, ITestOutputHelper log)
         var stage = new TestStage();
         if (warp is not null)
             stage.Warps["op1"] = warp;
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(Scene.Project([], [output]), 1, Still(picture), stage));
             var px = new byte[W * H * 4];
             Assert.True(engine.ReadOutput("op1", px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }
@@ -137,9 +137,9 @@ public class StackRenderTests(GlFixture gl, ITestOutputHelper log)
         var stage = new TestStage();
         stage.Warps["op1"] = WarpMeshBuilder.Build(OutputWarp.None, measured: Lattice(9, 6, (_, _) => new Vec2d(2.3, -1.4)));
         var output = Scene.SourceOutput("op1", Media, W, H);
-        var (tapped, presented) = gl.Run(c =>
+        var (tapped, presented) = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.SetDelay("op1", 2, 0);
             var sources = Still(picture);
             for (var frame = 1; frame <= 4; frame++)
@@ -148,7 +148,7 @@ public class StackRenderTests(GlFixture gl, ITestOutputHelper log)
             var shown = new byte[W * H * 4];
             Assert.True(engine.ReadOutput("op1", finished));
             Assert.True(engine.ReadPresented("op1", shown));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return (finished, shown);
         });
         foreach (var (name, px) in new[] { ("tapped", tapped), ("presented", presented) })

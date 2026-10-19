@@ -10,8 +10,8 @@ namespace PlayMap.Render.Tests.Content;
 /// before round 2) they draw the picture they always drew; a bass burst lifts the brightness, never past the flash guard's audio
 /// bound; a node with no sound draws neutral and says so; a bound number moves with its source on the render thread; and a warm
 /// frame of the new kinds, their bindings and the content frame allocates nothing.</summary>
-[Collection("gl")]
-public class ReactiveTests(GlFixture gl)
+[Collection("gpu")]
+public class ReactiveTests(BackendFixture backends)
 {
     private const int W = 96;
     private const int H = 54;
@@ -25,12 +25,12 @@ public class ReactiveTests(GlFixture gl)
         var old = Scene.Gen(kind, null, "gn_old");
         var zero = Scene.Gen(kind, ParamSet.Empty.With("sound", 0.0), "gn_zero");
         var loud = new FixedBus(("audio:level", 1.0), ("audio:bass", 1.0));
-        var (a, b) = gl.Run(c =>
+        var (a, b) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            return (Scene.ReadTexture(c.Device, ContentGl.Draw(host, old, 3, 1, W, H)),
-                Scene.ReadTexture(c.Device, ContentGl.Draw(host, zero, 3, 2, W, H, loud)));
+            return (Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, old, 3, 1, W, H)),
+                Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, zero, 3, 2, W, H, loud)));
         });
         Assert.True(a.AsSpan().SequenceEqual(b), $"{kind} at sound 0 hears the bus");
     }
@@ -47,16 +47,16 @@ public class ReactiveTests(GlFixture gl)
         var capped = Scene.Gen(kind, ParamSet.Empty.With("brightness", 1.0 + FlashGuard.MaxAudioBrightnessSwing), "gn_cap");
         var neutral = Scene.Gen(kind, null, "gn_neutral");
         var bus = new FixedBus(("audio:level", 0.5), ("audio:bass", 0.5));
-        var (quiet, burst, cap, plain) = gl.Run(c =>
+        var (quiet, burst, cap, plain) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            var q = Scene.ReadTexture(c.Device, ContentGl.Draw(host, listening, 3, 1, W, H, bus));
+            var q = Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, listening, 3, 1, W, H, bus));
             bus.Set("audio:bass", 1.0);
             bus.Set("audio:level", 1.0);
-            var b = Scene.ReadTexture(c.Device, ContentGl.Draw(host, listening, 3, 2, W, H, bus));
-            return (q, b, Scene.ReadTexture(c.Device, ContentGl.Draw(host, capped, 3, 3, W, H)),
-                Scene.ReadTexture(c.Device, ContentGl.Draw(host, neutral, 3, 4, W, H)));
+            var b = Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, listening, 3, 2, W, H, bus));
+            return (q, b, Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, capped, 3, 3, W, H)),
+                Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, neutral, 3, 4, W, H)));
         });
         // Neutral sound draws the scene as it is; the burst lifts it; nothing goes past the scene drawn at the bound's brightness.
         Assert.Equal(Mean(plain), Mean(quiet), 1);
@@ -78,11 +78,11 @@ public class ReactiveTests(GlFixture gl)
     {
         var g = Scene.Gen("reactive.scene", ParamSet.Empty.With("sound", 1.0), "gn_deaf");
         var content = new ContentFrame();
-        var words = gl.Run(c =>
+        var words = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            ContentGl.Draw(host, g, 3, 1, W, H, content.Over(null));
+            ContentDraws.Draw(host, g, 3, 1, W, H, content.Over(null));
             return host.RendererOf(g.Id, W, H)!.Words;
         });
         Assert.Equal(GeneratorRenderer.NoSoundWords, words);
@@ -97,13 +97,13 @@ public class ReactiveTests(GlFixture gl)
         var g = Scene.Gen("reactive.scene", null, "gn_bound") with { Bindings = [binding] };
         var bus = new FixedBus(("lfo:test", 0.0));
         var content = new ContentFrame();
-        var (low, high, live) = gl.Run(c =>
+        var (low, high, live) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            var a = Scene.ReadTexture(c.Device, ContentGl.Draw(host, g, 3, 1, W, H, content.Over(bus)));
+            var a = Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, g, 3, 1, W, H, content.Over(bus)));
             bus.Set("lfo:test", 1.0);
-            var b = Scene.ReadTexture(c.Device, ContentGl.Draw(host, g, 3, 2, W, H, content.Over(bus)));
+            var b = Scene.ReadTexture(leg.Device, ContentDraws.Draw(host, g, 3, 2, W, H, content.Over(bus)));
             content.Stats.TryGet(g.Id, out var l);
             return (a, b, l!.Live());
         });
@@ -133,11 +133,11 @@ public class ReactiveTests(GlFixture gl)
         var project = Scene.Project([.. generators], [.. outputs]);
         var bus = new FixedBus(("lfo:test", 0.3), ("audio:level", 0.4), ("audio:bass", 0.6));
         var content = new ContentFrame();
-        var allocated = gl.Run(c =>
+        var allocated = backends.Run(leg =>
         {
             // The device is the fixture's: what earlier tests left in its error log is theirs.
-            c.Device.TakeErrors();
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
+            leg.TakeErrors();
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: true));
             FrameInputs Inputs(int f) => Scene.Inputs(project, 10 + f / 60.0) with
             {
                 Modulation = content.Over(bus),
@@ -157,7 +157,7 @@ public class ReactiveTests(GlFixture gl)
                 engine.Render(Inputs(f));
             }
             var bytes = Allocations.Since(before);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             Assert.Empty(engine.GeneratorFaults());
             return bytes;
         });

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using PlayMap.Core.Effects;
@@ -6,8 +7,6 @@ using PlayMap.Core.Model;
 using PlayMap.Render.Effects;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
-using PlayMap.Render.Tests.Rhi;
 using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Effects;
@@ -17,8 +16,8 @@ namespace PlayMap.Render.Tests.Effects;
 /// renderer that starts late says it is history rather than claiming to match; a compile held open never holds a frame (counted
 /// in frames, not seconds); ISF's bottom-left origin lands the right way up; the layer call point runs the same chain; and once
 /// warm a frame with a chain allocates nothing.</summary>
-[Collection("gl")]
-public sealed class FxChainTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class FxChainTests(BackendFixture backends)
 {
     private const int W = 64, H = 36;
 
@@ -54,10 +53,10 @@ public sealed class FxChainTests(GlFixture gl)
     [Fact]
     public void BypassAndMixZeroAreBitExactPassThrough()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var fx = new FxPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var fx = new FxPass(leg.Device);
             var plain = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx));
             var bypassed = Card(FxRig.Chain(FxRig.Slot("fx.invert", bypass: true), FxRig.Slot("fx.blur", id: "fx00000002", mix: 0)));
             Assert.Equal(plain, Draw(engine, fx, Inputs(bypassed, fx)));
@@ -68,17 +67,17 @@ public sealed class FxChainTests(GlFixture gl)
             var inverted = DrawCompiled(engine, fx, Inputs(Card(FxRig.Chain(FxRig.Slot("fx.invert"))), fx));
             Assert.Equal(FxSlotState.Ok, FxRig.Live(engine, fx, "fx00000001").State);
             Pixels.Near(Inverse(Pixels.At(plain, W, 20, 10)), Pixels.At(inverted, W, 20, 10), 1);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
     [Fact]
     public void APatternOverAnOutputWithAChainShowsThePatternsOwnCodes()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var fx = new FxPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var fx = new FxPass(leg.Device);
             var chained = Card(FxRig.Chain(FxRig.Slot("fx.invert"), FxRig.Slot("fx.blur", id: "fx00000002")));
             DrawCompiled(engine, fx, Inputs(chained, fx));
             Assert.Equal(FxSlotState.Ok, FxRig.Live(engine, fx, "fx00000002").State);
@@ -98,13 +97,13 @@ public sealed class FxChainTests(GlFixture gl)
     [Fact]
     public void AHistoryEffectMatchesFromTheSameStartAndALateRendererSaysItIsHistory()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxLane(c.Backend);
-            using var a = new FxChainRunner(c.Backend, lane);
-            using var b = new FxChainRunner(c.Backend, lane);
-            using var late = new FxChainRunner(c.Backend, lane);
+            var d = leg.Device;
+            using var lane = new FxLane(leg.Device);
+            using var a = new FxChainRunner(leg.Device, lane);
+            using var b = new FxChainRunner(leg.Device, lane);
+            using var late = new FxChainRunner(leg.Device, lane);
             var show = Project.CreateDefault("History");
             var chain = FxRig.Chain(FxRig.Slot("fx.feedback", ParamSet.Empty.With("decay", 0.9)));
             using (var first = FxRig.Picture(d, W, H, (_, _) => (0, 0, 0)))
@@ -136,10 +135,10 @@ public sealed class FxChainTests(GlFixture gl)
     [Fact]
     public void ACompileHeldOpenNeverDelaysAFrame()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var fx = new FxPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var fx = new FxPass(leg.Device);
             using var gate = new ManualResetEventSlim(false);
             var held = 0;
             fx.Lane.BeforeCompile = _ =>
@@ -178,11 +177,11 @@ public sealed class FxChainTests(GlFixture gl)
             void main() { gl_FragColor = vec4(isf_FragNormCoord.y, 0.0, 0.0, 1.0); }
             """;
         var asset = new FxAsset("fa00000001", "Ramp", FxFormat.Isf, "", FxCatalog.ContentHash(ramp, null)) { Source = ramp };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxLane(c.Backend);
-            using var runner = new FxChainRunner(c.Backend, lane);
+            var d = leg.Device;
+            using var lane = new FxLane(leg.Device);
+            using var runner = new FxChainRunner(leg.Device, lane);
             using var input = FxRig.Picture(d, W, H, (_, _) => (0, 0, 255));
             var show = Project.CreateDefault("Up") with { FxAssets = [asset] };
             long frame = 0;
@@ -200,19 +199,19 @@ public sealed class FxChainTests(GlFixture gl)
         {
             Fx = FxRig.Chain(FxRig.Slot("fx.invert")),
         };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var fx = new FxPass(c.Backend);
+            var d = leg.Device;
+            using var fx = new FxPass(leg.Device);
             using var input = FxRig.Picture(d, W, H, (_, _) => (40, 70, 100));
             var show = Project.CreateDefault("Layer");
             var waited = Stopwatch.StartNew();
             for (var frame = 1L; ; frame++)
             {
                 var at = frame;
-                var result = BackendFrames.Run(c.Backend, list =>
+                var result = BackendFrames.Run(leg.Device, list =>
                 {
-                    var pass = new PassFrame(at, 1_000_000_000, show, GeneratorFrame.At(1), c.Backend, list, false, false);
+                    var pass = new PassFrame(at, 1_000_000_000, show, GeneratorFrame.At(1), leg.Device, list, false, false);
                     return fx.Layer(in pass, layer, input);
                 });
                 if (fx.Stats.TryGet("fx00000001", out var live) && live.State == FxSlotState.Ok)
@@ -230,10 +229,10 @@ public sealed class FxChainTests(GlFixture gl)
     [Fact]
     public void AWarmFrameWithAChainAllocatesNothing()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
-            using var fx = new FxPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: true));
+            using var fx = new FxPass(leg.Device);
             var chain = FxRig.Chain(FxRig.Slot("fx.blur"), FxRig.Slot("fx.feedback", id: "fx00000002"),
                 FxRig.Slot("fx.invert", id: "fx00000003", mix: 0.5, blend: FxBlend.Add), FxRig.Slot("fx.vignette", id: "fx00000004", scale: 0.5));
             var inputs = Inputs(Card(chain), fx);
@@ -251,23 +250,23 @@ public sealed class FxChainTests(GlFixture gl)
                 engine.Render(inputs);
             }
             Assert.Equal(0, Allocations.Since(before));
-            // A slot's GPU time comes from timestamp queries, core in desktop GL 3.3: an ES context measures none and says 0.
+            // A slot's GPU time comes from the device's timestamps: a device without them (an ES 3.0 context) measures none and says 0.
             var gpuMs = FxRig.Live(engine, fx, "fx00000001").GpuMs;
-            if (c.Device.Caps.IsCore)
+            if (leg.Device.Features.Timers)
                 Assert.True(gpuMs > 0, "the slot's GPU time is measured");
             else
                 Assert.Equal(0d, gpuMs);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
     [Fact]
     public void WithoutASecondContextTheLaneCompilesOnTheRenderThreadOneJobAFrame()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var fx = new FxPass(c.Backend, sharedContextLane: false);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var fx = new FxPass(leg.Device, sharedContextLane: false);
             Assert.Equal("render-thread", fx.Lane.Mode);
             var plain = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx));
             var inverted = DrawCompiled(engine, fx, Inputs(Card(FxRig.Chain(FxRig.Slot("fx.invert"))), fx));
@@ -298,11 +297,11 @@ public sealed class FxChainTests(GlFixture gl)
             Source = src,
             Images = ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal, [KeyValuePair.Create("card", png)]),
         };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxLane(c.Backend);
-            using var runner = new FxChainRunner(c.Backend, lane);
+            var d = leg.Device;
+            using var lane = new FxLane(leg.Device);
+            using var runner = new FxChainRunner(leg.Device, lane);
             using var input = FxRig.Picture(d, W, H, (_, _) => (0, 255, 0));
             long frame = 0;
             var px = FxRig.Run(d, lane, runner, Project.CreateDefault("Import") with { FxAssets = [asset] },
@@ -316,10 +315,10 @@ public sealed class FxChainTests(GlFixture gl)
     [Fact]
     public void AnOutputNotDrawnSaysWhyAndItsChainDrawsOnTheFirstFrameBack()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var fx = new FxPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var fx = new FxPass(leg.Device);
             var plain = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx));
             var inputs = Inputs(Card(FxRig.Chain(FxRig.Slot("fx.invert"))), fx);
             DrawCompiled(engine, fx, inputs);
@@ -348,16 +347,16 @@ public sealed class FxChainTests(GlFixture gl)
             void main() { gl_FragColor = vec4(1.0); }
             """;
         var asset = new FxAsset("fa00000003", "White", FxFormat.Isf, "", FxCatalog.ContentHash(white, null)) { Source = white };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxLane(c.Backend);
-            using var a = new FxChainRunner(c.Backend, lane);
-            using var b = new FxChainRunner(c.Backend, lane);
+            var d = leg.Device;
+            using var lane = new FxLane(leg.Device);
+            using var a = new FxChainRunner(leg.Device, lane);
+            using var b = new FxChainRunner(leg.Device, lane);
             var show = Project.CreateDefault("Edits");
             var edited = show with { FxAssets = [asset] };
             var chain = FxRig.Chain(FxRig.Slot("fx.feedback", ParamSet.Empty.With("decay", 0.9)));
-            using (var warmup = new FxChainRunner(c.Backend, lane))
+            using (var warmup = new FxChainRunner(leg.Device, lane))
             using (var first = FxRig.Picture(d, W, H, (_, _) => (0, 0, 0)))
             {
                 long warm = 0;
@@ -410,11 +409,11 @@ public sealed class FxChainTests(GlFixture gl)
             Source = src,
             Images = ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal, [KeyValuePair.Create("card", Convert.ToBase64String(PngHeader(100_000, 100_000)))]),
         };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxLane(c.Backend);
-            using var runner = new FxChainRunner(c.Backend, lane);
+            var d = leg.Device;
+            using var lane = new FxLane(leg.Device);
+            using var runner = new FxChainRunner(leg.Device, lane);
             using var input = FxRig.Picture(d, W, H, (_, _) => (40, 70, 100));
             var show = Project.CreateDefault("Huge") with { FxAssets = [asset] };
             long frame = 0;
@@ -430,15 +429,19 @@ public sealed class FxChainTests(GlFixture gl)
     [Fact]
     public void AFaultMetDrawingIsNotTriedAgainUntilTheSlotChangesAndBuffersFitTheContext()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            var b = c.Backend;
-            var caps = d.Caps;
-            GpuFeatures Of(GlCaps with) => b.Features with { Formats = GlBackend.FormatsOf(with) };
-            Assert.Equal(TextureFormat.Rgba32F, IsfRenderer.BufferFormat(Of(caps with { ColorBufferFloat = true }), wantsFloat: true));
-            Assert.Equal(TextureFormat.Rgba16F, IsfRenderer.BufferFormat(Of(caps with { ColorBufferFloat = true }), wantsFloat: false));
-            Assert.Equal(TextureFormat.Rgba8, IsfRenderer.BufferFormat(Of(caps with { ColorBufferFloat = false }), wantsFloat: true));
+            var d = leg.Device;
+            var b = leg.Device;
+            // The device's formats with float targets rendered or not (a context with or without colour-buffer float).
+            GpuFeatures Of(bool floatTargets) => b.Features with
+            {
+                Formats = b.Features.Formats.ToFrozenDictionary(p => p.Key,
+                    p => p.Key is TextureFormat.Rgba32F or TextureFormat.Rgba16F ? p.Value with { Target = floatTargets } : p.Value),
+            };
+            Assert.Equal(TextureFormat.Rgba32F, IsfRenderer.BufferFormat(Of(floatTargets: true), wantsFloat: true));
+            Assert.Equal(TextureFormat.Rgba16F, IsfRenderer.BufferFormat(Of(floatTargets: true), wantsFloat: false));
+            Assert.Equal(TextureFormat.Rgba8, IsfRenderer.BufferFormat(Of(floatTargets: false), wantsFloat: true));
 
             using var lane = new FxLane(b);
             using var black = FxRig.Picture(d, 1, 1, (_, _) => (0, 0, 0));

@@ -1,4 +1,5 @@
 using System.Numerics;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
@@ -11,8 +12,8 @@ namespace PlayMap.Render.Tests.Align;
 /// reference draws within one code (the grid read bilinearly, the picture sampled where it says), a node the camera did not see is
 /// black; a γ of 2.2 with gains of one changes nothing, bit for bit, with or without an identity grid; a measured blend works in light
 /// through the output's γ; a measured γ alone turns the content's transfer into the output's.</summary>
-[Collection("gl")]
-public class AlignRenderTests(GlFixture gl)
+[Collection("gpu")]
+public class AlignRenderTests(BackendFixture backends)
 {
     private const int W = 64;
     private const int H = 36;
@@ -77,15 +78,15 @@ public class AlignRenderTests(GlFixture gl)
         return (columns, rows, values);
     }
 
-    private byte[] Render(Output output, ISourceProvider? sources, Func<Gl.GlDevice, MeasuredStage?> stage)
+    private byte[] Render(Output output, ISourceProvider? sources, Func<IGpuDevice, MeasuredStage?> stage)
     {
         var project = Scene.Project([], [output]);
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
             // The context is shared: what an earlier test left in the debug log is not this render's.
-            _ = c.Device.TakeErrors();
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var measured = stage(c.Device);
+            _ = leg.TakeErrors();
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var measured = stage(leg.Device);
             var inputs = Scene.Inputs(project, 1, sources) with
             {
                 Measured = measured is null ? null : new Stages(new() { [output.Id] = measured }),
@@ -93,7 +94,7 @@ public class AlignRenderTests(GlFixture gl)
             engine.Render(inputs);
             var px = new byte[output.Width * output.Height * 4];
             Assert.True(engine.ReadOutput(output.Id, px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }
@@ -105,7 +106,7 @@ public class AlignRenderTests(GlFixture gl)
         const int columns = 33, rows = 19;
         var grid = Grid(columns, rows, Keystone, (i, _) => i < columns - 3);
         var px = Render(Scene.SourceOutput("op1", Media, W, H), Still(picture),
-            d => MeasuredStage.Upload(d.Backend, grid, null, Vector4.One, MeasuredStage.ContentGamma, 1));
+            d => MeasuredStage.Upload(d, grid, null, Vector4.One, MeasuredStage.ContentGamma, 1));
         var compared = 0;
         var blackSeen = 0;
         for (var y = 0; y < H; y++)
@@ -134,9 +135,9 @@ public class AlignRenderTests(GlFixture gl)
         var picture = Noise();
         var output = Scene.SourceOutput("op1", Media, W, H);
         var plain = Render(output, Still(picture), _ => null);
-        var gammaOnly = Render(output, Still(picture), d => MeasuredStage.Upload(d.Backend, null, null, Vector4.One, MeasuredStage.ContentGamma, 1));
+        var gammaOnly = Render(output, Still(picture), d => MeasuredStage.Upload(d, null, null, Vector4.One, MeasuredStage.ContentGamma, 1));
         var identityGrid = Render(output, Still(picture),
-            d => MeasuredStage.Upload(d.Backend, Grid(33, 19, (s, t) => new Vec2d(s, t)), null, Vector4.One, MeasuredStage.ContentGamma, 1));
+            d => MeasuredStage.Upload(d, Grid(33, 19, (s, t) => new Vec2d(s, t)), null, Vector4.One, MeasuredStage.ContentGamma, 1));
         Assert.Equal(plain, gammaOnly);
         Assert.Equal(plain, identityGrid);
         for (var i = 0; i < W * H; i++)
@@ -148,18 +149,18 @@ public class AlignRenderTests(GlFixture gl)
     {
         var blendHalf = (4, 4, Enumerable.Range(0, 16).SelectMany(_ => new[] { 0.5f, 0f, 1f }).ToArray());
         var white = Render(Scene.SourceOutput("op1", SourceRef.Solid("#FFFFFF"), W, H), null,
-            d => MeasuredStage.Upload(d.Backend, null, blendHalf, Vector4.One, 2.6f, 1));
+            d => MeasuredStage.Upload(d, null, blendHalf, Vector4.One, 2.6f, 1));
         var want = (int)Math.Round(MeasuredStage.Reference(1f, (0.5f, 0f), 1f, 2.6f) * 255);
         Assert.InRange(want, 194, 197);
         Pixels.Near((want, want, want), Pixels.At(white, W, 30, 20), 1, "half the white in light through γ 2.6");
 
         var pedestal = (4, 4, Enumerable.Range(0, 16).SelectMany(_ => new[] { 1f, 0.01f, 1f }).ToArray());
         var black = Render(Scene.SourceOutput("op1", SourceRef.Solid("#000000"), W, H), null,
-            d => MeasuredStage.Upload(d.Backend, null, pedestal, Vector4.One, 2.2f, 1));
+            d => MeasuredStage.Upload(d, null, pedestal, Vector4.One, 2.2f, 1));
         var lifted = (int)Math.Round(MeasuredStage.Reference(0f, (1f, 0.01f), 1f, 2.2f) * 255);
         Pixels.Near((lifted, lifted, lifted), Pixels.At(black, W, 30, 20), 1, "a pedestal of 1 % of the white");
         var off = Render(Scene.SourceOutput("op1", SourceRef.Solid("#000000"), W, H), null,
-            d => MeasuredStage.Upload(d.Backend, null, pedestal, Vector4.One, 2.2f, 0));
+            d => MeasuredStage.Upload(d, null, pedestal, Vector4.One, 2.2f, 0));
         Assert.Equal((0, 0, 0), Pixels.At(off, W, 30, 20));
     }
 
@@ -167,7 +168,7 @@ public class AlignRenderTests(GlFixture gl)
     public void AMeasuredGammaAloneTurnsTheContentsTransferIntoTheOutputs()
     {
         var px = Render(Scene.SourceOutput("op1", SourceRef.Solid("#808080"), W, H), null,
-            d => MeasuredStage.Upload(d.Backend, null, null, Vector4.One, 2.6f, 1));
+            d => MeasuredStage.Upload(d, null, null, Vector4.One, 2.6f, 1));
         var want = (int)Math.Round(MeasuredStage.Reference(128 / 255f, null, 1f, 2.6f) * 255);
         Assert.InRange(want, 140, 150);
         Pixels.Near((want, want, want), Pixels.At(px, W, 20, 10), 1, "the content's 2.2 out through γ 2.6");

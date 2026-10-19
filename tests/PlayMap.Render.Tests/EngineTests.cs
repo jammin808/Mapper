@@ -12,8 +12,8 @@ namespace PlayMap.Render.Tests;
 /// <summary>The engine facade: previews reach the desk's ring without a stall, the editor's view shows the
 /// stage and the projectors' frusta, a warm frame allocates nothing, freeze holds the last picture, and the
 /// default project renders at show size (its frame time is reported).</summary>
-[Collection("gl")]
-public class EngineTests(GlFixture gl, ITestOutputHelper log)
+[Collection("gpu")]
+public class EngineTests(BackendFixture backends, ITestOutputHelper log)
 {
     private static string RingPath() => PreviewRing.PathFor("test", Guid.NewGuid().ToString("N"));
 
@@ -24,9 +24,9 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         using var writer = new PreviewRingWriter(path, 64, 64);
         using var reader = new PreviewRingReader(path);
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#FF8000"), 64, 36)]);
-        var got = gl.Run(c =>
+        var got = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var dest = new byte[64 * 64 * 4];
             for (var f = 0; f < 30; f++)
             {
@@ -57,9 +57,9 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         var project = Scene.Project([], [], stage: Stage.Empty with { Surfaces = [surface], Projectors = [lamp] });
         var eye = Pose.LookAt(new Vec3d(3, 2, 4), new Vec3d(0, 0.3, 0), new Vec3d(0, 1, 0));
         var camera = new EditorCamera(Intrinsics.FromFieldOfView(160, 90, 60), eye, Selected: new HashSet<string> { "sf1" });
-        var dest = gl.Run(c =>
+        var dest = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var buffer = new byte[160 * 90 * 4];
             for (var f = 0; f < 30; f++)
             {
@@ -68,7 +68,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
                 if (reader.TryRead(buffer, 0, out _))
                     return buffer;
             }
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return Array.Empty<byte>();
         });
         Assert.NotEmpty(dest);
@@ -90,9 +90,9 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
     {
         var project = Scene.Project([Scene.Gen("pattern.colorcycle", ParamSet.Empty.With("fade", false).With("interval", 2.0))],
             [Scene.SourceOutput("op1", SourceRef.Generator("gn_test"), 32, 18)]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var px = new byte[32 * 18 * 4];
             engine.Render(Scene.Inputs(project, 0.5));
             engine.Render(Scene.Inputs(project, 2.5) with { Freeze = true });
@@ -112,9 +112,9 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
     {
         var project = Scene.Project([Scene.Gen("pattern.flat", ParamSet.Empty.With("level", 50.0))],
             [Scene.SourceOutput("op1", SourceRef.Solid("#0000FF"), 64, 36)]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var px = new byte[64 * 36 * 4];
             engine.Render(Scene.Inputs(project) with { PatternOverride = SourceRef.Generator("gn_test") });
             Assert.True(engine.ReadOutput("op1", px));
@@ -145,16 +145,16 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         ]);
         var output = Scene.SourceOutput("op1", SourceRef.Canvas("cv1"), 160, 90) with { Mode = OutputMode.Canvas, SourceRect = new RectD(0, 0, 160, 90) };
         var project = Scene.Project([.. generators], [output, Scene.SourceOutput("op2", SourceRef.Generator("gn_bar"), 160, 90)], [canvas]);
-        var allocated = gl.Run(c =>
+        var allocated = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: true));
             for (var f = 0; f < 20; f++)
                 engine.Render(Scene.Inputs(project, 10 + f / 60.0));
             var before = Allocations.Start();
             for (var f = 20; f < 80; f++)
                 engine.Render(Scene.Inputs(project, 10 + f / 60.0));
             var bytes = Allocations.Since(before);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return bytes;
         });
         Assert.True(allocated == 0, $"sixty warm frames allocated {allocated} bytes");
@@ -164,75 +164,41 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
     public void TheDefaultProjectRendersAtShowSizeAndReportsItsFrameTime()
     {
         var project = Project.CreateDefault();
-        var ms = gl.Run(c =>
+        var ms = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend);
+            using var engine = new RenderEngine(leg.Device);
             engine.WarmUp();
             engine.Render(Scene.Inputs(project, 1));
-            c.Device.Finish();
+            leg.Finish();
             const int frames = 10;
             var start = System.Diagnostics.Stopwatch.GetTimestamp();
             for (var f = 0; f < frames; f++)
                 engine.Render(Scene.Inputs(project, 1 + f / 60.0));
-            c.Device.Finish();
+            leg.Finish();
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds / frames;
             var px = new byte[1920 * 1080 * 4];
             Assert.True(engine.ReadOutput("op_1", px));
             Assert.Equal((255, 255, 255), Pixels.At(px, 1920, 0, 540));
-            Assert.Empty(c.Device.TakeErrors());
-            log.WriteLine($"{c.Device.Renderer}: 1920×1080 test card canvas → output, {elapsed:0.0} ms a frame");
+            Assert.Empty(leg.TakeErrors());
+            log.WriteLine($"{leg.Device.Adapter.Name}: 1920×1080 test card canvas → output, {elapsed:0.0} ms a frame");
             return elapsed;
         });
         Assert.True(ms > 0);
     }
 
     [Fact]
-    public void AnAttachedWindowPresentsEveryFrameAndItsPacerCountsThem()
-    {
-        var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36)]);
-        gl.Run(c =>
-        {
-            Assert.NotEmpty(c.Monitors());
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using (var window = Gl.OutputWindow.Create(c, new Gl.OutputWindowOptions("Output 1", Borderless: false, VSync: false, Width: 64, Height: 36)))
-            {
-                // Its presents are measured against its display's refresh, not a fixed 60.
-                engine.Attach("op1", window, 50);
-                Assert.Equal(50, engine.Stats("op1").RefreshHz, 1);
-                Assert.Equal(1, window.SwapInterval);
-                for (var f = 0; f < 5; f++)
-                {
-                    engine.Render(Scene.Inputs(project, 1 + f / 60.0));
-                    c.PumpEvents();
-                }
-                Assert.Equal(5, engine.Stats("op1").Presented);
-                engine.Detach("op1");
-            }
-            var px = new byte[64 * 36 * 4];
-            engine.Render(Scene.Inputs(project, 2));
-            Assert.True(engine.ReadOutput("op1", px));
-            Assert.Equal((0x33, 0x66, 0x99), Pixels.At(px, 64, 10, 10));
-            Assert.Empty(c.Device.TakeErrors());
-        });
-    }
-
-    [Fact]
     public void AnEngineDeletesEverythingItMadeWhenDisposed()
     {
         var project = Scene.Project([Scene.Gen("particles.field")], [Scene.SourceOutput("op1", SourceRef.Generator("gn_test"), 64, 36)]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var textures = c.Device.LiveTextures;
-            var targets = c.Device.LiveTargets;
-            var buffers = c.Device.LiveBuffers;
-            using (var engine = new RenderEngine(c.Backend))
+            var before = leg.Census();
+            using (var engine = new RenderEngine(leg.Device))
             {
                 engine.Render(Scene.Inputs(project, 3));
-                Assert.True(c.Device.LiveTextures > textures);
+                Assert.True(leg.Census().Textures > before.Textures);
             }
-            Assert.Equal(textures, c.Device.LiveTextures);
-            Assert.Equal(targets, c.Device.LiveTargets);
-            Assert.Equal(buffers, c.Device.LiveBuffers);
+            Assert.Equal(before, leg.Census());
         });
     }
 }

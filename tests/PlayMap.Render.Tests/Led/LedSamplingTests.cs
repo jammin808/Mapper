@@ -5,9 +5,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
 using PlayMap.Render.Led;
-using PlayMap.Render.Tests.Rhi;
 using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Led;
@@ -16,8 +14,8 @@ namespace PlayMap.Render.Tests.Led;
 /// reference exactly for point sampling in every space (canvas, output, surface UV, source) and colour order (RGB, GRB, BRG, RGBW,
 /// 16-bit), within one code for area sampling; blackout zeroes colour and dimmer slots and keeps constants; a frozen frame keeps
 /// its colours while a test still applies; every test pattern is the reference's.</summary>
-[Collection("gl")]
-public sealed class LedSamplingTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class LedSamplingTests(BackendFixture backends)
 {
     private const string Canvas = "cv00000001";
     private const string Output = "op00000001";
@@ -34,7 +32,7 @@ public sealed class LedSamplingTests(GlFixture gl)
 
         public LedReference.Picture? Reference(LedGroup group) => ByKey.TryGetValue(group.Key, out var p) ? p.Ref : null;
 
-        public void Float(GlDevice d, string key, int w, int h, Func<int, int, (float R, float G, float B)> at)
+        public void Float(IGpuDevice d, string key, int w, int h, Func<int, int, (float R, float G, float B)> at)
         {
             // A half-float picture, as a canvas's composite is: the reference reads the values the texture holds.
             var data = new float[w * h * 4];
@@ -49,12 +47,11 @@ public sealed class LedSamplingTests(GlFixture gl)
             }
             if (ByKey.TryGetValue(key, out var old))
                 old.Tex.Dispose();
-            var tex = d.CreateTexture(w, h, TextureFormat.Rgba16F);
-            d.Upload(tex, MemoryMarshal.AsBytes(data.AsSpan()), UploadFormat.Rgba32F);
+            var tex = Scene.Texture(d, w, h, TextureFormat.Rgba16F, MemoryMarshal.AsBytes(data.AsSpan()), UploadFormat.Rgba32F);
             ByKey[key] = (tex, new LedReference.Picture(data, w, h));
         }
 
-        public void Bytes(GlDevice d, string key, int w, int h, Func<int, int, (int R, int G, int B)> at)
+        public void Bytes(IGpuDevice d, string key, int w, int h, Func<int, int, (int R, int G, int B)> at)
         {
             var rgba = new byte[w * h * 4];
             var data = new float[w * h * 4];
@@ -70,8 +67,7 @@ public sealed class LedSamplingTests(GlFixture gl)
             }
             if (ByKey.TryGetValue(key, out var old))
                 old.Tex.Dispose();
-            var tex = d.CreateTexture(w, h, TextureFormat.Rgba8);
-            d.Upload(tex, rgba, UploadFormat.Rgba8);
+            var tex = Scene.Texture(d, w, h, TextureFormat.Rgba8, rgba, UploadFormat.Rgba8);
             ByKey[key] = (tex, new LedReference.Picture(data, w, h));
         }
 
@@ -117,7 +113,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         };
     }
 
-    private static void Fill(GlDevice d, Pictures pics, int seed)
+    private static void Fill(IGpuDevice d, Pictures pics, int seed)
     {
         var rng = new Pcg32((ulong)seed);
         var noise = Enumerable.Range(0, 64 * 32 * 3).Select(_ => rng.NextInt(256)).ToArray();
@@ -130,7 +126,7 @@ public sealed class LedSamplingTests(GlFixture gl)
     /// <summary>Gradients only (the design's flat and gradient sources): a bilinear tap between 8-bit texels is filtered with the
     /// driver's own weight precision, which noise would turn into whole codes; between neighbours a few codes apart it is a fraction
     /// of one.</summary>
-    private static void FillSmooth(GlDevice d, Pictures pics)
+    private static void FillSmooth(IGpuDevice d, Pictures pics)
     {
         pics.Float(d, Canvas, 64, 32, (x, y) => (x / 63f, y / 31f, (x + y) / 94f));
         pics.Bytes(d, Output, 60, 20, (x, y) => (x * 4, y * 12, 255 - x * 4));
@@ -138,12 +134,11 @@ public sealed class LedSamplingTests(GlFixture gl)
     }
 
     /// <summary>Runs the pass for a frame, then one more so the first's read-back is collected; answers the first frame's rows.</summary>
-    private static byte[] Run(RenderContext ctx, LedPass pass, LedFramePool pool, Project p, long leaderNs, bool blackout = false, bool freeze = false)
+    private static byte[] Run(BackendLeg leg, LedPass pass, LedFramePool pool, Project p, long leaderNs, bool blackout = false, bool freeze = false)
     {
-        var d = ctx.Device;
-        var b = ctx.Backend;
+        var b = leg.Device;
         BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(1, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, blackout, freeze)));
-        d.Finish();
+        leg.Finish();
         BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(2, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, blackout, freeze)));
         var first = pool.Take();
         Assert.NotNull(first);
@@ -164,9 +159,9 @@ public sealed class LedSamplingTests(GlFixture gl)
     }
 
     [Fact]
-    public void PointSamplingEqualsTheReferenceInEverySpaceAndColourOrder() => gl.Run(ctx =>
+    public void PointSamplingEqualsTheReferenceInEverySpaceAndColourOrder() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 7);
         var show = Rig(LedSampling.Point);
@@ -175,9 +170,9 @@ public sealed class LedSamplingTests(GlFixture gl)
         Assert.Empty(plan.Conflicts);
         Assert.Equal(3, plan.Groups.Length);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
+        using var pass = new LedPass(d, pics) { Sink = pool };
         pass.Offer(plan);
-        var gpu = Run(ctx, pass, pool, show, 1_000_000_000L);
+        var gpu = Run(leg, pass, pool, show, 1_000_000_000L);
         var cpu = Reference(plan, pics, LedLive.Initial, 1_000_000_000L, false);
         Assert.Equal(cpu.Length, gpu.Length);
         for (var i = 0; i < cpu.Length; i++)
@@ -188,18 +183,18 @@ public sealed class LedSamplingTests(GlFixture gl)
     });
 
     [Fact]
-    public void AreaSamplingIsWithinOneCodeOfTheReference() => gl.Run(ctx =>
+    public void AreaSamplingIsWithinOneCodeOfTheReference() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         FillSmooth(d, pics);
         var show = Rig(LedSampling.Area);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         Assert.All(plan.Groups, g => Assert.Equal(9, g.Taps));
         var pool = new LedFramePool();
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
+        using var pass = new LedPass(d, pics) { Sink = pool };
         pass.Offer(plan);
-        var gpu = Run(ctx, pass, pool, show, 2_000_000_000L);
+        var gpu = Run(leg, pass, pool, show, 2_000_000_000L);
         var cpu = Reference(plan, pics, LedLive.Initial, 2_000_000_000L, false);
         for (var i = 0; i < cpu.Length; i++)
         {
@@ -220,45 +215,45 @@ public sealed class LedSamplingTests(GlFixture gl)
     });
 
     [Fact]
-    public void BlackoutZeroesColourAndDimmerAndKeepsConstantsOnTheNextFrame() => gl.Run(ctx =>
+    public void BlackoutZeroesColourAndDimmerAndKeepsConstantsOnTheNextFrame() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 3);
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = LedLive.Initial with { Test = LedTestKind.Full } };
+        using var pass = new LedPass(d, pics) { Sink = pool, Live = LedLive.Initial with { Test = LedTestKind.Full } };
         pass.Offer(plan);
-        var gpu = Run(ctx, pass, pool, show, 3_000_000_000L, blackout: true);
+        var gpu = Run(leg, pass, pool, show, 3_000_000_000L, blackout: true);
         Assert.Equal(LedReference.Black(plan), gpu);
         Assert.Equal(gpu.Length - 1, gpu.Count(b => b == 0));
         Assert.Contains((byte)42, gpu);
     });
 
     [Fact]
-    public void AFrozenFrameKeepsItsColoursAndTheTestStillApplies() => gl.Run(ctx =>
+    public void AFrozenFrameKeepsItsColoursAndTheTestStillApplies() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 5);
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
+        using var pass = new LedPass(d, pics) { Sink = pool };
         pass.Offer(plan);
-        var before = Run(ctx, pass, pool, show, 4_000_000_000L);
+        var before = Run(leg, pass, pool, show, 4_000_000_000L);
         var held = LedReference.Sample(plan, pics.Reference);
         Fill(d, pics, 99);
-        Assert.Equal(before, Run(ctx, pass, pool, show, 4_100_000_000L, freeze: true));
+        Assert.Equal(before, Run(leg, pass, pool, show, 4_100_000_000L, freeze: true));
         // The picture moved and the frame is not frozen: the LEDs follow it.
-        Assert.NotEqual(before, Run(ctx, pass, pool, show, 4_200_000_000L));
+        Assert.NotEqual(before, Run(leg, pass, pool, show, 4_200_000_000L));
         // Frozen again with a test on part of the rig: the rest holds the colours the last sampled frame had.
         var live = LedLive.Initial with { Test = LedTestKind.Chase, TestScope = ["lf00000001"], TestWords = "lf00000001" };
         pass.Live = live;
         var now = LedReference.Sample(plan, pics.Reference);
         Fill(d, pics, 4);
-        Assert.Equal(Reference(plan, pics, live, 4_300_000_000L, false, now), Run(ctx, pass, pool, show, 4_300_000_000L, freeze: true));
+        Assert.Equal(Reference(plan, pics, live, 4_300_000_000L, false, now), Run(leg, pass, pool, show, 4_300_000_000L, freeze: true));
         Assert.NotEqual(held, now);
     });
 
@@ -272,36 +267,36 @@ public sealed class LedSamplingTests(GlFixture gl)
     [InlineData(LedTestKind.White)]
     [InlineData(LedTestKind.Full)]
     [InlineData(LedTestKind.Black)]
-    public void EveryTestPatternIsTheReferences(LedTestKind kind) => gl.Run(ctx =>
+    public void EveryTestPatternIsTheReferences(LedTestKind kind) => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 1);
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
         var live = LedLive.Initial with { Test = kind, LevelFrom = 1, LevelTo = 1 };
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = live };
+        using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
         pass.Offer(plan);
         foreach (var leader in new[] { 1_760_000_000_000_000_000L, 1_760_000_000_730_000_000L, 1_760_000_003_150_000_000L })
-            Assert.Equal(Reference(plan, pics, live, leader, false), Run(ctx, pass, pool, show, leader));
+            Assert.Equal(Reference(plan, pics, live, leader, false), Run(leg, pass, pool, show, leader));
     });
 
     [Fact]
-    public void TheLevelAndTheLocateBlinkAreTheReferences() => gl.Run(ctx =>
+    public void TheLevelAndTheLocateBlinkAreTheReferences() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 2);
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
         var live = LedLive.Initial with { LevelFrom = 0.5, LevelTo = 0.5, Locate = "lf00000003", LocateUntilNs = 10_000_000_000 };
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = live };
+        using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
         pass.Offer(plan);
         foreach (var leader in new[] { 5_000_000_000L, 5_300_000_000L })
         {
-            var gpu = Run(ctx, pass, pool, show, leader);
+            var gpu = Run(leg, pass, pool, show, leader);
             var cpu = Reference(plan, pics, live, leader, false);
             var worst = 0;
             for (var i = 0; i < cpu.Length; i++)
@@ -326,12 +321,11 @@ public sealed class LedSamplingTests(GlFixture gl)
         public bool Hold(string outputId, long leaderNs) => outputId == HeldOutput;
     }
 
-    private static byte[] RunAir(RenderContext ctx, LedPass pass, LedFramePool pool, Project p, long leaderNs, IAirLevels air)
+    private static byte[] RunAir(BackendLeg leg, LedPass pass, LedFramePool pool, Project p, long leaderNs, IAirLevels air)
     {
-        var d = ctx.Device;
-        var b = ctx.Backend;
+        var b = leg.Device;
         BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(1, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, false, false) { Levels = air }));
-        d.Finish();
+        leg.Finish();
         BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(2, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, false, false) { Levels = air }));
         var first = pool.Take()!;
         var bytes = first.Slots[..(first.Rows * LedPlan.SlotsPerRow)];
@@ -342,31 +336,31 @@ public sealed class LedSamplingTests(GlFixture gl)
     }
 
     [Fact]
-    public void AnOutputHeldOrShowingASafeLookHoldsOrDarkensTheRigAsItsOutputsAre() => gl.Run(ctx =>
+    public void AnOutputHeldOrShowingASafeLookHoldsOrDarkensTheRigAsItsOutputsAre() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 21);
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
+        using var pass = new LedPass(d, pics) { Sink = pool };
         pass.Offer(plan);
         var air = new Air();
-        var live = RunAir(ctx, pass, pool, show, 1_000_000_000, air);
+        var live = RunAir(leg, pass, pool, show, 1_000_000_000, air);
         // An output holds its picture (a FREEZE outcome): the rig's canvas and source fixtures hold too.
         // (The renderer holds the output's own picture; here only the canvas and the media move.)
         air.HeldOutput = Output;
         pics.Float(d, Canvas, 64, 32, (x, y) => (y / 31f, x / 63f, 0.5f));
         pics.Bytes(d, "media:" + Media, 64, 16, (x, y) => (x * 4, 255 - y * 16, 77));
-        Assert.Equal(live, RunAir(ctx, pass, pool, show, 1_100_000_000, air));
+        Assert.Equal(live, RunAir(leg, pass, pool, show, 1_100_000_000, air));
         air.HeldOutput = null;
-        var moved = RunAir(ctx, pass, pool, show, 1_200_000_000, air);
+        var moved = RunAir(leg, pass, pool, show, 1_200_000_000, air);
         Assert.NotEqual(live, moved);
         // A panic shows an output its safe look: the rig's fixtures go dark (no safe look of their own), constants kept; the output
         // fixture samples its output's final picture, which the renderer replaces itself.
         air.SafeOutput = Output;
-        var safe = RunAir(ctx, pass, pool, show, 1_300_000_000, air);
+        var safe = RunAir(leg, pass, pool, show, 1_300_000_000, air);
         var lf3 = plan.Fixture("lf00000003")!;
         var rows = new float[plan.Fixtures.Length * 4];
         LedAir.Fill(plan, LedLive.Initial, 1_300_000_000, false, _ => 1f, 0f, rows);
@@ -377,19 +371,19 @@ public sealed class LedSamplingTests(GlFixture gl)
     });
 
     [Fact]
-    public void AWarmFrameAllocatesNothing() => gl.Run(ctx =>
+    public void AWarmFrameAllocatesNothing() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 8);
         var show = Rig(LedSampling.Area);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
         var live = LedLive.Initial with { Test = LedTestKind.Chase, TestScope = ["lf00000002"], Locate = "lf00000001", LocateUntilNs = long.MaxValue };
-        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = live };
+        using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
         pass.Offer(plan);
         var air = new Air { GainAll = 0.8f };
-        var backend = d.Backend;
+        var backend = d;
         void Frame(long k)
         {
             var list = backend.BeginFrame(BackendFrames.Next + k);
@@ -400,6 +394,13 @@ public sealed class LedSamplingTests(GlFixture gl)
         }
         for (var k = 1; k <= 30; k++)
             Frame(k);
+        // Every frame of the pool sized to the plan's rows: reads delivered together (a GPU behind by a frame or two hands several
+        // over in one collect) rent frames a frame delivering one never does.
+        var frames = new LedFrame[LedFramePool.Size];
+        for (var i = 0; i < frames.Length; i++)
+            frames[i] = pool.Rent(plan.Rows.Length)!;
+        foreach (var f in frames)
+            pool.Return(f);
         var before = Allocations.Start();
         for (var k = 31; k <= 330; k++)
             Frame(k);
@@ -425,26 +426,26 @@ public sealed class LedSamplingTests(GlFixture gl)
     }
 
     [Fact]
-    public void BlackoutResolvesNoPictureAndARawOutputsFixturesAreDark() => gl.Run(ctx =>
+    public void BlackoutResolvesNoPictureAndARawOutputsFixturesAreDark() => backends.Run(leg =>
     {
-        var d = ctx.Device;
+        var d = leg.Device;
         using var pics = new Pictures();
         Fill(d, pics, 31);
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var counting = new Counting(pics);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d.Backend, counting) { Sink = pool };
+        using var pass = new LedPass(d, counting) { Sink = pool };
         pass.Offer(plan);
-        Run(ctx, pass, pool, show, 1_000_000_000);
+        Run(leg, pass, pool, show, 1_000_000_000);
         Assert.True(counting.Asked > 0);
         // Blackout on every fixture: nothing can light, so no picture is resolved; the frame sent is black with its constants.
         counting.Asked = 0;
-        Assert.Equal(LedReference.Black(plan), Run(ctx, pass, pool, show, 1_100_000_000, blackout: true));
+        Assert.Equal(LedReference.Black(plan), Run(leg, pass, pool, show, 1_100_000_000, blackout: true));
         Assert.Equal(0, counting.Asked);
         // An output on a raw frame (a scan or an align run): its fixture is dark, the rest of the rig plays.
         pass.Raw = new RawOutput(Output);
-        var gpu = Run(ctx, pass, pool, show, 1_200_000_000);
+        var gpu = Run(leg, pass, pool, show, 1_200_000_000);
         var air = new float[plan.Fixtures.Length * 4];
         LedAir.Fill(plan, LedLive.Initial, 1_200_000_000, false, id => id == Output ? 0f : 1f, 1f, air);
         var cpu = LedReference.Patch(plan, LedReference.Sample(plan, pics.Reference), air, 1, LedTestKind.None, 0);

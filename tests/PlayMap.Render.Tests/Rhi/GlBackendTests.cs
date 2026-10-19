@@ -16,8 +16,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// rings; the importer's words; the pipeline warm-up and the render thread's count of what it made; user programs made on the
 /// compile lane, reflected into their layout, drawn and released after their last frame, and a refusal naming its stage; and a warm
 /// frame through the list that allocates nothing.</summary>
-[Collection("gl")]
-public sealed class GlBackendTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class GlBackendTests(BackendFixture backends)
 {
     private const string FullscreenVs = """
         out vec2 vUv;
@@ -49,7 +49,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void TheDeviceSaysWhatItIsAndThePlatformsDeviceIsIt()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             Assert.Same(b, c.Device.Backend);
@@ -78,7 +78,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void TheListDrawsWhatTheDevicesOwnCallsDraw()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var d = c.Device;
             var b = c.Backend;
@@ -108,7 +108,7 @@ public sealed class GlBackendTests(GlFixture gl)
                     .Vertices(mesh, 4);
                 list.EndPass();
             });
-            var listed = BackendFrames.Read(b, target);
+            var listed = Pixels.Read(b, target);
 
             d.BindTarget(target);
             d.SetBlend(BlendMode.Opaque);
@@ -128,7 +128,7 @@ public sealed class GlBackendTests(GlFixture gl)
             d.SetDepth(true, false);
             d.Draw(linesProgram, (Gl.VertexArray)mesh, PrimitiveKind.Lines, 4);
             d.SetDepth(false, false);
-            var called = Pixels.Read(d, target);
+            var called = Pixels.Read(d.Backend, target);
 
             Assert.Equal(called, listed);
             Assert.True(listed.Distinct().Count() > 3);
@@ -139,7 +139,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void AConstantTheDrawDidNotSetReadsZeroAndTheDevicesCallsStillSetIt()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var d = c.Device;
             var b = c.Backend;
@@ -149,7 +149,7 @@ public sealed class GlBackendTests(GlFixture gl)
             d.SetBlend(BlendMode.Opaque);
             solid.Set("uColor", 1, 0, 0, 1);
             d.DrawFullscreen(solid);
-            Assert.Equal((255, 0, 0), Pixels.At(Pixels.Read(d, target), 4, 1, 1));
+            Assert.Equal((255, 0, 0), Pixels.At(Pixels.Read(d.Backend, target), 4, 1, 1));
 
             BackendFrames.Run(b, list =>
             {
@@ -157,13 +157,13 @@ public sealed class GlBackendTests(GlFixture gl)
                 list.Draw(b.Programs.Id("solid"), DrawState.Opaque).Fullscreen();
                 list.EndPass();
             });
-            Assert.All(BackendFrames.Read(b, target), v => Assert.Equal(0, v));
+            Assert.All(Pixels.Read(b, target), v => Assert.Equal(0, v));
 
             // The program remembers what the list set: the device's own call sets red again, and is drawn red.
             d.BindTarget(target);
             solid.Set("uColor", 1, 0, 0, 1);
             d.DrawFullscreen(solid);
-            Assert.Equal((255, 0, 0), Pixels.At(Pixels.Read(d, target), 4, 1, 1));
+            Assert.Equal((255, 0, 0), Pixels.At(Pixels.Read(d.Backend, target), 4, 1, 1));
             Assert.Empty(d.TakeErrors());
         });
     }
@@ -171,7 +171,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public unsafe void EveryConstantTypeReachesTheProgramAsTheDevicesCallsSetIt()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var d = c.Device;
             var b = c.Backend;
@@ -239,7 +239,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void FencesGrowPerQueueAndCompleteOnceTheGpuPassedThem()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             var first = BackendFrames.Run(b, _ => { });
@@ -270,7 +270,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void TheReadbackRingAnswersWhatAReadNowReads()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var target = b.CreateTarget(new TargetDesc(8, 4, TextureFormat.Rgba8));
@@ -281,7 +281,7 @@ public sealed class GlBackendTests(GlFixture gl)
                     .Set("uCell", 2f).Set("uColorA", 1, 1, 0, 1).Set("uColorB", 0, 0, 1, 1).Fullscreen();
                 list.EndPass();
             });
-            var now = BackendFrames.Read(b, target);
+            var now = Pixels.Read(b, target);
             if (!c.Device.HasReadBgra)
             {
                 Assert.Throws<NotSupportedException>(() => b.Readbacks.Request(target, 7));
@@ -309,7 +309,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public unsafe void TheUploadRingFillsATextureAndItsCopyValueCompletes()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var picture = b.CreateTexture(new TextureDesc(8, 4, TextureFormat.Rgba8, TextureUsage.Sampled | TextureUsage.CopySource | TextureUsage.CopyDest));
@@ -326,7 +326,7 @@ public sealed class GlBackendTests(GlFixture gl)
             BackendFrames.Run(b, list => list.Copy(picture, target.Color));
             b.WaitFor(done);
             Assert.True(b.IsComplete(done));
-            var read = BackendFrames.Read(b, target);
+            var read = Pixels.Read(b, target);
             for (var y = 0; y < 4; y++)
             {
                 for (var x = 0; x < 8; x++)
@@ -344,7 +344,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void TimestampsAreReadOnceTheFrameCompletedAndNothingIsMeasuredWithoutThem()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var target = b.CreateTarget(new TargetDesc(64, 64, TextureFormat.Rgba8));
@@ -376,7 +376,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void TheImporterRefusesWhatItCannotImportWithWords()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var importer = c.Backend.Importer;
             var surface = new GpuSurface { Api = GpuApi.OpenGl, Width = 16, Height = 16 };
@@ -397,7 +397,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public async Task AWarmUpMakesItsPipelinesBeforeTheyAreDrawnAndADrawCountsWhatItHadToMake()
     {
-        var (keys, made) = gl.Run(c =>
+        var (keys, made) = backends.RunGl(c =>
         {
             var b = c.Backend;
             var program = b.Programs.Id("syncmarks");
@@ -408,12 +408,12 @@ public sealed class GlBackendTests(GlFixture gl)
             ];
             return (k, b.Pipelines.WarmAsync(k, CancellationToken.None));
         });
-        Assert.True(gl.Run(c => BackendFrames.Until(c.Backend, () => made.IsCompleted)));
+        Assert.True(backends.RunGl(c => BackendFrames.Until(c.Backend, () => made.IsCompleted)));
         var result = await made;
         Assert.Equal(2, result.Asked);
         Assert.Equal(2, result.Made + result.FromCache);
         Assert.Empty(result.Failed);
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             Assert.All(keys, k => Assert.True(b.Pipelines.TryGet(k, out var p) && p.Key == k));
@@ -451,7 +451,7 @@ public sealed class GlBackendTests(GlFixture gl)
         {
             try
             {
-                using var c = RenderContext.CreateHidden(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlFixture.Dialect));
+                using var c = RenderContext.CreateHidden(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlLeg.Dialect));
                 var b = c.Backend;
                 using var target = b.CreateTarget(new TargetDesc(8, 8, TextureFormat.Rgba8));
                 string[] names = ["checker", "motion", "syncmarks"];
@@ -500,7 +500,7 @@ public sealed class GlBackendTests(GlFixture gl)
         {
             try
             {
-                using var c = RenderContext.CreateSurfaceless(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlFixture.Dialect));
+                using var c = RenderContext.CreateSurfaceless(new GlDeviceOptions(CheckErrors: true, DebugOutput: false, Dialect: GlLeg.Dialect));
                 var b = c.Backend;
                 using var target = b.CreateTarget(new TargetDesc(8, 8, TextureFormat.Rgba8));
                 string[] names = ["checker", "motion", "syncmarks"];
@@ -534,15 +534,15 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public async Task AUserProgramIsMadeOnTheLaneReflectedDrawnAndReleasedAfterItsLastFrame()
     {
-        var making = gl.Run(c => c.Backend.CreateProgramAsync(Glsl("user tint", FullscreenVs, UserFs), CancellationToken.None));
-        Assert.True(gl.Run(c => BackendFrames.Until(c.Backend, () => making.IsCompleted)));
+        var making = backends.RunGl(c => c.Backend.CreateProgramAsync(Glsl("user tint", FullscreenVs, UserFs), CancellationToken.None));
+        Assert.True(backends.RunGl(c => BackendFrames.Until(c.Backend, () => making.IsCompleted)));
         var made = await making;
         Assert.True(made.Ok, made.Stage + ": " + made.Words);
         Assert.Equal(ProgramLayout.Pack("user tint",
             [("uTint", ConstantType.Float4, 1), ("uGain", ConstantType.Float, 1), ("uOffset", ConstantType.Float2, 1), ("uMode", ConstantType.Int, 1),
                 ("uFlip", ConstantType.Int, 1), ("uPalette", ConstantType.Float4, 3)],
             [("uPicture", true)]), made.Layout);
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             Assert.Equal(made.Layout, b.Programs.Layout(made.Id));
@@ -562,7 +562,7 @@ public sealed class GlBackendTests(GlFixture gl)
                     .Fullscreen();
                 list.EndPass();
             });
-            Pixels.Near((204, 153, 102), Pixels.At(BackendFrames.Read(b, target), 4, 2, 2), 1, "the palette's third colour");
+            Pixels.Near((204, 153, 102), Pixels.At(Pixels.Read(b, target), 4, 2, 2), 1, "the palette's third colour");
             var pipelines = b.Pipelines.Count;
 
             b.ReleaseProgram(made.Id);
@@ -593,8 +593,8 @@ public sealed class GlBackendTests(GlFixture gl)
     [InlineData("source", "#version 330 core\nvoid main() { gl_Position = vec4(0.0); }", "out vec4 oColor;\nvoid main() { oColor = vec4(1.0); }")]
     public async Task AUserProgramThatIsNotMadeNamesTheStageThatRefusedIt(string stage, string vertex, string fragment)
     {
-        var making = gl.Run(c => c.Backend.CreateProgramAsync(Glsl("broken " + stage, vertex, fragment), CancellationToken.None));
-        Assert.True(gl.Run(c => BackendFrames.Until(c.Backend, () => making.IsCompleted)));
+        var making = backends.RunGl(c => c.Backend.CreateProgramAsync(Glsl("broken " + stage, vertex, fragment), CancellationToken.None));
+        Assert.True(backends.RunGl(c => BackendFrames.Until(c.Backend, () => making.IsCompleted)));
         var made = await making;
         Assert.False(made.Ok);
         Assert.Equal(stage, made.Stage);
@@ -605,7 +605,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public async Task ASourceTheGlBackendCannotReadIsRefusedAtOnce()
     {
-        var (dxil, garbled) = gl.Run(c => (
+        var (dxil, garbled) = backends.RunGl(c => (
             c.Backend.CreateProgramAsync(new ProgramSource("dxil", "k", ProgramCode.Dxil, new byte[] { 1 }, new byte[] { 2 }, default), CancellationToken.None),
             c.Backend.CreateProgramAsync(new ProgramSource("garbled", "k", ProgramCode.Glsl, new byte[] { 0xC3, 0x28 }, new byte[] { 0x41 }, default), CancellationToken.None)));
         Assert.True(dxil.IsCompleted);
@@ -617,7 +617,7 @@ public sealed class GlBackendTests(GlFixture gl)
     [Fact]
     public void AWarmFrameThroughTheListAllocatesNothing()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var target = b.CreateTarget(new TargetDesc(32, 32, TextureFormat.Rgba8));

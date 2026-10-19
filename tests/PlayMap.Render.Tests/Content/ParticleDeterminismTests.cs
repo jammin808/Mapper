@@ -2,7 +2,6 @@ using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
 using SkiaSharp;
 
 namespace PlayMap.Render.Tests.Content;
@@ -10,8 +9,8 @@ namespace PlayMap.Render.Tests.Content;
 /// <summary>The GPU particle field: after a seek it is, bit for bit, the field that played from the start (bounded memory, at the
 /// 64 k a software renderer steps); every slot's birth, life and age on the GPU are the C# schedule's; a picture emitter gives birth
 /// only where its source is bright; a sting surges the field.</summary>
-[Collection("gl")]
-public class ParticleDeterminismTests(GlFixture gl)
+[Collection("gpu")]
+public class ParticleDeterminismTests(BackendFixture backends)
 {
     [Fact]
     public void AFieldAfterASeekIsTheFieldThatPlayedFromTheStartByteForByte()
@@ -20,26 +19,26 @@ public class ParticleDeterminismTests(GlFixture gl)
         const int h = 36;
         var g = Scene.Gen("particles.flow", ParamSet.Empty.With("count", ParticleFlowSettings.SoftwareCount).With("emitter", "disc")
             .With("vortex", 0.4).With("gravity", 0.05).With("edges", "bounce"), "gn_flow");
-        var (played, sought) = gl.Run(c =>
+        var (played, sought) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var a = new GeneratorHost(services);
             using var b = new GeneratorHost(services);
             // Played from 0 s to 10 s at 60 frames a second.
             long frame = 1;
             for (var f = 0; f <= 600; f++)
-                ContentGl.Draw(a, g, f / 60.0, frame++, w, h);
+                ContentDraws.Draw(a, g, f / 60.0, frame++, w, h);
             // Sought straight to 10 s, settled there.
-            var fb = ContentGl.Settle(b, g, 10, 1, w, h);
+            var fb = ContentDraws.Settle(b, g, 10, 1, w, h);
             var ra = (FlowGenerator)a.RendererOf(g.Id, w, h)!;
             var rb = (FlowGenerator)b.RendererOf(g.Id, w, h)!;
             Assert.Equal(1200, ra.SimStep);
             Assert.Equal(1200, rb.SimStep);
             Assert.Equal(ParticleFlowSettings.SoftwareCount, rb.Count);
-            var pa = Scene.ReadTexture(c.Device, ContentGl.Draw(a, g, 10, frame, w, h));
-            var pb = Scene.ReadTexture(c.Device, ContentGl.Draw(b, g, 10, fb, w, h));
-            return ((ContentGl.ReadState(c.Device, ra.State!, 0), ContentGl.ReadState(c.Device, ra.State!, 1), pa),
-                (ContentGl.ReadState(c.Device, rb.State!, 0), ContentGl.ReadState(c.Device, rb.State!, 1), pb));
+            var pa = Scene.ReadTexture(leg.Device, ContentDraws.Draw(a, g, 10, frame, w, h));
+            var pb = Scene.ReadTexture(leg.Device, ContentDraws.Draw(b, g, 10, fb, w, h));
+            return ((ContentDraws.ReadState(leg.Device, ra.State!, 0), ContentDraws.ReadState(leg.Device, ra.State!, 1), pa),
+                (ContentDraws.ReadState(leg.Device, rb.State!, 0), ContentDraws.ReadState(leg.Device, rb.State!, 1), pb));
         });
         var alive = 0;
         for (var i = 3; i < played.Item1.Length; i += 4)
@@ -60,22 +59,22 @@ public class ParticleDeterminismTests(GlFixture gl)
         var curl = new ParamBinding("curl", "lfo:wave", 1, 0, BindingCurve.Linear, 0) { Mode = BindingMode.Replace };
         var g = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 8192).With("lifeMin", 0.5).With("lifeMax", 1.5), "gn_lfo")
             with { Bindings = [binding, curl] };
-        var (fifty, sixty) = gl.Run(c =>
+        var (fifty, sixty) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var a = new GeneratorHost(services);
             using var b = new GeneratorHost(services);
             var bus = new WaveBus();
             for (var f = 0; f <= 250; f++)
-                ContentGl.Draw(a, g, f / 50.0, f + 1, 64, 36, bus);
+                ContentDraws.Draw(a, g, f / 50.0, f + 1, 64, 36, bus);
             for (var f = 0; f <= 300; f++)
-                ContentGl.Draw(b, g, f / 60.0, f + 1, 64, 36, bus);
+                ContentDraws.Draw(b, g, f / 60.0, f + 1, 64, 36, bus);
             var ra = (FlowGenerator)a.RendererOf(g.Id, 64, 36)!;
             var rb = (FlowGenerator)b.RendererOf(g.Id, 64, 36)!;
             Assert.Equal(600, ra.SimStep);
             Assert.Equal(600, rb.SimStep);
-            return ((ContentGl.ReadState(c.Device, ra.State!, 0), ContentGl.ReadState(c.Device, ra.State!, 1)),
-                (ContentGl.ReadState(c.Device, rb.State!, 0), ContentGl.ReadState(c.Device, rb.State!, 1)));
+            return ((ContentDraws.ReadState(leg.Device, ra.State!, 0), ContentDraws.ReadState(leg.Device, ra.State!, 1)),
+                (ContentDraws.ReadState(leg.Device, rb.State!, 0), ContentDraws.ReadState(leg.Device, rb.State!, 1)));
         });
         Assert.True(Bits(fifty.Item1).SequenceEqual(Bits(sixty.Item1)), "positions differ between 50 and 60 frames a second");
         Assert.True(Bits(fifty.Item2).SequenceEqual(Bits(sixty.Item2)), "velocities differ between 50 and 60 frames a second");
@@ -105,14 +104,14 @@ public class ParticleDeterminismTests(GlFixture gl)
         var ps = ParamSet.Empty.With("count", count).With("rate", rate).With("lifeMin", 0.5).With("lifeMax", 1.5).With("seed", 77);
         var g = Scene.Gen("particles.flow", ps, "gn_sched");
         var settings = ParticleFlowSettings.Resolve(ps);
-        var s0 = gl.Run(c =>
+        var s0 = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            ContentGl.Settle(host, g, 3, 1, 32, 32);
+            ContentDraws.Settle(host, g, 3, 1, 32, 32);
             var r = (FlowGenerator)host.RendererOf(g.Id, 32, 32)!;
             Assert.Equal(360, r.SimStep);
-            return ContentGl.ReadState(c.Device, r.State!, 0);
+            return ContentDraws.ReadState(leg.Device, r.State!, 0);
         });
         var side = ParticleFlowSettings.Side(count);
         var seedHash = ParticleSchedule.Pcg(settings.Seed);
@@ -151,15 +150,15 @@ public class ParticleDeterminismTests(GlFixture gl)
             Inputs = System.Collections.Immutable.ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal,
                 [new KeyValuePair<string, SourceRef>("source", SourceRef.Canvas("cv_disk"))]),
         };
-        var (s0, words) = gl.Run(c =>
+        var (s0, words) = backends.Run(leg =>
         {
-            using var disk = DiskTexture(c.Device, 256, 0.2f);
-            using var services = new RenderServices(c.Backend);
+            using var disk = DiskTexture(leg.Device, 256, 0.2f);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
             var content = new ContentFrame { Pictures = new OnePicture(disk) };
-            ContentGl.Settle(host, g, 4, 1, size, size, content);
+            ContentDraws.Settle(host, g, 4, 1, size, size, content);
             var r = (FlowGenerator)host.RendererOf(g.Id, size, size)!;
-            return (ContentGl.ReadState(c.Device, r.State!, 0), r.Words);
+            return (ContentDraws.ReadState(leg.Device, r.State!, 0), r.Words);
         });
         Assert.Equal("", words);
         var newborn = 0;
@@ -174,13 +173,13 @@ public class ParticleDeterminismTests(GlFixture gl)
         }
         Assert.True(newborn > 0, "nothing was born on the step read");
         // With nothing to read the emitter says so and nothing is born.
-        var (dark, why) = gl.Run(c =>
+        var (dark, why) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            ContentGl.Settle(host, g, 4, 1, size, size, new ContentFrame());
+            ContentDraws.Settle(host, g, 4, 1, size, size, new ContentFrame());
             var r = (FlowGenerator)host.RendererOf(g.Id, size, size)!;
-            return (ContentGl.ReadState(c.Device, r.State!, 0), r.Words);
+            return (ContentDraws.ReadState(leg.Device, r.State!, 0), r.Words);
         });
         Assert.Contains("no picture", why, StringComparison.Ordinal);
         Assert.All(Enumerable.Range(0, dark.Length / 4), i => Assert.Equal(0f, dark[i * 4 + 3]));
@@ -196,17 +195,17 @@ public class ParticleDeterminismTests(GlFixture gl)
             with { Inputs = source };
         var edges = Scene.Gen("particles.image", ParamSet.Empty.With("count", 16384).With("weight", "edges").With("threshold", 0.3)
             .With("lifeMin", 0.5).With("lifeMax", 1).With("colorBy", "life"), "gn_edge") with { Inputs = source };
-        var (cs0, cs1, es0) = gl.Run(c =>
+        var (cs0, cs1, es0) = backends.Run(leg =>
         {
-            using var halves = HalvesTexture(c.Device, 256);
-            using var disk = DiskTexture(c.Device, 256, 0.2f);
-            using var services = new RenderServices(c.Backend);
+            using var halves = HalvesTexture(leg.Device, 256);
+            using var disk = DiskTexture(leg.Device, 256, 0.2f);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
-            ContentGl.Settle(host, coloured, 4, 1, size, size, new ContentFrame { Pictures = new OnePicture(halves) });
+            ContentDraws.Settle(host, coloured, 4, 1, size, size, new ContentFrame { Pictures = new OnePicture(halves) });
             var rc = (FlowGenerator)host.RendererOf(coloured.Id, size, size)!;
-            ContentGl.Settle(host, edges, 4, 1, size, size, new ContentFrame { Pictures = new OnePicture(disk) });
+            ContentDraws.Settle(host, edges, 4, 1, size, size, new ContentFrame { Pictures = new OnePicture(disk) });
             var re = (FlowGenerator)host.RendererOf(edges.Id, size, size)!;
-            return (ContentGl.ReadState(c.Device, rc.State!, 0), ContentGl.ReadState(c.Device, rc.State!, 1), ContentGl.ReadState(c.Device, re.State!, 0));
+            return (ContentDraws.ReadState(leg.Device, rc.State!, 0), ContentDraws.ReadState(leg.Device, rc.State!, 1), ContentDraws.ReadState(leg.Device, re.State!, 0));
         });
         // Born on the white-and-red picture at a bright point: a newborn's packed colour is the picture's there (white left, red right).
         var newborn = 0;
@@ -234,7 +233,7 @@ public class ParticleDeterminismTests(GlFixture gl)
     }
 
     /// <summary>White on the left half, red on the right.</summary>
-    private static GpuTexture HalvesTexture(GlDevice d, int side)
+    private static GpuTexture HalvesTexture(IGpuDevice d, int side)
     {
         var px = new byte[side * side * 4];
         for (var y = 0; y < side; y++)
@@ -246,25 +245,23 @@ public class ParticleDeterminismTests(GlFixture gl)
                 px[o + 2] = x < side / 2 ? (byte)255 : (byte)0;
                 px[o + 3] = 255;
             }
-        var tex = d.CreateTexture(side, side, TextureFormat.Rgba8, TextureFilter.Nearest);
-        d.Upload(tex, px, UploadFormat.Rgba8);
-        return tex;
+        return Scene.Texture(d, side, side, TextureFormat.Rgba8, px, UploadFormat.Rgba8, TextureFilter.Nearest);
     }
 
     [Fact]
     public void AStingSurgesTheField()
     {
         var g = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 8192), "gn_sting");
-        var (calm, stung) = gl.Run(c =>
+        var (calm, stung) = backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Backend);
+            using var services = new RenderServices(leg.Device);
             using var a = new GeneratorHost(services);
             using var b = new GeneratorHost(services);
             var sting = new EffectImpulse(PulsePreset.Gust, 4.5, 1.0);
-            var fa = ContentGl.Settle(a, g, 5, 1, 64, 36);
-            var fb = ContentGl.Settle(b, g, 5, 1, 64, 36, impulse: sting);
-            return (Scene.ReadTexture(c.Device, ContentGl.Draw(a, g, 5, fa, 64, 36)),
-                Scene.ReadTexture(c.Device, ContentGl.Draw(b, g, 5, fb, 64, 36, impulse: sting)));
+            var fa = ContentDraws.Settle(a, g, 5, 1, 64, 36);
+            var fb = ContentDraws.Settle(b, g, 5, 1, 64, 36, impulse: sting);
+            return (Scene.ReadTexture(leg.Device, ContentDraws.Draw(a, g, 5, fa, 64, 36)),
+                Scene.ReadTexture(leg.Device, ContentDraws.Draw(b, g, 5, fb, 64, 36, impulse: sting)));
         });
         Assert.False(calm.AsSpan().SequenceEqual(stung), "the sting moved nothing");
     }
@@ -275,7 +272,7 @@ public class ParticleDeterminismTests(GlFixture gl)
     }
 
     /// <summary>A white disk of a radius (a share of the side) on black, centred.</summary>
-    private static GpuTexture DiskTexture(GlDevice d, int side, float radius)
+    private static GpuTexture DiskTexture(IGpuDevice d, int side, float radius)
     {
         using var bitmap = new SKBitmap(new SKImageInfo(side, side, SKColorType.Rgba8888, SKAlphaType.Premul));
         using (var canvas = new SKCanvas(bitmap))
@@ -284,8 +281,6 @@ public class ParticleDeterminismTests(GlFixture gl)
             canvas.Clear(SKColors.Black);
             canvas.DrawCircle(side / 2f, side / 2f, radius * side, paint);
         }
-        var tex = d.CreateTexture(side, side, TextureFormat.Rgba8);
-        d.UploadPointer(tex, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
-        return tex;
+        return Scene.Texture(d, side, side, TextureFormat.Rgba8, bitmap.GetPixelSpan(), UploadFormat.Rgba8, rowPixels: bitmap.RowBytes / 4);
     }
 }

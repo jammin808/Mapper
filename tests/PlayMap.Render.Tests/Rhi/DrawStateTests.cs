@@ -24,8 +24,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// projector with a pixel quad and a mesh, the overlay, the identify card, a delay ring, a blackout and the three kinds of preview)
 /// leaves the GL state the loose calls left, draw for draw, as recorded per dialect in <c>DrawStates/frames.&lt;dialect&gt;.txt</c>
 /// (written by this test with PLAYMAP_WRITE_FIXTURES=1).</summary>
-[Collection("gl")]
-public sealed class DrawStateTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class DrawStateTests(BackendFixture backends)
 {
     /// <summary>A scripted frame: each step's state, the program it draws and the loose calls the frame code makes for it.</summary>
     private static readonly (DrawState State, string Program)[] Script =
@@ -43,7 +43,7 @@ public sealed class DrawStateTests(GlFixture gl)
     [Fact]
     public void EveryDrawStateMapsToExactlyOnePipelineKeyForATarget()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var b = c.Backend;
             using var rgba8 = b.CreateTarget(new TargetDesc(2, 2, TextureFormat.Rgba8, Depth: true));
@@ -69,7 +69,7 @@ public sealed class DrawStateTests(GlFixture gl)
     [Fact]
     public void AfterEachDrawTheGlStateIsWhatTheDevicesOwnCallsSet()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var d = c.Device;
             var b = c.Backend;
@@ -143,7 +143,7 @@ public sealed class DrawStateTests(GlFixture gl)
     {
         var path = FramesFile();
         var (project, stage, sources) = Show();
-        var lines = gl.Run(c =>
+        var lines = backends.RunGl(c =>
         {
             var d = c.Device;
             var drawn = new List<string>();
@@ -213,7 +213,7 @@ public sealed class DrawStateTests(GlFixture gl)
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))
             dir = dir.Parent;
         var root = dir?.FullName ?? throw new InvalidOperationException("no PlayMap.sln above the test assembly");
-        return Path.Combine(root, "tests", "PlayMap.Render.Tests", "Rhi", "DrawStates", $"frames.{GlDialects.Word(GlFixture.Dialect)}.txt");
+        return Path.Combine(root, "tests", "PlayMap.Render.Tests", "Rhi", "DrawStates", $"frames.{GlDialects.Word(GlLeg.Dialect)}.txt");
     }
 
     /// <summary>A show that draws through every path of the frame: two canvases (an opaque first layer, then add, screen, multiply,

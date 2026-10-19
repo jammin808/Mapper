@@ -8,8 +8,8 @@ namespace PlayMap.Render.Tests.Rhi;
 /// object), checks each offset against the block and keeps every shape apart; and aliasing barriers, discards and plan-managed
 /// resources change no pixel — a scene drawn through placed transients with every one of them reads byte for byte what it reads
 /// without them, which is what the device's own calls draw.</summary>
-[Collection("gl")]
-public sealed class TransientContractTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class TransientContractTests(BackendFixture backends)
 {
     private static readonly TextureDesc Picture = new(16, 16, TextureFormat.Rgba8, ResourcePoolUses);
     private static readonly TargetDesc Canvas = new(64, 32, TextureFormat.Rgba8);
@@ -19,7 +19,7 @@ public sealed class TransientContractTests(GlFixture gl)
     [Fact]
     public void PlacementsComeFromThePoolAndGoBackToItWithTheirBlock()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var backend = c.Backend;
             var pool = backend.TransientPool;
@@ -66,7 +66,7 @@ public sealed class TransientContractTests(GlFixture gl)
     [Fact]
     public void APlacementIsSizedByItsTexelsAndOneThatDoesNotFitTheBlockIsRefused()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var backend = c.Backend;
             using var memory = backend.CreateTransientMemory(8192, "small");
@@ -91,7 +91,7 @@ public sealed class TransientContractTests(GlFixture gl)
     [Fact]
     public void AliasDiscardAndPlanManagedChangeNoPixel()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var plain = Draw(c, contract: false);
             var marked = Draw(c, contract: true);
@@ -157,7 +157,7 @@ public sealed class TransientContractTests(GlFixture gl)
             if (contract)
                 list.Barrier(canvas, ResourceUse.CopySource);
         });
-        var pixels = BackendFrames.Read(backend, canvas);
+        var pixels = Pixels.Read(backend, canvas);
         if (contract)
         {
             foreach (var r in new GpuResource[] { earlier, picture, canvas })
@@ -195,7 +195,7 @@ public sealed class TransientContractTests(GlFixture gl)
         d.BindSampler(quad, "uTex", 0, picture);
         d.DrawGeneratedQuads(quad);
         d.SetBlend(BlendMode.Opaque);
-        return Pixels.Read(d, canvas);
+        return Pixels.Read(d.Backend, canvas);
     }
 
     /// <summary>A 16×16 RGBA picture with a gradient and a half-transparent band.</summary>

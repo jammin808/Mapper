@@ -2,13 +2,12 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Modulation;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Content;
 
 /// <summary>What the content tests share: a generator drawn on a host at a leader instant with a content frame, drawn again at the
 /// same instant until it has settled, and a bus answering fixed values.</summary>
-internal static class ContentGl
+internal static class ContentDraws
 {
     public static readonly GeneratorContext Context = new("Output 1", 1, "#FF8800", true);
 
@@ -38,12 +37,7 @@ internal static class ContentGl
     }
 
     /// <summary>A float state attachment's bits, in the target's rows as GL reads them.</summary>
-    public static float[] ReadState(GlDevice d, RenderTarget state, int attachment)
-    {
-        var data = new float[state.Width * state.Height * 4];
-        d.Backend.ReadNowFloat(state, attachment, data);
-        return data;
-    }
+    public static float[] ReadState(IGpuDevice d, RenderTarget state, int attachment) => Pixels.ReadFloat(d, state, attachment);
 }
 
 /// <summary>A bus that answers fixed values for named sources (and a slot per name), never allocating once made.</summary>

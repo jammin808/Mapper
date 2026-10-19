@@ -8,8 +8,8 @@ namespace PlayMap.Render.Tests.Wall;
 
 /// <summary>The edit overlay: a quad's handles land where the output's warp puts its corners (with the content, not where the
 /// raster had them), and while the show is armed the output is byte for byte what it is with no overlay at all.</summary>
-[Collection("gl")]
-public class OverlayTests(GlFixture gl)
+[Collection("gpu")]
+public class OverlayTests(BackendFixture backends)
 {
     private const int PW = 320;
     private const int PH = 240;
@@ -29,10 +29,10 @@ public class OverlayTests(GlFixture gl)
     /// <summary>One frame of a fresh renderer (so the dither's frame is the same in every render), read back.</summary>
     private byte[] Render(Project project, OutputWarp warp, OverlayState? overlay, bool armed, bool withPass)
     {
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var pass = new OverlayPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(leg.Device);
             var stage = new TestStage();
             if (warp.Enabled)
                 stage.Warps["op1"] = WarpMeshBuilder.Build(warp);
@@ -46,7 +46,7 @@ public class OverlayTests(GlFixture gl)
             engine.Render(inputs);
             var px = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op1", px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }
@@ -126,10 +126,10 @@ public class OverlayTests(GlFixture gl)
         var project = Scene3(OutputWarp.None);
         System.Collections.Immutable.ImmutableArray<WallCursor> cursors = [new WallCursor("s1", "Desk", "op1", new Vec2d(0.25, 0.75), [], "#FF8800", 0, long.MaxValue)];
         var on = new OverlayState(true, [], OverlayLayers.Cursor | OverlayLayers.Outlines, null, 0, "", 0);
-        var (first, off, back) = gl.Run(c =>
+        var (first, off, back) = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var pass = new OverlayPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(leg.Device);
             byte[] Frame(OverlayState state)
             {
                 var inputs = Scene.Inputs(project, 1, stage: new TestStage()) with { Overlay = state, Cursors = cursors, Passes = [pass] };
@@ -153,10 +153,10 @@ public class OverlayTests(GlFixture gl)
     {
         var project = Scene3(OutputWarp.None);
         var cursor = new WallCursor("s1", "Desk", "op1", new Vec2d(0.25, 0.75), [new Vec2d(0.8, 0.2)], "#FF8800", 0, long.MaxValue);
-        var px = gl.Run(c =>
+        var px = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
-            using var pass = new OverlayPass(c.Backend);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(leg.Device);
             var inputs = Scene.Inputs(project, 1, stage: new TestStage()) with
             {
                 Overlay = new OverlayState(true, [], OverlayLayers.Cursor, null, 0, "", 0),

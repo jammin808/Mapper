@@ -14,8 +14,8 @@ namespace PlayMap.Render.Tests.Decode;
 /// block uploads from the arena's buffer and draws the same picture as the copy path; a returned block is free again only after a
 /// fence the GPU has passed; an arena that is gone is never read (the last picture holds); the per-frame fence and the returns
 /// allocate nothing once warm.</summary>
-[Collection("gl")]
-public sealed class GlUploadArenaTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class GlUploadArenaTests(BackendFixture backends)
 {
     private const int W = 64, H = 32;
     private const int Bytes = (W / 4) * (H / 4) * 8;
@@ -51,7 +51,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
     private static void Close(GlDevice device) => device.Backend.Uploads.CloseArena();
 
     [Fact]
-    public void ABlockUploadsFromTheArenaAndDrawsWhatTheCopyPathDraws() => gl.Run(ctx =>
+    public void ABlockUploadsFromTheArenaAndDrawsWhatTheCopyPathDraws() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         Assert.True(device.Caps.Dxt1, "this GL samples no BC1: the arena's HAP upload cannot be drawn here");
@@ -85,7 +85,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
     });
 
     [Fact]
-    public void AReturnedBlockIsFreeOnlyAfterTheGpuPassedItsFence() => gl.Run(ctx =>
+    public void AReturnedBlockIsFreeOnlyAfterTheGpuPassedItsFence() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         using var arena = Make(device);
@@ -108,7 +108,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
     });
 
     [Fact]
-    public void AFrameInAnArenaThatIsGoneIsNeverReadAndTheLastPictureHolds() => gl.Run(ctx =>
+    public void AFrameInAnArenaThatIsGoneIsNeverReadAndTheLastPictureHolds() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         Assert.True(device.Caps.Dxt1, "this GL samples no BC1: the arena's HAP upload cannot be drawn here");
@@ -139,7 +139,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
     });
 
     [Fact]
-    public void RentReturnAndTheFrameFenceAllocateNothingOnceWarm() => gl.Run(ctx =>
+    public void RentReturnAndTheFrameFenceAllocateNothingOnceWarm() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         using var arena = Make(device);
