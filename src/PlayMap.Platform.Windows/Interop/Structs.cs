@@ -100,7 +100,7 @@ internal record struct NvShortString(byte First)
     public const int Length = 64;
 }
 
-/// <summary>NVAPI's identifiers and limits used by the probe (nvapi_interface.h and nvapi.h, the driver's MIT headers).</summary>
+/// <summary>NVAPI's identifiers and limits used by the probe (nvapi_interface.h and nvapi.h, NVIDIA's NVAPI SDK headers).</summary>
 [SupportedOSPlatform("windows")]
 internal static class NvApiProbeIds
 {

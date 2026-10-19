@@ -168,6 +168,27 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 
 ### wp3-platform
 
+- **NVIDIA's NVAPI SDK headers** (https://github.com/NVIDIA/nvapi, `nvapi.h` and `nvapi_interface.h`, MIT): the machine platform's
+  NVAPI probe (`src/PlayMap.Platform.Windows/Interop/Structs.cs` and `AdapterProbe.cs`) declares its own few identifiers, the
+  `NvAPI_ShortString` layout and the interface ids of the calls it makes, following those headers; no header is copied or shipped.
+  `nvapi64.dll` is the NVIDIA driver's, loaded from the system directory by its absolute path, and never shipped. The headers'
+  notice:
+
+  > SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  > SPDX-License-Identifier: MIT
+  >
+  > Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
+  > (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify,
+  > merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+  > furnished to do so, subject to the following conditions:
+  >
+  > The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+  >
+  > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+  > OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+  > LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  > CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 ### wp3-shaders
 
 ### wp3-installer
