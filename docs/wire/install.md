@@ -30,6 +30,13 @@ frames as information), `install:autologon` (amber off on a supervised node), `i
 rows: grey, value `i`). The check is `Install/InstallPreflight.cs`; the exe's composition registers it once the spine's
 `AddInstallParts` hook lands (until then tests register it through the services).
 
+## Stopping the engine
+
+The supervisor sets `Global\PlayMap-Engine-Stop` and terminates the engine 5 s later when it has not ended. No engine opens the
+event yet (`EngineEntry` waiting on it under `--supervised`, with Synchronize alone, is the spine's seam), so every stop — the
+freeze rule's, `stop`, an upgrade's, an uninstall's — is a termination after 5 s, with no normal stop, no recovery record, and its
+cause in `supervisor.log` alone.
+
 ## Papers note
 
 The node installs per machine with an Inno Setup installer (the WiX toolset does not build from its pinned source on the runner, and its source carries a licence check PlayMap never answers), with

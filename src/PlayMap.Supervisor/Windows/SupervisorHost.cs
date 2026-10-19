@@ -303,6 +303,8 @@ public sealed class SupervisorHost : IDisposable
         switch (action)
         {
             case SupervisorAction.Start when session is { } s:
+                // Cleared before a start, so a new engine never sees an old stop.
+                _stopEvent?.Reset();
                 try
                 {
                     _engine = _places.Launch(s, InstalledExe(), "engine --supervised");
@@ -324,7 +326,7 @@ public sealed class SupervisorHost : IDisposable
                     : string.Create(CultureInfo.InvariantCulture, $"the engine (pid {engine.Pid}) could not be terminated: {why}"));
                 break;
         }
-        if (action == SupervisorAction.Start || _engine is null || _engine.IsAlive)
+        if (action != SupervisorAction.Start && SupervisorCore.ShouldResetStopEvent(action, _core.State, _engine is { IsAlive: true }))
             _stopEvent?.Reset();
     }
 
@@ -504,7 +506,10 @@ public sealed class SupervisorHost : IDisposable
     {
         var action = _core.Hold(NowNs(), "stopped by a person (PlayMap.Supervisor.exe stop)");
         if (action == SupervisorAction.RequestStop)
+        {
             _stopEvent?.Set();
+            Log(string.Create(CultureInfo.InvariantCulture, $"asked the engine (pid {_engine?.Pid ?? 0}) to stop: {_core.LastCause}"));
+        }
         Log("held: " + _core.LastCause);
         return "OK held: the engine is asked to stop and is not started again until resume";
     }
@@ -538,15 +543,43 @@ public sealed class SupervisorHost : IDisposable
         }
     }
 
-    /// <summary>The engine's stop event, which the show user's engine may wait on and the supervisor sets.</summary>
-    private static EventWaitHandle StopEventFor(string name, string showUser)
+    /// <summary>The engine's stop event: SYSTEM sets and clears it, administrators may set it (an elevated <c>stop</c> or uninstall
+    /// with no service) and read its ACL, and the show user's engine may only wait on it. One that exists already is kept only when
+    /// SYSTEM or administrators made it (an engine waiting on it holds it open across a supervisor's restart); one another account
+    /// made could be set or cleared by that account, so the supervisor refuses to start beside it, with words.</summary>
+    private EventWaitHandle StopEventFor(string name, string showUser)
     {
         var security = new EventWaitHandleSecurity();
         security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), EventWaitHandleRights.FullControl, AccessControlType.Allow));
-        if (showUser.Length > 0)
-            security.AddAccessRule(new EventWaitHandleAccessRule(new NTAccount(showUser), EventWaitHandleRights.Synchronize, AccessControlType.Allow));
-        return EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, name, out _, security);
+        security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            EventWaitHandleRights.Modify | EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions, AccessControlType.Allow));
+        if (showUser.Length > 0 && Sid(showUser) is { } user)
+            security.AddAccessRule(new EventWaitHandleAccessRule(user, EventWaitHandleRights.Synchronize, AccessControlType.Allow));
+        EventWaitHandle stop;
+        try
+        {
+            stop = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, name, out var createdNew, security);
+            if (createdNew)
+                return stop;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Log("the engine's stop event " + name + " exists already and is not the supervisor's to open (" + ex.Message + "): the supervisor does not start beside it");
+            throw;
+        }
+        var owner = (stop.GetAccessControl().GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier)?.Value ?? "";
+        if (!MachinePlan.StopEventOwnerTrusted(owner))
+        {
+            stop.Dispose();
+            var words = "the engine's stop event " + name + " exists already, made by " + (owner.Length > 0 ? owner : "an owner Windows does not name")
+                + ", which could set or clear it: the supervisor does not start beside it";
+            Log(words);
+            throw new InvalidOperationException(words);
+        }
+        Log("the engine's stop event " + name + " is held open already (by an engine waiting on it): kept");
+        return stop;
     }
+
 
     /// <summary>A value of the install's registry key ("" when there is none).</summary>
     internal static string InstallValue(string name)

@@ -235,17 +235,45 @@ begin
   if MachineSetupFailed then Result := 3 else Result := 0;
 end;
 
+{ The show user the earlier install recorded: the install's key alone, never a new /SHOWUSER, so an uninstall takes the right back
+  from the account it was given to. }
+function RecordedShowUser(): String;
+begin
+  if not RegQueryStringValue(HKLM, 'SOFTWARE\PlayMap', 'ShowUser', Result) then
+    Result := '';
+end;
+
 function InitializeUninstall(): Boolean;
 begin
   Result := ArmedCheck(ExpandConstant('{app}\Supervisor\PlayMap.Supervisor.exe'));
 end;
 
+{ After the person's confirmation and before any file is removed: the supervisor's uninstall runs the armed check again (an engine
+  armed while the confirmation was open refuses it here), stops the service and the engine and takes back every machine-level action.
+  Any refusal, or an action it could not take back, stops the uninstall with every file still in place, so no machine state is left
+  pointing at files that are gone. }
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Code: Integer;
+  Words: AnsiString;
+  Said: String;
 begin
   if CurUninstallStep <> usUninstall then Exit;
-  Exec(ExpandConstant('{app}\Supervisor\PlayMap.Supervisor.exe'), 'uninstall --show-user "' + ShowUser('') + '" --out "'
-    + ExpandConstant('{tmp}\uninstall.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
-  Log('the supervisor''s uninstall answered ' + IntToStr(Code));
+  Said := ExpandConstant('{tmp}\uninstall.txt');
+  if not Exec(ExpandConstant('{app}\Supervisor\PlayMap.Supervisor.exe'), 'uninstall --show-user "' + RecordedShowUser() + '" --out "' + Said + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, Code) then
+  begin
+    Refuse('The machine-level uninstall could not run (' + SysErrorMessage(Code) + '): nothing was removed.');
+    Abort;
+  end;
+  if not LoadStringFromFile(Said, Words) then Words := '';
+  Log('the supervisor''s uninstall answered ' + IntToStr(Code) + ':' + #13#10 + String(Words));
+  if Code <> 0 then
+  begin
+    if Trim(String(Words)) <> '' then
+      Refuse('The uninstall stopped before any file was removed: ' + Trim(String(Words)))
+    else
+      Refuse('The uninstall stopped before any file was removed: the supervisor''s uninstall answered ' + IntToStr(Code) + ' and said nothing.');
+    Abort;
+  end;
 end;

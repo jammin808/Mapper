@@ -6,21 +6,6 @@ using PlayMap.Supervisor.Install;
 
 namespace PlayMap.Supervisor.Windows;
 
-/// <summary>How a stop of the record's engine ended.</summary>
-public enum EngineStop
-{
-    /// <summary>No engine runs: the record names none, or a process that has ended.</summary>
-    NoneRan,
-    /// <summary>The engine stopped within the grace.</summary>
-    Stopped,
-    /// <summary>The engine did not stop within the grace and was ended.</summary>
-    Terminated,
-    /// <summary>The record names a process that is not the installed engine: nothing was stopped.</summary>
-    NotTheEngine,
-    /// <summary>The engine runs and could not be ended.</summary>
-    Failed,
-}
-
 /// <summary>Stops the engine a pid record names, as an elevated command does it (<c>stop</c> with no service, <c>uninstall</c>, an
 /// upgrade): only when the record names the installed engine (<see cref="EngineIdentity"/>), its stop event first, the grace, then
 /// termination, each through the handle opened when it was checked, so no other process is ever ended on the record's word.</summary>

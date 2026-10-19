@@ -13,7 +13,8 @@ namespace PlayMap.FakeEngine;
 /// each <c>@id SHOW …</c> line with <c>OK @id &lt;payload&gt;</c>, with <c>ERR @id &lt;reason&gt;</c>, or never; writes each line
 /// it is asked into the asked file; writes its pid record (its port, started now) into the folder; writes its port into the port file
 /// last, so a reader that sees the port sees the record; and, given a stop event, opens it as the show user's engine does (Synchronize
-/// alone), waits on it, takes its record back and exits 0. Otherwise it runs until it is ended.</summary>
+/// alone), looks at it between frames, and once it is set takes its record back and exits 0. Otherwise it runs until it is ended.
+/// </summary>
 public static class Program
 {
     public static async Task<int> Main(string[] args)
@@ -61,7 +62,8 @@ public static class Program
         return 0;
     }
 
-    /// <summary>Opens the stop event with Synchronize alone, as the show user's engine may, once it exists, and waits until it is set.</summary>
+    /// <summary>Opens the stop event with Synchronize alone, as the show user's engine may, once it exists, and looks at it every
+    /// 200 ms, as an engine does between frames, until it is set: a stop cleared between two looks is never seen.</summary>
     [SupportedOSPlatform("windows")]
     private static async Task WaitForStopAsync(string name)
     {
@@ -69,7 +71,10 @@ public static class Program
         while (!EventWaitHandleAcl.TryOpenExisting(name, EventWaitHandleRights.Synchronize, out stop))
             await Task.Delay(100).ConfigureAwait(false);
         using (stop)
-            await Task.Run(() => stop.WaitOne()).ConfigureAwait(false);
+        {
+            while (!stop.WaitOne(0))
+                await Task.Delay(200).ConfigureAwait(false);
+        }
     }
 
     private static async Task ServeAsync(TcpListener listener, Func<string, string?> answer, string? askedFile, CancellationToken ct)

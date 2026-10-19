@@ -68,6 +68,13 @@ a device rebuild within its budget (30 s while the first good frame is unmeasure
 frames move. Its status (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install` and preflight's `install`
 section. Stopping the service leaves the engine running; the next supervisor adopts it.
 
+**Every stop is a termination after 5 s.** To stop the engine — the freeze rule's stop, `PlayMap.Supervisor.exe stop`, an upgrade's
+or an uninstall's — the supervisor sets the engine's stop event (`Global\PlayMap-Engine-Stop`, which the show user may only wait on)
+and terminates the engine when it has not ended 5 s later. No engine waits on that event yet (the engine's side of it is a seam of
+the round's spine), so the engine is always terminated: no normal stop closes its doors in order, no recovery record is written,
+and the cause is in `supervisor.log` only, not in the next engine's journal. The event stays set until the engine has gone, so an
+engine that looks at it between frames will see it once it does.
+
 The engine's pid record (`%ProgramData%\PlayMap\supervisor\engine.pid`) sits in a folder the show user may write, so it only says
 which process to look at. The service adopts an engine it did not start only when that process is the installed `PlayMap.exe` run as
 the engine, as the show user, in the console session, started when its record was written (a pid another process took after a power
@@ -78,7 +85,7 @@ when the record names anything else. The armed check asks the engine a record na
 | Command (elevated where it changes the machine) | Does |
 |---|---|
 | `PlayMap.Supervisor.exe status` | the supervisor's state, restarts and last cause |
-| `PlayMap.Supervisor.exe stop` | stops the engine and holds it until `resume` |
+| `PlayMap.Supervisor.exe stop` | stops the engine (a termination after 5 s) and holds it until `resume` |
 | `PlayMap.Supervisor.exe resume` | ends a hold or the too-many-restarts stop |
 | `PlayMap.Supervisor.exe preinstall-check` | the installer's armed check |
 | `PlayMap.Supervisor.exe grant <account>` / `revoke <account>` | the show account's right |

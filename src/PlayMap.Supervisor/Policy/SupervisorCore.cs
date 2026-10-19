@@ -121,6 +121,13 @@ public sealed class SupervisorCore
         return true;
     }
 
+    /// <summary>Pure: whether the engine's stop event is cleared after a step that answered <paramref name="action"/>, with the policy
+    /// in <paramref name="state"/> and the engine <paramref name="engineAlive"/>. Before a start, so a new engine never sees an old
+    /// stop; otherwise only when no stop is pending and no engine runs — never while one is pending, so an engine that looks at the
+    /// event between steps, or starts waiting after it was set, still sees it.</summary>
+    public static bool ShouldResetStopEvent(SupervisorAction action, SupervisorState state, bool engineAlive) =>
+        action == SupervisorAction.Start || (state != SupervisorState.Stopping && !engineAlive);
+
     public SupervisorAction Step(long nowNs, in SupervisorFacts facts)
     {
         switch (State)

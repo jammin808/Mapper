@@ -285,6 +285,54 @@ public sealed class SupervisorTests
         Assert.Equal(SupervisorAction.Start, core.Step(clock.Advance(S), Session(false)));
     }
 
+    [Theory]
+    // A stop pending: the event stays set until the engine is gone, whatever the step answered, so an engine that looks at it
+    // between steps, or starts waiting after it was set, still sees it.
+    [InlineData(SupervisorAction.RequestStop, SupervisorState.Stopping, true, false)]
+    [InlineData(SupervisorAction.None, SupervisorState.Stopping, true, false)]
+    [InlineData(SupervisorAction.Terminate, SupervisorState.Stopping, true, false)]
+    [InlineData(SupervisorAction.None, SupervisorState.Stopping, false, false)]
+    // An engine running with no stop pending: nothing to clear.
+    [InlineData(SupervisorAction.None, SupervisorState.Running, true, false)]
+    // No engine and no stop pending: cleared; and always before a start, so a new engine never sees an old stop.
+    [InlineData(SupervisorAction.None, SupervisorState.Backoff, false, true)]
+    [InlineData(SupervisorAction.None, SupervisorState.Held, false, true)]
+    [InlineData(SupervisorAction.Start, SupervisorState.Starting, false, true)]
+    public void TheStopEventIsClearedOnlyWhenNoStopIsPending(SupervisorAction action, SupervisorState state, bool alive, bool reset) =>
+        Assert.Equal(reset, SupervisorCore.ShouldResetStopEvent(action, state, alive));
+
+    [Theory]
+    [InlineData("S-1-5-18", true)]
+    [InlineData("S-1-5-32-544", true)]
+    [InlineData("S-1-5-21-1000-2000-3000-1001", false)]
+    [InlineData("S-1-1-0", false)]
+    [InlineData("", false)]
+    public void AStopEventThatExistsAlreadyIsKeptOnlyFromSystemOrAdministrators(string owner, bool kept) =>
+        Assert.Equal(kept, PlayMap.Supervisor.Install.MachinePlan.StopEventOwnerTrusted(owner));
+
+    [Fact]
+    public void AStopAskedOfARunningEngineStaysSetThroughEveryStepOfItsGrace()
+    {
+        var core = new SupervisorCore(SupervisorPolicy.Default);
+        var clock = new ManualClock();
+        core.Step(clock.Now, Session(false));
+        core.Step(clock.Advance(S), Session(true));
+        var asked = core.Hold(clock.Advance(S), "stopped by a person");
+        Assert.Equal(SupervisorAction.RequestStop, asked);
+        Assert.False(SupervisorCore.ShouldResetStopEvent(asked, core.State, true));
+        // Every half-second step of the grace, the engine still alive: never cleared.
+        for (var i = 0; i < 9; i++)
+        {
+            var action = core.Step(clock.Advance(S / 2), Session(true));
+            Assert.Equal(SupervisorAction.None, action);
+            Assert.False(SupervisorCore.ShouldResetStopEvent(action, core.State, true));
+        }
+        // The engine stopped within its grace: held, and the event cleared for the next engine.
+        var after = core.Step(clock.Advance(S / 2), Session(false));
+        Assert.Equal(SupervisorState.Held, core.State);
+        Assert.True(SupervisorCore.ShouldResetStopEvent(after, core.State, false));
+    }
+
     [Fact]
     public void TheStatusFileRoundTripsAndRefusesWhatIsNotOne()
     {

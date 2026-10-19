@@ -23,7 +23,8 @@ public static class Program
     /// <summary>The commands, as <c>help</c> lists them.</summary>
     public const string Words =
         "PlayMap.Supervisor run | status | resume | stop | preinstall-check [--out <file>] | install --dir <folder> [--show-user <account>] [--public] [--out <file>] | "
-        + "uninstall [--show-user <account>] [--out <file>] | grant <account> | revoke <account> | version-check <next> <last> | session-probe --out <file>";
+        + "uninstall [--show-user <account>] [--out <file>] | upgrade-stop [--out <file>] | grant <account> | revoke <account> | "
+        + "version-check <next> <last> | session-probe --out <file>";
 
     public static async Task<int> Main(string[] args)
     {
@@ -77,7 +78,8 @@ public static class Program
         }
         if (!OperatingSystem.IsWindows())
         {
-            if (command is "run" or "status" or "resume" or "stop" or "install" or "uninstall" or "grant" or "revoke" or "session-probe" or "report-session")
+            if (command is "run" or "status" or "resume" or "stop" or "install" or "uninstall" or "upgrade-stop" or "grant" or "revoke" or "session-probe"
+                or "report-session")
             {
                 say("the supervisor runs on Windows only: '" + command + "' changes nothing here");
                 return NotHere;
@@ -85,13 +87,13 @@ public static class Program
             say(Words);
             return Usage;
         }
-        return OnWindows(command, args, say);
+        return await OnWindowsAsync(command, args, say).ConfigureAwait(false);
     }
 
     private static async Task<int> PreinstallCheckAsync(Action<string> say)
     {
-        var facts = await PreinstallCheck.LookAsync(EnginePidRecord.MachineFolder(), FindEngine, EngineIdentity.NamesRunningEngine,
-            PreinstallCheck.AnswerTime).ConfigureAwait(false);
+        var look = ThisMachinesLook;
+        var facts = await PreinstallCheck.LookAsync(look.Folder, look.FindEngine, look.IsEngine, look.AnswerTime).ConfigureAwait(false);
         var verdict = PreinstallCheck.Decide(facts, TimeZoneInfo.Local);
         say(verdict.Words);
         return verdict.GoOn ? Done : PreinstallVerdict.RefusedExit;
@@ -116,8 +118,11 @@ public static class Program
         return null;
     }
 
+    /// <summary>Where this machine's armed check looks.</summary>
+    private static ArmedLook ThisMachinesLook => new(EnginePidRecord.MachineFolder(), FindEngine, EngineIdentity.NamesRunningEngine, PreinstallCheck.AnswerTime);
+
     [SupportedOSPlatform("windows")]
-    private static int OnWindows(string command, IReadOnlyList<string> args, Action<string> say)
+    private static async Task<int> OnWindowsAsync(string command, IReadOnlyList<string> args, Action<string> say)
     {
         var showUser = Option(args, "--show-user") ?? "";
         switch (command)
@@ -129,10 +134,10 @@ public static class Program
                 MachineSetup.Install(dir, showUser, args.Contains("--public"), say);
                 return Done;
             case "uninstall":
-                MachineSetup.StopService(say);
-                _ = StopEngine(say);
-                MachineSetup.Uninstall(showUser, say);
-                return Done;
+                return await MachineCommands.UninstallAsync(new WindowsMachine(), ThisMachinesLook,
+                    Option(args, "--show-user") ?? SupervisorHost.InstallValue("ShowUser"), TimeZoneInfo.Local, say).ConfigureAwait(false);
+            case "upgrade-stop":
+                return await MachineCommands.UpgradeStopAsync(new WindowsMachine(), ThisMachinesLook, TimeZoneInfo.Local, say).ConfigureAwait(false);
             case "grant" when args.Count == 2:
                 MachineSetup.Grant(args[1]);
                 say(MachinePlan.ShowUserRight + " granted to " + args[1]);

@@ -23,4 +23,9 @@
     <ProjectReference Include="..\..\src\PlayMap.Supervisor\PlayMap.Supervisor.csproj" />
   </ItemGroup>
 
+  <ItemGroup Label="wp3-installer">
+    <!-- The installer's fake engine, built beside these tests and copied by the Windows tests as PlayMap.exe. -->
+    <ProjectReference Include="..\..\installer\tests\PlayMap.FakeEngine\PlayMap.FakeEngine.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

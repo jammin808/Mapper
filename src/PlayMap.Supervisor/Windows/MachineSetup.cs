@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.ServiceProcess;
 using Microsoft.Win32;
 using PlayMap.Supervisor.Install;
 
@@ -76,34 +77,114 @@ public static class MachineSetup
         say("service " + MachinePlan.ServiceName + ": LocalSystem, automatic, restarts after 5 s and 30 s, started");
     }
 
-    /// <summary>Stops the service (a service that is not there or not running is no failure): the engine is then stopped by the
-    /// caller, and nothing starts it again.</summary>
+    /// <summary>How long a stopping service has to reach Stopped.</summary>
+    public static readonly TimeSpan ServiceStopTime = TimeSpan.FromSeconds(30);
+
+    /// <summary>Stops the service and waits until it has stopped (a service that is not there, not running or already stopping is no
+    /// failure; one that has not stopped within <see cref="ServiceStopTime"/> is): the engine is then stopped by the caller, and nothing
+    /// starts it again.</summary>
     public static void StopService(Action<string> say)
     {
         ArgumentNullException.ThrowIfNull(say);
-        Run("sc.exe", ["stop", MachinePlan.ServiceName], okExits: [0, 1060, 1062]);
+        if (Run("sc.exe", ["stop", MachinePlan.ServiceName], okExits: [0, 1060, 1061, 1062]) == 1060)
+        {
+            say("service " + MachinePlan.ServiceName + " is not installed");
+            return;
+        }
+        WaitStopped();
         say("service " + MachinePlan.ServiceName + " stopped");
     }
 
-    /// <summary>Takes back what <see cref="Install"/> did, leaving the dumps and the node's own data.</summary>
-    public static void Uninstall(string showUser, Action<string> say)
+    /// <summary>Starts the service (one already running is no failure).</summary>
+    public static void StartService(Action<string> say)
     {
         ArgumentNullException.ThrowIfNull(say);
-        Run("sc.exe", ["stop", MachinePlan.ServiceName], okExits: [0, 1060, 1062]);
-        Run("sc.exe", ["delete", MachinePlan.ServiceName], okExits: [0, 1060, 1072]);
-        say("service " + MachinePlan.ServiceName + " removed");
+        Run("sc.exe", ["start", MachinePlan.ServiceName], okExits: [0, 1056]);
+        say("service " + MachinePlan.ServiceName + " started again");
+    }
+
+    /// <summary>Waits until the service is Stopped (.NET's services stop on their own thread after <c>sc stop</c> returns, and a stop
+    /// pending answers no further control); a service that has gone meanwhile is stopped.</summary>
+    private static void WaitStopped()
+    {
+        using var controller = new ServiceController(MachinePlan.ServiceName);
+        try
+        {
+            controller.WaitForStatus(ServiceControllerStatus.Stopped, ServiceStopTime);
+        }
+        catch (System.ServiceProcess.TimeoutException ex)
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"service {MachinePlan.ServiceName} did not stop within {ServiceStopTime.TotalSeconds:0} s"), ex);
+        }
+        catch (InvalidOperationException) when (Run("sc.exe", ["query", MachinePlan.ServiceName], okExits: [0, 1060]) == 1060)
+        {
+            // Removed while it stopped: stopped.
+        }
+    }
+
+    /// <summary>Takes back what <see cref="Install"/> did, leaving the dumps and the node's own data. Every step is tried whatever
+    /// the others did, and each that Windows refused is named in the answer (empty when all were taken back).</summary>
+    public static IReadOnlyList<string> Uninstall(string showUser, Action<string> say)
+    {
+        ArgumentNullException.ThrowIfNull(say);
+        var remains = new List<string>();
+        void Step(string what, Action act)
+        {
+            try
+            {
+                act();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or Win32Exception
+                                           or System.Security.SecurityException)
+            {
+                say(what + " could not be taken back: " + ex.Message);
+                remains.Add(what);
+            }
+        }
+        Step("the service " + MachinePlan.ServiceName, () =>
+        {
+            Run("sc.exe", ["stop", MachinePlan.ServiceName], okExits: [0, 1060, 1061, 1062]);
+            if (Run("sc.exe", ["query", MachinePlan.ServiceName], okExits: [0, 1060]) == 0)
+                WaitStopped();
+            Run("sc.exe", ["delete", MachinePlan.ServiceName], okExits: [0, 1060, 1072]);
+            say("service " + MachinePlan.ServiceName + " removed");
+        });
         foreach (var rule in MachinePlan.FirewallRules)
-            Run("netsh.exe", MachinePlan.DeleteRuleArguments(rule), okExits: [0, 1]);
-        say("firewall rules removed");
-        Registry.LocalMachine.DeleteSubKeyTree(MachinePlan.WerKey, false);
-        say("WER LocalDumps for PlayMap.exe removed");
-        Registry.LocalMachine.DeleteSubKeyTree(EventSourceKey, false);
-        say("Event Log source removed");
+        {
+            Step("the firewall rule '" + rule.Name + "'", () =>
+            {
+                Run("netsh.exe", MachinePlan.DeleteRuleArguments(rule), okExits: [0, 1]);
+                say("firewall rule '" + rule.Name + "' removed");
+            });
+        }
+        Step("WER LocalDumps for PlayMap.exe", () =>
+        {
+            Registry.LocalMachine.DeleteSubKeyTree(MachinePlan.WerKey, false);
+            say("WER LocalDumps for PlayMap.exe removed");
+        });
+        Step("the Event Log source " + MachinePlan.EventSource, () =>
+        {
+            Registry.LocalMachine.DeleteSubKeyTree(EventSourceKey, false);
+            say("Event Log source removed");
+        });
         if (showUser.Length > 0)
         {
-            Revoke(showUser);
-            say(MachinePlan.ShowUserRight + " taken back from " + showUser);
+            Step(MachinePlan.ShowUserRight + " of " + showUser, () =>
+            {
+                try
+                {
+                    Revoke(showUser);
+                    say(MachinePlan.ShowUserRight + " taken back from " + showUser);
+                }
+                catch (IdentityNotMappedException)
+                {
+                    // An account Windows no longer finds holds no right by its name: there is nothing it can take back.
+                    say("the show user " + showUser + " no longer exists: there is no right to take back by its name");
+                }
+            });
         }
+        return remains;
     }
 
     private static string EventSourceKey => @"SYSTEM\CurrentControlSet\Services\EventLog\Application\" + MachinePlan.EventSource;

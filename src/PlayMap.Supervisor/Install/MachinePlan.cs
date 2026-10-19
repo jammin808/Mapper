@@ -44,8 +44,15 @@ public static class MachinePlan
     /// <summary>The install's registry key (under HKLM): InstallDir, Version, ShowUser, Supervised.</summary>
     public const string InstallKey = @"SOFTWARE\PlayMap";
 
-    /// <summary>The engine's stop event, which the supervisor sets for a normal stop.</summary>
+    /// <summary>The engine's stop event: the supervisor sets it before the grace, which ends in termination. An engine opens it to
+    /// wait with <c>EventWaitHandleAcl.OpenExisting(StopEvent, EventWaitHandleRights.Synchronize)</c>, the one right its ACL gives the
+    /// show user; no engine waits on it yet (the engine's side is the spine's seam), so every stop ends in termination after the
+    /// grace.</summary>
     public const string StopEvent = @"Global\PlayMap-Engine-Stop";
+
+    /// <summary>Whether a stop event that exists already when the supervisor starts was made by SYSTEM or administrators, the only
+    /// owners it is kept from: one another account made could be set or cleared by that account.</summary>
+    public static bool StopEventOwnerTrusted(string ownerSid) => ownerSid is "S-1-5-18" or "S-1-5-32-544";
 
     /// <summary>The supervisor's pipe.</summary>
     public const string PipeName = "PlayMap.Supervisor";
