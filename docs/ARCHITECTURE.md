@@ -171,7 +171,7 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
 
 ## 5. Rendering
 
-Per frame, on the engine's render thread (one GL context, all outputs). Blackout wins before any pass:
+Per frame, on the engine's render thread (one device, all outputs; on GL its one context). Blackout wins before any pass:
 
 1. **Sources**: upload the frame each visible video source has for its media time (planes → textures,
    YUV→RGB in the shader with the frame's matrix/range/transfer; a hardware decoder's surface imported where the renderer can
@@ -223,6 +223,15 @@ never reached its first frames. Decoders share that device under its one recursi
 it around each frame, taken within 4 ms (past that the frame draws on the device's own multithread protection and is counted),
 and lets go of it while a window waits for the vertical blank; a decoder or a texture sharer holds it only around its own
 immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
+
+Every pass draws through the render hardware interface (Core's `IGpuDevice` and the frame's `ICommandList`), never through an
+API: the frame code, the passes and the generators name no GL type, and the GL backend (`Render/Gl`) implements the contracts
+with its one immediate list. The GPU tests do the same: each runs on a leg of the backend fixture (`BackendFixture`, one device
+on a thread of its own per backend the job has — GL today, a later backend's leg added to `BackendLegs.Makers`), draws through
+the device the leg hands it and reads back through `Pixels.Read(IGpuDevice, RenderTarget)`; only the GL backend's own tests,
+listed by name in `RhiFenceTests`, name a GL type. Every pixel golden is unedited and holds byte for byte on llvmpipe in both
+dialects. With no lab, L20 (the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers) is not run: the GL
+backend is proven on llvmpipe and on Mesa WGL only.
 
 ## 6. Mapping pipeline
 

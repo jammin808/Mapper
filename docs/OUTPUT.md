@@ -186,14 +186,21 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   targets, an output through the whole frame on ES; the presenter seam with the GL window and a scripted presenter; vblank and
   ledger arithmetic on synthetic sequences (Xvfb's swaps are no real display); the lock machine, the counter and the verbs against
   the scripted board on the real render host (headless and windowed).
+- **The backend fixture**: every GPU test of the Render suite runs on `BackendFixture`, whose legs are the backends the job has,
+  each a device on a thread of its own — GL today, its hidden context in the run's dialect; a later backend adds its leg to
+  `BackendLegs.Makers`. A scene draws through the device a leg hands it (`IGpuDevice`, its frame list) and reads back through
+  `Pixels.Read(IGpuDevice, RenderTarget)`, so it names no backend; only the GL backend's own tests, listed by name in
+  `RhiFenceTests`, name a GL type or reach the GL leg's context, and they leave with GL. The goldens are the GL leg's, unedited.
+  L20, the GL backend behind the render hardware interface on NVIDIA, AMD and Intel Windows drivers, is not run (no lab): the
+  GL backend is proven on llvmpipe here and on Mesa WGL on the Windows job only.
 - **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here), and
   the Linux CI job runs it as its own step after the core suites, its results in `PlayMap.Render.Tests.es300.trx`. Every test
-  passes on it whole. A test that names a dialect reads the fixture's: the caps and every program in it
+  passes on it whole. A test that names a dialect reads the GL leg's: the caps and every program in it
   (`GlCapsTests.OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect`,
   `ShaderConventionTests.EveryProgramCompilesAndLinksInTheFixturesDialect`), the binding the context was made through (EGL for the
   ES context), and the GPU times of outputs, generators and effect slots, which come from timestamp queries, core in desktop GL
-  only, so an ES context reads 0. A target read back as floats (`GlDevice.ReadPixelsFloat`, the tests' reader) gives the same
-  values in both dialects: ES reads a fixed-point buffer only as its integer codes, so the device reads those and scales them
+  only, so an ES context reads 0. A target read back as floats (`IGpuDevice.ReadNowFloat`, the tests' `Pixels.ReadFloat`) gives
+  the same values in both dialects: ES reads a fixed-point buffer only as its integer codes, so the device reads those and scales them
   (`FloatReadTests`).
   On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).
 - **Here, for the DXGI path**: the stage faults with a fake platform (each stage's words, the GL fallback), the fuse and its words in
