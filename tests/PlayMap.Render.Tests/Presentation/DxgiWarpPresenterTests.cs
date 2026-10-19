@@ -32,7 +32,7 @@ public sealed class DxgiWarpPresenterTests(ITestOutputHelper output)
         Assert.NotEqual(0, platform.Share.D3D11Device);
         output.WriteLine($"{platform.Adapter} · {platform.Context.Device.Renderer} · {platform.Context.Device.Version}");
 
-        using (var renderer = new RenderEngine(platform.Context))
+        using (var renderer = new RenderEngine(platform.Device))
             renderer.WarmUp();
 
         var device = platform.Context.Device;

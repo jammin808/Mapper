@@ -3,6 +3,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Render.Decode;
+using PlayMap.Render.Engine;
 using PlayMap.Render.Gl;
 using PlayMap.Render.Hap;
 
@@ -11,8 +12,10 @@ namespace PlayMap.Render.Video;
 /// <summary>One video source's pictures on the GPU: its planes as textures (NV12 and P010 as a luma and an
 /// interleaved chroma texture, planar YUV as three, RGBA/BGRA/half as one) and, for YUV, the picture
 /// converted to RGB in a 16-bit float target with the frame's own matrix, range and transfer. A lease whose
-/// generation is already on the GPU is not uploaded again. Planes stream through pixel-unpack buffers (any
-/// row stride; the decoder's buffer is free as soon as the copy returns).
+/// generation is already on the GPU is not uploaded again. Planes stream through the device's upload ring (any
+/// row stride; the decoder's buffer is free as soon as the copy returns), or go through the frame's list. Every texture and target is
+/// the device's, the planes' uploads and the conversions are the frame's list's; the block planes, the upload arena and the imports
+/// are the GL device's own paths.
 ///
 /// HAP pictures arrive block-compressed: each plane fills a compressed texture at the coded size (tight rows of 4×4 blocks),
 /// and the `hap` pass turns them into the RGBA16F picture at the visible size (YCoCg → RGB, the alpha plane, HAP HDR's reading).
@@ -28,11 +31,13 @@ namespace PlayMap.Render.Video;
 /// A HAP lease whose planes were written into the context's upload arena is uploaded from the arena's buffer at the block's
 /// offset, with no copy of its own; a block of an arena that is gone is never read.
 ///
-/// Owned by the render thread; the caller disposes the lease after <see cref="Update"/>.</summary>
+/// Owned by the render thread; the caller disposes the lease after <see cref="Update(VideoFrameLease, ICommandList)"/>.</summary>
 public sealed class VideoTextureSet : IDisposable
 {
-    private readonly GlDevice _device;
-    private readonly PixelUnpackRing? _ring;
+    private readonly IGpuDevice _device;
+    private readonly GlDevice _gl;
+    private readonly bool _streaming;
+    private readonly ProgramId _yuv;
     private CompressedUploadRing? _blocks;
     private PackedUnpack? _packed;
     private readonly GpuTexture?[] _planes = new GpuTexture?[3];
@@ -45,13 +50,14 @@ public sealed class VideoTextureSet : IDisposable
     private int _height;
     private bool _disposed;
 
-    public VideoTextureSet(GlDevice device, bool streaming = true)
+    public VideoTextureSet(IGpuDevice device, bool streaming = true)
     {
         ArgumentNullException.ThrowIfNull(device);
         _device = device;
-        Caps = device.Caps;
-        if (streaming)
-            _ring = new PixelUnpackRing(device);
+        _gl = device.Gl;
+        Caps = _gl.Caps;
+        _streaming = streaming;
+        _yuv = device.Programs.Id("yuv");
     }
 
     /// <summary>The generation now on the GPU (−1 before the first upload).</summary>
@@ -87,20 +93,37 @@ public sealed class VideoTextureSet : IDisposable
     /// <summary>Surfaces the importer still holds (their reads not yet completed on the GPU).</summary>
     public int HeldSurfaces => _dmabuf?.Held ?? 0;
 
-    /// <summary>Puts the lease's picture on the GPU unless its generation is already there. True when it uploaded.</summary>
+    /// <summary>Puts the lease's picture on the GPU in a frame of its own (outside the renderer's frame), unless its generation is
+    /// already there. True when it uploaded.</summary>
     public bool Update(VideoFrameLease lease)
     {
+        var list = _device.BeginFrame(0);
+        try
+        {
+            return Update(lease, list);
+        }
+        finally
+        {
+            _device.Submit(list);
+        }
+    }
+
+    /// <summary>Puts the lease's picture on the GPU through the frame's list unless its generation is already there. True when it
+    /// uploaded.</summary>
+    public bool Update(VideoFrameLease lease, ICommandList list)
+    {
         ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(list);
         ObjectDisposedException.ThrowIf(_disposed, this);
         _dmabuf?.Collect();
         if (Picture is not null && lease.Generation == Generation)
             return false;
         if (lease.Surface is { } surface)
-            return UpdateSurface(lease, surface);
+            return UpdateSurface(list, lease, surface);
         if (HapCodecs.IsBlockLayout(lease.Layout))
             return UpdateBlocks(lease);
         if (LivePlanes.IsPacked(lease.Layout))
-            return UpdatePacked(lease);
+            return UpdatePacked(list, lease);
         var planes = lease.Planes;
         if (lease.Width < 1 || lease.Height < 1 || planes.Count < PlaneCount(lease.Layout))
             return false;
@@ -109,10 +132,10 @@ public sealed class VideoTextureSet : IDisposable
         {
             var tex = _planes[i]!;
             var (format, bpp) = UploadOf(lease.Layout, i);
-            UploadPlane(tex, planes[i], format, bpp);
+            UploadPlane(list, tex, planes[i], format, bpp);
         }
         if (IsYuv(lease.Layout))
-            Convert(lease);
+            Convert(list, lease);
         HasAlpha = lease.HasAlpha;
         Refusal = null;
         Generation = lease.Generation;
@@ -134,7 +157,7 @@ public sealed class VideoTextureSet : IDisposable
         if (lease.Width < 1 || lease.Height < 1 || planes.Count < count)
             return false;
         var staged = lease.Staged;
-        var arena = staged.IsEmpty ? null : _device.DecodeContext?.Arena;
+        var arena = staged.IsEmpty ? null : _gl.DecodeContext?.Arena;
         if (!staged.IsEmpty && (arena is null || !arena.Owns(staged)))
         {
             // A block of an arena this context no longer has: its memory may be gone, so it is never read. The last picture holds.
@@ -154,7 +177,7 @@ public sealed class VideoTextureSet : IDisposable
                 // Straight from the persistently mapped buffer: the driver reads the producer's bytes where they were written.
                 var t0 = Stopwatch.GetTimestamp();
                 var offset = staged.Offset + (plane.Data - staged.Pointer);
-                _device.UploadCompressedFromUnpackBuffer(tex, arena.Buffer, (nint)offset, (int)bytes);
+                _gl.UploadCompressedFromUnpackBuffer(tex, arena.Buffer, (nint)offset, (int)bytes);
                 HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
                 StagedUploads++;
             }
@@ -165,12 +188,12 @@ public sealed class VideoTextureSet : IDisposable
             else
             {
                 var t0 = Stopwatch.GetTimestamp();
-                _device.UploadCompressed(tex, plane.Data, (int)bytes);
+                _gl.UploadCompressed(tex, plane.Data, (int)bytes);
                 HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
             }
         }
         var scale = lease is IHapPicture hap ? hap.HdrScale : 1;
-        HapPass.Draw(_device, _converted!, _planes[0]!, _planes[1], HapPass.Mode(lease.Layout), scale, HapPass.Transfer(lease.Transfer));
+        HapPass.Draw(_gl, _converted!, _planes[0]!, _planes[1], HapPass.Mode(lease.Layout), scale, HapPass.Transfer(lease.Transfer));
         HasAlpha = lease.HasAlpha;
         Refusal = null;
         Generation = lease.Generation;
@@ -179,12 +202,12 @@ public sealed class VideoTextureSet : IDisposable
     }
 
     /// <summary>A packed network frame (UYVY, UYVA, P216, PA16): its own unpacker's picture (wp2-videoio).</summary>
-    private bool UpdatePacked(VideoFrameLease lease)
+    private bool UpdatePacked(ICommandList list, VideoFrameLease lease)
     {
         if (Picture is not null && !LivePlanes.IsPacked(_layout))
             DisposeTextures();
-        _packed ??= new PackedUnpack(_device, _ring);
-        _packed.Update(lease);
+        _packed ??= new PackedUnpack(_device, _streaming);
+        _packed.Update(lease, list);
         _layout = lease.Layout;
         _width = lease.Width;
         _height = lease.Height;
@@ -205,16 +228,16 @@ public sealed class VideoTextureSet : IDisposable
         _layout = layout;
         _width = width;
         _height = height;
-        _planes[0] = _device.CreateCompressedTexture(width, height, first);
+        _planes[0] = _device.CreateTexture(new TextureDesc(width, height, first, TextureUsage.Sampled | TextureUsage.CopyDest));
         if (second is { } s)
-            _planes[1] = _device.CreateCompressedTexture(width, height, s);
-        _converted = _device.CreateRenderTarget(width, height, TextureFormat.Rgba16F, filter: TextureFilter.Linear);
+            _planes[1] = _device.CreateTexture(new TextureDesc(width, height, s, TextureUsage.Sampled | TextureUsage.CopyDest));
+        _converted = _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F, Filter: TextureFilter.Linear));
         Picture = _converted.Color;
-        if (_ring is not null)
-            _blocks ??= new CompressedUploadRing(_device);
+        if (_streaming)
+            _blocks ??= new CompressedUploadRing(_gl);
     }
 
-    private void UploadPlane(GpuTexture texture, FramePlane plane, UploadFormat format, int bytesPerPixel)
+    private unsafe void UploadPlane(ICommandList list, GpuTexture texture, FramePlane plane, UploadFormat format, int bytesPerPixel)
     {
         var rowBytes = texture.Width * bytesPerPixel;
         var rows = Math.Min(texture.Height, plane.Height > 0 ? plane.Height : texture.Height);
@@ -222,46 +245,45 @@ public sealed class VideoTextureSet : IDisposable
             throw new ArgumentException("A plane is missing or narrower than its picture.", nameof(plane));
         if (rows < texture.Height)
             throw new ArgumentException("A plane is shorter than its picture.", nameof(plane));
-        if (_ring is not null && _ring.Upload(texture, plane.Data, plane.Stride, rowBytes, rows, format))
+        if (_streaming && _device.Uploads.TryUpload(texture, plane.Data, plane.Stride, rowBytes, rows, format, out _))
             return;
         if (plane.Stride % bytesPerPixel == 0)
         {
-            _device.UploadPointer(texture, plane.Data, format, plane.Stride / bytesPerPixel);
+            // The rows as they lie, padded: the last one ends at its picture's width.
+            var bytes = (long)plane.Stride * (rows - 1) + rowBytes;
+            list.Upload(texture, new ReadOnlySpan<byte>((void*)plane.Data, checked((int)bytes)), format, plane.Stride / bytesPerPixel);
             return;
         }
         // A stride that is not whole pixels and no streaming buffer: repack the rows.
         var tight = new byte[rowBytes * rows];
-        unsafe
-        {
-            fixed (byte* dst = tight)
-                for (var y = 0; y < rows; y++)
-                    GlDevice.Copy(plane.Data + (nint)y * plane.Stride, dst + (long)y * rowBytes, rowBytes);
-        }
-        _device.Upload(texture, tight, format);
+        fixed (byte* dst = tight)
+            for (var y = 0; y < rows; y++)
+                Buffer.MemoryCopy((void*)(plane.Data + (nint)y * plane.Stride), dst + (long)y * rowBytes, rowBytes, rowBytes);
+        list.Upload(texture, tight, format);
     }
 
     /// <summary>A hardware decoder's surface: its planes imported and converted, held until the GPU read them. False (the last
     /// picture holds) when the import failed or every import slot is still in flight.</summary>
-    private bool UpdateSurface(VideoFrameLease lease, GpuSurface surface)
+    private bool UpdateSurface(ICommandList list, VideoFrameLease lease, GpuSurface surface)
     {
         GpuTexture luma, chroma;
         bool ok;
         var busy = false;
         string words;
         int codedWidth = surface.Width, codedHeight = surface.Height;
-        var share = _device.DecodeContext?.Share;
+        var share = _gl.DecodeContext?.Share;
         if (surface.Api == GpuApi.DmaBuf)
         {
             words = "";
             if (_dmabuf is null)
-                _dmabuf = DmaBufImporter.ForCurrentContext(_device, out words);
+                _dmabuf = DmaBufImporter.ForCurrentContext(_gl, out words);
             ok = _dmabuf is not null ? _dmabuf.TryImport(surface, out luma, out chroma, out busy, out words) : FailImport(out luma, out chroma);
         }
         else if (surface.Api == GpuApi.D3D11 && OperatingSystem.IsWindows() && share is not null)
         {
             words = "";
             if (_angle is null)
-                _angle = AngleImporter.ForCurrentContext(_device, share, out words);
+                _angle = AngleImporter.ForCurrentContext(_gl, share, out words);
             ok = _angle is AngleImporter angle ? angle.TryImport(surface, out luma, out chroma, out codedWidth, out codedHeight, out words)
                 : FailImport(out luma, out chroma);
         }
@@ -281,7 +303,7 @@ public sealed class VideoTextureSet : IDisposable
             return false;
         }
         var layout = surface.Format == GpuSurfaceFormat.P010 ? PixelLayout.P010 : PixelLayout.Nv12;
-        ConvertCoded(layout, luma, chroma, surface.Width, surface.Height, codedWidth, codedHeight, lease.Matrix, lease.Range, lease.Transfer);
+        ConvertCoded(list, layout, luma, chroma, surface.Width, surface.Height, codedWidth, codedHeight, lease.Matrix, lease.Range, lease.Transfer);
         // One device and one immediate context on Windows: released after record. A dmabuf is held until its fence passes.
         if (surface.Api == GpuApi.DmaBuf)
             _dmabuf!.Retain(surface);
@@ -303,8 +325,8 @@ public sealed class VideoTextureSet : IDisposable
     /// <summary>Converts planes whose textures cover a coded size larger than the visible picture (a decoder surface's padding rows
     /// and columns) into the RGB16F picture at the visible size: the pass samples only the visible part and chroma never filters
     /// into the padding. Plane textures at the visible size crop nothing.</summary>
-    internal void ConvertCoded(PixelLayout layout, GpuTexture luma, GpuTexture chroma, int width, int height, int codedWidth, int codedHeight,
-        ColorMatrix matrix, ColorRange range, TransferFunction transfer)
+    internal void ConvertCoded(ICommandList list, PixelLayout layout, GpuTexture luma, GpuTexture chroma, int width, int height, int codedWidth,
+        int codedHeight, ColorMatrix matrix, ColorRange range, TransferFunction transfer)
     {
         if (Picture is null || !_imported || _width != width || _height != height || _layout != layout)
         {
@@ -313,11 +335,11 @@ public sealed class VideoTextureSet : IDisposable
             _width = width;
             _height = height;
             _imported = true;
-            _converted = _device.CreateRenderTarget(width, height, TextureFormat.Rgba16F);
+            _converted = _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F));
             Picture = _converted.Color;
         }
         var k = YuvConstants.For(layout, matrix, range, transfer);
-        Draw(k, luma, chroma, chroma, Crop(layout, width, height, codedWidth, codedHeight, chroma));
+        Draw(list, k, luma, chroma, chroma, Crop(layout, width, height, codedWidth, codedHeight, chroma));
     }
 
     /// <summary>The crop of the visible size out of the coded one, and the chroma clamp: the last visible chroma texel's centre over
@@ -338,30 +360,33 @@ public sealed class VideoTextureSet : IDisposable
             (visibleCw - 0.5f) / chroma.Width, (visibleCh - 0.5f) / chroma.Height);
     }
 
-    private void Convert(VideoFrameLease lease)
+    private void Convert(ICommandList list, VideoFrameLease lease)
     {
         var k = YuvConstants.For(lease.Layout, lease.Matrix, lease.Range, lease.Transfer);
         var chroma = _planes[1]!;
-        Draw(k, _planes[0]!, chroma, _planes[k.Planes == 3 ? 2 : 1]!, Crop(lease.Layout, lease.Width, lease.Height, lease.Width, lease.Height, chroma));
+        Draw(list, k, _planes[0]!, chroma, _planes[k.Planes == 3 ? 2 : 1]!,
+            Crop(lease.Layout, lease.Width, lease.Height, lease.Width, lease.Height, chroma));
     }
 
-    private void Draw(in YuvConstants k, GpuTexture y, GpuTexture u, GpuTexture v, (float X, float Y, float MaxU, float MaxV) crop)
+    /// <summary>The conversion's state: the picture written whole, opaque.</summary>
+    private static readonly DrawState Converting = DrawState.Opaque;
+
+    private void Draw(ICommandList list, in YuvConstants k, GpuTexture y, GpuTexture u, GpuTexture v, (float X, float Y, float MaxU, float MaxV) crop)
     {
-        var p = _device.Program("yuv");
-        _device.BindTarget(_converted!);
-        _device.SetBlend(BlendMode.Opaque);
-        p.SetInt("uPlanes", k.Planes);
-        p.Set("uCodeScale", k.CodeScale);
-        p.Set("uRange", k.YOffset, k.YScale, k.COffset, k.CScale);
-        p.Set("uMatrix", k.Kr, k.Kb);
-        p.SetInt("uTransfer", k.Transfer);
-        p.SetInt("uWide", k.Wide ? 1 : 0);
-        p.Set("uCrop", crop.X, crop.Y);
-        p.Set("uMaxUv", crop.MaxU, crop.MaxV);
-        _device.BindSampler(p, "uY", 0, y);
-        _device.BindSampler(p, "uU", 1, u);
-        _device.BindSampler(p, "uV", 2, v);
-        _device.DrawFullscreen(p);
+        using (list.Pass(_converted!, PassDesc.Keep))
+            list.Draw(_yuv, Converting)
+                .SetInt("uPlanes", k.Planes)
+                .Set("uCodeScale", k.CodeScale)
+                .Set("uRange", k.YOffset, k.YScale, k.COffset, k.CScale)
+                .Set("uMatrix", k.Kr, k.Kb)
+                .SetInt("uTransfer", k.Transfer)
+                .SetInt("uWide", k.Wide ? 1 : 0)
+                .Set("uCrop", crop.X, crop.Y)
+                .Set("uMaxUv", crop.MaxU, crop.MaxV)
+                .Texture("uY", y)
+                .Texture("uU", u)
+                .Texture("uV", v)
+                .Fullscreen();
         _converted!.Color.Version++;
     }
 
@@ -379,52 +404,55 @@ public sealed class VideoTextureSet : IDisposable
         {
             case PixelLayout.Rgba8:
             case PixelLayout.Bgra8:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.Rgba8);
+                _planes[0] = Plane(width, height, TextureFormat.Rgba8);
                 Picture = _planes[0];
                 return;
             case PixelLayout.RgbaHalf:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.Rgba16F);
+                _planes[0] = Plane(width, height, TextureFormat.Rgba16F);
                 Picture = _planes[0];
                 return;
             case PixelLayout.Gray8:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.R8);
-                _device.SetGraySwizzle(_planes[0]!);
+                _planes[0] = _device.CreateTexture(new TextureDesc(width, height, TextureFormat.R8, FrameLists.Uploaded, Swizzle: TextureSwizzle.Gray));
                 Picture = _planes[0];
                 return;
             case PixelLayout.Nv12:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.R8);
-                _planes[1] = _device.CreateTexture(cw, ch, TextureFormat.Rg8);
+                _planes[0] = Plane(width, height, TextureFormat.R8);
+                _planes[1] = Plane(cw, ch, TextureFormat.Rg8);
                 break;
             case PixelLayout.P010:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.R16);
-                _planes[1] = _device.CreateTexture(cw, ch, TextureFormat.Rg16);
+                _planes[0] = Plane(width, height, TextureFormat.R16);
+                _planes[1] = Plane(cw, ch, TextureFormat.Rg16);
                 break;
             case PixelLayout.Yuv420P:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.R8);
-                _planes[1] = _device.CreateTexture(cw, ch, TextureFormat.R8);
-                _planes[2] = _device.CreateTexture(cw, ch, TextureFormat.R8);
+                _planes[0] = Plane(width, height, TextureFormat.R8);
+                _planes[1] = Plane(cw, ch, TextureFormat.R8);
+                _planes[2] = Plane(cw, ch, TextureFormat.R8);
                 break;
             case PixelLayout.Yuv422P:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.R8);
-                _planes[1] = _device.CreateTexture(cw, height, TextureFormat.R8);
-                _planes[2] = _device.CreateTexture(cw, height, TextureFormat.R8);
+                _planes[0] = Plane(width, height, TextureFormat.R8);
+                _planes[1] = Plane(cw, height, TextureFormat.R8);
+                _planes[2] = Plane(cw, height, TextureFormat.R8);
                 break;
             case PixelLayout.Yuv444P:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.R8);
-                _planes[1] = _device.CreateTexture(width, height, TextureFormat.R8);
-                _planes[2] = _device.CreateTexture(width, height, TextureFormat.R8);
+                _planes[0] = Plane(width, height, TextureFormat.R8);
+                _planes[1] = Plane(width, height, TextureFormat.R8);
+                _planes[2] = Plane(width, height, TextureFormat.R8);
                 break;
             case PixelLayout.Yuv420P10:
-                _planes[0] = _device.CreateTexture(width, height, TextureFormat.R16);
-                _planes[1] = _device.CreateTexture(cw, ch, TextureFormat.R16);
-                _planes[2] = _device.CreateTexture(cw, ch, TextureFormat.R16);
+                _planes[0] = Plane(width, height, TextureFormat.R16);
+                _planes[1] = Plane(cw, ch, TextureFormat.R16);
+                _planes[2] = Plane(cw, ch, TextureFormat.R16);
                 break;
             default:
                 throw new NotSupportedException($"No upload for {layout}.");
         }
-        _converted = _device.CreateRenderTarget(width, height, TextureFormat.Rgba16F);
+        _converted = _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F));
         Picture = _converted.Color;
     }
+
+    /// <summary>A plane's texture, filled from the CPU and sampled linearly.</summary>
+    private GpuTexture Plane(int width, int height, TextureFormat format) =>
+        _device.CreateTexture(new TextureDesc(width, height, format, FrameLists.Uploaded));
 
     /// <summary>How many planes a layout has.</summary>
     public static int PlaneCount(PixelLayout layout) => layout switch
@@ -469,7 +497,6 @@ public sealed class VideoTextureSet : IDisposable
         if (_disposed)
             return;
         DisposeTextures();
-        _ring?.Dispose();
         _blocks?.Dispose();
         _dmabuf?.Dispose();
         if (OperatingSystem.IsWindows() && _angle is AngleImporter angle)

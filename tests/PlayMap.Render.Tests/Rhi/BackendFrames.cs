@@ -29,6 +29,17 @@ internal static class BackendFrames
         return backend.Submit(list);
     }
 
+    /// <summary>One frame whose body answers a value: begin, the body, submit.</summary>
+    public static T Run<T>(GlBackend backend, Func<ICommandList, T> body)
+    {
+        var result = default(T)!;
+        Run(backend, list =>
+        {
+            result = body(list);
+        });
+        return result;
+    }
+
     /// <summary>Empty frames until <paramref name="done"/> holds, at most <paramref name="frames"/> of them (the compile lane and
     /// warm-ups are taken as frames begin); true when it held.</summary>
     public static bool Until(GlBackend backend, Func<bool> done, int frames = 2000)

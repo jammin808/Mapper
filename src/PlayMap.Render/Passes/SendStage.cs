@@ -1,6 +1,7 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Passes;
 
@@ -134,7 +135,7 @@ public sealed class SendPlanEntry
 /// frame once warm (a ring is made once per entry and retired once the plan drops it and its sender let go of every frame).</summary>
 public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 {
-    private readonly Video.PackPass _pack = new(renderer.Device);
+    private readonly Video.PackPass _pack = new(renderer.Device.Gl);
     private readonly Dictionary<SendPlanEntry, Video.SendReadbackRing> _rings = new(ReferenceEqualityComparer.Instance);
     private readonly List<SendPlanEntry> _gone = [];
     private readonly List<Video.SendReadbackRing> _retiring = [];
@@ -179,14 +180,14 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         {
             if (!_rings.TryGetValue(entry, out var ring))
             {
-                ring = new Video.SendReadbackRing(frame.Device);
+                ring = new Video.SendReadbackRing(frame.Device.Gl);
                 _rings[entry] = ring;
             }
             var sink = entry.Sink;
             ring.Collect(sink);
             // A packed target larger than this GPU's textures is refused once, in words, as soon as the entry is seen — before any
             // receiver connects — and never thrown on the render thread.
-            if (entry.Refused.Length > 0 || TooLarge(entry, frame.Device))
+            if (entry.Refused.Length > 0 || TooLarge(entry, frame.Device.Gl))
                 continue;
             if (!entry.Due(frame.LeaderNs) || sink is null)
                 continue;

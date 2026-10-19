@@ -27,7 +27,7 @@ public class ReactiveTests(GlFixture gl)
         var loud = new FixedBus(("audio:level", 1.0), ("audio:bass", 1.0));
         var (a, b) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             return (Scene.ReadTexture(c.Device, ContentGl.Draw(host, old, 3, 1, W, H)),
                 Scene.ReadTexture(c.Device, ContentGl.Draw(host, zero, 3, 2, W, H, loud)));
@@ -49,7 +49,7 @@ public class ReactiveTests(GlFixture gl)
         var bus = new FixedBus(("audio:level", 0.5), ("audio:bass", 0.5));
         var (quiet, burst, cap, plain) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             var q = Scene.ReadTexture(c.Device, ContentGl.Draw(host, listening, 3, 1, W, H, bus));
             bus.Set("audio:bass", 1.0);
@@ -80,7 +80,7 @@ public class ReactiveTests(GlFixture gl)
         var content = new ContentFrame();
         var words = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             ContentGl.Draw(host, g, 3, 1, W, H, content.Over(null));
             return host.RendererOf(g.Id, W, H)!.Words;
@@ -99,7 +99,7 @@ public class ReactiveTests(GlFixture gl)
         var content = new ContentFrame();
         var (low, high, live) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             var a = Scene.ReadTexture(c.Device, ContentGl.Draw(host, g, 3, 1, W, H, content.Over(bus)));
             bus.Set("lfo:test", 1.0);
@@ -137,7 +137,7 @@ public class ReactiveTests(GlFixture gl)
         {
             // The device is the fixture's: what earlier tests left in its error log is theirs.
             c.Device.TakeErrors();
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: true));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
             FrameInputs Inputs(int f) => Scene.Inputs(project, 10 + f / 60.0) with
             {
                 Modulation = content.Over(bus),

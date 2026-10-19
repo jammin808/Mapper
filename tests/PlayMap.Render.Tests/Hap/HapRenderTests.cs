@@ -264,7 +264,7 @@ public class HapRenderTests(GlFixture gl)
                 using var lease = new ArrayLease(layout, w, h, n + 1, ColorMatrix.Bt709, ColorRange.Full, (plane, bpr, w / 4, h / 4));
                 var got = gl.Run(c =>
                 {
-                    using var set = new VideoTextureSet(c.Device);
+                    using var set = new VideoTextureSet(c.Backend);
                     Assert.True(set.Update(lease));
                     Assert.Equal((w, h), (set.Picture!.Width, set.Picture.Height));
                     return Pixels.Read(c.Device, set.Converted!);
@@ -317,7 +317,7 @@ public class HapRenderTests(GlFixture gl)
         using var lease = new ArrayLease(PixelLayout.Bc1, vw, vh, 1, ColorMatrix.Bt709, ColorRange.Full, (blocks, cw / 4 * 8, cw / 4, ch / 4));
         var px = gl.Run(c =>
         {
-            using var set = new VideoTextureSet(c.Device, streaming: false);
+            using var set = new VideoTextureSet(c.Backend, streaming: false);
             Assert.True(set.Update(lease));
             Assert.Equal((vw, vh), (set.Picture!.Width, set.Picture.Height));
             return Pixels.Read(c.Device, set.Converted!);
@@ -360,7 +360,7 @@ public class HapRenderTests(GlFixture gl)
         using var lease = new ArrayLease(PixelLayout.Bc7, 8, 8, 1, ColorMatrix.Bt709, ColorRange.Full, (blocks, 2 * 16, 2, 2));
         var (words, refusal, picture) = gl.Run(c =>
         {
-            using var set = new VideoTextureSet(c.Device);
+            using var set = new VideoTextureSet(c.Backend);
             // An ES 3.0 context with S3TC and RGTC and no BPTC (an ANGLE-like list).
             set.Caps = GlCaps.From("es300", 3, 0, new HashSet<string> { "GL_EXT_texture_compression_s3tc", "GL_EXT_texture_compression_rgtc" });
             var e = Assert.Throws<NotSupportedException>(() => set.Update(lease));

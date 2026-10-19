@@ -101,7 +101,7 @@ public class StageEffectTimeTests(GlFixture gl)
         var content = new ContentFrame();
         var (first, retimed, unretimed) = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
             (byte[] OnStage, byte[] Flat) Draw(Generator sweep, long leaderNs)
             {
                 engine.Render(At(Show(sweep), leaderNs, stage, content));
@@ -142,7 +142,7 @@ public class StageEffectTimeTests(GlFixture gl)
         };
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
             var n = 0;
             for (; n < 3; n++)
                 engine.Render(At(withCard, Tick(n), stage, content));
@@ -181,7 +181,7 @@ public class StageEffectTimeTests(GlFixture gl)
         var sweep = Sweep(Days);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
             var n = 0;
             for (; n < 5; n++)
                 engine.Render(At(Show(sweep), Tick(n), stage, content));
@@ -207,7 +207,7 @@ public class StageEffectTimeTests(GlFixture gl)
         var project = Show(Sweep(Days), flat: false);
         var allocated = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             for (var n = 0; n < 20; n++)
                 engine.Render(At(project, Tick(n), stage, content));
             var before = Allocations.Start();

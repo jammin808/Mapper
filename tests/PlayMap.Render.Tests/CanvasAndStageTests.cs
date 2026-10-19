@@ -28,7 +28,7 @@ public class CanvasAndStageTests(GlFixture gl)
         var project = Scene.Project([], [CanvasOutput("cv1", W, H)], [canvas]);
         return gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project));
             var px = new byte[W * H * 4];
             Assert.True(engine.ReadOutput("op1", px));
@@ -111,7 +111,7 @@ public class CanvasAndStageTests(GlFixture gl)
         var project = Scene.Project(generators ?? [], [output], stage: st);
         return gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project, 2.5, stage: stage));
             var px = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op1", px));
@@ -170,7 +170,7 @@ public class CanvasAndStageTests(GlFixture gl)
         var project = Scene.Project([], [output], stage: Stage.Empty with { Surfaces = [surface], Projectors = [lamp] });
         var px = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project, 1, sources, stage));
             var bytes = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op1", bytes));

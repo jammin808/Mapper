@@ -90,7 +90,7 @@ public sealed class LatencyRingTests(GlFixture gl)
         ]);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false, Dither: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false, Dither: false));
             var plan = LatencyPlan.Make([("op_fast", 17, 60), ("op_slow", 50, 60)]);
             foreach (var d in plan.Outputs)
                 engine.SetDelay(d.OutputId, d.DelayFrames, d.ResidualMs);
@@ -136,7 +136,7 @@ public sealed class LatencyRingTests(GlFixture gl)
         ]);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false, Dither: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false, Dither: false));
             engine.SetDelay("op_fast", 2, 0);
             var bgra = new byte[16 * 8 * 4];
             // Red for a while: the ring holds red.

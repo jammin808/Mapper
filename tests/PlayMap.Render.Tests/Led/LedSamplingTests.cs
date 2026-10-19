@@ -7,6 +7,7 @@ using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Gl;
 using PlayMap.Render.Led;
+using PlayMap.Render.Tests.Rhi;
 using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Led;
@@ -140,9 +141,10 @@ public sealed class LedSamplingTests(GlFixture gl)
     private static byte[] Run(RenderContext ctx, LedPass pass, LedFramePool pool, Project p, long leaderNs, bool blackout = false, bool freeze = false)
     {
         var d = ctx.Device;
-        pass.FrameEnd(new PassFrame(1, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), d, blackout, freeze));
+        var b = ctx.Backend;
+        BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(1, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, blackout, freeze)));
         d.Finish();
-        pass.FrameEnd(new PassFrame(2, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), d, blackout, freeze));
+        BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(2, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, blackout, freeze)));
         var first = pool.Take();
         Assert.NotNull(first);
         Assert.Equal(leaderNs, first.LeaderNs);
@@ -327,9 +329,10 @@ public sealed class LedSamplingTests(GlFixture gl)
     private static byte[] RunAir(RenderContext ctx, LedPass pass, LedFramePool pool, Project p, long leaderNs, IAirLevels air)
     {
         var d = ctx.Device;
-        pass.FrameEnd(new PassFrame(1, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), d, false, false) { Levels = air });
+        var b = ctx.Backend;
+        BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(1, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, false, false) { Levels = air }));
         d.Finish();
-        pass.FrameEnd(new PassFrame(2, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), d, false, false) { Levels = air });
+        BackendFrames.Run(b, list => pass.FrameEnd(new PassFrame(2, leaderNs, p, GeneratorFrame.At(leaderNs / 1e9), b, list, false, false) { Levels = air }));
         var first = pool.Take()!;
         var bytes = first.Slots[..(first.Rows * LedPlan.SlotsPerRow)];
         pool.Return(first);
@@ -386,9 +389,12 @@ public sealed class LedSamplingTests(GlFixture gl)
         using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
         pass.Offer(plan);
         var air = new Air { GainAll = 0.8f };
+        var backend = d.Backend;
         void Frame(long k)
         {
-            pass.FrameEnd(new PassFrame(k, k * 16_666_667L, show, GeneratorFrame.At(k / 60.0), d, k % 7 == 0, k % 11 == 0) { Levels = air });
+            var list = backend.BeginFrame(BackendFrames.Next + k);
+            pass.FrameEnd(new PassFrame(k, k * 16_666_667L, show, GeneratorFrame.At(k / 60.0), backend, list, k % 7 == 0, k % 11 == 0) { Levels = air });
+            backend.Submit(list);
             while (pool.Take() is { } f)
                 pool.Return(f);
         }

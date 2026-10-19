@@ -22,7 +22,7 @@ public class ParticleDeterminismTests(GlFixture gl)
             .With("vortex", 0.4).With("gravity", 0.05).With("edges", "bounce"), "gn_flow");
         var (played, sought) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var a = new GeneratorHost(services);
             using var b = new GeneratorHost(services);
             // Played from 0 s to 10 s at 60 frames a second.
@@ -62,7 +62,7 @@ public class ParticleDeterminismTests(GlFixture gl)
             with { Bindings = [binding, curl] };
         var (fifty, sixty) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var a = new GeneratorHost(services);
             using var b = new GeneratorHost(services);
             var bus = new WaveBus();
@@ -107,7 +107,7 @@ public class ParticleDeterminismTests(GlFixture gl)
         var settings = ParticleFlowSettings.Resolve(ps);
         var s0 = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             ContentGl.Settle(host, g, 3, 1, 32, 32);
             var r = (FlowGenerator)host.RendererOf(g.Id, 32, 32)!;
@@ -154,7 +154,7 @@ public class ParticleDeterminismTests(GlFixture gl)
         var (s0, words) = gl.Run(c =>
         {
             using var disk = DiskTexture(c.Device, 256, 0.2f);
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             var content = new ContentFrame { Pictures = new OnePicture(disk) };
             ContentGl.Settle(host, g, 4, 1, size, size, content);
@@ -176,7 +176,7 @@ public class ParticleDeterminismTests(GlFixture gl)
         // With nothing to read the emitter says so and nothing is born.
         var (dark, why) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             ContentGl.Settle(host, g, 4, 1, size, size, new ContentFrame());
             var r = (FlowGenerator)host.RendererOf(g.Id, size, size)!;
@@ -200,7 +200,7 @@ public class ParticleDeterminismTests(GlFixture gl)
         {
             using var halves = HalvesTexture(c.Device, 256);
             using var disk = DiskTexture(c.Device, 256, 0.2f);
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             ContentGl.Settle(host, coloured, 4, 1, size, size, new ContentFrame { Pictures = new OnePicture(halves) });
             var rc = (FlowGenerator)host.RendererOf(coloured.Id, size, size)!;
@@ -257,7 +257,7 @@ public class ParticleDeterminismTests(GlFixture gl)
         var g = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 8192), "gn_sting");
         var (calm, stung) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var a = new GeneratorHost(services);
             using var b = new GeneratorHost(services);
             var sting = new EffectImpulse(PulsePreset.Gust, 4.5, 1.0);

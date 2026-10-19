@@ -63,9 +63,9 @@ internal sealed class StageRenderer : IDisposable
     {
         _services = services;
         _caches = caches;
-        _lineBuffer = services.Device.CreateBuffer(BufferKind.Vertex);
-        services.Device.SetBufferData<float>(_lineBuffer, new float[LineFloats * 2]);
-        _lineVao = services.Device.CreateVertexArray(LineLayout, _lineBuffer);
+        _lineBuffer = services.Gl.CreateBuffer(BufferKind.Vertex);
+        services.Gl.SetBufferData<float>(_lineBuffer, new float[LineFloats * 2]);
+        _lineVao = services.Gl.CreateVertexArray(LineLayout, _lineBuffer);
     }
 
     /// <summary>The size a chained surface's content is made at this frame (the largest projector raster); 0 × 0 makes it at the
@@ -140,7 +140,7 @@ internal sealed class StageRenderer : IDisposable
         var haveBounds = WorldBounds(project, resources, out var min, out var max);
         var (near, far) = Planes(projector.Pose, haveBounds, min, max);
         var viewProj = ViewProjection(k, projector.Pose, near, far);
-        var d = _services.Device;
+        var d = _services.Gl;
         d.BindTarget(target);
         d.ClearWithDepth(0, 0, 0, 1);
         DrawSurfaces(target, project, resources, sources, in frame, context, viewProj, projector.Pose.Position, haveBounds ? min : Vec3d.Zero, haveBounds ? max : Vec3d.Zero, tint: false, null,
@@ -176,7 +176,7 @@ internal sealed class StageRenderer : IDisposable
         var (near, far) = Planes(camera.Pose, haveBounds, min, max);
         far = Math.Max(far, 100);
         var viewProj = ViewProjection(k, camera.Pose, near, far);
-        var d = _services.Device;
+        var d = _services.Gl;
         d.BindTarget(target);
         d.ClearWithDepth(0.07f, 0.075f, 0.09f, 1);
         var context = new GeneratorContext("Editor", 0, "#3EC1F3", false);
@@ -214,7 +214,7 @@ internal sealed class StageRenderer : IDisposable
         GeneratorContext context, Matrix4x4 viewProj, Vec3d eye, Vec3d boundsMin, Vec3d boundsMax, bool tint, IReadOnlySet<string>? selected,
         string? pixelProjector)
     {
-        var d = _services.Device;
+        var d = _services.Gl;
         var p = d.Program("stage");
         // Resolve every surface's source before drawing: a source may draw (a generator, a canvas) and must
         // not do so between this pass's draws.
@@ -371,8 +371,8 @@ internal sealed class StageRenderer : IDisposable
             pattern.Draw(new Generators.Skia.PatternCanvas(canvas, _services.Kit, Size, Size, kind, ParamSet.Empty, new GeneratorContext("Quad", 0, "#FFFFFF", false)));
             canvas.Flush();
         }
-        _uvChecker = _services.Device.CreateTexture(Size, Size, TextureFormat.Rgba8);
-        _services.Device.UploadPointer(_uvChecker, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
+        _uvChecker = _services.Gl.CreateTexture(Size, Size, TextureFormat.Rgba8);
+        _services.Gl.UploadPointer(_uvChecker, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
         return _uvChecker;
     }
 
@@ -382,7 +382,7 @@ internal sealed class StageRenderer : IDisposable
     private void DrawPixelSurfaces(RenderTarget target, Project project, IStageResources resources, string projectorId)
     {
         _pixelPass++;
-        var d = _services.Device;
+        var d = _services.Gl;
         var p = d.Program("pixelsurface");
         d.BindTarget(target);
         d.SetBlend(BlendMode.Opaque);
@@ -426,7 +426,7 @@ internal sealed class StageRenderer : IDisposable
         var count = PixelQuadMath.VertexCount(quad);
         var data = new float[count * PixelQuadMath.VertexFloats];
         PixelQuadMath.WriteVertices(shape, width, height, data);
-        var d = _services.Device;
+        var d = _services.Gl;
         var buffer = d.CreateBuffer(BufferKind.Vertex);
         d.SetBufferData<float>(buffer, data, dynamic: false);
         var vao = d.CreateVertexArray(PixelLayout, buffer);
@@ -547,7 +547,7 @@ internal sealed class StageRenderer : IDisposable
     {
         if (_lineCount == 0)
             return;
-        var d = _services.Device;
+        var d = _services.Gl;
         d.SetBufferData<float>(_lineBuffer, _lines.AsSpan(0, _lineCount * LineFloats));
         var p = d.Program("lines");
         p.Set("uViewProj", viewProj);

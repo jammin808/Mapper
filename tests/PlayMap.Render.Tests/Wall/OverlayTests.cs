@@ -31,8 +31,8 @@ public class OverlayTests(GlFixture gl)
     {
         return gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
-            using var pass = new OverlayPass(c.Device);
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(c.Backend);
             var stage = new TestStage();
             if (warp.Enabled)
                 stage.Warps["op1"] = WarpMeshBuilder.Build(warp);
@@ -128,8 +128,8 @@ public class OverlayTests(GlFixture gl)
         var on = new OverlayState(true, [], OverlayLayers.Cursor | OverlayLayers.Outlines, null, 0, "", 0);
         var (first, off, back) = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
-            using var pass = new OverlayPass(c.Device);
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(c.Backend);
             byte[] Frame(OverlayState state)
             {
                 var inputs = Scene.Inputs(project, 1, stage: new TestStage()) with { Overlay = state, Cursors = cursors, Passes = [pass] };
@@ -155,8 +155,8 @@ public class OverlayTests(GlFixture gl)
         var cursor = new WallCursor("s1", "Desk", "op1", new Vec2d(0.25, 0.75), [new Vec2d(0.8, 0.2)], "#FF8800", 0, long.MaxValue);
         var px = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
-            using var pass = new OverlayPass(c.Device);
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var pass = new OverlayPass(c.Backend);
             var inputs = Scene.Inputs(project, 1, stage: new TestStage()) with
             {
                 Overlay = new OverlayState(true, [], OverlayLayers.Cursor, null, 0, "", 0),

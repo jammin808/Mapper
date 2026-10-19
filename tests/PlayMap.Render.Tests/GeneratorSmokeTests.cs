@@ -14,7 +14,7 @@ public class GeneratorSmokeTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             host.BeginFrame(1);
             foreach (var kind in GeneratorCatalog.All)

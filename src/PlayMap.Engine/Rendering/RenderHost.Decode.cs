@@ -84,9 +84,9 @@ public sealed partial class RenderHost
     {
         // ANGLE's EGL is the DXGI platform's own library (no libEGL a binding probe would find): its binding is said by the platform.
         _decodeBinding = _platform?.Path == PresentPath.DxgiFlip ? "angle" : GlDevice.CurrentBinding();
-        _decodeDevice = renderer.Device;
+        _decodeDevice = _context!.Device;
         _decodeContext = null;
-        _decodeFormats = (int)renderer.Device.BlockFormats;
+        _decodeFormats = (int)_decodeDevice.BlockFormats;
     }
 
     partial void OnContextLostDecode()

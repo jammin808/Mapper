@@ -53,7 +53,7 @@ public class StackRenderTests(GlFixture gl, ITestOutputHelper log)
             stage.Warps["op1"] = warp;
         return gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(Scene.Project([], [output]), 1, Still(picture), stage));
             var px = new byte[W * H * 4];
             Assert.True(engine.ReadOutput("op1", px));
@@ -139,7 +139,7 @@ public class StackRenderTests(GlFixture gl, ITestOutputHelper log)
         var output = Scene.SourceOutput("op1", Media, W, H);
         var (tapped, presented) = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.SetDelay("op1", 2, 0);
             var sources = Still(picture);
             for (var frame = 1; frame <= 4; frame++)

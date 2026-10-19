@@ -514,7 +514,7 @@ public sealed partial class RenderHost : IRenderHost
                 : GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default);
             _dxgiUp = _platform.Path == PresentPath.DxgiFlip;
             _context = _platform.Context;
-            _renderer = new RenderEngine(_context, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && _context.Device.HasTimerQuery });
+            _renderer = new RenderEngine(_platform.Device, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && _context.Device.HasTimerQuery });
             _renderer.WarmUp();
             ContextModules(_renderer);
             var d = _context.Device;

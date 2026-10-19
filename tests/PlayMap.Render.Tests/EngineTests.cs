@@ -26,7 +26,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#FF8000"), 64, 36)]);
         var got = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             var dest = new byte[64 * 64 * 4];
             for (var f = 0; f < 30; f++)
             {
@@ -59,7 +59,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         var camera = new EditorCamera(Intrinsics.FromFieldOfView(160, 90, 60), eye, Selected: new HashSet<string> { "sf1" });
         var dest = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             var buffer = new byte[160 * 90 * 4];
             for (var f = 0; f < 30; f++)
             {
@@ -92,7 +92,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
             [Scene.SourceOutput("op1", SourceRef.Generator("gn_test"), 32, 18)]);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             var px = new byte[32 * 18 * 4];
             engine.Render(Scene.Inputs(project, 0.5));
             engine.Render(Scene.Inputs(project, 2.5) with { Freeze = true });
@@ -114,7 +114,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
             [Scene.SourceOutput("op1", SourceRef.Solid("#0000FF"), 64, 36)]);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             var px = new byte[64 * 36 * 4];
             engine.Render(Scene.Inputs(project) with { PatternOverride = SourceRef.Generator("gn_test") });
             Assert.True(engine.ReadOutput("op1", px));
@@ -147,7 +147,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         var project = Scene.Project([.. generators], [output, Scene.SourceOutput("op2", SourceRef.Generator("gn_bar"), 160, 90)], [canvas]);
         var allocated = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: true));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
             for (var f = 0; f < 20; f++)
                 engine.Render(Scene.Inputs(project, 10 + f / 60.0));
             var before = Allocations.Start();
@@ -166,7 +166,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         var project = Project.CreateDefault();
         var ms = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c);
+            using var engine = new RenderEngine(c.Backend);
             engine.WarmUp();
             engine.Render(Scene.Inputs(project, 1));
             c.Device.Finish();
@@ -193,7 +193,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         gl.Run(c =>
         {
             Assert.NotEmpty(c.Monitors());
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using (var window = Gl.OutputWindow.Create(c, new Gl.OutputWindowOptions("Output 1", Borderless: false, VSync: false, Width: 64, Height: 36)))
             {
                 // Its presents are measured against its display's refresh, not a fixed 60.
@@ -225,7 +225,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
             var textures = c.Device.LiveTextures;
             var targets = c.Device.LiveTargets;
             var buffers = c.Device.LiveBuffers;
-            using (var engine = new RenderEngine(c))
+            using (var engine = new RenderEngine(c.Backend))
             {
                 engine.Render(Scene.Inputs(project, 3));
                 Assert.True(c.Device.LiveTextures > textures);

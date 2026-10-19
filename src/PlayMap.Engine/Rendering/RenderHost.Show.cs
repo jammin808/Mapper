@@ -198,7 +198,7 @@ public sealed partial class RenderHost : IPreviewFeed
             _draftFrom = draft;
             _draftBare = draft with { Outputs = [] };
         }
-        var renderer = _draftRenderer ??= new RenderEngine(_context!, _options.Engine with { GpuTiming = false });
+        var renderer = _draftRenderer ??= new RenderEngine(_platform!.Device, _options.Engine with { GpuTiming = false });
         renderer.Render(new FrameInputs { Project = _draftBare!, LeaderNs = leaderNs, Sources = _sources!, Stage = _stage! });
         _draftFrames++;
         for (var i = _draftRetiring.Count - 1; i >= 0; i--)

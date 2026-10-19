@@ -49,7 +49,7 @@ public class OutputStageTests(GlFixture gl)
         var project = Scene.Project([], [output]);
         return gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             var inputs = Scene.Inputs(project, 1, sources, stage) with { Blackout = blackout };
             engine.Render(inputs);
             var px = new byte[output.Width * output.Height * 4];

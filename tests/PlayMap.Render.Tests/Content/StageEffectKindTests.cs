@@ -64,7 +64,7 @@ public class StageEffectKindTests(GlFixture gl)
         var content = new ContentFrame();
         var (px, faults) = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
             for (var n = 0; n < 3; n++)
                 engine.Render(new FrameInputs { Project = project, LeaderNs = 1_000_000_000L + n * 16_666_667L, Sources = NoSources.Instance, Stage = stage, Modulation = content });
             var bgra = new byte[PW * PH * 4];

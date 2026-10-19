@@ -149,12 +149,13 @@ public sealed class DrawStateTests(GlFixture gl)
             var drawn = new List<string>();
             var ring = PreviewRing.PathFor("draws", Guid.NewGuid().ToString("N"));
             using var writer = new PreviewRingWriter(ring, 64, 64);
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
-            using var overlay = new OverlayPass(d);
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
+            using var overlay = new OverlayPass(d.Backend);
             engine.SetDelay("op1", 2, 0);
             var eye = Pose.LookAt(new Vec3d(3, 2, 4), new Vec3d(0, 0.3, 0), new Vec3d(0, 1, 0));
             var camera = new EditorCamera(Intrinsics.FromFieldOfView(64, 36, 60), eye, Selected: new HashSet<string> { "sf_mesh" });
             d.InvalidateState();
+            var misses = c.Backend.ConstantMisses;
             d.AfterDraw = p => drawn.Add(Read(c, p.Name, p.Id, depthWhereHeld: true) + Viewport(c));
             try
             {
@@ -184,6 +185,9 @@ public sealed class DrawStateTests(GlFixture gl)
             }
             Assert.Empty(engine.GeneratorFaults());
             Assert.Empty(d.TakeErrors());
+            var (program, name) = c.Backend.LastMiss;
+            Assert.True(c.Backend.ConstantMisses == misses,
+                $"every name the show's draws set is in its program's layout ({c.Backend.ConstantMisses - misses} not; the last '{name}' of program {program.Value})");
             return drawn;
         });
         var text = string.Join('\n', lines) + "\n";

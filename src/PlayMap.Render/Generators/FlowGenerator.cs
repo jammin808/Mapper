@@ -1,7 +1,7 @@
 using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gl;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Generators;
 
@@ -17,11 +17,22 @@ internal sealed class FlowGenerator : GeneratorRenderer
     /// <summary>Particle-steps one frame may do while it settles.</summary>
     public const long CatchUpBudget = 30_000_000;
 
+    /// <summary>A step's state: the next state written whole, opaque.</summary>
+    private static readonly DrawState Stepped = DrawState.Opaque;
+
+    /// <summary>A state target cleared to dormant slots (every channel zero).</summary>
+    private static readonly PassDesc Dormant = FrameLists.Clear(0, 0, 0, 0);
+
+    private static readonly DrawState Sprites = FrameLists.Quads(BlendMode.Premultiplied);
+    private static readonly DrawState GlowingSprites = FrameLists.Quads(BlendMode.AddPremultiplied);
+
     private readonly RenderTarget _target;
     private readonly GpuTexture _atlas;
     private readonly FlashGuard _guard = new();
-    private StateTarget? _current;
-    private StateTarget? _next;
+    private readonly ProgramId _step;
+    private readonly ProgramId _sprite;
+    private RenderTarget? _current;
+    private RenderTarget? _next;
     private ParticleFlowSettings _settings = ParticleFlowSettings.Resolve(ParamSet.Empty);
     private ColorRgb[] _palette = [ColorRgb.White];
     private ColorRgb _background = ColorRgb.Black;
@@ -43,11 +54,14 @@ internal sealed class FlowGenerator : GeneratorRenderer
     public FlowGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
         : base(services, kind, width, height, context)
     {
-        _target = Device.CreateRenderTarget(width, height, TextureFormat.Rgba16F);
-        _atlas = Device.CreateTexture(ParticleGenerator.Sprite * 5, ParticleGenerator.Sprite, TextureFormat.Rgba8);
-        ParticleGenerator.DrawAtlas(Device, _atlas);
-        Device.BindTarget(_target);
-        Device.Clear(0, 0, 0, 1);
+        _step = Device.Programs.Id("content.pstep");
+        _sprite = Device.Programs.Id("content.psprite");
+        _target = Device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F));
+        _atlas = Device.CreateTexture(new TextureDesc(ParticleGenerator.Sprite * 5, ParticleGenerator.Sprite, TextureFormat.Rgba8, FrameLists.Uploaded));
+        var list = List;
+        ParticleGenerator.DrawAtlas(list, _atlas);
+        list.BeginPass(_target, PassDesc.ClearBlack);
+        list.EndPass();
     }
 
     public override GpuTexture Output => _target.Color;
@@ -75,17 +89,15 @@ internal sealed class FlowGenerator : GeneratorRenderer
 
     public ParticleFlowSettings Settings => _settings;
 
-    /// <summary>The state the field holds now (tests read it back).</summary>
-    public StateTarget? State => _current;
+    /// <summary>The state the field holds now: positions in its first colour attachment, velocities in its second (tests read it
+    /// back).</summary>
+    public RenderTarget? State => _current;
 
     /// <summary>The most particles this GPU steps: a software rasteriser draws 64 k.</summary>
-    public static int MaxCountFor(GlDevice device)
+    public static int MaxCountFor(IGpuDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
-        var r = device.Renderer;
-        return r.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase) || r.Contains("softpipe", StringComparison.OrdinalIgnoreCase)
-            || r.Contains("SwiftShader", StringComparison.OrdinalIgnoreCase)
-            ? ParticleFlowSettings.SoftwareCount : ParticleFlowSettings.MaxCount;
+        return device.Adapter.Software ? ParticleFlowSettings.SoftwareCount : ParticleFlowSettings.MaxCount;
     }
 
     protected override void OnConfigure()
@@ -94,7 +106,7 @@ internal sealed class FlowGenerator : GeneratorRenderer
         var asked = ParticleFlowSettings.Resolve(Params, kindId: Kind.Id);
         _settings = ParticleFlowSettings.Resolve(Params, max, Kind.Id);
         _words = asked.Count > _settings.Count
-            ? $"{asked.Count} particles asked; this GPU ({Device.Renderer}) steps {_settings.Count}"
+            ? $"{asked.Count} particles asked; this GPU ({Device.Adapter.Name}) steps {_settings.Count}"
             : "";
         _palette = _settings.Palette();
         _background = ColorRgb.Parse(_settings.Background, ColorRgb.Black);
@@ -106,13 +118,17 @@ internal sealed class FlowGenerator : GeneratorRenderer
             _current = null;
             _next = null;
             _side = side;
-            _current = Device.CreateStateTarget(side, side, TextureFormat.Rgba32F);
-            _next = Device.CreateStateTarget(side, side, TextureFormat.Rgba32F);
+            _current = Device.CreateTarget(StateDesc(side));
+            _next = Device.CreateTarget(StateDesc(side));
         }
         _guard.Reset();
         // Any change re-anchors: the field is then a pure function of its parameters and its time, whoever changed it when.
         _simStep = long.MinValue;
     }
+
+    /// <summary>A state target: two RGBA32F attachments (position and velocity) written together by one step, read texel for texel.</summary>
+    private static TargetDesc StateDesc(int side) =>
+        new(side, side, TextureFormat.Rgba32F, TextureFormat.Rgba32F, Filter: TextureFilter.Nearest, Name: "particle state");
 
     /// <summary>Steps a frame may run while it settles (never fewer than two: a frame at 60 Hz needs two).</summary>
     public int StepsPerFrame => (int)Math.Clamp(CatchUpBudget / Math.Max(1, _settings.Count), 2, 64);
@@ -204,80 +220,79 @@ internal sealed class FlowGenerator : GeneratorRenderer
     {
         _anchorStep = step;
         _simStep = step;
-        foreach (var t in (ReadOnlySpan<StateTarget?>)[_current, _next])
+        var list = List;
+        foreach (var t in (ReadOnlySpan<RenderTarget?>)[_current, _next])
         {
-            Device.BindStateTarget(t!);
-            Device.Clear(0, 0, 0, 0);
+            list.BeginPass(t!, Dormant);
+            list.EndPass();
         }
     }
 
     private void Step(long step, in EffectSurge surge, GpuTexture? picture)
     {
-        var d = Device;
         var s = _settings;
-        var p = d.Program("content.pstep");
-        d.BindStateTarget(_next!);
-        d.SetBlend(BlendMode.Opaque);
-        p.SetInt("uSide", _side);
-        p.SetInt("uCount", s.Count);
-        p.SetInt("uStep", unchecked((int)ParticleSchedule.Biased(step)));
-        p.SetInt("uSeedHash", unchecked((int)ParticleSchedule.Pcg(s.Seed)));
-        p.SetInt("uLifeMin", s.LifeMinSteps);
-        p.SetInt("uLifeMax", s.LifeMaxSteps);
-        p.Set("uRate", (float)Num("rate"));
-        p.Set("uDt", 1f / ParticleSchedule.StepsPerSecond);
-        p.Set("uAspect", Aspect);
-        p.SetInt("uEmitter", EmitterCode(s.Emitter));
-        p.Set("uEmit", (float)Num("x"), (float)Num("y"), (float)Num("size"), 0);
+        var list = List;
         var dir = Num("direction") * Math.PI / 180;
-        p.Set("uBirth", (float)Num("speedMin"), (float)Math.Max(Num("speedMin"), Num("speedMax")), (float)dir, (float)(Num("spread") * Math.PI / 180));
-        p.Set("uThreshold", (float)Num("threshold"));
-        p.SetInt("uHasPicture", picture is null ? 0 : 1);
-        p.Set("uForces", (float)Num("gravity"), (float)Num("wind"), (float)Num("drag"), (float)Num("curl"));
         var drift = ContentTime.Wrap(step / (double)ParticleSchedule.StepsPerSecond * Num("curlSpeed"), 4096);
-        p.Set("uCurl", (float)Num("curlScale"), (float)drift, Int("curlOctaves"), 0);
-        p.Set("uVortex", (float)Num("vortexX"), (float)Num("vortexY"), (float)Num("vortex"), 0);
-        p.Set("uAttract", (float)Num("attractX"), (float)Num("attractY"), (float)Num("attract"), (float)Num("attractRadius"));
         var speedMul = (1 + 3f * surge.Speed) * (1 - 0.95f * surge.Slow);
-        p.Set("uSurge", speedMul, surge.Lift, surge.Swirl, surge.Gust * 2f);
-        p.SetInt("uEdges", (int)s.Edges);
-        p.Set("uRestitution", (float)Num("restitution"));
-        p.SetInt("uWeight", (int)s.Weight);
-        p.SetInt("uInvert", s.Invert ? 1 : 0);
-        p.Set("uFlow", (float)Num("flow"), s.FlowMode == FlowMode.Across ? 1 : 0);
-        p.SetInt("uColorSource", s.ColorBy == FlowColorBy.Source ? 1 : 0);
-        d.BindSampler(p, "uS0", 0, _current!.A);
-        d.BindSampler(p, "uS1", 1, _current.B);
-        d.BindSampler(p, "uPicture", 2, picture ?? Services.Black);
-        d.DrawFullscreen(p);
+        using (list.Pass(_next!, PassDesc.Keep))
+            list.Draw(_step, Stepped)
+                .SetInt("uSide", _side)
+                .SetInt("uCount", s.Count)
+                .SetInt("uStep", unchecked((int)ParticleSchedule.Biased(step)))
+                .SetInt("uSeedHash", unchecked((int)ParticleSchedule.Pcg(s.Seed)))
+                .SetInt("uLifeMin", s.LifeMinSteps)
+                .SetInt("uLifeMax", s.LifeMaxSteps)
+                .Set("uRate", (float)Num("rate"))
+                .Set("uDt", 1f / ParticleSchedule.StepsPerSecond)
+                .Set("uAspect", Aspect)
+                .SetInt("uEmitter", EmitterCode(s.Emitter))
+                .Set("uEmit", (float)Num("x"), (float)Num("y"), (float)Num("size"), 0)
+                .Set("uBirth", (float)Num("speedMin"), (float)Math.Max(Num("speedMin"), Num("speedMax")), (float)dir, (float)(Num("spread") * Math.PI / 180))
+                .Set("uThreshold", (float)Num("threshold"))
+                .SetInt("uHasPicture", picture is null ? 0 : 1)
+                .Set("uForces", (float)Num("gravity"), (float)Num("wind"), (float)Num("drag"), (float)Num("curl"))
+                .Set("uCurl", (float)Num("curlScale"), (float)drift, Int("curlOctaves"), 0)
+                .Set("uVortex", (float)Num("vortexX"), (float)Num("vortexY"), (float)Num("vortex"), 0)
+                .Set("uAttract", (float)Num("attractX"), (float)Num("attractY"), (float)Num("attract"), (float)Num("attractRadius"))
+                .Set("uSurge", speedMul, surge.Lift, surge.Swirl, surge.Gust * 2f)
+                .SetInt("uEdges", (int)s.Edges)
+                .Set("uRestitution", (float)Num("restitution"))
+                .SetInt("uWeight", (int)s.Weight)
+                .SetInt("uInvert", s.Invert ? 1 : 0)
+                .Set("uFlow", (float)Num("flow"), s.FlowMode == FlowMode.Across ? 1 : 0)
+                .SetInt("uColorSource", s.ColorBy == FlowColorBy.Source ? 1 : 0)
+                .Texture("uS0", _current!.Color)
+                .Texture("uS1", _current.Color1!)
+                .Texture("uPicture", picture ?? Services.Black)
+                .Fullscreen();
         (_current, _next) = (_next, _current);
     }
 
     private void DrawSprites(in EffectSurge surge)
     {
-        var d = Device;
         var s = _settings;
-        d.BindTarget(_target);
-        d.Clear(_background.R, _background.G, _background.B, 1);
-        var p = d.Program("content.psprite");
-        p.SetInt("uSide", _side);
-        p.Set("uAspect", Aspect);
-        p.Set("uTarget", Width, Height);
-        p.Set("uSize", (float)(Num("sizeMin") / 1080), (float)(Math.Max(Num("sizeMin"), Num("sizeMax")) / 1080));
-        p.SetInt("uSizeOverLife", (int)s.SizeOverLife);
-        p.SetInt("uColorBy", (int)s.ColorBy);
-        p.Set("uSpeedRef", (float)Math.Max(0.01, Num("speedMax")));
-        p.Set("uOpacity", (float)Num("opacity"));
-        p.Set("uAtlas", ParticleGenerator.ShapeIndex(s.Shape) / 5f, 1f / 5f);
-        p.Set("uGrow", 1 + surge.Scale + surge.Glow * 0.5f);
-        p.Set("uNcol", Math.Min(_palette.Length, ParticleFlowSettings.PaletteColors));
-        FractalGenerator.SetPalette(p, _palette);
-        d.BindSampler(p, "uS0", 0, _current!.A);
-        d.BindSampler(p, "uS1", 1, _current.B);
-        d.BindSampler(p, "uTex", 2, _atlas);
-        d.SetBlend(s.Glow ? BlendMode.AddPremultiplied : BlendMode.Premultiplied);
-        d.DrawGeneratedQuads(p, s.Count);
-        d.SetBlend(BlendMode.Opaque);
+        var list = List;
+        using (list.Pass(_target, FrameLists.Clear(_background.R, _background.G, _background.B, 1)))
+        {
+            var draw = list.Draw(_sprite, s.Glow ? GlowingSprites : Sprites)
+                .SetInt("uSide", _side)
+                .Set("uAspect", Aspect)
+                .Set("uTarget", Width, Height)
+                .Set("uSize", (float)(Num("sizeMin") / 1080), (float)(Math.Max(Num("sizeMin"), Num("sizeMax")) / 1080))
+                .SetInt("uSizeOverLife", (int)s.SizeOverLife)
+                .SetInt("uColorBy", (int)s.ColorBy)
+                .Set("uSpeedRef", (float)Math.Max(0.01, Num("speedMax")))
+                .Set("uOpacity", (float)Num("opacity"))
+                .Set("uAtlas", ParticleGenerator.ShapeIndex(s.Shape) / 5f, 1f / 5f)
+                .Set("uGrow", 1 + surge.Scale + surge.Glow * 0.5f)
+                .Set("uNcol", Math.Min(_palette.Length, ParticleFlowSettings.PaletteColors))
+                .Texture("uS0", _current!.Color)
+                .Texture("uS1", _current.Color1!)
+                .Texture("uTex", _atlas);
+            FractalGenerator.SetPalette(draw, _palette);
+            draw.GeneratedQuads(s.Count);
+        }
     }
 
     private float Aspect => Width / (float)Math.Max(1, Height);

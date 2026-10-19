@@ -52,7 +52,7 @@ public sealed class AirPlumbingTests(GlFixture gl)
     /// <summary>Renders frames and answers each output's middle pixel after the last one.</summary>
     private ((int R, int G, int B) One, (int R, int G, int B) Two, byte[] Raw) Render(params FrameInputs[] frames) => gl.Run(c =>
     {
-        using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+        using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
         foreach (var f in frames)
             engine.Render(f);
         var one = new byte[W * H * 4];

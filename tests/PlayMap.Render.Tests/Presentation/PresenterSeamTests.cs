@@ -76,7 +76,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36)]);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var presenter = new ScriptedPresenter();
             engine.Attach("op1", presenter, 60);
             Assert.Equal(1, presenter.SwapInterval);
@@ -120,7 +120,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36), Scene.SourceOutput("op2", SourceRef.Solid("#996633"), 64, 36)]);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var first = new ScriptedPresenter();
             using var second = new ScriptedPresenter();
             engine.Attach("op1", first, 60);
@@ -217,7 +217,7 @@ public sealed class PresenterSeamTests(GlFixture gl)
                 else
                     Assert.Equal((OperatingSystem.IsWindows() ? "wgl" : "cocoa", ""), (c.Api, platform.Words));
                 var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 64, 36)]);
-                using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: c.Device.HasTimerQuery));
+                using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: c.Device.HasTimerQuery));
                 using (var window = platform.CreatePresenter(new OutputPresenterOptions("ES output", null, false, 64, 36, VSync: false)))
                 {
                     engine.Attach("op1", window, 60);

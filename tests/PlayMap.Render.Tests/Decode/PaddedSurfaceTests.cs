@@ -2,6 +2,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Render.Gl;
 using PlayMap.Render.Video;
+using PlayMap.Render.Tests.Rhi;
 
 namespace PlayMap.Render.Tests.Decode;
 
@@ -40,7 +41,8 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
 
     private static float[] Convert(GlDevice device, VideoTextureSet set, GpuTexture luma, GpuTexture chroma, int codedHeight)
     {
-        set.ConvertCoded(PixelLayout.Nv12, luma, chroma, W, H, W, codedHeight, ColorMatrix.Bt709, ColorRange.Limited, TransferFunction.Sdr);
+        BackendFrames.Run(device.Backend, list =>
+            set.ConvertCoded(list, PixelLayout.Nv12, luma, chroma, W, H, W, codedHeight, ColorMatrix.Bt709, ColorRange.Limited, TransferFunction.Sdr));
         var px = new float[W * H * 4];
         device.ReadPixelsFloat(set.Converted!, px);
         return px;
@@ -70,7 +72,7 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
         var (luma, chroma) = PaddedPlanes(device);
         using var _ = luma;
         using var __ = chroma;
-        using var set = new VideoTextureSet(device);
+        using var set = new VideoTextureSet(device.Backend);
         var px = Convert(device, set, luma, chroma, CodedH);
         Assert.Equal((W, H), (set.Picture!.Width, set.Picture.Height));
         Assert.True(WorstTint(px, LastRow()) < 1 / 255f, $"magenta reached the last row ({WorstTint(px, LastRow())})");
@@ -86,7 +88,7 @@ public sealed class PaddedSurfaceTests(GlFixture gl)
         var (luma, chroma) = PaddedPlanes(device);
         using var _ = luma;
         using var __ = chroma;
-        using var set = new VideoTextureSet(device);
+        using var set = new VideoTextureSet(device.Backend);
         var px = Convert(device, set, luma, chroma, H);
         // The luma padding is magenta's (darker than the grey): the last row is no longer grey.
         var i = (((H - 1) * W) + (W / 2)) * 4;

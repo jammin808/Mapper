@@ -147,7 +147,7 @@ public sealed class FxAttachTests(GlFixture gl)
             [new Canvas("cv1", "Canvas", W, H, "#0000FF", [L("ly_left", "#284664", new RectD(0, 0, 32, 36)), L("ly_fx", "#284664", new RectD(32, 0, 32, 18), fx)])]);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, Exact);
+            using var engine = new RenderEngine(c.Backend, Exact);
             using var fx = new FxPass(c);
             var plain = Draw(engine, Scene.Inputs(Show(FxChain.Empty)) with { Passes = [fx] });
             Assert.Equal((0, 0, 255), Pixels.At(plain, W, 40, 30));
@@ -181,7 +181,7 @@ public sealed class FxAttachTests(GlFixture gl)
             [new Canvas("cv1", "Canvas", W, H, "#000000", [L("ly_full", "#FFFFFF", new RectD(0, 0, W, H), fx)])]) with { FxAssets = [asset] };
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, Exact);
+            using var engine = new RenderEngine(c.Backend, Exact);
             using var fx = new FxPass(c);
             Assert.Equal((255, 255, 255), Pixels.At(Draw(engine, Scene.Inputs(Show(FxChain.Empty)) with { Passes = [fx] }), W, 10, 10));
             // White at alpha one half over the black background: the effect's alpha blends, it is not written as the canvas's.
@@ -200,7 +200,7 @@ public sealed class FxAttachTests(GlFixture gl)
             stage: Stage.Empty with { Surfaces = [Surf(SourceRef.Generator("gn_test"), fx)], Projectors = [Lamp("pj1"), Lamp("pj2")] }) with { FxAssets = [asset] };
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, Exact);
+            using var engine = new RenderEngine(c.Backend, Exact);
             using var fx = new FxPass(c);
             var frame = 0;
             (byte[] A, byte[] B) Both(Project p)
@@ -259,7 +259,7 @@ public sealed class FxAttachTests(GlFixture gl)
         }
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, Exact);
+            using var engine = new RenderEngine(c.Backend, Exact);
             using var fx = new FxPass(c);
             (byte[] Canvas, byte[] Stage) Frame(FrameInputs inputs)
             {
@@ -344,7 +344,7 @@ public sealed class FxAttachTests(GlFixture gl)
         var sources = new OneItem(new ItemOnAir(item, 0), white);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, Exact);
+            using var engine = new RenderEngine(c.Backend, Exact);
             using var fx = new FxPass(c);
             var inputs = Scene.Inputs(project, 1, sources) with { Passes = [fx], Levels = air };
             DrawCompiled(engine, fx, inputs, ["fx00000001", "fx00000002"], "op2");
@@ -379,7 +379,7 @@ public sealed class FxAttachTests(GlFixture gl)
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Playlist("pl_1"), W, H)]) with { FxAssets = [asset] };
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, Exact);
+            using var engine = new RenderEngine(c.Backend, Exact);
             using var fx = new FxPass(c);
             // Item A started at 10 s: its TIME is 0 then, 2.5 s later 2.5.
             var playing = new OneItem(new ItemOnAir(a, 10_000_000_000), white);
@@ -421,7 +421,7 @@ public sealed class FxAttachTests(GlFixture gl)
         var sources = new OneItem(new ItemOnAir(item, 1_000_000_000), white);
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: true));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
             using var fx = new FxPass(c);
             var inputs = Scene.Inputs(project, 1, sources, stage) with
             {

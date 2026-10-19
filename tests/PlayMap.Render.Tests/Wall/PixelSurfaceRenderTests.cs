@@ -35,7 +35,7 @@ public class PixelSurfaceRenderTests(GlFixture gl)
         var project = Scene.Project(generator is null ? [] : [generator], [output], stage: Stage.Empty with { Surfaces = [surface], Projectors = [lamp] });
         return gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project, 1, stage: new TestStage()));
             var px = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op1", px));

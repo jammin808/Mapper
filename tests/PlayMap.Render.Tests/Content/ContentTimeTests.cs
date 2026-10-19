@@ -33,8 +33,8 @@ public class ContentTimeTests(GlFixture gl)
         var project = Scene.Project([.. generators], [.. outputs]);
         var (a, b) = gl.Run(c =>
         {
-            using var first = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
-            using var late = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var first = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var late = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
             // The first engine plays from 1 s; the second starts at 4 s. Both draw 60 frames a second to 8 s.
             for (var f = 0; f <= 420; f++)
             {
@@ -61,7 +61,7 @@ public class ContentTimeTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var retimed = new GeneratorHost(services);
             using var fresh = new GeneratorHost(services);
             var shifted = Kinds(5_000_000_000);
@@ -88,7 +88,7 @@ public class ContentTimeTests(GlFixture gl)
         const long week = 7L * 86_400 * 1_000_000_000;
         gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var late = new GeneratorHost(services);
             using var early = new GeneratorHost(services);
             var shifted = Kinds(week);
@@ -111,7 +111,7 @@ public class ContentTimeTests(GlFixture gl)
         const long origin = 3L * 86_400 * 1_000_000_000 + 333_333_337;
         gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var odd = new GeneratorHost(services);
             using var zero = new GeneratorHost(services);
             var a = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 4096).With("lifeMin", 0.5).With("lifeMax", 1), "gn_odd") with { OriginNs = origin };
@@ -150,7 +150,7 @@ public class ContentTimeTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var routed = new GeneratorHost(services);
             using var own = new GeneratorHost(services);
             var content = new ContentFrame();
@@ -175,7 +175,7 @@ public class ContentTimeTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             var marks = Scene.Gen("pattern.syncmarks", null, "gn_marks") with { OriginNs = 1_000_000_000 };
             Assert.Equal(4_010_000_000, GeneratorHost.OwnNs(marks, GeneratorFrame.At(4.01), null, out var origin));

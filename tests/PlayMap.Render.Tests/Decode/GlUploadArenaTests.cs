@@ -57,7 +57,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         try
         {
             var block = WriteBc1(arena, 11);
-            using var staged = new VideoTextureSet(device);
+            using var staged = new VideoTextureSet(device.Backend);
             Assert.True(staged.Update(Staged(block, 1)), staged.Refusal);
             Assert.Equal(1, staged.StagedUploads);
             var copy = new byte[Bytes];
@@ -65,7 +65,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
             var pin = GCHandle.Alloc(copy, GCHandleType.Pinned);
             try
             {
-                using var plain = new VideoTextureSet(device);
+                using var plain = new VideoTextureSet(device.Backend);
                 Assert.True(plain.Update(new TestLease(PixelLayout.Bc1, W, H, 1, [new FramePlane(pin.AddrOfPinnedObject(), (W / 4) * 8, W / 4, H / 4)])));
                 Assert.Equal(0, plain.StagedUploads);
                 Assert.Equal(Picture(device, plain), Picture(device, staged));
@@ -113,7 +113,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         var arena = Make(device);
         try
         {
-            using var set = new VideoTextureSet(device);
+            using var set = new VideoTextureSet(device.Backend);
             var first = WriteBc1(arena, 2);
             Assert.True(set.Update(Staged(first, 1)));
             var before = Picture(device, set);

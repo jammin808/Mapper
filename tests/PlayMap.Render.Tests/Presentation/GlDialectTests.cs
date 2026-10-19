@@ -123,7 +123,7 @@ public sealed class GlDialectTests(EsFixture es, ITestOutputHelper log)
         var project = Scene.Project([], [output]);
         es.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: c.Device.HasTimerQuery));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: c.Device.HasTimerQuery));
             engine.Render(Scene.Inputs(project, 1));
             engine.Render(Scene.Inputs(project, 1.02));
             var px = new byte[64 * 36 * 4];

@@ -92,7 +92,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         var deep = LivePlanes.IsDeep(layout);
         var got = gl.Run(c =>
         {
-            using var set = new VideoTextureSet(c.Device);
+            using var set = new VideoTextureSet(c.Backend);
             using var lease = LeaseOf(layout, frame, w, h);
             Assert.True(set.Update(lease));
             Assert.Equal(LivePlanes.HasAlpha(layout), set.HasAlpha);
@@ -140,7 +140,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         var frame = PackReference.Pack(PixelLayout.Uyvy, rgba, w, h);
         var got = gl.Run(c =>
         {
-            using var set = new VideoTextureSet(c.Device);
+            using var set = new VideoTextureSet(c.Backend);
             using var lease = LeaseOf(PixelLayout.Uyvy, frame, w, h);
             set.Update(lease);
             return ReadFloats(c.Device, set.Picture!);
@@ -154,7 +154,7 @@ public sealed class PackUnpackTests(GlFixture gl)
     {
         var why = gl.Run(c =>
         {
-            using var set = new VideoTextureSet(c.Device);
+            using var set = new VideoTextureSet(c.Backend);
             using var lease = new ArrayLease(PixelLayout.Uyvy, 63, 4, 1, ColorMatrix.Bt709, ColorRange.Limited, (new byte[126 * 4], 126, 63, 4));
             return Assert.Throws<ArgumentException>(() => set.Update(lease)).Message;
         });
@@ -344,7 +344,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         const int w = 64, h = 36;
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             static Canvas Card(string colour) =>
                 new("cv_1", "Card", w, h, "#000000", [new Layer("ly_1", "fill", SourceRef.Solid(colour), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -445,7 +445,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         const int w = 64, h = 36;
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var card = new Canvas("cv_1", "Card", w, h, "#000000",
                 [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -510,7 +510,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         const int w = 64, h = 36;
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var card = new Canvas("cv_1", "Card", w, h, "#000000",
                 [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -573,7 +573,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         const int w = 64, h = 36;
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             using var green = c.Device.CreateTexture(1, 1, TextureFormat.Rgba8, TextureFilter.Nearest);
             c.Device.Upload(green, [0, 255, 0, 255], UploadFormat.Rgba8);
@@ -631,7 +631,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         const int w = 64, h = 36;
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             static Canvas Card(string colour) =>
                 new("cv_1", "Card", w, h, "#000000", [new Layer("ly_1", "fill", SourceRef.Solid(colour), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -690,7 +690,7 @@ public sealed class PackUnpackTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var project = Scene.Project([], [Scene.SourceOutput("op_1", SourceRef.Solid("#336699"), 64, 36)]);
             var sink = new TestSink(hold: false);
@@ -739,7 +739,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         const int w = 128, h = 72;
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var output = Scene.SourceOutput("op_1", SourceRef.Solid("#336699"), w, h);
             var project = Scene.Project([], [output]);

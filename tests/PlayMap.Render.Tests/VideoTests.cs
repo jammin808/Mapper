@@ -35,7 +35,7 @@ public class VideoTests(GlFixture gl)
 
     private (int R, int G, int B) Convert(VideoFrameLease lease) => gl.Run(c =>
     {
-        using var set = new VideoTextureSet(c.Device);
+        using var set = new VideoTextureSet(c.Backend);
         Assert.True(set.Update(lease));
         var px = Scene.ReadTexture(c.Device, set.Picture!);
         Assert.Empty(c.Device.TakeErrors());
@@ -157,7 +157,7 @@ public class VideoTests(GlFixture gl)
         var project = Scene.Project([], [Scene.SourceOutput("op1", media, 64, 36)]);
         var (afterThree, afterNew) = gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             for (var f = 0; f < 3; f++)
                 engine.Render(Scene.Inputs(project, 1 + f / 60.0, sources));
             var three = engine.VideoUploads;

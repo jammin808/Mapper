@@ -4,6 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Generators.Skia;
 using PlayMap.Render.Gl;
+using PlayMap.Render.Tests.Rhi;
 
 namespace PlayMap.Render.Tests;
 
@@ -198,7 +199,7 @@ public class GeneratorTests(GlFixture gl)
     {
         var rises = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             var g = Scene.Gen("pattern.motion", ParamSet.Empty.With("variant", "flash"));
             var count = 0;
@@ -237,7 +238,7 @@ public class GeneratorTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             var bad = new Generator("gn_x", "Broken", "pattern.nonsense", ParamSet.Empty);
             host.BeginFrame(1);
@@ -279,11 +280,15 @@ public class GeneratorTests(GlFixture gl)
             {
                 var d = c.Device;
                 using var target = d.CreateRenderTarget(w, h, TextureFormat.Rgba8);
-                var p = d.Program(kindId);
-                FractalGenerator.Apply(p, view, palette, w, h);
-                d.BindTarget(target);
-                d.SetBlend(BlendMode.Opaque);
-                d.DrawFullscreen(p);
+                var program = c.Backend.Programs.Id(kindId);
+                BackendFrames.Run(c.Backend, list =>
+                {
+                    list.BeginPass(target, PassDesc.Keep);
+                    var draw = list.Draw(program, DrawState.Opaque);
+                    FractalGenerator.Apply(draw, view, palette, w, h);
+                    draw.Fullscreen();
+                    list.EndPass();
+                });
                 return Pixels.Read(d, target);
             });
             double sum = 0;
@@ -326,11 +331,15 @@ public class GeneratorTests(GlFixture gl)
             {
                 var d = c.Device;
                 using var target = d.CreateRenderTarget(w, h, TextureFormat.Rgba8);
-                var p = d.Program(ReactiveGenerator.ProgramFor(scene));
-                ReactiveGenerator.Apply(p, view, palette, w, h);
-                d.BindTarget(target);
-                d.SetBlend(BlendMode.Opaque);
-                d.DrawFullscreen(p);
+                var program = c.Backend.Programs.Id(ReactiveGenerator.ProgramFor(scene));
+                BackendFrames.Run(c.Backend, list =>
+                {
+                    list.BeginPass(target, PassDesc.Keep);
+                    var draw = list.Draw(program, DrawState.Opaque);
+                    ReactiveGenerator.Apply(draw, view, palette, w, h);
+                    draw.Fullscreen();
+                    list.EndPass();
+                });
                 return Pixels.Read(d, target);
             });
             double sum = 0;

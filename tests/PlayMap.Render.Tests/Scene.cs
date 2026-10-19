@@ -47,7 +47,7 @@ public static class Scene
     /// <summary>A generator rendered once at a size and read back.</summary>
     internal static byte[] RenderGenerator(GlDevice d, Generator g, int w, int h, GeneratorFrame frame, GeneratorContext? context = null)
     {
-        using var services = new RenderServices(d);
+        using var services = new RenderServices(d.Backend);
         using var host = new GeneratorHost(services);
         host.BeginFrame(1);
         var tex = host.Render(g, w, h, context ?? new GeneratorContext("Output 1", 1, "#FF8800", true), frame);

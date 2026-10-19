@@ -84,7 +84,7 @@ public class AlignRenderTests(GlFixture gl)
         {
             // The context is shared: what an earlier test left in the debug log is not this render's.
             _ = c.Device.TakeErrors();
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var measured = stage(c.Device);
             var inputs = Scene.Inputs(project, 1, sources) with
             {
@@ -105,7 +105,7 @@ public class AlignRenderTests(GlFixture gl)
         const int columns = 33, rows = 19;
         var grid = Grid(columns, rows, Keystone, (i, _) => i < columns - 3);
         var px = Render(Scene.SourceOutput("op1", Media, W, H), Still(picture),
-            d => MeasuredStage.Upload(d, grid, null, Vector4.One, MeasuredStage.ContentGamma, 1));
+            d => MeasuredStage.Upload(d.Backend, grid, null, Vector4.One, MeasuredStage.ContentGamma, 1));
         var compared = 0;
         var blackSeen = 0;
         for (var y = 0; y < H; y++)
@@ -134,9 +134,9 @@ public class AlignRenderTests(GlFixture gl)
         var picture = Noise();
         var output = Scene.SourceOutput("op1", Media, W, H);
         var plain = Render(output, Still(picture), _ => null);
-        var gammaOnly = Render(output, Still(picture), d => MeasuredStage.Upload(d, null, null, Vector4.One, MeasuredStage.ContentGamma, 1));
+        var gammaOnly = Render(output, Still(picture), d => MeasuredStage.Upload(d.Backend, null, null, Vector4.One, MeasuredStage.ContentGamma, 1));
         var identityGrid = Render(output, Still(picture),
-            d => MeasuredStage.Upload(d, Grid(33, 19, (s, t) => new Vec2d(s, t)), null, Vector4.One, MeasuredStage.ContentGamma, 1));
+            d => MeasuredStage.Upload(d.Backend, Grid(33, 19, (s, t) => new Vec2d(s, t)), null, Vector4.One, MeasuredStage.ContentGamma, 1));
         Assert.Equal(plain, gammaOnly);
         Assert.Equal(plain, identityGrid);
         for (var i = 0; i < W * H; i++)
@@ -148,18 +148,18 @@ public class AlignRenderTests(GlFixture gl)
     {
         var blendHalf = (4, 4, Enumerable.Range(0, 16).SelectMany(_ => new[] { 0.5f, 0f, 1f }).ToArray());
         var white = Render(Scene.SourceOutput("op1", SourceRef.Solid("#FFFFFF"), W, H), null,
-            d => MeasuredStage.Upload(d, null, blendHalf, Vector4.One, 2.6f, 1));
+            d => MeasuredStage.Upload(d.Backend, null, blendHalf, Vector4.One, 2.6f, 1));
         var want = (int)Math.Round(MeasuredStage.Reference(1f, (0.5f, 0f), 1f, 2.6f) * 255);
         Assert.InRange(want, 194, 197);
         Pixels.Near((want, want, want), Pixels.At(white, W, 30, 20), 1, "half the white in light through γ 2.6");
 
         var pedestal = (4, 4, Enumerable.Range(0, 16).SelectMany(_ => new[] { 1f, 0.01f, 1f }).ToArray());
         var black = Render(Scene.SourceOutput("op1", SourceRef.Solid("#000000"), W, H), null,
-            d => MeasuredStage.Upload(d, null, pedestal, Vector4.One, 2.2f, 1));
+            d => MeasuredStage.Upload(d.Backend, null, pedestal, Vector4.One, 2.2f, 1));
         var lifted = (int)Math.Round(MeasuredStage.Reference(0f, (1f, 0.01f), 1f, 2.2f) * 255);
         Pixels.Near((lifted, lifted, lifted), Pixels.At(black, W, 30, 20), 1, "a pedestal of 1 % of the white");
         var off = Render(Scene.SourceOutput("op1", SourceRef.Solid("#000000"), W, H), null,
-            d => MeasuredStage.Upload(d, null, pedestal, Vector4.One, 2.2f, 0));
+            d => MeasuredStage.Upload(d.Backend, null, pedestal, Vector4.One, 2.2f, 0));
         Assert.Equal((0, 0, 0), Pixels.At(off, W, 30, 20));
     }
 
@@ -167,7 +167,7 @@ public class AlignRenderTests(GlFixture gl)
     public void AMeasuredGammaAloneTurnsTheContentsTransferIntoTheOutputs()
     {
         var px = Render(Scene.SourceOutput("op1", SourceRef.Solid("#808080"), W, H), null,
-            d => MeasuredStage.Upload(d, null, null, Vector4.One, 2.6f, 1));
+            d => MeasuredStage.Upload(d.Backend, null, null, Vector4.One, 2.6f, 1));
         var want = (int)Math.Round(MeasuredStage.Reference(128 / 255f, null, 1f, 2.6f) * 255);
         Assert.InRange(want, 140, 150);
         Pixels.Near((want, want, want), Pixels.At(px, W, 20, 10), 1, "the content's 2.2 out through γ 2.6");

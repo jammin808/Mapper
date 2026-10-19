@@ -37,11 +37,11 @@ internal static class ContentGl
         throw new InvalidOperationException($"{g.Kind} did not settle in 40 frames");
     }
 
-    /// <summary>A float state attachment's bits, bottom row first.</summary>
-    public static float[] ReadState(GlDevice d, StateTarget state, int attachment)
+    /// <summary>A float state attachment's bits, in the target's rows as GL reads them.</summary>
+    public static float[] ReadState(GlDevice d, RenderTarget state, int attachment)
     {
         var data = new float[state.Width * state.Height * 4];
-        d.ReadStateFloat(state, attachment, data);
+        d.Backend.ReadNowFloat(state, attachment, data);
         return data;
     }
 }

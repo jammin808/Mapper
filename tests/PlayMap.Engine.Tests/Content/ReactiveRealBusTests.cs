@@ -52,7 +52,7 @@ public sealed class ReactiveRealBusTests
         var frame = new ContentFrame();
         var pictures = OnGl(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
             byte[][] Draw(long t, bool hears = true)
             {
                 bus.BeginFrame(t);

@@ -3,6 +3,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Gl;
+using PlayMap.Render.Tests.Rhi;
 using SkiaSharp;
 using Xunit.Abstractions;
 
@@ -26,17 +27,21 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
         var g = Scene.Gen(kind, ParamSet.Empty.With("renderScale", 1.0).With("steps", 160), "gn_probe");
         var (gpu, cpu) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             ContentGl.Draw(host, g, 3, 1, W, H);
             var r = (RaymarchGenerator)host.RendererOf(g.Id, W, H)!;
             var camera = r.Camera(3, EffectSurge.Zero);
-            using var target = c.Device.CreateRenderTarget(W, H, TextureFormat.Rgba32F, filter: TextureFilter.Nearest);
-            var p = c.Device.Program("content.raymarch");
-            r.Apply(p, camera, W, H, mode: 1);
-            c.Device.BindTarget(target);
-            c.Device.SetBlend(BlendMode.Opaque);
-            c.Device.DrawFullscreen(p);
+            using var target = c.Backend.CreateTarget(new TargetDesc(W, H, TextureFormat.Rgba32F, Filter: TextureFilter.Nearest));
+            var march = c.Backend.Programs.Id("content.raymarch");
+            BackendFrames.Run(c.Backend, list =>
+            {
+                list.BeginPass(target, PassDesc.Keep);
+                var draw = list.Draw(march, DrawState.Opaque);
+                r.Apply(draw, camera, W, H, mode: 1);
+                draw.Fullscreen();
+                list.EndPass();
+            });
             var depth = new float[W * H * 4];
             c.Device.ReadPixelsFloat(target, depth);
             var gpuProbes = new List<float>();
@@ -77,7 +82,7 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
         var g = Scene.Gen(kind, ParamSet.Empty.With("renderScale", 1.0), "gn_golden");
         var bgra = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             return Scene.ReadTexture(c.Device, ContentGl.Draw(host, g, 2, 1, W, H));
         });
@@ -124,7 +129,7 @@ public class FractalTests(GlFixture gl, ITestOutputHelper log)
         Assert.Equal((128, 72), RaymarchGenerator.InnerSize(128, 72, 3));
         var (full, half) = gl.Run(c =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(c.Backend);
             using var host = new GeneratorHost(services);
             var a = Scene.ReadTexture(c.Device, ContentGl.Draw(host, Scene.Gen("fractal.mandelbulb", ParamSet.Empty.With("renderScale", 1.0), "gn_a"), 2, 1, W, H));
             var b = Scene.ReadTexture(c.Device, ContentGl.Draw(host, Scene.Gen("fractal.mandelbulb", ParamSet.Empty.With("renderScale", 0.5), "gn_b"), 2, 2, W, H));

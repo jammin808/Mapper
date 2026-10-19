@@ -145,12 +145,12 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             Assert.True(probe is not null, "this EGL display does not import dmabufs: " + words);
             probe.Dispose();
             var layout = tenBit ? PixelLayout.P010 : PixelLayout.Nv12;
-            using var cpu = new VideoTextureSet(device);
+            using var cpu = new VideoTextureSet(device.Backend);
             Assert.True(cpu.Update(new TestLease(layout, width, height, 1, CpuPlanes(frame))));
             var expected = Read(device, cpu);
 
             var owner = new CountingOwner();
-            using var gpu = new VideoTextureSet(device);
+            using var gpu = new VideoTextureSet(device.Backend);
             Assert.True(gpu.Update(new TestLease(layout, width, height, 1, surface: Surface(frame, owner))), gpu.Refusal);
             Assert.Equal((1, 0), (gpu.Imports, gpu.ImportFailures));
             var actual = Read(device, gpu);
@@ -177,7 +177,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         {
             var device = ctx.Device;
             var owner = new CountingOwner();
-            using var set = new VideoTextureSet(device);
+            using var set = new VideoTextureSet(device.Backend);
             var shown = 0;
             for (var g = 1; g <= 12; g++)
             {
@@ -206,7 +206,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             try
             {
                 var owner = new CountingOwner();
-                using var set = new VideoTextureSet(device);
+                using var set = new VideoTextureSet(device.Backend);
                 Assert.True(set.Update(new TestLease(PixelLayout.Nv12, 256, 144, 1, surface: Surface(frame, owner, "md_a"))));
                 var before = Read(device, set);
                 var picture = set.Picture;
@@ -318,12 +318,12 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         var s = new GpuSurface { Api = GpuApi.DmaBuf, Format = GpuSurfaceFormat.Nv12, Width = w, Height = h, CodedWidth = w, CodedHeight = h, PlaneCount = 2 };
         s.Planes[0] = planes[0];
         s.Planes[1] = planes[1];
-        using var set = new VideoTextureSet(device);
+        using var set = new VideoTextureSet(device.Backend);
         Assert.True(set.Update(new TestLease(PixelLayout.Nv12, w, h, 1, surface: s)), set.Refusal);
         var handles = new[] { GCHandle.Alloc(luma, GCHandleType.Pinned), GCHandle.Alloc(chroma, GCHandleType.Pinned) };
         try
         {
-            using var cpu = new VideoTextureSet(device);
+            using var cpu = new VideoTextureSet(device.Backend);
             Assert.True(cpu.Update(new TestLease(PixelLayout.Nv12, w, h, 1,
                 [new FramePlane(handles[0].AddrOfPinnedObject(), w, w, h), new FramePlane(handles[1].AddrOfPinnedObject(), w, w / 2, h / 2)])));
             Assert.Equal(Read(device, cpu), Read(device, set));

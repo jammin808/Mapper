@@ -7,6 +7,7 @@ using PlayMap.Render.Effects;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Gl;
+using PlayMap.Render.Tests.Rhi;
 using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Effects;
@@ -55,7 +56,7 @@ public sealed class FxChainTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var fx = new FxPass(c);
             var plain = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx));
             var bypassed = Card(FxRig.Chain(FxRig.Slot("fx.invert", bypass: true), FxRig.Slot("fx.blur", id: "fx00000002", mix: 0)));
@@ -76,7 +77,7 @@ public sealed class FxChainTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var fx = new FxPass(c);
             var chained = Card(FxRig.Chain(FxRig.Slot("fx.invert"), FxRig.Slot("fx.blur", id: "fx00000002")));
             DrawCompiled(engine, fx, Inputs(chained, fx));
@@ -137,7 +138,7 @@ public sealed class FxChainTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var fx = new FxPass(c);
             using var gate = new ManualResetEventSlim(false);
             var held = 0;
@@ -208,8 +209,12 @@ public sealed class FxChainTests(GlFixture gl)
             var waited = Stopwatch.StartNew();
             for (var frame = 1L; ; frame++)
             {
-                var pass = new PassFrame(frame, 1_000_000_000, show, GeneratorFrame.At(1), d, false, false);
-                var result = fx.Layer(in pass, layer, input);
+                var at = frame;
+                var result = BackendFrames.Run(c.Backend, list =>
+                {
+                    var pass = new PassFrame(at, 1_000_000_000, show, GeneratorFrame.At(1), c.Backend, list, false, false);
+                    return fx.Layer(in pass, layer, input);
+                });
                 if (fx.Stats.TryGet("fx00000001", out var live) && live.State == FxSlotState.Ok)
                 {
                     Pixels.Near((215, 185, 155), Pixels.At(Scene.ReadTexture(d, result), W, 5, 5), 1);
@@ -227,7 +232,7 @@ public sealed class FxChainTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: true));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: true));
             using var fx = new FxPass(c);
             var chain = FxRig.Chain(FxRig.Slot("fx.blur"), FxRig.Slot("fx.feedback", id: "fx00000002"),
                 FxRig.Slot("fx.invert", id: "fx00000003", mix: 0.5, blend: FxBlend.Add), FxRig.Slot("fx.vignette", id: "fx00000004", scale: 0.5));
@@ -261,7 +266,7 @@ public sealed class FxChainTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var fx = new FxPass(c, sharedContextLane: false);
             Assert.Equal("render-thread", fx.Lane.Mode);
             var plain = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx));
@@ -313,7 +318,7 @@ public sealed class FxChainTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(GpuTiming: false));
             using var fx = new FxPass(c);
             var plain = Draw(engine, fx, Inputs(Card(FxChain.Empty), fx));
             var inputs = Inputs(Card(FxRig.Chain(FxRig.Slot("fx.invert"))), fx);

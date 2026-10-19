@@ -3,7 +3,6 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gl;
 using PlayMap.Render.Video;
 
 namespace PlayMap.Render.Engine;
@@ -62,9 +61,13 @@ internal sealed class SourceResolver : IDisposable
         }
     }
 
+    /// <summary>A mix's state: the mixed picture written whole, opaque.</summary>
+    private static readonly DrawState Mixing = DrawState.Opaque;
+
     private readonly RenderServices _services;
     private readonly GeneratorHost _generators;
     private readonly bool _streaming;
+    private readonly ProgramId _mix;
     private readonly Dictionary<SourceRef, VideoEntry> _videos = [];
     private readonly Dictionary<string, CanvasEntry> _canvases = new(StringComparer.Ordinal);
     private readonly Dictionary<SourceRef, CanvasEntry> _mixes = [];
@@ -92,6 +95,7 @@ internal sealed class SourceResolver : IDisposable
         _services = services;
         _generators = generators;
         _streaming = streaming;
+        _mix = services.Device.Programs.Id("mix");
     }
 
     /// <summary>Video uploads done since the resolver was made (all sources).</summary>
@@ -154,6 +158,8 @@ internal sealed class SourceResolver : IDisposable
     public GpuTexture Resolve(SourceRef source, int width, int height, GeneratorContext context)
     {
         ArgumentNullException.ThrowIfNull(source);
+        // Inside the engine's frame its list; asked outside one (a pass's tap between frames, a test), a frame of its own.
+        using var scope = _services.Frame();
         switch (source.Kind)
         {
             case SourceKind.None:
@@ -242,21 +248,20 @@ internal sealed class SourceResolver : IDisposable
         if (entry is null || entry.Target.Width != w || entry.Target.Height != h)
         {
             entry?.Dispose();
-            entry = new CanvasEntry { Target = _services.Device.CreateRenderTarget(w, h, TextureFormat.Rgba16F) };
+            entry = new CanvasEntry { Target = _services.Device.CreateTarget(new TargetDesc(w, h, TextureFormat.Rgba16F)) };
             mixes[playlist] = entry;
         }
         entry.LastUsed = _frame;
         entry.LastRendered = _frame;
         var (wf, wt) = Transitions.Weights(mix.Kind, mix.Progress);
-        var d = _services.Device;
-        d.BindTarget(entry.Target);
-        d.SetBlend(BlendMode.Opaque);
-        var p = d.Program("mix");
-        p.Set("uWeights", (float)wf, (float)wt);
-        p.Set("uGamma", (float)Transitions.Gamma);
-        d.BindSampler(p, "uFrom", 0, from);
-        d.BindSampler(p, "uTo", 1, to);
-        d.DrawFullscreen(p);
+        var list = _services.List;
+        using (list.Pass(entry.Target, PassDesc.Keep))
+            list.Draw(_mix, Mixing)
+                .Set("uWeights", (float)wf, (float)wt)
+                .Set("uGamma", (float)Transitions.Gamma)
+                .Texture("uFrom", from)
+                .Texture("uTo", to)
+                .Fullscreen();
         entry.Target.Color.Version++;
         return entry.Target.Color;
     }
@@ -289,11 +294,12 @@ internal sealed class SourceResolver : IDisposable
     {
         if (_project?.FindCanvas(id) is not { } canvas || canvas.Width < 1 || canvas.Height < 1)
             return null;
+        using var scope = _services.Frame();
         var canvases = _plain > 0 ? _plainCanvases : _canvases;
         if (!canvases.TryGetValue(id, out var entry) || entry.Target.Width != canvas.Width || entry.Target.Height != canvas.Height)
         {
             entry?.Dispose();
-            entry = new CanvasEntry { Target = _services.Device.CreateRenderTarget(canvas.Width, canvas.Height, TextureFormat.Rgba16F) };
+            entry = new CanvasEntry { Target = _services.Device.CreateTarget(new TargetDesc(canvas.Width, canvas.Height, TextureFormat.Rgba16F)) };
             canvases[id] = entry;
         }
         entry.LastUsed = _frame;
@@ -344,42 +350,48 @@ internal sealed class SourceResolver : IDisposable
             textures[count] = drawn;
             order[count++] = i;
         }
-        var d = _services.Device;
-        d.BindTarget(target);
         // A first layer that covers the whole canvas, opaque, at full opacity, replaces the background: it is
         // drawn without blending and the clear is skipped (the common one-layer canvas costs one pass). A layer a pass
         // handed another picture is not known opaque (an effect may write alpha), so the background goes under it.
-        var first = 0;
-        if (count > 0 && !firstPassed && CoversOpaquely(canvas, canvas.Layers[order[0]]))
+        var covered = count > 0 && !firstPassed && CoversOpaquely(canvas, canvas.Layers[order[0]]);
+        var list = _services.List;
+        using (list.Pass(target, covered ? PassDesc.Keep : Background(canvas)))
         {
-            d.SetBlend(BlendMode.Opaque);
-            var r0 = canvas.Layers[order[0]].Rect;
-            _services.DrawQuad(target, textures[0], (float)r0.X, (float)r0.Y, (float)r0.W, (float)r0.H, 0, 1);
-            textures[0] = null!;
-            first = 1;
-        }
-        else
-        {
-            var bg = ColorRgb.Parse(canvas.Background, ColorRgb.Black);
-            d.Clear(bg.R, bg.G, bg.B, 1);
-        }
-        for (var k = first; k < count; k++)
-        {
-            var layer = canvas.Layers[order[k]];
-            var (blend, mode) = layer.Blend switch
+            var first = 0;
+            if (covered)
             {
-                LayerBlend.Add => (BlendMode.Add, 1),
-                LayerBlend.Multiply => (BlendMode.Multiply, 2),
-                LayerBlend.Screen => (BlendMode.Screen, 3),
-                _ => (BlendMode.Normal, 0),
-            };
-            d.SetBlend(blend);
-            var r = layer.Rect;
-            _services.DrawQuad(target, textures[k], (float)r.X, (float)r.Y, (float)r.W, (float)r.H, mode, (float)Math.Clamp(layer.Opacity, 0, 1));
-            textures[k] = null!;
+                var r0 = canvas.Layers[order[0]].Rect;
+                _services.DrawQuad(list, target, textures[0], (float)r0.X, (float)r0.Y, (float)r0.W, (float)r0.H, 0, 1, in Covering);
+                textures[0] = null!;
+                first = 1;
+            }
+            for (var k = first; k < count; k++)
+            {
+                var layer = canvas.Layers[order[k]];
+                var (blend, mode) = layer.Blend switch
+                {
+                    LayerBlend.Add => (BlendMode.Add, 1),
+                    LayerBlend.Multiply => (BlendMode.Multiply, 2),
+                    LayerBlend.Screen => (BlendMode.Screen, 3),
+                    _ => (BlendMode.Normal, 0),
+                };
+                var r = layer.Rect;
+                _services.DrawQuad(list, target, textures[k], (float)r.X, (float)r.Y, (float)r.W, (float)r.H, mode,
+                    (float)Math.Clamp(layer.Opacity, 0, 1), FrameLists.Quads(blend));
+                textures[k] = null!;
+            }
         }
-        d.SetBlend(BlendMode.Opaque);
         target.Color.Version++;
+    }
+
+    /// <summary>A covering first layer's state: drawn without blending.</summary>
+    private static readonly DrawState Covering = FrameLists.Quads(BlendMode.Opaque);
+
+    /// <summary>A pass that clears the canvas to its background first.</summary>
+    private static PassDesc Background(Canvas canvas)
+    {
+        var bg = ColorRgb.Parse(canvas.Background, ColorRgb.Black);
+        return FrameLists.Clear(bg.R, bg.G, bg.B, 1);
     }
 
     private readonly GpuTexture[]?[] _layerTextures = new GpuTexture[MaxCanvasDepth][];
@@ -403,7 +415,7 @@ internal sealed class SourceResolver : IDisposable
         {
             entry.LastAcquired = _frame;
             using var lease = _provider.Acquire(source, _leaderNs);
-            if (lease is not null && entry.Set.Update(lease))
+            if (lease is not null && entry.Set.Update(lease, _services.List))
                 VideoUploads++;
         }
         return entry.Set.Picture;
@@ -417,8 +429,8 @@ internal sealed class SourceResolver : IDisposable
         if (_colors.TryGetValue(hex, out var tex))
             return tex;
         var c = ColorRgb.Parse(hex, ColorRgb.Black);
-        tex = _services.Device.CreateTexture(1, 1, TextureFormat.Rgba8, TextureFilter.Nearest);
-        _services.Device.Upload(tex, [c.R8, c.G8, c.B8, 255], UploadFormat.Rgba8);
+        tex = _services.Device.CreateTexture(new TextureDesc(1, 1, TextureFormat.Rgba8, FrameLists.Uploaded, TextureFilter.Nearest));
+        _services.List.Upload(tex, [c.R8, c.G8, c.B8, 255], UploadFormat.Rgba8);
         _colors[hex] = tex;
         return tex;
     }

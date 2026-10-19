@@ -5,7 +5,6 @@ using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Passes;
 
@@ -31,12 +30,15 @@ public sealed class OverlayPass : IFramePass
         new(1, 4, Floats * 4, 8),
     ];
 
+    /// <summary>The overlay's state: straight-alpha triangles over the picture, no depth, no culling.</summary>
+    private static readonly DrawState Shapes = new(BlendMode.Normal, DepthMode.Off, CullMode.None, Topology.Triangles);
+
     private sealed class Entry : IDisposable
     {
         public required GpuBuffer Buffer { get; init; }
-        public required VertexArray Vao { get; init; }
+        public required GpuMesh Mesh { get; init; }
         public required GpuBuffer CursorBuffer { get; init; }
-        public required VertexArray CursorVao { get; init; }
+        public required GpuMesh CursorMesh { get; init; }
         public Project? Project;
         public OverlayState? State;
         public Output? Output;
@@ -47,14 +49,15 @@ public sealed class OverlayPass : IFramePass
 
         public void Dispose()
         {
-            Vao.Dispose();
+            Mesh.Dispose();
             Buffer.Dispose();
-            CursorVao.Dispose();
+            CursorMesh.Dispose();
             CursorBuffer.Dispose();
         }
     }
 
-    private readonly GlDevice _device;
+    private readonly IGpuDevice _device;
+    private readonly ProgramId _shapes;
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly List<string> _stale = [];
     private float[] _scratch = new float[Floats * 1024];
@@ -63,10 +66,11 @@ public sealed class OverlayPass : IFramePass
     private ImmutableArray<WallCursor> _cursors;
     private bool _armed;
 
-    public OverlayPass(GlDevice device)
+    public OverlayPass(IGpuDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
         _device = device;
+        _shapes = device.Programs.Id("overlay.shapes");
     }
 
     public string Name => "overlay";
@@ -129,16 +133,16 @@ public sealed class OverlayPass : IFramePass
             return;
         if (!_entries.TryGetValue(output.Id, out var e))
         {
-            var buffer = _device.CreateBuffer(BufferKind.Vertex);
+            var buffer = _device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
             _device.SetBufferData<float>(buffer, new float[Floats * 3]);
-            var cursors = _device.CreateBuffer(BufferKind.Vertex);
+            var cursors = _device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
             _device.SetBufferData<float>(cursors, new float[Floats * 3]);
             e = new Entry
             {
                 Buffer = buffer,
-                Vao = _device.CreateVertexArray(Layout, buffer),
+                Mesh = _device.CreateMesh(Layout, buffer),
                 CursorBuffer = cursors,
-                CursorVao = _device.CreateVertexArray(Layout, cursors),
+                CursorMesh = _device.CreateMesh(Layout, cursors),
             };
             _entries[output.Id] = e;
         }
@@ -146,7 +150,7 @@ public sealed class OverlayPass : IFramePass
         if (!ReferenceEquals(e.Project, frame.Project) || !ReferenceEquals(e.State, _state) || !ReferenceEquals(e.Output, output))
         {
             Build(frame.Project, _state!, output, final.Width, final.Height);
-            _device.SetBufferData<float>(e.Buffer, _scratch.AsSpan(0, _count * Floats), dynamic: false);
+            _device.SetBufferData<float>(e.Buffer, _scratch.AsSpan(0, _count * Floats));
             (e.Project, e.State, e.Output, e.Count) = (frame.Project, _state, output, _count);
             Builds++;
         }
@@ -164,20 +168,18 @@ public sealed class OverlayPass : IFramePass
         }
         if (e.Count == 0 && e.CursorCount == 0)
             return;
-        _device.BindTarget(final);
-        _device.SetBlend(BlendMode.Normal);
-        _device.SetDepth(false, false);
-        _device.SetCull(CullMode.None);
-        var p = _device.Program("overlay.shapes");
-        p.Set("uTarget", (float)final.Width, (float)final.Height);
-        if (e.Count > 0)
-            _device.Draw(p, e.Vao, PrimitiveKind.Triangles, e.Count);
-        if (e.CursorCount > 0)
+        var list = frame.List;
+        using (list.Pass(final, PassDesc.Keep))
         {
-            _device.Draw(p, e.CursorVao, PrimitiveKind.Triangles, e.CursorCount);
-            _drawnCursors = e.Cursors;
-            if (_drawnCount < MaxDrawnOutputs)
-                _drawnOutputs[_drawnCount++] = output.Id;
+            if (e.Count > 0)
+                list.Draw(_shapes, Shapes).Set("uTarget", (float)final.Width, (float)final.Height).Vertices(e.Mesh, e.Count);
+            if (e.CursorCount > 0)
+            {
+                list.Draw(_shapes, Shapes).Set("uTarget", (float)final.Width, (float)final.Height).Vertices(e.CursorMesh, e.CursorCount);
+                _drawnCursors = e.Cursors;
+                if (_drawnCount < MaxDrawnOutputs)
+                    _drawnOutputs[_drawnCount++] = output.Id;
+            }
         }
         final.Color.Version++;
     }
