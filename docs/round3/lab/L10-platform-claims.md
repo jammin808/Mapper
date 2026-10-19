@@ -1,7 +1,7 @@
 # L10 — the platform's claims (wp3-platform)
 
 **Status: not run** (no lab this round, D15). Until it runs, every default whose cause is not documented stays off: the GPU
-scheduling class is NORMAL, and nothing is claimed of the GC.
+scheduling class is NORMAL, CPU sets are AUTO (never ONE-CACHE), and nothing is claimed of the GC.
 
 **Machines.** An NVIDIA RTX PRO node, a Radeon RDNA 3 or 4 node, an Intel Arc node, a hybrid Intel CPU (performance and efficiency
 cores), a dual-CCD X3D CPU. Each on Windows 11 24H2 or later, the build under test installed by its MSI, outputs on real displays.
@@ -23,8 +23,8 @@ in one commit that cites this record; the high-resolution timer's lateness at or
 4. Background load during every run: a 4K H.264 export in another process at normal priority, and a file copy to the media volume.
 5. On the hybrid Intel CPU: the critical threads' processors from ETW (`Microsoft-Windows-Kernel-Process` context switches) — the
    render, present and decode threads on the performance cores with `CPUSETS AUTO`, anywhere with `OFF`.
-6. On the dual-CCD X3D CPU: the same with the critical pool confined to the cache CCD by hand (`SetThreadSelectedCpuSets` from a
-   test build), recorded beside AUTO.
+6. On the dual-CCD X3D CPU: the same with `MACHINE SET CPUSETS ONE-CACHE` (the critical pool confined to the highest efficiency
+   class's first last-level cache; confirm from `MACHINE` that it is the cache CCD), recorded beside AUTO.
 7. The timer: `machine.platform.timer.lateP99Us` with `TIMER HIGH` and `DEFAULT`, beside CI's numbers (PLATFORM.md, Time).
 
 ## Record

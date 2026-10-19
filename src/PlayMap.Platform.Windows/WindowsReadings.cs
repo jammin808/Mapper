@@ -76,7 +76,7 @@ internal static unsafe class WindowsReadings
                     break;
                 // Type 0: CpuSetInformation.
                 if (entry->Type == 0 && at + 32 <= returned)
-                    list.Add(new CpuSetInfo(entry->Id, entry->LogicalProcessorIndex + (64 * entry->Group), entry->EfficiencyClass));
+                    list.Add(new CpuSetInfo(entry->Id, entry->LogicalProcessorIndex + (64 * entry->Group), entry->EfficiencyClass, entry->LastLevelCacheIndex));
                 at += entry->Size;
             }
         }

@@ -22,7 +22,8 @@ public sealed record MachineSettings
     /// <summary>high | normal: the process's priority class (realtime never).</summary>
     public string Process { get; init; } = "high";
 
-    /// <summary>auto | off: the critical threads on the highest efficiency class's CPU sets, the background on the rest.</summary>
+    /// <summary>auto | off | one-cache: the critical threads on the highest efficiency class's CPU sets, the background on the rest;
+    /// ONE-CACHE confines the critical threads further, to that class's first last-level cache domain (a dual-CCD CPU's first CCD).</summary>
     public string CpuSets { get; init; } = "auto";
 
     /// <summary>normal | high | realtime: the process's GPU scheduling class.</summary>

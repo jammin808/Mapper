@@ -87,7 +87,7 @@ public sealed class PlatformPolicyTests
     {
         Assert.False(PlatformPolicy.TrySet(MachineSettings.Default, "TURBO", "ON", true, out _, out var words));
         Assert.Equal(PlatformPolicy.Syntax, words);
-        Assert.Equal("MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC DEFAULT|SHOW | AWAKE ON|OFF",
+        Assert.Equal("MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF|ONE-CACHE | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC DEFAULT|SHOW | AWAKE ON|OFF",
             PlatformPolicy.Syntax);
         Assert.False(PlatformPolicy.TrySet(MachineSettings.Default, "QOS", "LOW", true, out _, out words));
         Assert.Equal("MACHINE SET QOS HIGH|AUTO", words);
