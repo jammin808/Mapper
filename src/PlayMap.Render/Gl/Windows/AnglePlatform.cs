@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Presentation;
 
 namespace PlayMap.Render.Gl.Windows;
@@ -139,6 +140,8 @@ public sealed class AnglePlatform : IGlPlatform
         _angle = angle;
         Context = context;
         _share = new D3D11Share(adapter, angle, context, _deviceLock);
+        // Decoders hand their Direct3D 11 frames to the device's imports through the platform's own share.
+        context.Device.ImportShare = _share;
     }
 
     /// <summary>Brings the platform up stage by stage (<see cref="DxgiStartStage"/>); throws <see cref="GpuPlatformStartException"/>
@@ -199,6 +202,12 @@ public sealed class AnglePlatform : IGlPlatform
     public PresentPath Path => PresentPath.DxgiFlip;
 
     public IGpuShare Share => _share;
+
+    /// <summary>ANGLE's EGL is the platform's own library (no libEGL a binding probe would find): the platform says its binding.</summary>
+    public string ImportBinding => "angle";
+
+    /// <summary>The GL HAP encoder on ANGLE's context.</summary>
+    public IHapBlockEncoder? CreateHapEncoder() => new GlHapEncoder(Context);
 
     /// <summary>The device's lock: decoders (FFmpeg's lock callbacks) and texture sharers take it around their immediate-context work;
     /// the render loop holds it around each frame and every window lets go of it while it waits on its swap chain.</summary>

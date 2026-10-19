@@ -11,6 +11,8 @@ using PlayMap.Render.Gl;
 using PlayMap.Render.Hap;
 using PlayMap.Render.Video;
 
+using PlayMap.Render.Tests.Rhi;
+
 namespace PlayMap.Render.Tests.Hap;
 
 /// <summary>HAP on llvmpipe (Mesa exposes S3TC, RGTC and BPTC in its 3.3 core context): (a) raw planes of every block family
@@ -76,7 +78,8 @@ public class HapRenderTests(GlFixture gl)
         if (tex2 is not null)
             Upload(d, tex2, second!);
         using var rt = d.CreateRenderTarget(w, h, target, filter: TextureFilter.Nearest);
-        HapPass.Draw(d, rt, tex, tex2, mode, scale, transfer);
+        var b = d.Backend;
+        BackendFrames.Run(b, list => HapPass.Draw(list, b.Programs.Id("hap"), rt, tex, tex2, mode, scale, transfer));
         var px = new float[w * h * 4];
         d.ReadPixelsFloat(rt, px);
         return px;
@@ -362,7 +365,8 @@ public class HapRenderTests(GlFixture gl)
         {
             using var set = new VideoTextureSet(c.Backend);
             // An ES 3.0 context with S3TC and RGTC and no BPTC (an ANGLE-like list).
-            set.Caps = GlCaps.From("es300", 3, 0, new HashSet<string> { "GL_EXT_texture_compression_s3tc", "GL_EXT_texture_compression_rgtc" });
+            set.Features = GlBackend.WithCaps(c.Backend.Features,
+                GlCaps.From("es300", 3, 0, new HashSet<string> { "GL_EXT_texture_compression_s3tc", "GL_EXT_texture_compression_rgtc" }));
             var e = Assert.Throws<NotSupportedException>(() => set.Update(lease));
             return (e.Message, set.Refusal, set.Picture);
         });

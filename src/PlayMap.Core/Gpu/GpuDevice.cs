@@ -42,6 +42,20 @@ public sealed record GpuFeatures(FrozenDictionary<TextureFormat, FormatSupport> 
 {
     /// <summary>The largest width or height of a texture or target, texels (Direct3D 12's floor where a device says nothing).</summary>
     public int MaxTextureSize { get; init; } = 16384;
+
+    /// <summary>Whether the device reads targets back to the CPU (<see cref="IReadbackRing"/>, <see cref="IHeldReadbackRing"/>): an
+    /// OpenGL ES 3.0 context that reads no BGRA reads none, and a reader of such a device says so rather than wait for reads.</summary>
+    public bool Readback { get; init; } = true;
+
+    /// <summary>Why the device lacks a format it lacks, in its own words, per format it can say it for (a block family the context
+    /// does not offer); a format missing here and absent from <see cref="Formats"/>' sampled set has no words.</summary>
+    public FrozenDictionary<TextureFormat, string> Refusals { get; init; } = FrozenDictionary<TextureFormat, string>.Empty;
+
+    /// <summary>The words that refuse sampling a format here, or null when the device samples it.</summary>
+    public string? RefusalOf(TextureFormat format) =>
+        Formats.TryGetValue(format, out var support) && support.Sampled ? null
+        : Refusals.TryGetValue(format, out var words) ? words
+        : $"this GPU samples no {format} textures";
 }
 
 /// <summary>What a device does with one format.</summary>
@@ -111,6 +125,11 @@ public interface IGpuDevice : IDisposable
     /// <summary>A read-back ring of its own for one reader (a preview, a send, an LED map) with <paramref name="slots"/> reads in
     /// flight: its reads come back in its own order, never another reader's. The reader disposes it.</summary>
     IReadbackRing CreateReadbackRing(int slots = 3);
+
+    /// <summary>A read-back ring whose reads the reader keeps in place until it lets go of them (a send's packed frames, read by the
+    /// sender's own thread from the GPU's bytes with no copy), with <paramref name="slots"/> reads in flight or held. The reader
+    /// disposes it once it holds no read.</summary>
+    IHeldReadbackRing CreateHeldReadbackRing(int slots = 4);
 
     IGpuTimers Timers { get; }
 

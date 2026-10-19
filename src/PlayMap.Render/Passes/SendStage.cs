@@ -1,7 +1,6 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Passes;
 
@@ -135,7 +134,7 @@ public sealed class SendPlanEntry
 /// frame once warm (a ring is made once per entry and retired once the plan drops it and its sender let go of every frame).</summary>
 public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 {
-    private readonly Video.PackPass _pack = new(renderer.Device.Gl);
+    private readonly Video.PackPass _pack = new(renderer.Device);
     private readonly Dictionary<SendPlanEntry, Video.SendReadbackRing> _rings = new(ReferenceEqualityComparer.Instance);
     private readonly List<SendPlanEntry> _gone = [];
     private readonly List<Video.SendReadbackRing> _retiring = [];
@@ -180,14 +179,14 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
         {
             if (!_rings.TryGetValue(entry, out var ring))
             {
-                ring = new Video.SendReadbackRing(frame.Device.Gl);
+                ring = new Video.SendReadbackRing(frame.Device);
                 _rings[entry] = ring;
             }
             var sink = entry.Sink;
             ring.Collect(sink);
             // A packed target larger than this GPU's textures is refused once, in words, as soon as the entry is seen — before any
             // receiver connects — and never thrown on the render thread.
-            if (entry.Refused.Length > 0 || TooLarge(entry, frame.Device.Gl))
+            if (entry.Refused.Length > 0 || TooLarge(entry, frame.Device))
                 continue;
             if (!entry.Due(frame.LeaderNs) || sink is null)
                 continue;
@@ -221,7 +220,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 var picture = Tap(entry, in frame, out var fit);
                 if (picture is null)
                     entry.CountBlank();
-                packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, fit, follows ? _airGain : 1f);
+                packed = _pack.Pack(frame.List, entry, picture, entry.Width, entry.Height, entry.Format, fit, follows ? _airGain : 1f);
                 entry.Stale = false;
             }
             var (bytes, stride) = Video.PackPass.WireShape(entry.Format, entry.Width, entry.Height);
@@ -311,10 +310,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 
     /// <summary>Whether this entry's targets (its packed target, and the picture scaled to its size) are larger than this GPU's
     /// largest texture; refuses it once, in words, when they are.</summary>
-    private static bool TooLarge(SendPlanEntry entry, Gl.GlDevice device)
+    private static bool TooLarge(SendPlanEntry entry, IGpuDevice device)
     {
         var (tw, th) = Video.PackPass.TargetSize(entry.Format, entry.Width, entry.Height);
-        var most = device.MaxTextureSize;
+        var most = device.Features.MaxTextureSize;
         if (Math.Max(Math.Max(tw, th), Math.Max(entry.Width, entry.Height)) <= most)
             return false;
         entry.Refuse(string.Create(System.Globalization.CultureInfo.InvariantCulture,

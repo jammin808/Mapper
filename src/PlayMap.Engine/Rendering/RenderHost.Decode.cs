@@ -1,19 +1,18 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Decode;
-using PlayMap.Core.Presentation;
 using PlayMap.Render.Decode;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 
 namespace PlayMap.Engine.Rendering;
 
-/// <summary>wp2-decode's and wp2-zerocopy's hooks into the render host. When the context comes, the first frame with an engine
-/// makes the context's <see cref="DecodeContext"/>: the share decoders open with (a dmabuf share on an EGL context that imports
-/// dmabufs, else the platform's own — wp2-d3d11's D3D11 share on Windows), whether zero-copy is ready and why not, and the upload
-/// arena (<c>decode.uploadArenaMb</c>); the engine is told the block families, the binding, the share and the arena (the media
-/// backend opens decoders for them). Each frame the arena fences the blocks returned since the last one. When the context goes,
-/// the engine is told first (sources stop writing into the arena and let go of frames in it), then the arena is unmapped. Render
-/// thread; nothing allocates per frame once warm.</summary>
+/// <summary>wp2-decode's and wp2-zerocopy's hooks into the render host. When the device comes, the first frame with an engine
+/// makes its <see cref="DecodeContext"/>: the share decoders open with (the platform's imports where it opens any — a dmabuf share on
+/// an EGL context that imports dmabufs — else the platform's own, the D3D11 share of the DXGI path on Windows), whether zero-copy is
+/// ready and why not, and the device's upload arena (<c>decode.uploadArenaMb</c>, opened through its upload ring); the engine is told
+/// the block families, the binding, the share and the arena (the media backend opens decoders for them). Every submit of the device
+/// fences the arena's returned blocks. When the device goes, the engine is told first (sources stop writing into the arena and let go
+/// of frames in it), then the arena is closed. Render thread; nothing allocates per frame once warm.</summary>
 public sealed partial class RenderHost
 {
     // The families the context samples (−1: no context) and what the engine was last told (−2: nothing yet); the window-system
@@ -21,7 +20,9 @@ public sealed partial class RenderHost
     private volatile int _decodeFormats = -1;
     private int _decodeSent = -2;
     private volatile string _decodeBinding = "";
-    private GlDevice? _decodeDevice;
+#pragma warning disable CA2213 // The renderer's device: its arena is closed by OnContextLostDecode on this thread, the device goes with the platform.
+    private IGpuDevice? _decodeDevice;
+#pragma warning restore CA2213
     private DecodeContext? _decodeContext;
 
     partial void ComposeDecode(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs)
@@ -29,10 +30,8 @@ public sealed partial class RenderHost
         if (_decodeDevice is { } device && _decodeContext is null)
         {
             _decodeContext = MakeDecodeContext(device, engine.Services.Settings.Decode.UploadArenaMb);
-            device.DecodeContext = _decodeContext;
             _decodeSent = -2;
         }
-        _decodeContext?.Arena?.EndFrame();
         var formats = _decodeFormats;
         if (formats == _decodeSent)
             return;
@@ -40,7 +39,7 @@ public sealed partial class RenderHost
         engine.DecodeRenderer(formats < 0 ? null : (BlockFormats)formats, _decodeBinding, formats < 0 ? null : _decodeContext);
     }
 
-    private DecodeContext MakeDecodeContext(GlDevice device, int arenaMb)
+    private DecodeContext MakeDecodeContext(IGpuDevice device, int arenaMb)
     {
         var platform = _platform?.Share;
         IGpuShare? share = platform;
@@ -50,17 +49,17 @@ public sealed partial class RenderHost
             // Decoders go on the renderer's own device: ready when it was made with video support and multithread protection.
             facts = DecodeLadder.Platform(platform, platform.ZeroCopyWords.Length == 0, platform.ZeroCopyWords);
         }
-        else if (DmaBufShare.ForCurrentContext(platform, device.Renderer) is { } dmabuf)
+        else if (_platform?.OpenImports() is { } imports)
         {
-            share = dmabuf;
-            facts = DecodeLadder.Platform(dmabuf, dmabuf.Ready, dmabuf.Words);
+            share = imports;
+            facts = DecodeLadder.Platform(imports, imports.ZeroCopyWords.Length == 0, imports.ZeroCopyWords);
         }
         else
         {
             var words = NoImportWords(_decodeBinding);
             facts = platform is null ? new ZeroCopyPlatform(GpuApi.None, false, false, words) : DecodeLadder.Platform(platform, false, words);
         }
-        var arena = GlUploadArena.Create(device, arenaMb, out var arenaWords);
+        var arena = device.Uploads.OpenArena(arenaMb, out var arenaWords);
         return new DecodeContext(share, facts, _decodeBinding, arena, arenaWords);
     }
 
@@ -82,11 +81,10 @@ public sealed partial class RenderHost
 
     partial void OnContextDecode(RenderEngine renderer)
     {
-        // ANGLE's EGL is the DXGI platform's own library (no libEGL a binding probe would find): its binding is said by the platform.
-        _decodeBinding = _platform?.Path == PresentPath.DxgiFlip ? "angle" : GlDevice.CurrentBinding();
-        _decodeDevice = _context!.Device;
+        _decodeBinding = _platform?.ImportBinding ?? "";
+        _decodeDevice = renderer.Device;
         _decodeContext = null;
-        _decodeFormats = (int)_decodeDevice.BlockFormats;
+        _decodeFormats = (int)_decodeDevice.Features.Blocks;
     }
 
     partial void OnContextLostDecode()
@@ -98,9 +96,7 @@ public sealed partial class RenderHost
             // Sources let go of the arena before its memory goes (UseRenderer returns once none is writing into it).
             engine.DecodeRenderer(null);
         }
-        if (_decodeDevice is { } device)
-            device.DecodeContext = null;
-        _decodeContext?.Arena?.Dispose();
+        _decodeDevice?.Uploads.CloseArena();
         _decodeContext = null;
         _decodeDevice = null;
     }

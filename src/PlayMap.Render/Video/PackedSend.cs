@@ -2,16 +2,25 @@ using System.Numerics;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gl;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Video;
 
-/// <summary>One read-back of a packed send frame, handed to the sender as a <see cref="SendFrame"/>: its bytes are the pack buffer's
-/// mapped memory, valid until <see cref="Release"/> (any thread, once). The ring unmaps the buffer on the render thread at its next
-/// collect after the release, so the sender reads the GPU's bytes in place and the render thread copies nothing.</summary>
+/// <summary>One read-back of a packed send frame, handed to the sender as a <see cref="SendFrame"/>: its bytes are the read-back's
+/// own memory in place, valid until <see cref="Release"/> (any thread, once), which hands the read's slot back to its ring — the ring
+/// frees it on the render thread at its next collect, so the sender reads the GPU's bytes in place and the render thread copies
+/// nothing.</summary>
 public sealed class ReadbackFrame : SendFrame
 {
+    private readonly IHeldReadbackRing _ring;
+    private readonly int _slot;
     private int _released = 1;
+
+    internal ReadbackFrame(IHeldReadbackRing ring, int slot)
+    {
+        _ring = ring;
+        _slot = slot;
+    }
 
     internal void Arm(nint data, int bytes, int stride, int width, int height, SendFormat format, long leaderNs, int fpsN, int fpsD)
     {
@@ -31,26 +40,22 @@ public sealed class ReadbackFrame : SendFrame
     /// <summary>True once the sender let go (or before the frame was ever handed out).</summary>
     internal bool Released => Volatile.Read(ref _released) != 0;
 
-    public override void Release() => Volatile.Write(ref _released, 1);
+    public override void Release()
+    {
+        if (Interlocked.Exchange(ref _released, 1) == 0)
+            _ring.Release(_slot);
+    }
 }
 
-/// <summary>Reads packed send frames back without stalling the render thread: each request reads the packed target into the next free
-/// pixel-pack buffer with a fence behind it; <see cref="Collect"/> maps a buffer once its fence has passed and offers it to the sender,
-/// and the buffer stays mapped (GL allows it while that buffer is not used by GL) until the sender releases the frame — then the next
-/// collect unmaps it and frees the slot. A request with no free slot is refused (the caller counts it busy): the render thread never
-/// waits for the GPU or the network. Render thread only, except <see cref="ReadbackFrame.Release"/>.</summary>
-public sealed unsafe class SendReadbackRing : IDisposable
+/// <summary>Reads packed send frames back without stalling the render thread, through a read-back ring the sender reads in place
+/// (<see cref="IGpuDevice.CreateHeldReadbackRing"/>): each request reads the packed target into a free slot; <see cref="Collect"/>
+/// offers each finished read to the sender as a <see cref="ReadbackFrame"/>, held until the sender releases it — then the ring's next
+/// collect frees the slot. A request with no free slot is refused (the caller counts it busy): the render thread never waits for
+/// the GPU or the network. Render thread only, except <see cref="ReadbackFrame.Release"/>.</summary>
+public sealed class SendReadbackRing : IDisposable
 {
-    private enum SlotState { Free, Reading, Handed }
-
-    private sealed class Slot
+    private sealed class Wire
     {
-        public uint Buffer;
-        public int Capacity;
-        public nint Fence;
-        public SlotState State;
-        public long Sequence;
-        public int ReadBytes;
         public int FrameBytes;
         public int Stride;
         public int Width;
@@ -59,59 +64,26 @@ public sealed unsafe class SendReadbackRing : IDisposable
         public long LeaderNs;
         public int FpsN;
         public int FpsD;
-        public readonly ReadbackFrame Frame = new();
+        public required ReadbackFrame Frame { get; init; }
     }
 
-    private readonly GlDevice _device;
-    private readonly Slot[] _slots;
-    private long _sequence;
+    private readonly IHeldReadbackRing _ring;
+    private readonly Wire[] _wires;
     private bool _disposed;
 
-    public SendReadbackRing(GlDevice device, int slots = 4)
+    public SendReadbackRing(IGpuDevice device, int slots = 4)
     {
         ArgumentNullException.ThrowIfNull(device);
-        _device = device;
-        _slots = new Slot[Math.Max(2, slots)];
-        for (var i = 0; i < _slots.Length; i++)
-            _slots[i] = new Slot();
+        _ring = device.CreateHeldReadbackRing(slots);
+        _wires = new Wire[_ring.Slots];
+        for (var i = 0; i < _wires.Length; i++)
+            _wires[i] = new Wire { Frame = new ReadbackFrame(_ring, i) };
     }
 
-    /// <summary>Slots in flight on the GPU or held by the sender.</summary>
-    public int InUse
-    {
-        get
-        {
-            var n = 0;
-            foreach (var s in _slots)
-                if (s.State != SlotState.Free)
-                    n++;
-            return n;
-        }
-    }
+    /// <summary>Slots the sender holds now (handed, not released).</summary>
+    public int Handed => _ring.Held;
 
-    /// <summary>Slots the sender holds now (mapped, not released).</summary>
-    public int Handed
-    {
-        get
-        {
-            var n = 0;
-            foreach (var s in _slots)
-                if (s.State == SlotState.Handed && !s.Frame.Released)
-                    n++;
-            return n;
-        }
-    }
-
-    public bool HasFree
-    {
-        get
-        {
-            foreach (var s in _slots)
-                if (s.State == SlotState.Free)
-                    return true;
-            return false;
-        }
-    }
+    public bool HasFree => _ring.HasFree;
 
     /// <summary>Queues a read of a packed target (RGBA bytes, top row first). <paramref name="frameBytes"/> and
     /// <paramref name="stride"/> describe the wire frame the sender receives (the read may be longer: UYVA's last target row).
@@ -120,92 +92,49 @@ public sealed unsafe class SendReadbackRing : IDisposable
     {
         ArgumentNullException.ThrowIfNull(packed);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        Slot? slot = null;
-        foreach (var s in _slots)
-        {
-            if (s.State == SlotState.Free)
-            {
-                slot = s;
-                break;
-            }
-        }
-        if (slot is null)
+        if (!_ring.Request(packed, leaderNs, out var slot))
             return false;
-        var readBytes = packed.Width * packed.Height * 4;
-        if (slot.Buffer == 0 || slot.Capacity < readBytes)
-        {
-            if (slot.Buffer != 0)
-                _device.DeleteBuffer(slot.Buffer);
-            slot.Buffer = _device.CreatePixelBuffer(pack: true, readBytes);
-            slot.Capacity = readBytes;
-        }
-        _device.ReadRgbaIntoPackBuffer(packed, slot.Buffer, sixteen: false);
-        slot.Fence = _device.InsertFence();
-        slot.State = SlotState.Reading;
-        slot.Sequence = ++_sequence;
-        slot.ReadBytes = readBytes;
-        slot.FrameBytes = Math.Min(frameBytes, readBytes);
-        slot.Stride = stride;
-        slot.Width = width;
-        slot.Height = height;
-        slot.Format = format;
-        slot.LeaderNs = leaderNs;
-        slot.FpsN = fpsN;
-        slot.FpsD = fpsD;
+        var w = _wires[slot];
+        w.FrameBytes = Math.Min(frameBytes, packed.Width * packed.Height * 4);
+        w.Stride = stride;
+        w.Width = width;
+        w.Height = height;
+        w.Format = format;
+        w.LeaderNs = leaderNs;
+        w.FpsN = fpsN;
+        w.FpsD = fpsD;
         return true;
     }
 
     /// <summary>Frees the slots the sender released, then offers every finished read to the sender, oldest first (with no sender the
-    /// read is dropped and its slot freed). Never waits.</summary>
+    /// read is let go at once). Never waits.</summary>
     public int Collect(ISendSink? sink)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        foreach (var s in _slots)
-        {
-            if (s.State == SlotState.Handed && s.Frame.Released)
-            {
-                _device.UnmapPack(s.Buffer);
-                s.State = SlotState.Free;
-            }
-        }
         var offered = 0;
-        while (true)
+        while (_ring.TryTake(out var read))
         {
-            Slot? oldest = null;
-            foreach (var s in _slots)
-                if (s.State == SlotState.Reading && (oldest is null || s.Sequence < oldest.Sequence))
-                    oldest = s;
-            if (oldest is null || !_device.IsSignaled(oldest.Fence))
-                return offered;
-            _device.DeleteFence(oldest.Fence);
-            oldest.Fence = 0;
+            var w = _wires[read.Slot];
             if (sink is null)
             {
-                oldest.State = SlotState.Free;
+                _ring.Release(read.Slot);
                 continue;
             }
-            var p = _device.MapPack(oldest.Buffer, oldest.ReadBytes);
-            if (p is null)
-            {
-                oldest.State = SlotState.Free;
-                continue;
-            }
-            oldest.Frame.Arm((nint)p, oldest.FrameBytes, oldest.Stride, oldest.Width, oldest.Height, oldest.Format, oldest.LeaderNs, oldest.FpsN, oldest.FpsD);
-            oldest.State = SlotState.Handed;
-            sink.Offer(oldest.Frame);
+            w.Frame.Arm(read.Data, w.FrameBytes, w.Stride, w.Width, w.Height, w.Format, w.LeaderNs, w.FpsN, w.FpsD);
+            sink.Offer(w.Frame);
             offered++;
         }
+        return offered;
     }
 
-    /// <summary>Frees every GL object once no sender holds a frame; false (nothing freed) while one still does — the caller asks again
-    /// a frame later.</summary>
+    /// <summary>Lets the ring go once no sender holds a frame; false (nothing freed) while one still does — the caller asks again a
+    /// frame later.</summary>
     public bool TryDispose()
     {
         if (_disposed)
             return true;
-        foreach (var s in _slots)
-            if (s.State == SlotState.Handed && !s.Frame.Released)
-                return false;
+        if (_ring.Held > 0)
+            return false;
         Dispose();
         return true;
     }
@@ -215,17 +144,7 @@ public sealed unsafe class SendReadbackRing : IDisposable
         if (_disposed)
             return;
         _disposed = true;
-        foreach (var s in _slots)
-        {
-            if (s.State == SlotState.Handed)
-                _device.UnmapPack(s.Buffer);
-            _device.DeleteFence(s.Fence);
-            if (s.Buffer != 0)
-                _device.DeleteBuffer(s.Buffer);
-            s.Buffer = 0;
-            s.Fence = 0;
-            s.State = SlotState.Free;
-        }
+        _ring.Dispose();
     }
 }
 
@@ -235,10 +154,18 @@ public sealed unsafe class SendReadbackRing : IDisposable
 /// <see cref="SendFormat.Pa16"/>: w/2 × 2h and 3h, one plane row a target row, 16-bit samples as byte pairs; <see cref="SendFormat.Bgra8"/>:
 /// w × h).
 /// Each send keeps its own packed target (keyed by the caller's key), so a send that holds re-reads its last frame unchanged; the
-/// scaling targets are shared per size. Nothing is allocated per frame once warm. Render thread.</summary>
+/// scaling targets are shared per size. Every draw is a pass of its own on the frame's list. Nothing is allocated per frame once warm.
+/// Render thread.</summary>
 public sealed class PackPass : IDisposable
 {
-    private readonly GlDevice _device;
+    /// <summary>The scale and the pack write their targets whole, opaque.</summary>
+    private static readonly DrawState Drawn = DrawState.Opaque;
+
+    private static readonly PassDesc Black = FrameLists.Clear(0, 0, 0, 1);
+
+    private readonly IGpuDevice _device;
+    private readonly ProgramId _packProgram;
+    private readonly ProgramId _blit;
     private readonly Dictionary<object, RenderTarget> _packed = new(ReferenceEqualityComparer.Instance);
     // Shared per size and kept while used: a size no pack has used for KeepFrames render frames (half a minute at 60 Hz, longer than
     // any send's own period but the slowest) is let go, so a send resized while dragged leaves nothing behind.
@@ -249,10 +176,12 @@ public sealed class PackPass : IDisposable
     private readonly List<(int W, int H)> _stale = [];
     private long _frame;
 
-    public PackPass(GlDevice device)
+    public PackPass(IGpuDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
         _device = device;
+        _packProgram = device.Programs.Id("video.pack");
+        _blit = device.Programs.Id("blit");
     }
 
     /// <summary>The wire frame's bytes and its first plane's row for a send of this shape.</summary>
@@ -290,41 +219,44 @@ public sealed class PackPass : IDisposable
     };
 
     /// <summary>Scales <paramref name="picture"/> (null = black) to the send's size and packs it into the send's own target
-    /// (<paramref name="key"/>), its colour times <paramref name="gain"/> (the air's, for a send that follows it; alpha untouched);
-    /// answers the packed target to read.</summary>
-    public RenderTarget Pack(object key, GpuTexture? picture, int width, int height, SendFormat format, SendFit fit, float gain = 1f)
+    /// (<paramref name="key"/>), its colour times <paramref name="gain"/> (the air's, for a send that follows it; alpha untouched),
+    /// through the frame's <paramref name="list"/>; answers the packed target to read.</summary>
+    public RenderTarget Pack(ICommandList list, object key, GpuTexture? picture, int width, int height, SendFormat format, SendFit fit,
+        float gain = 1f)
     {
+        ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(key);
-        var source = Scale(picture, width, height, fit);
+        var source = Scale(list, picture, width, height, fit);
         var (tw, th) = TargetSize(format, width, height);
         if (!_packed.TryGetValue(key, out var target) || target.Width != tw || target.Height != th)
         {
             target?.Dispose();
-            target = _device.CreateRenderTarget(tw, th, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
+            target = _device.CreateTarget(new TargetDesc(tw, th, TextureFormat.Rgba8, Filter: TextureFilter.Nearest));
             _packed[key] = target;
         }
-        var p = _device.Program("video.pack");
-        _device.BindTarget(target);
-        _device.SetBlend(BlendMode.Opaque);
-        p.SetInt("uMode", format switch { SendFormat.Uyvy => 0, SendFormat.Uyva => 1, SendFormat.P216 or SendFormat.Pa16 => 3, _ => 2 });
-        p.SetInt("uWidth", width);
-        p.SetInt("uHeight", height);
-        p.Set("uGain", Math.Clamp(gain, 0f, 1f));
-        _device.BindSampler(p, "uPicture", 0, source);
-        _device.DrawFullscreen(p);
+        using (list.Pass(target, PassDesc.Keep))
+            list.Draw(_packProgram, Drawn)
+                .SetInt("uMode", format switch { SendFormat.Uyvy => 0, SendFormat.Uyva => 1, SendFormat.P216 or SendFormat.Pa16 => 3, _ => 2 })
+                .SetInt("uWidth", width)
+                .SetInt("uHeight", height)
+                .Set("uGain", Math.Clamp(gain, 0f, 1f))
+                .Texture("uPicture", source)
+                .Fullscreen();
         return target;
     }
 
-    private GpuTexture Scale(GpuTexture? picture, int width, int height, SendFit fit)
+    private GpuTexture Scale(ICommandList list, GpuTexture? picture, int width, int height, SendFit fit)
     {
         if (picture is null)
         {
             // One black picture per size, kept: two sends of different sizes with nothing to show make nothing per frame.
             if (!_black.TryGetValue((width, height), out var kept))
             {
-                var made = _device.CreateRenderTarget(width, height, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
-                _device.BindTarget(made);
-                _device.Clear(0, 0, 0, 1);
+                var made = _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba8, Filter: TextureFilter.Nearest));
+                using (list.Pass(made, Black))
+                {
+                    // The pass's clear is the whole of it.
+                }
                 kept = (made, 0);
             }
             _black[(width, height)] = (kept.Target, _frame);
@@ -334,11 +266,8 @@ public sealed class PackPass : IDisposable
             return picture;
         var target = _scaled.TryGetValue((width, height), out var scaled)
             ? scaled.Target
-            : _device.CreateRenderTarget(width, height, TextureFormat.Rgba16F, filter: TextureFilter.Nearest);
+            : _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F, Filter: TextureFilter.Nearest));
         _scaled[(width, height)] = (target, _frame);
-        _device.BindTarget(target);
-        _device.SetBlend(BlendMode.Opaque);
-        _device.Clear(0, 0, 0, 1);
         var src = new Vector4(0, 0, 1, 1);
         int vx = 0, vy = 0, vw = width, vh = height;
         var srcAspect = picture.Width / (double)picture.Height;
@@ -369,12 +298,9 @@ public sealed class PackPass : IDisposable
                 src = new Vector4(0, (1 - keep) / 2, 1, keep);
             }
         }
-        _device.SetViewport(vx, vy, Math.Max(1, vw), Math.Max(1, vh));
-        var p = _device.Program("blit");
-        p.Set("uSrc", src);
-        _device.BindSampler(p, "uTex", 0, picture);
-        _device.DrawFullscreen(p);
-        _device.SetViewport(0, 0, width, height);
+        // The whole target cleared black, the picture drawn into its rectangle.
+        using (list.Pass(target, Black with { X = vx, Y = vy, Width = Math.Max(1, vw), Height = Math.Max(1, vh) }))
+            list.Draw(_blit, Drawn).Set("uSrc", src).Texture("uTex", picture).Fullscreen();
         return target.Color;
     }
 

@@ -1,4 +1,5 @@
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Presentation;
 
 namespace PlayMap.Core.Gpu;
@@ -53,4 +54,17 @@ public interface IGpuPlatform : IDisposable
     /// <summary>The adapter the platform renders on, in words ("Direct3D 11 + ANGLE · NVIDIA RTX A4000"); "" when the device's own
     /// renderer string says it.</summary>
     string Adapter => "";
+
+    /// <summary>The window-system binding the device came through, as decoders' facts name it ("egl", "glx", "wgl", "cgl",
+    /// "angle"); "" where none answers. Render thread, the device current.</summary>
+    string ImportBinding => "";
+
+    /// <summary>The share decoders open with to hand the device their GPU surfaces where that is not <see cref="Share"/> (a dmabuf
+    /// share on an EGL context that imports them), made once and kept by the device for its imports' failures; null where Share is
+    /// the decoders' or nothing is imported. Render thread, the device current.</summary>
+    IGpuShare? OpenImports() => null;
+
+    /// <summary>A HAP block encoder on the platform's device (its calls on the thread the platform was made on), or null where the
+    /// platform has none.</summary>
+    IHapBlockEncoder? CreateHapEncoder() => null;
 }

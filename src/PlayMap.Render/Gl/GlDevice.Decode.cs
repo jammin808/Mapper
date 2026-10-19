@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
-using PlayMap.Render.Decode;
 using Silk.NET.OpenGL;
 
 namespace PlayMap.Render.Gl;
@@ -129,9 +128,10 @@ public sealed unsafe partial class GlDevice
     // glEGLImageTargetTexture2DOES, resolved once per device (OES_EGL_image; Mesa offers it in desktop core contexts too).
     private nint _imageTarget;
 
-    /// <summary>What this context's decode imports use: the share decoders see, the upload arena, the zero-copy facts. Set by the
-    /// render host when the context comes (tests set their own); null when nothing imports into this context.</summary>
-    public DecodeContext? DecodeContext { get; set; }
+    /// <summary>The share decoders hand this context's imports through: its imports' failures are told to it, and ANGLE's imports
+    /// open the Direct3D 11 device it names. Set by the platform when it opens its imports (tests set their own); null when nothing
+    /// imports into this context.</summary>
+    public IGpuShare? ImportShare { get; set; }
 
     /// <summary>A texture name whose storage an EGLImage provides (<see cref="BindImage"/>); filtered linearly and clamped, as plane
     /// textures are sampled by the `yuv` pass. Dispose deletes the name only (the image is its importer's).</summary>

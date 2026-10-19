@@ -165,3 +165,159 @@ public sealed unsafe class PixelPackRing : IReadbackRing
         _disposed = true;
     }
 }
+
+/// <summary>Read-backs the reader holds in place on GL: each request reads the target (RGBA bytes, top row first) into a free
+/// pixel-pack buffer with a fence behind it; <see cref="TryTake"/> maps the oldest once its fence has passed and hands it out, and the
+/// buffer stays mapped (GL allows it while that buffer is not used by GL) until the reader lets go of it — the next take unmaps it
+/// and frees its slot. A request with no free slot is refused: the render thread never waits for the GPU or the reader.
+///
+/// Threading: the render thread, but <see cref="Release"/> (any thread, once a read).</summary>
+internal sealed unsafe class GlHeldReadbackRing : IHeldReadbackRing
+{
+    private enum SlotState
+    {
+        Free,
+        Reading,
+        Handed,
+    }
+
+    private sealed class Slot
+    {
+        public uint Buffer;
+        public int Capacity;
+        public nint Fence;
+        public SlotState State;
+        public long Sequence;
+        public int Bytes;
+        public int Width;
+        public int Height;
+        public long Stamp;
+        public int Released;
+    }
+
+    private readonly GlDevice _device;
+    private readonly Slot[] _slots;
+    private long _sequence;
+    private bool _disposed;
+
+    public GlHeldReadbackRing(GlDevice device, int slots)
+    {
+        _device = device;
+        _slots = new Slot[Math.Max(2, slots)];
+        for (var i = 0; i < _slots.Length; i++)
+            _slots[i] = new Slot();
+    }
+
+    public int Slots => _slots.Length;
+
+    public bool HasFree
+    {
+        get
+        {
+            foreach (var s in _slots)
+                if (s.State == SlotState.Free)
+                    return true;
+            return false;
+        }
+    }
+
+    public int Held
+    {
+        get
+        {
+            var n = 0;
+            foreach (var s in _slots)
+                if (s.State == SlotState.Handed && Volatile.Read(ref s.Released) == 0)
+                    n++;
+            return n;
+        }
+    }
+
+    public bool Request(RenderTarget target, long stamp, out int slot)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        slot = -1;
+        for (var i = 0; i < _slots.Length && slot < 0; i++)
+            if (_slots[i].State == SlotState.Free)
+                slot = i;
+        if (slot < 0)
+            return false;
+        var s = _slots[slot];
+        var bytes = target.Width * target.Height * 4;
+        if (s.Buffer == 0 || s.Capacity < bytes)
+        {
+            if (s.Buffer != 0)
+                _device.DeleteBuffer(s.Buffer);
+            s.Buffer = _device.CreatePixelBuffer(pack: true, bytes);
+            s.Capacity = bytes;
+        }
+        _device.ReadRgbaIntoPackBuffer(target, s.Buffer, sixteen: false);
+        s.Fence = _device.InsertFence();
+        s.State = SlotState.Reading;
+        s.Sequence = ++_sequence;
+        s.Bytes = bytes;
+        s.Width = target.Width;
+        s.Height = target.Height;
+        s.Stamp = stamp;
+        return true;
+    }
+
+    public bool TryTake(out HeldReadback read)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        foreach (var s in _slots)
+        {
+            if (s.State == SlotState.Handed && Volatile.Read(ref s.Released) != 0)
+            {
+                _device.UnmapPack(s.Buffer);
+                s.State = SlotState.Free;
+            }
+        }
+        while (true)
+        {
+            var oldest = -1;
+            for (var i = 0; i < _slots.Length; i++)
+                if (_slots[i].State == SlotState.Reading && (oldest < 0 || _slots[i].Sequence < _slots[oldest].Sequence))
+                    oldest = i;
+            if (oldest < 0 || !_device.IsSignaled(_slots[oldest].Fence))
+            {
+                read = default;
+                return false;
+            }
+            var s = _slots[oldest];
+            _device.DeleteFence(s.Fence);
+            s.Fence = 0;
+            var p = _device.MapPack(s.Buffer, s.Bytes);
+            if (p is null)
+            {
+                s.State = SlotState.Free;
+                continue;
+            }
+            Volatile.Write(ref s.Released, 0);
+            s.State = SlotState.Handed;
+            read = new HeldReadback(oldest, (nint)p, s.Bytes, s.Width, s.Height, s.Stamp);
+            return true;
+        }
+    }
+
+    public void Release(int slot) => Volatile.Write(ref _slots[slot].Released, 1);
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        foreach (var s in _slots)
+        {
+            if (s.State == SlotState.Handed)
+                _device.UnmapPack(s.Buffer);
+            _device.DeleteFence(s.Fence);
+            if (s.Buffer != 0)
+                _device.DeleteBuffer(s.Buffer);
+            s.Buffer = 0;
+            s.Fence = 0;
+            s.State = SlotState.Free;
+        }
+    }
+}

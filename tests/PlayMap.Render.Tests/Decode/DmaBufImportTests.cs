@@ -183,7 +183,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             {
                 if (set.Update(new TestLease(PixelLayout.Nv12, 320, 180, g, surface: Surface(frame, owner))))
                     shown++;
-                Assert.InRange(set.HeldSurfaces, 0, 2);
+                Assert.InRange(device.Backend.GlImporter.Held, 0, 2);
                 Assert.InRange(owner.Holds, 0, 2);
             }
             Assert.True(shown >= 1);
@@ -202,7 +202,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         {
             var device = ctx.Device;
             var share = new RecordingShare();
-            device.DecodeContext = new DecodeContext(share, new ZeroCopyPlatform(GpuApi.DmaBuf, false, true, "test"), "egl", null, "");
+            device.ImportShare = share;
             try
             {
                 var owner = new CountingOwner();
@@ -231,7 +231,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             }
             finally
             {
-                device.DecodeContext = null;
+                device.ImportShare = null;
             }
         });
     }

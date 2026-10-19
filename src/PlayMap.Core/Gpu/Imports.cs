@@ -14,9 +14,15 @@ public interface ITextureImporter
     bool TryImport(GpuSurface surface, out ImportedPlanes planes, out string? words);
 }
 
-/// <summary>An imported picture: its luma (or only) plane, its chroma plane where it has one, the value the import is ready at, and
-/// the picture's crop inside the planes.</summary>
-public readonly record struct ImportedPlanes(GpuTexture Luma, GpuTexture? Chroma, FenceValue Ready, int CropWidth, int CropHeight);
+/// <summary>An imported picture: its luma (or only) plane, its chroma plane where it has one, the value the import is ready at, the
+/// picture's crop inside the planes (its visible size), and the size the planes cover (the decoder's coded size, padding included;
+/// 0 = the crop).</summary>
+public readonly record struct ImportedPlanes(GpuTexture Luma, GpuTexture? Chroma, FenceValue Ready, int CropWidth, int CropHeight)
+{
+    public int CodedWidth { get; init; }
+
+    public int CodedHeight { get; init; }
+}
 
 /// <summary>A texture and a fence opened by another process or device (previews, Spout's bridge). Null on a backend that shares
 /// nothing (GL).</summary>

@@ -1,6 +1,7 @@
 using System.Globalization;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
+using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Presentation;
 
 namespace PlayMap.Render.Gl;
@@ -28,6 +29,8 @@ public static class GlPlatformContext
 public sealed class GlPlatform : IGlPlatform
 {
     private readonly GlShare _share;
+    private DmaBufShare? _imports;
+    private bool _importsOpened;
     private bool _disposed;
 
     public GlPlatform(RenderContext context, string words = "")
@@ -52,6 +55,25 @@ public sealed class GlPlatform : IGlPlatform
     public PresentPath Path => Context.HasWindows ? PresentPath.GlWindow : PresentPath.Offscreen;
 
     public IGpuShare Share => _share;
+
+    /// <summary>The binding the context came through, asked with it current ("egl", "glx", "wgl", "cgl").</summary>
+    public string ImportBinding => GlDevice.CurrentBinding();
+
+    /// <summary>A dmabuf share when the context is an EGL one that imports dmabufs, made once; the device's imports report their
+    /// failures to it, or to the platform's own share where there is none.</summary>
+    public IGpuShare? OpenImports()
+    {
+        if (!_importsOpened)
+        {
+            _importsOpened = true;
+            _imports = DmaBufShare.ForCurrentContext(_share, Context.Device.Renderer);
+            Context.Device.ImportShare = (IGpuShare?)_imports ?? _share;
+        }
+        return _imports;
+    }
+
+    /// <summary>The GL HAP encoder on the platform's context.</summary>
+    public IHapBlockEncoder? CreateHapEncoder() => new GlHapEncoder(Context);
 
     public IReadOnlyList<MonitorInfo> Monitors() => Context.Monitors();
 

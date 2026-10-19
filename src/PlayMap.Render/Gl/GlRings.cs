@@ -1,18 +1,30 @@
+using System.Diagnostics;
 using PlayMap.Core.Gpu;
+using PlayMap.Core.Media;
+using PlayMap.Render.Hap;
 
 namespace PlayMap.Render.Gl;
 
-/// <summary>Pixels to the GPU through the GL backend's pixel-unpack ring (<see cref="PixelUnpackRing"/>, made on first use): the copy
-/// into a mapped buffer and the texture update from it are issued at once on the device's context, and the copy queue's next value is
-/// signalled after them. GL has one stream, so the frame that reads the texture is ordered after the upload; the value says when the
-/// GPU has done it.
+/// <summary>Pixels to the GPU through the GL backend's pixel-unpack rings (<see cref="PixelUnpackRing"/> for plain pixels, a ring of
+/// unpack buffers for block-compressed levels, each made on first use): the copy into a mapped buffer and the texture update from it
+/// are issued at once on the device's context, and the copy queue's next value is signalled after them. GL has one stream, so the
+/// frame that reads the texture is ordered after the upload; the value says when the GPU has done it.
+///
+/// The upload arena is a persistently mapped unpack buffer (<see cref="GlUploadArena"/>): a staged block fills its texture from the
+/// buffer at the block's offset, with no copy; every submit fences the blocks returned since the last one (<see cref="EndFrame"/>).
+/// Block uploads of a megabyte or more count in <see cref="HapUploadMeter"/>.
 ///
 /// Threading: the render thread (the GL context's).</summary>
-internal sealed class GlUploadRing : IUploadRing, IDisposable
+internal sealed unsafe class GlUploadRing : IUploadRing, IDisposable
 {
+    private const int BlockSlots = 3;
+
     private readonly GlDevice _device;
     private readonly FenceRing _copy;
     private PixelUnpackRing? _ring;
+    private uint[]? _blocks;
+    private int _nextBlock;
+    private GlUploadArena? _arena;
     private bool _disposed;
 
     public GlUploadRing(GlDevice device, FenceRing copy)
@@ -20,6 +32,11 @@ internal sealed class GlUploadRing : IUploadRing, IDisposable
         _device = device;
         _copy = copy;
     }
+
+    public IUploadArena? Arena => _arena;
+
+    /// <summary>The open arena as the GL backend reads it.</summary>
+    internal GlUploadArena? GlArena => _arena;
 
     public bool TryUpload(GpuTexture dest, nint source, int sourceStride, int rowBytes, int rows, UploadFormat format, out FenceValue done)
     {
@@ -35,11 +52,84 @@ internal sealed class GlUploadRing : IUploadRing, IDisposable
         return true;
     }
 
+    /// <summary>The level copied into the next of a ring of unpack buffers and the texture filled from it; a buffer the driver will
+    /// not map falls back to a client-memory upload, so the copy is always made.</summary>
+    public bool TryUploadCompressed(GpuTexture dest, nint blocks, int bytes, out FenceValue done)
+    {
+        ArgumentNullException.ThrowIfNull(dest);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_blocks is null)
+        {
+            _blocks = new uint[BlockSlots];
+            for (var i = 0; i < _blocks.Length; i++)
+                _blocks[i] = _device.CreatePixelBuffer(pack: false, 16);
+        }
+        var t0 = Stopwatch.GetTimestamp();
+        var buffer = _blocks[_nextBlock];
+        _nextBlock = (_nextBlock + 1) % _blocks.Length;
+        var p = _device.MapUnpack(buffer, bytes);
+        if (p is null)
+        {
+            _device.UploadCompressed(dest, blocks, bytes);
+        }
+        else
+        {
+            GlDevice.Copy(blocks, p, bytes);
+            _device.UnmapUnpack(buffer);
+            _device.UploadCompressedFromUnpackBuffer(dest, buffer, 0, bytes);
+        }
+        HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
+        done = _copy.Signal();
+        return true;
+    }
+
+    public IUploadArena? OpenArena(int megabytes, out string words)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        CloseArena();
+        _arena = GlUploadArena.Create(_device, megabytes, out words);
+        return _arena;
+    }
+
+    public void CloseArena()
+    {
+        _arena?.Dispose();
+        _arena = null;
+    }
+
+    public bool InArena(in UploadBlock block) => _arena is { } arena && arena.Owns(block);
+
+    /// <summary>The level filled from the arena's buffer at the block's offset: the driver reads the producer's bytes where they were
+    /// written.</summary>
+    public bool TryUploadStaged(GpuTexture dest, in UploadBlock block, nint data, int bytes, out FenceValue done)
+    {
+        ArgumentNullException.ThrowIfNull(dest);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_arena is not { } arena || !arena.Owns(block) || data < block.Pointer || data + bytes > block.Pointer + (nint)block.Bytes)
+        {
+            done = FenceValue.None;
+            return false;
+        }
+        var t0 = Stopwatch.GetTimestamp();
+        _device.UploadCompressedFromUnpackBuffer(dest, arena.Buffer, (nint)(block.Offset + (data - block.Pointer)), bytes);
+        HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
+        done = _copy.Signal();
+        return true;
+    }
+
+    /// <summary>After a frame's submit: fences the arena's blocks returned since the last one, and frees those whose fence passed.</summary>
+    public void EndFrame() => _arena?.EndFrame();
+
     public void Dispose()
     {
         if (_disposed)
             return;
         _ring?.Dispose();
+        if (_blocks is not null)
+            foreach (var b in _blocks)
+                _device.DeleteBuffer(b);
+        _blocks = null;
+        CloseArena();
         _disposed = true;
     }
 }

@@ -40,13 +40,15 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         return px;
     }
 
+    /// <summary>The device's arena, opened through its upload ring (closed by <see cref="Close"/>).</summary>
     private static GlUploadArena Make(GlDevice device)
     {
-        var arena = GlUploadArena.Create(device, 4, out var words);
+        var arena = device.Backend.Uploads.OpenArena(4, out var words) as GlUploadArena;
         Assert.True(arena is not null, "no arena: " + words);
-        device.DecodeContext = new DecodeContext(null, ZeroCopyPlatform.None, "glx", arena, "");
         return arena;
     }
+
+    private static void Close(GlDevice device) => device.Backend.Uploads.CloseArena();
 
     [Fact]
     public void ABlockUploadsFromTheArenaAndDrawsWhatTheCopyPathDraws() => gl.Run(ctx =>
@@ -78,7 +80,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
         }
     });
 
@@ -101,7 +103,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
         }
     });
 
@@ -131,7 +133,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
             arena.Dispose();
         }
     });
@@ -154,7 +156,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
         }
     });
 

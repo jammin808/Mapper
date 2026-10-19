@@ -2,9 +2,7 @@ using System.Diagnostics;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
-using PlayMap.Render.Decode;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gl;
 using PlayMap.Render.Hap;
 
 namespace PlayMap.Render.Video;
@@ -14,36 +12,34 @@ namespace PlayMap.Render.Video;
 /// converted to RGB in a 16-bit float target with the frame's own matrix, range and transfer. A lease whose
 /// generation is already on the GPU is not uploaded again. Planes stream through the device's upload ring (any
 /// row stride; the decoder's buffer is free as soon as the copy returns), or go through the frame's list. Every texture and target is
-/// the device's, the planes' uploads and the conversions are the frame's list's; the block planes, the upload arena and the imports
-/// are the GL device's own paths.
+/// the device's, the planes' uploads and the conversions are the frame's list's, block planes stream through the upload ring, and
+/// surfaces are imported by the device's importer.
 ///
 /// HAP pictures arrive block-compressed: each plane fills a compressed texture at the coded size (tight rows of 4×4 blocks),
 /// and the `hap` pass turns them into the RGBA16F picture at the visible size (YCoCg → RGB, the alpha plane, HAP HDR's reading).
-/// A block format this context cannot sample is refused with words (<see cref="Refusal"/>, and a NotSupportedException), never
-/// shown as a black frame.
+/// A block format this device cannot sample is refused with the device's words (<see cref="Refusal"/>, and a
+/// NotSupportedException), never shown as a black frame.
 ///
-/// A lease with a GPU surface (a hardware decoder's own picture) is not uploaded: its planes are imported (dmabuf EGLImages on
-/// Linux, ANGLE plane images of the D3D11 texture on Windows) and converted by the same `yuv` pass, cropped to the visible size
-/// when the planes carry the decoder's padding. The importer holds the surface past the lease until the GPU has read it. An import
-/// that fails keeps the last picture on the GPU (never a black frame), tells the share the source's import failed (the source
-/// then steps down the ladder and sends its next frame through memory) and says why (<see cref="Refusal"/>).
+/// A lease with a GPU surface (a hardware decoder's own picture) is not uploaded: its planes are imported by the device's importer
+/// (<see cref="IGpuDevice.Importer"/>: dmabuf EGLImages on Linux, ANGLE plane images of the D3D11 texture on Windows) and converted
+/// by the same `yuv` pass, cropped to the visible size when the planes carry the decoder's padding. The importer holds the surface
+/// past the lease until the GPU has read it. An import that fails keeps the last picture on the GPU (never a black frame), the
+/// importer tells the share the source's import failed (the source then steps down the ladder and sends its next frame through
+/// memory), and the set says why (<see cref="Refusal"/>).
 ///
-/// A HAP lease whose planes were written into the context's upload arena is uploaded from the arena's buffer at the block's
-/// offset, with no copy of its own; a block of an arena that is gone is never read.
+/// A HAP lease whose planes were written into the device's upload arena is uploaded from the arena at the block's offset, with no
+/// copy of its own; a block of an arena that is gone is never read.
 ///
 /// Owned by the render thread; the caller disposes the lease after <see cref="Update(VideoFrameLease, ICommandList)"/>.</summary>
 public sealed class VideoTextureSet : IDisposable
 {
     private readonly IGpuDevice _device;
-    private readonly GlDevice _gl;
     private readonly bool _streaming;
     private readonly ProgramId _yuv;
-    private CompressedUploadRing? _blocks;
+    private readonly ProgramId _hap;
     private PackedUnpack? _packed;
     private readonly GpuTexture?[] _planes = new GpuTexture?[3];
     private RenderTarget? _converted;
-    private DmaBufImporter? _dmabuf;
-    private object? _angle;
     private bool _imported;
     private PixelLayout _layout;
     private int _width;
@@ -54,10 +50,10 @@ public sealed class VideoTextureSet : IDisposable
     {
         ArgumentNullException.ThrowIfNull(device);
         _device = device;
-        _gl = device.Gl;
-        Caps = _gl.Caps;
+        Features = device.Features;
         _streaming = streaming;
         _yuv = device.Programs.Id("yuv");
+        _hap = device.Programs.Id("hap");
     }
 
     /// <summary>The generation now on the GPU (−1 before the first upload).</summary>
@@ -72,8 +68,8 @@ public sealed class VideoTextureSet : IDisposable
     /// <summary>Whether the picture carries alpha that means something.</summary>
     public bool HasAlpha { get; private set; }
 
-    /// <summary>What the context samples (the device's; tests stand in a context that lacks a family).</summary>
-    internal GlCaps Caps { get; set; }
+    /// <summary>What the device samples (its own; tests stand in a device that lacks a family).</summary>
+    internal GpuFeatures Features { get; set; }
 
     /// <summary>The picture after its conversion pass (YUV and HAP layouts), or null.</summary>
     internal RenderTarget? Converted => _converted;
@@ -89,9 +85,6 @@ public sealed class VideoTextureSet : IDisposable
 
     /// <summary>Block planes uploaded straight from the upload arena's buffer.</summary>
     public int StagedUploads { get; private set; }
-
-    /// <summary>Surfaces the importer still holds (their reads not yet completed on the GPU).</summary>
-    public int HeldSurfaces => _dmabuf?.Held ?? 0;
 
     /// <summary>Puts the lease's picture on the GPU in a frame of its own (outside the renderer's frame), unless its generation is
     /// already there. True when it uploaded.</summary>
@@ -115,13 +108,12 @@ public sealed class VideoTextureSet : IDisposable
         ArgumentNullException.ThrowIfNull(lease);
         ArgumentNullException.ThrowIfNull(list);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        _dmabuf?.Collect();
         if (Picture is not null && lease.Generation == Generation)
             return false;
         if (lease.Surface is { } surface)
             return UpdateSurface(list, lease, surface);
         if (HapCodecs.IsBlockLayout(lease.Layout))
-            return UpdateBlocks(lease);
+            return UpdateBlocks(list, lease);
         if (LivePlanes.IsPacked(lease.Layout))
             return UpdatePacked(list, lease);
         var planes = lease.Planes;
@@ -143,10 +135,10 @@ public sealed class VideoTextureSet : IDisposable
         return true;
     }
 
-    private bool UpdateBlocks(VideoFrameLease lease)
+    private bool UpdateBlocks(ICommandList list, VideoFrameLease lease)
     {
         var (first, second) = HapPass.Formats(lease.Layout);
-        var why = GlDevice.RefuseBlockFormat(Caps, first) ?? (second is { } s ? GlDevice.RefuseBlockFormat(Caps, s) : null);
+        var why = Features.RefusalOf(first) ?? (second is { } s ? Features.RefusalOf(s) : null);
         if (why is not null)
         {
             Refusal = why;
@@ -157,10 +149,10 @@ public sealed class VideoTextureSet : IDisposable
         if (lease.Width < 1 || lease.Height < 1 || planes.Count < count)
             return false;
         var staged = lease.Staged;
-        var arena = staged.IsEmpty ? null : _gl.DecodeContext?.Arena;
-        if (!staged.IsEmpty && (arena is null || !arena.Owns(staged)))
+        var uploads = _device.Uploads;
+        if (!staged.IsEmpty && !uploads.InArena(staged))
         {
-            // A block of an arena this context no longer has: its memory may be gone, so it is never read. The last picture holds.
+            // A block of an arena this device no longer has: its memory may be gone, so it is never read. The last picture holds.
             Refusal = "the frame was written into an upload arena this renderer no longer has";
             return false;
         }
@@ -172,28 +164,22 @@ public sealed class VideoTextureSet : IDisposable
             var bytes = (long)plane.Stride * plane.Height;
             if (plane.Data == 0 || bytes != TextureFormats.CompressedSize(tex.Format, tex.Width, tex.Height))
                 throw new ArgumentException("A block plane is missing or not the size of its picture.", nameof(lease));
-            if (arena is not null)
+            if (!staged.IsEmpty)
             {
-                // Straight from the persistently mapped buffer: the driver reads the producer's bytes where they were written.
-                var t0 = Stopwatch.GetTimestamp();
-                var offset = staged.Offset + (plane.Data - staged.Pointer);
-                _gl.UploadCompressedFromUnpackBuffer(tex, arena.Buffer, (nint)offset, (int)bytes);
-                HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
+                // Straight from the arena: the GPU reads the producer's bytes where they were written.
+                if (!uploads.TryUploadStaged(tex, staged, plane.Data, (int)bytes, out _))
+                    throw new ArgumentException("A staged block plane lies outside its arena block.", nameof(lease));
                 StagedUploads++;
             }
-            else if (_blocks is not null)
-            {
-                _blocks.Upload(tex, plane.Data, (int)bytes);
-            }
-            else
+            else if (!_streaming || !uploads.TryUploadCompressed(tex, plane.Data, (int)bytes, out _))
             {
                 var t0 = Stopwatch.GetTimestamp();
-                _gl.UploadCompressed(tex, plane.Data, (int)bytes);
+                list.UploadCompressed(tex, plane.Data, (int)bytes);
                 HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
             }
         }
         var scale = lease is IHapPicture hap ? hap.HdrScale : 1;
-        HapPass.Draw(_gl, _converted!, _planes[0]!, _planes[1], HapPass.Mode(lease.Layout), scale, HapPass.Transfer(lease.Transfer));
+        HapPass.Draw(list, _hap, _converted!, _planes[0]!, _planes[1], HapPass.Mode(lease.Layout), scale, HapPass.Transfer(lease.Transfer));
         HasAlpha = lease.HasAlpha;
         Refusal = null;
         Generation = lease.Generation;
@@ -233,8 +219,6 @@ public sealed class VideoTextureSet : IDisposable
             _planes[1] = _device.CreateTexture(new TextureDesc(width, height, s, TextureUsage.Sampled | TextureUsage.CopyDest));
         _converted = _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F, Filter: TextureFilter.Linear));
         Picture = _converted.Color;
-        if (_streaming)
-            _blocks ??= new CompressedUploadRing(_gl);
     }
 
     private unsafe void UploadPlane(ICommandList list, GpuTexture texture, FramePlane plane, UploadFormat format, int bytesPerPixel)
@@ -262,64 +246,31 @@ public sealed class VideoTextureSet : IDisposable
         list.Upload(texture, tight, format);
     }
 
-    /// <summary>A hardware decoder's surface: its planes imported and converted, held until the GPU read them. False (the last
-    /// picture holds) when the import failed or every import slot is still in flight.</summary>
+    /// <summary>A hardware decoder's surface: its planes imported by the device and converted, held until the GPU read them. False
+    /// (the last picture holds) when the import failed or every import slot is still in flight.</summary>
     private bool UpdateSurface(ICommandList list, VideoFrameLease lease, GpuSurface surface)
     {
-        GpuTexture luma, chroma;
-        bool ok;
-        var busy = false;
-        string words;
-        int codedWidth = surface.Width, codedHeight = surface.Height;
-        var share = _gl.DecodeContext?.Share;
-        if (surface.Api == GpuApi.DmaBuf)
+        if (!_device.Importer.TryImport(surface, out var planes, out var words))
         {
-            words = "";
-            if (_dmabuf is null)
-                _dmabuf = DmaBufImporter.ForCurrentContext(_gl, out words);
-            ok = _dmabuf is not null ? _dmabuf.TryImport(surface, out luma, out chroma, out busy, out words) : FailImport(out luma, out chroma);
-        }
-        else if (surface.Api == GpuApi.D3D11 && OperatingSystem.IsWindows() && share is not null)
-        {
-            words = "";
-            if (_angle is null)
-                _angle = AngleImporter.ForCurrentContext(_gl, share, out words);
-            ok = _angle is AngleImporter angle ? angle.TryImport(surface, out luma, out chroma, out codedWidth, out codedHeight, out words)
-                : FailImport(out luma, out chroma);
-        }
-        else
-        {
-            ok = FailImport(out luma, out chroma);
-            words = $"this renderer imports no {surface.Api} frames";
-        }
-        if (!ok)
-        {
-            if (!busy)
+            if (words is not null)
             {
                 Refusal = words;
                 ImportFailures++;
-                share?.ReportImportFailure(surface.SourceKey, words);
             }
             return false;
         }
         var layout = surface.Format == GpuSurfaceFormat.P010 ? PixelLayout.P010 : PixelLayout.Nv12;
-        ConvertCoded(list, layout, luma, chroma, surface.Width, surface.Height, codedWidth, codedHeight, lease.Matrix, lease.Range, lease.Transfer);
-        // One device and one immediate context on Windows: released after record. A dmabuf is held until its fence passes.
-        if (surface.Api == GpuApi.DmaBuf)
-            _dmabuf!.Retain(surface);
+        var chroma = planes.Chroma ?? planes.Luma;
+        var codedWidth = planes.CodedWidth > 0 ? planes.CodedWidth : surface.Width;
+        var codedHeight = planes.CodedHeight > 0 ? planes.CodedHeight : surface.Height;
+        ConvertCoded(list, layout, planes.Luma, chroma, surface.Width, surface.Height, codedWidth, codedHeight, lease.Matrix, lease.Range,
+            lease.Transfer);
         HasAlpha = false;
         Refusal = null;
         Generation = lease.Generation;
         Uploads++;
         Imports++;
         return true;
-    }
-
-    private static bool FailImport(out GpuTexture luma, out GpuTexture chroma)
-    {
-        luma = null!;
-        chroma = null!;
-        return false;
     }
 
     /// <summary>Converts planes whose textures cover a coded size larger than the visible picture (a decoder surface's padding rows
@@ -497,10 +448,6 @@ public sealed class VideoTextureSet : IDisposable
         if (_disposed)
             return;
         DisposeTextures();
-        _blocks?.Dispose();
-        _dmabuf?.Dispose();
-        if (OperatingSystem.IsWindows() && _angle is AngleImporter angle)
-            angle.Dispose();
         _disposed = true;
     }
 }

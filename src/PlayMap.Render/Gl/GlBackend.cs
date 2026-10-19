@@ -107,9 +107,22 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         return new PixelPackRing(_device, slots);
     }
 
+    /// <summary>A ring of pixel-pack buffers the reader holds mapped until it lets go of each read.</summary>
+    public IHeldReadbackRing CreateHeldReadbackRing(int slots = 4)
+    {
+        ThrowIfDisposed();
+        return new GlHeldReadbackRing(_device, slots);
+    }
+
     public IGpuTimers Timers => _timers;
 
     public ITextureImporter Importer => _importer;
+
+    /// <summary>The importer as the GL backend holds it (its held surfaces).</summary>
+    internal GlTextureImporter GlImporter => _importer;
+
+    /// <summary>The upload ring as the GL backend holds it (its arena).</summary>
+    internal GlUploadRing GlUploads => _uploads;
 
     /// <summary>Null: GL shares no texture or fence through an NT handle.</summary>
     public ITextureExporter? Exporter => null;
@@ -232,6 +245,7 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         var value = _direct.Signal();
         _device.Flush();
         _importer.Submitted();
+        _uploads.EndFrame();
         return value;
     }
 
@@ -462,6 +476,18 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         Enum.GetValues<TextureFormat>().ToFrozenDictionary(f => f,
             f => new FormatSupport(caps.Supports(f), caps.SupportsRenderTarget(f), caps.SupportsRenderTarget(f, blended: true)));
 
+    /// <summary>The words that refuse each block format a context of these caps does not sample.</summary>
+    internal static FrozenDictionary<TextureFormat, string> RefusalsOf(GlCaps caps) =>
+        Enum.GetValues<TextureFormat>().Where(TextureFormats.IsBlockCompressed)
+            .Select(f => (Format: f, Words: GlDevice.RefuseBlockFormat(caps, f)))
+            .Where(r => r.Words is not null)
+            .ToFrozenDictionary(r => r.Format, r => r.Words!);
+
+    /// <summary>A device's features as a context of other caps would have them (its formats and their refusals): what a test stands
+    /// in for a context that lacks a family.</summary>
+    internal static GpuFeatures WithCaps(GpuFeatures features, GlCaps caps) =>
+        features with { Formats = FormatsOf(caps), Refusals = RefusalsOf(caps) };
+
     private static GpuFeatures FeaturesOf(GlDevice device, bool timers)
     {
         var formats = FormatsOf(device.Caps);
@@ -476,6 +502,8 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         return new GpuFeatures(formats, device.BlockFormats, timers, SharedHandles: false, model, words.ToImmutable())
         {
             MaxTextureSize = device.MaxTextureSize,
+            Readback = device.HasReadBgra,
+            Refusals = RefusalsOf(device.Caps),
         };
     }
 

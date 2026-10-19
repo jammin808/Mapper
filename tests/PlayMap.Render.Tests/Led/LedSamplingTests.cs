@@ -175,7 +175,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         Assert.Empty(plan.Conflicts);
         Assert.Equal(3, plan.Groups.Length);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d, pics) { Sink = pool };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
         pass.Offer(plan);
         var gpu = Run(ctx, pass, pool, show, 1_000_000_000L);
         var cpu = Reference(plan, pics, LedLive.Initial, 1_000_000_000L, false);
@@ -197,7 +197,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var plan = LedPlanBuilder.Build(show, 200, 1);
         Assert.All(plan.Groups, g => Assert.Equal(9, g.Taps));
         var pool = new LedFramePool();
-        using var pass = new LedPass(d, pics) { Sink = pool };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
         pass.Offer(plan);
         var gpu = Run(ctx, pass, pool, show, 2_000_000_000L);
         var cpu = Reference(plan, pics, LedLive.Initial, 2_000_000_000L, false);
@@ -228,7 +228,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d, pics) { Sink = pool, Live = LedLive.Initial with { Test = LedTestKind.Full } };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = LedLive.Initial with { Test = LedTestKind.Full } };
         pass.Offer(plan);
         var gpu = Run(ctx, pass, pool, show, 3_000_000_000L, blackout: true);
         Assert.Equal(LedReference.Black(plan), gpu);
@@ -245,7 +245,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d, pics) { Sink = pool };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
         pass.Offer(plan);
         var before = Run(ctx, pass, pool, show, 4_000_000_000L);
         var held = LedReference.Sample(plan, pics.Reference);
@@ -281,7 +281,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
         var live = LedLive.Initial with { Test = kind, LevelFrom = 1, LevelTo = 1 };
-        using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = live };
         pass.Offer(plan);
         foreach (var leader in new[] { 1_760_000_000_000_000_000L, 1_760_000_000_730_000_000L, 1_760_000_003_150_000_000L })
             Assert.Equal(Reference(plan, pics, live, leader, false), Run(ctx, pass, pool, show, leader));
@@ -297,7 +297,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
         var live = LedLive.Initial with { LevelFrom = 0.5, LevelTo = 0.5, Locate = "lf00000003", LocateUntilNs = 10_000_000_000 };
-        using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = live };
         pass.Offer(plan);
         foreach (var leader in new[] { 5_000_000_000L, 5_300_000_000L })
         {
@@ -350,7 +350,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var show = Rig(LedSampling.Point);
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d, pics) { Sink = pool };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool };
         pass.Offer(plan);
         var air = new Air();
         var live = RunAir(ctx, pass, pool, show, 1_000_000_000, air);
@@ -386,7 +386,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var pool = new LedFramePool();
         var live = LedLive.Initial with { Test = LedTestKind.Chase, TestScope = ["lf00000002"], Locate = "lf00000001", LocateUntilNs = long.MaxValue };
-        using var pass = new LedPass(d, pics) { Sink = pool, Live = live };
+        using var pass = new LedPass(d.Backend, pics) { Sink = pool, Live = live };
         pass.Offer(plan);
         var air = new Air { GainAll = 0.8f };
         var backend = d.Backend;
@@ -434,7 +434,7 @@ public sealed class LedSamplingTests(GlFixture gl)
         var plan = LedPlanBuilder.Build(show, 200, 1);
         var counting = new Counting(pics);
         var pool = new LedFramePool();
-        using var pass = new LedPass(d, counting) { Sink = pool };
+        using var pass = new LedPass(d.Backend, counting) { Sink = pool };
         pass.Offer(plan);
         Run(ctx, pass, pool, show, 1_000_000_000);
         Assert.True(counting.Asked > 0);

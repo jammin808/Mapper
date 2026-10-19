@@ -5,11 +5,12 @@ namespace PlayMap.Render.Gl;
 
 /// <summary>Decoders' surfaces as textures on the GL backend: dmabuf frames through EGL images (<see cref="DmaBufImporter"/>, on an
 /// EGL context that imports them) and Direct3D 11 frames through ANGLE (<see cref="AngleImporter"/>, on the DXGI platform's context,
-/// whose share is the device's decode share). Each source (<see cref="GpuSurface.SourceKey"/>) has importers of its own, made the
-/// first time a surface of their kind arrives from it, with their own slots, as each video source's set has today; a source that
-/// sent nothing for <see cref="IdleFrames"/> frames and holds no surface is let go. The planes are ready at once (one context orders
-/// the import before the draw that reads it: <see cref="ImportedPlanes.Ready"/> is <see cref="FenceValue.None"/>) and the crop is
-/// the picture inside the coded planes. A dmabuf is held from the submit of the frame that imported it until the GPU passed that
+/// whose share is the device's import share). Each source (<see cref="GpuSurface.SourceKey"/>) has importers of its own, made the
+/// first time a surface of their kind arrives from it, with their own slots; a source that sent nothing for <see cref="IdleFrames"/>
+/// frames and holds no surface is let go. The planes are ready at once (one context orders the import before the draw that reads it:
+/// <see cref="ImportedPlanes.Ready"/> is <see cref="FenceValue.None"/>), the crop is the visible picture and the coded size the
+/// planes' (ANGLE's slices carry the decoder's padding). An import that fails is told to the device's import share against the
+/// surface's source (<see cref="GlDevice.ImportShare"/>: the source then steps down and sends its next frame through memory). A dmabuf is held from the submit of the frame that imported it until the GPU passed that
 /// frame (its fence), then let go as a later frame begins; an ANGLE slice is released as soon as its read is recorded (one device,
 /// one immediate context).
 ///
@@ -78,15 +79,16 @@ internal sealed class GlTextureImporter : ITextureImporter, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         planes = default;
         if (!CanImport(surface, out words))
-            return false;
+            return Failed(surface, words);
         var source = SourceOf(surface);
         GpuTexture luma, chroma;
+        int codedWidth = surface.Width, codedHeight = surface.Height;
         if (surface.Api == GpuApi.DmaBuf)
         {
             if (!source.Dmabuf!.TryImport(surface, out luma, out chroma, out var busy, out var why))
             {
                 words = busy ? null : why;
-                return false;
+                return Failed(surface, words);
             }
             _imported.Add((source, surface));
         }
@@ -94,12 +96,37 @@ internal sealed class GlTextureImporter : ITextureImporter, IDisposable
         {
             if (!OperatingSystem.IsWindows())
                 return false;
-            if (!ImportAngle(source, surface, out luma, out chroma, out words))
-                return false;
+            if (!ImportAngle(source, surface, out luma, out chroma, out codedWidth, out codedHeight, out words))
+                return Failed(surface, words);
         }
-        planes = new ImportedPlanes(luma, chroma, FenceValue.None, surface.Width, surface.Height);
+        planes = new ImportedPlanes(luma, chroma, FenceValue.None, surface.Width, surface.Height)
+        {
+            CodedWidth = codedWidth,
+            CodedHeight = codedHeight,
+        };
         words = null;
         return true;
+    }
+
+    /// <summary>An import that failed with words is told to the import share against the surface's source; false either way (no
+    /// words: every slot was in flight, nothing failed).</summary>
+    private bool Failed(GpuSurface surface, string? words)
+    {
+        if (words is not null)
+            _device.ImportShare?.ReportImportFailure(surface.SourceKey, words);
+        return false;
+    }
+
+    /// <summary>Surfaces held now, every source's (their reads not yet completed on the GPU).</summary>
+    public int Held
+    {
+        get
+        {
+            var held = 0;
+            foreach (var source in _sources.Values)
+                held += source.Dmabuf?.Held ?? 0;
+            return held;
+        }
     }
 
     /// <summary>After the frame's submit: holds every dmabuf the frame imported behind the frame's fence.</summary>
@@ -153,7 +180,7 @@ internal sealed class GlTextureImporter : ITextureImporter, IDisposable
     {
         if (source.Angle is null && source.AngleWords is null)
         {
-            if (_device.DecodeContext?.Share is not { } share)
+            if (_device.ImportShare is not { } share)
             {
                 source.AngleWords = "the renderer shares no D3D11 device with the decoders";
                 return null;
@@ -166,9 +193,10 @@ internal sealed class GlTextureImporter : ITextureImporter, IDisposable
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private bool ImportAngle(Source source, GpuSurface surface, out GpuTexture luma, out GpuTexture chroma, out string? words)
+    private bool ImportAngle(Source source, GpuSurface surface, out GpuTexture luma, out GpuTexture chroma, out int codedWidth,
+        out int codedHeight, out string? words)
     {
-        var ok = Angle(source)!.TryImport(surface, out luma, out chroma, out _, out _, out var why);
+        var ok = Angle(source)!.TryImport(surface, out luma, out chroma, out codedWidth, out codedHeight, out var why);
         words = ok ? null : why;
         return ok;
     }

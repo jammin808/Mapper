@@ -10,6 +10,8 @@ using PlayMap.Render.Passes;
 using PlayMap.Render.Video;
 using PlayMap.Tests;
 
+using PlayMap.Render.Tests.Rhi;
+
 namespace PlayMap.Render.Tests.Video;
 
 /// <summary>The network layouts on the GPU against their CPU twin (<see cref="PackReference"/>): UYVY, UYVA, P216 and PA16 charts
@@ -203,10 +205,10 @@ public sealed class PackUnpackTests(GlFixture gl)
             bytes[i] = (byte)MathF.Round(chart[i] * 255);
         using var picture = d.CreateTexture(w, h, TextureFormat.Rgba8, TextureFilter.Nearest);
         d.Upload(picture, bytes, UploadFormat.Rgba8);
-        using var pack = new PackPass(d);
-        using var ring = new SendReadbackRing(d);
+        using var pack = new PackPass(c.Backend);
+        using var ring = new SendReadbackRing(c.Backend);
         var key = new object();
-        var target = pack.Pack(key, picture, w, h, format, SendFit.Fit);
+        var target = BackendFrames.Run(c.Backend, list => pack.Pack(list, key, picture, w, h, format, SendFit.Fit));
         var (frameBytes, stride) = PackPass.WireShape(format, w, h);
         Assert.True(ring.Request(target, format, w, h, frameBytes, stride, 0, 60, 1));
         d.Finish();
@@ -284,8 +286,8 @@ public sealed class PackUnpackTests(GlFixture gl)
         gl.Run(c =>
         {
             var d = c.Device;
-            using var pack = new PackPass(d);
-            using var ring = new SendReadbackRing(d, slots: 4);
+            using var pack = new PackPass(c.Backend);
+            using var ring = new SendReadbackRing(c.Backend, slots: 4);
             var sink = new TestSink(hold: true);
             using var picture = d.CreateTexture(w, h, TextureFormat.Rgba8, TextureFilter.Nearest);
             var key = new object();
@@ -293,7 +295,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             void Send(byte grey)
             {
                 d.Upload(picture, Enumerable.Repeat(grey, w * h * 4).ToArray(), UploadFormat.Rgba8);
-                var target = pack.Pack(key, picture, w, h, SendFormat.Uyvy, SendFit.Fit);
+                var target = BackendFrames.Run(c.Backend, list => pack.Pack(list, key, picture, w, h, SendFormat.Uyvy, SendFit.Fit));
                 Assert.True(ring.Request(target, SendFormat.Uyvy, w, h, bytes, stride, 0, 60, 1));
                 d.Finish();
                 ring.Collect(sink);
@@ -311,7 +313,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             Assert.Equal(before, after);
             Assert.Equal(4, ring.Handed);
             // Every slot held: the next request is refused, not waited for.
-            var target = pack.Pack(key, picture, w, h, SendFormat.Uyvy, SendFit.Fit);
+            var target = BackendFrames.Run(c.Backend, list => pack.Pack(list, key, picture, w, h, SendFormat.Uyvy, SendFit.Fit));
             Assert.False(ring.HasFree);
             Assert.False(ring.Request(target, SendFormat.Uyvy, w, h, bytes, stride, 0, 60, 1));
             // Two released: the next collect frees exactly those.
