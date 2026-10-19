@@ -478,10 +478,15 @@ jobs:
           # Inno Setup 7.1.0 (Jordan Russell's licence: any use; a commercial user is asked, not required, to buy a licence), pinned
           # by hash and installed for this job only.
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri 'https://files.jrsoftware.org/is/7/innosetup-7.1.0.exe' -OutFile is.exe
+          $page = (Invoke-WebRequest -Uri 'https://jrsoftware.org/isdl.php' -UseBasicParsing).Links.href | Where-Object { $_ -match 'innosetup-7\.1[^/]*\.exe$' } | Select-Object -Unique
+          Write-Host "Inno Setup 7.1 links: $($page -join ', ')"
+          $url = $page | Select-Object -First 1
+          if (-not $url) { throw 'no Inno Setup 7.1 download on jrsoftware.org/isdl.php' }
+          if ($url -notmatch '^https?:') { $url = "https://jrsoftware.org/$($url.TrimStart('/'))" }
+          Invoke-WebRequest -Uri $url -OutFile is.exe
           $hash = (Get-FileHash is.exe -Algorithm SHA256).Hash
           $pin = 'UNPINNED'
-          if ($hash -ne $pin) { throw "innosetup-7.1.0.exe is not the pinned build ($hash)" }
+          if ($hash -ne $pin) { throw "$url is not the pinned build ($hash)" }
           $dir = Join-Path $env:RUNNER_TEMP 'inno'
           Start-Process .\is.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$dir`"" -Wait
           $iscc = Join-Path $dir 'ISCC.exe'
@@ -502,6 +507,7 @@ jobs:
           & $clang -O3 -std=c++17 -fdeclspec -mlzcnt -mavx2 -mbmi -shared "-Wl,/DEF:$src/exports.def" "$src/src/vmxcodec_x86.cpp" "$src/src/vmxcodec_avx2.cpp" "$src/src/vmxcodec.cpp" -o vmx/libvmx.dll
           if ($LASTEXITCODE -ne 0) { throw "libvmx did not build ($LASTEXITCODE)" }
       - name: Publish (ReadyToRun) and the supervisor
+        id: publish
         run: |
           dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
           dotnet publish src/PlayMap.Supervisor -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/supervisor -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
@@ -550,7 +556,7 @@ jobs:
           "#### The installer", '', "- ``$(Split-Path $env:PLAYMAP_INSTALLER -Leaf)`` (installer version $env:PLAYMAP_INSTALLER_VERSION, $([math]::Round((Get-Item $env:PLAYMAP_INSTALLER).Length / 1MB, 1)) MB): installed, upgraded from $env:PLAYMAP_INSTALLER_PREVIOUS_VERSION, a downgrade refused, uninstalled, on windows-2025 (InstallerTests)", '' |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
       - name: M9 on the runner (a probe, not a gate)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
         shell: pwsh
         run: |
           # The supervisor's session calls asked as LocalSystem through a scheduled task, as the service asks them; the answer, yes
