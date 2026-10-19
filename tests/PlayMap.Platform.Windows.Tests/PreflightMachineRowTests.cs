@@ -25,6 +25,13 @@ public sealed class PreflightMachineRowTests
         Claims = [new Claim("process.qos", "high", true, "high", "")],
         TimerWaits = 1000,
         TimerLateP99Us = 180,
+        UsbSuspend = 0,
+        PcieLinkState = 0,
+        Notifications = 0,
+        Updates = new UpdatePolicy(true, true, "quality updates deferred 7 days"),
+        Hags = 1,
+        MemoryIntegrity = 1,
+        GameMode = 1,
     };
 
     public static readonly TheoryData<string, string> Faults = new()
@@ -39,6 +46,10 @@ public sealed class PreflightMachineRowTests
         { "claim:thread.render.mmcss", "refused" },
         { "timer", "late" },
         { "sac", "evaluation" },
+        { "power.usb", "on" },
+        { "power.pcie", "maximum" },
+        { "notifications", "on" },
+        { "updates", "not deferred" },
     };
 
     private static MachineReadings Break(string item) => item switch
@@ -53,6 +64,10 @@ public sealed class PreflightMachineRowTests
         "claim:thread.render.mmcss" => Good with { Claims = [.. Good.Claims, new Claim("thread.render.mmcss", "Games", false, "", "MMCSS did not take the thread (error 1060: The specified service does not exist as an installed service.)")] },
         "timer" => Good with { TimerLateP99Us = 15_600 },
         "sac" => Good with { SmartAppControl = 2 },
+        "power.usb" => Good with { UsbSuspend = 1 },
+        "power.pcie" => Good with { PcieLinkState = 2 },
+        "notifications" => Good with { Notifications = 1 },
+        "updates" => Good with { Updates = new UpdatePolicy(true, false, "no Update policy and no pause is set") },
         _ => throw new ArgumentException(item, nameof(item)),
     };
 
@@ -68,6 +83,20 @@ public sealed class PreflightMachineRowTests
         var fixedRows = MachineRows.Build(Good, Today);
         Assert.DoesNotContain(fixedRows, r => r.Light is Light.Amber or Light.Red);
         Assert.True(fixedRows.FirstOrDefault(r => r.Item == item) is null or { Light: Light.Green }, item);
+    }
+
+    [Fact]
+    public void HardwareSchedulingMemoryIntegrityAndGameModeAreGreyFactsNeverChanged()
+    {
+        var rows = MachineRows.Build(Good with { Hags = -1, MemoryIntegrity = 0 }, Today);
+        Assert.Equal((Light.Grey, "unset", "hardware-accelerated GPU scheduling is unset: the driver's default"),
+            rows.Single(r => r.Item == "hags") is var h ? (h.Light, h.Value, h.Words) : default);
+        Assert.Equal((Light.Grey, "off", "Memory Integrity is off"), rows.Single(r => r.Item == "memoryIntegrity") is var m ? (m.Light, m.Value, m.Words) : default);
+        Assert.Equal((Light.Grey, "on", "Game Mode is on"), rows.Single(r => r.Item == "gameMode") is var g ? (g.Light, g.Value, g.Words) : default);
+        Assert.All(rows.Where(r => r.Item is "hags" or "memoryIntegrity" or "gameMode"), r => Assert.Null(r.Fix));
+        // An Update policy that holds updates back is green, and names what it read.
+        Assert.Equal((Light.Green, "updates are held back: quality updates deferred 7 days"),
+            rows.Single(r => r.Item == "updates") is var u ? (u.Light, u.Words) : default);
     }
 
     [Fact]

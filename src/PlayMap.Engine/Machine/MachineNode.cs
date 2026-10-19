@@ -44,6 +44,22 @@ public sealed class MachineNode
 
     private bool _awakeHeld;
 
+    /// <summary>The collector's mode the GC hook holds while armed ("sustainedLowLatency"), "" when it holds none.</summary>
+    public string GcHeld
+    {
+        get => Volatile.Read(ref _gcHeld);
+        internal set => Volatile.Write(ref _gcHeld, value);
+    }
+
+    private string _gcHeld = "";
+
+    /// <summary>The collector's pauses, counted while the machine part runs (null before it starts, and on a node without it).</summary>
+    public GcPauseSummary? Pauses => _pauses?.Summary();
+
+    private GcPauses? _pauses;
+
+    internal void CountPauses(GcPauses? pauses) => _pauses = pauses;
+
     /// <summary>The runtimes their owners filled: the Direct3D 12 Agility runtime (wp3-d3d12-core), FFmpeg's build (Media), the sync
     /// board's firmware (wp3-framelock).</summary>
     public RuntimeIdentity Runtimes => Volatile.Read(ref _runtimes);

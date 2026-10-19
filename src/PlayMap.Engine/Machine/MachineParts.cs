@@ -9,7 +9,8 @@ namespace PlayMap.Engine.Machine;
 /// <summary>wp3-platform's part of the node: the machine platform (Windows' on Windows, elsewhere the null platform with the words
 /// <see cref="NotWindowsWords"/>), read back through <see cref="RecordedPlatform"/>; the process's claims made once in Configure,
 /// before any part starts a thread; this machine's settings (kept in the node home by the network host, the settings file's one
-/// writer); the machine preflight; and keep-awake held while the project has an enabled display output and AWAKE is ON.</summary>
+/// writer); the machine preflight; the GC's show mode as an arm hook, with the collector's pauses counted; and keep-awake held while the
+/// project has an enabled display output and AWAKE is ON.</summary>
 internal sealed class MachineParts(ExtensionSetup? setup) : IEngineExtension
 {
     /// <summary>The words of the platform on any node but Windows.</summary>
@@ -23,6 +24,7 @@ internal sealed class MachineParts(ExtensionSetup? setup) : IEngineExtension
     private RecordedPlatform? _platform;
     private EngineCore? _engine;
     private IDisposable? _awake;
+    private GcPauses? _pauses;
 
     public string Name => "machine";
 
@@ -39,11 +41,15 @@ internal sealed class MachineParts(ExtensionSetup? setup) : IEngineExtension
             : new NullMachinePlatform(NotWindowsWords, MonoClock.Instance);
         _platform = new RecordedPlatform(inner, MonoClock.Instance, () => node?.Runtimes ?? RuntimeIdentity.Empty);
         _ = _platform.ClaimProcess(settings);
+        // The identity and the capabilities are read at start, so no reader of STATE waits on DXGI, NVAPI or the registry.
+        _ = _platform.Identity();
+        _ = _platform.Capabilities();
         return services with
         {
             MachinePlatform = _platform,
             MachineNode = _node,
             PreflightChecks = services.PreflightChecks.Add(new MachinePreflight()),
+            ArmHooks = services.ArmHooks.Add(new GcShowHook(() => node?.Saved ?? MachineSettings.Default, node)),
         };
     }
 
@@ -54,6 +60,11 @@ internal sealed class MachineParts(ExtensionSetup? setup) : IEngineExtension
         foreach (var c in _platform?.Claims ?? [])
             if (!c.Applied && c.Asked.Length > 0)
                 engine.Journal.Add("machine", $"{c.What} {c.Asked} was refused: {c.Words}", ok: false);
+        if (_node is not null)
+        {
+            _pauses = new GcPauses();
+            _node.CountPauses(_pauses);
+        }
         engine.ProjectChanged += OnProject;
         if (_node is not null)
             _node.Changed += OnSettings;
@@ -97,6 +108,8 @@ internal sealed class MachineParts(ExtensionSetup? setup) : IEngineExtension
         lock (_gate)
             (awake, _awake) = (_awake, null);
         awake?.Dispose();
+        _node?.CountPauses(null);
+        _pauses?.Dispose();
         _platform?.Dispose();
         return ValueTask.CompletedTask;
     }

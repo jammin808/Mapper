@@ -44,6 +44,14 @@
       {
         "label": "Waits timed",
         "path": "timer.waits"
+      },
+      {
+        "label": "GC while armed",
+        "path": "gc.setting"
+      },
+      {
+        "label": "GC held",
+        "path": "gc.held"
       }
     ],
     "actions": [

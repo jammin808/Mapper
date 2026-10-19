@@ -11,7 +11,8 @@ namespace PlayMap.Engine.Machine;
 /// <summary>Preflight's machine section: the platform's own rows (the OS and its edition, Smart App Control, servicing, power, the screen
 /// saver, a pending reboot, the networks' firewall profiles, each claim Windows refused, the timer's lateness), then what only the
 /// engine knows — the drift from MACHINE LOCK's set and each enabled display output on the primary display. On a node whose platform
-/// claims nothing, its one row says why. Off the lane: the platform reads the registry and the network list.</summary>
+/// claims nothing, its one row says why. Off the lane, on the thread the preflight runner gives each check: the platform reads the
+/// registry and the network list.</summary>
 internal sealed class MachinePreflight : IPreflightCheck
 {
     public string Section => "machine";
@@ -23,7 +24,8 @@ internal sealed class MachinePreflight : IPreflightCheck
     public Task<IReadOnlyList<PreflightRow>> RunAsync(PreflightContext context, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return Task.Run(() => Rows(context.Engine), ct);
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(Rows(context.Engine));
     }
 
     /// <summary>The section's rows now, from published state only.</summary>

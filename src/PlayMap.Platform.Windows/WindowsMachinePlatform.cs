@@ -30,6 +30,7 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
     private ImmutableArray<Claim> _process = [];
     private CpuPlacement? _placement;
     private NodeIdentity? _identity;
+    private CapabilitySnapshot? _capabilities;
     private AwakeRequest? _awake;
     private int _awakeHolders;
 
@@ -69,6 +70,7 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         {
             _settings = settings;
             _process = made;
+            _capabilities = null;
         }
         return made;
     }
@@ -233,7 +235,10 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
     {
         var identity = ReadIdentity();
         lock (_gate)
+        {
             _identity = identity;
+            _capabilities = null;
+        }
         return identity;
     }
 
@@ -258,7 +263,19 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         return new NodeIdentity(BuildInfo.Current, os, cpu, adapters, _runtimes());
     }
 
+    /// <summary>The platform's own probes, read once and again after the process's claims or the identity are made again.</summary>
     public CapabilitySnapshot Capabilities()
+    {
+        lock (_gate)
+            if (_capabilities is not null)
+                return _capabilities;
+        var read = ReadCapabilities();
+        lock (_gate)
+            _capabilities ??= read;
+        return read;
+    }
+
+    private CapabilitySnapshot ReadCapabilities()
     {
         var probes = ImmutableArray.CreateBuilder<CapabilityProbe>();
         var privileged = WindowsReadings.HoldsIncreaseBasePriority();
@@ -268,9 +285,11 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
             hags switch { true => "", false => "hardware-accelerated GPU scheduling is off", _ => "hardware-accelerated GPU scheduling is unset: the driver's default" }, ""));
         using (var timer = HighResolutionTimer.TryCreate(_clock, new Lateness(), out var why))
             probes.Add(new CapabilityProbe(MachineCapabilities.HighResolutionTimer, 0, timer is not null, why, ""));
-        Claim? qos;
+        Claim? qos = null;
         lock (_gate)
-            qos = _process.FirstOrDefault(c => c.What == "process.qos") is { What: not null } q ? q : null;
+            foreach (var c in _process)
+                if (c.What == "process.qos")
+                    qos = c;
         probes.Add(qos is { } claimed
             ? new CapabilityProbe(MachineCapabilities.TimerResolutionHonoured, 0, claimed.Applied && claimed.Asked == "high",
                 claimed.Applied ? (claimed.Asked == "high" ? "" : "QoS is AUTO: Windows may ignore the timer requests of a hidden process") : claimed.Words, "")
@@ -303,6 +322,13 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
             TimerWaits = _late.Count,
             TimerLateP99Us = _late.P99Us,
             AwakeOn = settings.Awake == "on",
+            UsbSuspend = WindowsReadings.UsbSuspend(),
+            PcieLinkState = WindowsReadings.PcieLinkStatePower(),
+            Notifications = WindowsReadings.Notifications(),
+            Updates = WindowsReadings.Updates(_unixMs()),
+            Hags = WindowsReadings.Hags() switch { true => 1, false => 0, _ => -1 },
+            MemoryIntegrity = WindowsReadings.MemoryIntegrity(),
+            GameMode = WindowsReadings.GameMode(),
         };
         return MachineRows.Build(readings, DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds(_unixMs()).UtcDateTime));
     }

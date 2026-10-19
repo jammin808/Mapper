@@ -26,7 +26,8 @@ public sealed class EditionRowTests
         Assert.All(info, r => Assert.Null(r.Fix));
         Assert.Equal("updates cannot be deferred on this edition: pause them past the show in Settings ▸ Windows Update", info[0].Words);
         Assert.Contains("keep the desk's monitor primary", info[2].Words, StringComparison.Ordinal);
-        // Nothing offers to write an Update policy on Home: no row's fix line touches Windows Update.
+        // Home has no Update client policies: no Update policy row, and nothing offers to write one.
+        Assert.DoesNotContain(rows, r => r.Item == "updates");
         Assert.DoesNotContain(rows, r => r.Fix is not null && r.Fix.Contains("UPDATE", StringComparison.OrdinalIgnoreCase));
         var edition = Row(rows, "os.edition")!;
         Assert.Equal((Light.Grey, "home"), (edition.Light, edition.Value));

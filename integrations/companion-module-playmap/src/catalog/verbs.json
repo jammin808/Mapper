@@ -14795,8 +14795,8 @@
   },
   {
     "name": "MACHINE SET",
-    "syntax": "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | AWAKE ON|OFF",
-    "words": "Changes one of this machine\u0027s claims (power throttling, the timer, MMCSS, the process priority, CPU sets, the GPU scheduling class, keep-awake), kept on the node and applied now where Windows allows, else at the next start, saying which; REALTIME needs the privilege the installer grants",
+    "syntax": "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC DEFAULT|SHOW | AWAKE ON|OFF",
+    "words": "Changes one of this machine\u0027s claims (power throttling, the timer, MMCSS, the process priority, CPU sets, the GPU scheduling class, the GC\u0027s show mode, keep-awake), kept on the node and applied now where Windows allows, else at the next start, saying which; REALTIME needs the privilege the installer grants",
     "category": "fleet",
     "risk": "review",
     "mutates": true,
@@ -14819,6 +14819,7 @@
       "MACHINE SET PROCESS HIGH|NORMAL",
       "MACHINE SET CPUSETS AUTO|OFF",
       "MACHINE SET GPU-PRIORITY NORMAL|HIGH|REALTIME",
+      "MACHINE SET GC DEFAULT|SHOW",
       "MACHINE SET AWAKE ON|OFF"
     ],
     "available": false,
@@ -14940,6 +14941,23 @@
             "NORMAL",
             "HIGH",
             "REALTIME"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "gc",
+          "kind": "enum",
+          "values": [
+            "GC"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "DEFAULT",
+            "SHOW"
           ]
         }
       ],

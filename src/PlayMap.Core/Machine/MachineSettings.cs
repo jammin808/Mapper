@@ -28,6 +28,9 @@ public sealed record MachineSettings
     /// <summary>normal | high | realtime: the process's GPU scheduling class.</summary>
     public string GpuPriority { get; init; } = "normal";
 
+    /// <summary>default | show: the collector's mode while the show is armed (SHOW: SustainedLowLatency, through the arm hook).</summary>
+    public string Gc { get; init; } = "default";
+
     /// <summary>on | off: the display and the system kept awake while an output is open.</summary>
     public string Awake { get; init; } = "on";
 

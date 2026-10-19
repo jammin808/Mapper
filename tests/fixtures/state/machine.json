@@ -117,6 +117,7 @@
         "process": "high",
         "cpuSets": "auto",
         "gpuPriority": "normal",
+        "gc": "default",
         "awake": "on"
       },
       "timer": {
@@ -124,7 +125,12 @@
         "waits": 0,
         "lateP99Us": 0
       },
-      "awake": false
+      "awake": false,
+      "gc": {
+        "setting": "default",
+        "held": "",
+        "pauses": null
+      }
     },
     "locked": {
       "at": 1760000000000,

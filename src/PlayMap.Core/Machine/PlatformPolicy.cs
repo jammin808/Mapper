@@ -24,13 +24,15 @@ public enum CpuPool
 /// it asks for EcoQoS.</summary>
 public sealed record RoleClaims(ThreadRole Role, ThreadLevel Priority, string? MmcssTask, CpuPool Pool, bool EcoQos);
 
-/// <summary>One MACHINE SET word: its values (the first is the default), when a change applies ("now", or "next start" for what is
-/// claimed as a thread or the render host starts), the default's documented cause, and its words in a refusal ("QoS").</summary>
+/// <summary>One MACHINE SET word: its values (the first is the default), when a change applies ("now"; "next start" for what is
+/// claimed as a thread or the render host starts; "next arm" for what the show's arming takes), the default's documented cause, and its
+/// words in a refusal ("QoS").</summary>
 public sealed record ClaimDefault(string Word, ImmutableArray<string> Values, string Default, string Applies, string Cause, string Label);
 
 /// <summary>The policy of the machine's claims, pure so both CI jobs prove it: the role → claims table, MACHINE SET's words with their
 /// defaults and each default's cause, and how a setting changes (refused at its value, REALTIME refused without the privilege).
-/// A default is on only where its cause is documented; the GPU scheduling class has none and stays NORMAL until the lab measures it.</summary>
+/// A default is on only where its cause is documented; the GPU scheduling class and the GC's show mode have none and stay off until the
+/// lab measures them.</summary>
 public static class PlatformPolicy
 {
     /// <summary>The MMCSS tasks the roles join (their registry entries under SystemProfile\Tasks, read and never written).</summary>
@@ -61,6 +63,9 @@ public static class PlatformPolicy
         new("GPU-PRIORITY", ["normal", "high", "realtime"], "normal", "now",
             "none documented: the GPU scheduling class stays NORMAL until the lab measures HIGH (L10)",
             "the GPU priority"),
+        new("GC", ["default", "show"], "default", "next arm",
+            "none documented: Microsoft names animation as SustainedLowLatency's case, but it grows an uncompacted heap; DEFAULT until the lab's GC pause histogram beside the frame time measures it (L10)",
+            "the GC's mode while armed"),
         new("AWAKE", ["on", "off"], "on", "now",
             "documented: the display and the system otherwise sleep on their timeouts while an output is open",
             "keep-awake"),
@@ -91,6 +96,7 @@ public static class PlatformPolicy
             "PROCESS" => settings.Process,
             "CPUSETS" => settings.CpuSets,
             "GPU-PRIORITY" => settings.GpuPriority,
+            "GC" => settings.Gc,
             "AWAKE" => settings.Awake,
             _ => throw new ArgumentException($"{word} is not a MACHINE SET word", nameof(word)),
         };
@@ -132,6 +138,7 @@ public static class PlatformPolicy
             "PROCESS" => settings with { Process = asked },
             "CPUSETS" => settings with { CpuSets = asked },
             "GPU-PRIORITY" => settings with { GpuPriority = asked },
+            "GC" => settings with { Gc = asked },
             _ => settings with { Awake = asked },
         };
         words = "";

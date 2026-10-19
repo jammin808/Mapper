@@ -27,6 +27,11 @@ internal static unsafe class WindowsReadings
     private static readonly Guid VideoSubgroup = new("7516b95f-f776-4464-8c53-06167f40cc99");
     private static readonly Guid VideoTimeout = new("3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e");
 
+    private static readonly Guid UsbSubgroup = new("2a737441-1930-4402-8d77-b2bebba308a3");
+    private static readonly Guid UsbSelectiveSuspend = new("48e6b7a6-50f5-4782-a5d4-53bb8f07e226");
+    private static readonly Guid PcieSubgroup = new("501a4d13-42af-4429-9fd1-a8218c268e20");
+    private static readonly Guid PcieLinkState = new("ee12f906-d277-404b-b6da-e5fa1a576df5");
+
     // The power mode's overlays (Settings ▸ System ▸ Power & battery).
     private static readonly Guid BestEfficiency = new("961cc777-2547-4f9d-8174-7d86181b8a7a");
     private static readonly Guid BestPerformance = new("ded574b5-45a0-4f42-8737-46345c09c238");
@@ -156,6 +161,83 @@ internal static unsafe class WindowsReadings
 
     private static int Minutes(Guid scheme, Guid subgroup, Guid setting) =>
         Native.PowerReadACValueIndex(0, scheme, subgroup, setting, out var seconds) == 0 ? (int)Math.Ceiling(seconds / 60.0) : -1;
+
+    /// <summary>A setting of the active plan on mains (<c>PowerReadACValueIndex</c>), or −1 unread.</summary>
+    private static int ActiveAc(Guid subgroup, Guid setting)
+    {
+        if (Native.PowerGetActiveScheme(0, out var active) != 0 || active is null)
+            return -1;
+        var scheme = *active;
+        _ = Native.LocalFree((nint)active);
+        return Native.PowerReadACValueIndex(0, scheme, subgroup, setting, out var value) == 0 ? (int)value : -1;
+    }
+
+    /// <summary>USB selective suspend on mains: 1 on, 0 off, −1 unread.</summary>
+    public static int UsbSuspend() => ActiveAc(UsbSubgroup, UsbSelectiveSuspend);
+
+    /// <summary>PCIe link-state power management on mains: 0 off, 1 moderate, 2 maximum savings, −1 unread.</summary>
+    public static int PcieLinkStatePower() => ActiveAc(PcieSubgroup, PcieLinkState);
+
+    /// <summary>The user's notifications (<c>PushNotifications\ToastEnabled</c>, on when unset, Windows' default): 1 on, 0 off.</summary>
+    public static int Notifications()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\PushNotifications");
+        return key?.GetValue("ToastEnabled") is int on ? (on != 0 ? 1 : 0) : 1;
+    }
+
+    /// <summary>Game Mode (<c>GameBar\AutoGameModeEnabled</c>, on when unset, Windows 11's default): 1 on, 0 off.</summary>
+    public static int GameMode()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\GameBar");
+        return key?.GetValue("AutoGameModeEnabled") is int on ? (on != 0 ? 1 : 0) : 1;
+    }
+
+    /// <summary>Memory Integrity (<c>DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity\Enabled</c>): 1 on, 0 off or never set.</summary>
+    public static int MemoryIntegrity()
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity");
+        return key?.GetValue("Enabled") is int on && on != 0 ? 1 : 0;
+    }
+
+    /// <summary>Windows Update's policy: held when quality updates are deferred, automatic updates are off or only notify, or updates are
+    /// paused past now (<paramref name="nowUnixMs"/>); the values read, in words.</summary>
+    public static UpdatePolicy Updates(long nowUnixMs)
+    {
+        var values = new List<string>();
+        var held = false;
+        using (var policy = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
+        {
+            if (policy?.GetValue("DeferQualityUpdates") is int defer && defer == 1 && policy.GetValue("DeferQualityUpdatesPeriodInDays") is int days && days > 0)
+            {
+                values.Add($"quality updates deferred {Number(days)} days");
+                held = true;
+            }
+            if (policy?.GetValue("DeferFeatureUpdates") is int feature && feature == 1 && policy.GetValue("DeferFeatureUpdatesPeriodInDays") is int fdays)
+                values.Add($"feature updates deferred {Number(fdays)} days");
+            using var au = policy?.OpenSubKey("AU");
+            if (au?.GetValue("NoAutoUpdate") is int none && none == 1)
+            {
+                values.Add("automatic updates off");
+                held = true;
+            }
+            if (au?.GetValue("AUOptions") is int options)
+            {
+                values.Add($"AUOptions {Number(options)}");
+                held |= options is 2 or 3;
+            }
+        }
+        using (var ux = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
+        {
+            if (ux?.GetValue("PauseUpdatesExpiryTime") is string until
+                && DateTimeOffset.TryParse(until, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var expiry))
+            {
+                var paused = expiry.ToUnixTimeMilliseconds() > nowUnixMs;
+                values.Add(paused ? $"paused until {expiry.UtcDateTime.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)}" : "a pause that has ended");
+                held |= paused;
+            }
+        }
+        return new UpdatePolicy(true, held, values.Count == 0 ? "no Update policy and no pause is set" : string.Join("; ", values));
+    }
 
     /// <summary>The power mode's overlay (<c>PowerGetEffectiveOverlayScheme</c>, where powrprof has it): "best power efficiency",
     /// "balanced", "best performance", or "" unread.</summary>

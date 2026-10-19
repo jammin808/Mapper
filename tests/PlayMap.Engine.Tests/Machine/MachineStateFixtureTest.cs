@@ -29,7 +29,8 @@ public sealed class MachineStateFixtureTest
             ["words"] = "{name}: {words}",
             ["fields"] = new JsonArray(Field("QoS", "settings.qos"), Field("Process", "settings.process"), Field("MMCSS", "settings.mmcss"),
                 Field("Timer", "timer.mode"), Field("Timer p99 (µs)", "timer.lateP99Us"), Field("Awake", "awake"), Field("CPU sets", "settings.cpuSets"),
-                Field("GPU priority", "settings.gpuPriority"), Field("Keep-awake", "settings.awake"), Field("Waits timed", "timer.waits")),
+                Field("GPU priority", "settings.gpuPriority"), Field("Keep-awake", "settings.awake"), Field("Waits timed", "timer.waits"),
+                Field("GC while armed", "gc.setting"), Field("GC held", "gc.held")),
             ["actions"] = new JsonArray("MACHINE STATUS", "PREFLIGHT QUICK", "MACHINE SET QOS HIGH", "MACHINE SET AWAKE ON"),
         },
         new JsonObject

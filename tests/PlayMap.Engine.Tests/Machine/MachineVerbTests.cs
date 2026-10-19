@@ -65,7 +65,7 @@ public sealed class MachineVerbTests
         Assert.Equal("auto", platform.GetProperty("settings").GetProperty("qos").GetString());
 
         var mmcss = await rig.Ok("MACHINE SET MMCSS OFF");
-        Assert.Equal(("next start", "MMCSS off is kept and applies from each claimed thread's next start"),
+        Assert.Equal(("next start", "MMCSS OFF is kept and applies from each claimed thread's next start"),
             (mmcss.GetProperty("applies").GetString(), mmcss.GetProperty("words").GetString()));
         Assert.Equal(System.Text.Json.JsonValueKind.Null, mmcss.GetProperty("claim").ValueKind);
         Assert.Equal(["auto", "off"], [rig.Saved[0].Qos, rig.Saved[1].Mmcss]);

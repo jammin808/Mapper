@@ -12,6 +12,14 @@ public sealed record PowerReading(string Plan, string Kind, bool OnlyBalanced, s
     public static PowerReading Unread { get; } = new("", "", false, "", -1, -1);
 }
 
+/// <summary>Windows Update's policy as read (the Update client policies under <c>Policies\Microsoft\Windows\WindowsUpdate</c> and a pause
+/// in <c>WindowsUpdate\UX\Settings</c>): whether updates are held back from the show (deferred, paused, or not installed on their
+/// own) and the values read, in words.</summary>
+public sealed record UpdatePolicy(bool Read, bool Held, string Values)
+{
+    public static UpdatePolicy Unread { get; } = new(false, false, "");
+}
+
 /// <summary>A connected network as read: its name, its firewall profile ("public", "private", "domain") and whether an inbound rule for
 /// PlayMap covers the Public profile.</summary>
 public sealed record NetworkProfile(string Name, string Category, bool PublicRule);
@@ -53,6 +61,26 @@ public sealed record MachineReadings
 
     /// <summary>Keep-awake's setting (MACHINE SET AWAKE).</summary>
     public bool AwakeOn { get; init; } = true;
+
+    /// <summary>USB selective suspend on mains: 1 on, 0 off, −1 unread.</summary>
+    public int UsbSuspend { get; init; } = -1;
+
+    /// <summary>PCIe link-state power management on mains: 0 off, 1 moderate, 2 maximum savings, −1 unread.</summary>
+    public int PcieLinkState { get; init; } = -1;
+
+    /// <summary>Notifications (the user's toasts): 1 on, 0 off, −1 unread.</summary>
+    public int Notifications { get; init; } = -1;
+
+    public UpdatePolicy Updates { get; init; } = UpdatePolicy.Unread;
+
+    /// <summary>Hardware-accelerated GPU scheduling as set: 1 on, 0 off, −1 unset (the driver's default).</summary>
+    public int Hags { get; init; } = -1;
+
+    /// <summary>Memory Integrity (hypervisor-protected code integrity): 1 on, 0 off, −1 unread.</summary>
+    public int MemoryIntegrity { get; init; } = -1;
+
+    /// <summary>Game Mode: 1 on, 0 off, −1 unread.</summary>
+    public int GameMode { get; init; } = -1;
 }
 
 /// <summary>The machine's preflight rows, pure: each a fact with its light and words, never a silent change, a fix line only where a
@@ -95,6 +123,7 @@ public static class MachineRows
         foreach (var n in r.Networks.Where(n => n.Category == "public" && !n.PublicRule))
             rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public",
                 $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there: make it Private in Settings ▸ Network & internet ▸ {n.Name} ▸ Network profile type"));
+        Settings(r, rows);
         Claims(r.Claims, rows);
         rows.Add(r.TimerWaits == 0 ? new MachineFact("timer", Light.Grey, "no waits", "no deadline wait has been timed yet")
             : r.TimerLateP99Us > LateAmberUs
@@ -185,6 +214,49 @@ public static class MachineRows
         }
     }
 
+    /// <summary>The settings that matter beyond the must rows: USB selective suspend, PCIe link-state power management, notifications
+    /// and the Update policy (amber when they can take a device, the GPU's link or the screen during a show), and hardware scheduling,
+    /// Memory Integrity and Game Mode as grey facts, never changed.</summary>
+    private static void Settings(MachineReadings r, ImmutableArray<MachineFact>.Builder rows)
+    {
+        const string Advanced = "Control Panel ▸ Power Options ▸ the plan's advanced settings";
+        rows.Add(r.UsbSuspend switch
+        {
+            1 => new MachineFact("power.usb", Light.Amber, "on", $"USB selective suspend is on: a USB device (a DMX or timecode interface, a capture device) may be powered down — turn it off in {Advanced} ▸ USB settings"),
+            0 => new MachineFact("power.usb", Light.Green, "off", "USB selective suspend is off"),
+            _ => new MachineFact("power.usb", Light.Grey, "unknown", Unread("USB selective suspend")),
+        });
+        rows.Add(r.PcieLinkState switch
+        {
+            0 => new MachineFact("power.pcie", Light.Green, "off", "PCIe link-state power management is off"),
+            1 or 2 => new MachineFact("power.pcie", Light.Amber, r.PcieLinkState == 1 ? "moderate" : "maximum",
+                $"PCIe link-state power management saves power ({(r.PcieLinkState == 1 ? "moderate" : "maximum")}): the GPU's link may sleep — turn it off in {Advanced} ▸ PCI Express"),
+            _ => new MachineFact("power.pcie", Light.Grey, "unknown", Unread("PCIe link-state power management")),
+        });
+        rows.Add(r.Notifications switch
+        {
+            1 => new MachineFact("notifications", Light.Amber, "on", "notifications are on: a toast can open over an output — turn them off in Settings ▸ System ▸ Notifications"),
+            0 => new MachineFact("notifications", Light.Green, "off", "notifications are off"),
+            _ => new MachineFact("notifications", Light.Grey, "unknown", Unread("notifications")),
+        });
+        // Home has no Update client policies: its information row says what a person does instead.
+        if (r.Os.Family is not (EditionFamily.Home or EditionFamily.Unknown))
+        {
+            rows.Add(!r.Updates.Read ? new MachineFact("updates", Light.Grey, "unknown", Unread("the Windows Update policy"))
+                : r.Updates.Held ? new MachineFact("updates", Light.Green, "held", "updates are held back: " + r.Updates.Values)
+                : new MachineFact("updates", Light.Amber, "not deferred",
+                    "updates are not deferred, paused or held: Windows may install one and restart during a show (" + r.Updates.Values + ") — defer them by policy, or pause them past the show in Settings ▸ Windows Update"));
+        }
+        rows.Add(new MachineFact("hags", Light.Grey, Word(r.Hags, "unset"),
+            r.Hags < 0 ? "hardware-accelerated GPU scheduling is unset: the driver's default" : $"hardware-accelerated GPU scheduling is {Word(r.Hags, "")}"));
+        rows.Add(new MachineFact("memoryIntegrity", Light.Grey, Word(r.MemoryIntegrity, "unknown"),
+            r.MemoryIntegrity < 0 ? Unread("Memory Integrity") : $"Memory Integrity is {Word(r.MemoryIntegrity, "")}"));
+        rows.Add(new MachineFact("gameMode", Light.Grey, Word(r.GameMode, "unknown"),
+            r.GameMode < 0 ? Unread("Game Mode") : $"Game Mode is {Word(r.GameMode, "")}"));
+
+        static string Word(int value, string unread) => value switch { 1 => "on", 0 => "off", _ => unread };
+    }
+
     private static void Claims(ImmutableArray<Claim> claims, ImmutableArray<MachineFact>.Builder rows)
     {
         var refused = 0;
@@ -248,6 +320,13 @@ public static class MachineRows
             "power.sleep" => "Sleep timeout",
             "power.display" => "Display timeout",
             "screensaver" => "Screen saver",
+            "power.usb" => "USB selective suspend",
+            "power.pcie" => "PCIe link-state power",
+            "notifications" => "Notifications",
+            "updates" => "Windows Update policy",
+            "hags" => "Hardware GPU scheduling",
+            "memoryIntegrity" => "Memory Integrity",
+            "gameMode" => "Game Mode",
             "reboot" => "Pending reboot",
             "network" => "Firewall profiles",
             "network.public" => "Network" + tail,

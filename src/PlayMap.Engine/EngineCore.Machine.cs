@@ -120,8 +120,13 @@ public sealed partial class EngineCore
         }
         else
         {
-            applies = "next start";
-            words = $"{row.Label} {asked} is kept and applies from {(word == "TIMER" ? "the render host's" : "each claimed thread's")} next start";
+            applies = row.Applies;
+            words = $"{word} {asked.ToUpperInvariant()} is kept and applies from " + word switch
+            {
+                "TIMER" => "the render host's next start",
+                "GC" => "the show's next arm",
+                _ => "each claimed thread's next start",
+            };
         }
         Journal.Add("machine", $"machine {word.ToLowerInvariant()} {was} → {asked} ({applies})", session.ClientName, ok: claim is not { Applied: false });
         FactsChanged();
@@ -234,6 +239,34 @@ public sealed partial class EngineCore
         w.WriteNumber("lateP99Us", Math.Round(late));
         w.WriteEndObject();
         w.WriteBoolean("awake", Services.MachineNode?.AwakeHeld ?? false);
+        w.WriteStartObject("gc");
+        w.WriteString("setting", settings.Gc);
+        w.WriteString("held", Services.MachineNode?.GcHeld ?? "");
+        if (Services.MachineNode?.Pauses is { } pauses)
+        {
+            w.WriteStartObject("pauses");
+            w.WriteNumber("count", pauses.Count);
+            w.WriteNumber("p99Ms", Math.Round(pauses.P99Ms, 2));
+            w.WriteNumber("maxMs", Math.Round(pauses.MaxMs, 2));
+            w.WriteStartArray("buckets");
+            for (var i = 0; i < pauses.Buckets.Length; i++)
+            {
+                w.WriteStartObject();
+                if (i < GcPauses.EdgesMs.Length)
+                    w.WriteNumber("underMs", GcPauses.EdgesMs[i]);
+                else
+                    w.WriteNumber("overMs", GcPauses.EdgesMs[^1]);
+                w.WriteNumber("count", pauses.Buckets[i]);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        else
+        {
+            w.WriteNull("pauses");
+        }
+        w.WriteEndObject();
         w.WriteEndObject();
 
         if (Services.MachineNode?.Saved.Locked is { } locked)

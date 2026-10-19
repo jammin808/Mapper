@@ -35,7 +35,7 @@ public sealed class PlatformPolicyTests
     [Fact]
     public void TheDefaultsAreOnOnlyWhereTheirCauseIsDocumented()
     {
-        Assert.Equal(["QOS", "TIMER", "MMCSS", "PROCESS", "CPUSETS", "GPU-PRIORITY", "AWAKE"], PlatformPolicy.Defaults.Select(d => d.Word));
+        Assert.Equal(["QOS", "TIMER", "MMCSS", "PROCESS", "CPUSETS", "GPU-PRIORITY", "GC", "AWAKE"], PlatformPolicy.Defaults.Select(d => d.Word));
         var settings = MachineSettings.Default;
         foreach (var d in PlatformPolicy.Defaults)
         {
@@ -43,15 +43,17 @@ public sealed class PlatformPolicyTests
             Assert.Equal(d.Values[0], d.Default);
             Assert.Equal(d.Default, PlatformPolicy.ValueOf(settings, d.Word));
             Assert.False(string.IsNullOrWhiteSpace(d.Cause));
-            Assert.Contains(d.Applies, new[] { "now", "next start" });
+            Assert.Contains(d.Applies, new[] { "now", "next start", "next arm" });
         }
-        // The GPU scheduling class has no documented cause: NORMAL until the lab measures HIGH.
+        // The GPU scheduling class and the GC's show mode have no documented cause: off until the lab measures them.
         var gpu = PlatformPolicy.Find("gpu-priority")!;
         Assert.Equal("normal", gpu.Default);
         Assert.StartsWith("none documented", gpu.Cause, StringComparison.Ordinal);
-        Assert.All(PlatformPolicy.Defaults.Where(d => d.Word != "GPU-PRIORITY"), d => Assert.StartsWith("documented", d.Cause, StringComparison.Ordinal));
+        var gc = PlatformPolicy.Find("GC")!;
+        Assert.Equal(("default", "next arm"), (gc.Default, gc.Applies));
+        Assert.StartsWith("none documented", gc.Cause, StringComparison.Ordinal);
+        Assert.All(PlatformPolicy.Defaults.Where(d => d.Word is not ("GPU-PRIORITY" or "GC")), d => Assert.StartsWith("documented", d.Cause, StringComparison.Ordinal));
         Assert.Null(settings.Locked);
-        Assert.Null(PlatformPolicy.Find("GC"));
     }
 
     [Fact]
@@ -85,7 +87,7 @@ public sealed class PlatformPolicyTests
     {
         Assert.False(PlatformPolicy.TrySet(MachineSettings.Default, "TURBO", "ON", true, out _, out var words));
         Assert.Equal(PlatformPolicy.Syntax, words);
-        Assert.Equal("MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | AWAKE ON|OFF",
+        Assert.Equal("MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC DEFAULT|SHOW | AWAKE ON|OFF",
             PlatformPolicy.Syntax);
         Assert.False(PlatformPolicy.TrySet(MachineSettings.Default, "QOS", "LOW", true, out _, out words));
         Assert.Equal("MACHINE SET QOS HIGH|AUTO", words);
@@ -95,12 +97,12 @@ public sealed class PlatformPolicyTests
     public void EveryOtherChangeIsKeptWordByWord()
     {
         var s = MachineSettings.Default;
-        foreach (var (word, value) in new[] { ("QOS", "AUTO"), ("TIMER", "DEFAULT"), ("MMCSS", "OFF"), ("PROCESS", "NORMAL"), ("CPUSETS", "OFF"), ("GPU-PRIORITY", "HIGH"), ("AWAKE", "OFF") })
+        foreach (var (word, value) in new[] { ("QOS", "AUTO"), ("TIMER", "DEFAULT"), ("MMCSS", "OFF"), ("PROCESS", "NORMAL"), ("CPUSETS", "OFF"), ("GPU-PRIORITY", "HIGH"), ("GC", "SHOW"), ("AWAKE", "OFF") })
         {
             Assert.True(PlatformPolicy.TrySet(s, word, value, false, out var next, out var words), words);
             Assert.Equal(value.ToLowerInvariant(), PlatformPolicy.ValueOf(next, word));
             s = next;
         }
-        Assert.Equal(MachineSettings.Default with { Qos = "auto", Timer = "default", Mmcss = "off", Process = "normal", CpuSets = "off", GpuPriority = "high", Awake = "off" }, s);
+        Assert.Equal(MachineSettings.Default with { Qos = "auto", Timer = "default", Mmcss = "off", Process = "normal", CpuSets = "off", GpuPriority = "high", Gc = "show", Awake = "off" }, s);
     }
 }
