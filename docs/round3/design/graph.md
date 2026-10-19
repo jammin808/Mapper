@@ -188,7 +188,8 @@ and the blind draft's editor view. They are kept by hash, so reaching one swaps 
 - **Pre-roll.** Before the node says it is ready (STATE `ready`), one frame of each kept plan is recorded and discarded, so every
   per-frame path has run its first, unoptimised call before the air depends on it. The call sits in the render host's start, which
   wp3-present owns in W3: a hunk of a few lines there, landing first in W3's merge order so present rebases on it (`PLAN.md` §4,
-  §5.3); the pre-roll itself is in this package's `RenderHost.Plan.cs`. With ReadyToRun in the MSI's publish (wp3-installer), this is M13's default.
+  §5.3); the pre-roll itself is in this package's `RenderHost.Plan.cs`. With ReadyToRun in the installer's publish (wp3-installer),
+  this is M13's default.
 
 ## 8. Bindless records (wp3-d3d12-passes-2, item 2)
 

@@ -1,15 +1,17 @@
 # Round 2: carry-over and the integrator's notes
 
-**Round 2 is merged:** every package of [`PLAN.md`](PLAN.md) is on main. This file keeps what each integration found, from the
-round-1 integration's carry-overs to the last fix batch's notes, oldest first. What stays open of it is in
+**Round 2 is merged:** every package of [`PLAN.md`](PLAN.md) is on main. Round 3 builds on it, toward the installed,
+Windows-native node on Direct3D 12 and the desk's guided workflows, with no lab this round
+([`docs/round3/PLAN.md`](../round3/PLAN.md)). This file keeps what each integration found, from the round-1 integration's
+carry-overs to the last fix batch's notes, oldest first. What stays open of it is in
 [`docs/ROADMAP.md`](../ROADMAP.md) ("Open fixes", with "Lab only" for what only real hardware proves); the owner's calls and their
 answers are here, in one place.
 
 ## The owner's calls, answered
 
-The owner answered calls 1–11 on 18 October 2026, call 11 with a figure that follows round 3's answer to their question (its §9
-decision 18). The plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a decision taken (its §1.2 and §9) and what
-it changes.
+Calls 1–11 are answered, each in the owner's words of 18 October 2026, call 4 also with their choice of 19 October 2026; call 11's
+answer is a figure that follows round 3's reply to the owner's question (its §9 decision 18). The plan
+([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a decision taken (its §1.2 and §9) and what it changes.
 
 1. **The show nodes' Windows edition** (the plan's D4). *Answered:* "PlayMap also needs to run on Windows 11 Home as well." Every
    Windows 11 edition from build 26100 is supported — Home, Pro, Pro for Workstations, Enterprise, Education, IoT Enterprise — with IoT
@@ -21,12 +23,14 @@ it changes.
    output is in the software lock: the same frame, its phase measured, never a locked state.
 3. **The signing identity** (§9 decision 2). *Answered:* "Leave unsigned for now." Builds and installers are unsigned and named so,
    each with a SHA-256 list; signing is next round's.
-4. **The WiX maintenance fee** (§9 decision 3). *Answered:* "Do not use WIX paid services." The WiX toolset is built from its source
-   in CI, so no official binary, package, fee or paid service is used; Inno Setup is the fallback if that build fails (its author asks
-   commercial users to buy a licence, a request the owner may meet). *Then:* "Use WIX if no cheaper alternative. Are there no other
-   free installer packages?" There are — Inno Setup and NSIS — and both build EXEs; none is cheaper than WiX built from its source,
-   which costs nothing, so WiX stays, and a self-built tool that asks for the fee's EULA gesture is never given it: a one-line patch to the
-   pinned source answers the check, and Inno Setup builds the installer only if none holds.
+4. **The WiX maintenance fee** (§9 decision 3). *Answered:* "Do not use WIX paid services." No official WiX binary, package, fee
+   or paid service is used. *Then:* "Use WIX if no cheaper alternative. Are there no other free installer packages?" There are —
+   Inno Setup and NSIS — and both build EXEs; none is cheaper than WiX built from its source, which costs nothing. M17 measured that
+   WiX's pinned source (v7.0.0) does not build on the Windows runner: it needs Visual Studio's v143 C++ tools, and the runner's
+   Visual Studio 2026 has v145 only. That source checks the fee's EULA gesture in three places; PlayMap never passes it, and no patch
+   to the source was made. *Then, on 19 October 2026:* "Keep Inno Setup (Recommended)." Inno Setup builds this round's installer, an
+   EXE with no automatic undo of service and registry changes, no repair and no `msiexec` for IT, and an MSI is revisited next
+   round. Inno Setup's author asks commercial users to buy a licence, a request the owner may meet.
 5. **The lab: its machines and who runs it** (§9 decision 11, §7). *Answered:* "Full physical hardware testing is not available yet."
    Every lab line keeps its script and pass mark and is reported not run; every question only the lab answers stands on its "if no"
    branch, said in STATE.

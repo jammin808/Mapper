@@ -21,6 +21,14 @@ The UI hides the power: three workspaces (**Play**, **Map**, **Scan**), a show s
 **Health** and **Network** drawers; right-click menus on everything, in step with the desk's buttons and the wire's verbs.
 The desk as built is docs/DESK.md.
 
+Where the design is going is round 3's plan (docs/round3/PLAN.md). PlayMap is becoming an installed, Windows-native show node
+on every edition of Windows 11 from build 26100, Home included: a per-machine installer, and a supervising service that starts
+the engine in the show user's session (§1). Its renderer is moving to Direct3D 12 behind a rendering hardware interface (RHI),
+OpenGL kept as the reference (§5). Its outputs are to lock in hardware where the hardware allows it and say how far apart they
+are everywhere else (§4). Its desk is to open on guided workflows beside advanced panes and the typed console, every command
+reachable from the menu bar, and from an object's right-click menu where it acts on one, its panes docking, floating and
+collapsing (docs/round3/design/desk-workflows.md). Until then the node is the portable exe on OpenGL this paper describes.
+
 ## 1. Processes — one exe, three roles
 
 ```
@@ -33,14 +41,21 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
                             display) and speaks one JSON object a line on its standard input and output.
 ```
 
+Round 3 adds a service above the engine and a fourth role beside it (docs/round3/design/installer.md,
+docs/round3/design/shaders.md). On an installed node `PlayMap.Supervisor`, a LocalSystem service, is to start
+`PlayMap.exe engine --supervised` in the show user's session, restart it, and stop one whose shown frames have stopped while
+HEALTH says they should move. The engine never runs as administrator and never in session 0. User ISF effects are to compile in
+`PlayMap.exe shader-worker`, so no compiler loads into the engine. Today the supervisor's exe does nothing and says so (§2), and
+user effects compile inside the engine, on a shared second context (§5).
+
 - A desk that faults or closes never blanks a projector: the engine keeps playing. The desk restarts and
   re-attaches; the engine restarts (watchdog) and puts back the recovery record (project, playlists' transports,
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - Once its doors are open the engine the supervisor started (`engine --supervised`) writes its pid record (`engine.pid`: its
   process, the line wire's port, when it started) into the supervisor's folder, `%ProgramData%\PlayMap\supervisor`, where that
-  folder exists — the installer makes it; the engine never does — never over a record that names another engine still running (that
-  is a fault in STATE, with the other engine's pid), and takes it back on a clean stop while it still names this process. Any other
-  run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
+  folder exists — no installer makes it yet (round 3's installer is to, docs/round3/design/installer.md §2), and the engine never
+  does — never over a record that names another engine still running (that is a fault in STATE, with the other engine's
+  pid), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
   installer's armed check needs to ask it on loopback, and no secret.
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
@@ -140,8 +155,11 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   every display lights the same picture together; while an output is frame-locked (`SYNC APPLY`) the instant is the
   lock anchor's time of the pacer's next count, the same integers on every node that holds the anchor. No node integrates a
   frame delta, so none drifts; a dropped render frame heals itself. Without genlock the honest ceiling is ±1 refresh between
-  machines; a sync board makes it the same vblank once outputs join a swap group, which this build's NVAPI tier
-  (compile-only) does not do yet (docs/OUTPUT.md).
+  machines. This build's NVAPI tier (compile-only) reads a sync board and joins no output to a swap group, so every output
+  presents free on its own vblank, measured once its clock settles (docs/OUTPUT.md). Round 3 brings machines to the same vblank where the hardware
+  locks: NVIDIA's present barrier on Direct3D 12 and the `WGL_NV_swap_group` swap group on OpenGL, on a professional GPU with
+  an RTX PRO Sync board, each output locked only by its own evidence. Everywhere else an output is to present free and say so:
+  "software lock: same frame, phase +x ms" (docs/round3/PLAN.md D5, docs/round3/design/present.md).
 - A generator counts its time from an origin on the show clock (stamped at `GENERATOR NEW`, moved by `GENERATOR RETIME`),
   or from its item's clip time while a playlist routes it; the particle field steps on a fixed 1/120 s grid from one
   particle life back, so a late joiner draws the same picture (docs/CONTENT.md). An effect's time is the leader's show time.
@@ -223,6 +241,13 @@ never reached its first frames. Decoders share that device under its one recursi
 it around each frame, taken within 4 ms (past that the frame draws on the device's own multithread protection and is counted),
 and lets go of it while a window waits for the vertical blank; a decoder or a texture sharer holds it only around its own
 immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
+
+Where the backends are going (docs/round3/PLAN.md D1–D3; docs/round3/design/rhi.md, d3d12.md, present.md): Direct3D 12 is to
+be the primary backend, behind the RHI cut at `GlDevice`, its contracts in `PlayMap.Core/Gpu`, each output presenting through its
+own flip-model swap chain. OpenGL stays the reference backend, its pixels unchanged, until the pixel and timing evidence says the
+two agree; then it retires, and ANGLE and the Direct3D 11 present path with it. AUTO stays OpenGL until a vendor tier has its
+lab parity record. Vulkan is not carried. Today `PlayMap.Render.D3D12` holds placeholders (§2), and `PRESENT PATH D3D12` answers
+that it is not available on this node yet.
 
 ## 6. Mapping pipeline
 

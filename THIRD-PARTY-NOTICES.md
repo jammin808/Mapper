@@ -1,9 +1,13 @@
 # Third-party notices
 
-What PlayMap ships or loads from others is listed here, each under the package that brought
-it, with its licence and the notice its licence asks for. Restrictive runtimes (NDI, FFmpeg, ANGLE) load from the user's own
-install and are never shipped; vendored source lives under `src/ThirdParty`, outside the analyzers' fences, with its licence beside
-it.
+What PlayMap ships or loads from others is listed here, each under the package that brought it, with its licence and the notice its
+licence asks for. NDI's runtime loads from the user's own install and NVAPI from the user's NVIDIA driver, and neither is ever
+shipped. Round 3 will load NVIDIA's Aftermath library from wherever the user put it, AMD's runtimes (ADLX among them) from the
+driver, and the capture cards' runtimes (DeckLink's, and AJA's and Magewell's if their stretch lands) from their drivers' installs,
+and will ship none of them. Today no FFmpeg is shipped: PlayMap loads the shared libraries the user puts in place. Round 3's
+installer will carry the LGPL build's replaceable shared libraries and the portable folder none, and no other FFmpeg build is ever
+shipped (`docs/round3/PLAN.md` §9 decision 4). ANGLE's library comes beside the exe in the desk's Avalonia package (wp2-d3d11,
+below). Vendored source lives under `src/ThirdParty`, outside the analyzers' fences, with its licence beside it.
 
 ## Round 1
 
