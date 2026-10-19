@@ -52,7 +52,7 @@ public sealed class InstallerTests
         Assert.NotEqual(0, run.Exit);
         Assert.Contains("PlayMap needs Windows 11 24H2 (build 26100) or later; this machine runs build 22631.", run.Log, StringComparison.Ordinal);
         Assert.Null(InstallKey());
-        Assert.False(Directory.Exists(InstallDir));
+        Assert.Empty(Left());
     }
 
     [Fact]
@@ -515,6 +515,7 @@ public sealed class InstallerTests
     private static void AssertTakenBack(string supervisor)
     {
         Assert.Null(InstallKey());
+        Assert.True(Left().Count == 0, "the uninstall left in the install's folder: " + string.Join(", ", Left()));
         Assert.False(ServiceExists());
         foreach (var rule in new[] { "PlayMap (TCP in)", "PlayMap (UDP in)" })
             Assert.NotEqual(0, Tool("netsh.exe", "advfirewall", "firewall", "show", "rule", "name=" + rule).Exit);
@@ -690,13 +691,28 @@ public sealed class InstallerTests
                 return p.ProcessName.StartsWith("_iu", StringComparison.OrdinalIgnoreCase) || p.ProcessName.StartsWith("unins0", StringComparison.OrdinalIgnoreCase);
         });
 
+    /// <summary>Each test starts from a machine with no install: an earlier test's install is uninstalled, and anything an earlier
+    /// test left in the install's folder (named in the job's summary, so it is seen) is removed.</summary>
     private static void EnsureUninstalled()
     {
-        if (InstallKey() is null)
-            return;
-        var gone = Uninstall();
-        Assert.True(InstallKey() is null, "the previous test's install could not be removed: " + gone.Log);
+        if (InstallKey() is not null)
+        {
+            var gone = Uninstall();
+            Assert.True(InstallKey() is null, "the previous test's install could not be removed: " + gone.Log);
+        }
+        if (Left() is { Count: > 0 } left)
+        {
+            if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } summary)
+                File.AppendAllText(summary, "- InstallerTests: an earlier test left in " + InstallDir + ": " + string.Join(", ", left) + Environment.NewLine);
+            RemoveFolder(InstallDir);
+        }
     }
+
+    /// <summary>What is in the install's folder, by path under it (none when there is no folder).</summary>
+    private static List<string> Left() =>
+        Directory.Exists(InstallDir)
+            ? Directory.EnumerateFileSystemEntries(InstallDir, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(InstallDir, f)).ToList()
+            : [];
 
     private static int Wait(string exe, IReadOnlyList<string> args)
     {
