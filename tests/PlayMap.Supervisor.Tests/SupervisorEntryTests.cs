@@ -22,7 +22,7 @@ public sealed class SupervisorEntryTests
     [LinuxFact]
     public async Task OffWindowsEveryMachineCommandChangesNothingAndSaysSo()
     {
-        foreach (var word in new[] { "run", "status", "resume", "stop", "install", "uninstall", "grant", "revoke", "session-probe" })
+        foreach (var word in new[] { "run", "status", "resume", "stop", "install", "uninstall", "grant", "revoke", "rights", "session-probe" })
         {
             using var said = new StringWriter();
             Assert.Equal(Program.NotHere, await Program.RunAsync([word], said));

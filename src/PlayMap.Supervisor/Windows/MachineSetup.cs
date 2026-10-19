@@ -249,6 +249,47 @@ public static class MachineSetup
     /// <summary>Takes the show user's right back from <paramref name="account"/>.</summary>
     public static void Revoke(string account) => Rights(account, add: false);
 
+    /// <summary>The account rights <paramref name="account"/> holds, as the local security policy says
+    /// (<c>LsaEnumerateAccountRights</c>); none when it holds none.</summary>
+    public static IReadOnlyList<string> RightsOf(string account)
+    {
+        var sid = (SecurityIdentifier)new NTAccount(account).Translate(typeof(SecurityIdentifier));
+        var sidBytes = new byte[sid.BinaryLength];
+        sid.GetBinaryForm(sidBytes, 0);
+        var attributes = new Native.LsaObjectAttributes { Length = Marshal.SizeOf<Native.LsaObjectAttributes>() };
+        var status = Native.LsaOpenPolicy(0, ref attributes, Native.PolicyLookupNames, out var policy);
+        if (status != 0)
+            throw new Win32Exception(Native.LsaNtStatusToWinError(status), "LsaOpenPolicy refused");
+        try
+        {
+            status = Native.LsaEnumerateAccountRights(policy, sidBytes, out var rights, out var count);
+            // An account that holds no right is not in the policy's list at all (STATUS_OBJECT_NAME_NOT_FOUND).
+            if (status == 0xC0000034)
+                return [];
+            if (status != 0)
+                throw new Win32Exception(Native.LsaNtStatusToWinError(status), "LsaEnumerateAccountRights refused " + account);
+            try
+            {
+                var held = new List<string>((int)count);
+                var size = Marshal.SizeOf<Native.LsaUnicodeString>();
+                for (var i = 0; i < count; i++)
+                {
+                    var right = Marshal.PtrToStructure<Native.LsaUnicodeString>(rights + (i * size));
+                    held.Add(Marshal.PtrToStringUni(right.Buffer, right.Length / 2));
+                }
+                return held;
+            }
+            finally
+            {
+                _ = Native.LsaFreeMemory(rights);
+            }
+        }
+        finally
+        {
+            _ = Native.LsaClose(policy);
+        }
+    }
+
     private static void Rights(string account, bool add)
     {
         var sid = (SecurityIdentifier)new NTAccount(account).Translate(typeof(SecurityIdentifier));

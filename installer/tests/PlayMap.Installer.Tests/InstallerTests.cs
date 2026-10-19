@@ -1,8 +1,14 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
+using PlayMap.Core.Machine;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
@@ -83,6 +89,8 @@ public sealed class InstallerTests
         var nodeData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PlayMap", "installer-test-settings.json");
         Directory.CreateDirectory(Path.GetDirectoryName(nodeData)!);
         File.WriteAllText(nodeData, "{\"kept\":true}");
+        // A copy of the supervisor outside the install, to read the account right back once the uninstall has removed the install.
+        var supervisor = SupervisorCopy();
         try
         {
             // The previous build installs and lays everything down.
@@ -112,22 +120,179 @@ public sealed class InstallerTests
             var same = Install(This);
             Assert.NotEqual(0, same.Exit);
             Assert.Contains($"PlayMap {ThisVersion} is installed already", same.Log, StringComparison.Ordinal);
+            File.Copy(SupervisorExe, supervisor, overwrite: true);
 
-            // The uninstall removes all but the node's data.
+            // The uninstall removes all but the node's data. A pid record naming a process that is not the engine (Windows' ping,
+            // written where a show user may write) ends nothing: the uninstall goes on and the process runs on.
+            HoldTheEngine();
+            using var helper = Holder.Ping();
+            Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(SupervisorFolder()));
             var gone = Uninstall();
             Assert.True(gone.Exit == 0, gone.Log);
-            Assert.Null(InstallKey());
+            Assert.True(helper.Running, "the uninstall ended the process a pid record named");
+            AssertTakenBack(supervisor);
             Assert.False(File.Exists(Path.Combine(InstallDir, "PlayMap.exe")));
-            Assert.False(ServiceExists());
-            Assert.DoesNotContain("9940", Tool("netsh.exe", "advfirewall", "firewall", "show", "rule", "name=PlayMap (TCP in)").Output, StringComparison.Ordinal);
-            Assert.Null(Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\PlayMap.exe"));
-            Assert.Null(Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\EventLog\Application\PlayMap"));
             Assert.Equal("{\"kept\":true}", File.ReadAllText(nodeData));
             Assert.True(File.Exists(dump));
         }
         finally
         {
             File.Delete(nodeData);
+            File.Delete(supervisor);
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
+    public void APublicFirewallInstallOpensThePublicProfileToo()
+    {
+        EnsureUninstalled();
+        try
+        {
+            var run = Install(This, "/SHOWUSER=" + ShowUser, "/PUBLICFIREWALL=1");
+            Assert.True(run.Exit == 0, run.Log);
+            AssertInstalled(ThisVersion, publicProfile: true);
+        }
+        finally
+        {
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
+    public void StopHoldsTheEngineUntilResumeAndTheShowUserMayOnlyWaitOnTheStopEvent()
+    {
+        EnsureUninstalled();
+        try
+        {
+            var first = Install(This, "/SHOWUSER=" + ShowUser);
+            Assert.True(first.Exit == 0, first.Log);
+            WaitForEngine();
+            // The engine's stop event, made by the service: the show user may wait on it and nothing more.
+            using (var stopEvent = EventWaitHandleAcl.OpenExisting(@"Global\PlayMap-Engine-Stop", EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions))
+            {
+                var rules = stopEvent.GetAccessControl().GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<EventWaitHandleAccessRule>().ToList();
+                var showUser = Assert.Single(rules, r => r.IdentityReference.Equals(WindowsIdentity.GetCurrent().User));
+                Assert.Equal(AccessControlType.Allow, showUser.AccessControlType);
+                Assert.Equal(EventWaitHandleRights.Synchronize, showUser.EventWaitHandleRights);
+            }
+            // stop answers held, and the status file says held with no engine; resume leaves held and the engine starts again.
+            HoldTheEngine();
+            var file = File.ReadAllText(Path.Combine(MachineFolder, "supervisor", "status.json"));
+            Assert.Contains("\"state\":\"held\"", file, StringComparison.Ordinal);
+            var resume = Tool(SupervisorExe, "resume");
+            Assert.True(resume.Exit == 0, resume.Output);
+            Assert.StartsWith("OK resumed", resume.Output.Trim(), StringComparison.Ordinal);
+            Assert.NotEqual(0, WaitForEngine());
+            Assert.DoesNotContain("\"state\":\"held\"", Tool(SupervisorExe, "status").Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
+    public void AnUninstallRightAfterTheServiceStopsEndsItsEngineAndTakesEveryActionBack()
+    {
+        EnsureUninstalled();
+        var supervisor = SupervisorCopy();
+        try
+        {
+            var first = Install(This, "/SHOWUSER=" + ShowUser);
+            Assert.True(first.Exit == 0, first.Log);
+            var engine = WaitForEngine();
+            File.Copy(SupervisorExe, supervisor, overwrite: true);
+            // The service asked to stop and not waited for: it leaves its engine running, and the uninstall comes straight after.
+            Tool("sc.exe", "stop", "PlayMapSupervisor");
+            var gone = Uninstall();
+            Assert.True(gone.Exit == 0, gone.Log);
+            AssertTakenBack(supervisor);
+            Assert.False(IsEngine(engine), $"the engine (pid {engine}) runs on after the uninstall");
+        }
+        finally
+        {
+            File.Delete(supervisor);
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
+    public async Task AStandardUserServesTheInstalledEngineOn9940WithNoUrlReservation()
+    {
+        EnsureUninstalled();
+        var account = "pmtest" + RandomNumberGenerator.GetHexString(6, lowercase: true);
+        // Fourteen characters (net.exe asks a question of a longer one) with upper and lower case, a digit and a sign.
+        var password = "Pm!7" + RandomNumberGenerator.GetString("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789", 10);
+        var home = Directory.CreateTempSubdirectory("playmap-standard-user-").FullName;
+        Process? engine = null;
+        try
+        {
+            var first = Install(This, "/SHOWUSER=" + ShowUser);
+            Assert.True(first.Exit == 0, first.Log);
+            // The supervised engine held, so 9940 is free for the one this test runs.
+            HoldTheEngine();
+            var added = Tool("net.exe", "user", account, password, "/add");
+            Assert.True(added.Exit == 0, added.Output);
+            Assert.DoesNotContain(account, Tool("net.exe", "localgroup", "Administrators").Output, StringComparison.OrdinalIgnoreCase);
+            var security = new DirectoryInfo(home).GetAccessControl();
+            security.AddAccessRule(new FileSystemAccessRule(new NTAccount(Environment.MachineName, account), FileSystemRights.Modify,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            new DirectoryInfo(home).SetAccessControl(security);
+
+            var start = new ProcessStartInfo(Path.Combine(InstallDir, "PlayMap.exe"))
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = InstallDir,
+                UserName = account,
+                Domain = Environment.MachineName,
+                PasswordInClearText = password,
+                LoadUserProfile = true,
+            };
+            foreach (var a in new[] { "engine", "headless", "--home", home, "--http", "9940" })
+                start.ArgumentList.Add(a);
+            engine = Process.Start(start)!;
+
+            // A TCP connection to 9940 and an HTTP answer from the node on it: the standard user bound the port with no reservation.
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var deadline = Stopwatch.StartNew();
+            HttpResponseMessage? answer = null;
+            var tried = "";
+            while (answer is null && !engine.HasExited && deadline.Elapsed < TimeSpan.FromSeconds(120))
+            {
+                try
+                {
+                    using (var tcp = new TcpClient())
+                        await tcp.ConnectAsync(IPAddress.Loopback, 9940);
+                    answer = await http.GetAsync(new Uri("http://127.0.0.1:9940/health"));
+                }
+                catch (Exception ex) when (ex is SocketException or HttpRequestException or TaskCanceledException)
+                {
+                    tried = ex.Message;
+                    await Task.Delay(500);
+                }
+            }
+            Assert.True(answer is not null, $"no answer on 9940 from the engine run as {account} (exited: {engine.HasExited}; last: {tried}): {EngineLog(home)}");
+            using (answer)
+            {
+                Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+                Assert.StartsWith("{", (await answer.Content.ReadAsStringAsync()).TrimStart(), StringComparison.Ordinal);
+            }
+            Assert.Equal(account, OwnerOf(engine), ignoreCase: true);
+            Assert.DoesNotContain(":9940/", Tool("netsh.exe", "http", "show", "urlacl").Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (engine is not null)
+            {
+                if (!engine.HasExited)
+                    engine.Kill(entireProcessTree: true);
+                await engine.WaitForExitAsync();
+                engine.Dispose();
+            }
+            Tool("net.exe", "user", account, "/delete");
+            RemoveFolder(home);
             EnsureUninstalled();
         }
     }
@@ -249,7 +414,7 @@ public sealed class InstallerTests
     }
 
     /// <summary>What an installed build holds, read from Windows.</summary>
-    private static void AssertInstalled(string version)
+    private static void AssertInstalled(string version, bool publicProfile = false)
     {
         using var key = InstallKey();
         Assert.NotNull(key);
@@ -294,6 +459,23 @@ public sealed class InstallerTests
         Assert.Contains(Path.Combine(InstallDir, "PlayMap.exe"), tcp, StringComparison.OrdinalIgnoreCase);
         var udp = Tool("netsh.exe", "advfirewall", "firewall", "show", "rule", "name=PlayMap (UDP in)", "verbose").Output;
         Assert.Contains("9928,9942,9943,6454,5568,5353", udp, StringComparison.Ordinal);
+        // On the private and domain profiles, and Public only when the install asked for it.
+        var profiles = publicProfile ? "Domain,Private,Public" : "Domain,Private";
+        Assert.Equal(profiles, ProfilesOf(tcp));
+        Assert.Equal(profiles, ProfilesOf(udp));
+
+        // The show user may write the dumps and the supervisor's folder (an allow rule of its own, Modify), and holds its right.
+        var user = WindowsIdentity.GetCurrent().User!;
+        foreach (var folder in new[] { "dumps", "supervisor" })
+        {
+            var rules = new DirectoryInfo(Path.Combine(MachineFolder, folder)).GetAccessControl()
+                .GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>();
+            Assert.Contains(rules, r => r.IdentityReference.Equals(user) && r.AccessControlType == AccessControlType.Allow
+                && (r.FileSystemRights & FileSystemRights.Modify) == FileSystemRights.Modify);
+        }
+        var rights = Tool(SupervisorExe, "rights", ShowUser);
+        Assert.True(rights.Exit == 0, rights.Output);
+        Assert.Contains("SeIncreaseBasePriorityPrivilege", rights.Output, StringComparison.Ordinal);
 
         // WER keeps five full dumps of the engine in the machine's folder.
         using var wer = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\PlayMap.exe");
@@ -328,6 +510,102 @@ public sealed class InstallerTests
         Assert.All(laid, f => Assert.True(listed.ContainsKey(f), f + " is installed and not in SHA256SUMS"));
     }
 
+    /// <summary>What an uninstall takes back, read from Windows: the install's key, the service, both firewall rules, WER's values,
+    /// the event source and the show user's right (read by <paramref name="supervisor"/>, a copy outside the removed install).</summary>
+    private static void AssertTakenBack(string supervisor)
+    {
+        Assert.Null(InstallKey());
+        Assert.False(ServiceExists());
+        foreach (var rule in new[] { "PlayMap (TCP in)", "PlayMap (UDP in)" })
+            Assert.NotEqual(0, Tool("netsh.exe", "advfirewall", "firewall", "show", "rule", "name=" + rule).Exit);
+        Assert.Null(Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\PlayMap.exe"));
+        Assert.Null(Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\EventLog\Application\PlayMap"));
+        var rights = Tool(supervisor, "rights", ShowUser);
+        Assert.True(rights.Exit == 0, rights.Output);
+        Assert.DoesNotContain("SeIncreaseBasePriorityPrivilege", rights.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>The profiles netsh's verbose listing names for a rule ("Domain,Private").</summary>
+    private static string ProfilesOf(string verbose) =>
+        Regex.Match(verbose, @"^Profiles:\s*(\S+)", RegexOptions.Multiline, TimeSpan.FromSeconds(1)).Groups[1].Value;
+
+    private static string SupervisorExe => Path.Combine(InstallDir, "Supervisor", "PlayMap.Supervisor.exe");
+
+    /// <summary>A path outside the install for a copy of its supervisor.</summary>
+    private static string SupervisorCopy() =>
+        Path.Combine(Path.GetTempPath(), "playmap-supervisor-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".exe");
+
+    /// <summary>Waits until the supervisor's status names a running engine; its pid (0 after two minutes without one).</summary>
+    private static int WaitForEngine()
+    {
+        var deadline = Stopwatch.StartNew();
+        var pid = 0;
+        while (deadline.Elapsed < TimeSpan.FromMinutes(2))
+        {
+            var status = Tool(SupervisorExe, "status").Output;
+            var named = Regex.Match(status, "\"pid\":(\\d+)", RegexOptions.None, TimeSpan.FromSeconds(1));
+            if (named.Success && (pid = int.Parse(named.Groups[1].Value, CultureInfo.InvariantCulture)) != 0)
+                return pid;
+            Wait("cmd.exe", ["/c", "ping", "-n", "2", "127.0.0.1"]);
+        }
+        Assert.Fail("no engine within two minutes: " + Tool(SupervisorExe, "status").Output);
+        return pid;
+    }
+
+    /// <summary>Whether a process of that id runs as PlayMap.exe.</summary>
+    private static bool IsEngine(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return !process.HasExited && string.Equals(process.ProcessName, "PlayMap", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            // No process has that id.
+            return false;
+        }
+    }
+
+    /// <summary>The account a process runs as (its user name), as Windows' tasklist says it.</summary>
+    private static string OwnerOf(Process process)
+    {
+        var listed = Tool("tasklist.exe", "/v", "/fo", "csv", "/nh", "/fi", "PID eq " + process.Id.ToString(CultureInfo.InvariantCulture)).Output;
+        var fields = Regex.Matches(listed, "\"([^\"]*)\"", RegexOptions.None, TimeSpan.FromSeconds(1)).Select(m => m.Groups[1].Value).ToList();
+        // Image name, PID, session name, session, memory, status, user name, …: the user name is DOMAIN\name.
+        return fields.Count > 6 ? fields[6][(fields[6].IndexOf('\\', StringComparison.Ordinal) + 1)..] : listed;
+    }
+
+    /// <summary>Removes a folder a process just ended may still hold a file of: tried for up to ten seconds, then left with the reason
+    /// in the test's trace (the runner is discarded after the job).</summary>
+    private static void RemoveFolder(string folder)
+    {
+        var deadline = Stopwatch.StartNew();
+        while (Directory.Exists(folder))
+        {
+            try
+            {
+                Directory.Delete(folder, true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (deadline.Elapsed > TimeSpan.FromSeconds(10))
+                {
+                    Trace.WriteLine("PlayMap.Installer.Tests: " + folder + " is left: " + ex.Message);
+                    return;
+                }
+                Wait("cmd.exe", ["/c", "ping", "-n", "2", "127.0.0.1"]);
+            }
+        }
+    }
+
+    /// <summary>The last lines of the engine's log under its home, for a failure's words.</summary>
+    private static string EngineLog(string home)
+    {
+        var logs = Directory.Exists(home) ? Directory.GetFiles(home, "*.log", SearchOption.AllDirectories) : [];
+        return logs.Length == 0 ? "no log in " + home : string.Join(" | ", logs.SelectMany(l => ReadShared(l).Split('\n').TakeLast(20)));
+    }
+
     private static RegistryKey? InstallKey() => Registry.LocalMachine.OpenSubKey(@"SOFTWARE\PlayMap");
 
     /// <summary>Asks the supervisor to stop its engine and hold it (<c>PlayMap.Supervisor.exe stop</c>) and waits until its status says
@@ -353,7 +631,7 @@ public sealed class InstallerTests
     private static string ServiceState()
     {
         var query = Tool("sc.exe", "query", "PlayMapSupervisor");
-        var state = System.Text.RegularExpressions.Regex.Match(query.Output, @"STATE\s*:\s*\d+\s+([A-Z_]+)");
+        var state = Regex.Match(query.Output, @"STATE\s*:\s*\d+\s+([A-Z_]+)", RegexOptions.None, TimeSpan.FromSeconds(1));
         return state.Success ? state.Groups[1].Value : "";
     }
 
@@ -448,33 +726,42 @@ public sealed class InstallerTests
         return Convert.ToHexString(SHA256.HashData(stream));
     }
 
-    /// <summary>A program that runs from a folder and is not PlayMap: Windows' ping copied there, waiting ten minutes, ended and removed
-    /// when the test is done.</summary>
+    /// <summary>A program that is not PlayMap: Windows' ping, waiting ten minutes — copied into a folder and run from there, or run where
+    /// Windows keeps it — ended (and its copy removed) when the test is done.</summary>
     private sealed class Holder : IDisposable
     {
         public const string Name = "ping-holder.exe";
 
         private readonly Process _process;
-        private readonly string _path;
+        private readonly string? _copy;
 
-        private Holder(Process process, string path)
+        private Holder(Process process, string? copy)
         {
             _process = process;
-            _path = path;
+            _copy = copy;
         }
 
         public int Pid => _process.Id;
 
         public bool Running => !_process.HasExited;
 
+        private static string PingExe => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "PING.EXE");
+
         public static Holder StartIn(string folder)
         {
             var path = Path.Combine(folder, Name);
-            File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "PING.EXE"), path, overwrite: true);
+            File.Copy(PingExe, path, overwrite: true);
+            return new Holder(Run(path), path);
+        }
+
+        public static Holder Ping() => new(Run(PingExe), null);
+
+        private static Process Run(string path)
+        {
             var start = new ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true };
             foreach (var a in new[] { "-n", "600", "127.0.0.1" })
                 start.ArgumentList.Add(a);
-            return new Holder(Process.Start(start)!, path);
+            return Process.Start(start)!;
         }
 
         public void Dispose()
@@ -483,7 +770,8 @@ public sealed class InstallerTests
                 _process.Kill();
             _process.WaitForExit();
             _process.Dispose();
-            File.Delete(_path);
+            if (_copy is not null)
+                File.Delete(_copy);
         }
     }
 

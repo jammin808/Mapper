@@ -114,6 +114,7 @@ when the record names anything else. The armed check asks the engine a record na
 | `PlayMap.Supervisor.exe resume` | ends a hold or the too-many-restarts stop |
 | `PlayMap.Supervisor.exe preinstall-check` | the installer's armed check |
 | `PlayMap.Supervisor.exe grant <account>` / `revoke <account>` | the show account's right |
+| `PlayMap.Supervisor.exe rights <account>` | the account rights an account holds, as the local security policy says |
 
 `status`, `stop` and `resume` ask the service on its pipe (`\\.\pipe\PlayMap.Supervisor`, open to the show user and
 administrators), and take an answer only from the service itself: a process running as SYSTEM or from the installed
@@ -193,9 +194,16 @@ where Windows Update installs drivers with the monthly update, `MACHINE LOCK` ob
 ## What is proven, and where
 
 CI's installer job (windows-2025, elevated) builds the installer and the one numbered a build before it, then: the launch condition
-refuses build 22631; fake engines on loopback stop the install armed and silent; the earlier build installs and lays the files,
-the service with its recovery actions, the firewall rules, WER's values and the install's key; this build upgrades it with Smart App
-Control evaluating and keeps the node's data; the earlier build is refused as a downgrade; the uninstall removes all but the node's
-data; the artifact's `SHA256SUMS` matches every file. No lab ran this round: a real IoT Enterprise LTSC node with auto-logon, the
+refuses build 22631; fake engines (run as `PlayMap.exe engine`) stop the install armed and silent, and the uninstall armed; the earlier
+build installs and lays the files, each matching its line in `SHA256SUMS`, with the notices and licence texts, the service with its
+recovery actions, the firewall rules on the private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the
+show user's write access to `dumps\` and `supervisor\`, the show user's account right and the install's key; this build upgrades it
+with Smart App Control evaluating and keeps the node's data; the earlier build is refused as a downgrade; a folder other than
+Program Files, a show user Windows cannot find (exit 3, the machine left unsupervised), an upgrade while another program runs from the
+install, and an upgrade that cannot replace a file (the earlier service running again) each end as this guide says; `stop` holds the
+engine and `resume` starts it again, and the show user may only wait on the stop event; a standard account runs the installed engine
+and serves HTTP on 9940 with no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every
+machine-level action back, the account right read back with `rights`; a pid record naming a process that is not the engine ends
+nothing; the artifact's `SHA256SUMS` matches every file. No lab ran this round: a real IoT Enterprise LTSC node with auto-logon, the
 supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the unsigned installer
 on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23) are not run.

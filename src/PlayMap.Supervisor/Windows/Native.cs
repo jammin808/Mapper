@@ -164,6 +164,14 @@ internal static partial class Native
 
     [LibraryImport("advapi32.dll")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial uint LsaEnumerateAccountRights(nint policy, byte[] sid, out nint rights, out uint count);
+
+    [LibraryImport("advapi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial uint LsaFreeMemory(nint buffer);
+
+    [LibraryImport("advapi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial uint LsaClose(nint policy);
 
     [LibraryImport("advapi32.dll")]

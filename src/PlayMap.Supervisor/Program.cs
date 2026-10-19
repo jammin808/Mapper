@@ -25,6 +25,7 @@ public static class Program
         "PlayMap.Supervisor run | status | resume | stop | preinstall-check [--out <file>] | install --dir <folder> [--show-user <account>] "
         + "[--previous-show-user <account>] [--public] [--out <file>] | "
         + "uninstall [--show-user <account>] [--out <file>] | upgrade-stop [--out <file>] | grant <account> | revoke <account> | "
+        + "rights <account> | "
         + "version-check <next> <last> | previous-build <version> <build> | session-probe --out <file>";
 
     public static async Task<int> Main(string[] args)
@@ -89,8 +90,8 @@ public static class Program
         }
         if (!OperatingSystem.IsWindows())
         {
-            if (command is "run" or "status" or "resume" or "stop" or "install" or "uninstall" or "upgrade-stop" or "grant" or "revoke" or "session-probe"
-                or "report-session")
+            if (command is "run" or "status" or "resume" or "stop" or "install" or "uninstall" or "upgrade-stop" or "grant" or "revoke" or "rights"
+                or "session-probe" or "report-session")
             {
                 say("the supervisor runs on Windows only: '" + command + "' changes nothing here");
                 return NotHere;
@@ -156,6 +157,10 @@ public static class Program
             case "revoke" when args.Count == 2:
                 MachineSetup.Revoke(args[1]);
                 say(MachinePlan.ShowUserRight + " taken back from " + args[1]);
+                return Done;
+            case "rights" when args.Count == 2:
+                var held = MachineSetup.RightsOf(args[1]);
+                say(held.Count == 0 ? args[1] + " holds no account right" : args[1] + " holds " + string.Join(", ", held));
                 return Done;
             case "status" or "resume" or "stop":
                 return PipeCommand(command, say);
