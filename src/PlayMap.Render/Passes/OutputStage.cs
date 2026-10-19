@@ -1,5 +1,6 @@
 using System.Numerics;
 using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
@@ -65,29 +66,29 @@ internal sealed class OutputStage
         var b = (float)t.Brightness;
         using (list.Pass(target, PassDesc.ClearBlack))
             list.Draw(_output, Warped)
-                .SetInt("uRotation", input.RotationQuarters)
+                .SetInt(ProgramIds.Output.uRotation, input.RotationQuarters)
                 // The measured grid holds the canvas's own uv: it replaces the output's region of the picture.
-                .Set("uSrc", measured?.WarpGrid is null ? input.SourceRect : new Vector4(0, 0, 1, 1))
-                .Texture("uPicture", input.Picture)
-                .SetInt("uHasLens", input.Lens is null ? 0 : 1)
-                .Texture("uLens", input.Lens ?? _services.White)
-                .SetInt("uHasMask", input.Mask is null ? 0 : 1)
-                .Texture("uMask", input.Mask ?? _services.White)
-                .SetInt("uHasBlend", input.Blend is null ? 0 : 1)
-                .Texture("uBlend", input.Blend ?? _services.White)
-                .Set("uGain", (float)t.GainR * b, (float)t.GainG * b, (float)t.GainB * b, 1)
-                .Set("uTone", (float)t.Contrast, (float)t.Gamma, (float)t.Lift, input.Dither)
-                .Set("uFrame", input.Frame % 4096)
-                .SetInt("uHasMeasuredGrid", measured?.WarpGrid is null ? 0 : 1)
-                .Texture("uMeasuredGrid", measured?.WarpGrid ?? _services.White)
-                .SetInt("uHasMeasuredBlend", measured?.Blend is null ? 0 : 1)
-                .Texture("uMeasuredBlend", measured?.Blend ?? _services.White)
-                .SetInt("uMatch", measured is { Match: true } ? 1 : 0)
-                .Set("uMeasuredGains", measured?.Gains ?? Vector4.One)
+                .Set(ProgramIds.Output.uSrc, measured?.WarpGrid is null ? input.SourceRect : new Vector4(0, 0, 1, 1))
+                .Texture(ProgramIds.Output.uPicture, input.Picture)
+                .SetInt(ProgramIds.Output.uHasLens, input.Lens is null ? 0 : 1)
+                .Texture(ProgramIds.Output.uLens, input.Lens ?? _services.White)
+                .SetInt(ProgramIds.Output.uHasMask, input.Mask is null ? 0 : 1)
+                .Texture(ProgramIds.Output.uMask, input.Mask ?? _services.White)
+                .SetInt(ProgramIds.Output.uHasBlend, input.Blend is null ? 0 : 1)
+                .Texture(ProgramIds.Output.uBlend, input.Blend ?? _services.White)
+                .Set(ProgramIds.Output.uGain, (float)t.GainR * b, (float)t.GainG * b, (float)t.GainB * b, 1)
+                .Set(ProgramIds.Output.uTone, (float)t.Contrast, (float)t.Gamma, (float)t.Lift, input.Dither)
+                .Set(ProgramIds.Output.uFrame, input.Frame % 4096)
+                .SetInt(ProgramIds.Output.uHasMeasuredGrid, measured?.WarpGrid is null ? 0 : 1)
+                .Texture(ProgramIds.Output.uMeasuredGrid, measured?.WarpGrid ?? _services.White)
+                .SetInt(ProgramIds.Output.uHasMeasuredBlend, measured?.Blend is null ? 0 : 1)
+                .Texture(ProgramIds.Output.uMeasuredBlend, measured?.Blend ?? _services.White)
+                .SetInt(ProgramIds.Output.uMatch, measured is { Match: true } ? 1 : 0)
+                .Set(ProgramIds.Output.uMeasuredGains, measured?.Gains ?? Vector4.One)
                 // A γ of 0 would black the output: unset, it reads 0, so it is set on every draw, as uAir is.
-                .Set("uMeasuredGamma", measured?.Gamma ?? MeasuredStage.ContentGamma)
-                .Set("uMeasuredPedestal", measured?.Pedestal ?? 0f)
-                .Set("uAir", input.Gain ?? 1f)
+                .Set(ProgramIds.Output.uMeasuredGamma, measured?.Gamma ?? MeasuredStage.ContentGamma)
+                .Set(ProgramIds.Output.uMeasuredPedestal, measured?.Pedestal ?? 0f)
+                .Set(ProgramIds.Output.uAir, input.Gain ?? 1f)
                 .Indexed(input.Warp.Mesh, input.Warp.IndexCount);
         target.Color.Version++;
     }

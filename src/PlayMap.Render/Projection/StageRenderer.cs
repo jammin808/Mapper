@@ -2,6 +2,7 @@ using System.Numerics;
 using PlayMap.Core.Content;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
@@ -282,18 +283,18 @@ internal sealed class StageRenderer : IDisposable
             var mask = resources.SurfaceMask(s.Id);
             var maskTexture = mask is null ? _services.White : _caches.Coverage(mask);
             var draw = Placed(list.Draw(_stage, Surface), viewProj, eye, boundsMin, boundsMax, s.Transform)
-                .Set("uOpacity", (float)Math.Clamp(s.Opacity, 0, 1))
-                .SetInt("uHasMask", mask is null ? 0 : 1)
-                .Texture("uMask", maskTexture)
-                .Set("uProjector", Matrix4x4.Identity);
+                .Set(ProgramIds.Stage.uOpacity, (float)Math.Clamp(s.Opacity, 0, 1))
+                .SetInt(ProgramIds.Stage.uHasMask, mask is null ? 0 : 1)
+                .Texture(ProgramIds.Stage.uMask, maskTexture)
+                .Set(ProgramIds.Stage.uProjector, Matrix4x4.Identity);
             var isSelected = selected?.Contains(s.Id) == true;
             if (tint)
             {
                 var c = ColorRgb.Parse(s.Color, new ColorRgb(0.6f, 0.6f, 0.6f));
-                draw.SetInt("uMode", 5)
-                    .Set("uColorA", c.R, c.G, c.B, 1)
-                    .Set("uColorB", 1f, 0.85f, 0.2f, isSelected ? 0.45f : 0)
-                    .Texture("uSource", _services.Black);
+                draw.SetInt(ProgramIds.Stage.uMode, 5)
+                    .Set(ProgramIds.Stage.uColorA, c.R, c.G, c.B, 1)
+                    .Set(ProgramIds.Stage.uColorB, 1f, 0.85f, 0.2f, isSelected ? 0.45f : 0)
+                    .Texture(ProgramIds.Stage.uSource, _services.Black);
             }
             else if (sources.EffectOf(s.Content.Source) is { } effect)
             {
@@ -301,25 +302,25 @@ internal sealed class StageRenderer : IDisposable
                 // number of seconds since that origin, never the leader's.
                 var uniforms = EffectUniforms.For(GeneratorCatalog.Find(effect.Kind)!, effect.Params);
                 uniforms.Apply(draw, sources.EffectFrame(effect, in frame).Seconds);
-                draw.Texture("uSource", _services.Black);
+                draw.Texture(ProgramIds.Stage.uSource, _services.Black);
             }
             else
             {
                 var texture = _textures[i] ?? _services.Black;
                 SetContent(draw, project, s.Content, texture);
-                draw.Texture("uSource", texture);
+                draw.Texture(ProgramIds.Stage.uSource, texture);
             }
             draw.Indexed(gpu.Mesh, gpu.IndexCount);
             if (isSelected)
             {
                 Placed(list.Draw(_stage, Edges), viewProj, eye, boundsMin, boundsMax, s.Transform)
-                    .SetInt("uMode", 6)
-                    .Set("uColorA", 1f, 0.85f, 0.2f, 1)
-                    .Set("uOpacity", 1f)
-                    .SetInt("uHasMask", 0)
-                    .Texture("uMask", maskTexture)
-                    .Texture("uSource", _services.Black)
-                    .Set("uProjector", Matrix4x4.Identity)
+                    .SetInt(ProgramIds.Stage.uMode, 6)
+                    .Set(ProgramIds.Stage.uColorA, 1f, 0.85f, 0.2f, 1)
+                    .Set(ProgramIds.Stage.uOpacity, 1f)
+                    .SetInt(ProgramIds.Stage.uHasMask, 0)
+                    .Texture(ProgramIds.Stage.uMask, maskTexture)
+                    .Texture(ProgramIds.Stage.uSource, _services.Black)
+                    .Set(ProgramIds.Stage.uProjector, Matrix4x4.Identity)
                     .Indexed(gpu.Mesh, gpu.IndexCount);
             }
         }
@@ -329,10 +330,10 @@ internal sealed class StageRenderer : IDisposable
     /// normal matrices.</summary>
     private static DrawBuilder Placed(DrawBuilder draw, Matrix4x4 viewProj, Vec3d eye, Vec3d boundsMin, Vec3d boundsMax, Transform3 transform)
     {
-        draw.Set("uViewProj", viewProj)
-            .Set("uEye", (float)eye.X, (float)eye.Y, (float)eye.Z)
-            .Set("uBoundsMin", (float)boundsMin.X, (float)boundsMin.Y, (float)boundsMin.Z)
-            .Set("uBoundsMax", (float)boundsMax.X, (float)boundsMax.Y, (float)boundsMax.Z);
+        draw.Set(ProgramIds.Stage.uViewProj, viewProj)
+            .Set(ProgramIds.Stage.uEye, (float)eye.X, (float)eye.Y, (float)eye.Z)
+            .Set(ProgramIds.Stage.uBoundsMin, (float)boundsMin.X, (float)boundsMin.Y, (float)boundsMin.Z)
+            .Set(ProgramIds.Stage.uBoundsMax, (float)boundsMax.X, (float)boundsMax.Y, (float)boundsMax.Z);
         SetTransform(draw, transform);
         return draw;
     }
@@ -495,21 +496,21 @@ internal sealed class StageRenderer : IDisposable
                 double cw = texture.Width, ch = texture.Height;
                 if (content.Source.Kind == SourceKind.Canvas && project.FindCanvas(content.Source.Id) is { } canvas)
                     (cw, ch) = (canvas.Width, canvas.Height);
-                p.SetInt("uMode", 0);
-                p.Set("uRegion", (float)(r.X / cw), (float)(r.Y / ch), (float)(r.W / cw), (float)(r.H / ch));
+                p.SetInt(ProgramIds.Stage.uMode, 0);
+                p.Set(ProgramIds.Stage.uRegion, (float)(r.X / cw), (float)(r.Y / ch), (float)(r.W / cw), (float)(r.H / ch));
                 break;
             }
             case SurfaceMapping.Projection when content.ViewpointId is { } vid && project.Stage.Viewpoints.Find(vid) is { } vp:
             {
                 var (view, proj) = CameraModel.GlMatrices(vp.Intrinsics, vp.Pose, 0.01, 10000);
-                p.SetInt("uMode", 1);
-                p.Set("uProjector", view * proj);
-                p.Set("uRegion", (float)r.X, (float)r.Y, (float)(r.IsEmpty ? 1 : r.W), (float)(r.IsEmpty ? 1 : r.H));
+                p.SetInt(ProgramIds.Stage.uMode, 1);
+                p.Set(ProgramIds.Stage.uProjector, view * proj);
+                p.Set(ProgramIds.Stage.uRegion, (float)r.X, (float)r.Y, (float)(r.IsEmpty ? 1 : r.W), (float)(r.IsEmpty ? 1 : r.H));
                 break;
             }
             default:
-                p.SetInt("uMode", 0);
-                p.Set("uRegion", (float)r.X, (float)r.Y, (float)(r.IsEmpty ? 1 : r.W), (float)(r.IsEmpty ? 1 : r.H));
+                p.SetInt(ProgramIds.Stage.uMode, 0);
+                p.Set(ProgramIds.Stage.uRegion, (float)r.X, (float)r.Y, (float)(r.IsEmpty ? 1 : r.W), (float)(r.IsEmpty ? 1 : r.H));
                 break;
         }
     }
@@ -524,13 +525,13 @@ internal sealed class StageRenderer : IDisposable
             (float)(r.M01 * s.Y), (float)(r.M11 * s.Y), (float)(r.M21 * s.Y), 0,
             (float)(r.M02 * s.Z), (float)(r.M12 * s.Z), (float)(r.M22 * s.Z), 0,
             (float)t.Position.X, (float)t.Position.Y, (float)t.Position.Z, 1);
-        p.Set("uModel", model);
+        p.Set(ProgramIds.Stage.uModel, model);
         static double Inv(double v) => Math.Abs(v) < 1e-12 ? 0 : 1 / v;
         var normal = new Matrix3x3(
             (float)(r.M00 * Inv(s.X)), (float)(r.M01 * Inv(s.Y)), (float)(r.M02 * Inv(s.Z)),
             (float)(r.M10 * Inv(s.X)), (float)(r.M11 * Inv(s.Y)), (float)(r.M12 * Inv(s.Z)),
             (float)(r.M20 * Inv(s.X)), (float)(r.M21 * Inv(s.Y)), (float)(r.M22 * Inv(s.Z)));
-        p.Set("uNormalMat", normal);
+        p.Set(ProgramIds.Stage.uNormalMat, normal);
     }
 
     private void AddFrustum(Projector pj, double distance, ColorRgb c)

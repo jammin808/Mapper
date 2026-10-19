@@ -28,6 +28,15 @@ public readonly record struct ConstantSlot(string Name, ConstantType Type, int O
 /// <summary>A texture the program reads: its name, its slot (0–15), and whether it is sampled or only loaded.</summary>
 public readonly record struct TextureSlot(string Name, int Slot, bool Sampled);
 
+/// <summary>A product program's constant by its place in the program's layout (<see cref="ProgramLayout.Constants"/>), generated with
+/// the program table (<c>ProgramIds</c>): a draw of that program sets it with no look-up by name, a draw of any other program
+/// writes nothing and reports <see cref="Name"/> as missed. An array's id is its first element, as its name is.</summary>
+public readonly record struct ConstantId(ProgramId Program, int Index, string Name);
+
+/// <summary>A product program's texture by its slot in the program's layout, generated with the program table: a draw of that
+/// program binds it with no look-up by name, a draw of any other binds nothing and reports <see cref="Name"/> as missed.</summary>
+public readonly record struct TextureId(ProgramId Program, int Slot, string Name);
+
 /// <summary>Sizes and words of the constant types, and the cbuffer packing rules both backends read a block by.</summary>
 public static class ConstantTypes
 {

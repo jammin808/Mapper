@@ -1,5 +1,6 @@
 using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 using PlayMap.Core.Model;
 using PlayMap.Core.Modulation;
 using PlayMap.Render.Engine;
@@ -161,13 +162,13 @@ internal sealed class RenderServices : IDisposable
     public void DrawQuad(ICommandList list, RenderTarget target, GpuTexture texture, float x, float y, float w, float h, int mode, float opacity,
         in DrawState state, float tr = 1, float tg = 1, float tb = 1, float ta = 1) =>
         list.Draw(QuadProgram, state)
-            .Set("uRect", x, y, w, h)
-            .Set("uTarget", target.Width, target.Height)
-            .Set("uUv", 0, 0, 1, 1)
-            .SetInt("uMode", mode)
-            .Set("uOpacity", opacity)
-            .Set("uTint", tr, tg, tb, ta)
-            .Texture("uTex", texture)
+            .Set(ProgramIds.Quad.uRect, x, y, w, h)
+            .Set(ProgramIds.Quad.uTarget, target.Width, target.Height)
+            .Set(ProgramIds.Quad.uUv, 0, 0, 1, 1)
+            .SetInt(ProgramIds.Quad.uMode, mode)
+            .Set(ProgramIds.Quad.uOpacity, opacity)
+            .Set(ProgramIds.Quad.uTint, tr, tg, tb, ta)
+            .Texture(ProgramIds.Quad.uTex, texture)
             .GeneratedQuads();
 
     /// <summary>A flat white veil over the whole target at an alpha (a sting's flash, already guarded), in a pass of its own.</summary>

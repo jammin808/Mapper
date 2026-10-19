@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Gpu.Programs;
+using PlayMap.Core.Storage;
+using PlayMap.Core.Tests.Model;
 using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Gpu;
@@ -181,5 +183,85 @@ public sealed class ProgramTableTests
         var table = new ProgramTable();
         Assert.Equal(product.Select(p => p.Name), table.Names);
         Assert.Equal(product.Length, table.ProductCount);
+    }
+
+    /// <summary>The generated ids (<c>src/PlayMap.Core/Gpu/Programs/ProgramIds.g.cs</c>) are the table's own: one class per product
+    /// program, its id the program's place in the table, each constant's id its place in the layout, each texture's its slot.
+    /// PLAYMAP_WRITE_FIXTURES=1 writes the file from the table; it changes only with it.</summary>
+    [Fact]
+    public void TheGeneratedIdsAreTheTablesOwnByteForByte()
+    {
+        var path = Path.Combine(RoundTwoSample.RepoRoot(), "src", "PlayMap.Core", "Gpu", "Programs", "ProgramIds.g.cs");
+        var expected = IdsSource(ProgramTable.Product);
+        if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
+            DurableFile.WriteAllText(path, expected);
+        Assert.True(File.Exists(path), "the ids are generated: run this test once with PLAYMAP_WRITE_FIXTURES=1");
+        Assert.Equal(expected, DurableFile.ReadAllText(path).ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void EveryIdNamesItsProgramsSlotOfItsName()
+    {
+        var table = new ProgramTable();
+        var classes = typeof(ProgramIds).GetNestedTypes();
+        Assert.Equal(table.ProductCount, classes.Length);
+        foreach (var c in classes)
+        {
+            var program = (ProgramId)c.GetField("Program")!.GetValue(null)!;
+            var layout = table.Layout(program);
+            Assert.Equal(ClassName(layout.Name), c.Name);
+            Assert.Equal(program, table.Id(layout.Name));
+            var constants = c.GetFields().Where(f => f.FieldType == typeof(ConstantId)).Select(f => (ConstantId)f.GetValue(null)!).ToList();
+            var textures = c.GetFields().Where(f => f.FieldType == typeof(TextureId)).Select(f => (TextureId)f.GetValue(null)!).ToList();
+            Assert.Equal(layout.Constants.Select((k, i) => new ConstantId(program, i, k.Name)), constants);
+            Assert.Equal(layout.Textures.Select(t => new TextureId(program, t.Slot, t.Name)), textures);
+        }
+    }
+
+    /// <summary>A program's class: its name's parts, each capitalised ("content.pstep" → ContentPstep, "led_patch" → LedPatch).</summary>
+    private static string ClassName(string program) =>
+        string.Concat(program.Split('.', '_').Select(p => char.ToUpperInvariant(p[0]) + p[1..]));
+
+    private static string IdsSource(IEnumerable<ProgramLayout> programs)
+    {
+        var o = new System.Text.StringBuilder();
+        o.Append("""
+            // The product programs' constants and textures by their place in the program table (programs.layout.json), so a draw sets
+            // them with no look-up by name. ProgramTableTests writes this file from the table (PLAYMAP_WRITE_FIXTURES=1); it changes
+            // only with the table.
+
+            namespace PlayMap.Core.Gpu.Programs;
+
+            /// <summary>Each product program's id, its constants' ids and its textures' ids, as the program table numbers them.</summary>
+            public static class ProgramIds
+            {
+
+            """);
+        var first = true;
+        var index = 0;
+        foreach (var p in programs)
+        {
+            if (!first)
+                o.Append('\n');
+            first = false;
+            var id = index++.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            o.Append("    /// <summary>The <c>").Append(p.Name).Append("</c> program.</summary>\n");
+            o.Append("    public static class ").Append(ClassName(p.Name)).Append("\n    {\n");
+            o.Append("        public static readonly ProgramId Program = new(").Append(id).Append(");\n");
+            for (var i = 0; i < p.Constants.Length; i++)
+            {
+                var n = p.Constants[i].Name;
+                o.Append("        public static readonly ConstantId ").Append(n).Append(" = new(Program, ")
+                    .Append(i.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(", \"").Append(n).Append("\");\n");
+            }
+            foreach (var t in p.Textures)
+            {
+                o.Append("        public static readonly TextureId ").Append(t.Name).Append(" = new(Program, ")
+                    .Append(t.Slot.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(", \"").Append(t.Name).Append("\");\n");
+            }
+            o.Append("    }\n");
+        }
+        o.Append("}\n");
+        return o.ToString();
     }
 }

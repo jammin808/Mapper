@@ -8,7 +8,8 @@ namespace PlayMap.Core.Tests.Gpu;
 /// <summary>A draw built through the builder: each constant lands at its layout's offset in the block the list handed it (a matrix's
 /// rows each starting a register), a name the layout lacks or a value of the wrong kind writes nothing and is told to the list,
 /// textures land in their slots, the terminal call hands the list the draw with its block and textures, and nothing of it
-/// allocates.</summary>
+/// allocates. A constant or texture set by its generated id lands where its name does; an id of another program writes nothing and
+/// is told to the list by its name.</summary>
 public sealed class DrawBuilderTests
 {
     private sealed class FakeTexture(int width, int height) : GpuTexture(new TextureDesc(width, height, TextureFormat.Rgba8, TextureUsage.Sampled), 1)
@@ -161,6 +162,85 @@ public sealed class DrawBuilderTests
             .Set("uView", view)
             .Set("uColors[1]", 1, 2, 3)
             .Texture("uPicture", picture)
+            .Fullscreen();
+        Draw(0);
+        var start = Allocations.Start();
+        for (var i = 0; i < 1000; i++)
+            Draw(i);
+        Assert.Equal(0, Allocations.Since(start));
+        Assert.Equal(1001, sink.Draws);
+    }
+
+    /// <summary>An id per constant and texture of <see cref="Layout"/>, as the generated ids number a program's: its place in the
+    /// layout, its slot.</summary>
+    private static ConstantId C(ProgramId program, string name) =>
+        new(program, Layout.Constants.Select((c, i) => (c.Name, i)).Single(c => c.Name == name).i, name);
+
+    private static TextureId T(ProgramId program, string name) => new(program, Layout.Textures.Single(t => t.Name == name).Slot, name);
+
+    [Fact]
+    public void AConstantSetByItsIdLandsWhereItsNameDoes()
+    {
+        var program = new ProgramId(7);
+        var picture = new FakeTexture(4, 4);
+        var view = new Matrix4x4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+        var normal = new Matrix3x3(1, 2, 3, 4, 5, 6, 7, 8, 9);
+        var byName = new Sink();
+        new DrawBuilder(byName, program, DrawState.Opaque, Layout, new byte[Layout.ConstantBytes], new GpuTexture?[2])
+            .Set("uGain", 0.5f).Set("uSize", 64, 36).SetInt("uRotation", 3).Set("uTint", 0.1f, 0.2f, 0.3f, 0.4f)
+            .Set("uView", view).Set("uNormal", normal).Set("uColors", 0.25f, 0.5f, 0.75f).Texture("uMask", picture).Fullscreen();
+        var byId = new Sink();
+        new DrawBuilder(byId, program, DrawState.Opaque, Layout, new byte[Layout.ConstantBytes], new GpuTexture?[2])
+            .Set(C(program, "uGain"), 0.5f).Set(C(program, "uSize"), 64, 36).SetInt(C(program, "uRotation"), 3)
+            .Set(C(program, "uTint"), new Vector4(0.1f, 0.2f, 0.3f, 0.4f)).Set(C(program, "uView"), view)
+            .Set(C(program, "uNormal"), normal).Set(C(program, "uColors"), 0.25f, 0.5f, 0.75f).Texture(T(program, "uMask"), picture)
+            .Fullscreen();
+
+        Assert.Equal(byName.Constants, byId.Constants);
+        Assert.Equal(byName.Textures, byId.Textures);
+        Assert.Same(picture, byId.Textures[1]);
+        Assert.Empty(byName.Missed);
+        Assert.Empty(byId.Missed);
+    }
+
+    [Fact]
+    public void AnIdOfAnotherProgramOrOfTheWrongKindWritesNothingAndIsMissedByItsName()
+    {
+        var program = new ProgramId(7);
+        var other = new ProgramId(8);
+        var sink = new Sink();
+        new DrawBuilder(sink, program, DrawState.Opaque, Layout, new byte[Layout.ConstantBytes], new GpuTexture?[2])
+            .Set(C(other, "uGain"), 0.5f)
+            .Texture(T(other, "uPicture"), new FakeTexture(4, 4))
+            .Set(new ConstantId(program, Layout.Constants.Length, "uBeyond"), 1f)
+            .SetInt(C(program, "uGain"), 2)
+            .Set(C(program, "uRotation"), 1f)
+            .Set(C(program, "uGain"), Matrix4x4.Identity)
+            .Set(C(program, "uView"), 0.5f)
+            .Texture(new TextureId(program, 2, "uThird"), new FakeTexture(4, 4))
+            .Fullscreen();
+
+        Assert.All(sink.Constants, b => Assert.Equal(0, b));
+        Assert.All(sink.Textures, Assert.Null);
+        Assert.Equal(["uGain", "uPicture", "uBeyond", "uGain", "uRotation", "uGain", "uView", "uThird"], sink.Missed.Select(m => m.Name));
+        Assert.All(sink.Missed, m => Assert.Equal(program, m.Program));
+    }
+
+    [Fact]
+    public void ADrawByIdsAllocatesNothing()
+    {
+        var sink = new NoCopySink();
+        var block = new byte[Layout.ConstantBytes];
+        var textures = new GpuTexture?[2];
+        var picture = new FakeTexture(4, 4);
+        var view = Matrix4x4.CreateTranslation(1, 2, 3);
+        var (gain, rotation, viewId, tex) = (C(new ProgramId(0), "uGain"), C(new ProgramId(0), "uRotation"), C(new ProgramId(0), "uView"),
+            T(new ProgramId(0), "uPicture"));
+        void Draw(int i) => new DrawBuilder(sink, new ProgramId(0), DrawState.Opaque, Layout, block, textures)
+            .Set(gain, i)
+            .SetInt(rotation, i & 3)
+            .Set(viewId, view)
+            .Texture(tex, picture)
             .Fullscreen();
         Draw(0);
         var start = Allocations.Start();

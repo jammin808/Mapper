@@ -1,5 +1,6 @@
 using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 
@@ -68,7 +69,7 @@ internal sealed class RaymarchGenerator : GeneratorRenderer
         {
             var draw = list.Draw(_march, DrawState.Opaque);
             Apply(draw, camera, w, h, mode: 0);
-            draw.Set("uBright", bright).Fullscreen();
+            draw.Set(ProgramIds.ContentRaymarch.uBright, bright).Fullscreen();
         }
         using (list.Pass(_target, PassDesc.Keep))
             Services.DrawQuad(list, _target, _inner.Color, 0, 0, Width, Height, 0, 1, in Upscaled);
@@ -100,32 +101,32 @@ internal sealed class RaymarchGenerator : GeneratorRenderer
     public void Apply(DrawBuilder draw, in Fractal3DCamera camera, int w, int h, int mode)
     {
         var q = De();
-        draw.Set("uRes", w, h)
-            .Set("uEye", camera.Eye.X, camera.Eye.Y, camera.Eye.Z)
-            .Set("uRight", camera.Right.X, camera.Right.Y, camera.Right.Z)
-            .Set("uUp", camera.Up.X, camera.Up.Y, camera.Up.Z)
-            .Set("uFwd", camera.Forward.X, camera.Forward.Y, camera.Forward.Z)
-            .Set("uTanHalf", camera.TanHalfFov)
-            .SetInt("uKind", (int)_settings.Kind)
-            .SetInt("uIters", q.Iterations)
-            .Set("uPower", q.Power)
-            .Set("uScale", q.Scale)
-            .Set("uFoldLimit", q.FoldLimit)
-            .Set("uMinR", q.MinRadius)
-            .Set("uFixedR", q.FixedRadius)
-            .SetInt("uFold", (int)q.Fold)
-            .Set("uOffset", q.Offset.X, q.Offset.Y, q.Offset.Z)
-            .Set("uTwist", q.Twist)
-            .SetInt("uSteps", Int("steps"))
-            .Set("uCone", Fractal3D.Cone(camera.TanHalfFov, h, (float)Num("detail")))
-            .Set("uGlow", (float)Num("glow"))
-            .Set("uAo", (float)Num("ao"))
-            .Set("uFog", (float)Num("fog"))
-            .Set("uBright", (float)Num("brightness"))
-            .Set("uPhase", 0f)
-            .Set("uBg", _background.R, _background.G, _background.B)
-            .SetInt("uMode", mode)
-            .Set("uNcol", Math.Min(_palette.Length, Fractal3DSettings.PaletteColors));
+        draw.Set(ProgramIds.ContentRaymarch.uRes, w, h)
+            .Set(ProgramIds.ContentRaymarch.uEye, camera.Eye.X, camera.Eye.Y, camera.Eye.Z)
+            .Set(ProgramIds.ContentRaymarch.uRight, camera.Right.X, camera.Right.Y, camera.Right.Z)
+            .Set(ProgramIds.ContentRaymarch.uUp, camera.Up.X, camera.Up.Y, camera.Up.Z)
+            .Set(ProgramIds.ContentRaymarch.uFwd, camera.Forward.X, camera.Forward.Y, camera.Forward.Z)
+            .Set(ProgramIds.ContentRaymarch.uTanHalf, camera.TanHalfFov)
+            .SetInt(ProgramIds.ContentRaymarch.uKind, (int)_settings.Kind)
+            .SetInt(ProgramIds.ContentRaymarch.uIters, q.Iterations)
+            .Set(ProgramIds.ContentRaymarch.uPower, q.Power)
+            .Set(ProgramIds.ContentRaymarch.uScale, q.Scale)
+            .Set(ProgramIds.ContentRaymarch.uFoldLimit, q.FoldLimit)
+            .Set(ProgramIds.ContentRaymarch.uMinR, q.MinRadius)
+            .Set(ProgramIds.ContentRaymarch.uFixedR, q.FixedRadius)
+            .SetInt(ProgramIds.ContentRaymarch.uFold, (int)q.Fold)
+            .Set(ProgramIds.ContentRaymarch.uOffset, q.Offset.X, q.Offset.Y, q.Offset.Z)
+            .Set(ProgramIds.ContentRaymarch.uTwist, q.Twist)
+            .SetInt(ProgramIds.ContentRaymarch.uSteps, Int("steps"))
+            .Set(ProgramIds.ContentRaymarch.uCone, Fractal3D.Cone(camera.TanHalfFov, h, (float)Num("detail")))
+            .Set(ProgramIds.ContentRaymarch.uGlow, (float)Num("glow"))
+            .Set(ProgramIds.ContentRaymarch.uAo, (float)Num("ao"))
+            .Set(ProgramIds.ContentRaymarch.uFog, (float)Num("fog"))
+            .Set(ProgramIds.ContentRaymarch.uBright, (float)Num("brightness"))
+            .Set(ProgramIds.ContentRaymarch.uPhase, 0f)
+            .Set(ProgramIds.ContentRaymarch.uBg, _background.R, _background.G, _background.B)
+            .SetInt(ProgramIds.ContentRaymarch.uMode, mode)
+            .Set(ProgramIds.ContentRaymarch.uNcol, Math.Min(_palette.Length, Fractal3DSettings.PaletteColors));
         FractalGenerator.SetPalette(draw, _palette);
     }
 

@@ -158,48 +158,12 @@ public readonly ref struct DrawBuilder
     public DrawBuilder Set(string name, Vector4 v) => SetFloats(name, v, 4);
 
     /// <summary>A 4×4 matrix in System.Numerics' row-vector layout, its rows written in order.</summary>
-    public DrawBuilder Set(string name, in Matrix4x4 m)
-    {
-        if (!TrySlot(name, out var slot) || slot.Type != ConstantType.Float4x4)
-        {
-            Miss(name);
-        }
-        else
-        {
-            var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, 64));
-            block[0] = m.M11; block[1] = m.M12; block[2] = m.M13; block[3] = m.M14;
-            block[4] = m.M21; block[5] = m.M22; block[6] = m.M23; block[7] = m.M24;
-            block[8] = m.M31; block[9] = m.M32; block[10] = m.M33; block[11] = m.M34;
-            block[12] = m.M41; block[13] = m.M42; block[14] = m.M43; block[15] = m.M44;
-        }
-        return this;
-    }
+    public DrawBuilder Set(string name, in Matrix4x4 m) => TrySlot(name, out var slot) ? Write(slot, m, name) : Missed(name);
 
     /// <summary>A 3×3 matrix, row-major: its three rows each start a register.</summary>
-    public DrawBuilder Set(string name, in Matrix3x3 m)
-    {
-        if (!TrySlot(name, out var slot) || slot.Type != ConstantType.Float3x3)
-        {
-            Miss(name);
-        }
-        else
-        {
-            var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, 44));
-            block[0] = m.M00; block[1] = m.M01; block[2] = m.M02;
-            block[4] = m.M10; block[5] = m.M11; block[6] = m.M12;
-            block[8] = m.M20; block[9] = m.M21; block[10] = m.M22;
-        }
-        return this;
-    }
+    public DrawBuilder Set(string name, in Matrix3x3 m) => TrySlot(name, out var slot) ? Write(slot, m, name) : Missed(name);
 
-    public DrawBuilder SetInt(string name, int value)
-    {
-        if (TrySlot(name, out var slot) && ConstantTypes.IsInt(slot.Type))
-            MemoryMarshal.Write(_constants[slot.Offset..], in value);
-        else
-            Miss(name);
-        return this;
-    }
+    public DrawBuilder SetInt(string name, int value) => TrySlot(name, out var slot) ? Write(slot, value, name) : Missed(name);
 
     /// <summary>Binds a texture to the layout's slot of that name. The texture's own filter and wrap choose its sampler.</summary>
     public DrawBuilder Texture(string name, GpuTexture texture)
@@ -209,6 +173,37 @@ public readonly ref struct DrawBuilder
             _textures[slot.Slot] = texture;
         else
             Miss(name);
+        return this;
+    }
+
+    // ---- by generated id: the same writes, the slot found by its place in the layout, not its name ----
+
+    public DrawBuilder Set(ConstantId id, float x) => SetFloats(id, new Vector4(x, 0, 0, 0), 1);
+
+    public DrawBuilder Set(ConstantId id, float x, float y) => SetFloats(id, new Vector4(x, y, 0, 0), 2);
+
+    public DrawBuilder Set(ConstantId id, float x, float y, float z) => SetFloats(id, new Vector4(x, y, z, 0), 3);
+
+    public DrawBuilder Set(ConstantId id, float x, float y, float z, float w) => SetFloats(id, new Vector4(x, y, z, w), 4);
+
+    public DrawBuilder Set(ConstantId id, Vector4 v) => SetFloats(id, v, 4);
+
+    /// <summary>A 4×4 matrix in System.Numerics' row-vector layout, its rows written in order.</summary>
+    public DrawBuilder Set(ConstantId id, in Matrix4x4 m) => TrySlot(id, out var slot) ? Write(slot, m, id.Name) : Missed(id.Name);
+
+    /// <summary>A 3×3 matrix, row-major: its three rows each start a register.</summary>
+    public DrawBuilder Set(ConstantId id, in Matrix3x3 m) => TrySlot(id, out var slot) ? Write(slot, m, id.Name) : Missed(id.Name);
+
+    public DrawBuilder SetInt(ConstantId id, int value) => TrySlot(id, out var slot) ? Write(slot, value, id.Name) : Missed(id.Name);
+
+    /// <summary>Binds a texture to the layout's slot the id names. The texture's own filter and wrap choose its sampler.</summary>
+    public DrawBuilder Texture(TextureId id, GpuTexture texture)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        if (_layout is not null && id.Program == _program && (uint)id.Slot < (uint)_textures.Length)
+            _textures[id.Slot] = texture;
+        else
+            Miss(id.Name);
         return this;
     }
 
@@ -237,17 +232,51 @@ public readonly ref struct DrawBuilder
         Finish(new DrawCall(_program, _state, DrawShape.Instanced, mesh, vertexCount, 0, instances));
     }
 
-    private DrawBuilder SetFloats(string name, Vector4 v, int components)
+    private DrawBuilder SetFloats(string name, Vector4 v, int components) =>
+        TrySlot(name, out var slot) ? Write(slot, v, components, name) : Missed(name);
+
+    private DrawBuilder SetFloats(ConstantId id, Vector4 v, int components) =>
+        TrySlot(id, out var slot) ? Write(slot, v, components, id.Name) : Missed(id.Name);
+
+    private DrawBuilder Write(ConstantSlot slot, Vector4 v, int components, string name)
     {
-        if (!TrySlot(name, out var slot) || ConstantTypes.IsInt(slot.Type) || ConstantTypes.IsMatrix(slot.Type))
-        {
-            Miss(name);
-            return this;
-        }
+        if (ConstantTypes.IsInt(slot.Type) || ConstantTypes.IsMatrix(slot.Type))
+            return Missed(name);
         var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, ConstantTypes.Bytes(slot.Type)));
         var n = Math.Min(components, block.Length);
         for (var i = 0; i < n; i++)
             block[i] = v[i];
+        return this;
+    }
+
+    private DrawBuilder Write(ConstantSlot slot, in Matrix4x4 m, string name)
+    {
+        if (slot.Type != ConstantType.Float4x4)
+            return Missed(name);
+        var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, 64));
+        block[0] = m.M11; block[1] = m.M12; block[2] = m.M13; block[3] = m.M14;
+        block[4] = m.M21; block[5] = m.M22; block[6] = m.M23; block[7] = m.M24;
+        block[8] = m.M31; block[9] = m.M32; block[10] = m.M33; block[11] = m.M34;
+        block[12] = m.M41; block[13] = m.M42; block[14] = m.M43; block[15] = m.M44;
+        return this;
+    }
+
+    private DrawBuilder Write(ConstantSlot slot, in Matrix3x3 m, string name)
+    {
+        if (slot.Type != ConstantType.Float3x3)
+            return Missed(name);
+        var block = MemoryMarshal.Cast<byte, float>(_constants.Slice(slot.Offset, 44));
+        block[0] = m.M00; block[1] = m.M01; block[2] = m.M02;
+        block[4] = m.M10; block[5] = m.M11; block[6] = m.M12;
+        block[8] = m.M20; block[9] = m.M21; block[10] = m.M22;
+        return this;
+    }
+
+    private DrawBuilder Write(ConstantSlot slot, int value, string name)
+    {
+        if (!ConstantTypes.IsInt(slot.Type))
+            return Missed(name);
+        MemoryMarshal.Write(_constants[slot.Offset..], in value);
         return this;
     }
 
@@ -257,6 +286,24 @@ public readonly ref struct DrawBuilder
             return _layout.TryConstant(name, out slot);
         slot = default;
         return false;
+    }
+
+    /// <summary>The slot an id names: its place in the layout, when the draw is of the id's program.</summary>
+    private bool TrySlot(ConstantId id, out ConstantSlot slot)
+    {
+        if (_layout is not null && id.Program == _program && (uint)id.Index < (uint)_layout.Constants.Length)
+        {
+            slot = _layout.Constants[id.Index];
+            return true;
+        }
+        slot = default;
+        return false;
+    }
+
+    private DrawBuilder Missed(string name)
+    {
+        Miss(name);
+        return this;
     }
 
     private void Miss(string name) => _sink?.Missed(_program, name);
