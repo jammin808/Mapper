@@ -203,11 +203,9 @@ internal sealed class GlCommandList : ICommandList, IDrawSink
     /// <summary>Nothing on GL: the context orders reads after the writes before them.</summary>
     public void Barrier(GpuResource resource, ResourceUse use) => ArgumentNullException.ThrowIfNull(resource);
 
-    /// <summary>Nothing on GL: one context, one queue in order.</summary>
-    public void Wait(in FenceValue value)
-    {
-        // Every value of this device is on the one context's stream, issued before this call.
-    }
+    /// <summary>Nothing on GL (one context, one queue in order: every value of this device was issued on the one stream before this
+    /// call), but outside a pass, as the contract asks.</summary>
+    public void Wait(in FenceValue value) => RequireOutsidePass("A wait");
 
     /// <summary>Nothing on GL: its transients are pooled, never aliased.</summary>
     public void Alias(GpuResource? before, GpuResource after) => ArgumentNullException.ThrowIfNull(after);

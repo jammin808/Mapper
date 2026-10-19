@@ -13,7 +13,8 @@ namespace PlayMap.Render.Video;
 /// generation is already on the GPU is not uploaded again. Planes stream through the device's upload ring (any
 /// row stride; the decoder's buffer is free as soon as the copy returns), or go through the frame's list. Every texture and target is
 /// the device's, the planes' uploads and the conversions are the frame's list's, block planes stream through the upload ring, and
-/// surfaces are imported by the device's importer.
+/// surfaces are imported by the device's importer. The list waits (<see cref="ICommandList.Wait"/>) for the value of every ring copy
+/// and import before the pass that samples it: on a device whose copies ride their own queue, nothing reads a plane before it landed.
 ///
 /// HAP pictures arrive block-compressed: each plane fills a compressed texture at the coded size (tight rows of 4×4 blocks),
 /// and the `hap` pass turns them into the RGBA16F picture at the visible size (YCoCg → RGB, the alpha plane, HAP HDR's reading).
@@ -126,7 +127,8 @@ public sealed class VideoTextureSet : IDisposable
         {
             var tex = _planes[i]!;
             var (format, bpp) = UploadOf(lease.Layout, i);
-            UploadPlane(list, tex, planes[i], format, bpp);
+            // The list waits for a plane the upload ring copies before anything samples it.
+            list.Wait(UploadPlane(list, tex, planes[i], format, bpp));
         }
         if (IsYuv(lease.Layout))
             Convert(list, lease);
@@ -166,19 +168,23 @@ public sealed class VideoTextureSet : IDisposable
             var bytes = (long)plane.Stride * plane.Height;
             if (plane.Data == 0 || bytes != TextureFormats.CompressedSize(tex.Format, tex.Width, tex.Height))
                 throw new ArgumentException("A block plane is missing or not the size of its picture.", nameof(lease));
+            FenceValue done;
             if (!staged.IsEmpty)
             {
                 // Straight from the arena: the GPU reads the producer's bytes where they were written.
-                if (!uploads.TryUploadStaged(tex, staged, plane.Data, (int)bytes, out _))
+                if (!uploads.TryUploadStaged(tex, staged, plane.Data, (int)bytes, out done))
                     throw new ArgumentException("A staged block plane lies outside its arena block.", nameof(lease));
                 StagedUploads++;
             }
-            else if (!_streaming || !uploads.TryUploadCompressed(tex, plane.Data, (int)bytes, out _))
+            else if (!_streaming || !uploads.TryUploadCompressed(tex, plane.Data, (int)bytes, out done))
             {
                 var t0 = Stopwatch.GetTimestamp();
                 list.UploadCompressed(tex, plane.Data, (int)bytes);
                 HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
+                done = FenceValue.None;
             }
+            // The list waits for the ring's copy before the pass that samples the plane.
+            list.Wait(done);
         }
         var scale = lease is IHapPicture hap ? hap.HdrScale : 1;
         HapPass.Draw(list, _hap, _converted!, _planes[0]!, _planes[1], HapPass.Mode(lease.Layout), scale, HapPass.Transfer(lease.Transfer));
@@ -223,7 +229,9 @@ public sealed class VideoTextureSet : IDisposable
         Picture = _converted.Color;
     }
 
-    private unsafe void UploadPlane(ICommandList list, GpuTexture texture, FramePlane plane, UploadFormat format, int bytesPerPixel)
+    /// <summary>A plane into its texture: through the upload ring when streaming (the value its copy completes at), else through the
+    /// list (<see cref="FenceValue.None"/>: the list orders its own upload before its draws).</summary>
+    private unsafe FenceValue UploadPlane(ICommandList list, GpuTexture texture, FramePlane plane, UploadFormat format, int bytesPerPixel)
     {
         var rowBytes = texture.Width * bytesPerPixel;
         var rows = Math.Min(texture.Height, plane.Height > 0 ? plane.Height : texture.Height);
@@ -231,14 +239,14 @@ public sealed class VideoTextureSet : IDisposable
             throw new ArgumentException("A plane is missing or narrower than its picture.", nameof(plane));
         if (rows < texture.Height)
             throw new ArgumentException("A plane is shorter than its picture.", nameof(plane));
-        if (_streaming && _device.Uploads.TryUpload(texture, plane.Data, plane.Stride, rowBytes, rows, format, out _))
-            return;
+        if (_streaming && _device.Uploads.TryUpload(texture, plane.Data, plane.Stride, rowBytes, rows, format, out var done))
+            return done;
         if (plane.Stride % bytesPerPixel == 0)
         {
             // The rows as they lie, padded: the last one ends at its picture's width.
             var bytes = (long)plane.Stride * (rows - 1) + rowBytes;
             list.Upload(texture, new ReadOnlySpan<byte>((void*)plane.Data, checked((int)bytes)), format, plane.Stride / bytesPerPixel);
-            return;
+            return FenceValue.None;
         }
         // A stride that is not whole pixels and no streaming buffer: repack the rows.
         var tight = new byte[rowBytes * rows];
@@ -246,6 +254,7 @@ public sealed class VideoTextureSet : IDisposable
             for (var y = 0; y < rows; y++)
                 Buffer.MemoryCopy((void*)(plane.Data + (nint)y * plane.Stride), dst + (long)y * rowBytes, rowBytes, rowBytes);
         list.Upload(texture, tight, format);
+        return FenceValue.None;
     }
 
     /// <summary>A hardware decoder's surface: its planes imported by the device and converted, held until the GPU read them. False
@@ -264,6 +273,8 @@ public sealed class VideoTextureSet : IDisposable
         }
         var layout = surface.Format == GpuSurfaceFormat.P010 ? PixelLayout.P010 : PixelLayout.Nv12;
         var chroma = planes.Chroma ?? planes.Luma;
+        // The list waits for the import before the conversion samples its planes.
+        list.Wait(planes.Ready);
         var codedWidth = planes.CodedWidth > 0 ? planes.CodedWidth : surface.Width;
         var codedHeight = planes.CodedHeight > 0 ? planes.CodedHeight : surface.Height;
         ConvertCoded(list, layout, planes.Luma, chroma, surface.Width, surface.Height, codedWidth, codedHeight, lease.Matrix, lease.Range,

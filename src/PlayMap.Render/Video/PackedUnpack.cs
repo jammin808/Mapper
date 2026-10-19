@@ -60,34 +60,38 @@ internal sealed class PackedUnpack : IDisposable
         Ensure(layout, lease.Width, lease.Height);
         var w = lease.Width;
         var h = lease.Height;
+        // The list waits for each plane the upload ring copies before the unpack samples it.
         if (LivePlanes.IsDeep(layout))
         {
-            Upload(list, _planes[0]!, planes[0], UploadFormat.R16, 2 * w, h);
-            Upload(list, _planes[1]!, planes[1], UploadFormat.Rg16, 2 * w, h);
+            list.Wait(Upload(list, _planes[0]!, planes[0], UploadFormat.R16, 2 * w, h));
+            list.Wait(Upload(list, _planes[1]!, planes[1], UploadFormat.Rg16, 2 * w, h));
             if (count == 3)
-                Upload(list, _planes[2]!, planes[2], UploadFormat.R16, 2 * w, h);
+                list.Wait(Upload(list, _planes[2]!, planes[2], UploadFormat.R16, 2 * w, h));
         }
         else
         {
-            Upload(list, _planes[0]!, planes[0], UploadFormat.Rgba8, 2 * w, h);
+            list.Wait(Upload(list, _planes[0]!, planes[0], UploadFormat.Rgba8, 2 * w, h));
             if (count == 2)
-                Upload(list, _planes[1]!, planes[1], UploadFormat.R8, w, h);
+                list.Wait(Upload(list, _planes[1]!, planes[1], UploadFormat.R8, w, h));
         }
         Convert(list, layout, w, lease.Matrix);
     }
 
-    private unsafe void Upload(ICommandList list, GpuTexture texture, FramePlane plane, UploadFormat format, int rowBytes, int rows)
+    /// <summary>A plane into its texture: through the upload ring when streaming (the value its copy completes at), else through the
+    /// list (<see cref="FenceValue.None"/>).</summary>
+    private unsafe FenceValue Upload(ICommandList list, GpuTexture texture, FramePlane plane, UploadFormat format, int rowBytes, int rows)
     {
         if (plane.Data == 0 || plane.Stride < rowBytes)
             throw new ArgumentException("a plane is missing or narrower than its picture", nameof(plane));
-        if (_streaming && _device.Uploads.TryUpload(texture, plane.Data, plane.Stride, rowBytes, rows, format, out _))
-            return;
+        if (_streaming && _device.Uploads.TryUpload(texture, plane.Data, plane.Stride, rowBytes, rows, format, out var done))
+            return done;
         var bpp = UploadFormats.BytesPerPixel(format);
         if (plane.Stride % bpp != 0)
             throw new ArgumentException("a plane's row is not whole samples and there is no streaming buffer to repack it", nameof(plane));
         // The rows as they lie, padded: the last one ends at its picture's width.
         var bytes = (long)plane.Stride * (texture.Height - 1) + (long)texture.Width * bpp;
         list.Upload(texture, new ReadOnlySpan<byte>((void*)plane.Data, checked((int)bytes)), format, plane.Stride / bpp);
+        return FenceValue.None;
     }
 
     private void Convert(ICommandList list, PixelLayout layout, int width, ColorMatrix matrix)

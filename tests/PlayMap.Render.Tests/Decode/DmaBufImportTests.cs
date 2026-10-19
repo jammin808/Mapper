@@ -5,6 +5,7 @@ using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Decode;
 using PlayMap.Render.Gl;
+using PlayMap.Render.Tests.Rhi;
 using PlayMap.Render.Video;
 using Xunit.Abstractions;
 
@@ -226,6 +227,24 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             Assert.Empty(owner.Faults);
             Assert.Equal((0, 1, 2), (owner.Count, owner.Retains, owner.Releases));
             Assert.Equal(0, backend.GlImporter.Held);
+        });
+    }
+
+    [LinuxFact]
+    [Trait("Category", "Linux")]
+    public void AnImportIsWaitedForBeforeTheConversionSamplesItsPlanes()
+    {
+        using var frame = Make(320, 180, 512, 0, false, 23);
+        egl.Run(ctx =>
+        {
+            var d = new RecordingDevice(ctx.Device.Backend);
+            using var set = new VideoTextureSet(d);
+            var owner = new CountingOwner();
+            var done = At(d, BackendFrames.Next, list =>
+                Assert.True(set.Update(new TestLease(PixelLayout.Nv12, 320, 180, 1, surface: Surface(frame, owner, "md_wait")), list), set.Refusal));
+            Assert.Equal(2, d.Log.Count(e => e.Kind == "import"));
+            Assert.True(d.EverySampledValueWaitedFor(out var words), words);
+            d.WaitFor(done);
         });
     }
 

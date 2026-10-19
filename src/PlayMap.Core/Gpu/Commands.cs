@@ -57,7 +57,10 @@ public interface ICommandList
     /// one they need.</summary>
     void Barrier(GpuResource resource, ResourceUse use);
 
-    /// <summary>The GPU waits for another queue's value before what follows (GL: nothing to wait for).</summary>
+    /// <summary>The GPU runs nothing of this list before <paramref name="value"/> (another queue's: an upload ring's copy, an import)
+    /// has completed. A list waits for every such value it samples, outside a pass, before the pass that samples it. A backend whose
+    /// queues wait only between submissions (Direct3D 12) holds the whole list until every value it waited on completed; one queue in
+    /// order (GL) has nothing to wait for. <see cref="FenceValue.None"/> is complete from the start.</summary>
     void Wait(in FenceValue value);
 
     /// <summary>The memory under <paramref name="after"/> held <paramref name="before"/> until now (two transients aliased by the
