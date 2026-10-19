@@ -13,19 +13,21 @@
     <Setter Property="BorderBrush" Value="{StaticResource LightRedBrush}" />
     <Setter Property="BorderThickness" Value="2" />
   </Style>
+  <!-- Map anything: every control a touch would make learn its line, outlined in the accent on its presenter, so the outline holds
+       under the pointer and while pressed. -->
+  <Style Selector="Button.bindable /template/ ContentPresenter#PART_ContentPresenter, Button.bindable:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.bindable:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{StaticResource DeskAccentBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
   <!-- The GO guard: while the node's min-GO window after a GO is open, every GO control of that playlist draws a red border (a GO
-       touches the air); a GO the node refused flashes once. -->
-  <Style Selector="Button.goGuard">
+       touches the air) on its presenter, under the pointer and pressed too, and over Map anything's outline; a GO the node refused
+       flashes once. -->
+  <Style Selector="Button.goGuard /template/ ContentPresenter#PART_ContentPresenter, Button.goGuard:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.goGuard:pressed /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="BorderBrush" Value="{StaticResource LightRedBrush}" />
     <Setter Property="BorderThickness" Value="2" />
   </Style>
   <Style Selector="Button.goFlash /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="{StaticResource DeskDangerSoftBrush}" />
-  </Style>
-  <!-- Map anything: every control whose line can be bound, outlined in the accent; a touch learns its line. -->
-  <Style Selector="Button.bindable">
-    <Setter Property="BorderBrush" Value="{StaticResource DeskAccentBrush}" />
-    <Setter Property="BorderThickness" Value="2" />
   </Style>
   <!-- Blind made unmistakable: the word on every pane that edits this desk's draft, in the blind colour. -->
   <Style Selector="Border.blindTag">

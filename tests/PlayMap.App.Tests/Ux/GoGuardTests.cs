@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
@@ -98,6 +99,74 @@ public class GoGuardTests
         Assert.True(next.IsGoGuarded);
         Assert.Equal(1, desk.Main.Ux.Guard.Flashes);
         window.Close();
+    }
+
+    /// <summary>The red border is drawn on the button's presenter, so it holds under the pointer and while pressed (where Fluent's own
+    /// states set the presenter's border), and over Map anything's accent outline.</summary>
+    [AvaloniaFact]
+    public async Task TheGuardsRedBorderHoldsUnderThePointerAndOverMapAnything()
+    {
+        await using var desk = Desk();
+        var window = MainWindowTests.Open(desk);
+        Assert.True((await desk.Session.SendAsync("SHOW SET MINGO 500", Ct)).Ok);
+        DeskHarness.Pump();
+        await desk.Main.Master.Next.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        var button = NextButton(window, desk);
+        Assert.Contains("goGuard", button.Classes);
+        var red = PlayMap.App.Infrastructure.DeskPalette.Dark.Tokens["LightRed"];
+        Assert.Equal(red, BorderOf(button));
+
+        // The pointer on GO: Fluent's :pointerover sets the presenter's border; the guard's stays.
+        var centre = button.TranslatePoint(new Avalonia.Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+        Avalonia.Headless.HeadlessWindowExtensions.MouseMove(window, centre, Avalonia.Input.RawInputModifiers.None);
+        DeskHarness.Pump();
+        Assert.True(button.IsPointerOver);
+        Assert.Equal(red, BorderOf(button));
+
+        // Map anything on: the guarded GO is still red, not the accent.
+        desk.Session.MapAnything = true;
+        DeskHarness.Pump();
+        Assert.Contains("bindable", button.Classes);
+        Assert.Equal(red, BorderOf(button));
+        desk.Session.MapAnything = false;
+        window.Close();
+    }
+
+    private static uint BorderOf(Button button)
+    {
+        var presenter = button.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
+        var color = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(presenter.BorderBrush).Color;
+        return ((uint)color.R << 16) | ((uint)color.G << 8) | color.B;
+    }
+
+    [Fact]
+    public void RefusalsFasterThanTwoHertzFlashNoFasterThanTwoHertz()
+    {
+        // Refusals at 0, 340 and 680 ms of the desk's clock: the second falls 340 ms after the first flash began, so it adds none; the
+        // third, 680 ms after it, is the second flash. No two flash starts are within 500 ms.
+        long now = 0;
+        var guard = new PlayMap.App.ViewModels.Ux.GoGuard(() => now);
+        var starts = new List<long>();
+        guard.Changed += () =>
+        {
+            if (guard.Flashes > starts.Count)
+                starts.Add(now);
+        };
+        foreach (var at in new long[] { 0, 340, 680 })
+        {
+            now = at;
+            guard.Tick();
+            guard.Replied("PLAYLIST NEXT pl_show", ok: false, "ERR double GO protection: 0.10 s since the last GO on Show", 1000);
+        }
+        Assert.Equal(2, guard.Flashes);
+        Assert.Equal([0L, 680L], starts);
+        Assert.All(starts.Zip(starts.Skip(1)), p => Assert.True(p.Second - p.First >= PlayMap.App.Infrastructure.StatusShapes.MinAlarmPeriodMs));
+        // A refusal that is no GO, or no fence refusal, never flashes.
+        now = 2000;
+        guard.Replied("BLACKOUT ON", ok: false, "ERR double GO protection", 1000);
+        guard.Replied("PLAYLIST NEXT pl_show", ok: false, "ERR no such playlist", 1000);
+        Assert.Equal(2, guard.Flashes);
     }
 
     [AvaloniaFact]

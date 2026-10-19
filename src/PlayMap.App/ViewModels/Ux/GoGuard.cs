@@ -1,3 +1,4 @@
+using PlayMap.App.Infrastructure;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.App.ViewModels.Ux;
@@ -5,20 +6,22 @@ namespace PlayMap.App.ViewModels.Ux;
 /// <summary>The GO guard made visible, on the desk's clock. A GO line (PLAYLIST GO, NEXT, PREV, VIDEO PLAY, VIDEO RESTART: the lines the
 /// node's GO fence holds) that the node accepted opens its playlist's window for the node's MinGo (STATE.show.minGoMs) from the
 /// reply: while it is open every GO control of that playlist draws its red border, and it closes when the window does. A GO the node
-/// refused with its double-GO words is one flash — a single event, never a second within <see cref="FlashMs"/> — whose words the
-/// controls' tooltips and the attention bar carry until the window it hit has closed. The guard only shows the node's fence; the
-/// node decides.</summary>
+/// refused with its double-GO words is one flash of <see cref="FlashMs"/> — a single event, and no flash starts within
+/// <see cref="StatusShapes.MinAlarmPeriodMs"/> of the last one's start, so the guard never flashes faster than 2 Hz however fast the
+/// refusals come — whose words the controls' tooltips and the attention bar carry until the window it hit has closed. The guard only
+/// shows the node's fence; the node decides.</summary>
 public sealed class GoGuard
 {
     /// <summary>The words the node's fence refuses a GO with (EngineCore.Transport's GoFence).</summary>
     public const string FenceWords = "double GO protection";
 
-    /// <summary>A flash lasts this long, and no second one starts within it.</summary>
+    /// <summary>A flash lasts this long; the next one starts no sooner than <see cref="StatusShapes.MinAlarmPeriodMs"/> after its start.</summary>
     public const long FlashMs = 333;
 
     private readonly Func<long> _nowMs;
     private readonly Dictionary<string, long> _openUntil = new(StringComparer.Ordinal);
     private long _flashAtMs;
+    private bool _flashed;
     private bool _flashOn;
     private long _refusedUntilMs;
 
@@ -31,7 +34,7 @@ public sealed class GoGuard
     /// <summary>Raised when a window opened or closed, a flash began or ended, or the refusal's words came or went.</summary>
     public event Action? Changed;
 
-    /// <summary>How many flashes there have been (a refused GO inside a flash adds none).</summary>
+    /// <summary>How many flashes there have been (a refused GO within 500 ms of the last flash's start adds none).</summary>
     public int Flashes { get; private set; }
 
     /// <summary>The node's words for the last refused GO, while the window it hit is open; null otherwise.</summary>
@@ -80,7 +83,8 @@ public sealed class GoGuard
     }
 
     /// <summary>The desk sent a line and the node answered it: an accepted GO opens its window for <paramref name="minGoMs"/>; one the
-    /// fence refused flashes (once per <see cref="FlashMs"/>) and its words stay while the window is open.</summary>
+    /// fence refused flashes (at most one flash start per <see cref="StatusShapes.MinAlarmPeriodMs"/>) and its words stay while the window
+    /// is open.</summary>
     public void Replied(string line, bool ok, string text, int minGoMs)
     {
         if (GoPlaylist(line) is not { } playlist)
@@ -99,8 +103,9 @@ public sealed class GoGuard
             return;
         RefusedWords = Link.DeskSession.Plain(text);
         _refusedUntilMs = Math.Max(now + FlashMs, _openUntil.Values.DefaultIfEmpty(0).Max());
-        if (!IsFlashingNow)
+        if (!_flashed || now - _flashAtMs >= StatusShapes.MinAlarmPeriodMs)
         {
+            _flashed = true;
             _flashAtMs = now;
             _flashOn = true;
             Flashes++;
