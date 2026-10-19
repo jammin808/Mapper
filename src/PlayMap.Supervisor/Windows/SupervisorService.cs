@@ -30,8 +30,7 @@ public sealed class SupervisorService : ServiceBase
     private readonly object _gate = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly string _folder = EnginePidRecord.MachineFolder();
-    private Task _loop = Task.CompletedTask;
-    private Task _pipe = Task.CompletedTask;
+    private readonly CountdownEvent _ended = new(2);
     private EventWaitHandle? _stopEvent;
     private int _pid;
     private string _lastStatus = "";
@@ -49,8 +48,9 @@ public sealed class SupervisorService : ServiceBase
         Directory.CreateDirectory(_folder);
         _stopEvent = StopEventFor(InstallValue("ShowUser"));
         Log("the supervisor started");
-        _loop = Task.Run(() => LoopAsync(_stop.Token), CancellationToken.None);
-        _pipe = Task.Run(() => PipeAsync(_stop.Token), CancellationToken.None);
+        // Both loops signal _ended as they end; OnStop waits on it.
+        _ = LoopAsync(_stop.Token);
+        _ = PipeAsync(_stop.Token);
     }
 
     protected override void OnStop() => Halt("the service was stopped: the engine keeps running and the next supervisor adopts it");
@@ -62,9 +62,7 @@ public sealed class SupervisorService : ServiceBase
         Log(why);
         _stop.Cancel();
         // The loops end by cancellation; ones that do not end within 5 s end with the process.
-        using var ended = new ManualResetEventSlim();
-        _ = Task.WhenAll(_loop, _pipe).ContinueWith(_ => ended.Set(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
-        if (!ended.Wait(TimeSpan.FromSeconds(5), CancellationToken.None))
+        if (!_ended.Wait(TimeSpan.FromSeconds(5), CancellationToken.None))
             Log("the loops did not end within 5 s");
     }
 
@@ -74,11 +72,26 @@ public sealed class SupervisorService : ServiceBase
         {
             _stopEvent?.Dispose();
             _stop.Dispose();
+            _ended.Dispose();
         }
         base.Dispose(disposing);
     }
 
     private async Task LoopAsync(CancellationToken ct)
+    {
+        // Off the service's start call at once: Windows waits for OnStart to return.
+        await Task.Yield();
+        try
+        {
+            await RunLoopAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ended.Signal();
+        }
+    }
+
+    private async Task RunLoopAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(Tick);
         do
@@ -208,6 +221,19 @@ public sealed class SupervisorService : ServiceBase
     }
 
     private async Task PipeAsync(CancellationToken ct)
+    {
+        await Task.Yield();
+        try
+        {
+            await ServePipeAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ended.Signal();
+        }
+    }
+
+    private async Task ServePipeAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {

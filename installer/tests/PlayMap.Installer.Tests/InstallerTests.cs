@@ -198,8 +198,7 @@ public sealed class InstallerTests
     {
         var log = Path.Combine(Path.GetTempPath(), "playmap-install-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".log");
         var exit = Wait(installer, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=" + log, .. extra]);
-        var text = File.Exists(log) ? File.ReadAllText(log) : "";
-        return new Run(exit, text);
+        return new Run(exit, ReadShared(log));
     }
 
     private static Run Uninstall()
@@ -207,12 +206,31 @@ public sealed class InstallerTests
         var log = Path.Combine(Path.GetTempPath(), "playmap-uninstall-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".log");
         var uninstaller = Path.Combine(InstallDir, "unins000.exe");
         var exit = Wait(uninstaller, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=" + log]);
-        // The uninstaller hands the work to a copy of itself and returns: wait until the install's key is gone or a minute passes.
+        // The uninstaller hands the work to a copy of itself and returns: wait until its copy has ended (no process runs from the
+        // temp folder it copied itself to) and the install's key is gone, or two minutes pass.
         var deadline = Stopwatch.StartNew();
-        while (InstallKey() is not null && deadline.Elapsed < TimeSpan.FromMinutes(1))
+        while ((InstallKey() is not null || UninstallerRuns()) && deadline.Elapsed < TimeSpan.FromMinutes(2))
             Wait("cmd.exe", ["/c", "ping", "-n", "2", "127.0.0.1"]);
-        return new Run(exit, File.Exists(log) ? File.ReadAllText(log) : "");
+        return new Run(exit, ReadShared(log));
     }
+
+    /// <summary>A log another process may still hold open for writing (the uninstaller's copy of itself), read as it stands.</summary>
+    private static string ReadShared(string path)
+    {
+        if (!File.Exists(path))
+            return "";
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>Whether Inno Setup's uninstaller copy (_iu14D2N.tmp and its kin) still runs.</summary>
+    private static bool UninstallerRuns() =>
+        Process.GetProcesses().Any(p =>
+        {
+            using (p)
+                return p.ProcessName.StartsWith("_iu", StringComparison.OrdinalIgnoreCase) || p.ProcessName.StartsWith("unins0", StringComparison.OrdinalIgnoreCase);
+        });
 
     private static void EnsureUninstalled()
     {

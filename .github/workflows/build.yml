@@ -424,7 +424,11 @@ jobs:
           $vsArgs = @('modify', '--installPath', $vs, '--quiet', '--norestart', '--force') + ($components | ForEach-Object { '--add', $_ })
           $p = Start-Process $installer -ArgumentList $vsArgs -Wait -PassThru
           "- Visual Studio's v143 components added in $([math]::Round($clock.Elapsed.TotalMinutes, 1)) minutes (installer exit $($p.ExitCode))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
-          if ($p.ExitCode -notin 0, 3010) { throw "Visual Studio's installer answered $($p.ExitCode)" }
+          if ($p.ExitCode -notin 0, 3010) {
+            Get-ChildItem $env:TEMP -Filter 'dd_*.log' | Sort-Object LastWriteTime | Select-Object -Last 3 |
+              Select-String -Pattern 'error|not found|invalid|unknown|does not exist' | Select-Object -Last 40 | ForEach-Object { Write-Host $_.Line }
+            throw "Visual Studio's installer answered $($p.ExitCode)"
+          }
           $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
           $clock = [System.Diagnostics.Stopwatch]::StartNew()
           cmd /c "`"$dev`" -no_logo && `"$PWD\installer\wix\build-toolset.cmd`" `"$src\src`""
