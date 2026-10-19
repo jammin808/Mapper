@@ -21,6 +21,9 @@ internal static unsafe partial class Native
 
     public const uint DuplicateSameAccess = 0x2;
 
+    /// <summary>STILL_ACTIVE: a running thread's exit code.</summary>
+    public const uint StillActive = 259;
+
     public const int AvrtPriorityHigh = 1;
 
     public const uint TokenQuery = 0x8, TokenAdjustPrivileges = 0x20, SePrivilegeEnabled = 0x2;
@@ -96,6 +99,11 @@ internal static unsafe partial class Native
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool CloseHandle(nint handle);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetExitCodeThread(nint thread, out uint exitCode);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

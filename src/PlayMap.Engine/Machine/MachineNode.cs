@@ -123,6 +123,9 @@ public sealed class RecordedPlatform : IMachinePlatform
     public IThreadClaim ClaimThread(ThreadRole role)
     {
         var claim = _inner.ClaimThread(role);
+        // A platform that claims nothing attempted nothing: its one grey process claim already says so.
+        if (_inner.Name == "none")
+            return claim;
         lock (_gate)
         {
             _threads.RemoveAll(c => claim.Claims.Any(n => string.Equals(n.What, c.What, StringComparison.Ordinal)));

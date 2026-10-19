@@ -53,8 +53,8 @@ public interface IDeadlineTimer : IDisposable
 /// verb does (else null, and the words say what a person does).</summary>
 public sealed record MachineFact(string Item, Light Light, string Value, string Words, string? Fix = null);
 
-/// <summary>The platform of a node that claims nothing from its operating system: every claim is a no-op that says so with
-/// <see cref="Words"/>, the timer waits at the runtime's own resolution, and the identity carries this build and what the runtime
+/// <summary>The platform of a node that claims nothing from its operating system: every claim is a no-op that asks nothing and says so
+/// with <see cref="Words"/>, the timer waits at the runtime's own resolution, and the identity carries this build and what the runtime
 /// itself reports (the logical processors, the vector width it accelerates), every other field unread.</summary>
 public sealed class NullMachinePlatform : IMachinePlatform
 {
@@ -80,7 +80,8 @@ public sealed class NullMachinePlatform : IMachinePlatform
         return [new Claim("process", "", false, "", Words)];
     }
 
-    public IThreadClaim ClaimThread(ThreadRole role) => new UnclaimedThread(role, Words);
+    /// <summary>No claim is attempted: the one claim asks nothing (a grey light), with the words why.</summary>
+    public IThreadClaim ClaimThread(ThreadRole role) => new UnclaimedThread(role, Words, asked: "");
 
     public IDeadlineTimer CreateTimer() => new RuntimeDeadlineTimer(_clock);
 

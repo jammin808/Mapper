@@ -25,8 +25,8 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
     private readonly Queue<(long At, double Offset)> _offsets = new();
     private readonly List<LtcFrameEvent> _frames = [];
     private readonly IAudioInputs? _audio;
+    private readonly Core.Machine.DeliveryClaim _claim = new(Core.Machine.ThreadRole.Timecode);
     private IAudioCapture? _capture;
-    private Core.Machine.IThreadClaim? _claim;
     private bool _closed;
     private LtcDecoder? _decoder;
     private LtcCounts _counted;
@@ -99,8 +99,7 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
         {
             if (_closed || !_board.Holds(Source))
                 return;
-            // The capture thread that delivers this input's samples claims the timecode role once, until the input is disposed.
-            _claim ??= Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Timecode);
+            _claim.Here();
             if (_decoder is null || _decoder.SampleRate != sampleRate)
                 _decoder = new LtcDecoder(sampleRate, Source.FloorDbfs);
             var count = interleaved.Length / channels;
@@ -196,7 +195,6 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
     public void Dispose()
     {
         IAudioCapture? capture;
-        Core.Machine.IThreadClaim? claim;
         lock (_gate)
         {
             _closed = true;
@@ -204,8 +202,6 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
             _capture = null;
         }
         capture?.Dispose();
-        lock (_gate)
-            (claim, _claim) = (_claim, null);
-        claim?.Dispose();
+        _claim.Dispose();
     }
 }

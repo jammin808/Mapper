@@ -26,6 +26,7 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
     private readonly Lateness _late = new();
     private readonly Lock _gate = new();
     private readonly List<Claim> _threadClaims = [];
+    private readonly Dictionary<uint, SharedThreadClaim> _claimed = [];
     private MachineSettings _settings = MachineSettings.Default;
     private ImmutableArray<Claim> _process = [];
     private CpuPlacement? _placement;
@@ -146,12 +147,21 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
             _ => "unknown",
         };
 
+    /// <summary>Claims the calling thread's role under the settings in use. A thread already claimed (and still running) joins its
+    /// claim instead: the same claims, reverted when the last holder disposes, so a second claim never reads the first's priority as
+    /// the thread's own.</summary>
     public IThreadClaim ClaimThread(ThreadRole role)
     {
+        var id = Native.GetCurrentThreadId();
         MachineSettings settings;
         CpuPlacement? placement;
         lock (_gate)
         {
+            if (_claimed.TryGetValue(id, out var held) && held.Claim.Running)
+            {
+                held.Holders++;
+                return new ThreadHold(this, held);
+            }
             settings = _settings;
             placement = _placement;
         }
@@ -161,8 +171,25 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         {
             _threadClaims.RemoveAll(c => claim.Claims.Any(n => n.What == c.What));
             _threadClaims.AddRange(claim.Claims);
+            if (claim is not WindowsThreadClaim made)
+                return claim;
+            var shared = new SharedThreadClaim(id, made);
+            _claimed[id] = shared;
+            return new ThreadHold(this, shared);
         }
-        return claim;
+    }
+
+    /// <summary>One holder of a joined thread claim lets go; the last reverts it.</summary>
+    private void Release(SharedThreadClaim shared)
+    {
+        lock (_gate)
+        {
+            if (--shared.Holders > 0)
+                return;
+            if (_claimed.TryGetValue(shared.ThreadId, out var now) && ReferenceEquals(now, shared))
+                _ = _claimed.Remove(shared.ThreadId);
+        }
+        shared.Claim.Dispose();
     }
 
     private CpuPlacement Place(MachineSettings settings)
@@ -364,6 +391,41 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
         {
             if (Interlocked.Exchange(ref _done, 1) == 0)
                 platform?.LetGo();
+        }
+    }
+
+    /// <summary>One thread's claim and how many hold it (the platform's lock guards the count).</summary>
+    internal sealed class SharedThreadClaim(uint threadId, WindowsThreadClaim claim)
+    {
+        public uint ThreadId { get; } = threadId;
+
+        public WindowsThreadClaim Claim { get; } = claim;
+
+        public int Holders { get; set; } = 1;
+    }
+
+    /// <summary>One holder of a thread's claim: its claims are the thread's; disposing it lets go once, and the last holder reverts.</summary>
+    internal sealed class ThreadHold : IThreadClaim
+    {
+        private readonly WindowsMachinePlatform _platform;
+        private readonly SharedThreadClaim _shared;
+        private int _done;
+
+        public ThreadHold(WindowsMachinePlatform platform, SharedThreadClaim shared)
+        {
+            _platform = platform;
+            _shared = shared;
+        }
+
+        public ImmutableArray<Claim> Claims => _shared.Claim.Claims;
+
+        /// <summary>The thread's claim this holder shares.</summary>
+        internal WindowsThreadClaim Shared => _shared.Claim;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _done, 1) == 0)
+                _platform.Release(_shared);
         }
     }
 }

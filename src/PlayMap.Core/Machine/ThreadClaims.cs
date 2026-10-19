@@ -25,7 +25,8 @@ public enum ThreadRole
 public readonly record struct Claim(string What, string Asked, bool Applied, string ReadBack, string Words);
 
 /// <summary>The claims made for one thread; disposing it reverts what reverting needs (a scheduler registration, a throttling
-/// state). Disposed on the thread that made it, at that thread's end.</summary>
+/// state). The claim holds the thread itself, not the thread that disposes it, so any thread may dispose it (at the claimed thread's end,
+/// or when its owner lets go).</summary>
 public interface IThreadClaim : IDisposable
 {
     ImmutableArray<Claim> Claims { get; }
@@ -76,16 +77,17 @@ public static class ThreadClaims
     };
 }
 
-/// <summary>A thread claim that changed nothing: one claim for the role, not applied, with the words why. Disposing it reverts
-/// nothing.</summary>
+/// <summary>A thread claim that changed nothing: one claim for the role, not applied, with the words why. It asked the role's word
+/// where a claim was attempted (no platform in use yet, a thread whose handle could not be taken: a refusal), and nothing ("") where
+/// none was (a platform that claims nothing: a grey claim). Disposing it reverts nothing.</summary>
 public sealed class UnclaimedThread : IThreadClaim
 {
-    public UnclaimedThread(ThreadRole role, string words)
+    public UnclaimedThread(ThreadRole role, string words, string? asked = null)
     {
         ArgumentNullException.ThrowIfNull(words);
         Role = role;
         var word = ThreadClaims.Word(role);
-        Claims = [new Claim("thread." + word, word, false, "", words)];
+        Claims = [new Claim("thread." + word, asked ?? word, false, "", words)];
     }
 
     public ThreadRole Role { get; }
@@ -95,5 +97,91 @@ public sealed class UnclaimedThread : IThreadClaim
     public void Dispose()
     {
         // Nothing was claimed, so nothing reverts.
+    }
+}
+
+/// <summary>A role claimed by whichever thread delivers a callback, for a listener that owns no thread of its own (an LTC reader fed by
+/// the audio hub's capture thread, which fans one device out to every listener): <see cref="Here"/>, called at each delivery, claims
+/// the role on the delivering thread the first time, and again when the delivering thread changes (a device reopened on a new thread,
+/// told apart even where the new thread takes the old one's id), giving the old claim back first; <see cref="Dispose"/> gives back the
+/// claim held. A delivery on the thread already claimed costs one read and allocates nothing. Any thread.</summary>
+public sealed class DeliveryClaim : IDisposable
+{
+    [ThreadStatic]
+    private static object? t_self;
+
+    private readonly ThreadRole _role;
+    private readonly Func<ThreadRole, IThreadClaim> _claim;
+    private readonly Lock _gate = new();
+    private IThreadClaim? _held;
+    private object? _owner;
+    private int _thread;
+    private bool _disposed;
+
+    /// <param name="claim">Where the role is claimed (<see cref="ThreadClaims.Claim"/> unless a test says otherwise).</param>
+    public DeliveryClaim(ThreadRole role, Func<ThreadRole, IThreadClaim>? claim = null)
+    {
+        _role = role;
+        _claim = claim ?? ThreadClaims.Claim;
+    }
+
+    /// <summary>The managed id of the thread whose claim is held, or 0 when none is.</summary>
+    public int Thread => Volatile.Read(ref _thread);
+
+    /// <summary>The claim held now, or null.</summary>
+    public IThreadClaim? Held
+    {
+        get
+        {
+            lock (_gate)
+                return _held;
+        }
+    }
+
+    /// <summary>One object per thread for its life: a thread's identity that no later thread shares.</summary>
+    private static object Self => t_self ??= new object();
+
+    /// <summary>Called on the delivering thread at each delivery: claims the role here unless this thread's claim is the one held.</summary>
+    public void Here()
+    {
+        var self = Self;
+        if (ReferenceEquals(Volatile.Read(ref _owner), self))
+            return;
+        IThreadClaim? old;
+        lock (_gate)
+        {
+            if (_disposed || ReferenceEquals(_owner, self))
+                return;
+            (old, _held) = (_held, null);
+            Volatile.Write(ref _owner, null);
+            Volatile.Write(ref _thread, 0);
+        }
+        // The old thread's claim goes back first, so a thread that took over a finished thread's id never joins its stale claim.
+        old?.Dispose();
+        var made = _claim(_role);
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                _held = made;
+                Volatile.Write(ref _thread, Environment.CurrentManagedThreadId);
+                Volatile.Write(ref _owner, self);
+                return;
+            }
+        }
+        made.Dispose();
+    }
+
+    public void Dispose()
+    {
+        IThreadClaim? held;
+        lock (_gate)
+        {
+            _disposed = true;
+            (held, _held) = (_held, null);
+            Volatile.Write(ref _owner, null);
+            Volatile.Write(ref _thread, 0);
+        }
+        held?.Dispose();
     }
 }

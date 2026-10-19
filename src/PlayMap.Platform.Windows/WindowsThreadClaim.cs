@@ -9,8 +9,8 @@ namespace PlayMap.Platform.Windows;
 /// <summary>One thread's claims by role, made on the thread itself: its priority, MMCSS's task (render and present "Games", audio and
 /// timecode "Pro Audio", capture "Capture"), its CPU sets and, for background pools, EcoQoS. Each claim answers what it asked, what
 /// Windows said and what reading it back shows. The thread is held by a real handle, so disposing reverts every claim on that thread
-/// whichever thread disposes it: the MMCSS task is left, the CPU sets cleared, the throttling handed back to Windows and the priority
-/// put back as it was.</summary>
+/// whichever thread disposes it: the MMCSS task is left (Windows' answer kept in <see cref="MmcssReverted"/>), the CPU sets cleared, the
+/// throttling handed back to Windows and the priority put back as it was.</summary>
 [SupportedOSPlatform("windows")]
 internal sealed unsafe class WindowsThreadClaim : IThreadClaim
 {
@@ -32,6 +32,14 @@ internal sealed unsafe class WindowsThreadClaim : IThreadClaim
     }
 
     public ImmutableArray<Claim> Claims { get; }
+
+    /// <summary>Windows' answer to leaving the MMCSS task at dispose (<c>AvRevertMmThreadCharacteristics</c>): null before dispose or where
+    /// no task was joined.</summary>
+    internal bool? MmcssReverted { get; private set; }
+
+    /// <summary>Whether the claimed thread still runs (and the claim is not yet reverted): a claim on a thread that ended is never
+    /// joined.</summary>
+    internal bool Running => Volatile.Read(ref _disposed) == 0 && Native.GetExitCodeThread(_thread, out var code) && code == Native.StillActive;
 
     /// <summary>Claims the calling thread's role as <paramref name="claims"/> says, placed as <paramref name="placement"/> says.</summary>
     public static IThreadClaim Claim(RoleClaims claims, CpuPlacement placement)
@@ -132,7 +140,7 @@ internal sealed unsafe class WindowsThreadClaim : IThreadClaim
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
         if (_avrt != 0)
-            _ = Native.AvRevertMmThreadCharacteristics(_avrt);
+            MmcssReverted = Native.AvRevertMmThreadCharacteristics(_avrt);
         _avrt = 0;
         if (_cpuSets)
             _ = Native.SetThreadSelectedCpuSets(_thread, null, 0);
