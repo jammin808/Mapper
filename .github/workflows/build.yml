@@ -395,14 +395,14 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: wix-feed
-          key: wix-toolset-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+          key: wix-toolset-3-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
       - name: M17's answer, kept from the run that measured it
         id: answer
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: wix-answer
-          key: wix-answer-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+          key: wix-answer-3-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
       - name: Build the WiX toolset from its source (M17)
         if: steps.cache.outputs.cache-hit != 'true' && steps.answer.outputs.cache-hit != 'true'
         id: build
@@ -437,9 +437,18 @@ jobs:
           $components = Get-Content installer/wix/vs-components.txt | Where-Object { $_ -and -not $_.StartsWith('#') }
           $vsArgs = @('modify', '--installPath', $vs, '--quiet', '--norestart', '--force') + ($components | ForEach-Object { '--add', $_ })
           # Called directly, each element passed as one argument (the install path holds spaces), and waited on through the pipe.
+          $asked = Get-Date
           & $installer @vsArgs | Out-Host
           $vsCode = $LASTEXITCODE
-          $vsWords = "Visual Studio's v143 components added in $([math]::Round($clock.Elapsed.TotalMinutes, 1)) minutes (installer exit $vsCode)"
+          # What the installer did, read back: the components its product graph does not hold, and the v143 toolset's folder.
+          $missing = @(Get-ChildItem $env:TEMP -Filter 'dd_*.log' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $asked } |
+            Select-String -Pattern 'Cannot find package: (\S+) in product graph' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
+          $toolset = @(Get-ChildItem (Join-Path $vs 'MSBuild\Microsoft\VC') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName 'Platforms\x64\PlatformToolsets\v143') }).Count -gt 0
+          $vsWords = "Visual Studio's installer asked for $($components.Count) v143 components in $([math]::Round($clock.Elapsed.TotalMinutes, 1)) minutes (exit $vsCode): " +
+            "$(if ($missing.Count) { "$($missing.Count) not in its product graph ($($missing -join ', '))" } else { 'every one in its product graph' }); " +
+            "the v143 toolset is $(if ($toolset) { 'present' } else { 'absent' }) afterwards"
           "- $vsWords" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           "- $vsWords" | Out-File -FilePath (Join-Path $answer 'answer.md') -Append -Encoding utf8NoBOM
           if ($vsCode -notin 0, 3010) {
@@ -473,13 +482,13 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: wix-feed
-          key: wix-toolset-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+          key: wix-toolset-3-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
       - name: Keep M17's answer (a toolset that did not build)
         if: steps.build.outcome == 'failure'
         uses: actions/cache/save@v4
         with:
           path: wix-answer
-          key: wix-answer-2-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
+          key: wix-answer-3-${{ steps.pin.outputs.commit }}-${{ steps.pin.outputs.key }}
       - name: M17's answer
         shell: pwsh
         run: |
@@ -539,8 +548,10 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile is.exe
           $hash = (Get-FileHash is.exe -Algorithm SHA256).Hash
           if ($hash -ne $pin) { throw "$url is not the pinned build ($hash)" }
-          $digest = gh api repos/jrsoftware/issrc/releases/tags/is-7_1_0 --jq ".assets[] | select(.name == \"$asset\") | .digest"
-          if ($LASTEXITCODE -ne 0) { throw "the release API could not be read ($LASTEXITCODE): $digest" }
+          # The release read whole and its asset found here: no filter expression crosses PowerShell's quoting.
+          $release = gh api repos/jrsoftware/issrc/releases/tags/is-7_1_0
+          if ($LASTEXITCODE -ne 0) { throw "the release API could not be read ($LASTEXITCODE): $release" }
+          $digest = @((($release -join "`n") | ConvertFrom-Json).assets | Where-Object { $_.name -eq $asset } | ForEach-Object { $_.digest }) -join ' '
           if ("$digest".Trim() -ne "sha256:$($pin.ToLowerInvariant())") { throw "the release API's digest of $asset is '$digest', not the pin's" }
           $signature = Get-AuthenticodeSignature is.exe
           if ($signature.Status -ne 'Valid') { throw "$asset carries no valid signature: $($signature.Status) $($signature.StatusMessage)" }
