@@ -15,6 +15,25 @@ internal sealed record FxDecodedImage(string Name, int Width, int Height, byte[]
 /// <summary>A program the lane made (or the reason it could not), with its imported pictures decoded.</summary>
 internal sealed record FxCompiled(string Key, uint ProgramId, string? Error, ImmutableArray<FxDecodedImage> Images);
 
+/// <summary>A program made for the device (a user program asked of the backend, or a library program a warm-up links), linked and
+/// finished on the lane's context but not yet the device's: its GL name and its reflected layout (none for a library program, whose
+/// layout is the table's), or the stage that refused ("source", "vertex", "fragment", "link", "layout", "lane") and its words.</summary>
+internal sealed record FxMade(uint ProgramId, ProgramLayout? Layout, string Stage, string Words)
+{
+    public static FxMade Refused(string stage, string words) => new(0, null, stage, words);
+}
+
+/// <summary>A program the lane is making for the device: the lane writes its outcome once, from its thread; any thread reads it.</summary>
+internal sealed class FxMaking
+{
+    private FxMade? _made;
+
+    /// <summary>The outcome, null until the lane has run the job.</summary>
+    public FxMade? Made => Volatile.Read(ref _made);
+
+    internal void Finish(FxMade made) => Interlocked.CompareExchange(ref _made, made, null);
+}
+
 /// <summary>A program ready on the render thread: the program, or why there is none, and its imported pictures uploaded.</summary>
 internal sealed class FxProgramEntry : IDisposable
 {
@@ -46,7 +65,7 @@ public sealed class FxCompileLane : IDisposable
     public const int UnusedFrames = 600;
 
     private sealed record Job(string Key, string Name, string Vertex, string Fragment, ImmutableSortedDictionary<string, string> Images,
-        TaskCompletionSource<FxCompileReport>? Report);
+        TaskCompletionSource<FxCompileReport>? Report, FxMaking? Making = null, bool Reflect = true);
 
     private readonly RenderContext _context;
     private readonly BlockingCollection<Job> _jobs = new();
@@ -141,6 +160,19 @@ public sealed class FxCompileLane : IDisposable
         return done.Task;
     }
 
+    /// <summary>Compiles, links and (unless <paramref name="reflect"/> is false: a library program, whose layout is the table's)
+    /// reflects a program for the device: the outcome is written when the lane has run it, the program
+    /// finished on the lane's context and not yet the device's (the render thread adopts it, <see cref="GlDevice.AdoptProgram"/>, or
+    /// deletes it). Any thread.</summary>
+    internal FxMaking Make(string name, string vertex, string fragment, bool reflect = true)
+    {
+        var making = new FxMaking();
+        if (!_disposed && _jobs.TryAddLive(new Job("", name, vertex, fragment, ImmutableSortedDictionary<string, string>.Empty, null, making, reflect)))
+            return making;
+        making.Finish(FxMade.Refused("lane", "the renderer is stopping"));
+        return making;
+    }
+
     /// <summary>The program for a key once handed over (null while it compiles). Render thread.</summary>
     internal FxProgramEntry? Get(string key, long frame)
     {
@@ -160,7 +192,12 @@ public sealed class FxCompileLane : IDisposable
         if (_disposed)
             return;
         if (_thread is null && _jobs.TryTake(out var job))
-            Finish(Compile(job), job);
+        {
+            if (job.Making is { } making)
+                making.Finish(Make(job));
+            else
+                Finish(Compile(job), job);
+        }
         while (_done.TryDequeue(out var compiled))
             Adopt(compiled);
         if (frame % 60 != 0)
@@ -205,6 +242,13 @@ public sealed class FxCompileLane : IDisposable
         {
             foreach (var job in _jobs.GetConsumingEnumerable())
             {
+                if (job.Making is { } making)
+                {
+                    var program = Make(job);
+                    _gl.Finish();
+                    making.Finish(program);
+                    continue;
+                }
                 var compiled = Compile(job);
                 _gl.Finish();
                 Finish(compiled, job);
@@ -243,6 +287,42 @@ public sealed class FxCompileLane : IDisposable
         catch (Exception ex)
         {
             return new FxCompiled(job.Key, 0, $"the compile lane could not build {job.Name}: {ex.Message}", []);
+        }
+    }
+
+    /// <summary>A program for the device, wherever the lane runs: compiled and linked with the stage that refused, then its layout
+    /// read back. Its boundary is <see cref="Compile"/>'s: whatever the driver throws refuses this program with its words.</summary>
+    private FxMade Make(Job job)
+    {
+        try
+        {
+            BeforeCompile?.Invoke(job.Name);
+            uint id;
+            string? error;
+            string stage;
+            try
+            {
+                id = GlDevice.CompileDetached(_gl, _dialect, job.Name, job.Vertex, job.Fragment, out error, out stage);
+            }
+            catch (ArgumentException ex)
+            {
+                return FxMade.Refused("source", ex.Message);
+            }
+            if (id == 0)
+                return FxMade.Refused(stage, error ?? "the program was not made");
+            if (!job.Reflect)
+                return new FxMade(id, null, "", "");
+            var layout = GlDevice.ReflectLayout(_gl, id, job.Name, job.Vertex, job.Fragment, out error);
+            if (layout is null)
+            {
+                _gl.DeleteProgram(id);
+                return FxMade.Refused("layout", error ?? "the program's layout does not read");
+            }
+            return new FxMade(id, layout, "", "");
+        }
+        catch (Exception ex)
+        {
+            return FxMade.Refused("lane", $"the compile lane could not build {job.Name}: {ex.Message}");
         }
     }
 
@@ -320,7 +400,10 @@ public sealed class FxCompileLane : IDisposable
         _jobs.CompleteAdding();
         _thread?.Join();
         while (_jobs.TryTake(out var left))
+        {
             left.Report?.TrySetResult(new FxCompileReport(false, "the renderer stopped", Mode));
+            left.Making?.Finish(FxMade.Refused("lane", "the renderer stopped"));
+        }
         while (_done.TryDequeue(out var orphan))
             if (orphan.ProgramId != 0)
                 _gl.DeleteProgram(orphan.ProgramId);

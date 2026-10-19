@@ -140,6 +140,21 @@ public static class TextureFormats
         _ => 0,
     };
 
+    /// <summary>Bytes per texel of an uncompressed format (1 for R8 up to 16 for RGBA32F); 0 for a block-compressed one.</summary>
+    public static int TexelBytes(TextureFormat f) => f switch
+    {
+        TextureFormat.R8 => 1,
+        TextureFormat.Rg8 or TextureFormat.R16 or TextureFormat.R16F => 2,
+        TextureFormat.Rgba8 or TextureFormat.Rg16 or TextureFormat.Rg16F or TextureFormat.R32F or TextureFormat.Rgb10A2 => 4,
+        TextureFormat.Rgba16F or TextureFormat.Rg32F or TextureFormat.Rgba16 => 8,
+        TextureFormat.Rgba32F => 16,
+        _ => 0,
+    };
+
+    /// <summary>Bytes of one level of a texture: texels times their bytes, or a block format's whole blocks.</summary>
+    public static long LevelBytes(TextureFormat f, int width, int height) =>
+        IsBlockCompressed(f) ? CompressedSize(f, width, height) : (long)width * height * TexelBytes(f);
+
     /// <summary>Bytes of one level of a block-compressed texture (sizes round up to whole blocks).</summary>
     public static long CompressedSize(TextureFormat f, int width, int height) =>
         (long)((width + 3) / 4) * ((height + 3) / 4) * BlockBytes(f);

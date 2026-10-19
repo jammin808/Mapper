@@ -12,7 +12,8 @@ public sealed unsafe partial class GlDevice : IFenceSignals
         CreateTexture(width, height, format, filter, wrap, TextureUsage.Sampled | TextureUsage.CopySource | TextureUsage.CopyDest);
 
     /// <summary>A texture made for the given uses (a target's attachment is also drawn into).</summary>
-    internal GpuTexture CreateTexture(int width, int height, TextureFormat format, TextureFilter filter, TextureWrap wrap, TextureUsage usage)
+    internal GpuTexture CreateTexture(int width, int height, TextureFormat format, TextureFilter filter, TextureWrap wrap, TextureUsage usage,
+        string name = "")
     {
         AssertOwner();
         ArgumentOutOfRangeException.ThrowIfLessThan(width, 1);
@@ -33,7 +34,7 @@ public sealed unsafe partial class GlDevice : IFenceSignals
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureWrapS, w);
         _gl.TexParameter(GLEnum.Texture2D, GLEnum.TextureWrapT, w);
         Check("texture");
-        return new GlTexture(this, id, width, height, format, filter, wrap, usage);
+        return new GlTexture(this, id, width, height, format, filter, wrap, usage, name);
     }
 
     /// <summary>Shows a one-channel texture as grey (R in R, G and B, alpha one): a Gray8 picture samples as
@@ -263,6 +264,15 @@ public sealed unsafe partial class GlDevice : IFenceSignals
         var id = _gl.GenBuffer();
         _liveBuffers.Add(id);
         return new GlBuffer(this, id, kind);
+    }
+
+    /// <summary>A buffer of a kind made for the given uses.</summary>
+    internal GlBuffer CreateBuffer(BufferKind kind, BufferUsage usage, string name)
+    {
+        AssertOwner();
+        var id = _gl.GenBuffer();
+        _liveBuffers.Add(id);
+        return new GlBuffer(this, id, kind, usage, name);
     }
 
     /// <summary>Replaces a buffer's contents. The store is orphaned (re-specified) so the GPU may keep reading

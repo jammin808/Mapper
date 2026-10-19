@@ -54,6 +54,7 @@ public sealed unsafe partial class GlDevice : IDisposable
     private readonly uint[] _boundTextures = new uint[TextureUnits];
     private DebugProc? _debugProc;
     private GCHandle _self;
+    private GlBackend? _backend;
     private uint _emptyVao;
     private bool _disposed;
 
@@ -104,6 +105,25 @@ public sealed unsafe partial class GlDevice : IDisposable
     }
 
     internal GL Gl => _gl;
+
+    /// <summary>The context the device was made in (its render context sets it), which the backend's compile lane shares.</summary>
+    internal RenderContext? Context { get; set; }
+
+    /// <summary>This device behind the render hardware interface: made on first use, on the device's thread, and disposed with the
+    /// device.</summary>
+    public GlBackend Backend
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_backend is null)
+            {
+                AssertOwner();
+                _backend = new GlBackend(this);
+            }
+            return _backend;
+        }
+    }
 
     public string Renderer { get; }
     public string Vendor { get; }
@@ -458,7 +478,24 @@ public sealed unsafe partial class GlDevice : IDisposable
 
     internal int UniformLocation(uint program, string name) => _gl.GetUniformLocation(program, name);
 
-    internal void UniformInt(int location, int value) => _gl.Uniform1(location, value);
+    internal void UniformInts(int location, int x, int y, int z, int w, int components)
+    {
+        switch (components)
+        {
+            case 1:
+                _gl.Uniform1(location, x);
+                break;
+            case 2:
+                _gl.Uniform2(location, x, y);
+                break;
+            case 3:
+                _gl.Uniform3(location, x, y, z);
+                break;
+            default:
+                _gl.Uniform4(location, x, y, z, w);
+                break;
+        }
+    }
 
     internal void UniformVector(int location, Vector4 v, int components)
     {
@@ -634,6 +671,8 @@ public sealed unsafe partial class GlDevice : IDisposable
     {
         if (_disposed)
             return;
+        _backend?.Dispose();
+        _backend = null;
         foreach (var p in _programs.Values)
             p.Dispose();
         _programs.Clear();
@@ -649,6 +688,12 @@ public sealed unsafe partial class GlDevice : IDisposable
             _gl.DeleteVertexArray(id);
         foreach (var id in _livePrograms)
             _gl.DeleteProgram(id);
+        if (_copyRead != 0)
+        {
+            _gl.DeleteFramebuffer(_copyRead);
+            _gl.DeleteFramebuffer(_copyDraw);
+            (_copyRead, _copyDraw) = (0, 0);
+        }
         _liveTextures.Clear();
         _liveFramebuffers.Clear();
         _liveRenderbuffers.Clear();

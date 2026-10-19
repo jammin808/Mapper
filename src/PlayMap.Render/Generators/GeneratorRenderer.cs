@@ -69,7 +69,7 @@ internal sealed class RenderServices : IDisposable
     public RenderServices(GlDevice device)
     {
         Device = device;
-        Pool = new ResourcePool(device);
+        Pool = new ResourcePool(device.Backend);
         Kit = new SkiaKit();
         White = device.CreateTexture(1, 1, TextureFormat.Rgba8, TextureFilter.Nearest);
         device.Upload(White, [255, 255, 255, 255], UploadFormat.Rgba8);

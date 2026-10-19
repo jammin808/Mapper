@@ -193,8 +193,8 @@ public sealed class AnglePlatform : IGlPlatform
 
     public RenderContext Context { get; }
 
-    /// <summary>The renderer draws through ANGLE's GL context on this platform; it offers no <see cref="IGpuDevice"/>.</summary>
-    public IGpuDevice Device => throw new NotSupportedException("the DXGI platform offers no IGpuDevice: the renderer draws through ANGLE's GL context");
+    /// <summary>The GL backend over ANGLE's context on the Direct3D 11 device.</summary>
+    public IGpuDevice Device => Context.Backend;
 
     public PresentPath Path => PresentPath.DxgiFlip;
 

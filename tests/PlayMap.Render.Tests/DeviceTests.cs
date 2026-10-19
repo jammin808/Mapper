@@ -55,7 +55,7 @@ public class DeviceTests(GlFixture gl)
     {
         gl.Run(c =>
         {
-            using var pool = new ResourcePool(c.Device);
+            using var pool = new ResourcePool(c.Backend);
             var a = pool.RentTarget(32, 16, TextureFormat.Rgba16F);
             pool.Return(a);
             var b = pool.RentTarget(32, 16, TextureFormat.Rgba16F);

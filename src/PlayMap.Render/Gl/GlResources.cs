@@ -45,8 +45,8 @@ public sealed class GlTexture : GpuTexture
     private readonly GlDevice _device;
 
     internal GlTexture(GlDevice device, uint id, int width, int height, TextureFormat format, TextureFilter filter, TextureWrap wrap,
-        TextureUsage usage = TextureUsage.Sampled | TextureUsage.CopySource | TextureUsage.CopyDest)
-        : base(new TextureDesc(width, height, format, usage, filter, wrap), GlEpoch)
+        TextureUsage usage = TextureUsage.Sampled | TextureUsage.CopySource | TextureUsage.CopyDest, string name = "")
+        : base(new TextureDesc(width, height, format, usage, filter, wrap, name), GlEpoch)
     {
         _device = device;
         Id = id;
@@ -70,7 +70,13 @@ public sealed class GlRenderTarget : RenderTarget
     private readonly GlDevice _device;
 
     internal GlRenderTarget(GlDevice device, uint framebuffer, GpuTexture color, uint depth)
-        : base(color, null, depth != 0, "", GlTexture.GlEpoch)
+        : this(device, framebuffer, color, null, depth, "")
+    {
+    }
+
+    /// <summary>A target over one or two colour attachments (<paramref name="color1"/> the fragment shader's output 1).</summary>
+    internal GlRenderTarget(GlDevice device, uint framebuffer, GpuTexture color, GpuTexture? color1, uint depth, string name)
+        : base(color, color1, depth != 0, name, GlTexture.GlEpoch)
     {
         _device = device;
         Framebuffer = framebuffer;
@@ -88,6 +94,7 @@ public sealed class GlRenderTarget : RenderTarget
         Framebuffer = 0;
         DepthBuffer = 0;
         Color.Dispose();
+        Color1?.Dispose();
         IsDisposed = true;
     }
 }
@@ -98,7 +105,13 @@ public sealed class GlBuffer : GpuBuffer
     private readonly GlDevice _device;
 
     internal GlBuffer(GlDevice device, uint id, BufferKind kind)
-        : base(new BufferDesc(0, kind == BufferKind.Index ? BufferUsage.Index : BufferUsage.Vertex), GlTexture.GlEpoch)
+        : this(device, id, kind, kind == BufferKind.Index ? BufferUsage.Index : BufferUsage.Vertex, "")
+    {
+    }
+
+    /// <summary>A buffer made for the given uses (an index buffer binds as the element array, every other as an array buffer).</summary>
+    internal GlBuffer(GlDevice device, uint id, BufferKind kind, BufferUsage usage, string name)
+        : base(new BufferDesc(0, usage, name), GlTexture.GlEpoch)
     {
         _device = device;
         Id = id;

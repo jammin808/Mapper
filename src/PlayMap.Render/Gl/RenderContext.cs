@@ -31,6 +31,7 @@ public sealed class RenderContext : IDisposable
         _surfaceless = surfaceless;
         Gl = gl;
         Device = device;
+        device.Context = this;
         Api = api;
         EglWindows = eglWindows;
         Words = words;
@@ -45,6 +46,9 @@ public sealed class RenderContext : IDisposable
     internal GL Gl { get; }
 
     public GlDevice Device { get; }
+
+    /// <summary>The device behind the render hardware interface (<see cref="GlDevice.Backend"/>).</summary>
+    public GlBackend Backend => Device.Backend;
 
     /// <summary>The dialect the context speaks (the device read it from GL_VERSION).</summary>
     public GlDialect Dialect => Device.Dialect;

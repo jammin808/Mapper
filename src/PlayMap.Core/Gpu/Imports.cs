@@ -9,6 +9,8 @@ public interface ITextureImporter
     /// <summary>Whether this surface can be imported here; <paramref name="words"/> says why not.</summary>
     bool CanImport(GpuSurface surface, out string? words);
 
+    /// <summary>The surface's planes as textures; false with words when the import failed, false with no words when every import
+    /// slot is still in flight (nothing failed: the caller holds its last picture).</summary>
     bool TryImport(GpuSurface surface, out ImportedPlanes planes, out string? words);
 }
 

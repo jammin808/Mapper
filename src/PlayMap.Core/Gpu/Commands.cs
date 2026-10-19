@@ -246,8 +246,10 @@ public readonly ref struct DrawBuilder
     }
 }
 
-/// <summary>One block of memory a plan places transient textures in at the offsets its aliasing chose. GL rents each placement from
-/// the resource pool and ignores the offset; Direct3D 12 places resources in one heap.</summary>
+/// <summary>One block of memory a plan places transient textures and targets in at the offsets its aliasing chose. GL rents each
+/// placement from the resource pool and ignores the offset; Direct3D 12 places resources in one heap. A placement lives until the
+/// memory is disposed, which hands every placement back (GL: to the pool). A placement that does not fit the block at its offset is
+/// refused.</summary>
 public interface ITransientMemory : IDisposable
 {
     long Bytes { get; }
@@ -255,5 +257,11 @@ public interface ITransientMemory : IDisposable
     /// <summary>The bytes and alignment a texture of this shape takes here, so the plan can lay transients out.</summary>
     (long Bytes, long Align) SizeOf(in TextureDesc desc);
 
+    /// <summary>The bytes and alignment a target of this shape takes here (its colour attachments and depth together).</summary>
+    (long Bytes, long Align) SizeOf(in TargetDesc desc);
+
     GpuTexture Place(in TextureDesc desc, long offset);
+
+    /// <summary>A target placed at the offset: what a pass draws into (a placed texture is only sampled or copied).</summary>
+    RenderTarget PlaceTarget(in TargetDesc desc, long offset);
 }

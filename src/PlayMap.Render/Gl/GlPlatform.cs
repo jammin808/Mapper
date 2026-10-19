@@ -46,9 +46,8 @@ public sealed class GlPlatform : IGlPlatform
 
     public RenderContext Context { get; }
 
-    /// <summary>The renderer draws through <see cref="Context"/>'s GL device on this platform; it offers no
-    /// <see cref="IGpuDevice"/>.</summary>
-    public IGpuDevice Device => throw new NotSupportedException("the GL platform offers no IGpuDevice: the renderer draws through its GL context");
+    /// <summary>The GL backend over <see cref="Context"/>'s device.</summary>
+    public IGpuDevice Device => Context.Backend;
 
     public PresentPath Path => Context.HasWindows ? PresentPath.GlWindow : PresentPath.Offscreen;
 
