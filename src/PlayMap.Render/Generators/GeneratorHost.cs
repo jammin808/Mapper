@@ -3,7 +3,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Effects;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using SkiaSharp;
 
 namespace PlayMap.Render.Generators;

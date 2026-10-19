@@ -2,9 +2,9 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
-using PlayMap.Render.Platform.Windows;
+using PlayMap.Render.Gl.Windows;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>D3D11 structures and vtable slots the ANGLE importer uses, as d3d11.h declares them (x64). Plain data, so their layout
 /// is pinned on every platform (AngleLayoutTests); the calls are Windows-only.</summary>

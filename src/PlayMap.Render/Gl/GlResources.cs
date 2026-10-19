@@ -1,6 +1,6 @@
 using PlayMap.Core.Gpu;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The kinds of GL buffer the device makes: vertices (and instances) or indices.</summary>
 public enum BufferKind

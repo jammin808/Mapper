@@ -4,11 +4,9 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Encode;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The HAP encoder on a GL context: the picture is uploaded as an RGBA8 texture, each plane's program (the
 /// <c>hapenc.*</c> programs) draws one texel per 4×4 block into an RGBA32UI target in scissored tiles of at most

@@ -1,23 +1,19 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using PlayMap.Core.Gpu;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Effects;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using SkiaSharp;
 
-namespace PlayMap.Render.Effects;
+namespace PlayMap.Render.Gl;
 
 /// <summary>A picture an effect imports, decoded on the lane: RGBA bytes, top row first.</summary>
 internal sealed record FxDecodedImage(string Name, int Width, int Height, byte[] Rgba);
 
 /// <summary>A program the lane made (or the reason it could not), with its imported pictures decoded.</summary>
 internal sealed record FxCompiled(string Key, uint ProgramId, string? Error, ImmutableArray<FxDecodedImage> Images);
-
-/// <summary>The outcome of compiling sources for a report (the program is not kept): ok, or the driver's log.</summary>
-public sealed record FxCompileReport(bool Ok, string? Error, string Lane);
 
 /// <summary>A program ready on the render thread: the program, or why there is none, and its imported pictures uploaded.</summary>
 internal sealed class FxProgramEntry : IDisposable

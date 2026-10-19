@@ -9,7 +9,7 @@ using PlayMap.Core.Time;
 using PlayMap.Engine.Presentation;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
 

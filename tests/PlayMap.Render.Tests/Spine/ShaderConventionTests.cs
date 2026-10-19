@@ -1,4 +1,4 @@
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Shaders;
 
 namespace PlayMap.Render.Tests.Spine;

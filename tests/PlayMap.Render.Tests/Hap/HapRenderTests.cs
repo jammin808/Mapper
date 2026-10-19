@@ -7,7 +7,7 @@ using CommunityToolkit.HighPerformance;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Hap;
 using PlayMap.Render.Video;
 

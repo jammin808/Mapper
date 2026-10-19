@@ -1,7 +1,7 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Presentation;
 
-namespace PlayMap.Render.Platform;
+namespace PlayMap.Render.Gl;
 
 /// <summary>A presenter that also shows a picture in one call — the picture drawn into its next buffer, then presented — as the frame
 /// code calls it while it draws through the GL device. Every presenter in this assembly is one: its <see cref="IOutputPresenter.Record"/>

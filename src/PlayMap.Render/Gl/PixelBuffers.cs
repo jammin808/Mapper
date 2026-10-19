@@ -1,6 +1,6 @@
 using PlayMap.Core.Gpu;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>Streams uploads through a ring of pixel-unpack buffers: the CPU copies a plane into a mapped
 /// buffer and the texture update reads from it, so the driver may move the bytes asynchronously and the

@@ -2,7 +2,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Modulation;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Content;
 

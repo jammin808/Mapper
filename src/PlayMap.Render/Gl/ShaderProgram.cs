@@ -2,7 +2,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using PlayMap.Core.Gpu;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>A linked shader program with its uniform locations cached by name and the last value set at
 /// each scalar and vector location remembered, so a frame that sets an unchanged uniform costs a dictionary

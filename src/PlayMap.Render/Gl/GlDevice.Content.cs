@@ -1,7 +1,7 @@
 using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>What content needs of the device beyond one-colour targets: a target with two colour attachments drawn in one pass
 /// (a particle field's position and velocity textures, written together by one step).</summary>

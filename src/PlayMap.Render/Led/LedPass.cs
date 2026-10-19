@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Led;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Led;
 

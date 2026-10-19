@@ -194,7 +194,7 @@ public class EngineTests(GlFixture gl, ITestOutputHelper log)
         {
             Assert.NotEmpty(c.Monitors());
             using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
-            using (var window = Platform.OutputWindow.Create(c, new Platform.OutputWindowOptions("Output 1", Borderless: false, VSync: false, Width: 64, Height: 36)))
+            using (var window = Gl.OutputWindow.Create(c, new Gl.OutputWindowOptions("Output 1", Borderless: false, VSync: false, Width: 64, Height: 36)))
             {
                 // Its presents are measured against its display's refresh, not a fixed 60.
                 engine.Attach("op1", window, 50);

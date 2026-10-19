@@ -1,6 +1,6 @@
 using System.Runtime.Versioning;
 
-namespace PlayMap.Render.Platform.Windows;
+namespace PlayMap.Render.Gl.Windows;
 
 /// <summary>The vtable slot of every COM method PlayMap calls by hand: the method's index in its interface's vtable, counted from
 /// IUnknown's QueryInterface at 0 through every base interface in declaration order (the Windows SDK's C vtables; the values are

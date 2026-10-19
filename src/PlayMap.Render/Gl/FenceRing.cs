@@ -1,6 +1,6 @@
 using PlayMap.Core.Gpu;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>One-shot GPU signals a <see cref="FenceRing"/> keeps a queue's timeline over (GL sync objects): one inserted after the
 /// work queued so far, polled without waiting, deleted once read.</summary>

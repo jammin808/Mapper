@@ -2,9 +2,8 @@ using System.Runtime.Versioning;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Presentation;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
-using PlayMap.Render.Platform.Windows;
+using PlayMap.Render.Gl;
+using PlayMap.Render.Gl.Windows;
 using Xunit.Abstractions;
 
 namespace PlayMap.Render.Tests.Presentation;

@@ -12,7 +12,7 @@ plays a version from the item's next open. The wire is `docs/wire/optimise.md`.
 | Recipe | `Core/Media/Optimise/Recipe.cs` | The target, quality, chunks, second stage, raw threshold and audio; canonical JSON (sorted keys, invariant numbers); key `ok:` + 32 hex of SHA-256 over source hash, recipe and the encoder algorithm (`hapenc/1`) |
 | Version choice | `Core/Media/Optimise/VersionChoice.cs` | Pure: which file an item plays here (below) |
 | Governor | `Core/Media/Optimise/Governor.cs` | Pure state machine: run, trickle, paused, waiting |
-| Encoder | `Render/Encode/GlHapEncoder.cs`, programs `hapenc.bc1/.bc3/.ycocg/.bc4` | GL 3.3 core or ES 3.0 fragment programs, one texel per 4×4 block into an RGBA32UI target, in tiles of at most 256 × 256 blocks |
+| Encoder | `Render/Gl/GlHapEncoder.cs`, programs `hapenc.bc1/.bc3/.ycocg/.bc4` | GL 3.3 core or ES 3.0 fragment programs, one texel per 4×4 block into an RGBA32UI target, in tiles of at most 256 × 256 blocks |
 | Packer | `Core/Media/Optimise/HapEncoding.cs`, `SnappyCompressor.cs` | Chunks on block boundaries; each chunk Snappy-compressed (PlayMap's own compressor, written from the published format description) or stored raw when Snappy saves under 10 %; the frame through decode's `HapFrameWriter` |
 | Transcode | `Media/Optimise/HapTranscode.cs` | Decode in order, RGBA through the frame's own matrix and range, encode, mux to `.mov` with the source's timestamps and its audio stream-copied; then read back |
 | Service | `Engine/Optimise/OptimiseService.cs`, `JobStore.cs`, `OptimiseSupervisor.cs` | The queue, the worker's life, the governor loop, recording |

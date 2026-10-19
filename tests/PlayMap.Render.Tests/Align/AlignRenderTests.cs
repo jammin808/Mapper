@@ -77,7 +77,7 @@ public class AlignRenderTests(GlFixture gl)
         return (columns, rows, values);
     }
 
-    private byte[] Render(Output output, ISourceProvider? sources, Func<Gpu.GlDevice, MeasuredStage?> stage)
+    private byte[] Render(Output output, ISourceProvider? sources, Func<Gl.GlDevice, MeasuredStage?> stage)
     {
         var project = Scene.Project([], [output]);
         return gl.Run(c =>

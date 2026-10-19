@@ -3,7 +3,7 @@ using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Presentation;
 using PlayMap.Render.Decode;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Engine.Rendering;
 

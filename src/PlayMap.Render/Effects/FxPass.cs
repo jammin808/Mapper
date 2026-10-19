@@ -2,8 +2,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Effects;
 

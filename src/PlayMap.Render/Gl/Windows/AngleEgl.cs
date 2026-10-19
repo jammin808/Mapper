@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace PlayMap.Render.Platform.Windows;
+namespace PlayMap.Render.Gl.Windows;
 
 /// <summary>ANGLE (BSD) loaded at run time by the single name <see cref="AngleRequirements.Library"/> — the file
 /// Avalonia.Angle.Windows.Natives puts beside the exe; no binary is shipped by PlayMap — and the EGL entry points the flip path calls,

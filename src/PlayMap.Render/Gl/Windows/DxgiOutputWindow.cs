@@ -5,9 +5,8 @@ using System.Runtime.Versioning;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
-using PlayMap.Render.Gpu;
 
-namespace PlayMap.Render.Platform.Windows;
+namespace PlayMap.Render.Gl.Windows;
 
 /// <summary>One display output on the flip model: a borderless top-most popup over the monitor, a waitable FLIP_DISCARD swap chain
 /// on it (three buffers, B8G8R8A8, no scaling, no tearing, frame latency 1), buffer 0 wrapped once as an ANGLE pbuffer

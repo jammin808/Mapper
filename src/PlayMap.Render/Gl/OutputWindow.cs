@@ -1,11 +1,10 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
-using PlayMap.Render.Gpu;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 
-namespace PlayMap.Render.Platform;
+namespace PlayMap.Render.Gl;
 
 /// <summary>Where an output window goes: a display by index (−1 = a free-floating window at
 /// <see cref="X"/>, <see cref="Y"/>), borderless over the whole display or a movable window of the given size,

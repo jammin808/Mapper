@@ -1,9 +1,8 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using PlayMap.Render.Gpu;
 
-namespace PlayMap.Render.Platform;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The few EGL 1.5 entry points a context with no window needs (Mesa's surfaceless platform): a display, a config, a
 /// context made current with no surface, and the proc loader. Linux only; libEGL.so.1 is loaded from the system.</summary>

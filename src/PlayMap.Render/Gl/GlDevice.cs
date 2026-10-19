@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>What a device checks and reports.</summary>
 public sealed record GlDeviceOptions(

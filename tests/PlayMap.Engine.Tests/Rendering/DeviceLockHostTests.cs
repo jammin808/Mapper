@@ -3,6 +3,7 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Engine.Rendering;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 using PlayMap.Tests;
 using Xunit.Abstractions;

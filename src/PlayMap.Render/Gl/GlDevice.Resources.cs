@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 public sealed unsafe partial class GlDevice : IFenceSignals
 {

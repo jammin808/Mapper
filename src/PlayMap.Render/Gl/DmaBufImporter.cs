@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The EGL entry points zero-copy imports need, resolved from the system's libEGL at run time: the current display, image
 /// creation and destruction (EGL_KHR_image_base), the dmabuf format queries (EGL_EXT_image_dma_buf_import_modifiers) and the device

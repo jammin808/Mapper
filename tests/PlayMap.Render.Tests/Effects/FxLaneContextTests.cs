@@ -1,6 +1,5 @@
 using PlayMap.Render.Effects;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Effects;
 

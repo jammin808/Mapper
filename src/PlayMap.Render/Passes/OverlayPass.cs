@@ -5,7 +5,7 @@ using PlayMap.Core.Mapping;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Passes;
 

@@ -7,8 +7,7 @@ using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Model;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Optimise;
-using PlayMap.Render.Encode;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 
 namespace PlayMap.Engine.Optimise;

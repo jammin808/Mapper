@@ -1,6 +1,6 @@
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>What effects need of the device beyond the library's programs: compiling on another context that shares this one's
 /// objects (the compile lane), taking such a program into the device's census, and GPU timestamps (a slot's time is measured

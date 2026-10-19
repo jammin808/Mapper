@@ -3,8 +3,7 @@ using System.Globalization;
 using System.Runtime.Versioning;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Bench.Present;
 

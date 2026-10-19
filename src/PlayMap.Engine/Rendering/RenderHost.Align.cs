@@ -1,6 +1,6 @@
 using PlayMap.Engine.Align;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Passes;
 
 namespace PlayMap.Engine.Rendering;

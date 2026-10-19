@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.Versioning;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
+using PlayMap.Render.Gl.Windows;
 using PlayMap.Render.Platform;
-using PlayMap.Render.Platform.Windows;
 
 namespace PlayMap.Bench.Present;
 

@@ -4,7 +4,7 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Decode;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Video;
 using PlayMap.Tests;
 

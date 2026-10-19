@@ -1,11 +1,10 @@
+using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Engine.Presentation;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Sync;
-using PlayMap.Core.Model;
 
 namespace PlayMap.Engine.Rendering;
 

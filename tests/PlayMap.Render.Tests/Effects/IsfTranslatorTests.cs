@@ -1,6 +1,6 @@
 using PlayMap.Core.Effects;
 using PlayMap.Render.Effects;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using Xunit.Abstractions;
 
 namespace PlayMap.Render.Tests.Effects;

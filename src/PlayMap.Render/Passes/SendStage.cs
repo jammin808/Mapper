@@ -310,7 +310,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 
     /// <summary>Whether this entry's targets (its packed target, and the picture scaled to its size) are larger than this GPU's
     /// largest texture; refuses it once, in words, when they are.</summary>
-    private static bool TooLarge(SendPlanEntry entry, Gpu.GlDevice device)
+    private static bool TooLarge(SendPlanEntry entry, Gl.GlDevice device)
     {
         var (tw, th) = Video.PackPass.TargetSize(entry.Format, entry.Width, entry.Height);
         var most = device.MaxTextureSize;

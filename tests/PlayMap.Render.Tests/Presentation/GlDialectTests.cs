@@ -3,7 +3,7 @@ using PlayMap.Core.Geometry;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Shaders;
 using Silk.NET.OpenGL;
 using Xunit.Abstractions;

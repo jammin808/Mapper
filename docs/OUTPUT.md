@@ -6,7 +6,7 @@ wire's side is in `docs/wire/output.md` and `docs/wire/d3d11.md`.
 
 ## The platform and the presenters
 
-The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Platform`) from the node's settings
+The render host starts its **platform** (`IGpuPlatform`, made by `GpuPlatforms` in `src/PlayMap.Render/Platform`) from the node's settings
 (`NodeSettings.Present`: `path` auto|gl|dxgi, `dialect` auto|core330|es300, `frameLock` auto|off, `swapGroup`, `swapBarrier`):
 
 - **GL** (what `auto` is on every platform this round): a hidden GL context through GLFW, and one **presenter** per output window
@@ -38,7 +38,7 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
 
 ## The DXGI flip path
 
-`AnglePlatform` (`src/PlayMap.Render/Platform/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
+`AnglePlatform` (`src/PlayMap.Render/Gl/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
 stops names its stage (`adapter`, `device`, `angle`, `extensions`, `context`, `programs`) in `machine.present.why` while the node
 runs GL:
 

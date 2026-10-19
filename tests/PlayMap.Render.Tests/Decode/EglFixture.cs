@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Decode;
 

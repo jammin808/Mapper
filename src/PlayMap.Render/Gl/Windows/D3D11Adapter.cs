@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Runtime.Versioning;
 
-namespace PlayMap.Render.Platform.Windows;
+namespace PlayMap.Render.Gl.Windows;
 
 /// <summary>The Direct3D 11 device the flip path renders on: the DXGI factory, the adapter that drives the first display output (or
 /// the first adapter, or WARP — the software rasteriser CI runs on), the device with BGRA and video support (without video support

@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Passes;
 
 namespace PlayMap.Render.Engine;

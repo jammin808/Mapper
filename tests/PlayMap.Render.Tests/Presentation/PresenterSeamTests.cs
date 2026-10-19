@@ -3,7 +3,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 
 namespace PlayMap.Render.Tests.Presentation;

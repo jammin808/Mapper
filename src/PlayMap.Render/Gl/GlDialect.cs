@@ -2,7 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The GLSL dialect a context compiles: desktop GLSL 3.30 core, or OpenGL ES 3.00 (ANGLE on Windows, Mesa's ES
 /// profile on Linux). One program source compiles on both: the device writes the dialect's header.</summary>

@@ -5,7 +5,7 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Video;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Passes;
 using PlayMap.Render.Video;
 using PlayMap.Tests;

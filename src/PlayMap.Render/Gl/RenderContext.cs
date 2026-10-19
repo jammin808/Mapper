@@ -1,11 +1,10 @@
 using PlayMap.Core.Gpu;
-using PlayMap.Render.Gpu;
 using Silk.NET.GLFW;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 
-namespace PlayMap.Render.Platform;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The renderer's primary GL context: a hidden window whose context does every offscreen pass (sources, canvases, the
 /// projector pass, the output stage, previews) and that output windows share objects with — or, with no window system, an EGL

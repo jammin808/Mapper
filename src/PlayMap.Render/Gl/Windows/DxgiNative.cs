@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace PlayMap.Render.Platform.Windows;
+namespace PlayMap.Render.Gl.Windows;
 
 // The structures PlayMap passes to DXGI, Direct3D 11, user32 and the display configuration API, laid out as the Windows SDK
 // declares them for x64 (sizes and offsets checked against the mingw-w64 headers by DxgiLayoutTests). Only the fields PlayMap reads

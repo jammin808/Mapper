@@ -1,6 +1,7 @@
 using PlayMap.Core.Gpu;
+using PlayMap.Render.Gl;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Engine;
 
 /// <summary>Render targets and textures kept for reuse, keyed by size, format and depth: a pass takes one
 /// for a frame and gives it back, so the frame path makes no GL objects once the show is warm. Objects

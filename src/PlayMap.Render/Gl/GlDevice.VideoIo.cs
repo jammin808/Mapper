@@ -1,7 +1,7 @@
 using PlayMap.Core.Gpu;
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>wp2-videoio's use of the device: a read of a packed send target into a pack buffer as RGBA bytes (8-bit targets) or RGBA
 /// 16-bit words (16-bit targets), top row first, queued and returned at once. RGBA reads are core on both dialects, so a send never

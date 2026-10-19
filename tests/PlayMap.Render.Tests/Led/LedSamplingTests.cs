@@ -5,9 +5,8 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Led;
-using PlayMap.Render.Platform;
 using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Led;

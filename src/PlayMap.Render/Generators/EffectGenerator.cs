@@ -2,7 +2,7 @@ using System.Numerics;
 using PlayMap.Core.Content;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Generators;
 

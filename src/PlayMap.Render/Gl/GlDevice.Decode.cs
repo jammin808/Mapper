@@ -4,7 +4,7 @@ using PlayMap.Core.Media;
 using PlayMap.Render.Decode;
 using Silk.NET.OpenGL;
 
-namespace PlayMap.Render.Gpu;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The compressed upload path (HAP): block-compressed textures are made at a whole number of 4×4 blocks and filled
 /// with tight rows of blocks, from client memory or from a pixel-unpack buffer. What can be sampled comes from <see cref="Caps"/>

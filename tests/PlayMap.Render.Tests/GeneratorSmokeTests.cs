@@ -1,7 +1,7 @@
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests;
 

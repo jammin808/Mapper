@@ -1,7 +1,7 @@
 using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Engine.Rendering;
 
@@ -178,7 +178,7 @@ internal sealed class OutputWindows : IDisposable
             RepickPacer();
             return true;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or ArgumentException or Render.Gpu.GlException)
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or ArgumentException or Render.Gl.GlException)
         {
             entry.Problem = $"its window could not open on {display}: {ex.Message}";
             _platform.Context.MakeCurrent();

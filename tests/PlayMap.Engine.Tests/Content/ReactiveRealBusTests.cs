@@ -4,7 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Engine.Tests.Audio;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Engine.Tests.Content;
 
@@ -110,7 +110,7 @@ public sealed class ReactiveRealBusTests
         {
             try
             {
-                using var context = RenderContext.CreateHidden(new Render.Gpu.GlDeviceOptions(CheckErrors: true, DebugOutput: false));
+                using var context = RenderContext.CreateHidden(new Render.Gl.GlDeviceOptions(CheckErrors: true, DebugOutput: false));
                 result = body(context);
             }
             catch (Exception ex)

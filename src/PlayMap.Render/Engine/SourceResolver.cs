@@ -3,7 +3,7 @@ using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Video;
 
 namespace PlayMap.Render.Engine;

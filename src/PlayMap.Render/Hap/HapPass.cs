@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Hap;
 

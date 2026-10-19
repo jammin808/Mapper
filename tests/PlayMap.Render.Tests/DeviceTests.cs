@@ -1,5 +1,6 @@
 using PlayMap.Core.Gpu;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Engine;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Shaders;
 
 namespace PlayMap.Render.Tests;

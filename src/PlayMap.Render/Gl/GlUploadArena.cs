@@ -1,7 +1,6 @@
 using PlayMap.Core.Media;
-using PlayMap.Render.Gpu;
 
-namespace PlayMap.Render.Decode;
+namespace PlayMap.Render.Gl;
 
 /// <summary>The upload arena of one GL context: a persistently mapped, coherent pixel-unpack buffer that producers (HAP decode
 /// threads) write pictures into directly, so the renderer fills its textures from the buffer with no copy of its own.

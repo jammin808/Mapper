@@ -4,9 +4,8 @@ using System.Runtime.Versioning;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Presentation;
-using PlayMap.Render.Gpu;
 
-namespace PlayMap.Render.Platform.Windows;
+namespace PlayMap.Render.Gl.Windows;
 
 /// <summary>ANGLE's EGL display and ES 3.0 context on our Direct3D 11 device, current with no surface: what the renderer draws in.
 /// An output window makes its own back-buffer surface current to present, then this context's surfaceless state again.</summary>

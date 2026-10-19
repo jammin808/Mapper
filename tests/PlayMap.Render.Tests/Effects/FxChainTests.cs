@@ -6,7 +6,7 @@ using PlayMap.Core.Model;
 using PlayMap.Render.Effects;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Effects;
