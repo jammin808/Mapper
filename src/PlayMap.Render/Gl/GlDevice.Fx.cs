@@ -4,8 +4,8 @@ using Silk.NET.OpenGL;
 namespace PlayMap.Render.Gl;
 
 /// <summary>What effects need of the device beyond the library's programs: compiling on another context that shares this one's
-/// objects (the compile lane), taking such a program into the device's census, and GPU timestamps (a slot's time is measured
-/// between two timestamps, which may sit inside the output's own elapsed-time query where a second one may not).</summary>
+/// objects (the compile lane), taking such a program into the device's census, and GPU timestamps written where a frame's list asks
+/// (<see cref="GlTimers"/> reads them back).</summary>
 public sealed unsafe partial class GlDevice
 {
     /// <summary>Compiles and links a program on whatever context is current on the calling thread (no state of this device is

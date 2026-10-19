@@ -88,6 +88,10 @@ internal sealed class RenderServices : IDisposable
 
     public IGpuDevice Device { get; }
 
+    /// <summary>Whether the renderer times its GPU work (a generator's draw measured between two timestamps); a renderer that times
+    /// nothing takes none of the device's timestamp slots.</summary>
+    public bool GpuTiming { get; init; } = true;
+
     public ResourcePool Pool { get; }
     public SkiaKit Kit { get; }
 

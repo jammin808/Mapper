@@ -383,9 +383,17 @@ public sealed unsafe partial class GlDevice : IFenceSignals
             _gl.DeleteQuery(id);
     }
 
+    /// <summary>Starts an elapsed-time query (GL_TIME_ELAPSED; one at a time: they do not nest).</summary>
     internal void BeginTimeQuery(uint id) => _gl.BeginQuery(GLEnum.TimeElapsed, id);
 
     internal void EndTimeQuery() => _gl.EndQuery(GLEnum.TimeElapsed);
+
+    /// <summary>GL_QUERY_COUNTER_BITS of GL_TIMESTAMP (glGetQueryivEXT on ES): 0 where the counter has none.</summary>
+    private int QueryCounterBits()
+    {
+        _gl.GetQuery(GLEnum.Timestamp, GLEnum.QueryCounterBits, out int bits);
+        return bits;
+    }
 
     /// <summary>The query's nanoseconds when the GPU has it; false when not yet (never waits). On ES a result taken across a
     /// disjoint event (GL_GPU_DISJOINT_EXT: the GPU's clock jumped) is no measurement: it answers true with −1.</summary>

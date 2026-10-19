@@ -24,10 +24,12 @@ The render host starts its **platform** (`IGpuPlatform`, made by `GpuPlatforms` 
   which compiles `#version 300 es`).
 - **The per-dialect format table** (`GlFormatTable`): BGRA uploads on ES go up as RGBA with the texture's red/blue swizzle (core
   ES 3.00, no copy); 16-bit unsigned textures fall back to 16-bit float without `EXT_texture_norm16`; float render targets need
-  `EXT_color_buffer_float` (else 8-bit, with words); GPU times come from timestamp queries, which ES 3.00 does not have (there
-  every GPU time reads 0); wireframe needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need
-  `EXT_read_format_bgra` (else a synchronous read swaps on the CPU and the streamed read-back refuses with words).
-- **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug and
+  `EXT_color_buffer_float` (else 8-bit, with words); GPU times need timestamps — core 3.3, or ES with `EXT_disjoint_timer_query`
+  whose counter has bits; where the extension's counter has none (ANGLE's Direct3D 11 back end) each output's time is an
+  elapsed-time query and the generators' and effects' inside it read 0, and without the extension every GPU time reads 0;
+  wireframe needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need `EXT_read_format_bgra` (else
+  a synchronous read swaps on the CPU and the streamed read-back refuses with words).
+- **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug, timer and
   polygon-mode calls by their extension names.
 - The platform hands decoders its **device share** (`IGpuShare`: OpenGL on the GL platform, Direct3D 11 with its LUID, its lock
   and its ANGLE display on the DXGI one) through `IMediaBackend.UseGpu`.
@@ -198,8 +200,8 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   passes on it whole. A test that names a dialect reads the GL leg's: the caps and every program in it
   (`GlCapsTests.OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect`,
   `ShaderConventionTests.EveryProgramCompilesAndLinksInTheFixturesDialect`), the binding the context was made through (EGL for the
-  ES context), and the GPU times of outputs, generators and effect slots, which come from timestamp queries, core in desktop GL
-  only, so an ES context reads 0. A target read back as floats (`IGpuDevice.ReadNowFloat`, the tests' `Pixels.ReadFloat`) gives
+  ES context), and the GPU times of outputs, generators and effect slots, which come from timestamps: core in desktop GL, through
+  `EXT_disjoint_timer_query` on ES (Mesa's ES context has it, so both legs measure; a test reads `GpuFeatures.Timers`). A target read back as floats (`IGpuDevice.ReadNowFloat`, the tests' `Pixels.ReadFloat`) gives
   the same values in both dialects: ES reads a fixed-point buffer only as its integer codes, so the device reads those and scales them
   (`FloatReadTests`).
   On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).

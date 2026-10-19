@@ -138,10 +138,11 @@ internal sealed class GeneratorHost : IDisposable
                 renderer.Modulate(frame.Modulation, frame.LeaderNs, live?.LiveValues);
                 // What it reads of other sources draws on their account, before its own draw is timed.
                 renderer.Prepare(in own);
-                inst.Timer ??= new GpuSpanTimer(_services.Device);
-                inst.Timer.Begin(_services.List, _frame);
+                if (_services.GpuTiming)
+                    inst.Timer ??= new GpuSpanTimer(_services.Device);
+                inst.Timer?.Begin(_services.List, _frame);
                 renderer.Render(in own);
-                inst.Timer.End(_services.List);
+                inst.Timer?.End(_services.List);
             }
             catch (Exception ex)
             {

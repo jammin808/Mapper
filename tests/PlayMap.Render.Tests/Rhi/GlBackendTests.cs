@@ -3,6 +3,8 @@ using System.Numerics;
 using System.Text;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
+using PlayMap.Core.Model;
+using PlayMap.Render.Engine;
 using PlayMap.Render.Gl;
 using PlayMap.Render.Shaders;
 using PlayMap.Tests;
@@ -68,9 +70,12 @@ public sealed class GlBackendTests(BackendFixture backends)
                 Assert.Equal(new FormatSupport(caps.Supports(f), caps.SupportsRenderTarget(f), caps.SupportsRenderTarget(f, blended: true)), b.Features.Formats[f]);
             Assert.Equal(new FormatSupport(true, true, true), b.Features.Formats[TextureFormat.Rgba8]);
             Assert.Equal(c.Device.BlockFormats, b.Features.Blocks);
-            Assert.Equal(caps.IsCore, b.Features.Timers);
+            // Timer queries on desktop GL and on ES with EXT_disjoint_timer_query; slots from 64 up, as many as the shows on this
+            // device asked for.
+            Assert.Equal(c.Device.HasTimerQuery, b.Features.Timers);
             Assert.False(b.Features.SharedHandles);
-            Assert.Equal(b.Features.Timers ? GlTimers.SlotCount : 0, b.Timers.Slots);
+            Assert.Equal(b.Features.Timers, b.Timers.Slots >= GlTimers.SlotCount);
+            Assert.Equal(b.Features.Timers, b.Timers.Slots > 0);
             Assert.StartsWith("0 · " + c.Device.Renderer, b.Pipelines.Key, StringComparison.Ordinal);
         });
     }
@@ -357,7 +362,7 @@ public sealed class GlBackendTests(BackendFixture backends)
                 list.EndPass();
                 list.Timestamp(1);
             });
-            Assert.Throws<ArgumentOutOfRangeException>(() => b.GlTimers.Stamp(frame, GlTimers.SlotCount));
+            Assert.Throws<ArgumentOutOfRangeException>(() => b.GlTimers.Stamp(frame, Math.Max(GlTimers.SlotCount, b.Timers.Slots)));
             b.WaitFor(done);
             if (!b.Features.Timers)
             {
@@ -369,6 +374,114 @@ public sealed class GlBackendTests(BackendFixture backends)
             Assert.True(us >= 0, $"{us} µs");
             Assert.False(b.Timers.TryElapsedUs(frame, 0, 2, out _));
             Assert.False(b.Timers.TryElapsedUs(frame + 1000, 0, 1, out _));
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
+    [Fact]
+    public void WithNoTimestampCounterEachOuterSpanIsAnElapsedTimeQueryAndANestedOneIsNotMeasured()
+    {
+        backends.RunGl(c =>
+        {
+            var b = c.Backend;
+            var d = c.Device;
+            using var timers = new GlTimers(d, GlTimers.Kind.Elapsed);
+            if (!d.HasTimerQuery)
+            {
+                // ES without EXT_disjoint_timer_query: nothing to measure with, and nothing is.
+                Assert.Equal((GlTimers.Kind.None, 0), (timers.Mode, timers.Slots));
+                Assert.Equal(GlTimers.Kind.None, b.GlTimers.Mode);
+                return;
+            }
+            Assert.Equal(GlTimers.Kind.Elapsed, timers.Mode);
+            using var target = b.CreateTarget(new TargetDesc(64, 64, TextureFormat.Rgba8));
+            var checker = b.Programs.Id("checker");
+            var frame = BackendFrames.Next;
+            var done = BackendFrames.Run(b, list =>
+            {
+                timers.Stamp(frame, 0);
+                list.BeginPass(target, PassDesc.ClearBlack);
+                list.Draw(checker, DrawState.Opaque).Set("uCell", 3f).Fullscreen();
+                // A generator's span inside the output's: elapsed-time queries do not nest, so it is not measured.
+                timers.Stamp(frame, 2);
+                list.Draw(checker, DrawState.Opaque).Set("uCell", 5f).Fullscreen();
+                timers.Stamp(frame, 3);
+                list.EndPass();
+                timers.Stamp(frame, 1);
+                // A span its owner never ended: closed at the frame's end, unmeasured.
+                timers.Stamp(frame, 4);
+                timers.EndFrame();
+            });
+            b.WaitFor(done);
+            Assert.True(timers.TryElapsedUs(frame, 0, 1, out var us));
+            Assert.True(us >= 0, $"{us} µs");
+            Assert.False(timers.TryElapsedUs(frame, 2, 3, out _));
+            Assert.False(timers.TryElapsedUs(frame, 4, 5, out _));
+            Assert.False(timers.TryElapsedUs(frame, 0, 3, out _));
+            Assert.True(timers.Holds(frame));
+            Assert.Empty(d.TakeErrors());
+        });
+    }
+
+    [Fact]
+    public void TimersGrowWhenAShowAsksForMoreSlotsAndKeepTheFramesTheyHold()
+    {
+        backends.RunGl(c =>
+        {
+            var b = c.Backend;
+            using var timers = new GlTimers(c.Device);
+            if (!timers.Measures)
+            {
+                timers.Reserve(200);
+                Assert.Equal(0, timers.Slots);
+                return;
+            }
+            var frame = BackendFrames.Next;
+            var done = BackendFrames.Run(b, _ =>
+            {
+                timers.Stamp(frame, 0);
+                timers.Stamp(frame, 1);
+            });
+            timers.Reserve(200);
+            Assert.Equal(256, timers.Slots);
+            b.WaitFor(done);
+            // The frame stamped before the growth still reads.
+            Assert.True(timers.Holds(frame));
+            Assert.True(timers.TryElapsedUs(frame, 0, 1, out _));
+            var next = BackendFrames.Next;
+            done = BackendFrames.Run(b, _ =>
+            {
+                timers.Stamp(next, 198);
+                timers.Stamp(next, 199);
+            });
+            b.WaitFor(done);
+            Assert.True(timers.TryElapsedUs(next, 198, 199, out _));
+            timers.Reserve(1_000_000);
+            Assert.Equal(GlTimers.MaxSlots, timers.Slots);
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
+    [Fact]
+    public void ADraftRendererOnTheShowsDeviceWritesNoTimestampAndLeavesTheShowsFramesHeld()
+    {
+        var project = Scene.Project([Scene.Gen("checker")], [Scene.SourceOutput("op1", SourceRef.Generator("gn_test"), 64, 36)]);
+        backends.RunGl(c =>
+        {
+            var b = c.Backend;
+            using var show = new RenderEngine(b, new RenderEngineOptions(GpuTiming: b.Features.Timers));
+            for (var f = 0; f < 612; f++)
+                show.Render(Scene.Inputs(project, 1 + f / 60.0));
+            Assert.Equal(b.Features.Timers, b.GlTimers.Holds(show.Frame));
+            var stamps = b.GlTimers.Stamps;
+            // A draft view opens past the show's 600th frame: its renderer counts from 1 and times nothing, as the host makes it.
+            using var draft = new RenderEngine(b, new RenderEngineOptions(GpuTiming: false));
+            for (var f = 0; f < 4; f++)
+                draft.Render(Scene.Inputs(project, 1));
+            // Its fourth frame falls on the row the show's last frame wrote (612 ≡ 4, mod 4): nothing of it is written over.
+            Assert.Equal(0, (show.Frame - draft.Frame) % GlTimers.Depth);
+            Assert.Equal(stamps, b.GlTimers.Stamps);
+            Assert.Equal(b.Features.Timers, b.GlTimers.Holds(show.Frame));
             Assert.Empty(c.Device.TakeErrors());
         });
     }

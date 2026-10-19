@@ -20,7 +20,8 @@ public sealed record RenderEngineOptions(
     bool Dither = true,
     /// <summary>Stream video planes through pixel-unpack buffers.</summary>
     bool StreamUploads = true,
-    /// <summary>Measure each output's GPU time with timer queries.</summary>
+    /// <summary>Measure the GPU time of each output and generator (and of the effects of a pass made with the renderer's choice)
+    /// between timestamps; off, the renderer writes no timestamp.</summary>
     bool GpuTiming = true);
 
 /// <summary>A preview a viewer asked for: a view id, the ring it goes to, its size (at most the ring's), and
@@ -149,7 +150,7 @@ public sealed class RenderEngine : IDisposable
         _device = device;
         _options = options ?? new RenderEngineOptions();
         _blit = device.Programs.Id("blit");
-        _services = new RenderServices(device);
+        _services = new RenderServices(device) { GpuTiming = _options.GpuTiming };
         _generators = new GeneratorHost(_services);
         _sources = new SourceResolver(_services, _generators, _options.StreamUploads);
         _caches = new GpuCaches(_services);
@@ -159,6 +160,10 @@ public sealed class RenderEngine : IDisposable
 
     /// <summary>The device the renderer draws on.</summary>
     public IGpuDevice Device => _device;
+
+    /// <summary>Whether the renderer times its GPU work (outputs, generators, and the effects a pass made with it): only a renderer
+    /// that does writes the device's timestamps.</summary>
+    public bool GpuTiming => _options.GpuTiming;
 
     /// <summary>The value the last frame's submit signalled (<see cref="FenceValue.None"/> before the first frame): a wait on it is a
     /// wait for every output that frame drew.</summary>

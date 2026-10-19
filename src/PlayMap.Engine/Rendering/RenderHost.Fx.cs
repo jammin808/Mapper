@@ -44,7 +44,7 @@ public sealed partial class RenderHost
 
     partial void OnContextFx(RenderEngine renderer)
     {
-        _fx = new FxPass(renderer.Device);
+        _fx = new FxPass(renderer.Device, gpuTiming: renderer.GpuTiming);
     }
 
     partial void OnContextLostFx()

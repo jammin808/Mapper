@@ -107,11 +107,26 @@ public interface IHeldReadbackRing : IDisposable
     void Release(int slot);
 }
 
-/// <summary>GPU timestamps, read frames later.</summary>
+/// <summary>GPU timestamps, written where a frame's list asks (<see cref="ICommandList.Timestamp"/>) into the frame's slots and read
+/// frames later, never waited on. A frame's slots are kept until a later frame writes them again; a backend keeps the last few
+/// frames' (<see cref="Holds"/>). A span is a pair of slots (first, first + 1) a frame writes around its work.
+///
+/// Threading: the render thread.</summary>
 public interface IGpuTimers
 {
+    /// <summary>Timestamps a frame may write; 0 where the device measures nothing.</summary>
     int Slots { get; }
 
-    /// <summary>The elapsed GPU time between two timestamps of a completed frame, µs; false until it completed.</summary>
+    /// <summary>The elapsed GPU time between two timestamps of a completed frame, µs; false until it completed, and false for a pair
+    /// the device did not measure.</summary>
     bool TryElapsedUs(long frame, int fromSlot, int toSlot, out double microseconds);
+
+    /// <summary>Whether the frame's timestamps are still kept to be read: false once a later frame wrote its slots again (a span of it
+    /// that has not landed by then never will).</summary>
+    bool Holds(long frame);
+
+    /// <summary>Asks for at least <paramref name="slots"/> timestamps a frame from the next frame on: a backend grows its slots once,
+    /// between frames, where it can (the frames a show draws then measure every span they ask for), and keeps what it has where it
+    /// cannot.</summary>
+    void Reserve(int slots);
 }

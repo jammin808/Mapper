@@ -57,11 +57,12 @@ public sealed class FxPass : IFramePass
 
     /// <param name="device">The device the frame draws on (render thread).</param>
     /// <param name="sharedContextLane">False makes the effects' programs on the render thread (the lane's fallback).</param>
-    public FxPass(IGpuDevice device, bool sharedContextLane = true)
+    /// <param name="gpuTiming">Whether each slot's GPU time is measured (the renderer's <see cref="RenderEngine.GpuTiming"/>).</param>
+    public FxPass(IGpuDevice device, bool sharedContextLane = true, bool gpuTiming = true)
     {
         ArgumentNullException.ThrowIfNull(device);
         Lane = new FxLane(device, sharedContextLane);
-        _runner = new FxChainRunner(device, Lane);
+        _runner = new FxChainRunner(device, Lane, gpuTiming);
     }
 
     public string Name => "fx";

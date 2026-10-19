@@ -145,7 +145,8 @@ frame the drawn project carries the slot's bound numbers at their live values wh
 ## Measured, not governed
 
 Each slot's GPU time is measured between two GPU timestamps around its passes and its mix, three frames deep so reading never
-waits, and reported in STATE (`gpuMs`; on a GLES context, which has no timestamp queries, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
+waits, and reported in STATE (`gpuMs`; on a GLES context with no timestamp counter, `EXT_disjoint_timer_query` absent or
+reporting no bits, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
 (`NodeSettings.fx.budgetMs`, 4 ms): amber past it, red past twice it. Nothing acts on it.
 
 Once warm, a frame with chains on outputs, layers, surfaces and items — and with chains that are not drawn, saying why —

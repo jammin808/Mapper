@@ -134,49 +134,86 @@ internal sealed unsafe class GlUploadRing : IUploadRing, IDisposable
     }
 }
 
-/// <summary>GPU timestamps on GL: <see cref="SlotCount"/> slots a frame, the last <see cref="Depth"/> frames kept, each a timestamp
-/// query written where the frame's list asks (<see cref="ICommandList.Timestamp"/>) and read back once the GPU has it, never waited
-/// on. Timestamp queries are core on desktop GL 3.3 and not on ES 3.0: there a timestamp is nothing and no time is answered
-/// (<see cref="Slots"/> 0). The queries are made on the first timestamp.
+/// <summary>GPU timestamps on GL: <see cref="Slots"/> slots a frame (<see cref="SlotCount"/> to start, grown when a show asks for more,
+/// <see cref="Reserve"/>), the last <see cref="Depth"/> frames kept, each slot a query written where the frame's list asks
+/// (<see cref="ICommandList.Timestamp"/>) and read back once the GPU has it, never waited on. The queries are made on the first
+/// timestamp.
+///
+/// Three kinds of context: one with a timestamp counter (desktop GL 3.3, where timestamps are core, or ES with
+/// EXT_disjoint_timer_query whose counter has bits) writes a timestamp into each slot; one with timer queries but no counter bits
+/// (ES whose EXT_disjoint_timer_query reports none, as ANGLE's Direct3D 11 back end does) measures a span as an elapsed-time query
+/// from its first slot to its second, one at a time — a span begun while another is open (a generator or an effect inside an
+/// output's span) is not measured; one with no timer queries (ES without the extension) measures nothing (<see cref="Slots"/> 0).
+/// A result taken across a disjoint event (ES: the GPU's clock jumped) is no measurement.
 ///
 /// Threading: the render thread (the GL context's).</summary>
 internal sealed class GlTimers : IGpuTimers, IDisposable
 {
-    /// <summary>Timestamps a frame may write: two a span, for every output, generator and effect a frame times.</summary>
+    /// <summary>Timestamps a frame may write to start with: two a span, for every output, generator and effect a frame times.</summary>
     public const int SlotCount = 64;
+
+    /// <summary>The most slots a frame may grow to.</summary>
+    public const int MaxSlots = 1024;
 
     /// <summary>Frames whose timestamps are kept to be read.</summary>
     public const int Depth = 4;
 
+    /// <summary>How a context measures.</summary>
+    internal enum Kind
+    {
+        None,
+        Timestamps,
+        Elapsed,
+    }
+
     private readonly GlDevice _device;
     private readonly long[] _frames = new long[Depth];
-    private readonly bool[] _written = new bool[Depth * SlotCount];
+    private int _slots = SlotCount;
+    private bool[] _written = new bool[Depth * SlotCount];
     private uint[]? _queries;
+    private int _open = -1;
     private bool _disposed;
 
     public GlTimers(GlDevice device)
+        : this(device, device.TimestampBits > 0 ? Kind.Timestamps : device.HasTimerQuery ? Kind.Elapsed : Kind.None)
+    {
+    }
+
+    /// <summary>Timers that measure as <paramref name="mode"/> says (a test stands in a context with no timestamp counter; a context
+    /// asked for a kind it lacks measures nothing).</summary>
+    internal GlTimers(GlDevice device, Kind mode)
     {
         _device = device;
-        Measures = device.Caps.IsCore;
+        Mode = mode == Kind.Timestamps && device.TimestampBits == 0 ? Kind.None
+            : mode == Kind.Elapsed && !device.HasTimerQuery ? Kind.None
+            : mode;
         Array.Fill(_frames, -1);
     }
 
-    /// <summary>Whether this context writes timestamps at all.</summary>
-    public bool Measures { get; }
+    /// <summary>How this context measures.</summary>
+    internal Kind Mode { get; }
 
-    public int Slots => Measures ? SlotCount : 0;
+    /// <summary>Whether this context measures at all.</summary>
+    public bool Measures => Mode != Kind.None;
 
-    /// <summary>Writes the GPU's clock into the frame's slot once the commands before it have run.</summary>
+    public int Slots => Measures ? _slots : 0;
+
+    /// <summary>Timestamps asked of the timers since they were made (each <see cref="Stamp"/> on a context that measures).</summary>
+    internal long Stamps { get; private set; }
+
+    /// <summary>Writes the GPU's clock into the frame's slot once the commands before it have run (on a context with no counter: a
+    /// span's first slot begins its elapsed-time query unless one is open, its second ends it).</summary>
     public void Stamp(long frame, int slot)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(slot);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, SlotCount);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, _slots);
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!Measures)
             return;
+        Stamps++;
         if (_queries is null)
         {
-            _queries = new uint[Depth * SlotCount];
+            _queries = new uint[Depth * _slots];
             for (var i = 0; i < _queries.Length; i++)
                 _queries[i] = _device.CreateQuery();
         }
@@ -184,25 +221,89 @@ internal sealed class GlTimers : IGpuTimers, IDisposable
         if (_frames[row] != frame)
         {
             _frames[row] = frame;
-            Array.Clear(_written, row * SlotCount, SlotCount);
+            Array.Clear(_written, row * _slots, _slots);
         }
-        _device.Timestamp(_queries[row * SlotCount + slot]);
-        _written[row * SlotCount + slot] = true;
+        var at = row * _slots + slot;
+        if (Mode == Kind.Timestamps)
+        {
+            _device.Timestamp(_queries[at]);
+            _written[at] = true;
+            return;
+        }
+        if ((slot & 1) == 0)
+        {
+            if (_open >= 0)
+                return;
+            _device.BeginTimeQuery(_queries[at]);
+            _open = at;
+        }
+        else if (_open == at - 1)
+        {
+            _device.EndTimeQuery();
+            _written[at - 1] = _written[at] = true;
+            _open = -1;
+        }
+    }
+
+    /// <summary>At the frame's submit: an elapsed-time query a span left open is ended, unmeasured (queries never span frames).</summary>
+    public void EndFrame()
+    {
+        if (_open < 0)
+            return;
+        _device.EndTimeQuery();
+        _open = -1;
     }
 
     public bool TryElapsedUs(long frame, int fromSlot, int toSlot, out double microseconds)
     {
         microseconds = 0;
-        if (_queries is null || (uint)fromSlot >= SlotCount || (uint)toSlot >= SlotCount || frame < 0)
+        if (_queries is null || (uint)fromSlot >= (uint)_slots || (uint)toSlot >= (uint)_slots || frame < 0)
             return false;
         var row = Row(frame);
-        if (_frames[row] != frame || !_written[row * SlotCount + fromSlot] || !_written[row * SlotCount + toSlot])
+        var from = row * _slots + fromSlot;
+        var to = row * _slots + toSlot;
+        if (_frames[row] != frame || !_written[from] || !_written[to])
             return false;
-        if (!_device.TryQueryResult(_queries[row * SlotCount + toSlot], out var to)
-            || !_device.TryQueryResult(_queries[row * SlotCount + fromSlot], out var from) || to < 0 || from < 0)
+        if (Mode == Kind.Elapsed)
+        {
+            if (toSlot != fromSlot + 1 || !_device.TryQueryResult(_queries[from], out var elapsed) || elapsed < 0)
+                return false;
+            microseconds = elapsed / 1000.0;
+            return true;
+        }
+        if (!_device.TryQueryResult(_queries[to], out var end) || !_device.TryQueryResult(_queries[from], out var start) || end < 0 || start < 0)
             return false;
-        microseconds = (to - from) / 1000.0;
+        microseconds = (end - start) / 1000.0;
         return true;
+    }
+
+    public bool Holds(long frame) => _queries is not null && frame >= 0 && _frames[Row(frame)] == frame;
+
+    /// <summary>Grows the slots a frame may write to at least <paramref name="slots"/> (doubling, at most <see cref="MaxSlots"/>): the
+    /// queries made so far keep their frames' timestamps, each row's in its place. Between frames, or before a frame's first stamp.</summary>
+    public void Reserve(int slots)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!Measures || slots <= _slots || _slots >= MaxSlots || _open >= 0)
+            return;
+        var grown = _slots;
+        while (grown < slots && grown < MaxSlots)
+            grown *= 2;
+        grown = Math.Min(grown, MaxSlots);
+        var written = new bool[Depth * grown];
+        uint[]? queries = _queries is null ? null : new uint[Depth * grown];
+        for (var row = 0; row < Depth; row++)
+        {
+            Array.Copy(_written, row * _slots, written, row * grown, _slots);
+            if (queries is null)
+                continue;
+            Array.Copy(_queries!, row * _slots, queries, row * grown, _slots);
+            for (var i = _slots; i < grown; i++)
+                queries[row * grown + i] = _device.CreateQuery();
+        }
+        _written = written;
+        _queries = queries;
+        _slots = grown;
     }
 
     private static int Row(long frame) => (int)(((frame % Depth) + Depth) % Depth);
@@ -211,6 +312,7 @@ internal sealed class GlTimers : IGpuTimers, IDisposable
     {
         if (_disposed)
             return;
+        EndFrame();
         if (_queries is not null)
             foreach (var q in _queries)
                 _device.DeleteQuery(q);

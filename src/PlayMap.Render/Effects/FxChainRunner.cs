@@ -14,7 +14,8 @@ public readonly record struct FxFrame(long Frame, long LeaderNs, double FrameRat
 /// input); otherwise draws the slot's effect at its scale and mixes it over its input into one of the owner's two targets (blend and
 /// mix), so every slot's result is a top-row-first picture at the input's size. One renderer per slot, made on first use, configured
 /// again when the slot's record changes, dropped after <see cref="IdleFrames"/> frames unused; each slot's GPU time is measured
-/// between two timestamps. It allocates nothing per frame once warm, and nothing it draws throws through a frame.</summary>
+/// between two timestamps when the renderer times its GPU work (none is timed otherwise, and none of the device's timestamp slots
+/// is taken). It allocates nothing per frame once warm, and nothing it draws throws through a frame.</summary>
 public sealed class FxChainRunner : IDisposable
 {
     public const int IdleFrames = 120;
@@ -47,10 +48,10 @@ public sealed class FxChainRunner : IDisposable
         }
     }
 
-    private sealed class SlotState(IsfRenderer renderer, GpuSpanTimer timer, FxSlotLive live) : IDisposable
+    private sealed class SlotState(IsfRenderer renderer, GpuSpanTimer? timer, FxSlotLive live) : IDisposable
     {
         public IsfRenderer Renderer { get; } = renderer;
-        public GpuSpanTimer Timer { get; } = timer;
+        public GpuSpanTimer? Timer { get; } = timer;
         public FxSlotLive Live { get; } = live;
         public FxSlot? Slot;
         public FxCatalog? Catalog;
@@ -83,15 +84,19 @@ public sealed class FxChainRunner : IDisposable
     private readonly GpuTexture _black;
     private readonly GpuTexture _grey;
     private readonly IsfDialect _dialect;
+    private readonly bool _gpuTiming;
     private FxCatalog _catalog = FxCatalog.Builtin;
     private long _frame;
 
-    public FxChainRunner(IGpuDevice device, FxLane lane)
+    /// <param name="gpuTiming">Whether each slot's GPU time is measured (the renderer's own choice: a renderer that times nothing
+    /// takes none of the device's timestamp slots).</param>
+    public FxChainRunner(IGpuDevice device, FxLane lane, bool gpuTiming = true)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(lane);
         _device = device;
         _lane = lane;
+        _gpuTiming = gpuTiming;
         _dialect = lane.Dialect;
         _mix = device.Programs.Id("fxmix");
         _black = device.CreateTexture(new TextureDesc(1, 1, TextureFormat.Rgba8, FrameLists.Uploaded));
@@ -171,7 +176,7 @@ public sealed class FxChainRunner : IDisposable
         }
         if (!_slots.TryGetValue(slot.Id, out var state))
         {
-            state = new SlotState(new IsfRenderer(_device, _lane, _black, _grey), new GpuSpanTimer(_device), Stats.For(slot.Id));
+            state = new SlotState(new IsfRenderer(_device, _lane, _black, _grey), _gpuTiming ? new GpuSpanTimer(_device) : null, Stats.For(slot.Id));
             _slots[slot.Id] = state;
         }
         state.LastUsed = _frame;
@@ -189,11 +194,11 @@ public sealed class FxChainRunner : IDisposable
             var eh = Math.Max(1, (int)Math.Round(h * scale));
             var origin = slot.OriginNs != 0 ? slot.OriginNs : frame.OwnerOriginNs;
             var clock = FxTime.At(frame.LeaderNs, origin, frame.FrameRate, frame.UnixMs);
-            state.Timer.Begin(list, _frame);
+            state.Timer?.Begin(list, _frame);
             var fx = state.Renderer.Apply(list, _frame, in clock, current, ew, eh);
             if (fx is null)
             {
-                state.Timer.Cancel();
+                state.Timer?.Cancel();
                 state.Live.Set(state.Renderer.State, state.Renderer.Words, _frame);
                 return current;
             }
@@ -206,15 +211,15 @@ public sealed class FxChainRunner : IDisposable
                     .SetInt("uBlend", (int)slot.Blend)
                     .Set("uMix", (float)Math.Clamp(slot.Mix, 0, 1))
                     .Fullscreen();
-            state.Timer.End(list);
-            state.Live.Gpu(state.Timer.LastNs);
+            state.Timer?.End(list);
+            state.Live.Gpu(state.Timer?.LastNs ?? 0);
             state.Live.Set(FxSlotState.Ok, clock.Reanchor ? "TIME is past float precision: FX RETIME re-anchors it" : "", _frame);
             return target.Color;
         }
         // A slot that cannot draw shows its input; the next slot and the output go on.
         catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
-            state.Timer.Cancel();
+            state.Timer?.Cancel();
             state.Renderer.Fail(ex.Message);
             state.Live.Set(FxSlotState.Faulted, state.Renderer.Words, _frame);
             return current;

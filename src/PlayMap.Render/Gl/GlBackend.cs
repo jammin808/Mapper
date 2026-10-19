@@ -80,7 +80,7 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         Adapter = new GpuAdapterInfo(0, VendorOf(device.Vendor + " " + device.Renderer), device.Renderer, device.Version,
             ApiWords(device),
             SoftwareRenderers.Any(r => device.Renderer.Contains(r, StringComparison.OrdinalIgnoreCase)));
-        Features = FeaturesOf(device, _timers.Measures);
+        Features = FeaturesOf(device, _timers.Mode);
     }
 
     public GpuBackendKind Kind => GpuBackendKind.Gl;
@@ -248,6 +248,7 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         if (!ReferenceEquals(list, _list))
             throw new ArgumentException("This list is not this device's frame list.", nameof(list));
         _list.Close();
+        _timers.EndFrame();
         var value = _direct.Signal();
         _device.Flush();
         _importer.Submitted();
@@ -494,18 +495,20 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
     internal static GpuFeatures WithCaps(GpuFeatures features, GlCaps caps) =>
         features with { Formats = FormatsOf(caps), Refusals = RefusalsOf(caps) };
 
-    private static GpuFeatures FeaturesOf(GlDevice device, bool timers)
+    private static GpuFeatures FeaturesOf(GlDevice device, GlTimers.Kind timers)
     {
         var formats = FormatsOf(device.Caps);
         var words = ImmutableArray.CreateBuilder<string>();
-        if (!timers)
-            words.Add("no timestamp queries on this context (ES 3.0): GPU times read nothing");
+        if (timers == GlTimers.Kind.None)
+            words.Add("no timer queries on this context (EXT_disjoint_timer_query): GPU times read 0");
+        else if (timers == GlTimers.Kind.Elapsed)
+            words.Add("no timestamp counter on this context (EXT_disjoint_timer_query has 0 bits): each output's GPU time is measured, the generators' and effects' inside it read 0");
         if (!device.HasReadBgra)
             words.Add("no BGRA read-back (EXT_read_format_bgra): streamed read-backs are off");
         if (!device.HasPolygonMode)
             words.Add("no polygon mode (ANGLE_polygon_mode): triangles asked for as a wireframe are not drawn");
         var model = device.Dialect == GlDialect.Es300 ? "GLSL ES 3.00" : "GLSL 3.30";
-        return new GpuFeatures(formats, device.BlockFormats, timers, SharedHandles: false, model, words.ToImmutable())
+        return new GpuFeatures(formats, device.BlockFormats, timers != GlTimers.Kind.None, SharedHandles: false, model, words.ToImmutable())
         {
             MaxTextureSize = device.MaxTextureSize,
             Readback = device.HasReadBgra,

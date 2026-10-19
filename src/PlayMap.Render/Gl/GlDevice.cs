@@ -97,6 +97,7 @@ public sealed unsafe partial class GlDevice : IDisposable
         // ES 3.2 has debug output in core; ES 3.0 and 3.1 through KHR_debug. Desktop from 4.3.
         HasDebugOutput = (es ? GlVersion >= 32 : GlVersion >= 43) || extensions.Contains("GL_KHR_debug");
         HasTimerQuery = !es || extensions.Contains("GL_EXT_disjoint_timer_query");
+        TimestampBits = HasTimerQuery ? QueryCounterBits() : 0;
         // On ES glPolygonMode resolves only as glPolygonModeANGLE: the alias loader tries the ANGLE suffix, never NV.
         HasPolygonMode = !es || extensions.Contains("GL_ANGLE_polygon_mode");
         HasReadBgra = !es || extensions.Contains("GL_EXT_read_format_bgra");
@@ -158,6 +159,11 @@ public sealed unsafe partial class GlDevice : IDisposable
 
     /// <summary>GPU timer queries work (desktop core; ES through EXT_disjoint_timer_query): without them GPU times read 0.</summary>
     public bool HasTimerQuery { get; }
+
+    /// <summary>The bits of the context's timestamp counter (GL_QUERY_COUNTER_BITS of GL_TIMESTAMP): above 0, timestamps are written
+    /// where a list asks; 0 where the context has timer queries but no counter (an ES context whose EXT_disjoint_timer_query
+    /// reports none, as ANGLE's Direct3D 11 back end does), or no timer queries at all.</summary>
+    public int TimestampBits { get; }
 
     /// <summary>Wireframe drawing works (desktop core; ES through ANGLE_polygon_mode): without it, indexed triangles asked for as a
     /// wireframe are not drawn (never filled over what they outline).</summary>
