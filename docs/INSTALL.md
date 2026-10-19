@@ -5,21 +5,23 @@
 
 ## What the installer is
 
-PlayMap installs per machine with one installer, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned.exe`, built by Inno Setup
-7.1. The plan names an MSI built by the WiX toolset compiled from its MS-RL source (`docs/round3/PLAN.md` D6); none is built. The
-pinned source (v7.0.0) carries licence checks (the SDK's WIX7015 target and `wix.exe`'s own) that PlayMap never answers with the
-gesture, and that no patch in this tree answers or bypasses: what to do about them is the owner's decision. So Inno Setup builds the
-installer, with the same acceptance (§9 decision 3). M17, CI's `wix-toolset` job, measures whether the pinned source builds on the
-runner at all, and its summary says what it answered: on windows-2025, Visual Studio 2026's installer holds none of the v143 C++
-components WiX's native parts ask for (it exits having added none), and the build stops at MSB8020, the v143 build tools not
-found, in its first minute, before any licence check runs. The installer runs elevated once and does every machine-level action
-through the supervisor's own commands, so the engine itself never runs as administrator:
+PlayMap installs per machine with one installer, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned.exe`, an EXE built by Inno
+Setup 7.1: the owner's choice for this round. An MSI is revisited next round. Beside an MSI, this EXE gives up the automatic undo of
+service and registry changes (the order under Upgrades and Uninstall stands in for it), repair, and `msiexec` for IT departments.
+The plan names an MSI built by the WiX toolset compiled from its MS-RL source (`docs/round3/PLAN.md` D6); M17's answer on the runner
+is that WiX v7.0.0's pinned source does not build on windows-2025. Its native parts need Visual Studio's v143 C++ tools; the
+runner's Visual Studio 2026 carries v145 only, its installer adds none of the v143 components (it exits having added none), and the
+build stops at MSB8020, the v143 build tools not found, in its first minute, before any licence check runs. The source checks its
+licence in three places — `wix.exe`'s command line, the SDK target's WIX7015, and the `CheckLicenseAcceptance.targets` every
+extension package carries — and WiX's own build sets `AcceptEula` for itself. PlayMap never passes that gesture and patches none of
+it. The installer shows a licence page (below), runs elevated once and does every machine-level action through the supervisor's own
+commands, so the engine itself never runs as administrator:
 
 | Where | What |
 |---|---|
-| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe; `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, and `SHA256SUMS` of every file laid down |
+| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe; `licence.txt` (the terms the licence page shows), `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, and `SHA256SUMS` of every file laid down |
 | `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, replaceable files (the same hash-pinned build every decode test on CI loads), with the build's `LICENSE.txt` (the LGPL version 3) and `GPL-3.0.txt` |
-| `…\D3D12\` | the Agility SDK's `D3D12Core.dll` (its debug layer is left out) |
+| `…\D3D12\` | the Agility SDK's `D3D12Core.dll`, under Microsoft's terms the licence page shows (its debug layer and `d3dconfig.exe` are left out) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the supervisor |
 | `%ProgramData%\PlayMap\` | `dumps\` (WER's dumps) and `supervisor\` (its status file, log and the engine's pid record); the show user may write both |
 | `HKLM\SOFTWARE\PlayMap` | `InstallDir`, `Version`, `SemVer`, `ShowUser`, `Supervised`, `Signed` |
@@ -31,7 +33,15 @@ network is Public until the person sets it Private); WER LocalDumps for `PlayMap
 `%ProgramData%\PlayMap\dumps`); the `PlayMap` Event Log source; and `SeIncreaseBasePriorityPrivilege` for the show account. No URL
 reservation is made: the node binds its own sockets.
 
-Install quietly with `PlayMap-….exe /VERYSILENT /SUPPRESSMSGBOXES /SHOWUSER=<computer>\show /LOG=install.log`. The installer:
+**The licence page.** Before anything is laid down the installer shows its terms, which a person accepts to go on: a section for
+PlayMap's own terms, which the owner has not named yet and which states none; Microsoft's licence terms for the DirectX Agility SDK,
+copied verbatim from the pinned `Microsoft.Direct3D.D3D12` package's `LICENSE.txt`, as the terms the person agrees to for
+`D3D12Core.dll`; and where the other components' notices and licence texts are in the install. The install keeps the terms as
+`C:\Program Files\PlayMap\licence.txt`. A quiet install (`/VERYSILENT`) accepts the terms on its command line: an organisation
+that deploys PlayMap quietly accepts them for its users.
+
+Install quietly with `PlayMap-….exe /VERYSILENT /SUPPRESSMSGBOXES /SHOWUSER=<computer>\show /LOG=install.log`, which accepts the
+licence page's terms. The installer:
 
 - refuses Windows builds older than 26100 (Windows 11 24H2), with the build it found;
 - refuses an older build over a newer one ("PlayMap 0.2.17 is newer than this installer's 0.2.12: uninstall it first to go back")
@@ -65,14 +75,17 @@ starts its own engine until the installer is run again.
 refuses while another program runs from the folder, stops the service and its engine, and takes back every machine-level action —
 the supervised mark first, then the service, the firewall rules, WER's values, the event source and the account right, each tried
 whatever the others did. Any refusal, or anything it could not take back, stops the uninstall with every file still in place, its
-words in the uninstall's log. The dumps and the node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The MSI's
-transactional rollback of service and registry changes is what the Inno Setup installer gives up; the order above stands in for it.
+words in the uninstall's log. The dumps and the node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The
+order above stands in for the automatic undo of service and registry changes an MSI would give.
 
-**What the owner decides.** The Agility SDK's terms let `D3D12Core.dll` ship inside PlayMap's installer on conditions that include
-its end users agreeing to terms that protect Microsoft at least as much as Microsoft's own do; the installer shows no licence page,
-so how that condition is met is the owner's decision (`THIRD-PARTY-NOTICES.md`, wp3-installer). So is Inno Setup's request that a
-commercial user buy a licence (`docs/round3/PLAN.md` §9 decision 3), and the WiX toolset's licence checks, which PlayMap never
-answers, patches or passes.
+**What the owner decides.** The Agility SDK's DISTRIBUTABLE CODE section lets `D3D12Core.dll` ship inside PlayMap's installer on the
+requirements it lists, among them to "require distributors and external end users to agree to terms that protect it and Microsoft at
+least as much as this agreement" and to "indemnify, defend, and hold harmless Microsoft from any claims, including attorneys’ fees,
+related to the distribution or use of your applications, except to the extent that any claim is based solely on the unmodified
+distributable code". The owner ships it: the licence page shows Microsoft's terms verbatim as the terms a person agrees to for
+`D3D12Core.dll`, and the owner accepts Microsoft's distribution terms, the indemnity included. PlayMap's own terms are the owner's
+to name; until they are, the licence page says none are stated. Inno Setup's request that a commercial user buy a licence is the
+owner's to meet too (`docs/round3/PLAN.md` §9 decision 3).
 
 ## The two version numbers
 
@@ -150,6 +163,11 @@ The two hashes match when the download is intact. That is the only check this ro
 built it: the sums sit on the same page as the files, so whoever could change one could change the other. There is no updater, so
 nothing verifies an update automatically.
 
+**The portable folder.** The Windows job's portable artifact, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned`, is the
+exe's publish with its `SHA256SUMS`. It carries no file of the Agility SDK (no `D3D12Core.dll`, `d3d12SDKLayers.dll` or
+`d3dconfig.exe`), so no licence page and no Microsoft terms come with it; the job lists those files on every build, says in its
+summary that there are none, and stops if one appears.
+
 **Checking an install.** The installer's artifact carries `SHA256SUMS.payload` beside its `SHA256SUMS`: the sums of every file the
 installer lays down, which the install keeps as `C:\Program Files\PlayMap\SHA256SUMS`. `Get-FileHash` of an installed file matches
 its line there (the uninstaller Inno Setup writes, `unins000.*`, is the one file not listed).
@@ -198,18 +216,22 @@ where Windows Update installs drivers with the monthly update, `MACHINE LOCK` ob
 
 ## What is proven, and where
 
-CI's installer job (windows-2025, elevated) builds the installer and the one numbered a build before it, then: the launch condition
-refuses build 22631; fake engines (run as `PlayMap.exe engine`) stop the install armed and silent, and the uninstall armed; the earlier
-build installs and lays the files, each matching its line in `SHA256SUMS`, with the notices and licence texts, the service with its
-recovery actions, the firewall rules on the private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the
-show user's write access to `dumps\` and `supervisor\`, the show user's account right and the install's key; this build upgrades it
-with Smart App Control evaluating and keeps the node's data; the earlier build is refused as a downgrade; a folder other than
-Program Files, a show user Windows cannot find (exit 3, the machine left unsupervised), an upgrade while another program runs from the
-install, and an upgrade that cannot replace a file (the earlier service running again) each end as this guide says; `stop` holds the
-engine and `resume` starts it again, and the show user may only wait on the stop event; a standard account runs the installed engine
-and serves HTTP on 9940 with no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every
+CI's installer job (windows-2025, elevated) builds the installer and the one numbered a build before it, then: the licence page,
+read back from the built installer, shows the terms — their heading first, Microsoft's DISTRIBUTABLE CODE section on it, decoded as
+UTF-8 — before Inno Setup lays anything down, and the install keeps them byte for byte; the launch condition refuses build 22631;
+fake engines (run as `PlayMap.exe engine`) stop the install armed and silent, and the uninstall armed; the earlier build installs
+and lays the files, each matching its line in `SHA256SUMS`, with the notices and licence texts, the service with its recovery
+actions, the firewall rules on the private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the show user's
+write access to `dumps\` and `supervisor\`, the show user's account right and the install's key; this build upgrades it with Smart
+App Control evaluating and keeps the node's data; the earlier build is refused as a downgrade; a folder other than Program Files, a
+show user Windows cannot find (exit 3, the machine left unsupervised), an upgrade while another program runs from the install, and
+an upgrade that cannot replace a file (the earlier service running again) each end as this guide says; `stop` holds the engine and
+`resume` starts it again, and the show user may only wait on the stop event; a standard account runs the installed engine and serves
+HTTP on 9940 with no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every
 machine-level action back, the account right read back with `rights`; a pid record naming a process that is not the engine ends
-nothing; the artifact's `SHA256SUMS` matches every file. No lab ran this round: a real IoT Enterprise LTSC node with auto-logon, the
-supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the unsigned installer
-on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23; their scripts are in `docs/round3/lab/`)
-are not run.
+nothing; the artifact's `SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned
+Agility SDK package, its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte. The
+Windows job finds no Agility SDK file in the portable folder. No lab ran this round: a real IoT Enterprise LTSC node with
+auto-logon, the supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the
+unsigned installer on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23; their scripts are in
+`docs/round3/lab/`) are not run.

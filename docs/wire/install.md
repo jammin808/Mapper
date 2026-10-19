@@ -39,24 +39,34 @@ cause in `supervisor.log` alone.
 
 ## Papers note
 
-The node installs per machine with an Inno Setup installer in the MSI's place: the WiX toolset's pinned source carries licence
-checks PlayMap never answers, patches or passes (the owner's decision), and M17 measured on windows-2025 that the source does not
-build there (Visual Studio 2026's installer holds none of the v143 C++ components WiX's native parts ask for; the build stops at
-MSB8020 before any licence check runs). With the installer: the supervisor service, the firewall rules, WER dumps, the event source
-and the show account's right, each done by the supervisor's commands; unsigned builds named `-unsigned` with `SHA256SUMS`, and the
-payload's own sums laid down with it; the installer's version MAJOR.MINOR.BUILD; an install, upgrade or uninstall refused while
-armed or while a live engine does not answer. `docs/INSTALL.md` is the person's guide; the lab scripts L11, L18, L21 and L23 (the
-installer's part) are in `docs/round3/lab/`, each not run (no lab: the owner's answer 5).
+The node installs per machine with an Inno Setup installer this round, the owner's choice; an MSI is revisited next round (beside an
+MSI the EXE gives up the automatic undo of service and registry changes, repair and `msiexec` for IT). Its licence page shows
+`installer/licence.txt` before anything is laid down, and the install keeps it as `{app}\licence.txt`: a section for PlayMap's own
+terms, none named yet; the pinned Agility SDK package's `LICENSE.txt` verbatim as the terms a person agrees to for `D3D12Core.dll`,
+the owner accepting Microsoft's distribution terms, the indemnity included; and pointers to the other components' notices. A quiet
+install accepts it on its command line, so an organisation that deploys PlayMap quietly accepts the terms for its users. The
+portable folder carries no file of the Agility SDK, and the Windows job checks that on every build. M17's answer: WiX v7.0.0's
+pinned source does not build on windows-2025 (its native parts need Visual Studio's v143 C++ tools; the runner's Visual Studio 2026
+carries v145 only and its installer adds none of the v143 components; the build stops at MSB8020 before any licence check runs), and
+the source checks its licence in three places (`wix.exe`'s command line, the SDK target's WIX7015, and the
+`CheckLicenseAcceptance.targets` every extension package carries; WiX's own build sets `AcceptEula` for itself); PlayMap never
+passes the gesture and patches none of it. With the installer: the supervisor service, the firewall rules, WER dumps, the event
+source and the show account's right, each done by the supervisor's commands; unsigned builds named `-unsigned` with `SHA256SUMS`,
+and the payload's own sums laid down with it; the installer's version MAJOR.MINOR.BUILD; an install, upgrade or uninstall refused
+while armed or while a live engine does not answer. `docs/INSTALL.md` is the person's guide; the lab scripts L11, L18, L21 and L23
+(the installer's part) are in `docs/round3/lab/`, each not run (no lab: the owner's answer 5).
 
-For `docs/ROADMAP.md`'s round-3 row of wp3-installer (the integration pass writes it): a per-machine installer built by Inno Setup,
-unsigned with `SHA256SUMS`, the supervisor service, its machine-level actions, the version rules, the armed check that fails closed
-and STATE `machine.install`; proven on the Windows runner, not in a lab (`docs/INSTALL.md`). Preflight's `install` section is built
-and tested, and shown by the exe once the spine's install hook lands (below).
+For `docs/ROADMAP.md`'s round-3 row of wp3-installer (the integration pass writes it): a per-machine installer built by Inno Setup
+this round, with its licence page (PlayMap's terms, none named yet, and Microsoft's for `D3D12Core.dll` verbatim), an MSI revisited
+next round, unsigned with `SHA256SUMS`, the supervisor service, its machine-level actions, the version rules, the armed check that
+fails closed and STATE `machine.install`; proven on the Windows runner, not in a lab (`docs/INSTALL.md`). Preflight's `install`
+section is built and tested, and shown by the exe once the spine's install hook lands (below).
 
 Lines outside this package's files that the integration pass changes, with what is true now:
 
 - `README.md:144` ("It will install per machine from an MSI made by the WiX toolset…"): it installs per machine from an Inno Setup
-  installer, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned.exe`; no MSI is built (`docs/INSTALL.md`, "What the installer is").
+  installer, `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned.exe`, with a licence page; no MSI is built this round, and one
+  is revisited next round (`docs/INSTALL.md`, "What the installer is").
 - `README.md:172` (`PlayMap.Supervisor`: "it does nothing yet, says so on its standard error and exits 1"): the supervising service
   and its commands (`run`, `status`, `stop`, `resume`, `preinstall-check`, `install`, `uninstall`, `upgrade-stop`, `grant`,
   `revoke`, `rights`, `version-check`, `previous-build`, `session-probe`), `docs/INSTALL.md`'s table.
@@ -66,10 +76,16 @@ Lines outside this package's files that the integration pass changes, with what 
   MAJOR or MINOR above 255, since the installer's version is MAJOR.MINOR.BUILD; both test jobs and the installer use FFmpeg 9.0.2's
   LGPL shared build (`lgpl-shared`), and no GPL FFmpeg is shipped.
 - `docs/ROADMAP.md` R0.7 ("Next (wp3-installer): the unsigned MSI…") and row 187 ("built by the WiX toolset compiled from its
-  source"): the unsigned Inno Setup installer with `SHA256SUMS`, its firewall rules, and the LGPL FFmpeg under every decode test and
-  inside the installer, with its licence texts; `LicenceTests` on the installer at the integration pass.
+  source"): the unsigned Inno Setup installer with `SHA256SUMS`, its licence page, its firewall rules, and the LGPL FFmpeg under
+  every decode test and inside the installer, with its licence texts; an MSI revisited next round; `LicenceTests` on the installer
+  at the integration pass.
 - `THIRD-PARTY-NOTICES.md:7-9` ("Today no FFmpeg is shipped… Round 3's MSI will carry…"): the installer ships the LGPL build's
-  replaceable shared libraries in `ffmpeg\`, with `LICENSE.txt` and `GPL-3.0.txt` (the wp3-installer heading).
+  replaceable shared libraries in `ffmpeg\`, with `LICENSE.txt` and `GPL-3.0.txt` (the wp3-installer heading); the portable
+  folder ships none.
+- `docs/round3/PLAN.md` (D6, §1.5's M17 row, §3.5 item 2 and its `WixSourceTests`, §4's `nuget.config` row and the installer's CI
+  block with the `wix-toolset` job, §9 decision 3) and `docs/round3/design/installer.md` (the `wix-toolset` job, `WixSourceTests`):
+  the installer is Inno Setup's this round, with its licence page, and an MSI is revisited next round; no `wix-toolset` job,
+  `installer/wix/`, `nuget.config` or `WixSourceTests` exists; M17's answer is the one above.
 - The fixtures this package's STATE block changed, regenerated by their tests (`PLAYMAP_WRITE_FIXTURES=1`):
   `tests/fixtures/state/main.json`, `tests/fixtures/state/output.json`, and the Companion module's
   `integrations/companion-module-playmap/test/fixtures/state.json` and `state-pattern.json`, each now carrying `machine.install`.
