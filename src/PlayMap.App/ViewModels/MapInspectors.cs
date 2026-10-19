@@ -914,7 +914,8 @@ public sealed class PinRow : ObservableObject
         }
     }
 
-    public string ResidualText => double.IsFinite(_residual) ? string.Create(CultureInfo.InvariantCulture, $"{_residual:0.0} px") : "behind";
+    /// <summary>The residual with its light's shape ("✓ 0.4 px", "✕ behind"): the chip's colour is never the only cue.</summary>
+    public string ResidualText => StatusShapes.Shape(Level) + " " + (double.IsFinite(_residual) ? string.Create(CultureInfo.InvariantCulture, $"{_residual:0.0} px") : "behind");
 
     /// <summary>"good" (under 1 px), "fair" (under 3 px), "poor".</summary>
     public string Level => LevelOf(_residual);

@@ -60,7 +60,10 @@
           <Border CornerRadius="8" Padding="12,8" Background="{StaticResource DeskBgBrush}" IsVisible="{Binding HasTimer}">
             <StackPanel>
               <TextBlock Classes="faint" Text="{Binding Timer.Title, FallbackValue=''}" />
-              <TextBlock Classes="big" Text="{Binding Timer.Text, FallbackValue=''}" Foreground="{Binding Timer.Color, Converter={StaticResource LightBrush}, FallbackValue={x:Null}}" />
+              <DockPanel>
+                <ui:StatusMark DockPanel.Dock="Right" Margin="8,0,0,0" Light="{Binding Timer.Color}" />
+                <TextBlock Classes="big" Text="{Binding Timer.Text, FallbackValue=''}" Foreground="{Binding Timer.Color, Converter={StaticResource LightBrush}, FallbackValue={x:Null}}" />
+              </DockPanel>
               <TextBlock Classes="faint" Text="{Binding Timer.Phase, FallbackValue=''}" />
             </StackPanel>
           </Border>

@@ -7,10 +7,12 @@ using PlayMap.App.Infrastructure;
 
 namespace PlayMap.App.Tests.Ux;
 
-/// <summary>The status rules, from the desk's own files and each theme's tokens: every light in every template is paired with a shape
-/// and a word (✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i information); ok, warn and fault each at least 3:1 against the panels of every
-/// theme (dark, the dark room, daylight, and each one's blind grey); the dark palette is Theme/Tokens.axaml's; the air's red is used only
-/// by air styles; no animation repeats faster than 2 Hz; and the desk's brightness and theme are this desk's, kept in desk.json.</summary>
+/// <summary>The status rules, from the desk's own files and each theme's tokens: every light in every template, every status drawn in a
+/// light's brush and every light a canvas draws is paired with a shape and a word (✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i
+/// information); ok, warn and fault each at least 3:1 against the panels of every theme (dark, the dark room, daylight, and each one's
+/// blind grey) — the plan's pairwise 3:1 cannot hold for lights legible on a dark panel; the dark palette is Theme/Tokens.axaml's; red
+/// marks the air and faults, and among the styles only the air's draw it; no animation repeats faster than 2 Hz; and the desk's
+/// brightness and theme are this desk's, kept in desk.json.</summary>
 public partial class StatusRuleTests
 {
     private static readonly string AppDir = Path.Combine(FindRoot(), "src", "PlayMap.App");
@@ -57,6 +59,51 @@ public partial class StatusRuleTests
         Assert.Equal(["ok", "warn", "fault", "armed", "off", "info"], statuses.Select(StatusShapes.Word));
         foreach (var word in new[] { "live", "ready", "good", "stale", "connecting", "fetching", "fair", "down", "missing", "poor", "unplayable" })
             Assert.NotEqual("off", StatusShapes.StatusOf(word));
+    }
+
+    /// <summary>The bindings that draw an identity or a mode in the light brush, never a status: an object's own colour (a projector's,
+    /// a surface's), a colour parameter's swatch, the window's mode frame (the ARM pill's ■ and the blind tag's words carry it).</summary>
+    private static readonly HashSet<string> IdentityBindings = new(StringComparer.Ordinal) { "Color", "Frame", "" };
+
+    [GeneratedRegex(@"\{Binding ?([A-Za-z.]*), Converter=\{StaticResource LightBrush\}")]
+    private static partial Regex LightBindingRegex();
+
+    [Fact]
+    public void EveryStatusDrawnInALightsBrushHasItsShapeAndWord()
+    {
+        // In every template: a status binding through the light brush (a fill, a border, a foreground, a background) has a StatusMark of
+        // the same light in its file, unless it draws an identity.
+        var bindings = 0;
+        foreach (var (file, text) in Axaml())
+        {
+            foreach (Match m in LightBindingRegex().Matches(text))
+            {
+                var path = m.Groups[1].Value;
+                if (IdentityBindings.Contains(path))
+                    continue;
+                bindings++;
+                Assert.True(Regex.IsMatch(text, @"<ui:StatusMark[^>]*Light=""\{Binding " + Regex.Escape(path) + @"\}"""),
+                    $"{file}: the status bound to {path} is drawn in a light's brush with no StatusMark of it");
+            }
+        }
+        Assert.True(bindings >= 14, $"{bindings} status bindings found");
+
+        // On the canvases: every light drawn in a status brush has its shape drawn beside it.
+        var canvases = 0;
+        foreach (var path in Directory.EnumerateFiles(Path.Combine(AppDir, "Controls"), "*.cs"))
+        {
+            var name = Path.GetFileName(path);
+            // The mark itself; an unused ring control; a preview's accent outline (an identity, never a status); a badge, whose icon is
+            // its shape and whose tooltip its words.
+            if (name is "StatusMark.cs" or "ScoreRing.cs" or "PreviewSurface.cs" or "Converters.cs" or "BadgeStrip.cs")
+                continue;
+            var code = File.ReadAllText(path);
+            if (!code.Contains("LightBrushConverter.Brushes.For(", StringComparison.Ordinal))
+                continue;
+            canvases++;
+            Assert.True(code.Contains("StatusShapes.Shape(", StringComparison.Ordinal), $"{name} draws a light in a status brush with no shape beside it");
+        }
+        Assert.True(canvases >= 3, $"{canvases} canvases found");
     }
 
     [AvaloniaFact]
@@ -141,6 +188,8 @@ public partial class StatusRuleTests
         Assert.True(uses > 0);
     }
 
+    /// <summary>A guard for animations a theme may add later (the desk has none today): none may repeat faster than 2 Hz. The behaviour
+    /// of the desk's one alarm, the GO guard's flash, is proven on the clock by <see cref="GoGuardTests"/>.</summary>
     [Fact]
     public void NoAnimationRepeatsFasterThanTwoHertz()
     {
@@ -156,8 +205,6 @@ public partial class StatusRuleTests
             }
         }
         Assert.True(StatusShapes.MinAlarmPeriodMs >= 500);
-        // The GO guard's flash is one event, never a repeat.
-        Assert.True(PlayMap.App.ViewModels.Ux.GoGuard.FlashMs < StatusShapes.MinAlarmPeriodMs);
     }
 
     [AvaloniaFact]
