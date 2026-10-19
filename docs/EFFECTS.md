@@ -108,11 +108,15 @@ When `TIME` leaves the range a float holds to a millisecond (past 65 536 s, or b
 
 ## The compile lane
 
-Programs are compiled on a **second GL context that shares the render context's objects**, on a thread of its own. A slot shows
-its input untouched while its program compiles, and a compile — however long — never holds a frame: the render thread takes the
-finished program at its next frame. Where a second context cannot be made, the lane runs on the render thread instead, one
-program a frame, and STATE says so (`fx.compile.lane: "render-thread"` with words). `FX CHECK` and `FX IMPORT` compile through
-the same lane, off the control lane, with a 10 s bound.
+Each pass of an effect is a program the device makes (`IGpuDevice.CreateProgramAsync`, the translated source in): the GL backend
+compiles and links it on a **second GL context that shares the render context's objects**, on a thread of its own, and reads its
+uniforms and samplers back into the program's layout, so a draw sets only the names its program holds. A slot shows its input
+untouched while its program compiles, and a compile — however long — never holds a frame: the render thread takes the finished
+program at its next frame. A program that does not compile answers its stage and the ISF line of the error. Where a second
+context cannot be made, the lane runs on the render thread instead, one program a frame, and STATE says so
+(`fx.compile.lane: "render-thread"` with words). A program no slot has drawn for 600 frames is released, and the device lets it
+go once the last frame that drew it has completed. `FX CHECK` and `FX IMPORT` compile through the same lane, off the control
+lane, with a 10 s bound, and release what they made.
 
 ## The built-in library
 

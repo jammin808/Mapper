@@ -11,7 +11,8 @@ The render host starts its **platform** (`IGpuPlatform`, made by `GpuPlatforms` 
 
 - **GL** (what `auto` is on every platform this round): a hidden GL context through GLFW, and one **presenter** per output window
   (`IOutputPresenter`; the GL window, `OutputWindow`, is the first). The renderer draws every pass offscreen in the primary
-  context; a presenter only shows the output's finished picture and swaps.
+  context; a presenter only takes the output's finished picture into the frame's list (`Record`) and, after the list's submit,
+  shows it and swaps (`Present`).
 - **DXGI** (Windows, experimental, only on an explicit `PRESENT PATH DXGI`): see *The DXGI flip path* below. Off Windows `dxgi`
   is refused by the verb and, asked through the settings file, runs GL with `machine.present.why` saying "the DXGI path is
   Windows only".
@@ -23,10 +24,10 @@ The render host starts its **platform** (`IGpuPlatform`, made by `GpuPlatforms` 
   which compiles `#version 300 es`).
 - **The per-dialect format table** (`GlFormatTable`): BGRA uploads on ES go up as RGBA with the texture's red/blue swizzle (core
   ES 3.00, no copy); 16-bit unsigned textures fall back to 16-bit float without `EXT_texture_norm16`; float render targets need
-  `EXT_color_buffer_float` (else 8-bit, with words); GPU timers need `EXT_disjoint_timer_query` (else GPU times read 0); wireframe
-  needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need `EXT_read_format_bgra` (else a
-  synchronous read swaps on the CPU and the streamed read-back refuses with words).
-- **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug, timer and
+  `EXT_color_buffer_float` (else 8-bit, with words); GPU times come from timestamp queries, which ES 3.00 does not have (there
+  every GPU time reads 0); wireframe needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need
+  `EXT_read_format_bgra` (else a synchronous read swaps on the CPU and the streamed read-back refuses with words).
+- **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug and
   polygon-mode calls by their extension names.
 - The platform hands decoders its **device share** (`IGpuShare`: OpenGL on the GL platform, Direct3D 11 with its LUID, its lock
   and its ANGLE display on the DXGI one) through `IMediaBackend.UseGpu`.
@@ -190,9 +191,10 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   passes on it whole. A test that names a dialect reads the fixture's: the caps and every program in it
   (`GlCapsTests.OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect`,
   `ShaderConventionTests.EveryProgramCompilesAndLinksInTheFixturesDialect`), the binding the context was made through (EGL for the
-  ES context), and an effect slot's GPU time, which comes from timestamp queries, core in desktop GL only, so an ES context reads
-  0. A target read back as floats (`GlDevice.ReadPixelsFloat`, the tests' reader) gives the same values in both dialects: ES reads
-  a fixed-point buffer only as its integer codes, so the device reads those and scales them (`FloatReadTests`).
+  ES context), and the GPU times of outputs, generators and effect slots, which come from timestamp queries, core in desktop GL
+  only, so an ES context reads 0. A target read back as floats (`GlDevice.ReadPixelsFloat`, the tests' reader) gives the same
+  values in both dialects: ES reads a fixed-point buffer only as its integer codes, so the device reads those and scales them
+  (`FloatReadTests`).
   On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).
 - **Here, for the DXGI path**: the stage faults with a fake platform (each stage's words, the GL fallback), the fuse and its words in
   STATE and preflight, the extension lists, QPC conversion, the one-wrapper cache, display-timed clocks on synthetic statistics, the
