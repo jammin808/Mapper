@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- What a show node claims from Windows (docs/round3/design/platform.md): the process's and each thread's claims, the
+       high-resolution timer, keep-awake, the node's identity and capabilities and the machine's facts, behind Core's
+       IMachinePlatform. An edge: it references Core alone and declares its own few read-only probes, each with a layout golden.
+       Every type is Windows only; the policy around the calls is pure and lives in Core/Machine. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Platform.Windows</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Platform.Windows.Tests" />
+  </ItemGroup>
+
+</Project>

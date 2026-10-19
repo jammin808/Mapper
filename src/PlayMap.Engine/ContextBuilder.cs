@@ -60,8 +60,10 @@ public static class ContextBuilder
             var light = h is null ? Light.Grey : !h.Open ? Light.Red : h.Dropped > 0 ? Light.Amber : Light.Green;
             if (light == Light.Green)
                 green++;
-            items.Add(new ContextItem("output:" + o.Id, "output", o.Name, light,
-                h is null ? "not measured yet" : !h.Open ? "not open" : $"{h.Fps:0} fps{(h.Dropped > 0 ? $", {h.Dropped} dropped" : "")}"));
+            var words = h is null ? "not measured yet" : !h.Open ? "not open" : $"{h.Fps:0} fps{(h.Dropped > 0 ? $", {h.Dropped} dropped" : "")}";
+            // What the output shows now, after its own words; nothing is added while the showing words are empty.
+            var showing = engine.ShowingWords(o);
+            items.Add(new ContextItem("output:" + o.Id, "output", o.Name, light, showing.Length == 0 ? words : $"{words} · {showing}"));
         }
 
         foreach (var pj in p.Stage.Projectors)

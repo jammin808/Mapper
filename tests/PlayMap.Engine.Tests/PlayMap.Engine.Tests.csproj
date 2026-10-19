@@ -63,4 +63,11 @@
     <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
   </ItemGroup>
 
+  <!-- Round 3's new projects, referenced so WindowsPlatformTests reads their types; nothing here calls them. -->
+  <ItemGroup Label="wp3-spine">
+    <ProjectReference Include="..\..\src\PlayMap.Render.D3D12\PlayMap.Render.D3D12.csproj" />
+    <ProjectReference Include="..\..\src\PlayMap.Platform.Windows\PlayMap.Platform.Windows.csproj" />
+    <ProjectReference Include="..\..\src\PlayMap.Supervisor\PlayMap.Supervisor.csproj" />
+  </ItemGroup>
+
 </Project>

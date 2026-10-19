@@ -46,12 +46,20 @@ public static partial class EngineEntry
         }
         int? dispatched = null;
         DispatchOptimise(args, ref dispatched);
+        DispatchObserver(args, ref dispatched);
+        DispatchShaderWorker(args, ref dispatched);
         exit = dispatched ?? BadArguments;
         return dispatched is not null;
     }
 
     /// <summary>wp2-optimise's worker process (Host/EngineEntry.Optimise.cs).</summary>
     static partial void DispatchOptimise(string[] args, ref int? exit);
+
+    /// <summary>wp3-stability's air observer process (Host/EngineEntry.Observer.cs).</summary>
+    static partial void DispatchObserver(string[] args, ref int? exit);
+
+    /// <summary>wp3-shaders' shader worker process (Host/EngineEntry.ShaderWorker.cs).</summary>
+    static partial void DispatchShaderWorker(string[] args, ref int? exit);
 
     /// <summary>Runs the node with these parts.</summary>
     public static int Run(string[] args, EngineParts parts)

@@ -21,3 +21,8 @@ A card descriptor:
 
 Paths are tried relative to the card's block first, then from the STATE root; a path starting `/` is from the root. A fixture of
 several nodes (`backup.json`) is keyed by scenario, each a set of STATE sections; the desk's tests read each scenario.
+
+A round-3 package's fixture (`machine`, `install`, `shaders`, `gpu`, `graph`, `observe`, `previews`, `showing`, `canvas`, `guides`,
+`capture`) is the placeholder `{}` until the package's own test writes its sections: `RoundThreeFixtureTests` writes the placeholder
+and holds that, while it stands, the package's STATE keys are absent and no card descriptor sits beside it — a descriptor file the desk
+builds in describes at least one card from its fixture, so a package's descriptors arrive with the block they describe.

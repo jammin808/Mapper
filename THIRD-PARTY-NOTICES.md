@@ -157,3 +157,45 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 ### wp2-desk
 
 ### wp2-desk-2
+
+## Round 3
+
+### wp3-rhi
+
+### wp3-platform
+
+### wp3-shaders
+
+### wp3-installer
+
+### wp3-desk-ux
+
+### wp3-d3d12-core
+
+### wp3-d3d12-passes
+
+### wp3-stability
+
+### wp3-present
+
+### wp3-video
+
+### wp3-desk-gpu
+
+### wp3-d3d12-passes-2
+
+### wp3-framelock
+
+### wp3-stability-2
+
+### wp3-shaders-2
+
+### wp3-desk-shell
+
+### wp3-desk-map
+
+### wp3-canvas
+
+### wp3-workflows
+
+### wp3-capture

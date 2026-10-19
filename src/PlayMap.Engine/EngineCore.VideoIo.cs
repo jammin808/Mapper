@@ -906,6 +906,7 @@ public sealed partial class EngineCore
             w.WriteString("pacing", "latest");
             w.WriteBoolean("warm", settings.Warm);
             w.WriteNumber("mbps", live?.Mbps ?? 0);
+            WriteInputExtras(w, input);
             w.WriteEndObject();
         }
         w.WriteEndArray();

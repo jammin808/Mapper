@@ -964,6 +964,7 @@ public sealed partial class EngineCore
         var p95 = CursorP95Ms;
         w.WriteNumber("cursorP95Ms", p95 < 0 ? -1 : Math.Round(p95, 1));
         w.WriteBoolean("armed", Services.ShowGate.Armed);
+        WriteOverlayExtras(w);
         w.WriteEndObject();
     }
 

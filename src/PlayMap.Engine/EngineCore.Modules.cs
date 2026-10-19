@@ -197,6 +197,9 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         RouteShow(_routes); RouteFleet(_routes); RouteSync(_routes); RouteOutput(_routes); RouteDecode(_routes); RouteOptimise(_routes);
         RouteVideoIo(_routes); RouteControl(_routes); RouteCompanion(_routes); RouteFx(_routes); RouteAudio(_routes);
         RouteContent(_routes); RouteLed(_routes); RouteSite(_routes); RouteAlign(_routes); RoutePhone(_routes); RouteWall(_routes);
+        // Round 3's, by hook word (docs/round3/PLAN.md §2.3).
+        RouteMachine(_routes); RouteGpu(_routes); RouteObserve(_routes); RouteUndo(_routes); RouteHandles(_routes); RouteCanvas(_routes);
+        RouteGuide(_routes); RouteCapture(_routes);
     }
 
     /// <summary>Every package's lane work each 10 ms tick, after the playlists' own tick, with the leader's now.</summary>
@@ -206,20 +209,29 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         TickContent(leaderNs); TickLed(leaderNs); TickWall(leaderNs);
     }
 
-    /// <summary>STATE's new top-level keys, in this order, after "cameras". STATE is written on whichever thread asks for it and
-    /// cached by <see cref="StateKey"/>: every State, Air, Output … hook reads published state only (never the lane's working
-    /// fields), a package whose facts move outside the project, the playback and the air calls <see cref="FactsChanged"/>, and one
-    /// whose shown values move with time on their own calls <see cref="Moved"/> when they move.</summary>
+    /// <summary>STATE's new top-level keys, in this order, after "cameras": round 2's, then round 3's (render, observe, previews,
+    /// guides). STATE is written on whichever thread asks for it and cached by <see cref="StateKey"/>: every State, Air, Output …
+    /// hook reads published state only (never the lane's working fields), a package whose facts move outside the project, the
+    /// playback and the air calls <see cref="FactsChanged"/>, and one whose shown values move with time on their own calls
+    /// <see cref="Moved"/> when they move.</summary>
     internal void WriteModuleState(Utf8JsonWriter w)
     {
         StateShow(w); StateFleet(w); StateDecode(w); StateVideoIo(w); StateControl(w); StateCompanion(w); StateFx(w);
         StateAudio(w); StateContent(w); StateLed(w); StateWall(w); StateAlign(w); StatePhone(w);
+        StateGpu(w); StateObserve(w); StatePreview(w); StateGuide(w);
     }
 
-    /// <summary>Keys added at the end of existing STATE objects, in package order.</summary>
+    /// <summary>Keys added at the end of existing STATE objects, in package order (round 2's, then round 3's).</summary>
     internal void WriteAirExtras(Utf8JsonWriter w) { AirShow(w); AirWall(w); }
 
-    internal void WriteOutputExtras(Utf8JsonWriter w, Output o) { OutputOutput(w, o); OutputFx(w, o); OutputAlign(w, o); }
+    /// <summary>Keys at the end of air.overlay, after wp2-wall's own (handleP95Ms).</summary>
+    internal void WriteOverlayExtras(Utf8JsonWriter w) { OverlayHandles(w); }
+
+    internal void WriteOutputExtras(Utf8JsonWriter w, Output o)
+    {
+        OutputOutput(w, o); OutputFx(w, o); OutputAlign(w, o);
+        OutputShowing(w, o); OutputCanvas(w, o); OutputCapture(w, o);
+    }
 
     internal void WritePlaylistExtras(Utf8JsonWriter w, Playlist list) { PlaylistControl(w, list); }
 
@@ -235,13 +247,19 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
             w.WriteString("light", light);
     }
 
-    internal void WriteMediaExtras(Utf8JsonWriter w) { MediaOptimise(w); }
+    internal void WriteMediaExtras(Utf8JsonWriter w) { MediaOptimise(w); MediaShowing(w); }
+
+    /// <summary>Keys at the end of each of videoio's inputs, after wp2-videoio's own (capture, latency); in STATE and INPUT LIST
+    /// alike.</summary>
+    internal void WriteInputExtras(Utf8JsonWriter w, VideoIo.LiveInput input) { InputCapture(w, input); }
 
     internal void WriteStageExtras(Utf8JsonWriter w) { StageSite(w); }
 
     internal void WriteProjectorExtras(Utf8JsonWriter w, Projector pj) { ProjectorSite(w, pj); ProjectorWall(w, pj); }
 
-    internal void WriteMachineExtras(Utf8JsonWriter w) { MachineOutput(w); MachineDecode(w); }
+    /// <summary>Keys at the end of the machine block: round 2's, then the identity, capabilities, platform and locked keys, then
+    /// install.</summary>
+    internal void WriteMachineExtras(Utf8JsonWriter w) { MachineOutput(w); MachineDecode(w); MachineMachine(w); MachineInstall(w); }
 
     internal void WriteProjectExtras(Utf8JsonWriter w) { ProjectCompanion(w); }
 
@@ -253,6 +271,7 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         ContextOptimise(items, links); ContextVideoIo(items, links); ContextControl(items, links); ContextCompanion(items, links);
         ContextFx(items, links); ContextAudio(items, links); ContextContent(items, links); ContextLed(items, links);
         ContextSite(items, links); ContextAlign(items, links); ContextPhone(items, links); ContextWall(items, links);
+        ContextMachine(items, links); ContextGpu(items, links); ContextObserve(items, links); ContextGuide(items, links);
         ShapeContext(items, links);
     }
 
@@ -277,6 +296,8 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         ValidateControl(p, entity, ref why); ValidateFx(p, entity, ref why); ValidateAudio(p, entity, ref why);
         ValidateContent(p, entity, ref why); ValidateLed(p, entity, ref why); ValidateSite(p, entity, ref why);
         ValidateAlign(p, entity, ref why); ValidatePhone(p, entity, ref why); ValidateWall(p, entity, ref why);
+        ValidateObserve(p, entity, ref why); ValidateCanvas(p, entity, ref why); ValidateGuide(p, entity, ref why);
+        ValidateCapture(p, entity, ref why);
         return why;
     }
 
@@ -419,4 +440,44 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     partial void RecoveryLoadSync(IReadOnlyDictionary<string, string> from);
     partial void RecoveryLoadControl(IReadOnlyDictionary<string, string> from);
     partial void RecoveryLoadLed(IReadOnlyDictionary<string, string> from);
+
+    // Round 3's hooks, by hook word (docs/round3/PLAN.md §2.3), each implemented in its package's stub file
+    // (EngineCore.<Word>.cs; wp3-installer's in Install/EngineCore.Install.cs) with an empty body holding one comment line.
+    partial void RouteMachine(VerbRoutes routes);
+    partial void RouteGpu(VerbRoutes routes);
+    partial void RouteObserve(VerbRoutes routes);
+    partial void RouteUndo(VerbRoutes routes);
+    partial void RouteHandles(VerbRoutes routes);
+    partial void RouteCanvas(VerbRoutes routes);
+    partial void RouteGuide(VerbRoutes routes);
+    partial void RouteCapture(VerbRoutes routes);
+
+    partial void StateGpu(Utf8JsonWriter w);
+    partial void StateObserve(Utf8JsonWriter w);
+    partial void StatePreview(Utf8JsonWriter w);
+    partial void StateGuide(Utf8JsonWriter w);
+
+    partial void OverlayHandles(Utf8JsonWriter w);
+    partial void OutputShowing(Utf8JsonWriter w, Output o);
+    partial void OutputCanvas(Utf8JsonWriter w, Output o);
+    partial void OutputCapture(Utf8JsonWriter w, Output o);
+    partial void MediaShowing(Utf8JsonWriter w);
+    partial void InputCapture(Utf8JsonWriter w, VideoIo.LiveInput input);
+    partial void MachineMachine(Utf8JsonWriter w);
+    partial void MachineInstall(Utf8JsonWriter w);
+
+    partial void ContextMachine(List<ContextItem> items, List<ContextLink> links);
+    partial void ContextGpu(List<ContextItem> items, List<ContextLink> links);
+    partial void ContextObserve(List<ContextItem> items, List<ContextLink> links);
+    partial void ContextGuide(List<ContextItem> items, List<ContextLink> links);
+
+    partial void ValidateObserve(Project p, object entity, ref string? why);
+    partial void ValidateCanvas(Project p, object entity, ref string? why);
+    partial void ValidateGuide(Project p, object entity, ref string? why);
+    partial void ValidateCapture(Project p, object entity, ref string? why);
+
+    /// <summary>What an output shows now, in the words its context item carries after its own ("Front — Intro.mov via Show"), or ""
+    /// when nothing is said: wp3-desk-map fills it (EngineCore.Showing.cs). Read on whichever thread builds the context, from published
+    /// state only.</summary>
+    internal partial string ShowingWords(Output output);
 }

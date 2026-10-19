@@ -416,6 +416,9 @@ public sealed partial class RenderHost : IRenderHost
         ComposeVideoIo(engine, snap, ref inputs); ComposeFx(engine, snap, ref inputs); ComposeAudio(engine, snap, ref inputs);
         ComposeContent(engine, snap, ref inputs); ComposeLed(engine, snap, ref inputs); ComposeAlign(engine, snap, ref inputs);
         ComposeSite(engine, snap, ref inputs); ComposeWall(engine, snap, ref inputs);
+        // Round 3's, by hook word (docs/round3/PLAN.md §2.3).
+        ComposeGpu(engine, snap, ref inputs); ComposePlan(engine, snap, ref inputs); ComposePreview(engine, snap, ref inputs);
+        ComposeCanvas(engine, snap, ref inputs); ComposeCapture(engine, snap, ref inputs);
     }
 
     /// <summary>Once the context exists (render thread): each package makes its GPU objects.</summary>
@@ -424,6 +427,7 @@ public sealed partial class RenderHost : IRenderHost
         OnContextShow(renderer); OnContextOutput(renderer); OnContextDecode(renderer); OnContextVideoIo(renderer); OnContextFx(renderer);
         OnContextAudio(renderer); OnContextContent(renderer); OnContextLed(renderer); OnContextAlign(renderer); OnContextSite(renderer);
         OnContextWall(renderer);
+        OnContextGpu(renderer); OnContextPlan(renderer); OnContextPreview(renderer); OnContextCanvas(renderer); OnContextCapture(renderer);
     }
 
     /// <summary>When the context goes (render thread): each package lets its GPU objects go.</summary>
@@ -431,6 +435,7 @@ public sealed partial class RenderHost : IRenderHost
     {
         OnContextLostShow(); OnContextLostOutput(); OnContextLostDecode(); OnContextLostVideoIo(); OnContextLostFx(); OnContextLostAudio();
         OnContextLostContent(); OnContextLostLed(); OnContextLostAlign(); OnContextLostSite(); OnContextLostWall();
+        OnContextLostGpu(); OnContextLostPlan(); OnContextLostPreview(); OnContextLostCanvas(); OnContextLostCapture();
     }
 
     partial void ComposeShow(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
@@ -476,6 +481,27 @@ public sealed partial class RenderHost : IRenderHost
     partial void ComposeWall(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
     partial void OnContextWall(RenderEngine renderer);
     partial void OnContextLostWall();
+
+    // Round 3's, each in its package's RenderHost.<Word>.cs.
+    partial void ComposeGpu(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextGpu(RenderEngine renderer);
+    partial void OnContextLostGpu();
+
+    partial void ComposePlan(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextPlan(RenderEngine renderer);
+    partial void OnContextLostPlan();
+
+    partial void ComposePreview(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextPreview(RenderEngine renderer);
+    partial void OnContextLostPreview();
+
+    partial void ComposeCanvas(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextCanvas(RenderEngine renderer);
+    partial void OnContextLostCanvas();
+
+    partial void ComposeCapture(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextCapture(RenderEngine renderer);
+    partial void OnContextLostCapture();
 
     // ---- the render thread ------------------------------------------------------------------------------
 
