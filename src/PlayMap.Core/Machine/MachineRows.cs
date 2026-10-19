@@ -84,8 +84,10 @@ public sealed record MachineReadings
 }
 
 /// <summary>The machine's preflight rows, pure: each a fact with its light and words, never a silent change, a fix line only where a
-/// verb fixes it. The edition's rows follow D4: a layer the edition lacks is a grey information row ("i"), and the hard rows are
-/// amber. Rows that fail name what is wrong; the must rows that pass are green, so a person sees what was checked.</summary>
+/// verb fixes it. The edition's rows follow D4: a layer the edition lacks is a grey information row ("i") — Home's four, and on Pro and
+/// Pro for Workstations the kiosk's (no Shell Launcher) — and the hard rows are amber. A connected network on Public with no rule letting
+/// PlayMap in is amber whichever adapter the show uses, since the node names no show adapter. Rows that fail name what is wrong; the
+/// must rows that pass are green, so a person sees what was checked.</summary>
 public static class MachineRows
 {
     /// <summary>The value an information row carries (grey, with the i).</summary>
@@ -122,7 +124,7 @@ public static class MachineRows
             rows.Add(new MachineFact("network", Light.Grey, "unknown", Unread("the networks' firewall profiles")));
         foreach (var n in r.Networks.Where(n => n.Category == "public" && !n.PublicRule))
             rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public",
-                $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there: make it Private in Settings ▸ Network & internet ▸ {n.Name} ▸ Network profile type"));
+                $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there: if show traffic crosses it, make it Private in Settings ▸ Network & internet ▸ {n.Name} ▸ Network profile type"));
         Settings(r, rows);
         Claims(r.Claims, rows);
         rows.Add(r.TimerWaits == 0 ? new MachineFact("timer", Light.Grey, "no waits", "no deadline wait has been timed yet")
@@ -165,6 +167,9 @@ public static class MachineRows
                 "outputs are desktop monitors on this edition: keep the desk's monitor primary"));
             rows.Add(new MachineFact("edition.remote", Light.Grey, Information, "Remote Desktop cannot reach this node"));
         }
+        // Pro and Pro for Workstations have no Shell Launcher: the supervisor's engine runs with Explorer underneath.
+        if (os.Family is EditionFamily.Pro or EditionFamily.Workstation)
+            rows.Add(new MachineFact("edition.kiosk", Light.Grey, Information, "no Shell Launcher on this edition: the supervisor starts the engine with Explorer underneath"));
         if (os.Family is EditionFamily.Server or EditionFamily.Unknown)
             return;
         if (ServicingTable.EndOf(os) is not { } end)

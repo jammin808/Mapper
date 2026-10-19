@@ -6,7 +6,8 @@ namespace PlayMap.Platform.Windows.Tests;
 /// <summary>The edition's rows (D4), pure: on Home a grey information row for each layer it lacks with its Settings path and no Update
 /// policy written; Smart App Control evaluating on an unsigned build is amber with its words, off has no row; a projector output on
 /// the primary display is amber; a network on Public with no rule is amber; Home 24H2 after 13 Oct 2026 is past its servicing, 25H2 is
-/// not, a version the table lacks is grey; IoT Enterprise LTSC has none of Home's rows.</summary>
+/// not, a version the table lacks is grey; IoT Enterprise LTSC has none of Home's rows; Pro and Pro for Workstations have the kiosk's
+/// information row (no Shell Launcher) and nothing else of Home's, Enterprise, Education and IoT none.</summary>
 public sealed class EditionRowTests
 {
     private static readonly DateOnly AfterHome24H2 = new(2026, 10, 19);
@@ -71,6 +72,32 @@ public sealed class EditionRowTests
         var row = Assert.Single(rows, r => r.Item.StartsWith("network.public:", StringComparison.Ordinal));
         Assert.Equal(("network.public:Show LAN", Light.Amber), (row.Item, row.Light));
         Assert.Contains("Settings ▸ Network & internet ▸ Show LAN ▸ Network profile type", row.Words, StringComparison.Ordinal);
+        // The node names no show adapter: the row says what to do if show traffic crosses that network, never that it does.
+        Assert.Contains("if show traffic crosses it, make it Private", row.Words, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Professional", 0x30u)]
+    [InlineData("ProfessionalWorkstation", 0xA1u)]
+    public void ProAndWorkstationHaveTheKiosksInformationRowAndNoneOfHomesOthers(string edition, uint product)
+    {
+        var rows = MachineRows.Build(On(edition, product, "25H2", 26200), AfterHome24H2);
+        var info = Assert.Single(rows, r => r.Value == MachineRows.Information);
+        Assert.Equal(("edition.kiosk", Light.Grey, (string?)null), (info.Item, info.Light, info.Fix));
+        Assert.Equal("no Shell Launcher on this edition: the supervisor starts the engine with Explorer underneath", info.Words);
+        Assert.Equal("Kiosk on this edition", MachineRows.Label(info.Item));
+    }
+
+    [Theory]
+    [InlineData("Enterprise", 0x04u)]
+    [InlineData("EnterpriseS", 0x7Du)]
+    [InlineData("Education", 0x79u)]
+    [InlineData("IoTEnterprise", 0xBCu)]
+    [InlineData("IoTEnterpriseS", 0xBFu)]
+    public void EnterpriseEducationAndIotHaveNoEditionRow(string edition, uint product)
+    {
+        var rows = MachineRows.Build(On(edition, product, "25H2", 26200), AfterHome24H2);
+        Assert.DoesNotContain(rows, r => r.Item.StartsWith("edition.", StringComparison.Ordinal));
     }
 
     [Fact]
