@@ -48,11 +48,14 @@ public sealed class EngineSupervisor : IAsyncDisposable
     private readonly TimeProvider _time;
     private readonly RestartBackoff _backoff;
     private readonly CancellationTokenSource _stop = new();
+    private readonly Func<bool> _supervised;
     private Task _loop = Task.CompletedTask;
 
-    public EngineSupervisor(Func<IEngineProcess?>? start = null, TimeProvider? time = null, RestartBackoff? backoff = null)
+    public EngineSupervisor(Func<IEngineProcess?>? start = null, TimeProvider? time = null, RestartBackoff? backoff = null,
+        Func<bool>? supervisedMachine = null)
     {
         _start = start ?? StartOwnEngine;
+        _supervised = supervisedMachine ?? IsSupervisedMachine;
         _time = time ?? TimeProvider.System;
         _backoff = backoff ?? new RestartBackoff();
     }
@@ -74,6 +77,12 @@ public sealed class EngineSupervisor : IAsyncDisposable
     {
         if (IsWatching)
             return;
+        // An installed, supervised machine's engine is the supervisor's: the desk attaches to it on loopback and never starts its own.
+        if (_supervised())
+        {
+            Note?.Invoke("This machine's engine is kept by its supervisor — the desk attaches to it.");
+            return;
+        }
         _loop = WatchAsync(_stop.Token);
     }
 
@@ -139,6 +148,15 @@ public sealed class EngineSupervisor : IAsyncDisposable
             Trace.WriteLine("PlayMap: the engine did not start: " + ex.Message);
             return null;
         }
+    }
+
+    /// <summary>Whether the installer made this a supervised machine (HKLM\SOFTWARE\PlayMap, Supervised = 1).</summary>
+    public static bool IsSupervisedMachine()
+    {
+        if (!OperatingSystem.IsWindows())
+            return false;
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\PlayMap");
+        return key?.GetValue("Supervised") is int supervised && supervised != 0;
     }
 
     public async ValueTask DisposeAsync()

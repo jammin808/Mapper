@@ -1,0 +1,119 @@
+[
+  {
+    "title": "Install",
+    "path": "machine.install",
+    "light": "light",
+    "words": "{words}",
+    "fields": [
+      {
+        "label": "Installed",
+        "path": "installed"
+      },
+      {
+        "label": "Version",
+        "path": "msi"
+      },
+      {
+        "label": "Folder",
+        "path": "dir"
+      },
+      {
+        "label": "Supervised",
+        "path": "supervised"
+      },
+      {
+        "label": "Show user",
+        "path": "showUser"
+      },
+      {
+        "label": "Edition",
+        "path": "edition"
+      },
+      {
+        "label": "Signed",
+        "path": "signed"
+      }
+    ],
+    "actions": [
+      "PREFLIGHT QUICK",
+      "HEALTH"
+    ]
+  },
+  {
+    "title": "Supervisor",
+    "path": "machine.install.supervisor",
+    "light": {
+      "path": "state",
+      "red": [
+        "stopped-too-many-restarts"
+      ],
+      "amber": [
+        "waiting-for-session",
+        "backoff",
+        "held",
+        "stopping"
+      ],
+      "green": [
+        "running",
+        "starting"
+      ]
+    },
+    "words": "{state} \u00B7 {restarts} restarts in ten minutes{lastCause? \u00B7 {lastCause}:}",
+    "fields": [
+      {
+        "label": "State",
+        "path": "state"
+      },
+      {
+        "label": "Engine pid",
+        "path": "pid"
+      },
+      {
+        "label": "Restarts",
+        "path": "restarts"
+      },
+      {
+        "label": "Last cause",
+        "path": "lastCause"
+      },
+      {
+        "label": "Freeze rule",
+        "path": "freezeRule"
+      },
+      {
+        "label": "At",
+        "path": "at"
+      }
+    ],
+    "actions": [
+      "PREFLIGHT QUICK"
+    ]
+  },
+  {
+    "title": "Auto-logon",
+    "path": "machine.install.autoLogon",
+    "light": [
+      {
+        "if": "on",
+        "light": "green"
+      },
+      {
+        "light": "amber"
+      }
+    ],
+    "words": "{on?signs in {user}:off}",
+    "fields": [
+      {
+        "label": "On",
+        "path": "on"
+      },
+      {
+        "label": "User",
+        "path": "user"
+      }
+    ],
+    "actions": [
+      "PREFLIGHT QUICK"
+    ]
+  }
+]
