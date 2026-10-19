@@ -140,13 +140,14 @@ public sealed record InstallFacts(
     private static InstallFacts ReadWindows(string supervisorFolder)
     {
         using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\PlayMap");
+        // A folder run reads nothing more: the block is the same on every machine that has no install.
+        if (key is null)
+            return NotInstalled;
         using var logon = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon");
         using var current = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
         var autoLogon = logon?.GetValue("AutoAdminLogon") as string == "1";
         var autoUser = autoLogon ? logon?.GetValue("DefaultUserName") as string ?? "" : "";
         var edition = current?.GetValue("EditionID") as string ?? "";
-        if (key is null)
-            return NotInstalled with { AutoLogon = autoLogon, AutoLogonUser = autoUser, Edition = edition };
         var status = Path.Combine(supervisorFolder, "status.json");
         SupervisorReport? report = null;
         try

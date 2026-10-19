@@ -1,0 +1,11 @@
+# Visual Studio components the pinned WiX source builds with (its README's list: the v143 C++ tools and ATL for x64, x86 and
+# ARM64, ARM64EC, and the Spectre-mitigated libraries), added to the runner's Visual Studio 2026 before the build.
+Microsoft.VisualStudio.Component.VC.v143.x86.x64
+Microsoft.VisualStudio.Component.VC.v143.ARM64
+Microsoft.VisualStudio.Component.VC.v143.ARM64EC
+Microsoft.VisualStudio.Component.VC.v143.ATL
+Microsoft.VisualStudio.Component.VC.v143.ATL.ARM64
+Microsoft.VisualStudio.Component.VC.v143.x86.x64.Spectre
+Microsoft.VisualStudio.Component.VC.v143.ARM64.Spectre
+Microsoft.VisualStudio.Component.VC.v143.ATL.Spectre
+Microsoft.VisualStudio.Component.VC.v143.ATL.ARM64.Spectre

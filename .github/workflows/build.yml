@@ -388,7 +388,7 @@ jobs:
         shell: pwsh
         run: |
           $pin = Get-Content installer/wix/toolset.json -Raw | ConvertFrom-Json
-          $key = (Get-FileHash installer/wix/toolset.json).Hash.Substring(0, 12) + '-' + (Get-FileHash installer/wix/build-toolset.cmd).Hash.Substring(0, 12)
+          $key = (Get-FileHash installer/wix/toolset.json).Hash.Substring(0, 12) + '-' + (Get-FileHash installer/wix/build-toolset.cmd).Hash.Substring(0, 12) + '-' + (Get-FileHash installer/wix/vs-components.txt).Hash.Substring(0, 12)
           "commit=$($pin.commit)", "key=$key" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
       - name: The toolset's cache
         id: cache
@@ -416,6 +416,15 @@ jobs:
           # The packages carry a version of PlayMap's own (the tag with its suffix), so none is ever taken for nuget.org's.
           git -C $src tag "$($pin.tag)-$($pin.suffix)"
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          # WiX's README asks for Visual Studio's v143 C++ tools and ATL (x64, x86, ARM64); the runner's Visual Studio 2026 carries its
+          # own v145 tools only, and the pinned source's native packages are laid out by toolset, so the v143 components are added.
+          $clock = [System.Diagnostics.Stopwatch]::StartNew()
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          $components = Get-Content installer/wix/vs-components.txt | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $vsArgs = @('modify', '--installPath', $vs, '--quiet', '--norestart', '--force') + ($components | ForEach-Object { '--add', $_ })
+          $p = Start-Process $installer -ArgumentList $vsArgs -Wait -PassThru
+          "- Visual Studio's v143 components added in $([math]::Round($clock.Elapsed.TotalMinutes, 1)) minutes (installer exit $($p.ExitCode))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          if ($p.ExitCode -notin 0, 3010) { throw "Visual Studio's installer answered $($p.ExitCode)" }
           $dev = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
           $clock = [System.Diagnostics.Stopwatch]::StartNew()
           cmd /c "`"$dev`" -no_logo && `"$PWD\installer\wix\build-toolset.cmd`" `"$src\src`""
