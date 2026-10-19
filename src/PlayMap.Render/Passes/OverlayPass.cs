@@ -24,7 +24,7 @@ public sealed class OverlayPass : IFramePass
     private const float Selected = 17f;
     private const int Segments = 32;
 
-    private static readonly VertexAttribute[] Layout =
+    internal static readonly VertexAttribute[] Layout =
     [
         new(0, 2, Floats * 4, 0),
         new(1, 4, Floats * 4, 8),
@@ -142,7 +142,7 @@ public sealed class OverlayPass : IFramePass
         {
             var buffer = _device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
             _device.SetBufferData<float>(buffer, new float[Floats * 3]);
-            var cursors = _device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
+            var cursors = _device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex | BufferUsage.Dynamic));
             _device.SetBufferData<float>(cursors, new float[Floats * 3]);
             e = new Entry
             {

@@ -51,7 +51,7 @@ public readonly record struct EffectUniforms(int Mode, Vector4 Params, ColorRgb 
 /// shades it as the light goes round.</summary>
 internal sealed class EffectGenerator : GeneratorRenderer
 {
-    private static readonly VertexAttribute[] Layout =
+    internal static readonly VertexAttribute[] Layout =
     [
         new(0, 3, 32, 0),
         new(1, 3, 32, 12),

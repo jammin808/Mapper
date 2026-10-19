@@ -215,10 +215,13 @@ public sealed class GlBackend : IGpuDevice, IProgramLane
         return buffer;
     }
 
+    /// <summary>The store is orphaned and filled again (GL renames it: draws issued before keep the old content), a dynamic buffer's
+    /// as a streaming store, any other's as a static one.</summary>
     public void SetBufferData<T>(GpuBuffer buffer, ReadOnlySpan<T> data) where T : unmanaged
     {
+        ArgumentNullException.ThrowIfNull(buffer);
         ThrowIfDisposed();
-        _device.SetBufferData(buffer, data);
+        _device.SetBufferData(buffer, data, dynamic: (buffer.Usage & BufferUsage.Dynamic) != 0);
     }
 
     public GpuMesh CreateMesh(ReadOnlySpan<VertexAttribute> attributes, GpuBuffer? vertices, GpuBuffer? indices = null,

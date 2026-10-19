@@ -498,6 +498,125 @@ public sealed class GlBackendTests(BackendFixture backends)
         });
     }
 
+    private const string MatrixFs = """
+        in vec2 vUv;
+        uniform mat4 uM4;
+        uniform mat3 uM3;
+        uniform int uWhich;
+        out vec4 oColor;
+        void main() {
+            vec4 row = uM4 * vec4(1.0, 0.0, 0.0, 0.0);
+            vec3 column = uM3 * vec3(1.0, 0.0, 0.0);
+            oColor = uWhich == 0 ? vec4(row.xyz, 1.0) : vec4(column, 1.0);
+        }
+        """;
+
+    [Fact]
+    public async Task AFloat4x4IsARowVectorTransformAndAFloat3x3AColumnVectorOne()
+    {
+        var making = backends.RunGl(c => c.Backend.CreateProgramAsync(Glsl("matrix conventions", FullscreenVs, MatrixFs), CancellationToken.None));
+        Assert.True(backends.RunGl(c => BackendFrames.Until(c.Backend, () => making.IsCompleted)));
+        var made = await making;
+        Assert.True(made.Ok, made.Stage + ": " + made.Words);
+        // Neither is symmetric: its first row and first column differ.
+        var m4 = new Matrix4x4(0.2f, 0.4f, 0.6f, 0f, 0.9f, 0.1f, 0.3f, 0f, 0.5f, 0.7f, 0.8f, 0f, 0f, 0f, 0f, 1f);
+        var m3 = new Matrix3x3(0.2f, 0.4f, 0.6f, 0.9f, 0.1f, 0.3f, 0.5f, 0.7f, 0.8f);
+        var (row, column) = backends.RunGl(c =>
+        {
+            var b = c.Backend;
+            using var a = b.CreateTarget(new TargetDesc(4, 4, TextureFormat.Rgba8));
+            using var z = b.CreateTarget(new TargetDesc(4, 4, TextureFormat.Rgba8));
+            BackendFrames.Run(b, list =>
+            {
+                list.BeginPass(a, PassDesc.ClearBlack);
+                list.Draw(made.Id, DrawState.Opaque).Set("uM4", in m4).Set("uM3", in m3).SetInt("uWhich", 0).Fullscreen();
+                list.EndPass();
+                list.BeginPass(z, PassDesc.ClearBlack);
+                list.Draw(made.Id, DrawState.Opaque).Set("uM4", in m4).Set("uM3", in m3).SetInt("uWhich", 1).Fullscreen();
+                list.EndPass();
+            });
+            var result = (Pixels.At(Pixels.Read(b, a), 4, 1, 1), Pixels.At(Pixels.Read(b, z), 4, 1, 1));
+            b.ReleaseProgram(made.Id);
+            Assert.Empty(c.Device.TakeErrors());
+            return result;
+        });
+        // GLSL's m * v of a mat4 as set is v·M (M's first row); of a mat3 it is M·v (M's first column).
+        Pixels.Near((51, 102, 153), row, 1);
+        Pixels.Near((51, 230, 128), column, 1);
+    }
+
+    [Fact]
+    public void OpaqueWritesAllFourChannelsAndABlendedModeKeepsTheTargetsAlpha()
+    {
+        backends.RunGl(c =>
+        {
+            var b = c.Backend;
+            var solid = b.Programs.Id("solid");
+            byte AlphaAfter(BlendMode mode)
+            {
+                using var target = b.CreateTarget(new TargetDesc(4, 4, TextureFormat.Rgba8));
+                BackendFrames.Pass(b, target, PassDesc.ClearBlack, list =>
+                    list.Draw(solid, new DrawState(mode, DepthMode.Off, CullMode.None, Topology.Triangles)).Set("uColor", 1f, 0f, 0f, 0.5f).Fullscreen());
+                return Pixels.Read(b, target)[3];
+            }
+            Assert.InRange(AlphaAfter(BlendMode.Opaque), 127, 128);
+            foreach (var mode in new[] { BlendMode.Normal, BlendMode.Premultiplied, BlendMode.Add, BlendMode.AddPremultiplied, BlendMode.Multiply, BlendMode.Screen })
+                Assert.Equal(255, AlphaAfter(mode));
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
+    [Fact]
+    public void ASetReplacesABuffersContentForLaterDrawsAndEarlierDrawsKeepTheirs()
+    {
+        static float[] Triangle(float r, float g, float bl) => [-8, -8, r, g, bl, 1, 24, -8, r, g, bl, 1, -8, 24, r, g, bl, 1];
+        backends.RunGl(c =>
+        {
+            var b = c.Backend;
+            var shapes = b.Programs.Id("overlay.shapes");
+            using var buffer = b.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
+            using var stream = b.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex | BufferUsage.Dynamic));
+            Assert.Equal((0L, 0L), (buffer.Bytes, stream.Bytes));
+            var red = Triangle(1, 0, 0);
+            b.SetBufferData<float>(buffer, red);
+            b.SetBufferData<float>(stream, red);
+            Assert.Equal(red.Length * 4L, buffer.Bytes);
+            using var mesh = b.CreateMesh(Passes.OverlayPass.Layout, buffer);
+            using var first = b.CreateTarget(new TargetDesc(8, 8, TextureFormat.Rgba8));
+            using var second = b.CreateTarget(new TargetDesc(8, 8, TextureFormat.Rgba8));
+            BackendFrames.Run(b, list =>
+            {
+                list.BeginPass(first, PassDesc.ClearBlack);
+                list.Draw(shapes, DrawState.Opaque).Set("uTarget", 8f, 8f).Vertices(mesh, 3);
+                list.EndPass();
+                // Set again between two draws of one list: the draw before keeps the content it was recorded with, the one after
+                // reads the new.
+                b.SetBufferData<float>(buffer, Triangle(0, 1, 0));
+                list.BeginPass(second, PassDesc.ClearBlack);
+                list.Draw(shapes, DrawState.Opaque).Set("uTarget", 8f, 8f).Vertices(mesh, 3);
+                list.EndPass();
+            });
+            Assert.Equal((255, 0, 0), Pixels.At(Pixels.Read(b, first), 8, 2, 2));
+            Assert.Equal((0, 255, 0), Pixels.At(Pixels.Read(b, second), 8, 2, 2));
+            // Bytes is the content last set, whatever store holds it.
+            b.SetBufferData<float>(buffer, Triangle(0, 0, 1).AsSpan(0, 12));
+            Assert.Equal(12 * 4L, buffer.Bytes);
+            Assert.True(((GlBuffer)buffer).Capacity >= red.Length * 4);
+            // The store is static for a mesh, streaming for a dynamic buffer.
+            var api = c.Device.Gl;
+            int UsageOf(GpuBuffer g)
+            {
+                api.BindBuffer(BufferTargetARB.ArrayBuffer, ((GlBuffer)g).Id);
+                api.GetBufferParameter(BufferTargetARB.ArrayBuffer, BufferPNameARB.Usage, out int usage);
+                api.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
+                return usage;
+            }
+            Assert.Equal((int)GLEnum.StaticDraw, UsageOf(buffer));
+            Assert.Equal((int)GLEnum.StreamDraw, UsageOf(stream));
+            Assert.Empty(c.Device.TakeErrors());
+        });
+    }
+
     [Fact]
     public void TheImporterRefusesWhatItCannotImportWithWords()
     {

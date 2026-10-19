@@ -87,14 +87,24 @@ public interface IGpuDevice : IDisposable
 
     RenderTarget CreateTarget(in TargetDesc desc);
 
+    /// <summary>A buffer of the uses asked; a desc of 0 bytes makes no store until the first set (Direct3D 12 makes no 0-byte
+    /// resource).</summary>
     GpuBuffer CreateBuffer(in BufferDesc desc);
 
+    /// <summary>Replaces the buffer's content with <paramref name="data"/> for the draws recorded after this call; the draws recorded
+    /// or submitted before it keep the content they were recorded with (the backend renames the store and releases the old one at
+    /// the last fence that read it). <see cref="GpuBuffer.Bytes"/> is then the data's size. Render thread.</summary>
     void SetBufferData<T>(GpuBuffer buffer, ReadOnlySpan<T> data) where T : unmanaged;
 
     GpuMesh CreateMesh(ReadOnlySpan<VertexAttribute> attributes, GpuBuffer? vertices, GpuBuffer? indices = null,
         GpuBuffer? instances = null);
 
-    /// <summary>The frame's direct list (render thread).</summary>
+    /// <summary>A direct list for frame <paramref name="frame"/> (render thread), submitted with <see cref="Submit"/> before the next
+    /// list opens. One frame number may open several lists in turn — the frame's own, then a list for each preview drawn after it, a
+    /// resolve or an upload asked between frames — and a list outside the renderer's frames is numbered 0 or below them: the number is a
+    /// label (it names the frame's timestamps, <see cref="IGpuTimers"/>), not a list's identity. A backend fences what a list used
+    /// (command memory, ring pages, constants, released resources) by the <see cref="FenceValue"/> its <see cref="Submit"/> returns,
+    /// never by the frame number.</summary>
     ICommandList BeginFrame(long frame);
 
     FenceValue Submit(ICommandList list);

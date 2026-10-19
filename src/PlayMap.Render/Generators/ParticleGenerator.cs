@@ -12,7 +12,7 @@ namespace PlayMap.Render.Generators;
 internal sealed class ParticleGenerator : GeneratorRenderer
 {
     internal const int Sprite = 128;
-    private static readonly VertexAttribute[] Layout =
+    internal static readonly VertexAttribute[] Layout =
     [
         new(0, 4, ParticleSim.InstanceFloats * 4, 0, Buffer: 1, Divisor: 1),
         new(1, 4, ParticleSim.InstanceFloats * 4, 16, Buffer: 1, Divisor: 1),
@@ -44,7 +44,7 @@ internal sealed class ParticleGenerator : GeneratorRenderer
     {
         _sprite = Device.Programs.Id("sprite");
         _target = Device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F));
-        _instances = Device.CreateBuffer(new BufferDesc(0, BufferUsage.Instance));
+        _instances = Device.CreateBuffer(new BufferDesc(0, BufferUsage.Instance | BufferUsage.Dynamic));
         Device.SetBufferData<float>(_instances, new float[ParticleSim.InstanceFloats]);
         _mesh = Device.CreateMesh(Layout, null, null, _instances);
         _atlas = Device.CreateTexture(new TextureDesc(Sprite * 5, Sprite, TextureFormat.Rgba8, FrameLists.Uploaded));

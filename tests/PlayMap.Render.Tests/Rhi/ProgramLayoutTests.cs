@@ -1,6 +1,9 @@
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Gpu.Programs;
 using PlayMap.Core.Storage;
+using PlayMap.Render.Generators;
+using PlayMap.Render.Passes;
+using PlayMap.Render.Projection;
 using PlayMap.Render.Shaders;
 using Silk.NET.OpenGL;
 
@@ -8,7 +11,8 @@ namespace PlayMap.Render.Tests.Rhi;
 
 /// <summary>The program table (<c>src/PlayMap.Core/Gpu/Programs/programs.layout.json</c>, embedded in Core) is the GLSL library's
 /// declarations: every program in the library's order, each listing exactly the uniforms and samplers its sources declare, by name and
-/// type, packed by the block's rules; no two programs share a name. GL itself agrees: every uniform the linked program keeps active is
+/// type, packed by the block's rules, and the vertex inputs of the one mesh layout its passes draw it with, which its vertex stage
+/// declares; no two programs share a name. GL itself agrees: every uniform the linked program keeps active is
 /// in the table with the same type and count, in both dialects. PLAYMAP_WRITE_FIXTURES=1 writes the file from the sources; the table
 /// changes only with them. Every name the renderer's sources set or bind in a draw is in the layout of the program that draw is of
 /// (<see cref="DrawChainScan"/>).</summary>
@@ -24,12 +28,27 @@ public sealed class ProgramLayoutTests(BackendFixture backends)
         return Path.Combine(root, "src", "PlayMap.Core", "Gpu", "Programs", "programs.layout.json");
     }
 
-    /// <summary>Every library program's layout, read from its GLSL, in the library's order.</summary>
+    /// <summary>The mesh layout each program that reads a vertex buffer is drawn with, as the passes that draw it make their meshes:
+    /// one layout per program (the stage's surfaces and the stage effect's plane make the same).</summary>
+    private static readonly (string Program, VertexAttribute[] Layout)[] CallSites =
+    [
+        ("stage", SurfaceMesh.Layout),
+        ("stage", EffectGenerator.Layout),
+        ("output", GpuWarp.Layout),
+        ("sprite", ParticleGenerator.Layout),
+        ("lines", StageRenderer.LineLayout),
+        ("pixelsurface", StageRenderer.PixelLayout),
+        ("overlay.shapes", OverlayPass.Layout),
+    ];
+
+    /// <summary>Every library program's layout, read from its GLSL, in the library's order, with the vertex inputs its passes draw it
+    /// with.</summary>
     private static List<ProgramLayout> FromGlsl() =>
         [.. ShaderLibrary.Names.Select(n =>
         {
             var (vs, fs) = ShaderLibrary.Source(n);
-            return GlslDeclarations.Layout(n, vs, fs);
+            var inputs = CallSites.FirstOrDefault(c => c.Program == n).Layout ?? [];
+            return GlslDeclarations.Layout(n, vs, fs) with { Inputs = [.. inputs] };
         })];
 
     [Fact]
@@ -56,6 +75,22 @@ public sealed class ProgramLayoutTests(BackendFixture backends)
             Assert.Equal(want.Textures.Select(t => (t.Name, t.Sampled)), got.Textures.Select(t => (t.Name, t.Sampled)));
             Assert.Equal(want, got);
         }
+    }
+
+    [Fact]
+    public void EveryMeshAPassDrawsIsItsProgramsInputsAndTheVertexStageDeclaresThem()
+    {
+        var table = new ProgramTable();
+        // Each pass's mesh layout is the table's for the program it draws: one layout per program.
+        foreach (var (program, layout) in CallSites)
+            Assert.Equal(layout, table.Layout(table.Id(program)).Inputs.ToArray());
+        // The vertex stage declares exactly those inputs (location and float count); a program with none reads no vertex buffer.
+        foreach (var name in ShaderLibrary.Names)
+        {
+            var declared = GlslDeclarations.VertexInputs(ShaderLibrary.Source(name).Vertex);
+            Assert.Equal(declared, table.Layout(table.Id(name)).Inputs.Select(a => (a.Location, a.Components)));
+        }
+        Assert.Equal(6, ProgramTable.Product.Count(p => !p.Inputs.IsEmpty));
     }
 
     [Fact]

@@ -120,7 +120,8 @@ public interface IDrawSink
 /// the layout does not hold writes nothing (a programming error the layout tests catch, never a look-up failure mid-frame), as does
 /// a value of the wrong kind for its constant (a float into an int, a vector into a matrix); a vector of fewer components than its
 /// constant writes those it has. A matrix's rows each start a 16-byte register, row r at offset + 16·r, in System.Numerics' row
-/// order. Each name that writes nothing is told to the sink (<see cref="IDrawSink.Missed"/>).</summary>
+/// order; a 4×4 is a row-vector transform and a 3×3 a column-vector one (<see cref="ConstantType"/>). Each name that writes nothing is
+/// told to the sink (<see cref="IDrawSink.Missed"/>).</summary>
 public readonly ref struct DrawBuilder
 {
     private readonly IDrawSink? _sink;
@@ -160,10 +161,12 @@ public readonly ref struct DrawBuilder
 
     public DrawBuilder Set(string name, Vector4 v) => SetFloats(name, v, 4);
 
-    /// <summary>A 4×4 matrix in System.Numerics' row-vector layout, its rows written in order.</summary>
+    /// <summary>A 4×4 matrix in System.Numerics' row-vector layout, its rows written in order: the shader computes v·M
+    /// (<see cref="ConstantType"/>).</summary>
     public DrawBuilder Set(string name, in Matrix4x4 m) => TrySlot(name, out var slot) ? Write(slot, m, name) : Missed(name);
 
-    /// <summary>A 3×3 matrix, row-major: its three rows each start a register.</summary>
+    /// <summary>A 3×3 matrix, row-major: its three rows each start a register, and the shader computes M·v (a column-vector
+    /// transform, <see cref="ConstantType"/>).</summary>
     public DrawBuilder Set(string name, in Matrix3x3 m) => TrySlot(name, out var slot) ? Write(slot, m, name) : Missed(name);
 
     public DrawBuilder SetInt(string name, int value) => TrySlot(name, out var slot) ? Write(slot, value, name) : Missed(name);
@@ -191,10 +194,10 @@ public readonly ref struct DrawBuilder
 
     public DrawBuilder Set(ConstantId id, Vector4 v) => SetFloats(id, v, 4);
 
-    /// <summary>A 4×4 matrix in System.Numerics' row-vector layout, its rows written in order.</summary>
+    /// <summary>A 4×4 matrix in System.Numerics' row-vector layout, its rows written in order: the shader computes v·M.</summary>
     public DrawBuilder Set(ConstantId id, in Matrix4x4 m) => TrySlot(id, out var slot) ? Write(slot, m, id.Name) : Missed(id.Name);
 
-    /// <summary>A 3×3 matrix, row-major: its three rows each start a register.</summary>
+    /// <summary>A 3×3 matrix, row-major: its three rows each start a register, and the shader computes M·v.</summary>
     public DrawBuilder Set(ConstantId id, in Matrix3x3 m) => TrySlot(id, out var slot) ? Write(slot, m, id.Name) : Missed(id.Name);
 
     public DrawBuilder SetInt(ConstantId id, int value) => TrySlot(id, out var slot) ? Write(slot, value, id.Name) : Missed(id.Name);

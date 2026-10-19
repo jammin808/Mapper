@@ -40,7 +40,7 @@ public sealed record EditorCamera(
 internal sealed class StageRenderer : IDisposable
 {
     private const int LineFloats = 7;
-    private static readonly VertexAttribute[] LineLayout =
+    internal static readonly VertexAttribute[] LineLayout =
     [
         new(0, 3, LineFloats * 4, 0),
         new(1, 4, LineFloats * 4, 12),
@@ -99,7 +99,7 @@ internal sealed class StageRenderer : IDisposable
         _stage = device.Programs.Id("stage");
         _pixel = device.Programs.Id("pixelsurface");
         _lineProgram = device.Programs.Id("lines");
-        _lineBuffer = device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
+        _lineBuffer = device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex | BufferUsage.Dynamic));
         device.SetBufferData<float>(_lineBuffer, new float[LineFloats * 2]);
         _lineMesh = device.CreateMesh(LineLayout, _lineBuffer);
     }
@@ -391,7 +391,7 @@ internal sealed class StageRenderer : IDisposable
         }
     }
 
-    private static readonly VertexAttribute[] PixelLayout =
+    internal static readonly VertexAttribute[] PixelLayout =
     [
         new(0, 2, PixelQuadMath.VertexFloats * 4, 0),
         new(1, 3, PixelQuadMath.VertexFloats * 4, 8),

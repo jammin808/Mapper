@@ -122,12 +122,11 @@ public sealed class GlBuffer : GpuBuffer
 
     public BufferKind Kind { get; }
 
-    /// <summary>Bytes allocated (it grows; it never shrinks).</summary>
-    public int Capacity
-    {
-        get => (int)Bytes;
-        internal set => Bytes = value;
-    }
+    /// <summary>Bytes the GL store holds (it grows; it never shrinks); <see cref="GpuBuffer.Bytes"/> is the content's size.</summary>
+    public int Capacity { get; internal set; }
+
+    /// <summary>The content's size: the bytes last set, or the size reserved before any set.</summary>
+    internal void SetContent(long bytes) => Bytes = bytes;
 
     protected override void Dispose(bool disposing)
     {

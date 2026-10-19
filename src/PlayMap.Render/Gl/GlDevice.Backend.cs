@@ -193,10 +193,11 @@ public sealed unsafe partial class GlDevice
         if (buffer.Kind == BufferKind.Index)
             BindVertexArrayId(0);
         _gl.BindBuffer(target, buffer.Id);
-        _gl.BufferData(target, (nuint)bytes, null, GLEnum.StreamDraw);
+        _gl.BufferData(target, (nuint)bytes, null, (buffer.Usage & BufferUsage.Dynamic) != 0 ? GLEnum.StreamDraw : GLEnum.StaticDraw);
         if (buffer.Kind == BufferKind.Vertex)
             _gl.BindBuffer(target, 0);
         buffer.Capacity = (int)Math.Min(bytes, int.MaxValue);
+        buffer.SetContent(buffer.Capacity);
         Check("buffer");
     }
 }

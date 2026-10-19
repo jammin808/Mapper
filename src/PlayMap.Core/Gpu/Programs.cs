@@ -7,7 +7,12 @@ namespace PlayMap.Core.Gpu;
 /// <summary>A program of the library by index: resolved once, at a pass's construction, from its name.</summary>
 public readonly record struct ProgramId(int Value);
 
-/// <summary>A constant's type, the same on every backend (GLSL's float, vec2–4, int, ivec2, ivec4, mat3, mat4; HLSL's float…float4x4).</summary>
+/// <summary>A constant's type, the same on every backend (GLSL's float, vec2–4, int, ivec2, ivec4, mat3, mat4; HLSL's float…float4x4).
+///
+/// The two matrix types are read the opposite ways round, as the GLSL library reads them: a <see cref="Float4x4"/> holds a row-vector
+/// transform (System.Numerics' convention: the shader computes v·M — GLSL <c>m * v</c> of the block as set; HLSL <c>row_major</c> with
+/// <c>mul(v, M)</c>); a <see cref="Float3x3"/> holds a column-vector transform (a normal matrix N = R·S⁻¹ as built: the shader computes
+/// M·v — GLSL <c>m * v</c>; HLSL <c>row_major</c> with <c>mul(M, v)</c>). Both lay their rows one register each.</summary>
 public enum ConstantType
 {
     Float,
@@ -124,7 +129,13 @@ public static class ConstantTypes
 /// The block's layout: a scalar or vector sits at the next offset where it does not cross a 16-byte register; a matrix, and every
 /// element of an array, starts a register; a matrix's rows each start a register (row r at offset + 16·r, the System.Numerics
 /// row order); what follows packs into the space after the last row or element. <see cref="ConstantBytes"/> is the block rounded up
-/// to a whole register.</summary>
+/// to a whole register.
+///
+/// <see cref="Inputs"/> is the vertex input layout the program is drawn with (the one mesh layout every pass that draws it makes):
+/// each attribute's location, float count, stride and offset in its buffer, the buffer (0 the vertices, 1 the instances) and its
+/// divisor — what a backend's pipeline state needs before any mesh is at hand (Direct3D 12's input layout, semantic <c>ATTR</c>n for
+/// location n). Empty for a program that makes its geometry from the vertex index (a fullscreen triangle, a generated quad) and for a
+/// user program.</summary>
 public sealed record ProgramLayout(string Name, ImmutableArray<ConstantSlot> Constants, ImmutableArray<TextureSlot> Textures,
     int ConstantBytes)
 {
@@ -136,6 +147,15 @@ public sealed record ProgramLayout(string Name, ImmutableArray<ConstantSlot> Con
     public ImmutableArray<ConstantSlot> Constants { get; } = Constants.IsDefault ? [] : Constants;
     public ImmutableArray<TextureSlot> Textures { get; } = Textures.IsDefault ? [] : Textures;
     public int ConstantBytes { get; } = ConstantBytes;
+
+    /// <summary>The vertex inputs the program is drawn with, in location order; empty when it reads no vertex buffer.</summary>
+    public ImmutableArray<VertexAttribute> Inputs
+    {
+        get => _inputs;
+        init => _inputs = value.IsDefault ? [] : value;
+    }
+
+    private readonly ImmutableArray<VertexAttribute> _inputs = [];
 
     /// <summary>The slot of a constant by name, from a frozen table built once: no allocation on look-up. An array answers by its
     /// name (element 0, with its count) and by each element's name (<c>uColors[3]</c>: that element's offset, a count of 1).</summary>
@@ -176,10 +196,11 @@ public sealed record ProgramLayout(string Name, ImmutableArray<ConstantSlot> Con
         return new ProgramLayout(name, slots.ToImmutable(), units.ToImmutable(), ConstantTypes.Register(offset));
     }
 
-    /// <summary>Two layouts are equal when they hold the same name, block size, constants and textures, in the same order.</summary>
+    /// <summary>Two layouts are equal when they hold the same name, block size, constants, textures and vertex inputs, in the same
+    /// order.</summary>
     public bool Equals(ProgramLayout? other) =>
         other is not null && Name == other.Name && ConstantBytes == other.ConstantBytes
-        && Constants.SequenceEqual(other.Constants) && Textures.SequenceEqual(other.Textures);
+        && Constants.SequenceEqual(other.Constants) && Textures.SequenceEqual(other.Textures) && Inputs.SequenceEqual(other.Inputs);
 
     public override int GetHashCode()
     {
@@ -190,6 +211,8 @@ public sealed record ProgramLayout(string Name, ImmutableArray<ConstantSlot> Con
             h.Add(c);
         foreach (var t in Textures)
             h.Add(t);
+        foreach (var a in Inputs)
+            h.Add(a);
         return h.ToHashCode();
     }
 

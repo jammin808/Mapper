@@ -295,6 +295,7 @@ public sealed unsafe partial class GlDevice : IFenceSignals
                 _gl.BufferSubData(target, 0, (nuint)bytes, p);
         if (gl.Kind == BufferKind.Vertex)
             _gl.BindBuffer(target, 0);
+        gl.SetContent(bytes);
         Check("buffer");
     }
 

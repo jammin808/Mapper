@@ -18,6 +18,17 @@ internal static partial class GlslDeclarations
     [GeneratedRegex(@"^(\w+)\s*(?:\[\s*(\d+)\s*\])?$")]
     private static partial Regex Declarator();
 
+    [GeneratedRegex(@"\blayout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*in\s+(?:(?:highp|mediump|lowp)\s+)?(float|vec2|vec3|vec4)\s+\w+\s*;")]
+    private static partial Regex VertexInput();
+
+    /// <summary>The vertex inputs a vertex stage declares (<c>layout(location = n) in vecK name;</c>): each location and its float
+    /// count, in location order.</summary>
+    public static List<(int Location, int Components)> VertexInputs(string vertex) =>
+        [.. VertexInput().Matches(Comments().Replace(vertex, " "))
+            .Select(m => (int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+                m.Groups[2].Value == "float" ? 1 : m.Groups[2].Value[^1] - '0'))
+            .OrderBy(i => i.Item1)];
+
     public static ProgramLayout Layout(string name, string vertex, string fragment)
     {
         var constants = new List<(string Name, ConstantType Type, int Count)>();

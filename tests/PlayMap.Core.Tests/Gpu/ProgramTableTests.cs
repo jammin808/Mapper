@@ -90,6 +90,12 @@ public sealed class ProgramTableTests
         Assert.Equal(a, b);
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
         Assert.NotEqual(a, c);
+        // The vertex inputs are part of what a layout holds.
+        var meshed = a with { Inputs = [new VertexAttribute(0, 3, 32, 0), new VertexAttribute(1, 2, 32, 12)] };
+        Assert.NotEqual(a, meshed);
+        Assert.Equal(meshed, b with { Inputs = [new VertexAttribute(0, 3, 32, 0), new VertexAttribute(1, 2, 32, 12)] });
+        Assert.NotEqual(meshed, b with { Inputs = [new VertexAttribute(0, 3, 32, 0), new VertexAttribute(1, 2, 32, 12, Buffer: 1, Divisor: 1)] });
+        Assert.Empty(a.Inputs);
     }
 
     [Fact]
@@ -119,6 +125,10 @@ public sealed class ProgramTableTests
         [
             ProgramLayout.Pack("quad", [("uRect", ConstantType.Float4, 1), ("uMode", ConstantType.Int, 1), ("uM", ConstantType.Float4x4, 1)],
                 [("uTex", true)]),
+            ProgramLayout.Pack("sprite", [("uSize", ConstantType.Float2, 1)], [("uTex", true)]) with
+            {
+                Inputs = [new VertexAttribute(0, 4, 32, 0, Buffer: 1, Divisor: 1), new VertexAttribute(1, 4, 32, 16, Buffer: 1, Divisor: 1)],
+            },
             ProgramLayout.Pack("solid", [("uColor", ConstantType.Float4, 1)], []),
             ProgramLayout.Pack("present", [], [("uTex", true)]),
         ];
@@ -176,8 +186,13 @@ public sealed class ProgramTableTests
         Assert.Equal(product.Length, product.Select(p => p.Name).Distinct(StringComparer.Ordinal).Count());
         foreach (var p in product)
         {
-            var repacked = ProgramLayout.Pack(p.Name, p.Constants.Select(c => (c.Name, c.Type, c.Count)), p.Textures.Select(t => (t.Name, t.Sampled)));
+            var repacked = ProgramLayout.Pack(p.Name, p.Constants.Select(c => (c.Name, c.Type, c.Count)), p.Textures.Select(t => (t.Name, t.Sampled)))
+                with { Inputs = p.Inputs };
             Assert.Equal(repacked, p);
+            // Vertex inputs in location order, each in one of the two buffers, the instance buffer's stepping per instance.
+            Assert.Equal(p.Inputs.OrderBy(a => a.Location), p.Inputs);
+            Assert.All(p.Inputs, a => Assert.True(a.Buffer is 0 or 1 && a.Components is >= 1 and <= 4 && a.OffsetBytes + 4 * a.Components <= a.StrideBytes
+                && a.Divisor == a.Buffer, $"{p.Name}: {a}"));
             Assert.Equal(0, p.ConstantBytes % 16);
         }
         var table = new ProgramTable();

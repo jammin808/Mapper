@@ -6,7 +6,8 @@
       "constants": [],
       "textures": [
         { "name": "uTex", "slot": 0, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "blit",
@@ -16,7 +17,8 @@
       ],
       "textures": [
         { "name": "uTex", "slot": 0, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "solid",
@@ -24,7 +26,8 @@
       "constants": [
         { "name": "uColor", "type": "float4", "offset": 0, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "quad",
@@ -39,7 +42,8 @@
       ],
       "textures": [
         { "name": "uTex", "slot": 0, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "mix",
@@ -51,7 +55,8 @@
       "textures": [
         { "name": "uFrom", "slot": 0, "sampled": true },
         { "name": "uTo", "slot": 1, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "yuv",
@@ -70,7 +75,8 @@
         { "name": "uY", "slot": 0, "sampled": true },
         { "name": "uU", "slot": 1, "sampled": true },
         { "name": "uV", "slot": 2, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "stage",
@@ -95,6 +101,11 @@
       "textures": [
         { "name": "uSource", "slot": 0, "sampled": true },
         { "name": "uMask", "slot": 1, "sampled": true }
+      ],
+      "inputs": [
+        { "location": 0, "components": 3, "offset": 0, "stride": 32, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 3, "offset": 12, "stride": 32, "buffer": 0, "divisor": 0 },
+        { "location": 2, "components": 2, "offset": 24, "stride": 32, "buffer": 0, "divisor": 0 }
       ]
     },
     {
@@ -124,6 +135,10 @@
         { "name": "uBlend", "slot": 3, "sampled": true },
         { "name": "uMeasuredGrid", "slot": 4, "sampled": true },
         { "name": "uMeasuredBlend", "slot": 5, "sampled": true }
+      ],
+      "inputs": [
+        { "location": 0, "components": 2, "offset": 0, "stride": 16, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 2, "offset": 8, "stride": 16, "buffer": 0, "divisor": 0 }
       ]
     },
     {
@@ -136,6 +151,10 @@
       ],
       "textures": [
         { "name": "uTex", "slot": 0, "sampled": true }
+      ],
+      "inputs": [
+        { "location": 0, "components": 4, "offset": 0, "stride": 32, "buffer": 1, "divisor": 1 },
+        { "location": 1, "components": 4, "offset": 16, "stride": 32, "buffer": 1, "divisor": 1 }
       ]
     },
     {
@@ -144,7 +163,11 @@
       "constants": [
         { "name": "uViewProj", "type": "float4x4", "offset": 0, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": [
+        { "location": 0, "components": 3, "offset": 0, "stride": 28, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 4, "offset": 12, "stride": 28, "buffer": 0, "divisor": 0 }
+      ]
     },
     {
       "name": "checker",
@@ -155,7 +178,8 @@
         { "name": "uColorB", "type": "float4", "offset": 32, "count": 1 },
         { "name": "uSwap", "type": "int", "offset": 48, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "motion",
@@ -171,7 +195,8 @@
         { "name": "uAccent", "type": "float4", "offset": 32, "count": 1 },
         { "name": "uFlash", "type": "float", "offset": 48, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "colorcycle",
@@ -183,7 +208,8 @@
         { "name": "uInterval", "type": "float", "offset": 260, "count": 1 },
         { "name": "uFade", "type": "int", "offset": 264, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "syncmarks",
@@ -193,7 +219,8 @@
         { "name": "uLevel", "type": "float", "offset": 8, "count": 1 },
         { "name": "uPhase", "type": "float", "offset": 12, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "fractal.mandelbrot",
@@ -216,7 +243,8 @@
         { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
         { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "fractal.julia",
@@ -239,7 +267,8 @@
         { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
         { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "fractal.burningship",
@@ -262,7 +291,8 @@
         { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
         { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "fractal.newton",
@@ -285,7 +315,8 @@
         { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
         { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "fractal.warp",
@@ -308,7 +339,8 @@
         { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
         { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "reactive.plasma",
@@ -329,7 +361,8 @@
         { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
         { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "reactive.tunnel",
@@ -350,7 +383,8 @@
         { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
         { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "reactive.kaleidoscope",
@@ -371,7 +405,8 @@
         { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
         { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "reactive.pulse",
@@ -392,7 +427,8 @@
         { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
         { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "reactive.vortex",
@@ -413,7 +449,8 @@
         { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
         { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "reactive.starwarp",
@@ -434,7 +471,8 @@
         { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
         { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "content.psprite",
@@ -461,7 +499,8 @@
         { "name": "uS0", "slot": 0, "sampled": false },
         { "name": "uS1", "slot": 1, "sampled": false },
         { "name": "uTex", "slot": 2, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "content.pstep",
@@ -497,7 +536,8 @@
         { "name": "uS0", "slot": 0, "sampled": false },
         { "name": "uS1", "slot": 1, "sampled": false },
         { "name": "uPicture", "slot": 2, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "content.raymarch",
@@ -535,7 +575,8 @@
         { "name": "uP3", "type": "float3", "offset": 224, "count": 1 },
         { "name": "uP4", "type": "float3", "offset": 240, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": []
     },
     {
       "name": "fxmix",
@@ -548,7 +589,8 @@
       "textures": [
         { "name": "uInput", "slot": 0, "sampled": true },
         { "name": "uFx", "slot": 1, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "hap",
@@ -560,7 +602,8 @@
       "textures": [
         { "name": "uTex0", "slot": 0, "sampled": false },
         { "name": "uTex1", "slot": 1, "sampled": false }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "hapenc.bc1",
@@ -571,7 +614,8 @@
       ],
       "textures": [
         { "name": "uSrc", "slot": 0, "sampled": false }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "hapenc.bc3",
@@ -582,7 +626,8 @@
       ],
       "textures": [
         { "name": "uSrc", "slot": 0, "sampled": false }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "hapenc.bc4",
@@ -593,7 +638,8 @@
       ],
       "textures": [
         { "name": "uSrc", "slot": 0, "sampled": false }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "hapenc.ycocg",
@@ -604,7 +650,8 @@
       ],
       "textures": [
         { "name": "uSrc", "slot": 0, "sampled": false }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "led_patch",
@@ -620,7 +667,8 @@
         { "name": "uPatch", "slot": 1, "sampled": false },
         { "name": "uFix", "slot": 2, "sampled": false },
         { "name": "uAir", "slot": 3, "sampled": false }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "led_sample",
@@ -636,7 +684,8 @@
       "textures": [
         { "name": "uAttr", "slot": 0, "sampled": false },
         { "name": "uTex", "slot": 1, "sampled": true }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "overlay.shapes",
@@ -644,7 +693,11 @@
       "constants": [
         { "name": "uTarget", "type": "float2", "offset": 0, "count": 1 }
       ],
-      "textures": []
+      "textures": [],
+      "inputs": [
+        { "location": 0, "components": 2, "offset": 0, "stride": 24, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 4, "offset": 8, "stride": 24, "buffer": 0, "divisor": 0 }
+      ]
     },
     {
       "name": "pixelsurface",
@@ -658,6 +711,10 @@
       "textures": [
         { "name": "uSource", "slot": 0, "sampled": true },
         { "name": "uMask", "slot": 1, "sampled": true }
+      ],
+      "inputs": [
+        { "location": 0, "components": 2, "offset": 0, "stride": 20, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 3, "offset": 8, "stride": 20, "buffer": 0, "divisor": 0 }
       ]
     },
     {
@@ -671,7 +728,8 @@
       ],
       "textures": [
         { "name": "uPicture", "slot": 0, "sampled": false }
-      ]
+      ],
+      "inputs": []
     },
     {
       "name": "video.unpack",
@@ -687,7 +745,8 @@
         { "name": "uLuma", "slot": 0, "sampled": false },
         { "name": "uChroma", "slot": 1, "sampled": false },
         { "name": "uAlpha", "slot": 2, "sampled": false }
-      ]
+      ],
+      "inputs": []
     }
   ]
 }

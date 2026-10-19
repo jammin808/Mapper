@@ -38,7 +38,7 @@ public readonly record struct TextureDesc(int Width, int Height, TextureFormat F
 public readonly record struct TargetDesc(int Width, int Height, TextureFormat Color0, TextureFormat? Color1 = null,
     bool Depth = false, TextureFilter Filter = TextureFilter.Linear, string Name = "");
 
-/// <summary>A buffer to make: its size in bytes, its uses and a name for the debuggers.</summary>
+/// <summary>A buffer to make: its size in bytes (0: no store until the first set), its uses and a name for the debuggers.</summary>
 public readonly record struct BufferDesc(long Bytes, BufferUsage Usage, string Name = "");
 
 /// <summary>What a buffer holds.</summary>
@@ -52,6 +52,11 @@ public enum BufferUsage
     Constant = 8,
     Structured = 16,
     Indirect = 32,
+
+    /// <summary>Set again every frame or so (particles, the editor's lines, a cursor): a backend keeps it where the CPU writes cheaply
+    /// (GL: a streaming store; Direct3D 12: upload memory). Without it a buffer is static, set once or seldom (a mesh: GL's static store,
+    /// Direct3D 12's device memory).</summary>
+    Dynamic = 64,
 }
 
 /// <summary>Anything a device made. Disposal on any thread: the backend releases it only once the GPU has finished with it
@@ -112,8 +117,8 @@ public abstract class GpuTexture : GpuResource
     public long Version { get; set; }
 }
 
-/// <summary>Where a pass draws: one or two colour textures and an optional depth buffer, the image top row first (drawing through the
-/// renderer's top-down convention puts image row 0 at the target's row 0, so a read-back is in image order).</summary>
+/// <summary>Where a pass draws: one or two colour textures and an optional depth buffer, the image top row first (clip y = −w is the
+/// target's row 0: <see cref="ClipSpace"/>), so a read-back is in image order.</summary>
 public abstract class RenderTarget : GpuResource
 {
     protected RenderTarget(GpuTexture color, GpuTexture? color1, bool hasDepth, string name, long epoch)
@@ -138,7 +143,10 @@ public abstract class RenderTarget : GpuResource
     public TextureFormat Format => Color.Format;
 }
 
-/// <summary>A buffer on the GPU.</summary>
+/// <summary>A buffer on the GPU. Setting its data (<see cref="IGpuDevice.SetBufferData{T}"/>) replaces its content for the draws recorded
+/// after the set; draws recorded or submitted before it keep reading the content they were recorded with (a backend renames the store
+/// and lets the old one go at the last fence that read it), so a buffer is set again freely between frames and between a frame's
+/// lists.</summary>
 public abstract class GpuBuffer : GpuResource
 {
     protected GpuBuffer(in BufferDesc desc, long epoch)
@@ -149,7 +157,7 @@ public abstract class GpuBuffer : GpuResource
         Usage = desc.Usage;
     }
 
-    /// <summary>The bytes its store holds (a GL store grows to fit what is set into it, never shrinking).</summary>
+    /// <summary>The size of its content: the bytes last set, or before any set the size it was made with (0: no store yet).</summary>
     public long Bytes { get; protected set; }
 
     public BufferUsage Usage { get; }
