@@ -507,6 +507,7 @@ public sealed partial class RenderHost : IRenderHost
 
     private void Main()
     {
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Render);
         try
         {
             _platform = _options.Dxgi is { } dxgi

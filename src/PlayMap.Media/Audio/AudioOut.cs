@@ -629,6 +629,7 @@ public sealed unsafe class AudioOut : IDisposable
 
     private void Feed()
     {
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Audio);
         if (Mode != AudioOutMode.Null && _setThreadContext is not null)
             _setThreadContext(_context);
         while (!_stopFeeder.Wait(5))

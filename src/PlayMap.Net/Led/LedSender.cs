@@ -172,6 +172,7 @@ public sealed class LedSender : ILedOutput
 
     private void Run()
     {
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Led);
         var clock = _options.Clock;
         while (!_disposed)
         {

@@ -24,4 +24,9 @@
     <InternalsVisibleTo Include="PlayMap.Engine.Tests" />
   </ItemGroup>
 
+  <!-- The machine platform the node composes on Windows (wp3-platform); Core's null platform elsewhere. -->
+  <ItemGroup Label="wp3-platform">
+    <ProjectReference Include="..\PlayMap.Platform.Windows\PlayMap.Platform.Windows.csproj" />
+  </ItemGroup>
+
 </Project>

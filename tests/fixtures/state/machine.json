@@ -1,1 +1,157 @@
-{}
+{
+  "machine": {
+    "identity": {
+      "build": {
+        "version": "0.2.0",
+        "informational": "0.2.0\u002B17.abc1234",
+        "fileVersion": "0.2.0.17"
+      },
+      "os": {
+        "edition": "IoTEnterpriseS",
+        "family": "iot",
+        "version": "24H2",
+        "build": 26100,
+        "revision": 4061,
+        "ltsc": true,
+        "iot": true,
+        "tier": "ltsc",
+        "name": "Windows 11 IoT Enterprise LTSC"
+      },
+      "cpu": {
+        "model": "Intel(R) Core(TM) Ultra 9 285K",
+        "logical": 24,
+        "byEfficiencyClass": [
+          8,
+          16
+        ],
+        "vectorBits": 256,
+        "avx512": false,
+        "avx10": false
+      },
+      "adapters": [
+        {
+          "luid": "0x00000000000123a4",
+          "vendorId": 4318,
+          "deviceId": 11185,
+          "name": "NVIDIA RTX PRO 4000 Blackwell",
+          "driver": "591.44",
+          "branch": "r580_00",
+          "tier": "nvidiaRtxPro",
+          "support": "tier1",
+          "drivesOutputs": true,
+          "dedicatedMb": 24576
+        }
+      ],
+      "runtimes": {
+        "agility": "1.619.2 (app)",
+        "ffmpeg": "n9.0.2",
+        "syncFirmware": "3.06"
+      }
+    },
+    "capabilities": [
+      {
+        "feature": "realtimePrivilege",
+        "luid": "",
+        "supported": false,
+        "words": "GPU-PRIORITY REALTIME needs SeIncreaseBasePriorityPrivilege, which this account does not hold: the installer grants it to the show account",
+        "driver": ""
+      },
+      {
+        "feature": "hags",
+        "luid": "",
+        "supported": true,
+        "words": "",
+        "driver": ""
+      }
+    ],
+    "platform": {
+      "name": "windows",
+      "words": "a test\u0027s Windows",
+      "light": "amber",
+      "claims": [
+        {
+          "what": "process.priority",
+          "asked": "high",
+          "applied": true,
+          "readBack": "high",
+          "words": "",
+          "light": "green"
+        },
+        {
+          "what": "process.qos",
+          "asked": "high",
+          "applied": true,
+          "readBack": "high",
+          "words": "",
+          "light": "green"
+        },
+        {
+          "what": "process.gpuPriority",
+          "asked": "normal",
+          "applied": true,
+          "readBack": "normal",
+          "words": "",
+          "light": "green"
+        },
+        {
+          "what": "thread.render.priority",
+          "asked": "aboveNormal",
+          "applied": false,
+          "readBack": "",
+          "words": "Windows refused it here",
+          "light": "amber"
+        },
+        {
+          "what": "thread.decode.priority",
+          "asked": "aboveNormal",
+          "applied": true,
+          "readBack": "aboveNormal",
+          "words": "",
+          "light": "green"
+        }
+      ],
+      "settings": {
+        "qos": "high",
+        "timer": "high",
+        "mmcss": "on",
+        "process": "high",
+        "cpuSets": "auto",
+        "gpuPriority": "normal",
+        "awake": "on"
+      },
+      "timer": {
+        "mode": "high",
+        "waits": 0,
+        "lateP99Us": 0
+      },
+      "awake": false
+    },
+    "locked": {
+      "at": 1760000000000,
+      "set": {
+        "os": "26100.4061",
+        "playmap": "0.2.0\u002B17.abc1234",
+        "agility": "1.619.2 (app)",
+        "ffmpeg": "n9.0.2",
+        "syncFirmware": "3.06",
+        "adapters": [
+          {
+            "vendorId": 4318,
+            "deviceId": 11185,
+            "name": "NVIDIA RTX PRO 4000 Blackwell",
+            "driver": "582.16"
+          }
+        ]
+      },
+      "drift": [
+        {
+          "item": "gpu:10de:2bb1",
+          "what": "NVIDIA RTX PRO 4000 Blackwell driver",
+          "locked": "582.16",
+          "now": "591.44",
+          "words": "NVIDIA RTX PRO 4000 Blackwell driver 582.16 \u2192 591.44 since the driver set was locked"
+        }
+      ]
+    }
+  }
+}
