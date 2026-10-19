@@ -4,6 +4,11 @@ How PlayMap nodes share one show clock, one transport and one air, and how the l
 display side (vblank truth, the frame-lock machine and its drivers) is `docs/OUTPUT.md`; the wire's side of this is
 `docs/wire/sync.md`.
 
+Network time decides which frame each node draws, not when that frame scans out. The direction (`docs/round3/PLAN.md` D5) is
+hardware lock where the hardware allows it: NVIDIA's present barrier on Direct3D 12 and the WGL swap group on OpenGL, with an RTX
+PRO Sync board. Everywhere else the honest software lock is to run: the same frame, its phase measured and said ("software lock: same
+frame, phase +6.2 ms ± 0.3 ms"), never a locked state. `docs/OUTPUT.md` (*Where the lock is going*) says how.
+
 ## The roles, kept
 
 A node is **solo**, **leads** a sync group, or **follows** a group's leader (`SYNC LEAD <group>`, `SYNC FOLLOW <group> <node>`).
@@ -189,15 +194,19 @@ that address and heard on the hello from it. The leader adds its own outputs. Re
   the node is configured into and has not joined), its state the leader's verdict or the follower's feed, key `SYNC STATUS`; a node
   in no group lists the section with no rows.
 
-## Verified here, next
+## Verified here, and where it is going
 
 - **Here**, on loopback with real nodes in one process on a manual clock and synthetic vblanks: anchors, the group's air and its
   receipts, the group's air latency (AUTO and stated, carried to a member), the role kept across a restart, free-wheel and the anchored switch, the step and the slew, the board and its
   verdict, preflight by injected fault, LTC chased on a leader adopted by its follower.
-- **Lab**: real displays and boards (the `@lock` join acts through wp2-output's drivers).
+- **Lab** (not run: no lab exists this round, so each line is reported not run, never passed): real displays and sync boards. The
+  `@lock` join acts through the outputs' lock drivers (`docs/OUTPUT.md`).
 - **Not yet**: a switch such as `BLACKOUT` has no group lead, so each member takes it when the line runs there (the leader's instant
   is its event's stamp, not its frame); a step reaches the render thread a moment before the rebased snapshot (an epoch in the
   snapshot would pair them), and the frame-lock counter's anchor is not moved by a step; the verb row a fan-out reads is written
   after the lane ran the line, so two sessions' air lines within microseconds can reach members in the other order. Each needs a
   seam outside this package (the papers note lists them).
-- **Next round**: succession lists; the frame code and the sync certificate.
+- **Where it is going** (`docs/round3/PLAN.md`, wp3-framelock, wp3-stability): each output gets a lock tier, and the leader's board
+  (`sync.outputs[]`) each output's measured phase (`phaseMs`). A hardware tier counts an output as locked only by that output's own
+  evidence; `software` carries its phase. The `soft-locked` state retires. An output's picture can carry a watermark of the
+  leader's refresh index, which an independent observer reads back. Succession lists and a sync certificate are not in the plan.

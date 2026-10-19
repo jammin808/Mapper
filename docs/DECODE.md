@@ -14,6 +14,10 @@ the blocks. All seven codecs play, including the two FFmpeg has no decoder for.
 | `Hap7` | `hap_r` | BC7 | 1 | as is |
 | `HapH` | `hap_hdr` | BC6H unsigned or signed | 1 | HDR reading, tone-mapped |
 
+The direction (`docs/round3/PLAN.md` wp3-video) keeps decode on the GPU on the Direct3D 12 device: D3D12VA frames sampled in place
+on the renderer's own device, HAP blocks and CPU-decoded planes up on the copy queue, and the D3D11VA and dmabuf importers retiring
+with GL. *Where it is going, and what waits*, at the end, says the rest.
+
 ## The parts
 
 - **Core** (`src/PlayMap.Core/Media/Hap`): `HapCodecs` (fourcc ↔ codec ↔ texture ↔ layout, the specification's section-type table),
@@ -57,11 +61,12 @@ allow, and only ever steps down while it is open (`DecodeLadder`, Core, pure):
 `hap-gpu` (HAP) and `gpu-share` (texture-sharing inputs) are set by their own producers. A live input (NDI, OMT, Spout) is not on
 the ladder: its frames come from its receiver, which no FFmpeg decoder of this node makes.
 
-- **At open.** VAAPI surfaces are sampled in place or not at all (no one-copy rung): `gpu-copy` on Linux means copy-back. D3D11
-  takes one GPU copy until direct sampling is proven on the driver (the proof harness is next round) or `DECODE POLICY DIRECT
-  FORCE`. A renderer whose device imports nothing (GLX, WGL, or a software GL) opens every clip on copy-back with the renderer's
-  words ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf imports need an EGL context",
-  "the render context is WGL: zero-copy on Windows needs the Direct3D 11 output path (PRESENT PATH DXGI)").
+- **At open.** VAAPI surfaces are sampled in place or not at all (no one-copy rung): `gpu-copy` on Linux means copy-back. D3D11 takes
+  one GPU copy unless `DECODE POLICY DIRECT FORCE` takes direct sampling unproven: nothing marks a D3D11 driver proven, and no proof
+  is planned for D3D11VA, which retires with GL. A renderer whose device imports nothing (GLX, WGL, or a software GL) opens every clip
+  on copy-back with the renderer's words ("the GL is software (llvmpipe): zero-copy needs a GPU", "the render context is GLX: dmabuf
+  imports need an EGL context", "the render context is WGL: zero-copy on Windows needs the Direct3D 11 output path
+  (PRESENT PATH DXGI)").
 - **At run time** (`SurfaceLadder`, one per decoder) a source steps down — keeping its queue, while the renderer holds the last
   picture — when the renderer could not import a frame (it reports the failure to the share against the source's key; the decode
   thread reads it before its next map), when the renderer's device changes under it (its context was rebuilt: it steps to
@@ -157,14 +162,23 @@ and timed beside.
   reading `egl` (`GlApiTests`, `DecodeGlApiTests`; Linux only, as the dmabuf import tests are).
 - **Compile-only**: VAAPI decode and its DRM mapping (no VA driver, no `/dev/dri`), D3D11VA and the ANGLE importer (a
   `Category=Windows` test opens the D3D11VA device on a WARP device on CI, or says why — WARP has no video decoder and the runner
-  has no FFmpeg). Fallback for both: copy-back or software, with the words why. **Lab**: Intel/AMD VAAPI, NVIDIA/Intel D3D11VA.
+  has no FFmpeg). Fallback for both: copy-back or software, with the words why.
+- **Lab**: no lab exists this round, so neither path has run on a real GPU. The plan's decode line is L7, D3D12VA on NVIDIA, AMD and
+  Intel with the pinned FFmpeg, reported not run, never passed. It has no line for VAAPI, which stays with the Linux development
+  loop, or for D3D11VA, which retires with GL.
 
-## Next round
+## Where it is going, and what waits
 
-- The direct-sampling proof (`DECODE PROBE`, `NodeHome/decode-proof.json`), the EGLImage cache per VA surface, the per-item decode
-  override, a measured `importMsP95` (0 this round), promoting a clip opened before the render context said what it imports (it
-  stays on copy-back, honestly reported, until it is opened again), raw HAP straight from disk into the arena, CUDA → GL;
-  `decode.glApi auto` choosing EGL for a desktop context on Linux (it is GLX unless `egl` is asked).
+- **This round** (`docs/round3/PLAN.md` wp3-video): D3D12VA through FFmpeg on the renderer's Direct3D 12 device, each frame waited
+  on by the render queue on the GPU and sampled in place, with copy-back only where the device refuses. The upload arena moves onto
+  an upload heap and the copy queue. D3D12 Video's decode profiles per codec go into the capability record, so `MEDIA INSPECT` and
+  preflight say what this GPU decodes in hardware. Show media held online-only in a cloud folder gets a red preflight row naming
+  the file. NVDEC through CUDA ↔ Direct3D 12 is a stretch. The D3D11VA and dmabuf importers are deleted with GL next round.
+- **Not in the plan**: the D3D11VA direct-sampling proof (`DECODE PROBE`, `NodeHome/decode-proof.json`), the EGLImage cache per VA
+  surface, CUDA → GL, and `decode.glApi auto` choosing EGL for a desktop context on Linux (it is GLX unless `egl` is asked).
+- **Waiting**: the per-item decode override, a measured `importMsP95` (0 today), promoting a clip opened before the render context
+  said what it imports (it stays on copy-back, honestly reported, until it is opened again), and raw HAP straight from disk into the
+  arena.
 - `EngineSources` drives loops and open-failure only for `FfmpegVideoSource`: a HAP source opens without a loop of its own, so a
   clip that ends holds its last frame and a looping item (a library item shown directly, a looping playlist clip) wraps through a
   seek — the frame before the loop point holds for the seek's few milliseconds instead of the loop being gapless — and a HAP

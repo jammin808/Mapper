@@ -90,7 +90,8 @@ One parser per port (MIDI 1.0: running status, real-time bytes anywhere, Note On
 MIDI Machine Control commands bind as `MIDI MSC <device> GO`; device 127 (all-call) reaches every device's bindings. MTC (quarter
 frames, full frames and user bits, any device id) goes to the timecode sources. Backends: the ALSA sequencer on Linux (loaded at
 run time; without `/dev/snd/seq` it says so and lists no ports), WinMM on Windows (compile-only here, run by the Windows CI job),
-and an in-memory backend for tests. MIDI output, controller profiles, CoreMIDI and Windows MIDI Services are next round.
+and an in-memory backend for tests. MIDI output, controller profiles and Windows MIDI Services are not built yet. No CoreMIDI
+backend is planned: the direction is Windows 11 show nodes (docs/round3/PLAN.md D4).
 
 ## Art-Net
 
@@ -134,5 +135,5 @@ the line that fixes it. Fixture `tests/fixtures/state/control.json`, cards `cont
 
 Controller profiles and MIDI feedback (lamps, motor faders, receipts that flash while accepted), feedback from a STATE predicate
 (`feedback.when`), the `/playmap/state` mirror and `/playmap/subscribe`, OSCQuery (9944), timetagged bundles run at their instant,
-sACN discovery, per-channel priority (START code 0xDD), a surface's LTP merge and release on loss, MIDI out, CoreMIDI, Windows MIDI
-Services, input forwarding, MIDI clock — the next round.
+sACN discovery, per-channel priority (START code 0xDD), a surface's LTP merge and release on loss, MIDI out, Windows MIDI Services,
+input forwarding and MIDI clock. None of these is in round 3's plan.

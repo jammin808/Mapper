@@ -4,7 +4,10 @@ One vocabulary (`src/PlayMap.Core/Wire/VerbCatalog.cs`) on every transport: the 
 wire over the web port's WebSocket (`/ws` with the subprotocol `playmap.lines.v1`), HTTP `POST /api/cmd` (9940), the screens'
 WebSocket `/ws`, MCP tools at `/mcp`, approved Show Bus proposals, OSC (`/playmap/line` on UDP 9943), the lines control
 bindings fire (MIDI, OSC, Art-Net, sACN; docs/CONTROL.md), the lines a sync group's leader sends its members
-(docs/SYNC.md), and the desk, which adds no verb and sends only catalogue lines (docs/wire/desk.md).
+(docs/SYNC.md), and the desk, which adds no verb and sends only catalogue lines (docs/wire/desk.md). The direction for the desk
+(docs/round3/PLAN.md D11): every row it may send is in its menu bar and, where the row names an object, in that object's
+right-click menu, never only behind typing; its console types any line through the same gate and refuses a row that carries
+a secret ("type secrets in Network ▸ Links"); such a row is a menu entry that opens its form.
 
 ## Lines
 
@@ -396,8 +399,12 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
 
 ## Round 3
 
-Round 3's rows are in the catalogue in one block per package (docs/round3/PLAN.md §3.1). No node answers one until its
-package routes it. Until then:
+Round 3's rows are in the catalogue in one block per package (docs/round3/PLAN.md §3.1). They carry the round's direction: an
+installed Windows node (`machine`, `install`), Direct3D 12 behind the RHI with OpenGL as the reference (`gpu`, `plan`, `present`,
+`shaders`), proof of what the audience saw (`observe`), undo to a point (`undo`), previews without a CPU copy (`preview`), every
+handle typed and nudged by one pixel (`handles`), one picture across several outputs (`canvas`), the guided workflows (`guide`)
+and capture cards passed through (`capture`). Once routed, a row reaches `VERBS`, MCP, the assistant's prompt and the context
+with no package code. No node answers one until its package routes it. Until then:
 
 - **The rows** answer `ERR <VERB> is not available on this node yet` and change nothing, as round 2's unrouted rows do.
   `VERBS` lists each with `"available": false`. MCP's `list_verbs`, the assistant's prompt and the context's `commands` leave
