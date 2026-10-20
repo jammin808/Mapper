@@ -120,7 +120,11 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
   the library and, on Windows, its DXIL (compiled again when a source, the table or `programs.json` changes).
 - The assistant's FX RELEASE test sits in the Assistant suite (`tests/PlayMap.Assistant.Tests/Shaders/`) on a real node, through
   this package's `ProjectReference` to the engine there.
-- What CI proves: DXC's Linux build emits validated, signed DXIL (M6 answered yes), so every program compiles and is held to the
-  table by reflection on both jobs, and `HlslConventionTests` hold the clip conversion, the matrices' order and the vertex inputs in
-  the source there too; the build embeds DXIL on Windows only, where the DXC executable is packaged, and each embedded entry's
-  reflection is the sources' own. Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's; nothing here was drawn on a device.
+- What CI proves: DXC's Linux build emits validated, signed DXIL (M6 answered yes), so every program compiles on both jobs and
+  `ShaderLayoutTests` hold its reflection to its `ProgramLayout` in the program table there: the same programs on both sides, the
+  block at b0 with the table's constants, offsets, counts and size and its matrices `row_major`, the table's texture slots with
+  sampling exactly where the table says sampled, and the vertex entry's input signature as the input layout the table's inputs
+  make (`ATTR<location>`, a float format of each input's float count, buffer 0 per vertex and buffer 1 per instance);
+  `HlslConventionTests` hold the clip conversion, the matrices' order and the vertex inputs in the source there too; the build
+  embeds DXIL on Windows only, where the DXC executable is packaged, and each embedded entry's reflection is the sources' own.
+  Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's; nothing here was drawn on a device.
