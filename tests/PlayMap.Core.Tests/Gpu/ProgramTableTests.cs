@@ -207,7 +207,7 @@ public sealed class ProgramTableTests
     public void TheGeneratedIdsAreTheTablesOwnByteForByte()
     {
         var path = Path.Combine(RoundTwoSample.RepoRoot(), "src", "PlayMap.Core", "Gpu", "Programs", "ProgramIds.g.cs");
-        var expected = IdsSource(ProgramTable.Product);
+        var expected = IdsSource(ProgramTable.Product).ReplaceLineEndings("\n");
         if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
             DurableFile.WriteAllText(path, expected);
         Assert.True(File.Exists(path), "the ids are generated: run this test once with PLAYMAP_WRITE_FIXTURES=1");
