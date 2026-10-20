@@ -15,7 +15,7 @@ namespace PlayMap.Engine.Tests.Machine;
 /// claims under the settings it was last handed (<see cref="Used"/>, else its last process claim's): each thread's claims follow the
 /// roles' table under them (MMCSS ON joins its task), the timer it makes is the high one under TIMER HIGH, and keep-awake holds nothing
 /// under AWAKE OFF; a hold is refused with <see cref="RefuseAwake"/>'s words when set.</summary>
-internal sealed class FakePlatform : IMachinePlatform, IMachineReadBack
+internal sealed class FakePlatform : IMachinePlatform
 {
     private int _awakeHolders;
 

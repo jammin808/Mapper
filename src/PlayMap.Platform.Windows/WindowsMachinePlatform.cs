@@ -18,7 +18,7 @@ namespace PlayMap.Platform.Windows;
 /// twice (two listeners fed by one capture thread) holds one claim, joined: its claims are the first's, and they revert when the last
 /// holder lets go. Any thread.</summary>
 [SupportedOSPlatform("windows")]
-public sealed unsafe class WindowsMachinePlatform : IMachinePlatform, IMachineReadBack
+public sealed unsafe class WindowsMachinePlatform : IMachinePlatform
 {
     public const string PlatformWords =
         "Windows: the process's and each thread's claims, the high-resolution timer, keep-awake and the node's identity";

@@ -128,11 +128,11 @@ public sealed class RecordedPlatform : IMachinePlatform
     }
 
     /// <summary>Hands the platform the settings just saved, so each thread's next claim, the next timer, keep-awake and the facts follow
-    /// them; a platform that reads none back takes nothing.</summary>
+    /// them; a platform that uses none takes nothing.</summary>
     public void Use(MachineSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        (_inner as IMachineReadBack)?.Use(settings);
+        _inner.Use(settings);
     }
 
     public IThreadClaim ClaimThread(ThreadRole role)
@@ -152,8 +152,16 @@ public sealed class RecordedPlatform : IMachinePlatform
     public IDeadlineTimer CreateTimer()
     {
         var timer = _inner.CreateTimer();
-        Volatile.Write(ref _timerMode, (_inner as IMachineReadBack)?.TimerMode(timer) ?? "default");
+        Volatile.Write(ref _timerMode, _inner.TimerMode(timer));
         return new Counted(timer, this);
+    }
+
+    /// <summary>The kind the platform made a timer of, asked of a timer this platform handed out (its own counted timer) or of one the
+    /// platform underneath made.</summary>
+    string IMachinePlatform.TimerMode(IDeadlineTimer timer)
+    {
+        ArgumentNullException.ThrowIfNull(timer);
+        return _inner.TimerMode(timer is Counted counted ? counted.Inner : timer);
     }
 
     /// <summary>The kind of the last deadline timer made: "high" (the high-resolution waitable timer), "default" (the runtime's own wait),
@@ -163,14 +171,14 @@ public sealed class RecordedPlatform : IMachinePlatform
     public IDisposable KeepAwake() => _inner.KeepAwake();
 
     /// <summary>Whether keep-awake is held now, as the platform reads it back: false on a platform that holds nothing.</summary>
-    public bool AwakeHeld => (_inner as IMachineReadBack)?.AwakeClaim is { Applied: true };
+    public bool AwakeHeld => _inner.AwakeClaim is { Applied: true };
 
     /// <summary>Keep-awake's claim while it is asked (applied, or refused with the words), or null.</summary>
-    public Claim? AwakeClaim => (_inner as IMachineReadBack)?.AwakeClaim;
+    public Claim? AwakeClaim => _inner.AwakeClaim;
 
     /// <summary>The power settings as the platform last read them (the active plan's name and kind among them); unread on a platform
     /// that reads none.</summary>
-    public PowerReading Power => (_inner as IMachineReadBack)?.Power ?? PowerReading.Unread;
+    public PowerReading Power => _inner.Power;
 
     public NodeIdentity Identity() => _inner.Identity() with { Runtimes = _runtimes() };
 
@@ -221,6 +229,9 @@ public sealed class RecordedPlatform : IMachinePlatform
 
     private sealed class Counted(IDeadlineTimer inner, RecordedPlatform owner) : IDeadlineTimer
     {
+        /// <summary>The timer the platform underneath made.</summary>
+        public IDeadlineTimer Inner => inner;
+
         public double LateP99Us => inner.LateP99Us;
 
         public bool WaitUntil(long monoNs, WaitHandle? cancel = null)

@@ -72,30 +72,6 @@ public interface IDeadlineTimer : IDisposable
     double LateP99Us { get; }
 }
 
-/// <summary>What a machine platform reads back of what it uses and holds, beyond each claim's answer: the node's settings, handed to it
-/// at every saved change, which each thread's next claim, the next timer, keep-awake and the facts follow; keep-awake as a claim while
-/// it is asked, applied only while a hold is in force; the kind of each deadline timer it made; and the power settings, read with its
-/// capabilities and never on a reader's path. The Windows platform has one; a platform without it (the null platform) uses no setting
-/// beyond its process claims and holds nothing. Any thread.</summary>
-public interface IMachineReadBack
-{
-    /// <summary>The settings claimed under from now on: each thread's next claim, the next timer, the next keep-awake and the facts
-    /// follow them. The process's claims are made again only by <see cref="IMachinePlatform.ClaimProcess"/>.</summary>
-    void Use(MachineSettings settings);
-
-    /// <summary>Keep-awake as a claim ("process.awake", asked "on") while any holder asks for it: applied while a hold is in force as
-    /// read back, else refused with the system's words; null while nobody asks.</summary>
-    Claim? AwakeClaim { get; }
-
-    /// <summary>The kind of a deadline timer this platform made: "high" for the high-resolution waitable timer, "default" for the
-    /// runtime's own wait.</summary>
-    string TimerMode(IDeadlineTimer timer);
-
-    /// <summary>The power settings as last read (with the capabilities, and again with the facts): the active plan's name and kind
-    /// among them; <see cref="PowerReading.Unread"/> before any read.</summary>
-    PowerReading Power { get; }
-}
-
 /// <summary>One machine fact as preflight shows it: the item, its light, its value, the words, and the line that fixes it where a
 /// verb does (else null, and the words say what a person does).</summary>
 public sealed record MachineFact(string Item, Light Light, string Value, string Words, string? Fix = null);
