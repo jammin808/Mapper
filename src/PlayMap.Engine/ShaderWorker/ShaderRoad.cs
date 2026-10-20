@@ -7,9 +7,9 @@ namespace PlayMap.Engine.ShaderWorker;
 
 /// <summary>What the road made of a source: each stage in order (a stage after a failed one not run, with the words why), the
 /// stage that failed ("done" when none did) with its words and ISF line, and — when every stage passed — each entry's validated
-/// DXIL and reflection (vertex, then pixel) and the effect's layout.</summary>
+/// DXIL, reflection and the HLSL SPIRV-Cross wrote for it (vertex, then pixel) and the effect's layout.</summary>
 public sealed record RoadResult(ImmutableArray<FxStage> Stages, string Stage, string Words, int IsfLine, ImmutableArray<byte[]> Dxil,
-    ImmutableArray<byte[]> Reflection, ShaderLayout Layout)
+    ImmutableArray<byte[]> Reflection, ShaderLayout Layout, ImmutableArray<string> Hlsl)
 {
     public bool Ok => Stage == ShaderRoad.Done;
 }
@@ -48,8 +48,9 @@ public sealed record RoadNatives(Glslang? Glslang, SpirvValidator? Validator, Sp
 
 /// <summary>A user's ISF effect to DXIL, one stage after another, each failure in its stage's words with the line mapped back to the
 /// ISF file: translate (Core's Vulkan target), glslang (relaxed rules), validate (SPIRV-Tools), cross (SPIRV-Cross to HLSL, Shader
-/// Model 6.0, the registers remapped) and dxc (validated, signed DXIL and its reflection). A multi-pass file is one program (its
-/// passes differ by PASSINDEX), so the road makes one vertex and one pixel entry.</summary>
+/// Model 6.0, the registers remapped, each varying the pixel entry reads at the semantic the vertex entry writes it at, matched by
+/// name) and dxc (validated, signed DXIL and its reflection). A multi-pass file is one program (its passes differ by PASSINDEX), so
+/// the road makes one vertex and one pixel entry.</summary>
 public sealed partial class ShaderRoad(RoadNatives natives)
 {
     public const string Translate = "translate";
@@ -77,7 +78,7 @@ public sealed partial class ShaderRoad(RoadNatives natives)
             stages.Add(new FxStage(stage, false, words, line));
             foreach (var later in StageNames.SkipWhile(s => s != stage).Skip(1))
                 stages.Add(new FxStage(later, null, $"not run: the {stage} stage failed", 0));
-            return new RoadResult(stages.ToImmutable(), stage, words, line, [], [], ShaderLayout.Empty);
+            return new RoadResult(stages.ToImmutable(), stage, words, line, [], [], ShaderLayout.Empty, []);
         }
 
         // 1. translate
@@ -115,7 +116,7 @@ public sealed partial class ShaderRoad(RoadNatives natives)
         var vsHlsl = cross.ToHlsl(vs.Words);
         if (!vsHlsl.Ok)
             return Fail(Cross, "vertex shader: " + vsHlsl.Words, 0);
-        var fsHlsl = cross.ToHlsl(fs.Words);
+        var fsHlsl = cross.ToHlsl(fs.Words, vsHlsl.Outputs);
         if (!fsHlsl.Ok)
             return Fail(Cross, fsHlsl.Words, 0);
         var layout = Merge(fsHlsl.Layout, vsHlsl.Layout, out var mismatch);
@@ -135,7 +136,8 @@ public sealed partial class ShaderRoad(RoadNatives natives)
         if (!vsDxil.Signed || !fsDxil.Signed)
             return Fail(DxcStage, "the DXIL was validated but not signed", 0);
         stages.Add(new FxStage(DxcStage, true, $"validated, signed DXIL ({vsDxil.Dxil.Length + fsDxil.Dxil.Length} bytes)", 0));
-        return new RoadResult(stages.ToImmutable(), Done, "", 0, [vsDxil.Dxil, fsDxil.Dxil], [vsDxil.Reflection, fsDxil.Reflection], layout);
+        return new RoadResult(stages.ToImmutable(), Done, "", 0, [vsDxil.Dxil, fsDxil.Dxil], [vsDxil.Reflection, fsDxil.Reflection], layout,
+            [vsHlsl.Hlsl, fsHlsl.Hlsl]);
     }
 
     private static string Issue(ImmutableArray<IsfIssue> issues, out int line)

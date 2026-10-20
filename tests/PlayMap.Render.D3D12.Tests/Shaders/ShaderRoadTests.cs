@@ -11,8 +11,9 @@ namespace PlayMap.Render.D3D12.Tests.Shaders;
 /// an entry reads one), image i at t i and every image's sampling through the one sampler at s0; a resource an ISF effect never binds
 /// is refused at cross with its name, before DXC; a vertex entry's last writes of its position are the render hardware interface's
 /// conversion to Direct3D's clip space (ClipSpace.ToDirect3D: y negated, then z to (z + w) / 2), whether the translator writes the
-/// stage or a file of the user's own does, and a pixel entry writes none; a stage that fails leaves the later stages not run, with
-/// the words why.</summary>
+/// stage or a file of the user's own does, and a pixel entry writes none; a varying carries one TEXCOORD semantic in both entries
+/// whatever order and subset the fragment file declares, and one the fragment file reads that no vertex output of its name and type
+/// writes is refused at cross with its name; a stage that fails leaves the later stages not run, with the words why.</summary>
 public sealed partial class ShaderRoadTests
 {
     private static readonly Lazy<RoadNatives> Natives = new(() => RoadNatives.Load());
@@ -125,6 +126,50 @@ public sealed partial class ShaderRoadTests
 
     [GeneratedRegex(@"^\s*(?<s>gl_Position\b[^=;]*[-+*/]?=[^=][^;]*;)", RegexOptions.Multiline)]
     private static partial Regex PositionWrite();
+
+    private const string TwoVaryings = "/*{ }*/\nvarying vec2 a;\nvarying vec2 b;\nvoid main() {\n    isf_vertShaderInit();\n"
+        + "    a = isf_FragNormCoord * 0.5;\n    b = isf_FragNormCoord * 0.25;\n}\n";
+
+    [Theory]
+    [InlineData("varying vec2 b;\nvarying vec2 a;\nvoid main() { gl_FragColor = vec4(a, b); }\n", "a,b")]
+    [InlineData("varying vec2 b;\nvoid main() { gl_FragColor = vec4(b, 0.0, 1.0); }\n", "b")]
+    public void SameNamedVaryingsMeetAtOneSemanticWhicheverOrderAndSubsetTheFragmentFileDeclares(string body, string reads)
+    {
+        var result = Road.Run("/*{ }*/\n" + body, TwoVaryings);
+        Assert.True(result.Ok, $"{result.Stage}: {result.Words}");
+        var written = Semantics(result.Hlsl[0]);
+        var read = Semantics(result.Hlsl[1]);
+        Assert.Equal(["a", "b", "isf_FragNormCoord"], written.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(reads.Split(',').Append("isf_FragNormCoord").Order(StringComparer.Ordinal), read.Keys.Order(StringComparer.Ordinal));
+        Assert.All(read, r => Assert.Equal((r.Key, written.GetValueOrDefault(r.Key, -1)), (r.Key, r.Value)));
+    }
+
+    [Fact]
+    public void AVaryingTheFragmentFileReadsAndNoVertexStageWritesIsRefusedAtCrossWithItsName()
+    {
+        const string fs = "/*{ }*/\nvarying vec2 c;\nvoid main() { gl_FragColor = vec4(c, 0.0, 1.0); }\n";
+        foreach (var vs in new[] { TwoVaryings, null })
+        {
+            var result = Road.Run(fs, vs);
+            Assert.Equal(ShaderRoad.Cross, result.Stage);
+            Assert.Equal("c: the fragment shader reads a varying the vertex shader does not write", result.Words);
+            Assert.Equal([true, true, true, false, null], result.Stages.Select(s => s.Ok));
+        }
+
+        const string wider = "/*{ }*/\nvarying vec3 a;\nvoid main() { gl_FragColor = vec4(a, 1.0); }\n";
+        var typed = Road.Run(wider, TwoVaryings);
+        Assert.Equal(ShaderRoad.Cross, typed.Stage);
+        Assert.Equal("a: the fragment shader reads it as float3, the vertex shader writes float2", typed.Words);
+    }
+
+    /// <summary>Each stage variable's TEXCOORD index in an entry's HLSL (a vertex entry's are its outputs, a pixel entry's its
+    /// inputs: neither writes another kind).</summary>
+    private static Dictionary<string, int> Semantics(string hlsl) =>
+        TexcoordMember().Matches(hlsl).ToDictionary(m => m.Groups["n"].Value,
+            m => int.Parse(m.Groups["i"].Value, System.Globalization.CultureInfo.InvariantCulture), StringComparer.Ordinal);
+
+    [GeneratedRegex(@"\b(?<n>\w+)\s*:\s*TEXCOORD(?<i>\d+)\s*;")]
+    private static partial Regex TexcoordMember();
 
     [Fact]
     public void AResourceAnIsfEffectNeverBindsIsRefusedAtCrossWithItsNameBeforeDxc()

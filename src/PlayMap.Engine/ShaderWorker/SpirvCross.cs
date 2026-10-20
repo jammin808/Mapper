@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -6,8 +7,12 @@ using PlayMap.Core.Effects;
 
 namespace PlayMap.Engine.ShaderWorker;
 
-/// <summary>One stage in HLSL: its source, the layout of its default uniform block and images, or SPIRV-Cross's words.</summary>
-public sealed record HlslStage(bool Ok, string Hlsl, ShaderLayout Layout, string Words);
+/// <summary>One stage in HLSL: its source, the layout of its default uniform block and images and the varyings it writes, or
+/// SPIRV-Cross's words.</summary>
+public sealed record HlslStage(bool Ok, string Hlsl, ShaderLayout Layout, string Words, ImmutableArray<StageVarying> Outputs);
+
+/// <summary>A varying a stage writes: its name, its location (the TEXCOORD index its HLSL carries) and its type in HLSL's words.</summary>
+public readonly record struct StageVarying(string Name, int Location, string Type);
 
 /// <summary>SPIRV-Cross's C interface: a validated module to HLSL (Shader Model 6.0), with the registers remapped to user effects'
 /// root signature — the default uniform block (the ISF inputs, each image's size, rect and flag) at b0, ISF's built-ins at b1,
@@ -15,7 +20,10 @@ public sealed record HlslStage(bool Ok, string Hlsl, ShaderLayout Layout, string
 /// all in space 0 — and the default block's layout read from the module (its members' names as the ISF file wrote them, their
 /// offsets as the cbuffer packs them). A vertex stage's position is written in the render hardware interface's clip space, as the
 /// GLSL's, and its entry ends with the conversion every Direct3D 12 vertex stage ends with (ClipSpace.ToDirect3D: y negated, then z
-/// to (z + w) / 2, SPIRV-Cross's vertex flip and depth fixup), so an effect lands on the rows and depths it lands on in GL. A module
+/// to (z + w) / 2, SPIRV-Cross's vertex flip and depth fixup), so an effect lands on the rows and depths it lands on in GL. A
+/// fragment stage crossed with its vertex stage's outputs gives each input the location of the output of its name, so a varying
+/// carries one TEXCOORD semantic in both entries whatever order and subset each file declares (GL links varyings by name); an input
+/// no output of its name and type writes is refused with its name. A module
 /// that declares any other resource (a storage buffer or image, a separate texture or sampler, a push-constant block, a subpass
 /// input, an atomic counter, an acceleration structure) is refused with the resource's name: an ISF effect binds none, and the root
 /// signature has no place for it. One context per stage.</summary>
@@ -42,6 +50,9 @@ public sealed unsafe partial class SpirvCross
     private const int BackendHlsl = 2;
     private const int CaptureTakeOwnership = 1;
     private const int ResourceUniformBuffer = 1;
+    private const int ResourceStageInput = 3;
+    private const int ResourceStageOutput = 4;
+    private const int DecorationLocation = 30;
     private const int ResourceSampledImage = 7;
     private const int DecorationBinding = 33;
     private const int DecorationDescriptorSet = 34;
@@ -52,7 +63,10 @@ public sealed unsafe partial class SpirvCross
     private const int BaseBoolean = 2;
     private const int BaseInt32 = 7;
     private const int BaseUint32 = 8;
+    private const int BaseFp16 = 12;
     private const int BaseFp32 = 13;
+    private const int BaseFp64 = 14;
+    private const int BaseStruct = 15;
 
     /// <summary>spvc_reflected_resource: the variable, its base type and type, its name.</summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -136,13 +150,15 @@ public sealed unsafe partial class SpirvCross
         }
     }
 
-    /// <summary>One stage's module to HLSL with the registers remapped, and its default block's layout.</summary>
-    public HlslStage ToHlsl(uint[] spirv)
+    /// <summary>One stage's module to HLSL with the registers remapped, its default block's layout and the varyings it writes. With
+    /// <paramref name="inputsFrom"/> (the vertex stage's outputs, for a fragment stage) each input takes the location of the output of
+    /// its name; an input none of them writes, or writes as another type, is refused with its name.</summary>
+    public HlslStage ToHlsl(uint[] spirv, ImmutableArray<StageVarying> inputsFrom = default)
     {
         ArgumentNullException.ThrowIfNull(spirv);
         nint context;
         if (_createContext(&context) != 0)
-            return new HlslStage(false, "", ShaderLayout.Empty, "SPIRV-Cross could not make a context");
+            return new HlslStage(false, "", ShaderLayout.Empty, "SPIRV-Cross could not make a context", []);
         try
         {
             nint ir, compiler;
@@ -162,11 +178,13 @@ public sealed unsafe partial class SpirvCross
             if (_createResources(compiler, &resources) != 0)
                 return Failed(context, "the module's resources do not read");
             if (Remap(compiler, resources, out var layout) is { } why)
-                return new HlslStage(false, "", ShaderLayout.Empty, why);
+                return new HlslStage(false, "", ShaderLayout.Empty, why, []);
+            if (Varyings(compiler, resources, inputsFrom, out var outputs) is { } unmatched)
+                return new HlslStage(false, "", ShaderLayout.Empty, unmatched, []);
             byte* source;
             if (_compile(compiler, &source) != 0)
                 return Failed(context, "HLSL was not written");
-            return new HlslStage(true, ShareSampler(Marshal.PtrToStringUTF8((nint)source) ?? ""), layout, "");
+            return new HlslStage(true, ShareSampler(Marshal.PtrToStringUTF8((nint)source) ?? ""), layout, "", outputs);
         }
         finally
         {
@@ -177,7 +195,69 @@ public sealed unsafe partial class SpirvCross
     private HlslStage Failed(nint context, string what)
     {
         var last = Marshal.PtrToStringUTF8((nint)_lastError(context));
-        return new HlslStage(false, "", ShaderLayout.Empty, string.IsNullOrWhiteSpace(last) ? what : $"{what}: {last.Trim()}");
+        return new HlslStage(false, "", ShaderLayout.Empty, string.IsNullOrWhiteSpace(last) ? what : $"{what}: {last.Trim()}", []);
+    }
+
+    /// <summary>Reads the varyings the stage writes and, with <paramref name="inputsFrom"/>, moves each input to the location of the
+    /// output of its name; the reason when an input has no output of its name and type to read.</summary>
+    private string? Varyings(nint compiler, nint resources, ImmutableArray<StageVarying> inputsFrom, out ImmutableArray<StageVarying> outputs)
+    {
+        outputs = [];
+        Resource* list;
+        nuint count;
+        if (_resourceList(resources, ResourceStageOutput, &list, &count) != 0)
+            return "the module's outputs do not read";
+        var written = ImmutableArray.CreateBuilder<StageVarying>((int)count);
+        for (nuint i = 0; i < count; i++)
+        {
+            var r = list[i];
+            written.Add(new StageVarying(Marshal.PtrToStringUTF8((nint)r.Name) ?? "", (int)_getDecoration(compiler, r.Id, DecorationLocation),
+                TypeName(_typeHandle(compiler, r.TypeId))));
+        }
+        outputs = written.ToImmutable();
+        if (inputsFrom.IsDefault)
+            return null;
+        if (_resourceList(resources, ResourceStageInput, &list, &count) != 0)
+            return "the module's inputs do not read";
+        for (nuint i = 0; i < count; i++)
+        {
+            var r = list[i];
+            var name = Marshal.PtrToStringUTF8((nint)r.Name) ?? "";
+            var type = TypeName(_typeHandle(compiler, r.TypeId));
+            var from = inputsFrom.FirstOrDefault(v => v.Name == name);
+            if (from.Name is null)
+                return $"{name}: the fragment shader reads a varying the vertex shader does not write";
+            if (from.Type != type)
+                return $"{name}: the fragment shader reads it as {type}, the vertex shader writes {from.Type}";
+            _setDecoration(compiler, r.Id, DecorationLocation, (uint)from.Location);
+        }
+        return null;
+    }
+
+    /// <summary>A varying's type in HLSL's words: the scalar, the vector size, the columns of a matrix, each array dimension.</summary>
+    private string TypeName(nint type)
+    {
+        var sb = new StringBuilder(_baseType(type) switch
+        {
+            BaseBoolean => "bool",
+            BaseInt32 => "int",
+            BaseUint32 => "uint",
+            BaseFp16 => "half",
+            BaseFp32 => "float",
+            BaseFp64 => "double",
+            BaseStruct => "struct",
+            var other => "type " + other.ToString(CultureInfo.InvariantCulture),
+        });
+        var size = _vectorSize(type);
+        var columns = _columns(type);
+        if (size > 1)
+            sb.Append(size.ToString(CultureInfo.InvariantCulture));
+        if (columns > 1)
+            sb.Append('x').Append(columns.ToString(CultureInfo.InvariantCulture));
+        var dims = _arrayDimensions(type);
+        for (uint d = 0; d < dims; d++)
+            sb.Append('[').Append(_arrayDimension(type, d).ToString(CultureInfo.InvariantCulture)).Append(']');
+        return sb.ToString();
     }
 
     /// <summary>Moves every resource to its register and reads the default block's layout; the reason when a resource is not one

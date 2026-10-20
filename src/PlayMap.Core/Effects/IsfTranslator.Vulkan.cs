@@ -37,7 +37,8 @@ public static partial class IsfTranslator
         "layout(std140, set = 0, binding = 1) uniform IsfBuiltins { int PASSINDEX; vec2 RENDERSIZE; float TIME; float TIMEDELTA; vec4 DATE; int FRAMEINDEX; };\n";
 
     /// <summary>An ISF file as GLSL 4.50 for Vulkan's rules relaxed (glslang <c>-R</c>, the shader worker's first native stage): a
-    /// <c>#version 450</c> line, an explicit location on the colour it writes and the varyings' locations in declaration order, images at set 0 and fixed bindings
+    /// <c>#version 450</c> line, an explicit location on the colour it writes (each stage's varyings take glslang's locations, and the
+    /// shader worker's cross stage matches them by name), images at set 0 and fixed bindings
     /// (<see cref="IsfVulkanBindings"/>), the inputs and each image's size, rect and flag as loose uniforms (the relaxed rules gather
     /// them into the default uniform block), the built-ins as a block. The bodies are rewritten as for the GL dialects and follow
     /// <c>#line 1 1</c>, so a compiler's line in source string 1 is the body's line and <see cref="IsfLineMap.ReadGlslang"/> maps it
@@ -81,8 +82,8 @@ public static partial class IsfTranslator
     private static void VulkanDeclarations(StringBuilder sb, IsfDocument doc, bool vertex)
     {
         sb.Append(VulkanBuiltins);
-        // The varyings' locations are glslang's, in declaration order in each stage: isf_FragNormCoord first, then the file's own in
-        // the order it declares them, so a vertex file's outputs meet its fragment file's inputs.
+        // Each stage's varyings take glslang's locations in that stage's own declaration order; the shader worker's cross stage moves
+        // each fragment input to the location of the vertex output of its name, as GL links varyings by name.
         sb.Append(vertex ? "out vec2 isf_FragNormCoord;\n" : "in vec2 isf_FragNormCoord;\n");
         foreach (var input in doc.Inputs)
             if (GlslType(input.Type) is { } t)
