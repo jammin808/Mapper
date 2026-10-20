@@ -50,7 +50,7 @@ The lab checks still to do:
 - Shows: a projector solved at 100 m; a sync group across machines, and its air latency across nodes whose displays differ; a power
   cut just after a takeover (the epoch kept on disk); a second machine (the video checklist in docs/VIDEO.md among them).
 
-**Open fixes** (the detail of each but the last three is in docs/round2/CARRYOVER.md):
+**Open fixes** (the detail of each but the last two is in docs/round2/CARRYOVER.md):
 - An optimise pause whose knobs reach the worker before its encode thread has woken for the governor's let-go stays pending, with
   no "paused at frame" row, while STATE says held: the thread's hold waits on an event that a reset before it ran leaves unset. A
   worker that says every let-go it takes closes it.
@@ -81,15 +81,10 @@ The lab checks still to do:
   candidate by its absolute path, as FFmpeg's loader does, closes it.
 - `HapSourceTests.NothingAllocatesPerFrameOnceWarm` failed once in Release and has not failed since; its cause is not
   named. Finding the cause and making the test deterministic closes it.
-- DXC's validator (`dxil.dll` and `libdxil.so`, from Vortice.Dxc.Native 1.0.6) comes under Microsoft's own licence, which grants
-  use solely on Windows, asks distributors to bind external end users to terms that protect it and Microsoft, and asks them to
-  indemnify Microsoft. The Linux worker and the Linux job's tests load `libdxil.so`, the Windows job's published exe and the
-  installer's payload carry `dxil.dll`, and the owner's acceptance of Microsoft's terms (docs/round3/PLAN.md §9 decision 23)
-  names `D3D12Core.dll`. The owner's call (§9 decision 24, open) closes it.
 
 **Next:** round 3's packages (below). On the spine they build the Windows-native node of docs/round3/PLAN.md, the desk's
-guided workflows and capture-card pass-through. Every decision the plan put to the owner is answered (its §9) but DXC's
-validator's terms (decision 24, open), and the round carries twenty-one packages.
+guided workflows and capture-card pass-through. Every decision the plan put to the owner is answered (its §9), and the round
+carries twenty-one packages.
 
 **The rule:** real hardware is the proof, and nothing claims a hardware fact it has not measured. No lab exists this round
 (docs/round3/PLAN.md D15), so round 3 goes ahead on what CI, WARP and the simulators prove. Every lab line keeps its script and
@@ -113,7 +108,7 @@ pass mark and is reported not run, never passed (the plan's §7). A lab, once it
 *The third build round (`docs/round3/`), numbered apart from this roadmap's Rounds 0–4 below, whose own Round 3 is "Plays with
 others". Its plan of record is `docs/round3/PLAN.md`.*
 
-**Decided** (docs/round3/PLAN.md §1.2 and §9, with the owner's answers of 18 and 19 October 2026; docs/round2/CARRYOVER.md keeps the
+**Decided** (docs/round3/PLAN.md §1.2 and §9, with the owner's answers of 18–20 October 2026; docs/round2/CARRYOVER.md keeps the
 calls with their answers): Direct3D 12 becomes the primary renderer behind an RHI, OpenGL stays the reference backend until pixel
 and timing parity, and Vulkan is not carried (D1–D3); a supervising service starts the engine in the show user's session, never as
 administrator or in session 0 (D6); every Windows 11 edition from build 26100, Windows 11 Home included and supported unmanaged,
@@ -129,11 +124,13 @@ inside the sixteen packages and as five more packages, twenty-one packages and a
 October settle the installer and the Direct3D 12 runtime's terms (§9 decisions 3 and 23): a per-machine installer built with Inno
 Setup this round, since M17 measured that the WiX toolset's pinned source does not build on the Windows runner, with an MSI
 revisited next round; and the Agility SDK's runtime shipped in it under a licence page, the owner accepting Microsoft's distribution
-terms, including indemnifying Microsoft. The answers also load NVIDIA's Aftermath library from wherever the user puts it, never
-shipped; let a still of a view go to an assistant model off the machine once a person turns it on; accept the DXGI path's amber with
-no hardware tier; and keep the typed console, with every command and feature reachable from the menus and right-click menus (§9).
-The request to Patterns that its Eye keep at least 256 of a node's commands where it keeps a cap, and that the Show Bus contract
-state the cap, is in docs/round2/CARRYOVER.md (call 11).
+terms, including indemnifying Microsoft. The owner's answer of 20 October, "Open-source DXC only", settles DXC's terms (§9 decision
+24): DXC ships only as its LLVM-licensed compiler, dxcompiler, whose built-in validator signs DXIL, and no `dxil.dll` or
+`libdxil.so` is used or shipped; the installer's licence page carries `D3D12Core.dll`'s terms alone. The answers also load NVIDIA's
+Aftermath library from wherever the user puts it, never shipped; let a still of a view go to an assistant model off the machine once
+a person turns it on; accept the DXGI path's amber with no hardware tier; and keep the typed console, with every command and feature
+reachable from the menus and right-click menus (§9). The request to Patterns that its Eye keep at least 256 of a node's commands
+where it keeps a cap, and that the Show Bus contract state the cap, is in docs/round2/CARRYOVER.md (call 11).
 
 **Today.** PlayMap is one portable exe. It draws through the rendering hardware interface (below) with OpenGL 3.3 core or ES 3.00
 behind it, on GLFW windows, EGL or a surfaceless context; on Windows the Direct3D 11 flip model through ANGLE is an explicit,
@@ -218,8 +215,12 @@ the Direct3D 12 backend, and a user's ISF effect reaches validated, signed DXIL 
 - **The shader worker.** `PlayMap shader-worker`, started by the engine with the first source: ISF to GLSL 4.50 (Core's Vulkan
   target), glslang under relaxed rules, `spirv-val`, SPIRV-Cross to Shader Model 6.0 HLSL with user effects' registers and one
   sampler at `s0`, DXC to signed DXIL, each failure in its stage's words with the ISF line a compiler names. The compilers load only
-  there, each held to its SHA-256; the worker is restarted with backoff, and a source that stops it three times fails with words.
-  `FX CHECK` and `FX IMPORT` report each stage; STATE carries `fx.compile.worker`.
+  there, each held to its SHA-256. DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator signs each
+  container with the retail hash: `dxcompiler.dll` from Microsoft.Direct3D.DXC on Windows, `libdxcompiler.so` from DXC v1.9.2609's
+  Linux release (the folder `PLAYMAP_DXC_DIR` names) on Linux, and no `dxil.dll` or `libdxil.so` anywhere (docs/round3/PLAN.md §9
+  decision 24; `DxcNativesTests`). The worker's hello and STATE name each native's file; the worker is restarted with backoff, and a
+  source that stops it three times fails with words. `FX CHECK` and `FX IMPORT` report each stage; STATE carries
+  `fx.compile.worker`.
 - **The quarantine.** The kinds a node will not draw, kept in its home: their slots draw bypassed, reading "bypassed" with words at
   no GPU time; `fx.quarantine`, `fx.library.quarantined` and red preflight rows say so; `FX RELEASE <kind>|ALL` (Setup: refused
   armed, never drafted) lifts them. The exe composes the part on every node. Nothing adds a kind yet: wp3-shaders-2's GPU-time

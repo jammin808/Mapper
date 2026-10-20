@@ -91,6 +91,9 @@ MCP, desk, menus and right-click menus, papers.
   A new loader finds its library by absolute path only, never by a bare-name search, which on Windows takes in the
   current directory and `PATH` (Aftermath: round 3 §9 decision 7; NDI's and libvmx's loaders still end with one, an open
   fix in `docs/ROADMAP.md`). FFmpeg ships only as the LGPL build's replaceable shared libraries. No GPL code is copied.
+  DXC ships only as its LLVM-licensed compiler, dxcompiler (`dxcompiler.dll` from Microsoft.Direct3D.DXC, which the
+  engine downloads and never references; `libdxcompiler.so` from DXC's pinned Linux release), whose built-in validator
+  signs DXIL; no `dxil.dll` or `libdxil.so` is used or shipped (round 3 §9 decision 24).
 
 ## The loop
 
@@ -102,6 +105,8 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 # FFmpeg tests need FFmpeg 9.0 shared libraries: PLAYMAP_FFMPEG_DIR=/path/to/lib
 # The shader worker's SPIR-V validator on Windows: PLAYMAP_SPIRV_TOOLS_DIR=<folder with SPIRV-Tools-shared.dll>
 #   (the Windows job's pinned download, README's Build); without it every FX CHECK fails at validate
+# DXC on Linux, set before the build: PLAYMAP_DXC_DIR=<absolute folder with libdxcompiler.so from the pinned DXC release>
+#   (the Linux job's pinned download, README's Build); without it the worker's dxc stage and the HLSL tests say so
 # Generated files (STATE fixtures, the Companion module's fixtures): regenerate with PLAYMAP_WRITE_FIXTURES=1
 ```
 

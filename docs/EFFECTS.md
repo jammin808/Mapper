@@ -143,15 +143,17 @@ five stages, each failure in its stage's words with the line mapped back to the 
 | `glslang` | GLSL to SPIR-V under Vulkan's rules relaxed (glslang's `-R`, through shaderc), the loose uniforms gathered into the default block |
 | `validate` | `spirv-val` for Vulkan 1.0: the module is valid before anything reads it |
 | `cross` | SPIRV-Cross to Shader Model 6.0 HLSL: the default block at `b0`, the built-ins at `b1`, the images at `t0` onward in the file's order and every image sampled through the one sampler at `s0` (linear and clamped, as GL samples the pictures an effect reads); the vertex entry ends with the render hardware interface's conversion to Direct3D's clip space (`ClipSpace.ToDirect3D`), so an effect lands on the rows and depths it lands on in GL; each varying the pixel entry reads takes the vertex output of its name, so both entries carry one `TEXCOORD` semantic for it whatever order and subset each file declares, as GL links varyings by name, and one no vertex output of its name and type writes is refused with its name; any other resource is refused with its name |
-| `dxc` | DXC to validated, signed DXIL (`vs_6_0`, `ps_6_0`) and its reflection |
+| `dxc` | DXC's compiler, dxcompiler, to validated DXIL (`vs_6_0`, `ps_6_0`) signed with the retail hash by its built-in validator, and its reflection |
 
-The compilers — glslang (shaderc), SPIRV-Tools (inside shaderc on Linux, its own library on Windows), SPIRV-Cross, DXC and its
-validator — load only in the worker, each file held to its SHA-256; the engine's process holds none. The worker compiles one source
-at a time: a source it does not answer (past the compile's 10 s deadline, past an `FX CHECK`'s bound, or abandoned by its caller)
-ends that worker and counts nothing; a worker that stops mid-compile is started again after a backoff doubling from 1 s to 30 s and
-given the source again; a source that stops it three times fails with words and is answered at once from then on, without a worker,
-until it changes. STATE says the worker in `fx.compile.worker` (whether it runs, its pid, restarts, the last compile's time,
-counts, and each native's state from its hello).
+The compilers — glslang (shaderc), SPIRV-Tools (inside shaderc on Linux, its own library on Windows), SPIRV-Cross and DXC's
+compiler alone (dxcompiler: `dxcompiler.dll` from Microsoft.Direct3D.DXC on Windows, `libdxcompiler.so` from DXC's pinned Linux
+release on Linux; no `dxil.dll` or `libdxil.so`, docs/round3/PLAN.md §9 decision 24) — load only in the worker, each file held to
+its SHA-256; the engine's process holds none. The worker compiles one source at a time: a source it does not answer (past the
+compile's 10 s deadline, past an `FX CHECK`'s bound, or abandoned by its caller) ends that worker and counts nothing; a worker that
+stops mid-compile is started again after a backoff doubling from 1 s to 30 s and given the source again; a source that stops it
+three times fails with words and is answered at once from then on, without a worker, until it changes. STATE says the worker in
+`fx.compile.worker` (whether it runs, its pid, restarts, the last compile's time, counts, and each native's name, file and state
+from its hello).
 
 `FX CHECK`'s report, and `FX IMPORT`'s check, carry `stages` beside the GL dialects: each stage of the road in order with `ok`
 (true, false, or null when not run), its words and the ISF line it points at; a failed stage makes the report's `ok` false. A

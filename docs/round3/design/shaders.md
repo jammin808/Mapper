@@ -9,8 +9,10 @@ is the map's §2.4; the device that runs the result is `d3d12.md`.*
 already keeps, compiled by DXC at build time into DXIL with PDBs, and checked against the RHI's program layouts by reflection; the
 GLSL stays only for the GL backend and leaves with it. A user's ISF source takes a longer road — PlayMap's translator to GLSL
 4.50, glslang's relaxed mode to SPIR-V, `spirv-val`, SPIRV-Cross to HLSL, DXC to validated DXIL — inside `PlayMap shader-worker`,
-a process of its own that the engine starts and watches as it does the optimise worker. A user shader that the GPU-time guard or
-a device removal names is quarantined: its slots draw bypassed, with words, until a person releases it.
+a process of its own that the engine starts and watches as it does the optimise worker. DXC is its LLVM-licensed compiler alone,
+dxcompiler, whose built-in validator validates the DXIL and signs it with the retail hash; DXC's separate validator library
+(`dxil.dll`, `libdxil.so`) is never used or shipped (`PLAN.md` §9 decision 24). A user shader that the GPU-time guard or a device
+removal names is quarantined: its slots draw bypassed, with words, until a person releases it.
 
 ---
 
@@ -66,19 +68,21 @@ float4 OutputPS(OutputOut i) : SV_Target
 
 - An MSBuild step (`Shaders/Shaders.targets`, imported by `PlayMap.Render.D3D12.csproj`) runs DXC's executable
   (`Microsoft.Direct3D.DXC`'s `dxc.exe`, a package referenced with every asset excluded and private, so nothing of it reaches the
-  output or a project that references this one) on Windows for each entry of `programs.json`: `-T vs_6_6` / `-T ps_6_6`,
-  `-HV 2021`, `-Zi` with the PDB written beside the DXIL in `obj/`, reflection kept in a separate blob (`-Qstrip_debug`,
-  `-Qstrip_reflect`), the DXIL validated and signed by `dxil.dll`. The DXIL and reflection blobs are embedded resources; the
-  Windows job uploads the PDBs as its `hlsl-symbols` artifact, and none goes into the exe. Every entry compiles again when a
-  source, the program table or `programs.json` is newer than its DXIL.
+  output or a project that references this one through that reference; the engine takes the same package's `dxcompiler.dll` alone,
+  §5) on Windows for each entry of `programs.json`: `-T vs_6_6` / `-T ps_6_6`, `-HV 2021`, `-Zi` with the PDB written beside the
+  DXIL in `obj/`, reflection kept in a separate blob (`-Qstrip_debug`, `-Qstrip_reflect`), the DXIL validated and signed with the
+  retail hash by the built-in validator of the package's `dxcompiler.dll`, which `dxc.exe` runs (from DXC v1.8.2505 the compiler
+  validates with its own, never with the package's `dxil.dll`). The DXIL and reflection blobs are embedded resources; the Windows
+  job uploads the PDBs as its `hlsl-symbols` artifact, and none goes into the exe. Every entry compiles again when a source, the
+  program table or `programs.json` is newer than its DXIL.
 - Each program's header (`Layout.hlsli`: its constants as the cbuffer at `b0` in the table's order, a matrix `row_major`, and a
   `SLOT_` define for each texture) is generated before DXC runs, on every build, from the program table's file
   (`src/PlayMap.Core/Gpu/Programs/programs.layout.json`, wp3-rhi's), read as data by the same step, so a constant's offset and a
   texture's slot have one source and `Render.D3D12` never references `Render`.
-- **On Linux** the step writes the headers and embeds the sources and no DXIL: no DXC executable is packaged there. M6 found that
-  DXC's Linux library (the shader worker's pinned build) emits validated, signed DXIL, so the tests compile every program on both
-  jobs, and `HlslProgramSetTests` hold `programs.json`'s names equal to `ShaderLibrary.Names` on both. Direct3D 12 never runs on
-  Linux, so nothing there needs the blobs.
+- **On Linux** the step writes the headers and embeds the sources and no DXIL: no DXC executable is packaged there. DXC's Linux
+  library (the shader worker's pinned `libdxcompiler.so`, alone) emits validated DXIL signed with the retail hash (M6), so the
+  tests compile every program on both jobs, and `HlslProgramSetTests` hold `programs.json`'s names equal to `ShaderLibrary.Names`
+  on both. Direct3D 12 never runs on Linux, so nothing there needs the blobs.
 
 ## 4. The layout check
 
@@ -105,7 +109,8 @@ PlayMap.exe shader-worker     a process the engine starts and watches; one JSON 
 **Request and reply.**
 
 ```json
-{ "t": "hello", "pid": 4120, "natives": [ { "name": "glslang", "ok": true, "words": "" }, … ] }
+{ "t": "hello", "pid": 4120, "natives": [ { "name": "glslang", "file": "shaderc_shared.dll", "ok": true, "words": "" }, …,
+  { "name": "dxc", "file": "dxcompiler.dll", "ok": true, "words": "" } ] }
 { "t": "compile", "id": 17, "kind": "<the kind's hash>", "name": "Wobble", "fragment": "/*{ \"ISFVSN\": \"2\", … }*/ …",
   "vertex": null }
 { "t": "done", "id": 17, "ok": true, "stage": "done", "words": "", "isfLine": 0, "stages": [ … ],
@@ -124,7 +129,7 @@ directives:
 | 2 | `glslang` | glslang through shaderc's C interface, Vulkan's rules relaxed (glslang's `-R`) | compiles existing OpenGL GLSL without edits; loose uniforms gathered into the default uniform block, at a binding glslang chooses |
 | 3 | `validate` | SPIRV-Tools (`spvValidateBinary`, Vulkan 1.0) | the SPIR-V is valid before anything trusts it |
 | 4 | `cross` | SPIRV-Cross (C API) | HLSL Shader Model 6.0, combined image samplers split and each split sampler a name for the one at `s0`, registers remapped to user effects' root signature (below), the vertex entry ending with `ClipSpace.ToDirect3D`; each pixel-stage input at the location of the vertex output of its name, so a varying carries one `TEXCOORD` semantic in both entries whatever order and subset the fragment file declares, as GL links varyings by name, and an input no vertex output of its name and type writes refused with its name; any other resource (a storage buffer or image, a separate texture or sampler, a push-constant block, a subpass input, an atomic counter, an acceleration structure) refused with its name |
-| 5 | `dxc` | DXC (`vs_6_0`, `ps_6_0`) | validated, signed DXIL and its reflection |
+| 5 | `dxc` | DXC's dxcompiler (`vs_6_0`, `ps_6_0`), its built-in validator signing | validated DXIL signed with the retail hash, and its reflection |
 
 **User effects' root signature.** User HLSL from SPIRV-Cross binds the classic way, so user effects get a root signature of their
 own: the default uniform block at `b0`, ISF's built-ins as root constants at `b1`, a descriptor table of `t0`–`t15` and one of
@@ -134,6 +139,18 @@ so a user effect reads every image through `s0`, and the table's `s0` is the lin
 frame's ring range per draw (`CopyDescriptorsSimple`, allocation-free). Product programs keep the bindless root signature. This
 package fixes the remap the worker emits; the root signature, the copies and the pipelines on the device are wp3-shaders-2's
 (§11).
+
+**The natives.** Each file the worker loads is pinned by its SHA-256 (`CompilerNatives`) and found beside the worker's assemblies
+or under `runtimes/<rid>/native`: glslang and, on Linux, SPIRV-Tools inside shaderc (`libshaderc_shared.so` / `shaderc_shared.dll`,
+Silk.NET.Shaderc.Native 2.23.0); on Windows SPIRV-Tools' own `SPIRV-Tools-shared.dll` (Google's build, the Windows job's pinned
+download through `PLAYMAP_SPIRV_TOOLS_DIR`); SPIRV-Cross (`libspirv-cross.so` / `spirv-cross.dll`, Silk.NET.SPIRV.Cross.Native
+2.23.0); and DXC's compiler alone, `dxcompiler.dll` from Microsoft.Direct3D.DXC 1.9.2609.5 on Windows (the engine downloads the
+package at the version the Direct3D 12 backend's build uses, never references it, and copies its x64 `dxcompiler.dll` beside its
+assemblies and into what is published) and `libdxcompiler.so` from DXC v1.9.2609's Linux release on Linux (the engine's build
+copies it from the folder `PLAYMAP_DXC_DIR` names; the Linux job lays it down before its restore). dxcompiler makes its compiler,
+utilities and validator from its own `DxcCreateInstance`; no other DXC library is loaded or looked for. The hello names each
+native, the file its pin names on the worker's platform, whether it loaded and the words when not ("libdxcompiler.so is not beside
+the worker (it comes from DXC 1.9.2609's Linux release …)"); a stage whose native did not load fails with those words.
 
 **Supervision.** Started with the first source and watched as the optimise worker is: restarted with backoff (1 s doubling to
 30 s) and given the source again; a compile that runs past 10 s is ended and fails with words, its worker ended with it and no stop
@@ -194,7 +211,8 @@ public sealed class ShaderQuarantine
   "library": { "builtin": 10, "isf": 1, "ffgl": 0, "quarantined": 1 },
   "compile": { "lane": "shared-context", "pending": 0, "words": "",
                "worker": { "running": true, "pid": 4120, "restarts": 0, "lastMs": 84, "compiled": 3, "failed": 0, "missing": 0,
-                           "natives": [ { "name": "glslang", "ok": true, "words": "" }, … ], "words": "" } },
+                           "natives": [ { "name": "glslang", "file": "shaderc_shared.dll", "ok": true, "words": "" }, … ],
+                           "words": "" } },
   "quarantine": [ { "hash": "ab2c…", "kind": "Wobble Pro", "reason": "deviceRemoved",
                     "words": "the GPU stopped inside this effect's pass on op_2 (DRED: last completed 'fx op_2 #3')",
                     "at": 1760600000000, "build": "0.2.0+17.abc1234", "slots": ["fx00000001"] } ]
@@ -217,13 +235,14 @@ the entries `fx.quarantine` lists (`tests/fixtures/state/shaders.json`).
 
 | Test | Job | Holds |
 |---|---|---|
-| `HlslBuildTests` | both | every program compiles to validated, signed DXIL with a PDB and reflection; the set equals `ShaderLibrary.Names`; on Windows the build embedded the same set, each entry's reflection the sources'; the Windows job uploads every entry's PDB |
+| `HlslBuildTests` | both | every program compiles to validated, signed DXIL with a PDB and reflection, each container's digest the retail hash recomputed over it from the published algorithm (INF-0004); the set equals `ShaderLibrary.Names`; on Windows the build embedded the same set, each entry's reflection the sources' and its digest the retail hash; the Windows job uploads every entry's PDB; the Linux job lays down the worker's pinned `libdxcompiler.so` before it restores |
 | `HlslProgramSetTests` | both | `programs.json` names every library program once; the byte-exact pair, the encoder's four and the present (`window`) are the classes apart from `pixels`; each program's header is the one the program table gives |
 | `ShaderLayoutTests` | both | reflection equals each program's layout in the program table (§4) |
 | `HlslConventionTests` | both | `PmClip` is `ClipSpace.ToDirect3D` and every vertex entry writes its position through it; each matrix constant multiplied as its type is read; the vertex inputs at their `ATTR` locations |
 | `IsfVulkanTargetTests` | both | the built-in ISF files and the test corpus translate, compile under `-R` and validate; a translator error keeps its ISF line |
-| `ShaderRoadTests` | both | the built-ins and the corpus to signed DXIL with reflection; the layout the file's own names at DXC's offsets; images at `t0`… and one sampler at `s0`; the vertex entry's clip conversion; same-named varyings at one `TEXCOORD` in both entries whatever order and subset the fragment file declares, and a varying no vertex output of its name and type writes refused at `cross`; a resource no ISF effect binds refused at `cross` |
-| `ShaderWorkerTests` | both | a good source → validated DXIL and a layout; an error → its stage and ISF line; a fake compiler that aborts → restarts with backoff, the third stop fails the source with no quarantine written; a compile past the deadline is ended and counts no stop; the engine holds no compiler module |
+| `ShaderRoadTests` | both | the built-ins and the corpus to signed DXIL with reflection; the layout the file's own names at DXC's offsets; images at `t0`… and one sampler at `s0`; the vertex entry's clip conversion; same-named varyings at one `TEXCOORD` in both entries whatever order and subset the fragment file declares, and a varying no vertex output of its name and type writes refused at `cross`; a resource no ISF effect binds refused at `cross`; a worker without dxcompiler names it in its hello, in words that say where the file comes from, and a source fails at `dxc` with them |
+| `ShaderWorkerTests` | both | a good source → validated DXIL and a layout, each container carrying the retail hash recomputed over it; the hello and STATE name each native's file, `dxc`'s dxcompiler, and the worker's process holds no `dxil.dll` or `libdxil.so`; an error → its stage and ISF line; a fake compiler that aborts → restarts with backoff, the third stop fails the source with no quarantine written; a compile past the deadline is ended and counts no stop; the engine holds no compiler module |
+| `DxcNativesTests` | both | the pins name `dxcompiler.dll` and `libdxcompiler.so` at `PLAN.md` §9 decision 24's builds and no validator library; no output of the engine, the desk, the node or the suite holds `dxil.dll`, `libdxil.so` or a file of Microsoft.Direct3D.DXC but its x64 `dxcompiler.dll` (on Windows), and each holds the pinned dxcompiler beside its assemblies; no package the desk restores holds a validator library, no project, build, publish or installer file names one or Vortice's DXC, and the engine downloads DXC's package at the version the Direct3D 12 backend's build uses; the retail hash written in the tests is the reference implementation's |
 | `QuarantineTests` | both | STATE and preflight carry a quarantined kind; `FX RELEASE` armed → the gate's verdict is a refusal by class and the quarantine is unchanged; from the blind owner never drafted — armed refused, disarmed acting on the node's quarantine at once, the draft holding no quarantine either way; a kind not quarantined and `ALL` with none refused with words; a release says what it applied and how many of the show's slots use the kind, never that they draw; a release the home refuses changes nothing |
 | `QuarantineBypassTests`, `QuarantineRenderTests` | both | a quarantined slot passes its input through (± 0 codes on GL) and reads "bypassed" at no GPU time on a node; a slot that drew before its kind was quarantined reads so after every frame past the renderer's idle sweep; released, the slot draws again |
 

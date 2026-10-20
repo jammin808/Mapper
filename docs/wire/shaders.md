@@ -46,7 +46,8 @@ Inside wp2-fx's `fx` block (`tests/fixtures/state/shaders.json`, cards in `shade
 - `fx.compile.worker` (a node composed with the shader worker): `running`, `pid` (null when none runs), `restarts`, `lastMs` (the
   last compile's own time, recorded, never a pass mark), `compiled`, `failed`, `missing` (how many of the natives its hello named
   did not load: every compile then fails at the first stage that needs one; the card is amber while it is above 0), `natives` (each
-  native's `name`, `ok` and `words` from the worker's hello) and `words` (its last trouble, or how it starts).
+  native's `name`, `file` — the file its pin names on the worker's platform, `dxcompiler.dll` or `libdxcompiler.so` for `dxc`,
+  empty where PlayMap carries none — `ok` and `words`, from the worker's hello) and `words` (its last trouble, or how it starts).
 - `fx.quarantine` (a node composed with the shader worker, or any node that holds a quarantined kind): a list of `hash`, `kind`,
   `reason` (`gpuTime`, `deviceRemoved`, `compilerStopped`, or the word a newer build wrote for a reason this one does not know,
   kept as it was), `words`, `at` (Unix ms), `build`, and `slots` — the show's slots whose kind it is.
@@ -75,22 +76,25 @@ and releases may come from any thread: a lock orders them, and readers take immu
 
 `PlayMap shader-worker` is a process of its own, started by the host with the first source it is given and spoken to in JSON lines:
 the engine's `{"t":"compile","id","kind","name","fragment","vertex"}` and `{"t":"stop"}`, the worker's
-`{"t":"hello","pid","natives":[…]}` and `{"t":"done","id","ok","stage","words","isfLine","stages":[…],"dxil":[vs, ps],"reflection":[vs, ps],"layout":{…},"ms"}`
-(DXIL and reflection as base64; the layout's constants with name, HLSL type, offset and count, its textures with name, slot and
-whether sampled, and its block's size). It runs below normal priority; its main thread only reads its input and its compiles run on
-a thread of their own, so its input closing (the engine went) or a stop line ends it even mid-compile.
+`{"t":"hello","pid","natives":[…]}` (each native's `name`, `file`, `ok` and `words`) and
+`{"t":"done","id","ok","stage","words","isfLine","stages":[…],"dxil":[vs, ps],"reflection":[vs, ps],"layout":{…},"ms"}` (DXIL and
+reflection as base64; the layout's constants with name, HLSL type, offset and count, its textures with name, slot and whether
+sampled, and its block's size). It runs below normal priority; its main thread only reads its input and its compiles run on a
+thread of their own, so its input closing (the engine went) or a stop line ends it even mid-compile.
 
 One source is in hand at a time. A source that is not answered — past the compile's 10 s deadline, past an FX CHECK's bound, or
 abandoned by its caller — ends the worker that holds it before the next source is sent, and counts nothing: running long is not
 stopping the worker. A worker that stops while it compiles is started again after a backoff doubling from 1 s to 30 s and given the
-source again; a source that stops it three times fails with words ("the source stopped the shader worker 3 times (…): it fails,
-and is not sent again until it changes") and is answered at once from then on, without a worker. That memory is the host's own,
-for the node's run: it writes no quarantine, so no kind leaves the air for a compile on the Direct3D 12 road. A node that stops
-mid-compile answers "the node is stopping" and counts nothing. The compilers — glslang (shaderc), SPIRV-Tools (inside shaderc on
-Linux, its own library on Windows), SPIRV-Cross, DXC and its validator — load only in the worker, each held to its SHA-256; the
-engine's process holds none. A vertex file's varyings meet its fragment file's by name: `cross` gives each pixel-entry input the
-location, and so the `TEXCOORD` semantic, of the vertex output of its name, and refuses one no vertex output of its name and type
-writes ("c: the fragment shader reads a varying the vertex shader does not write").
+source again; a source that stops it three times fails with words ("the source stopped the shader worker 3 times (…): it fails, and
+is not sent again until it changes") and is answered at once from then on, without a worker. That memory is the host's own, for the
+node's run: it writes no quarantine, so no kind leaves the air for a compile on the Direct3D 12 road. A node that stops mid-compile
+answers "the node is stopping" and counts nothing. The compilers — glslang (shaderc), SPIRV-Tools (inside shaderc on Linux, its own
+library on Windows), SPIRV-Cross and DXC's compiler alone (dxcompiler, whose built-in validator validates the DXIL and writes its
+retail hash: `dxcompiler.dll` from Microsoft.Direct3D.DXC on Windows, `libdxcompiler.so` from DXC v1.9.2609's Linux release on
+Linux, and no `dxil.dll` or `libdxil.so`; `docs/round3/PLAN.md` §9 decision 24) — load only in the worker, each held to its
+SHA-256; the engine's process holds none. A vertex file's varyings meet its fragment file's by name: `cross` gives each pixel-entry
+input the location, and so the `TEXCOORD` semantic, of the vertex output of its name, and refuses one no vertex output of its name
+and type writes ("c: the fragment shader reads a varying the vertex shader does not write").
 
 ## Papers note
 
@@ -161,12 +165,13 @@ writes ("c: the fragment shader reads a varying the vertex shader does not write
   the library and, on Windows, its DXIL (compiled again when a source, the table or `programs.json` changes).
 - The assistant's FX RELEASE test sits in the Assistant suite (`tests/PlayMap.Assistant.Tests/Shaders/`) on a real node, through
   this package's `ProjectReference` to the engine there.
-- What CI proves: DXC's Linux build emits validated, signed DXIL (M6 answered yes), so every program compiles on both jobs and
+- What CI proves: DXC's Linux build emits validated, signed DXIL (M6 answered yes; `libdxcompiler.so` alone, its built-in validator
+  writing each container's retail hash, which `HlslBuildTests` recompute), so every program compiles on both jobs and
   `ShaderLayoutTests` hold its reflection to its `ProgramLayout` in the program table there: the same programs on both sides, the
   block at b0 with the table's constants, offsets, counts and size and its matrices `row_major`, the table's texture slots with
-  sampling exactly where the table says sampled, and the vertex entry's input signature as the input layout the table's inputs
-  make (`ATTR<location>`, a float format of each input's float count, buffer 0 per vertex and buffer 1 per instance);
+  sampling exactly where the table says sampled, and the vertex entry's input signature as the input layout the table's inputs make
+  (`ATTR<location>`, a float format of each input's float count, buffer 0 per vertex and buffer 1 per instance);
   `HlslConventionTests` hold the clip conversion, the matrices' order and the vertex inputs in the source there too; the build
   embeds DXIL on Windows only, where the DXC executable is packaged, and each embedded entry's reflection is the sources' own.
-  Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's (the present held to GL's on the window, `programs.json`'s
-  `window` class); CI draws none of it on a device.
+  Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's (the present held to GL's on the window, `programs.json`'s `window`
+  class); CI draws none of it on a device.

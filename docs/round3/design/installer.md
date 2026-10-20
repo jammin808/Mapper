@@ -106,7 +106,7 @@ MSI this file designs is built by the WiX toolset compiled from its source, and 
 
 | Where | What |
 |---|---|
-| `%ProgramFiles%\PlayMap\` | the self-contained publish with ReadyToRun (`PublishReadyToRun`: the engine's first frames run precompiled code, not the JIT's first tier — M13's default with the pre-roll; the first ten minutes' p99.9 frame time recorded in L21) (`PlayMap.exe` and its assemblies, .NET 10 included); ANGLE's `av_libglesv2.dll` (the desk's Avalonia and the D3D11 path); OpenAL Soft; libvmx; the shader worker's natives (DXC's `dxcompiler.dll` and `dxil.dll`, glslang, SPIRV-Tools, SPIRV-Cross) |
+| `%ProgramFiles%\PlayMap\` | the self-contained publish with ReadyToRun (`PublishReadyToRun`: the engine's first frames run precompiled code, not the JIT's first tier — M13's default with the pre-roll; the first ten minutes' p99.9 frame time recorded in L21) (`PlayMap.exe` and its assemblies, .NET 10 included); ANGLE's `av_libglesv2.dll` (the desk's Avalonia and the D3D11 path); OpenAL Soft; libvmx; the shader worker's natives (DXC's `dxcompiler.dll` alone, from Microsoft.Direct3D.DXC under its LLVM licence: its built-in validator signs DXIL, so no `dxil.dll` is laid down, `PLAN.md` §9 decision 24; glslang, SPIRV-Tools, SPIRV-Cross) |
 | `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, as replaceable files (today the folder carries none and the node looks for them beside the exe [map §6.2]) — the same hash-pinned `lgpl-shared` build both CI jobs load for every decode test from this package's first item on; the GPL command-line build stays in CI only to encode test media, on the path and never beside a test host |
 | `…\D3D12\` | the Agility SDK's `D3D12Core.dll` (its debug layer is left out of releases) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the service |
@@ -122,10 +122,12 @@ Microsoft at least as much as this agreement" ("it" is the distributable code) a
 Microsoft from any claims, including attorneys’ fees, related to the distribution or use of your applications, except to the extent
 that any claim is based solely on the unmodified distributable code", with its Distribution Restrictions beside them (`PLAN.md` §9
 decision 23 quotes them whole). So the installer shows a licence page, accepted before anything is laid down, that carries
-Microsoft's licence for `D3D12Core.dll` verbatim as the terms a person agrees to for it, with a section for PlayMap's own terms that
-states none until the owner names them. A quiet install shows no page and lays nothing down unless its command line carries
-`/ACCEPTTERMS=yes`. The owner accepts Microsoft's distribution terms, the indemnity included. `THIRD-PARTY-NOTICES.md` names the
-runtime and its terms.
+Microsoft's licence for `D3D12Core.dll` verbatim as the terms a person agrees to for it, with a section for PlayMap's own terms
+that states none until the owner names them. A quiet install shows no page and lays nothing down unless its command line carries
+`/ACCEPTTERMS=yes`. The owner accepts Microsoft's distribution terms, the indemnity included. The page carries `D3D12Core.dll`'s
+terms alone, as `PLAN.md` §9 decision 23 says; DXC's `dxcompiler.dll` asks for no agreement, its LLVM Release License asking for
+its notice, and no `dxil.dll` is laid down (§9 decision 24). `THIRD-PARTY-NOTICES.md` names the runtime and its terms, and DXC's
+licence and its notice.
 
 **Upgrade and launch.** A fixed `UpgradeCode`; `MajorUpgrade` scheduled after `InstallInitialize`, no same-version upgrade, a
 downgrade refused with "PlayMap 0.2.17 is newer than this installer's 0.2.12: uninstall it first to go back". A launch condition

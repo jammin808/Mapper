@@ -170,10 +170,11 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 
 ### wp3-shaders
 
-The shader worker's compilers, carried with the exe (beside it once published, under `runtimes/<rid>/native` in a build) from the
-engine's packages, and on Windows SPIRV-Tools' library from the Windows job's pinned download; each file is held to its SHA-256
-when the worker loads it (`src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs`) and loaded by the worker process only, never by
-the engine:
+The shader worker's compilers, carried with the exe (beside it once published; in a build under `runtimes/<rid>/native` as their
+packages lay them down, or beside the engine's assemblies where the engine's build copies them), from the engine's packages, on
+Windows SPIRV-Tools' library from the Windows job's pinned download, and on Linux DXC's compiler from DXC's pinned release; each
+file is held to its SHA-256 when the worker loads it (`src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs`) and loaded by the
+worker process only, never by the engine:
 
 - shaderc (Apache-2.0, © The Shaderc Authors), with glslang (BSD-3-Clause, the Khronos Group and contributors; parts under the MIT,
   Apache-2.0 and GPL-with-the-Bison-exception licences listed in glslang's `LICENSE.txt`) and SPIRV-Tools (Apache-2.0, © The
@@ -185,20 +186,24 @@ the engine:
   exports no validator.
 - SPIRV-Cross (Apache-2.0, © The Khronos Group Inc. and Arm Limited): `libspirv-cross.so` / `spirv-cross.dll` from
   Silk.NET.SPIRV.Cross.Native 2.23.0. It writes HLSL from the validated SPIR-V.
-- The DirectX Shader Compiler 1.9.2609 under the LLVM Release License (University of Illinois/NCSA): `dxcompiler.dll` /
-  `libdxcompiler.so` from Vortice.Dxc.Native 1.0.6, for the worker and the HLSL library's tests; and Microsoft.Direct3D.DXC
-  1.9.2609.5's `dxc.exe`, run by the Windows build to compile the HLSL library and never shipped. The notice the NCSA licence asks
-  for is the one both packages' `LICENSE-LLVM.txt` carries: "Copyright (c) 2003-2015 University of Illinois at
-  Urbana-Champaign. All rights reserved.", the LLVM Team's credit, the licence's conditions and its disclaimer; DXC's own sources
-  carry "Copyright (C) Microsoft Corporation. All rights reserved." under the same licence.
-- DXC's validator, `dxil.dll` / `libdxil.so` from Vortice.Dxc.Native 1.0.6, under Microsoft's own licence for the DirectX Shader
-  Compiler (`LICENSE-MS.txt`, which the package names as its licence and asks its user to accept). That licence grants use
-  "solely for use on Windows", and lets its distributable code be distributed on its Distribution Requirements, among them to
-  "require distributors and external end users to agree to terms that protect it and Microsoft at least as much as this
-  agreement" and to "indemnify, defend, and hold harmless Microsoft". The owner's acceptance of Microsoft's distribution terms
-  (`docs/round3/PLAN.md` §9 decision 23) names the Agility runtime's `D3D12Core.dll`; the validator's terms are the owner's open
-  call (§9 decision 24), which covers the Linux worker's and the Linux job's use of `libdxil.so` against the Windows-only grant
-  and the `dxil.dll` the Windows job's published exe and the installer carry.
+- The DirectX Shader Compiler (DXC) 1.9.2609's compiler, dxcompiler, the one part of DXC PlayMap uses, under the LLVM Release
+  License (University of Illinois/NCSA Open Source License): `dxcompiler.dll` from Microsoft.Direct3D.DXC 1.9.2609.5
+  (https://www.nuget.org/packages/Microsoft.Direct3D.DXC/1.9.2609.5; the package declares `LICENSE-LLVM.txt` as its licence, and
+  its x64 `dxcompiler.dll` is the one file of it the engine's build copies) on Windows, and `libdxcompiler.so` from DXC v1.9.2609's
+  GitHub release `linux_dxc_2026_09_28.x86_x64.tar.gz`
+  (https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz) on Linux,
+  for the worker and the HLSL library's tests; and the same package's `dxc.exe`, run by the Windows build to compile the HLSL
+  library and never shipped. DXC's release notes (`ReleaseNotes.md`, in the package and in the archive) give `LICENSE-LLVM.txt` to
+  every file but `d3d12shader.h` (MIT); the package and the archive also carry a `LICENSE-MS.txt` that the notes' table assigns to
+  no file. dxcompiler's built-in validator validates the DXIL and writes its hash, so DXC's separate validator library (`dxil.dll`,
+  `libdxil.so`) is neither used nor shipped, and dxcompiler is the one file of DXC's that is shipped (`docs/round3/PLAN.md` §9
+  decision 24). The notice the licence asks for is the one `LICENSE-LLVM.txt` carries: "Copyright (c) 2003-2015 University of
+  Illinois at Urbana-Champaign. All rights reserved.", the credit "Developed by: LLVM Team, University of Illinois at
+  Urbana-Champaign, http://llvm.org", the licence's three conditions and its disclaimer; the full text, with the licences of the
+  third-party code inside DXC, is DXC's `LICENSE.TXT`
+  (https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT) and `ThirdPartyNotices.txt`
+  (https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/ThirdPartyNotices.txt). DXC's own sources carry "Copyright (C)
+  Microsoft Corporation. All rights reserved." under the same licence.
 
 ### wp3-installer
 
