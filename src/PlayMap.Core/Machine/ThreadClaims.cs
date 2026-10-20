@@ -37,8 +37,9 @@ public interface IThreadClaim : IDisposable
 /// ThreadClaims.Claim(ThreadRole.Decode);</c>), since those projects cannot see the engine's platform. The node's host points it at
 /// the platform its services carry once at start (<see cref="Use"/>), after every part's Configure and before it starts the render host
 /// or any part, so every thread they start claims through it (the render thread, made before the parts compose, claims once the host
-/// has started the render host); until then, and on a node whose platform claims nothing (Core's null platform, until wp3-platform
-/// composes its own), a claim changes nothing and its one <see cref="Claim"/> says so (not applied, with the words). Any thread.</summary>
+/// has started the render host); until then, and on a node whose platform claims nothing (Core's null platform: the one a node's
+/// machine part composes on any machine but Windows, and the one a node composed without a machine part carries), a claim changes
+/// nothing and its one <see cref="Claim"/> says so (not applied, with the words). Any thread.</summary>
 public static class ThreadClaims
 {
     /// <summary>The words of a claim made before any platform is in use.</summary>

@@ -10,8 +10,9 @@ namespace PlayMap.Core.Machine;
 /// facts for preflight; and what it reads back of what it uses and holds — the settings handed to it, keep-awake as a claim, the
 /// kind of each timer it made, the power settings — answered for a platform that claims nothing by the members' defaults. Every
 /// claim answers what it asked, what the system said and what reading it back shows; nothing on the machine changes silently. A
-/// node's services carry one (Core's <see cref="NullMachinePlatform"/> until wp3-platform sets its own), and the node's host points
-/// <see cref="ThreadClaims"/> at it once at start.</summary>
+/// node's services carry the platform its machine part composes (Windows' on Windows, Core's <see cref="NullMachinePlatform"/> on any
+/// other machine and on a node composed without a machine part), and the node's host points <see cref="ThreadClaims"/> at it once at
+/// start.</summary>
 public interface IMachinePlatform : IDisposable
 {
     /// <summary>"windows", or "none" on a node whose platform claims nothing.</summary>
