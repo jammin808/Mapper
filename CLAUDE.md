@@ -88,8 +88,9 @@ MCP, desk, menus and right-click menus, papers.
   missing seam goes through the spine amendment lane (§5.7). Every new verb is a catalogue row; every new STATE block has
   its fixture written by a test and a card descriptor.
 - **Threads and deadlines.** The render, decode, audio, control and LED threads claim their roles from the machine platform in
-  one line at their start (`using var claim = ThreadClaims.Claim(ThreadRole.Decode);`; the LTC reader, fed on the capture thread,
-  through a `DeliveryClaim`). A deadline thread (the headless pacer, the LED sender, each audio feeder) waits on the timer
+  one line as their work starts (`using var claim = ThreadClaims.Claim(ThreadRole.Decode);`; the render thread once the engine is
+  attached, after the host points `ThreadClaims` at the platform; the LTC reader, fed on the capture thread, through a
+  `DeliveryClaim`). A deadline thread (the headless pacer, the LED sender, each audio feeder) waits on the timer
   `ThreadClaims.CreateTimer(clock)` makes on it, disposed at its end: on the machine's clock the platform's (on Windows the
   high-resolution waitable timer under `TIMER HIGH`), on any other clock the runtime's wait on that clock. `MACHINE SET`'s MMCSS and
   CPUSETS reach a thread at its next claim, TIMER at its next timer (`docs/PLATFORM.md`).
@@ -128,6 +129,7 @@ CI runs both jobs on every push: Linux (with the ES 3.00 leg) and Windows on `wi
 | Where it is going: round 3's plan, designs and research | `docs/round3/PLAN.md`, `docs/round3/design/`, `docs/round3/research/` |
 | The render hardware interface | `src/PlayMap.Core/Gpu`, `docs/round3/design/rhi.md`, the contracts as built in `docs/round3/notes/rhi.md` §2 |
 | The HLSL library, the shader worker, the effect quarantine | `src/PlayMap.Render.D3D12/Shaders`, `src/PlayMap.Engine/ShaderWorker`, `src/PlayMap.Core/Effects/ShaderQuarantine.cs`, `docs/round3/design/shaders.md`, `docs/wire/shaders.md` |
+| The machine platform: what a node claims from Windows, its identity, the driver lock, machine preflight | `src/PlayMap.Core/Machine`, `src/PlayMap.Platform.Windows`, `src/PlayMap.Engine/Machine`, `docs/PLATFORM.md`, `docs/wire/machine.md` |
 | The wire, STATE, the verbs | `docs/WIRE.md`, `src/PlayMap.Core/Wire/VerbCatalog.cs` (the one table) |
 | The Show Bus node (Patterns/Stagewatch interop) | `docs/SHOWBUS-NODE.md` |
 | Mapping and scanning | `docs/MAPPING.md` |
