@@ -375,7 +375,7 @@ public sealed class PlatformCallsTests
         if (read && !networks.IsEmpty)
             Assert.Contains(networks, n => !n.Adapters.IsEmpty);
         Evidence("Networks and their adapters", read
-            ? networks.Select(n => $"- {n.Name}: {n.Category}, rule {(n.PublicRule ? "yes" : "no")}, through "
+            ? networks.Select(n => $"- {n.Name}: {n.Category}, rule {(n.PublicRule ? "yes" : "no")}, adapters read {(n.AdaptersRead ? "whole" : "not whole")}, through "
                 + string.Join("; ", n.Adapters.Select(a => $"{a.Name} ({string.Join(", ", a.Addresses)})")))
             : [$"- not read: {words}"]);
     }

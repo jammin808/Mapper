@@ -47,10 +47,33 @@ public sealed record NetworkAdapter(Guid Id, string Name, ImmutableArray<IPAddre
 }
 
 /// <summary>A connected network as read: its name, its firewall profile ("public", "private", "domain"), whether an inbound rule for
-/// PlayMap covers the Public profile, and the adapters it is reached through (empty where the list named none).</summary>
+/// PlayMap covers the Public profile, the adapters it is reached through, and whether those were read whole.</summary>
 public sealed record NetworkProfile(string Name, string Category, bool PublicRule)
 {
+    /// <summary>The adapters its connections go through, among the machine's (empty where none was read).</summary>
     public ImmutableArray<NetworkAdapter> Adapters { get; init; } = [];
+
+    /// <summary>Whether <see cref="Adapters"/> is every adapter it is reached through: its connections listed (one at least), and each
+    /// one's adapter read and found among the machine's. False, the default, where any of that was not read: which show doors the
+    /// network carries is then unknown.</summary>
+    public bool AdaptersRead { get; init; }
+
+    /// <summary>A network as the platform reads it: the adapters its connections name (<paramref name="connections"/>, each connection's
+    /// adapter id; null where they did not list or one's adapter did not read) among the machine's (<paramref name="adapters"/>; null
+    /// where the list did not open), read whole only when there is one connection at least and every one's adapter is the machine's.</summary>
+    public static NetworkProfile Read(string name, string category, bool publicRule, IReadOnlyCollection<Guid>? connections,
+        IReadOnlyList<NetworkAdapter>? adapters)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(category);
+        if (connections is null || adapters is null)
+            return new NetworkProfile(name, category, publicRule);
+        return new NetworkProfile(name, category, publicRule)
+        {
+            Adapters = NetworkAdapter.Of(connections, adapters),
+            AdaptersRead = connections.Count > 0 && connections.All(id => adapters.Any(a => a.Id == id)),
+        };
+    }
 }
 
 /// <summary>Everything the platform read for the machine's preflight rows, each "unread" where Windows did not answer (−1, "", or
@@ -119,8 +142,8 @@ public sealed record MachineReadings
 /// <summary>The machine's preflight rows, pure: each a fact with its light and words, never a silent change, a fix line only where a
 /// verb fixes it. The edition's rows follow D4: a layer the edition lacks is a grey information row ("i") — Home's four, and on Pro and
 /// Pro for Workstations the kiosk's (no Shell Launcher) — and the hard rows are amber. A network show traffic can cross on Public with
-/// no rule letting PlayMap in is amber: one whose adapters carry a show door's address, or any connected one while a show door listens
-/// on every interface. Rows that fail name what is wrong; the must rows that pass are green, so a person sees what was checked.</summary>
+/// no rule letting PlayMap in is amber: one whose adapters carry a show door's address or could not be read, or any connected one while
+/// a show door listens on every interface. Rows that fail name what is wrong; the must rows that pass are green, so a person sees what was checked.</summary>
 public static class MachineRows
 {
     /// <summary>The value an information row carries (grey, with the i).</summary>
@@ -171,9 +194,10 @@ public static class MachineRows
     private const string NonePublic = "no connected network is on the Public firewall profile without a rule letting PlayMap in";
 
     /// <summary>The networks' firewall rows, for the networks show traffic can cross: every connected one when a show door listens on
-    /// every interface (the row saying which doors do) or no door was handed over, else only those whose adapters carry a door's
-    /// address (the row naming the doors, the address and the adapter). Each such Public network with no rule letting PlayMap in is
-    /// amber; with none, one green row says what was read.</summary>
+    /// every interface (the row saying which doors do) or no door was handed over, else those whose adapters carry a door's address
+    /// (the row naming the doors, the address and the adapter) and those whose adapters could not be read, which may. Each such Public
+    /// network with no rule letting PlayMap in is amber; with none, one green row says what was read and which networks' adapters were
+    /// not.</summary>
     private static void Networks(ImmutableArray<NetworkProfile> networks, ImmutableArray<ShowDoor> doors, ImmutableArray<MachineFact>.Builder rows)
     {
         var everywhere = doors.Where(d => d.Everywhere).Select(d => DoorWord(d.Name)).Distinct(StringComparer.Ordinal).ToList();
@@ -194,9 +218,11 @@ public static class MachineRows
                     : new MachineFact("network", Light.Green, "every interface", $"{listen}, and {NonePublic}"));
             return;
         }
-        // Every door is bound to an address: the networks whose adapters carry none are not the show's, and are not read.
+        // Every door is bound to an address: the networks whose adapters were read and carry none are not the show's, and are not read;
+        // one whose adapters were not read may carry a door, and is read as one show traffic can cross.
         var addresses = string.Join(", ", doors.Select(d => Normal(d.Address)).Distinct().Select(a => a.ToString()));
-        var carried = networks.Select(n => (Network: n, Through: Through(n, doors))).Where(c => c.Through.Count > 0).ToList();
+        var carried = networks.Where(n => n.AdaptersRead).Select(n => (Network: n, Through: Through(n, doors))).Where(c => c.Through.Count > 0).ToList();
+        var unread = networks.Where(n => !n.AdaptersRead).ToList();
         var refused = false;
         foreach (var (n, through) in carried.Where(c => c.Network.Category == "public" && !c.Network.PublicRule))
         {
@@ -204,11 +230,21 @@ public static class MachineRows
             rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public",
                 $"the network {n.Name} carries this node's {string.Join("; ", through)} and is on the Public firewall profile with no rule letting PlayMap in: make it Private in {ProfileSetting(n.Name)}"));
         }
+        foreach (var n in unread.Where(n => n.Category == "public" && !n.PublicRule))
+        {
+            refused = true;
+            rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public",
+                $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there, and the adapters it goes through could not be read, so show traffic can cross it: make it Private in {ProfileSetting(n.Name)}"));
+        }
         if (refused)
             return;
-        rows.Add(new MachineFact("network", Light.Green, addresses, carried.Count == 0
-            ? $"the show doors are bound to {addresses}, which no connected network carries"
-            : "the show doors are " + string.Join("; ", carried.Select(c => $"on {c.Network.Name} ({c.Network.Category}): {string.Join("; ", c.Through)}"))));
+        var said = carried.Count > 0
+            ? "the show doors are " + string.Join("; ", carried.Select(c => $"on {c.Network.Name} ({c.Network.Category}): {string.Join("; ", c.Through)}"))
+            : unread.Count == 0 ? $"the show doors are bound to {addresses}, which no connected network carries"
+            : $"the show doors are bound to {addresses}, which no connected network whose adapters were read carries";
+        if (unread.Count > 0)
+            said += $"; the adapters of {List(unread.Select(n => n.Name))} could not be read, and {(unread.Count == 1 ? "it is not" : "none of them is")} on the Public firewall profile without a rule letting PlayMap in";
+        rows.Add(new MachineFact("network", Light.Green, addresses, said));
     }
 
     /// <summary>The doors a network's adapters carry, by adapter and address ("line wire and web port on 192.168.10.20 through Ethernet

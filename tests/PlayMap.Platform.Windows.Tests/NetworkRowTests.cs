@@ -7,8 +7,9 @@ namespace PlayMap.Platform.Windows.Tests;
 
 /// <summary>The networks' firewall row reads only the networks show traffic can cross: when every show door is bound to an address,
 /// the connected networks whose adapters carry one, the row naming the doors, the address and the adapter; when a door listens on every
-/// interface, every connected network, the row saying which doors do. A Public network with no rule letting PlayMap in is amber; with
-/// none, one green row says what was read.</summary>
+/// interface, every connected network, the row saying which doors do. A network whose adapters were not read may carry a door, so it is
+/// read as one show traffic can cross. A Public network with no rule letting PlayMap in is amber; with none, one green row says what
+/// was read and what was not.</summary>
 public sealed class NetworkRowTests
 {
     private static readonly DateOnly Today = new(2026, 10, 20);
@@ -19,7 +20,11 @@ public sealed class NetworkRowTests
     private static readonly NetworkAdapter WiFi = new(Guid.Parse("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e"), "Wi-Fi", [IPAddress.Parse("10.0.0.57")]);
 
     private static NetworkProfile Network(string name, string category, NetworkAdapter adapter, bool rule = false) =>
-        new(name, category, rule) { Adapters = [adapter] };
+        new(name, category, rule) { Adapters = [adapter], AdaptersRead = true };
+
+    /// <summary>A connected network whose adapters were not read (its connections did not list, or name an adapter the machine does
+    /// not list).</summary>
+    private static NetworkProfile Unread(string name, string category, bool rule = false) => new(name, category, rule);
 
     private static ImmutableArray<MachineFact> Rows(ImmutableArray<ShowDoor> doors, params NetworkProfile[] networks) =>
         [.. MachineRows.Build(new MachineReadings { NetworksRead = true, Networks = [.. networks], Doors = doors }, Today)
@@ -95,6 +100,56 @@ public sealed class NetworkRowTests
         var green = Assert.Single(Rows([], Network("Show LAN", "private", Ethernet)));
         Assert.Equal(("network", Light.Green, "none public"), (green.Item, green.Light, green.Value));
         Assert.Equal("no connected network is on the Public firewall profile without a rule letting PlayMap in", green.Words);
+    }
+
+    [Fact]
+    public void ANetworkWhoseAdaptersWereNotReadMayCarryTheDoorsSoOnPublicWithNoRuleItIsAmber()
+    {
+        var rows = Rows([Door("wire", "192.168.10.20"), Door("web", "192.168.10.20")], Unread("Show LAN", "public"), Network("Office", "private", WiFi));
+        var row = Assert.Single(rows);
+        Assert.Equal(("network.public:Show LAN", Light.Amber, "public"), (row.Item, row.Light, row.Value));
+        Assert.Equal("the network Show LAN is on the Public firewall profile and no rule lets PlayMap in there, and the adapters it goes "
+            + "through could not be read, so show traffic can cross it: make it Private in Settings ▸ Network & internet ▸ Show LAN ▸ "
+            + "Network profile type", row.Words);
+
+        // A rule letting PlayMap in on Public, or another profile, keeps the network open to the show whichever adapters it goes through.
+        var green = Assert.Single(Rows([Door("wire", "192.168.10.20")], Unread("Show LAN", "public", rule: true), Network("Office", "private", Ethernet)));
+        Assert.Equal(("network", Light.Green, "192.168.10.20"), (green.Item, green.Light, green.Value));
+        Assert.Equal("the show doors are on Office (private): line wire on 192.168.10.20 through Ethernet 2; the adapters of Show LAN could "
+            + "not be read, and it is not on the Public firewall profile without a rule letting PlayMap in", green.Words);
+    }
+
+    [Fact]
+    public void NoNetworkCarriesTheDoorsOnlyWhenEveryNetworksAdaptersWereRead()
+    {
+        var row = Assert.Single(Rows([Door("wire", "127.0.0.1")], Network("Venue Wi-Fi", "private", WiFi), Unread("Office", "domain"), Unread("Lab", "private")));
+        Assert.Equal(("network", Light.Green, "127.0.0.1"), (row.Item, row.Light, row.Value));
+        Assert.Equal("the show doors are bound to 127.0.0.1, which no connected network whose adapters were read carries; the adapters of "
+            + "Office and Lab could not be read, and none of them is on the Public firewall profile without a rule letting PlayMap in", row.Words);
+    }
+
+    [Fact]
+    public void ANetworksAdaptersAreReadWholeOnlyWhenEachOfItsConnectionsAdaptersIsTheMachines()
+    {
+        var unknown = Guid.Parse("11111111-2222-4333-8444-555555555555");
+        var whole = NetworkProfile.Read("Show LAN", "public", false, [Ethernet.Id], [Ethernet, WiFi]);
+        Assert.Equal(("Show LAN", "public", false, true), (whole.Name, whole.Category, whole.PublicRule, whole.AdaptersRead));
+        Assert.Equal<NetworkAdapter>([Ethernet], whole.Adapters);
+        // A connection whose adapter the machine does not list: the ones it does are kept, and the network is not read whole.
+        var part = NetworkProfile.Read("Show LAN", "public", false, [Ethernet.Id, unknown], [Ethernet, WiFi]);
+        Assert.Equal<NetworkAdapter>([Ethernet], part.Adapters);
+        Assert.False(part.AdaptersRead);
+        // The machine's adapter list empty or unread, the network's connections unread or none: nothing is known of its adapters.
+        Assert.False(NetworkProfile.Read("Show LAN", "public", false, [Ethernet.Id], []).AdaptersRead);
+        Assert.False(NetworkProfile.Read("Show LAN", "public", false, [Ethernet.Id], null).AdaptersRead);
+        Assert.False(NetworkProfile.Read("Show LAN", "public", false, null, [Ethernet]).AdaptersRead);
+        Assert.False(NetworkProfile.Read("Show LAN", "public", false, [], [Ethernet]).AdaptersRead);
+        Assert.Empty(NetworkProfile.Read("Show LAN", "public", false, null, [Ethernet]).Adapters);
+
+        // An empty interface list leaves every network unread: the bound doors' row reads each one as one show traffic can cross.
+        var rows = Rows([Door("wire", "192.168.10.20")], NetworkProfile.Read("Show LAN", "public", false, [Ethernet.Id], []),
+            NetworkProfile.Read("Office", "private", false, [WiFi.Id], []));
+        Assert.Equal(("network.public:Show LAN", Light.Amber), (Assert.Single(rows).Item, Assert.Single(rows).Light));
     }
 
     [Fact]

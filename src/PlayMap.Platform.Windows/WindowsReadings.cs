@@ -307,8 +307,8 @@ internal static unsafe class WindowsReadings
     }
 
     /// <summary>The connected networks with their firewall profiles (the Network List Manager), each with whether a rule lets
-    /// <paramref name="exePath"/> in on Public and the adapters its connections go through, with their addresses; false, with the
-    /// words, when the list does not open.</summary>
+    /// <paramref name="exePath"/> in on Public and the adapters its connections go through, with their addresses, and whether those
+    /// were read whole (<see cref="NetworkProfile.AdaptersRead"/>); false, with the words, when the list does not open.</summary>
     public static bool TryNetworks(string exePath, out ImmutableArray<NetworkProfile> networks, out string words)
     {
         networks = [];
@@ -345,10 +345,7 @@ internal static unsafe class WindowsReadings
                             break;
                         try
                         {
-                            list.Add(new NetworkProfile(NetworkName(network), Category(network), publicRule)
-                            {
-                                Adapters = NetworkAdapter.Of(AdapterIds(network), adapters),
-                            });
+                            list.Add(NetworkProfile.Read(NetworkName(network), Category(network), publicRule, AdapterIds(network), adapters));
                         }
                         finally
                         {
@@ -392,14 +389,15 @@ internal static unsafe class WindowsReadings
         }
     }
 
-    /// <summary>The ids of the adapters a network's connections go through (each connection's adapter GUID); none where the list
-    /// names none.</summary>
-    private static List<Guid> AdapterIds(nint network)
+    /// <summary>The ids of the adapters a network's connections go through (each connection's adapter GUID), or null where the
+    /// connections did not list or a connection's adapter did not read: the network's adapters are then unknown.</summary>
+    private static List<Guid>? AdapterIds(nint network)
     {
         var ids = new List<Guid>();
         nint connections = 0;
         if (((delegate* unmanaged[Stdcall]<nint, nint*, int>)Slot(network, Slots.NetworkGetNetworkConnections))(network, &connections) < 0 || connections == 0)
-            return ids;
+            return null;
+        var whole = true;
         try
         {
             var next = (delegate* unmanaged[Stdcall]<nint, uint, nint*, uint*, int>)Slot(connections, Slots.EnumNetworkConnectionsNext);
@@ -414,6 +412,8 @@ internal static unsafe class WindowsReadings
                     Guid id;
                     if (((delegate* unmanaged[Stdcall]<nint, Guid*, int>)Slot(connection, Slots.NetworkConnectionGetAdapterId))(connection, &id) >= 0)
                         ids.Add(id);
+                    else
+                        whole = false;
                 }
                 finally
                 {
@@ -425,12 +425,12 @@ internal static unsafe class WindowsReadings
         {
             Release(connections);
         }
-        return ids;
+        return whole ? ids : null;
     }
 
-    /// <summary>This machine's network adapters (an interface's id is its adapter's GUID on Windows) with their unicast addresses; none
-    /// where Windows does not list them.</summary>
-    private static List<NetworkAdapter> LocalAdapters()
+    /// <summary>This machine's network adapters (an interface's id is its adapter's GUID on Windows) with their unicast addresses, or
+    /// null where Windows does not list them: every network's adapters are then unknown.</summary>
+    private static List<NetworkAdapter>? LocalAdapters()
     {
         var adapters = new List<NetworkAdapter>();
         try
@@ -441,8 +441,8 @@ internal static unsafe class WindowsReadings
         }
         catch (NetworkInformationException)
         {
-            // No adapter list: each network names none, and a node bound to an address reads none of them.
-            adapters.Clear();
+            // No adapter list: no network's adapters are known, and each is read as one show traffic can cross.
+            return null;
         }
         return adapters;
     }
