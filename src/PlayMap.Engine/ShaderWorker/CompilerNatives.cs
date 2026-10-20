@@ -8,10 +8,11 @@ namespace PlayMap.Engine.ShaderWorker;
 public sealed record NativePin(string Name, string File, string Sha256, string From);
 
 /// <summary>The compiler natives the shader worker loads, each pinned by hash: glslang and SPIRV-Tools inside shaderc
-/// (Silk.NET.Shaderc.Native 2.23.0, shaderc at 9460514), SPIRV-Cross (Silk.NET.SPIRV.Cross.Native 2.23.0), DXC 1.9.2609 and its
-/// validator (Vortice.Dxc.Native 1.0.6), and on Windows SPIRV-Tools' own library, whose shaderc build exports no validator there
-/// (Google's SPIRV-Tools build for Visual Studio 2022, fetched by CI at its hash). A file that is not the pinned build is never
-/// loaded: the stage that needs it fails with words. Only the worker process loads any of them; the engine never does.</summary>
+/// (Silk.NET.Shaderc.Native 2.23.0, built by Silk.NET at its commit 9460514), SPIRV-Cross (Silk.NET.SPIRV.Cross.Native 2.23.0),
+/// DXC 1.9.2609 and its validator (Vortice.Dxc.Native 1.0.6), and on Windows SPIRV-Tools' own library, whose shaderc build exports
+/// no validator there (Google's SPIRV-Tools build for Visual Studio 2022, fetched by CI at its hash). A file that is not the pinned
+/// build is never loaded: the stage that needs it fails with words. Only the worker process loads any of them; the engine never
+/// does.</summary>
 public static class CompilerNatives
 {
     public const string Shaderc = "shaderc";
