@@ -124,10 +124,13 @@ that any claim is based solely on the unmodified distributable code", with its D
 decision 23 quotes them whole). So the installer shows a licence page, accepted before anything is laid down, that carries
 Microsoft's licence for `D3D12Core.dll` verbatim as the terms a person agrees to for it, with a section for PlayMap's own terms
 that states none until the owner names them. A quiet install shows no page and lays nothing down unless its command line carries
-`/ACCEPTTERMS=yes`. The owner accepts Microsoft's distribution terms, the indemnity included. The page carries `D3D12Core.dll`'s
-terms alone, as `PLAN.md` §9 decision 23 says; DXC's `dxcompiler.dll` asks for no agreement, its LLVM Release License asking for
-its notice, and no `dxil.dll` is laid down (§9 decision 24). `THIRD-PARTY-NOTICES.md` names the runtime and its terms, and DXC's
-licence and its notice.
+`/ACCEPTTERMS=yes`. The owner accepts Microsoft's distribution terms, the indemnity included. No third party's terms but
+`D3D12Core.dll`'s are on the page, beside the section for PlayMap's own: DXC's `dxcompiler.dll` asks for no agreement, its LLVM
+Release License (University of Illinois/NCSA) asking that its copyright notice, its three conditions and its disclaimer travel with
+the binary, which they do in `licenses\DXC\` beside it (the package's `LICENSE-LLVM.txt`, with DXC's own `LICENSE.TXT` and
+`ThirdPartyNotices.txt` for the third-party code inside it, laid down by every build and publish) and in `THIRD-PARTY-NOTICES.md`,
+which reproduces the licence whole; no `dxil.dll` is laid down (§9 decision 24). `THIRD-PARTY-NOTICES.md` names the runtime and its
+terms.
 
 **Upgrade and launch.** A fixed `UpgradeCode`; `MajorUpgrade` scheduled after `InstallInitialize`, no same-version upgrade, a
 downgrade refused with "PlayMap 0.2.17 is newer than this installer's 0.2.12: uninstall it first to go back". A launch condition

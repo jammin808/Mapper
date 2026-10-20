@@ -9,9 +9,10 @@ is the map's §2.4; the device that runs the result is `d3d12.md`.*
 already keeps, compiled by DXC at build time into DXIL with PDBs, and checked against the RHI's program layouts by reflection; the
 GLSL stays only for the GL backend and leaves with it. A user's ISF source takes a longer road — PlayMap's translator to GLSL
 4.50, glslang's relaxed mode to SPIR-V, `spirv-val`, SPIRV-Cross to HLSL, DXC to validated DXIL — inside `PlayMap shader-worker`,
-a process of its own that the engine starts and watches as it does the optimise worker. DXC is its LLVM-licensed compiler alone,
-dxcompiler, whose built-in validator validates the DXIL and signs it with the retail hash; DXC's separate validator library
-(`dxil.dll`, `libdxil.so`) is never used or shipped (`PLAN.md` §9 decision 24). A user shader that the GPU-time guard or a device
+a process of its own that the engine starts and watches as it does the optimise worker. What PlayMap ships and loads of DXC is its
+LLVM-licensed compiler alone, dxcompiler, whose built-in validator validates the DXIL and signs it with the retail hash, in the
+Windows build's `dxc.exe` (run there and never shipped) as in the worker; DXC's separate validator library (`dxil.dll`,
+`libdxil.so`) is never used or shipped (`PLAN.md` §9 decision 24). A user shader that the GPU-time guard or a device
 removal names is quarantined: its slots draw bypassed, with words, until a person releases it.
 
 ---
@@ -71,10 +72,12 @@ float4 OutputPS(OutputOut i) : SV_Target
   output or a project that references this one through that reference; the engine takes the same package's `dxcompiler.dll` alone,
   §5) on Windows for each entry of `programs.json`: `-T vs_6_6` / `-T ps_6_6`, `-HV 2021`, `-Zi` with the PDB written beside the
   DXIL in `obj/`, reflection kept in a separate blob (`-Qstrip_debug`, `-Qstrip_reflect`), the DXIL validated and signed with the
-  retail hash by the built-in validator of the package's `dxcompiler.dll`, which `dxc.exe` runs (from DXC v1.8.2505 the compiler
-  validates with its own, never with the package's `dxil.dll`). The DXIL and reflection blobs are embedded resources; the Windows
-  job uploads the PDBs as its `hlsl-symbols` artifact, and none goes into the exe. Every entry compiles again when a source, the
-  program table or `programs.json` is newer than its DXIL.
+  retail hash by the built-in validator of the package's `dxcompiler.dll`, which `dxc.exe` runs: the step starts `dxc.exe` without
+  `DXC_DXIL_DLL_PATH`, the variable through which DXC's driver would load an external validator from the path it names, so the
+  compiler validates with its own and the build loads no `dxil.dll` (the Windows job names a path with nothing there in that
+  variable before its build, so a `dxc.exe` that saw it would fail the build). The DXIL and reflection blobs are embedded resources;
+  the Windows job uploads the PDBs as its `hlsl-symbols` artifact, and none goes into the exe. Every entry compiles again when a
+  source, the program table or `programs.json` is newer than its DXIL.
 - Each program's header (`Layout.hlsli`: its constants as the cbuffer at `b0` in the table's order, a matrix `row_major`, and a
   `SLOT_` define for each texture) is generated before DXC runs, on every build, from the program table's file
   (`src/PlayMap.Core/Gpu/Programs/programs.layout.json`, wp3-rhi's), read as data by the same step, so a constant's offset and a
@@ -147,7 +150,11 @@ download through `PLAYMAP_SPIRV_TOOLS_DIR`); SPIRV-Cross (`libspirv-cross.so` / 
 2.23.0); and DXC's compiler alone, `dxcompiler.dll` from Microsoft.Direct3D.DXC 1.9.2609.5 on Windows (the engine downloads the
 package at the version the Direct3D 12 backend's build uses, never references it, and copies its x64 `dxcompiler.dll` beside its
 assemblies and into what is published) and `libdxcompiler.so` from DXC v1.9.2609's Linux release on Linux (the engine's build
-copies it from the folder `PLAYMAP_DXC_DIR` names; the Linux job lays it down before its restore). dxcompiler makes its compiler,
+copies it from the folder `PLAYMAP_DXC_DIR` names; the Linux job lays it down before its restore). Wherever the build copies
+dxcompiler, in every build and publish, `licenses/DXC/` beside it carries the text its LLVM licence asks to travel with the binary:
+the package's `LICENSE-LLVM.txt` (the same file the Linux release carries) and DXC's own `LICENSE.TXT` and `ThirdPartyNotices.txt`
+at tag v1.9.2609 (carried byte for byte in `src/PlayMap.Engine/ShaderWorker/DxcNotices`), which give the licences of the third-party
+code inside it; no other file of the package, its `LICENSE-MS.txt` among them, reaches an output. dxcompiler makes its compiler,
 utilities and validator from its own `DxcCreateInstance`; no other DXC library is loaded or looked for. The hello names each
 native, the file its pin names on the worker's platform, whether it loaded and the words when not ("libdxcompiler.so is not beside
 the worker (it comes from DXC 1.9.2609's Linux release …)"); a stage whose native did not load fails with those words.
@@ -235,14 +242,14 @@ the entries `fx.quarantine` lists (`tests/fixtures/state/shaders.json`).
 
 | Test | Job | Holds |
 |---|---|---|
-| `HlslBuildTests` | both | every program compiles to validated, signed DXIL with a PDB and reflection, each container's digest the retail hash recomputed over it from the published algorithm (INF-0004); the set equals `ShaderLibrary.Names`; on Windows the build embedded the same set, each entry's reflection the sources' and its digest the retail hash; the Windows job uploads every entry's PDB; the Linux job lays down the worker's pinned `libdxcompiler.so` before it restores |
+| `HlslBuildTests` | both | every program compiles to validated, signed DXIL with a PDB and reflection, each container's digest the retail hash recomputed over it from the published algorithm (INF-0004); the set equals `ShaderLibrary.Names`; on Windows the build embedded the same set, each entry's reflection the sources' and its digest the retail hash; the build starts `dxc.exe` without `DXC_DXIL_DLL_PATH`, and the Windows job names a path with nothing there in it before its build; the Windows job uploads every entry's PDB and runs `DxcNativesTests` on its publish before it uploads the exe; the Linux job lays down the worker's pinned `libdxcompiler.so`, the release's one file, before it restores |
 | `HlslProgramSetTests` | both | `programs.json` names every library program once; the byte-exact pair, the encoder's four and the present (`window`) are the classes apart from `pixels`; each program's header is the one the program table gives |
 | `ShaderLayoutTests` | both | reflection equals each program's layout in the program table (§4) |
 | `HlslConventionTests` | both | `PmClip` is `ClipSpace.ToDirect3D` and every vertex entry writes its position through it; each matrix constant multiplied as its type is read; the vertex inputs at their `ATTR` locations |
 | `IsfVulkanTargetTests` | both | the built-in ISF files and the test corpus translate, compile under `-R` and validate; a translator error keeps its ISF line |
 | `ShaderRoadTests` | both | the built-ins and the corpus to signed DXIL with reflection; the layout the file's own names at DXC's offsets; images at `t0`… and one sampler at `s0`; the vertex entry's clip conversion; same-named varyings at one `TEXCOORD` in both entries whatever order and subset the fragment file declares, and a varying no vertex output of its name and type writes refused at `cross`; a resource no ISF effect binds refused at `cross`; a worker without dxcompiler names it in its hello, in words that say where the file comes from, and a source fails at `dxc` with them |
-| `ShaderWorkerTests` | both | a good source → validated DXIL and a layout, each container carrying the retail hash recomputed over it; the hello and STATE name each native's file, `dxc`'s dxcompiler, and the worker's process holds no `dxil.dll` or `libdxil.so`; an error → its stage and ISF line; a fake compiler that aborts → restarts with backoff, the third stop fails the source with no quarantine written; a compile past the deadline is ended and counts no stop; the engine holds no compiler module |
-| `DxcNativesTests` | both | the pins name `dxcompiler.dll` and `libdxcompiler.so` at `PLAN.md` §9 decision 24's builds and no validator library; no output of the engine, the desk, the node or the suite holds `dxil.dll`, `libdxil.so` or a file of Microsoft.Direct3D.DXC but its x64 `dxcompiler.dll` (on Windows), and each holds the pinned dxcompiler beside its assemblies; no package the desk restores holds a validator library, no project, build, publish or installer file names one or Vortice's DXC, and the engine downloads DXC's package at the version the Direct3D 12 backend's build uses; the retail hash written in the tests is the reference implementation's |
+| `ShaderWorkerTests` | both | a good source → validated DXIL and a layout, each container carrying the retail hash recomputed over it; the hello and STATE name each native's file, `dxc`'s dxcompiler, and the worker's process holds no `dxil.dll` or `libdxil.so`; an error → its stage and ISF line; a fake compiler that aborts → restarts with backoff, the third stop fails the source with no quarantine written; a compile past the deadline is ended and counts no stop; the engine's process holds no compiler module and no validator library |
+| `DxcNativesTests` | both | the pins name `dxcompiler.dll` and `libdxcompiler.so` at `PLAN.md` §9 decision 24's builds and no validator library; no output of the engine, the desk, the node or the suite, nor the desk's publish once one is made, holds `dxil.dll`, `libdxil.so` or a file of Microsoft.Direct3D.DXC (its binaries by name, every other file of it by content) but its x64 `dxcompiler.dll` (on Windows) and its `LICENSE-LLVM.txt` in `licenses/DXC/`, and each holds the pinned dxcompiler beside its assemblies; wherever one holds dxcompiler, `licenses/DXC/` beside it holds the package's `LICENSE-LLVM.txt` and DXC's `LICENSE.TXT` and `ThirdPartyNotices.txt` at v1.9.2609; no package the desk restores holds a validator library, no project, build, publish, installer, workflow or script file names one or Vortice's DXC, and the engine downloads DXC's package at the version the Direct3D 12 backend's build uses; the retail hash written in the tests is the reference implementation's |
 | `QuarantineTests` | both | STATE and preflight carry a quarantined kind; `FX RELEASE` armed → the gate's verdict is a refusal by class and the quarantine is unchanged; from the blind owner never drafted — armed refused, disarmed acting on the node's quarantine at once, the draft holding no quarantine either way; a kind not quarantined and `ALL` with none refused with words; a release says what it applied and how many of the show's slots use the kind, never that they draw; a release the home refuses changes nothing |
 | `QuarantineBypassTests`, `QuarantineRenderTests` | both | a quarantined slot passes its input through (± 0 codes on GL) and reads "bypassed" at no GPU time on a node; a slot that drew before its kind was quarantined reads so after every frame past the renderer's idle sweep; released, the slot draws again |
 

@@ -126,11 +126,13 @@ Setup this round, since M17 measured that the WiX toolset's pinned source does n
 revisited next round; and the Agility SDK's runtime shipped in it under a licence page, the owner accepting Microsoft's distribution
 terms, including indemnifying Microsoft. The owner's answer of 20 October, "Open-source DXC only", settles DXC's terms (§9 decision
 24): DXC ships only as its LLVM-licensed compiler, dxcompiler, whose built-in validator signs DXIL, and no `dxil.dll` or
-`libdxil.so` is used or shipped; the installer's licence page carries `D3D12Core.dll`'s terms alone. The answers also load NVIDIA's
-Aftermath library from wherever the user puts it, never shipped; let a still of a view go to an assistant model off the machine once
-a person turns it on; accept the DXGI path's amber with no hardware tier; and keep the typed console, with every command and feature
-reachable from the menus and right-click menus (§9). The request to Patterns that its Eye keep at least 256 of a node's commands
-where it keeps a cap, and that the Show Bus contract state the cap, is in docs/round2/CARRYOVER.md (call 11).
+`libdxil.so` is used or shipped; DXC's licence asks for no agreement, so the installer's licence page carries no third party's terms
+but `D3D12Core.dll`'s, and its copyright notice, conditions and disclaimer travel beside dxcompiler in `licenses/DXC/`. The answers
+also load NVIDIA's Aftermath library from wherever the user puts it, never shipped; let a still of a view go to an assistant model
+off the machine once a person turns it on; accept the DXGI path's amber with no hardware tier; and keep the typed console, with
+every command and feature reachable from the menus and right-click menus (§9). The request to Patterns that its Eye keep at least
+256 of a node's commands where it keeps a cap, and that the Show Bus contract state the cap, is in docs/round2/CARRYOVER.md
+(call 11).
 
 **Today.** PlayMap is one portable exe. It draws through the rendering hardware interface (below) with OpenGL 3.3 core or ES 3.00
 behind it, on GLFW windows, EGL or a surfaceless context; on Windows the Direct3D 11 flip model through ANGLE is an explicit,
@@ -206,8 +208,8 @@ the Direct3D 12 backend, and a user's ISF effect reaches validated, signed DXIL 
   with the render hardware interface's conventions (`Common.hlsli`: every vertex entry ends with `ClipSpace.ToDirect3D`, a
   `float4x4` read as `mul(v, M)` and the normal matrix as `mul(M, v)`, the present unflipped, one root signature with the binding
   block read through `ResourceDescriptorHeap`). The build writes each program's header from the program table and embeds the
-  library and, on Windows, the DXIL DXC's executable compiles, with its reflection; the Windows job keeps every entry's PDB
-  (`hlsl-symbols`).
+  library and, on Windows, the DXIL DXC's executable compiles, with its reflection, started without `DXC_DXIL_DLL_PATH` so that
+  dxcompiler's built-in validator signs it; the Windows job keeps every entry's PDB (`hlsl-symbols`).
 - **The layout check.** DXC's Linux build signs its DXIL (M6), so every program compiles on both jobs, and `ShaderLayoutTests` hold
   each program's reflection to its `ProgramLayout` in the program table: constants, offsets, counts, block size and `row_major`
   matrices, texture slots sampled exactly where the table says, and the vertex entry's input signature as the table's inputs make
@@ -217,7 +219,8 @@ the Direct3D 12 backend, and a user's ISF effect reaches validated, signed DXIL 
   sampler at `s0`, DXC to signed DXIL, each failure in its stage's words with the ISF line a compiler names. The compilers load only
   there, each held to its SHA-256. DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator signs each
   container with the retail hash: `dxcompiler.dll` from Microsoft.Direct3D.DXC on Windows, `libdxcompiler.so` from DXC v1.9.2609's
-  Linux release (the folder `PLAYMAP_DXC_DIR` names) on Linux, and no `dxil.dll` or `libdxil.so` anywhere (docs/round3/PLAN.md §9
+  Linux release (the folder `PLAYMAP_DXC_DIR` names) on Linux, each with its licence and DXC's third-party notices in
+  `licenses/DXC/` beside it in every build and publish, and no `dxil.dll` or `libdxil.so` anywhere (docs/round3/PLAN.md §9
   decision 24; `DxcNativesTests`). The worker's hello and STATE name each native's file; the worker is restarted with backoff, and a
   source that stops it three times fails with words. `FX CHECK` and `FX IMPORT` report each stage; STATE carries
   `fx.compile.worker`.

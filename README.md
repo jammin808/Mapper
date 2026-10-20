@@ -159,10 +159,10 @@ placeholders and the CI legs. Of the packages, the rendering hardware interface 
 `IGpuDevice` with the GL backend behind it, its pixel goldens unedited and holding within their tolerances. So is the shaders
 package: PlayMap's programs written once more in HLSL, compiled on CI to validated, signed DXIL and held to the program table by
 reflection; a user's ISF effect compiled to DXIL in a worker process of its own, so none of that road's compilers (glslang,
-SPIRV-Tools, SPIRV-Cross, DXC) loads into the engine, with each stage of that road in `FX CHECK`'s report; DXC is its LLVM-licensed
-compiler alone, dxcompiler, whose built-in validator signs the DXIL, and no `dxil.dll` or `libdxil.so` is used or shipped (the
-plan's §9 decision 24); and a quarantine, kept in the node's home, whose kinds' slots draw bypassed until `FX RELEASE`. No device
-draws that DXIL yet (`docs/ROADMAP.md`, round 3).
+SPIRV-Tools, SPIRV-Cross, DXC) loads into the engine, with each stage of that road in `FX CHECK`'s report; what PlayMap ships and
+loads of DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator signs the DXIL, and no `dxil.dll` or
+`libdxil.so` is used or shipped (the plan's §9 decision 24); and a quarantine, kept in the node's home, whose kinds' slots draw
+bypassed until `FX RELEASE`. No device draws that DXIL yet (`docs/ROADMAP.md`, round 3).
 
 ## What it is made of
 
@@ -249,11 +249,13 @@ The shader worker's DXC is its LLVM-licensed compiler alone, dxcompiler, whose b
 `libdxil.so` is used (`docs/round3/PLAN.md` §9 decision 24). On Windows `dxcompiler.dll` comes from Microsoft.Direct3D.DXC, which
 the restore downloads. On Linux it is `libdxcompiler.so` from DXC v1.9.2609's Linux release (the URL and both hashes are the Linux
 job's `DXC for the shader worker (pinned)` step): set `PLAYMAP_DXC_DIR` to the absolute path of the folder holding it before the
-build, and the engine's build copies it beside every build of the engine. A Linux build without it has no DXC: the worker's `dxc`
-stage fails on every source ("libdxcompiler.so is not beside the worker (it comes from DXC 1.9.2609's Linux release …)"), so every
-`FX CHECK` and `FX IMPORT` report is `ok` false, `fx.compile.worker`'s `missing` reads 1 once the worker runs, and the tests that
-compile through DXC (`HlslBuildTests`, `ShaderLayoutTests`, `ShaderRoadTests` and `ShaderWorkerTests` among them) fail with the
-loader's words; none is skipped.
+build, and the engine's build copies it beside every build of the engine. Wherever the build copies dxcompiler it lays down
+`licenses/DXC/` beside it, the text DXC's LLVM licence asks to travel with the binary: the package's `LICENSE-LLVM.txt` and DXC's
+own `LICENSE.TXT` and `ThirdPartyNotices.txt` (`THIRD-PARTY-NOTICES.md`). A Linux build without `PLAYMAP_DXC_DIR` has no DXC: the
+worker's `dxc` stage fails on every source ("libdxcompiler.so is not beside the worker (it comes from DXC 1.9.2609's Linux release
+…)"), so every `FX CHECK` and `FX IMPORT` report is `ok` false, `fx.compile.worker`'s `missing` reads 1 once the worker runs, and
+the tests that compile through DXC (`HlslBuildTests`, `ShaderLayoutTests`, `ShaderRoadTests` and `ShaderWorkerTests` among them)
+fail with the loader's words; none is skipped.
 
 On Windows the shader worker's SPIR-V validator is SPIRV-Tools' own library, `SPIRV-Tools-shared.dll` from Google's Visual Studio
 2022 release build (the URL and both hashes are the Windows job's `SPIRV-Tools for the shader worker` step): set
@@ -278,9 +280,11 @@ retail hash. Then:
   (`tools/ci-d3d12.ps1`), and lists their results apart in the job's summary. It asks the runner what it gives (`bench/r3-probe`:
   the Agility runtime in a .NET apphost, MMCSS, the throttling read-back, the GPU scheduling class, HDR10, the session calls) and
   writes the answers in the summary. Its build compiles the HLSL library with that package's `dxc.exe` into the DXIL
-  `PlayMap.Render.D3D12` embeds, and it uploads every entry's PDB as `hlsl-symbols` (failing when there is none). It builds the
-  lab's present bench (`bench/r3-present`) without running it, and publishes the portable exe, named with its version (Versions,
-  below).
+  `PlayMap.Render.D3D12` embeds, started without `DXC_DXIL_DLL_PATH` (the job names a path with nothing there in it, so a `dxc.exe`
+  that saw it would fail the build) so that dxcompiler's built-in validator signs it, and it uploads every entry's PDB as
+  `hlsl-symbols` (failing when there is none). It builds the lab's present bench (`bench/r3-present`) without running it, and
+  publishes the portable exe, which `DxcNativesTests` read again before it is named with its version (Versions, below) and
+  uploaded.
 - **A dispatched run** with the `d3d12` input runs only the Windows job's Direct3D 12 leg, narrowed by that test filter. It
   uploads the leg's results, diff images, info-queue log and DRED output, and gives the leg's minutes in the summary.
 
@@ -289,7 +293,8 @@ Windows) carries that platform's category (`Category=Linux`, `Category=Windows`)
 
 On Ubuntu 24.04, `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack
 (PulseAudio with a virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints
-the variables to export.
+the variables to export. It lays down no DXC and prints no `PLAYMAP_DXC_DIR`: fetch DXC's Linux release and set that variable as
+above before the build, or the tests that compile through DXC fail.
 
 Third-party software, and the licences it comes under, is listed in `THIRD-PARTY-NOTICES.md`.
 
