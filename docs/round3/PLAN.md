@@ -2150,7 +2150,7 @@ nothing in that wave edits it.
 | `tests/fixtures/state/{machine, install, shaders, gpu, graph, observe, previews, showing, canvas, guides, capture}.json` and their cards | platform, installer, shaders → shaders-2, d3d12-core → stability-2, d3d12-passes → d3d12-passes-2, stability → stability-2, desk-gpu, desk-map, canvas, workflows, capture — one writer each per wave | none |
 | `tests/fixtures/state/{main, output, decode, sync}.json` | the package whose keys change: present (`output`), video (`decode`), framelock (`sync`) | Linux keeps GL words; the Windows job writes `*.d3d12.json` twins (present's leg) and compares them there |
 | `integrations/companion-module-playmap/test/fixtures/*` | the integration pass | none |
-| `docs/ARCHITECTURE.md`, `README.md`, the agent brief, `docs/WIRE.md`, `docs/ROADMAP.md`, `docs/COMPETITIVE.md` | spine (W0: its own lines in README, ARCHITECTURE, WIRE and ROADMAP) → the integration pass (§5.6) | none during the waves; packages write papers notes |
+| `docs/ARCHITECTURE.md`, `README.md`, the agent brief, `docs/WIRE.md`, `docs/ROADMAP.md`, `docs/COMPETITIVE.md`, `docs/RESEARCH.md`, `docs/round3/README.md` | spine (W0: its own lines in README, ARCHITECTURE, WIRE and ROADMAP) → the integrator at each package's merge, from the package's papers note (§5.4 item 7) → the integration pass (§5.6) | none from a package; packages write papers notes |
 
 ---
 
@@ -2231,6 +2231,9 @@ On one integration worktree here, one build at a time:
    the artifact carries the `-unsigned` name, the notice and its `SHA256SUMS`, which match its files.
 6. **From wp3-desk-shell's merge on, `MenuCoverageTests` is a hard gate**: a row the desk may send that is missing from the menu bar,
    or, where it names an object, from that object's right-click menu, fails the merge that adds it (§9 decision 22).
+7. **The papers ride the merge.** The integrator applies the package's papers note to the papers §4 gives the integration,
+   each sentence in present tense and checked against the merged code, so every push to `main` carries the papers of what it
+   merges; the integration pass (§5.6) reconciles them across the round.
 
 A red merge is fixed by that package's review session, never by editing another package's test.
 
