@@ -6,10 +6,11 @@ Read this before any change. The papers people read are `README.md`, `docs/`; th
 
 PlayMap (repo: Mapper) is a media player / render node of the Patterns ecosystem (Patterns, Stagewatch) and a 3D
 projection-mapping suite (structured-light scanning, LiDAR import, pose solving, 3D blending, pen-tool masks). Today it
-is one portable .NET 10 exe with two processes: the **desk** (`PlayMap`, Avalonia 12) and the **engine** (`PlayMap
-engine`, the node: project, playback, FFmpeg decode, rendering through the RHI with the GL backend behind it, outputs,
-Show Bus, scan). `docs/ARCHITECTURE.md` is the design; read it first. Round 3 (`docs/round3/PLAN.md`) is the plan of
-record for where it is going.
+is one portable .NET 10 exe that runs as the **desk** (`PlayMap`, Avalonia 12) and the **engine** (`PlayMap engine`,
+the node: project, playback, FFmpeg decode, rendering through the RHI with the GL backend behind it, outputs, Show Bus,
+scan); the engine starts its optimise worker and, with the first effect source, its shader worker as processes of their
+own (`docs/ARCHITECTURE.md` §1). `docs/ARCHITECTURE.md` is the design; read it first. Round 3 (`docs/round3/PLAN.md`) is
+the plan of record for where it is going.
 
 ## The direction (the owner's)
 
@@ -99,6 +100,8 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 # GL tests need a display: Xvfb :99 & export DISPLAY=:99 (Mesa llvmpipe is enough)
 # The Render suite's ES 3.00 leg: PLAYMAP_GL_DIALECT=es300
 # FFmpeg tests need FFmpeg 9.0 shared libraries: PLAYMAP_FFMPEG_DIR=/path/to/lib
+# The shader worker's SPIR-V validator on Windows: PLAYMAP_SPIRV_TOOLS_DIR=<folder with SPIRV-Tools-shared.dll>
+#   (the Windows job's pinned download, README's Build); without it every FX CHECK fails at validate
 # Generated files (STATE fixtures, the Companion module's fixtures): regenerate with PLAYMAP_WRITE_FIXTURES=1
 ```
 
