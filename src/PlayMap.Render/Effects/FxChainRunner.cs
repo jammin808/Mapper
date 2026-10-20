@@ -179,7 +179,10 @@ public sealed class FxChainRunner : IDisposable
         }
         if (Quarantine?.Hashes.Contains(files.Hash) == true)
         {
-            // Nothing of the slot is drawn, so it costs the frame nothing.
+            // Nothing of the slot is drawn, so it costs the frame nothing: a renderer it drew with before is let go here, and its
+            // observed state, set every frame it is held, is never swept as an unused slot's is.
+            if (_slots.Remove(slot.Id, out var drew))
+                drew.Dispose();
             var held = Stats.For(slot.Id);
             held.Set(FxSlotState.Quarantined, "quarantined on this node (FX RELEASE lifts it): its input passes unchanged", _frame);
             held.Gpu(0);

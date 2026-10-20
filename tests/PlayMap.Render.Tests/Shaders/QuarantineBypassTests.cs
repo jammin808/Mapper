@@ -7,7 +7,8 @@ namespace PlayMap.Render.Tests.Shaders;
 
 /// <summary>A quarantined kind on the reference backend (GL): its slot draws its input unchanged (± 0 codes: the chain hands on the
 /// input itself) and says so in its observed state (quarantined, at no GPU time), while the rest of the chain draws what it draws
-/// after a slot bypassed by hand; once released the slot draws its effect again.</summary>
+/// after a slot bypassed by hand; once released the slot draws its effect again. A slot that drew before its kind was quarantined
+/// reads quarantined after every frame past the runner's idle sweep, which lets go of its renderer and never of its observed state.</summary>
 [Collection("gpu")]
 public sealed class QuarantineBypassTests(BackendFixture backends)
 {
@@ -61,6 +62,37 @@ public sealed class QuarantineBypassTests(BackendFixture backends)
             for (var i = 0; i < input.Length; i += 4)
                 for (var k = 0; k < 3; k++)
                     Assert.InRange(drawn[i + k], 255 - input[i + k] - 1, 255 - input[i + k] + 1);
+        });
+    }
+
+    [Fact]
+    public void ASlotThatDrewBeforeItsKindWasQuarantinedReadsQuarantinedAfterEveryFramePastTheIdleSweep()
+    {
+        backends.Run(leg =>
+        {
+            var d = leg.Device;
+            using var lane = new FxLane(d);
+            using var runner = new FxChainRunner(d, lane);
+            using var picture = FxRig.Picture(d, W, H, Ramp);
+            var quarantine = new ShaderQuarantine();
+            runner.Quarantine = quarantine;
+            var chain = FxRig.Chain(FxRig.Slot("fx.invert"));
+            long frame = 0;
+            FxRig.Run(d, lane, runner, Show, chain, picture, ref frame);
+            Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000001").State);
+
+            quarantine.Add(new QuarantineEntry(FxCatalog.Builtin.Source("fx.invert")!.Hash, "Invert", QuarantineReason.DeviceRemoved,
+                "the GPU stopped inside its pass", 0, "test"));
+            for (var i = 0; i < FxChainRunner.IdleFrames + 60; i++)
+            {
+                Assert.Same(picture, FxRig.Step(d, lane, runner, Show, chain, picture, ref frame, 1_000_000_000));
+                Assert.True(runner.Stats.TryGet("fx00000001", out var live), $"after frame {frame} the slot has no observed state");
+                Assert.Equal(FxSlotState.Quarantined, live.State);
+            }
+
+            quarantine.ReleaseAll();
+            FxRig.Run(d, lane, runner, Show, chain, picture, ref frame);
+            Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000001").State);
         });
     }
 }
