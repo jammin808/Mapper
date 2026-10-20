@@ -3,10 +3,11 @@
 #include "Common.hlsli"
 
 #if defined(PM_PROGRAM_present)
-// The one program that flips: a window's present reads the top-row-first picture bottom up.
+// A window's back buffer runs top row first, as every target here: the present draws the finished picture as it is (the GL
+// present's flip answers GL's bottom-first default framebuffer, which Direct3D 12 does not have).
 float4 PresentPS(VsUv i) : SV_Target
 {
-    return float4(PmSample(SLOT_uTex, float2(i.uv.x, 1.0 - i.uv.y)).rgb, 1.0);
+    return float4(PmSample(SLOT_uTex, i.uv).rgb, 1.0);
 }
 #endif
 

@@ -24,7 +24,7 @@ StageOut StageVS(StageIn v)
     float4 w = mul(float4(v.pos, 1.0), uModel);
     StageOut o;
     o.world = w.xyz;
-    o.normal = mul(v.normal, uNormalMat);
+    o.normal = mul(uNormalMat, v.normal);
     o.uv = v.uv;
     o.proj = mul(w, uProjector);
     o.pos = PmClip(mul(w, uViewProj));
