@@ -133,8 +133,8 @@
         { "name": "uLens", "slot": 1, "sampled": true },
         { "name": "uMask", "slot": 2, "sampled": true },
         { "name": "uBlend", "slot": 3, "sampled": true },
-        { "name": "uMeasuredGrid", "slot": 4, "sampled": true },
-        { "name": "uMeasuredBlend", "slot": 5, "sampled": true }
+        { "name": "uMeasuredGrid", "slot": 4, "sampled": false },
+        { "name": "uMeasuredBlend", "slot": 5, "sampled": false }
       ],
       "inputs": [
         { "location": 0, "components": 2, "offset": 0, "stride": 16, "buffer": 0, "divisor": 0 },

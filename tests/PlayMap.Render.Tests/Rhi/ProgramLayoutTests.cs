@@ -214,6 +214,34 @@ public sealed class ProgramLayoutTests(BackendFixture backends)
         Assert.Throws<InvalidOperationException>(() => GlslDeclarations.Layout("t", "uniform float uX;\n", "uniform vec2 uX;\n"));
     }
 
+    [Fact]
+    public void ASamplerHandedToAHelperIsSampledOnlyWhereTheHelperSamplesIt()
+    {
+        const string Fs = """
+            uniform sampler2D uFetched;
+            uniform sampler2D uFiltered;
+            uniform sampler2D uBoth;
+            out vec4 o;
+            vec4 fetched(sampler2D s, vec2 p) {
+                ivec2 size = textureSize(s, 0);
+                return vec4(texelFetch(s, clamp(ivec2(p), ivec2(0), size - ivec2(1)), 0).s);
+            }
+            vec4 filtered(vec2 uv, sampler2D s) { return texture(s, uv); }
+            vec4 twice(sampler2D a, sampler2D b) { return fetched(a, vec2(0.0)) + filtered(vec2(0.5), b); }
+            void main() {
+                o = fetched(uFetched, vec2(textureSize(uFetched, 0)) * 0.5) + filtered(vec2(0.5), uFiltered) + twice(uFetched, uBoth);
+            }
+            """;
+        var l = GlslDeclarations.Layout("t", "void main() { gl_Position = vec4(0.0); }", Fs);
+        Assert.Equal(new[] { new TextureSlot("uFetched", 0, false), new TextureSlot("uFiltered", 1, true), new TextureSlot("uBoth", 2, true) },
+            l.Textures);
+        // The output program's measured grid and blend are read through such a helper (texels), by texelFetch alone.
+        var table = new ProgramTable();
+        var output = table.Layout(table.Id("output"));
+        Assert.True(output.TryTexture("uMeasuredGrid", out var grid) && !grid.Sampled, "output only loads uMeasuredGrid");
+        Assert.True(output.TryTexture("uMeasuredBlend", out var blend) && !blend.Sampled, "output only loads uMeasuredBlend");
+    }
+
     private static ConstantType Of(UniformType type) => type switch
     {
         UniformType.Float => ConstantType.Float,
