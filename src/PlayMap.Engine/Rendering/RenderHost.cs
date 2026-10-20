@@ -144,7 +144,9 @@ public sealed partial class RenderHost : IRenderHost
     private readonly double[] _frameMsSorted = new double[FrameRing];
     private readonly Lock _frameMsGate = new();
     private FramePacer _loopPacer = new(60);
+#pragma warning disable CA2213 // Disposed by TearDown on the render thread, which made its deadline timer and waited on it.
     private readonly HeadlessPacing _headless = new();
+#pragma warning restore CA2213
     private readonly Func<string, long> _presentOf;
     private readonly double[] _presentMs = new double[FrameRing];
     private readonly double[] _presentMsSorted = new double[FrameRing];
@@ -850,9 +852,12 @@ public sealed partial class RenderHost : IRenderHost
             _headless.WaitUntil(_deadlineNs, _wake);
     }
 
-    /// <summary>Deletes everything GL on this thread (windows, renderer, context) and fails what still waits.</summary>
+    /// <summary>Deletes everything GL on this thread (windows, renderer, context) and the pacer's deadline timer, and fails what still
+    /// waits.</summary>
     private void TearDown()
     {
+        // The pacer's deadline timer goes with the thread that made it and waited on it: nothing waits on it after the loop.
+        _headless.Dispose();
         _scan.Dispose();
         // The GPU objects go under the shared device's lock as frames are drawn (taken within its bound; let go of before the device).
         var deviceLock = _platform?.DeviceLock;
@@ -922,7 +927,6 @@ public sealed partial class RenderHost : IRenderHost
             await _stage.DisposeAsync().ConfigureAwait(false);
         // The render thread has exited: nothing raises the signal any more.
         Volatile.Read(ref _facts)?.Dispose();
-        _headless.Dispose();
         _wake.Dispose();
         _ready.Dispose();
     }
