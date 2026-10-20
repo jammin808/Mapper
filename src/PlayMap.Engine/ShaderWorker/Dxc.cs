@@ -31,10 +31,12 @@ public readonly record struct ReflectedInput(string Semantic, int Index, int Sys
 public sealed record DxilReflection(ImmutableArray<ReflectedConstant> Constants, ImmutableArray<ReflectedBinding> Bindings,
     ImmutableArray<ReflectedBuffer> Buffers, ImmutableArray<ReflectedInput> Inputs);
 
-/// <summary>DXC through its COM interface (IDxcCompiler3, IDxcUtils, the validator): HLSL to DXIL, validated and signed by the
-/// pinned validator (loaded first, so the compiler's own look-up finds that build), and a container's reflection read through
-/// ID3D12ShaderReflection. The vtables have IUnknown's three slots first on every platform (DXC's Linux adapter declares no
-/// virtual destructor). Wide strings are UTF-16 on Windows and UTF-32 elsewhere, as DXC's own wchar_t is.</summary>
+/// <summary>DXC through its COM interface (IDxcCompiler3, IDxcUtils, IDxcValidator), all three made by the one pinned library,
+/// dxcompiler: HLSL to DXIL, validated and signed by its built-in validator (the compile validates the DXIL and writes the container's
+/// retail hash; the validator object validates the signed container again before it is answered), and a container's reflection read
+/// through ID3D12ShaderReflection. No other DXC library is loaded or looked for: DXC's separate validator library has no part in it.
+/// The vtables have IUnknown's three slots first on every platform (DXC's Linux adapter declares no virtual destructor). Wide strings
+/// are UTF-16 on Windows and UTF-32 elsewhere, as DXC's own wchar_t is.</summary>
 public sealed unsafe class Dxc : IDisposable
 {
     private const int Utf8 = 65001;
@@ -77,21 +79,18 @@ public sealed unsafe class Dxc : IDisposable
         _includes = includes;
     }
 
-    /// <summary>The pinned DXC and validator; null with words when either cannot be loaded or made.</summary>
+    /// <summary>The pinned dxcompiler's compiler, utilities and built-in validator; null with words when the library cannot be loaded
+    /// or one of them cannot be made.</summary>
     public static Dxc? TryLoad(out string words, string? baseDirectory = null)
     {
-        if (!CompilerNatives.TryLoad(CompilerNatives.Dxil, out var dxil, out words, baseDirectory))
-            return null;
         if (!CompilerNatives.TryLoad(CompilerNatives.Dxc, out var dxc, out words, baseDirectory))
             return null;
-        if (!NativeLibrary.TryGetExport(dxc, "DxcCreateInstance", out var createCompiler)
-            || !NativeLibrary.TryGetExport(dxil, "DxcCreateInstance", out var createValidator))
+        if (!NativeLibrary.TryGetExport(dxc, "DxcCreateInstance", out var create))
         {
             words = "the pinned DXC has no DxcCreateInstance";
             return null;
         }
-        var make = (delegate* unmanaged<Guid*, Guid*, nint*, int>)createCompiler;
-        var makeValidator = (delegate* unmanaged<Guid*, Guid*, nint*, int>)createValidator;
+        var make = (delegate* unmanaged<Guid*, Guid*, nint*, int>)create;
         nint compiler = 0, utils = 0, validator = 0;
         var c = ClsidCompiler;
         var ci = IidCompiler3;
@@ -100,7 +99,7 @@ public sealed unsafe class Dxc : IDisposable
         var v = ClsidValidator;
         var vi = IidValidator;
         int hr;
-        if ((hr = make(&c, &ci, &compiler)) < 0 || (hr = make(&u, &ui, &utils)) < 0 || (hr = makeValidator(&v, &vi, &validator)) < 0)
+        if ((hr = make(&c, &ci, &compiler)) < 0 || (hr = make(&u, &ui, &utils)) < 0 || (hr = make(&v, &vi, &validator)) < 0)
         {
             Release(compiler);
             Release(utils);
@@ -133,8 +132,8 @@ public sealed unsafe class Dxc : IDisposable
         OperatingSystem.IsWindows() ? Encoding.Unicode.GetBytes(s + "\0") : Encoding.UTF32.GetBytes(s + "\0");
 
     /// <summary>Compiles one entry of an HLSL source with DXC's own arguments after <c>-E</c> and <c>-T</c> (<c>-I</c> folders among
-    /// them); <paramref name="name"/> is the file's path, the folder its includes are read from first. The DXIL is validated (and
-    /// signed) by the validator before it is answered.</summary>
+    /// them); <paramref name="name"/> is the file's path, the folder its includes are read from first. The compile validates the DXIL
+    /// and signs it with its retail hash; the validator validates the signed container again before it is answered.</summary>
     public DxilOutput Compile(string source, string entry, string target, IReadOnlyList<string> arguments, string name = "effect.hlsl")
     {
         ArgumentNullException.ThrowIfNull(source);

@@ -8,8 +8,9 @@ namespace PlayMap.Engine.ShaderWorker;
 /// and its vertex file or null.</summary>
 public sealed record ShaderRequest(long Id, string Kind, string Name, string Fragment, string? Vertex);
 
-/// <summary>A native as the worker loaded it: its name, whether it loaded, and the words when it did not.</summary>
-public readonly record struct NativeState(string Name, bool Ok, string Words);
+/// <summary>A native as the worker loaded it: its name, the file it is (its pin's on the worker's platform; "" where PlayMap carries
+/// none), whether it loaded, and the words when it did not.</summary>
+public readonly record struct NativeState(string Name, string File, bool Ok, string Words);
 
 /// <summary>The worker's first line: its process id and its natives.</summary>
 public sealed record ShaderHello(int Pid, ImmutableArray<NativeState> Natives);
@@ -64,6 +65,7 @@ public static class ShaderWorkerProtocol
             {
                 w.WriteStartObject();
                 w.WriteString("name", n.Name);
+                w.WriteString("file", n.File);
                 w.WriteBoolean("ok", n.Ok);
                 w.WriteString("words", n.Words);
                 w.WriteEndObject();
@@ -139,7 +141,7 @@ public static class ShaderWorkerProtocol
             return t.GetString() switch
             {
                 "hello" => new ShaderHello(r.GetProperty("pid").GetInt32(), [.. r.GetProperty("natives").EnumerateArray()
-                    .Select(n => new NativeState(Str(n, "name"), n.GetProperty("ok").GetBoolean(), Str(n, "words")))]),
+                    .Select(n => new NativeState(Str(n, "name"), Str(n, "file"), n.GetProperty("ok").GetBoolean(), Str(n, "words")))]),
                 "done" => Reply(r),
                 _ => null,
             };

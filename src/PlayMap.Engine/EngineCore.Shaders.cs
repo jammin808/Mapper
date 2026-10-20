@@ -129,6 +129,7 @@ public sealed partial class EngineCore
         {
             w.WriteStartObject();
             w.WriteString("name", n.Name);
+            w.WriteString("file", n.File);
             w.WriteBoolean("ok", n.Ok);
             w.WriteString("words", n.Words);
             w.WriteEndObject();

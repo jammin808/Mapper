@@ -31,12 +31,19 @@
   </ItemGroup>
 
   <!-- The shader worker's compilers (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs pins each file by hash): glslang and
-       SPIRV-Tools inside shaderc, SPIRV-Cross, DXC and its validator. Only the worker process loads them. On Windows SPIRV-Tools'
-       own library comes from CI's pinned download (PLAYMAP_SPIRV_TOOLS_DIR), copied beside every build of the engine. -->
+       SPIRV-Tools inside shaderc, SPIRV-Cross, and DXC's open-source compiler, dxcompiler, whose built-in validator validates DXIL
+       and writes its hash. Only the worker process loads them, from beside the engine's assemblies, where each is copied (and
+       published). On Windows SPIRV-Tools' own library comes from CI's pinned download (PLAYMAP_SPIRV_TOOLS_DIR), and dxcompiler.dll
+       from Microsoft.Direct3D.DXC, the version the Direct3D 12 backend's build uses, downloaded and never referenced: of the package
+       only build/native/bin/x64/dxcompiler.dll reaches the output, never its validator library, executables or symbols. On Linux
+       libdxcompiler.so comes from DXC's Linux release, in the folder PLAYMAP_DXC_DIR names (an absolute path; CI's pinned
+       download). -->
   <ItemGroup Label="wp3-shaders">
     <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
     <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
-    <PackageReference Include="Vortice.Dxc.Native" Version="1.0.6" />
+    <PackageDownload Include="Microsoft.Direct3D.DXC" Version="[1.9.2609.5]" />
+    <None Include="$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))microsoft.direct3d.dxc/1.9.2609.5/build/native/bin/x64/dxcompiler.dll" Condition="'$(OS)' == 'Windows_NT' And '$(NuGetPackageRoot)' != ''" Link="dxcompiler.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(PLAYMAP_DXC_DIR)/libdxcompiler.so" Condition="'$(OS)' != 'Windows_NT' And '$(PLAYMAP_DXC_DIR)' != '' And $([System.IO.Path]::IsPathRooted('$(PLAYMAP_DXC_DIR)')) And Exists('$(PLAYMAP_DXC_DIR)/libdxcompiler.so')" Link="libdxcompiler.so" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
     <None Include="$(PLAYMAP_SPIRV_TOOLS_DIR)/SPIRV-Tools-shared.dll" Condition="'$(PLAYMAP_SPIRV_TOOLS_DIR)' != '' And Exists('$(PLAYMAP_SPIRV_TOOLS_DIR)/SPIRV-Tools-shared.dll')" Link="SPIRV-Tools-shared.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 

@@ -29,14 +29,17 @@ public sealed record RoadNatives(Glslang? Glslang, SpirvValidator? Validator, Sp
         return new RoadNatives(glslang, validator, cross, dxc, g, v, c, d);
     }
 
-    /// <summary>Each native's name and whether it loaded, with the words when not.</summary>
-    public IEnumerable<(string Name, bool Ok, string Words)> Loaded =>
+    /// <summary>Each native as the worker's hello names it: its name, the file its pin names on this platform, whether it loaded, and
+    /// the words when not.</summary>
+    public IEnumerable<NativeState> Loaded =>
     [
-        ("glslang", Glslang is not null, GlslangWords),
-        ("spirv-val", Validator is not null, ValidatorWords),
-        ("spirv-cross", Cross is not null, CrossWords),
-        ("dxc", Dxc is not null, DxcWords),
+        new("glslang", FileOf(CompilerNatives.Shaderc), Glslang is not null, GlslangWords),
+        new("spirv-val", FileOf(CompilerNatives.SpirvTools), Validator is not null, ValidatorWords),
+        new("spirv-cross", FileOf(CompilerNatives.SpirvCross), Cross is not null, CrossWords),
+        new("dxc", FileOf(CompilerNatives.Dxc), Dxc is not null, DxcWords),
     ];
+
+    private static string FileOf(string pin) => CompilerNatives.Pins.FirstOrDefault(p => p.Name == pin)?.File ?? "";
 
     public void Dispose()
     {

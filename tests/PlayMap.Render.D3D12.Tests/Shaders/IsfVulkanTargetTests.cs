@@ -27,8 +27,8 @@ public sealed class IsfVulkanTargetTests(ITestOutputHelper log)
     [Fact]
     public void EveryNativeTheRoadNeedsIsPinnedAndLoads()
     {
-        foreach (var (name, ok, words) in Natives.Value.Loaded)
-            Assert.True(ok, $"{name}: {words}");
+        foreach (var n in Natives.Value.Loaded)
+            Assert.True(n.Ok, $"{n.Name} ({n.File}): {n.Words}");
     }
 
     [Fact]

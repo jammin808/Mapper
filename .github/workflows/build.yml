@@ -48,6 +48,30 @@ jobs:
           echo "01a9764d0b5364b66cfeb4617557c64321b0e232e172ec73f0a701c5f7694326  ff.tar.xz" | sha256sum -c -
           tar -xJf ff.tar.xz -C .ffmpeg --strip-components=1
           echo "$GITHUB_WORKSPACE/.ffmpeg/bin" >> "$GITHUB_PATH"
+      # wp3-shaders: the shader worker's pinned compiler natives. glslang (in shaderc) and SPIRV-Cross come from NuGet at the versions
+      # the engine's project pins, and each file is held to its SHA-256 when the worker loads it
+      # (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs). DXC is its open-source compiler alone, whose built-in validator signs
+      # DXIL: libdxcompiler.so from DXC v1.9.2609's Linux release, the archive held to its SHA-256, the one file extracted into a
+      # folder of its own and held to the worker's pin, cached by that pin, and named in PLAYMAP_DXC_DIR, from which the build copies
+      # it beside every build of the engine.
+      - name: DXC for the shader worker (cached by its pin)
+        uses: actions/cache@v4
+        with:
+          path: .natives/dxc
+          key: dxc-linux-d40e4a7b3b46490313f4bfd08101946483a673831b3ea65c93d746de1c2f9216
+      - name: DXC for the shader worker (pinned)
+        run: |
+          set -euo pipefail
+          dir="$GITHUB_WORKSPACE/.natives/dxc"
+          so="$dir/libdxcompiler.so"
+          if [ ! -f "$so" ]; then
+            curl -sSfL -o dxc.tar.gz "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz"
+            echo "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1  dxc.tar.gz" | sha256sum -c -
+            mkdir -p "$dir"
+            tar -xzf dxc.tar.gz -C "$dir" --strip-components=2 ./lib/libdxcompiler.so
+          fi
+          echo "d40e4a7b3b46490313f4bfd08101946483a673831b3ea65c93d746de1c2f9216  $so" | sha256sum -c -
+          echo "PLAYMAP_DXC_DIR=$dir" >> "$GITHUB_ENV"
       - name: Restore
         run: dotnet restore
       - name: Build (the analyzers are fences)
@@ -166,11 +190,11 @@ jobs:
         # package's d3d12.h. WARP's binaries are CI's only: nothing published carries them.
         shell: pwsh
         run: ./tools/ci-d3d12.ps1 -Restore -Into d3d12
-      # wp3-shaders: the shader worker's pinned compiler natives. glslang (in shaderc), SPIRV-Cross and DXC come from NuGet at the
-      # versions the engine's project pins, and each file is held to its SHA-256 when the worker loads it
-      # (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs). shaderc's Windows build exports no SPIRV-Tools validator, so Google's own
-      # SPIRV-Tools build (Apache-2.0) is fetched here at its hash, cached by that hash, and its library copied beside every build of
-      # the engine through PLAYMAP_SPIRV_TOOLS_DIR.
+      # wp3-shaders: the shader worker's pinned compiler natives. glslang (in shaderc), SPIRV-Cross and DXC's open-source compiler
+      # (dxcompiler.dll, the one file the engine takes from Microsoft.Direct3D.DXC) come from NuGet at the versions the engine's
+      # project pins, and each file is held to its SHA-256 when the worker loads it (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs).
+      # shaderc's Windows build exports no SPIRV-Tools validator, so Google's own SPIRV-Tools build (Apache-2.0) is fetched here at its
+      # hash, cached by that hash, and its library copied beside every build of the engine through PLAYMAP_SPIRV_TOOLS_DIR.
       - name: SPIRV-Tools for the shader worker (cached by its pin)
         id: spirv-tools-cache
         uses: actions/cache@v4

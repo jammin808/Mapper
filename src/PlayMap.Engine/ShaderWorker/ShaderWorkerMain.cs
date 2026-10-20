@@ -61,9 +61,9 @@ public static class ShaderWorkerMain
         }
         Say(ShaderWorkerProtocol.Hello(Environment.ProcessId, fake switch
         {
-            "abort" => [new NativeState("fake", true, "a fake compiler that aborts")],
-            "hang" => [new NativeState("fake", true, "a fake compiler that hangs")],
-            _ => natives.Loaded.Select(n => new NativeState(n.Name, n.Ok, n.Words)),
+            "abort" => [new NativeState("fake", "", true, "a fake compiler that aborts")],
+            "hang" => [new NativeState("fake", "", true, "a fake compiler that hangs")],
+            _ => natives.Loaded,
         }));
 
         // A request read and not yet answered: counted from its read until its reply is written.
