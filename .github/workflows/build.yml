@@ -390,6 +390,12 @@ jobs:
         if: ${{ !inputs.d3d12 }}
         # Publishing compiles again for win-x64, so it is given the same build number and commit as the build.
         run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      # wp3-shaders: the published folder carries DXC's compiler alone, the pinned dxcompiler.dll beside the exe with the text its
+      # licence asks to travel with it in licenses\DXC\, and no other file of DXC's package: DxcNativesTests run again, now with
+      # publish\PlayMap among the outputs they read, before the exe is named or uploaded.
+      - name: The published exe's DXC (dxcompiler alone, with its licence)
+        if: ${{ !inputs.d3d12 }}
+        run: dotnet test tests/PlayMap.Engine.Tests -c Release --no-build --filter FullyQualifiedName~PlayMap.Engine.Tests.Shaders.DxcNativesTests
       - name: The published exe's version
         if: ${{ !inputs.d3d12 }}
         id: version

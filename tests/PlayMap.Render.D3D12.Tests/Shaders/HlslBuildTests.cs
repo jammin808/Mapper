@@ -109,6 +109,23 @@ public sealed class HlslBuildTests
         Assert.DoesNotContain(WorkflowSteps("windows"), s => s.Run.Contains("PLAYMAP_DXC_DIR", StringComparison.Ordinal));
     }
 
+    /// <summary>The Windows job holds its portable exe to DXC's compiler alone, with its licence: straight after it publishes the desk
+    /// to publish/PlayMap, under the same condition and before the exe is named or uploaded, it runs the Engine suite's
+    /// DxcNativesTests again on that build, which read publish/PlayMap as one more output once it is there.</summary>
+    [Fact]
+    public void TheWindowsJobHoldsItsPublishToDxcompilerAloneWithItsLicenceBeforeItUploadsIt()
+    {
+        var steps = WorkflowSteps("windows");
+        var publish = steps.FindIndex(s => s.Name == "Publish the portable exe");
+        var upload = steps.FindIndex(s => s.Name == "Upload the exe");
+        Assert.True(publish >= 0 && upload > publish + 1, $"the Windows job publishes at step {publish} and uploads the exe at step {upload}");
+        Assert.Contains("-o publish/PlayMap", steps[publish].Run, StringComparison.Ordinal);
+        var check = steps[publish + 1];
+        Assert.Equal(steps[publish].If, check.If);
+        Assert.Contains("dotnet test tests/PlayMap.Engine.Tests -c Release --no-build", check.Run, StringComparison.Ordinal);
+        Assert.Contains("--filter FullyQualifiedName~PlayMap.Engine.Tests.Shaders.DxcNativesTests\n", check.Run, StringComparison.Ordinal);
+    }
+
     /// <summary>Where the build writes each entry's PDB (Shaders.targets: the backend's intermediate folder, hlsl/&lt;program&gt;/), as the
     /// Windows job's upload names it.</summary>
     private const string SymbolsGlob = "src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb";
