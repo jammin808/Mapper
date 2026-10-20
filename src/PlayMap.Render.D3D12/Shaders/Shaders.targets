@@ -1,0 +1,167 @@
+<Project>
+
+  <!-- The HLSL library's build. Every build writes each program's header (Layout.hlsli: its constants as the cbuffer at b0, in the
+       table's order, which HLSL packs at the table's offsets, and its texture slots) from the render hardware interface's program
+       table (Core's Gpu/Programs/programs.layout.json, the one table the GL backend, this backend and this build read), read as
+       data, so this project never references the GL backend and Core stays its only reference; and where DXC's executable runs
+       (Microsoft.Direct3D.DXC's dxc.exe, Windows) it compiles every program's two entries to DXIL (Shader Model 6.6) validated and
+       signed by dxcompiler's built-in validator (dxc.exe starts without DXC_DXIL_DLL_PATH, so its driver loads no external
+       validator), with a PDB and reflection kept apart, only when a source, the program table or the program list (an entry's file
+       or entry points) is newer. The sources, the program list, the headers and the DXIL with its reflection are embedded
+       (shaders/…); the table itself is Core's embedded resource. The PDBs are written to obj/ beside the DXIL, never in the exe;
+       the Windows job keeps them (hlsl-symbols). -->
+  <PropertyGroup>
+    <PlayMapHlslSources>$(MSBuildThisFileDirectory)</PlayMapHlslSources>
+    <PlayMapHlslTable>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', 'PlayMap.Core', 'Gpu', 'Programs', 'programs.layout.json'))</PlayMapHlslTable>
+    <PlayMapDxc Condition="'$(OS)' == 'Windows_NT' And '$(PkgMicrosoft_Direct3D_DXC)' != ''">$(PkgMicrosoft_Direct3D_DXC)/build/native/bin/x64/dxc.exe</PlayMapDxc>
+  </PropertyGroup>
+
+  <UsingTask TaskName="PlayMapHlslBuild" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Table ParameterType="System.String" Required="true" />
+      <Programs ParameterType="System.String" Required="true" />
+      <Sources ParameterType="System.String" Required="true" />
+      <OutDir ParameterType="System.String" Required="true" />
+      <Dxc ParameterType="System.String" />
+      <Headers ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+      <Blobs ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.Collections.Generic" />
+      <Using Namespace="System.Diagnostics" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Text" />
+      <Using Namespace="System.Text.RegularExpressions" />
+      <Using Namespace="Microsoft.Build.Framework" />
+      <Using Namespace="Microsoft.Build.Utilities" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var program = new Regex("^\\s*\"name\": \"([^\"]+)\",\\s*$");
+        var constant = new Regex("\\{ \"name\": \"(\\w+)\", \"type\": \"(\\w+)\", \"offset\": (\\d+), \"count\": (\\d+) \\}");
+        var texture = new Regex("\\{ \"name\": \"(\\w+)\", \"slot\": (\\d+), \"sampled\": (true|false) \\}");
+        var headers = new List<ITaskItem>();
+        string current = null;
+        var block = new StringBuilder();
+        var slots = new StringBuilder();
+        Action flush = () =>
+        {
+            if (current == null)
+                return;
+            var text = new StringBuilder();
+            text.Append("// Made by the build from the program table (programs.layout.json) for the program ").Append(current).Append(": never edited by hand.\n");
+            text.Append("#define PM_PROGRAM_").Append(current.Replace('.', '_')).Append(" 1\n");
+            if (block.Length > 0)
+                text.Append("cbuffer Program : register(b0)\n{\n").Append(block).Append("};\n");
+            text.Append(slots);
+            var dir = Path.Combine(OutDir, current);
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "Layout.hlsli");
+            var made = text.ToString();
+            if (!File.Exists(path) || File.ReadAllText(path) != made)
+                File.WriteAllText(path, made);
+            var item = new TaskItem(path);
+            item.SetMetadata("LogicalName", "shaders/gen/" + current + "/Layout.hlsli");
+            headers.Add(item);
+            block.Clear();
+            slots.Clear();
+        };
+        foreach (var line in File.ReadAllLines(Table))
+        {
+            Match m;
+            if ((m = program.Match(line)).Success)
+            {
+                flush();
+                current = m.Groups[1].Value;
+            }
+            else if ((m = constant.Match(line)).Success)
+            {
+                var type = m.Groups[2].Value;
+                var offset = int.Parse(m.Groups[3].Value);
+                var count = int.Parse(m.Groups[4].Value);
+                block.Append("    ").Append(type.Contains("x") ? "row_major " : "").Append(type).Append(' ').Append(m.Groups[1].Value)
+                    .Append(count > 1 ? "[" + count + "]" : "").Append(";").Append(" // offset ").Append(offset).Append('\n');
+            }
+            else if ((m = texture.Match(line)).Success)
+            {
+                slots.Append("#define SLOT_").Append(m.Groups[1].Value).Append(' ').Append(m.Groups[2].Value).Append('\n');
+            }
+        }
+        flush();
+        Headers = headers.ToArray();
+
+        var blobs = new List<ITaskItem>();
+        if (!string.IsNullOrEmpty(Dxc) && File.Exists(Dxc))
+        {
+            var entry = new Regex("\"name\": \"([^\"]+)\", \"file\": \"([^\"]+)\", \"vs\": \"(\\w+)\", \"ps\": \"(\\w+)\"");
+            var newest = Directory.GetFiles(Sources, "*.hlsl*").Select(File.GetLastWriteTimeUtc)
+                .Concat(new[] { File.GetLastWriteTimeUtc(Table), File.GetLastWriteTimeUtc(Programs) }).Max();
+            foreach (var line in File.ReadAllLines(Programs))
+            {
+                var m = entry.Match(line);
+                if (!m.Success)
+                    continue;
+                var name = m.Groups[1].Value;
+                var dir = Path.Combine(OutDir, name);
+                foreach (var stage in new[] { "vs", "ps" })
+                {
+                    var fn = stage == "vs" ? m.Groups[3].Value : m.Groups[4].Value;
+                    var dxil = Path.Combine(dir, stage + ".dxil");
+                    var refl = Path.Combine(dir, stage + ".refl");
+                    var pdb = Path.Combine(dir, stage + ".pdb");
+                    if (!File.Exists(dxil) || !File.Exists(refl) || File.GetLastWriteTimeUtc(dxil) < newest)
+                    {
+                        var words = new[] { "-T", stage + "_6_6", "-E", fn, "-HV", "2021", "-Zi", "-Qstrip_debug", "-Qstrip_reflect",
+                            "-Fo", dxil, "-Fd", pdb, "-Fre", refl, "-I", dir.TrimEnd('\\', '/'), "-I", Sources.TrimEnd('\\', '/'), Path.Combine(Sources, m.Groups[2].Value) };
+                        var info = new ProcessStartInfo(Dxc, string.Join(" ", words.Select(a => "\"" + a + "\"")))
+                        {
+                            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
+                        };
+                        // DXC's driver validates with the external library DXC_DXIL_DLL_PATH names whenever it is set; started
+                        // without it, the driver loads no external validator and dxcompiler's built-in validator signs the DXIL.
+                        info.Environment.Remove("DXC_DXIL_DLL_PATH");
+                        using (var p = Process.Start(info))
+                        {
+                            var said = p.StandardError.ReadToEnd() + p.StandardOutput.ReadToEnd();
+                            p.WaitForExit();
+                            if (p.ExitCode != 0)
+                            {
+                                Log.LogError("DXC did not compile {0} ({1}, {2}): {3}", name, stage, fn, said.Trim());
+                                continue;
+                            }
+                        }
+                    }
+                    foreach (var made in new[] { dxil, refl })
+                    {
+                        var item = new TaskItem(made);
+                        item.SetMetadata("LogicalName", "shaders/dxil/" + name + "." + Path.GetFileName(made));
+                        blobs.Add(item);
+                    }
+                }
+            }
+        }
+        Blobs = blobs.ToArray();
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="PlayMapHlsl" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <PlayMapHlslOut>$(MSBuildProjectDirectory)/$(IntermediateOutputPath)hlsl/</PlayMapHlslOut>
+    </PropertyGroup>
+    <PlayMapHlslBuild Table="$(PlayMapHlslTable)" Programs="$(PlayMapHlslSources)programs.json" Sources="$(PlayMapHlslSources)" OutDir="$(PlayMapHlslOut)" Dxc="$(PlayMapDxc)">
+      <Output TaskParameter="Headers" ItemName="PlayMapHlslHeader" />
+      <Output TaskParameter="Blobs" ItemName="PlayMapHlslBlob" />
+    </PlayMapHlslBuild>
+    <ItemGroup>
+      <EmbeddedResource Include="@(PlayMapHlslHeader);@(PlayMapHlslBlob)" />
+      <FileWrites Include="@(PlayMapHlslHeader);@(PlayMapHlslBlob)" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)*.hlsl;$(MSBuildThisFileDirectory)*.hlsli;$(MSBuildThisFileDirectory)programs.json" LogicalName="shaders/%(Filename)%(Extension)" />
+    <UpToDateCheckInput Include="$(PlayMapHlslTable)" />
+  </ItemGroup>
+
+</Project>

@@ -6,7 +6,7 @@
 
 **Round 3 is the round under way.** Its spine is on main, and its packages build on it in four waves: the installed,
 Windows-native node on Direct3D 12 and the desk's guided workflows (Round 3, below; docs/round3/PLAN.md). Today PlayMap is one
-portable exe that renders through OpenGL.
+portable exe that draws through a rendering hardware interface with OpenGL behind it.
 
 **Round 2 is merged.** Every package of its plan (docs/round2/PLAN.md) is on main, built and tested on CI's Linux and Windows
 jobs. What it does is below and in each item's **Built** note; what only real hardware or a real show can prove is under **Lab
@@ -108,35 +108,42 @@ pass mark and is reported not run, never passed (the plan's §7). A lab, once it
 *The third build round (`docs/round3/`), numbered apart from this roadmap's Rounds 0–4 below, whose own Round 3 is "Plays with
 others". Its plan of record is `docs/round3/PLAN.md`.*
 
-**Decided** (docs/round3/PLAN.md §1.2 and §9, with the owner's answers of 18 October 2026; docs/round2/CARRYOVER.md keeps the
+**Decided** (docs/round3/PLAN.md §1.2 and §9, with the owner's answers of 18–20 October 2026; docs/round2/CARRYOVER.md keeps the
 calls with their answers): Direct3D 12 becomes the primary renderer behind an RHI, OpenGL stays the reference backend until pixel
 and timing parity, and Vulkan is not carried (D1–D3); a supervising service starts the engine in the show user's session, never as
-administrator or in session 0 (D6); every Windows 11 edition from build 26100, Windows 11 Home included and supported unmanaged, with
-IoT Enterprise LTSC 2024 recommended for permanent show nodes; the hardware lock where the hardware allows it (on NVIDIA's professional
-GPUs with RTX PRO Sync, the present barrier on Direct3D 12 and the swap group on OpenGL) and the software lock everywhere else; builds
-unsigned this round, each with a SHA-256 list; the installer from the WiX toolset built from its source, so no paid WiX service is
-used; no lab yet, so every lab line is reported not run and nothing claims a hardware fact it has not measured; and all sixteen
-packages. The owner's requirements of the same day — the four-click quad that stays and drags, every corner and pin nudged by one
-pixel, what each screen shows, simple workflows beside advanced and programming areas, one canvas across outputs, menus and right-click
-menus for every feature, draggable and collapsible panels, colour for areas and stages, every mapping step by hand, the assistant in
-every step, and fast capture-card pass-through — are designed in docs/round3/design/desk-workflows.md and docs/round3/design/capture.md
-and planned as small items inside the sixteen packages and as five more packages, twenty-one packages and about 518 hours in all.
-The answers also keep the self-built WiX toolset, which no free installer undercuts, with Inno Setup as the
-fallback; load NVIDIA's Aftermath library from wherever the user puts it, never shipped; let a still of a view go to an assistant model
-off the machine once a person turns it on; accept the DXGI path's amber with no hardware tier; and keep the typed console, with every
-command and feature reachable from the menus and right-click menus (§9). The request to Patterns that its Eye keep at least 256 of a
-node's commands where it keeps a cap, and that the Show Bus contract state the cap, is in docs/round2/CARRYOVER.md (call 11).
+administrator or in session 0 (D6); every Windows 11 edition from build 26100, Windows 11 Home included and supported unmanaged,
+with IoT Enterprise LTSC 2024 recommended for permanent show nodes; the hardware lock where the hardware allows it (on NVIDIA's
+professional GPUs with RTX PRO Sync, the present barrier on Direct3D 12 and the swap group on OpenGL) and the software lock
+everywhere else; builds unsigned this round, each with a SHA-256 list; no paid WiX service; no lab yet, so every lab line is
+reported not run and nothing claims a hardware fact it has not measured; and all sixteen packages. The owner's requirements of the
+same day — the four-click quad that stays and drags, every corner and pin nudged by one pixel, what each screen shows, simple
+workflows beside advanced and programming areas, one canvas across outputs, menus and right-click menus for every feature, draggable
+and collapsible panels, colour for areas and stages, every mapping step by hand, the assistant in every step, and fast capture-card
+pass-through — are designed in docs/round3/design/desk-workflows.md and docs/round3/design/capture.md and planned as small items
+inside the sixteen packages and as five more packages, twenty-one packages and about 518 hours in all. The owner's choices of 19
+October settle the installer and the Direct3D 12 runtime's terms (§9 decisions 3 and 23): a per-machine installer built with Inno
+Setup this round, since M17 measured that the WiX toolset's pinned source does not build on the Windows runner, with an MSI
+revisited next round; and the Agility SDK's runtime shipped in it under a licence page, the owner accepting Microsoft's distribution
+terms, including indemnifying Microsoft. The owner's answer of 20 October, "Open-source DXC only", settles DXC's terms (§9 decision
+24): DXC ships only as its LLVM-licensed compiler, dxcompiler, whose built-in validator signs DXIL, and no `dxil.dll` or
+`libdxil.so` is used or shipped; DXC's licence asks for no agreement, so the installer's licence page carries no third party's terms
+but `D3D12Core.dll`'s, and its copyright notice, conditions and disclaimer travel beside dxcompiler in `licenses/DXC/`. The answers
+also load NVIDIA's Aftermath library from wherever the user puts it, never shipped; let a still of a view go to an assistant model
+off the machine once a person turns it on; accept the DXGI path's amber with no hardware tier; and keep the typed console, with
+every command and feature reachable from the menus and right-click menus (§9). The request to Patterns that its Eye keep at least
+256 of a node's commands where it keeps a cap, and that the Show Bus contract state the cap, is in docs/round2/CARRYOVER.md
+(call 11).
 
-**Today.** PlayMap is one portable exe. It renders through OpenGL 3.3 core or ES 3.00 on GLFW windows, EGL or a surfaceless context;
-on Windows the Direct3D 11 flip model through ANGLE is an explicit, experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no
-evidence yet marks as in Independent Flip. The NVAPI frame-lock tier reads a sync board and joins no output. A lost device stops the
-drawing after 30 faulting frames while the engine plays on. The engine claims nothing from Windows beyond above-normal thread
-priority. Previews reach the desk through four CPU copies. CI publishes a self-contained folder that nothing installs, signs or
-supervises; every build carries its version, build number and commit from one source (`Version.props`; README, Versions). On the
-desk a half-drawn quad is dropped when the person looks away, only a quad's corner nudges, no output says what it shows, Simple
-hides nothing, the panels are fixed columns and about a third of the catalogue's rows are sent by a desk control of their own; a
-capture card is read through FFmpeg, outside the video I/O hub, with three CPU copies (docs/round3/research/desk-today.md and
-video-today.md).
+**Today.** PlayMap is one portable exe. It draws through the rendering hardware interface (below) with OpenGL 3.3 core or ES 3.00
+behind it, on GLFW windows, EGL or a surfaceless context; on Windows the Direct3D 11 flip model through ANGLE is an explicit,
+experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no evidence yet marks as in Independent Flip. The NVAPI frame-lock
+tier reads a sync board and joins no output. A lost device stops the drawing after 30 faulting frames while the engine plays on.
+The engine claims nothing from Windows beyond above-normal thread priority. Previews reach the desk through four CPU copies. CI
+publishes a self-contained folder that nothing installs, signs or supervises; every build carries its version, build number and
+commit from one source (`Version.props`; README, Versions). On the desk a half-drawn quad is dropped when the person looks away,
+only a quad's corner nudges, no output says what it shows, Simple hides nothing, the panels are fixed columns and about a third of
+the catalogue's rows are sent by a desk control of their own; a capture card is read through FFmpeg, outside the video I/O hub,
+with three CPU copies (docs/round3/research/desk-today.md and video-today.md).
 
 **Built: the spine (W0, `wp3-spine`).** The spine holds the contracts every package of the round builds on. Every lab line
 still waits: nothing in it claims a hardware fact.
@@ -166,16 +173,74 @@ still waits: nothing in it claims a hardware fact.
   are in the job's summary. The Linux job runs the Render suite whole in ES 3.00 too.
 - **Bench.** `bench/r3-present`, the bench for M1 and M3, is built on the Windows job and waits for the lab (L1, L4).
 
+**Built: the render hardware interface (W1, `wp3-rhi`).** Every frame draws through Core's contracts, and GL stands behind them
+with its pixel goldens unedited and holding within their tolerances.
+
+- **Contracts.** `Core/Gpu` holds the device, its resources, programs and their layouts (the program table as data,
+  `programs.layout.json`), `DrawState` and `PipelineKey`, the frame's command list with its draw builder, fences as values on a
+  queue's timeline, the upload, read-back, timer, import and transient contracts, user programs made at run time, and the platform
+  and presenter seams (a presenter records the picture into the frame's list, then presents after the submit).
+- **The GL backend.** `Render/Gl` holds GL whole: `GlBackend` behind `IGpuDevice` with one immediate list, fences over GL syncs,
+  the pack and unpack rings, timer-query spans, the importers, user programs linked on the compile lane, transients from a pool.
+  No source under `src/` outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL side (in Render, of any of
+  Silk.NET) but the platform factory, which names the GL platforms' maker (`RhiFenceTests`, `EngineFenceTests`); the lab's bench
+  (`bench/r3-present`) drives the GL platforms directly and is outside the line.
+- **The callers.** The render engine, passes, generators, video, LED sampling, sends, the overlay, HAP, effects and the projector
+  pass each draw one `DrawState` a draw, their constants set through the program's layout (by name, or by generated id in the five
+  passes below); a warm frame with no modulated layer, surface or effect slot allocates nothing, and after each draw of a scripted
+  show the GL state read back is the recorded one, draw for draw (`DrawStateTests`).
+- **Constant ids and pipeline lists.** Five passes (the particle step, the output stage, the canvas quad, the projector pass's
+  surfaces and the raymarcher) set their constants by ids generated with the program table (`ProgramIds`), and each pass lists the
+  pipelines it can draw, which the warm-up makes before the first frame within `RenderEngine.WarmUpBound` (20 s); past it the
+  render host starts with a journalled fault and the first draws make what the warm-up had not, counted
+  (`IPipelineCache.RenderThreadMakes`).
+- **The tests.** Every GPU test of the Render suite but the GL backend's own runs on a backend fixture whose legs are the backends
+  the job has (GL today) and draws through the device a leg hands it; the GL backend's own tests, each listed by name, name GL
+  types and some open GL contexts of their own. Every pixel golden and STATE fixture is unedited: the goldens hold within their
+  tolerances on llvmpipe in core 3.30 and ES 3.00, and the STATE fixtures are written again byte for byte.
+- **Not proven.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend
+  runs on llvmpipe and, on the Windows job, Mesa WGL only.
+
+**Built: one HLSL source and user ISF out of process (W1, `wp3-shaders`).** PlayMap's programs are written once more in HLSL for
+the Direct3D 12 backend, and a user's ISF effect reaches validated, signed DXIL outside the engine; no device draws either yet.
+
+- **The HLSL library.** `src/PlayMap.Render.D3D12/Shaders` holds the 40 programs, one file per family, listed in `programs.json`,
+  with the render hardware interface's conventions (`Common.hlsli`: every vertex entry ends with `ClipSpace.ToDirect3D`, a
+  `float4x4` read as `mul(v, M)` and the normal matrix as `mul(M, v)`, the present unflipped, one root signature with the binding
+  block read through `ResourceDescriptorHeap`). The build writes each program's header from the program table and embeds the
+  library and, on Windows, the DXIL DXC's executable compiles, with its reflection, started without `DXC_DXIL_DLL_PATH` so that
+  dxcompiler's built-in validator signs it; the Windows job keeps every entry's PDB (`hlsl-symbols`).
+- **The layout check.** DXC's Linux build signs its DXIL (M6), so every program compiles on both jobs, and `ShaderLayoutTests` hold
+  each program's reflection to its `ProgramLayout` in the program table: constants, offsets, counts, block size and `row_major`
+  matrices, texture slots sampled exactly where the table says, and the vertex entry's input signature as the table's inputs make
+  it. `HlslConventionTests` hold the clip conversion, the matrices' order and the vertex inputs in the source.
+- **The shader worker.** `PlayMap shader-worker`, started by the engine with the first source: ISF to GLSL 4.50 (Core's Vulkan
+  target), glslang under relaxed rules, `spirv-val`, SPIRV-Cross to Shader Model 6.0 HLSL with user effects' registers and one
+  sampler at `s0`, DXC to signed DXIL, each failure in its stage's words with the ISF line a compiler names. The compilers load only
+  there, each held to its SHA-256. DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator signs each
+  container with the retail hash: `dxcompiler.dll` from Microsoft.Direct3D.DXC on Windows, `libdxcompiler.so` from DXC v1.9.2609's
+  Linux release (the folder `PLAYMAP_DXC_DIR` names) on Linux, each with its licence and DXC's third-party notices in
+  `licenses/DXC/` beside it in every build and publish, and no `dxil.dll` or `libdxil.so` anywhere (docs/round3/PLAN.md §9
+  decision 24; `DxcNativesTests`). The worker's hello and STATE name each native's file; the worker is restarted with backoff, and a
+  source that stops it three times fails with words. `FX CHECK` and `FX IMPORT` report each stage; STATE carries
+  `fx.compile.worker`.
+- **The quarantine.** The kinds a node will not draw, kept in its home: their slots draw bypassed, reading "bypassed" with words at
+  no GPU time; `fx.quarantine`, `fx.library.quarantined` and red preflight rows say so; `FX RELEASE <kind>|ALL` (Setup: refused
+  armed, never drafted) lifts them. The exe composes the part on every node. Nothing adds a kind yet: wp3-shaders-2's GPU-time
+  guard and wp3-stability-2's removal breadcrumbs are to.
+- **Not proven.** Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's, and user effects drawn on the device and the public
+  ISF corpus counted to DXIL are wp3-shaders-2's.
+
 **Next** (the plan's packages build these in four waves on the spine — the fifteen of the Windows move and the five for the
 owner's requirements; GL stays the reference backend through the round and retires once the pixel and timing evidence agrees; at
 the round's end the integration pass updates the statuses of the items in the last column):
 
 | Item | Package | Moves |
 |---|---|---|
-| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels | wp3-rhi | — |
+| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels. **Built** (above), its pixel goldens unedited and holding within their tolerances; L20 not run | wp3-rhi | — |
 | Direct3D 12 behind it: the device, queues, fences, memory, DRED and Aftermath, every pixel scene on WARP in CI | wp3-d3d12-core | — |
 | The render graph compiled on show change; pipelines compiled at arm and keyed by driver; bindless records; zero allocation on a warm frame, modulated layers included | wp3-d3d12-passes, -2 | R2.8 |
-| One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined | wp3-shaders | — |
+| One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined. **Built** (above): the library compiled to signed DXIL and held to the program table on both jobs, the worker's road to DXIL, the quarantine and `FX RELEASE`; no device draws the DXIL yet, and what quarantines a crashing shader is wp3-shaders-2's and wp3-stability-2's | wp3-shaders | — |
 | User ISF effects drawn on the Direct3D 12 device; a GPU-time guard per effect slot; the public ISF corpus counted on the new road | wp3-shaders-2 | — |
 | Flip-model presenters on Direct3D 12, Independent Flip proven per output, one queued frame, the frame drawn for its predicted display instant, HDR10 and 10-bit | wp3-present | R2.1, R2.5, M21 |
 | The present barrier on Direct3D 12 and the swap group on OpenGL where the hardware allows them (RTX PRO Sync), each output locked by its own evidence; every other output in the software lock, reporting measured phase, never in a locked state | wp3-framelock | R4.2 |
@@ -184,7 +249,7 @@ the round's end the integration pass updates the statuses of the items in the la
 | A watermark read back by an independent observer; the shown-frame heartbeat; `LATENCY STEP`; one rebuild path for a lost device, rehearsed in CI | wp3-stability, -2 | R1.11 |
 | Shared-texture previews into the desk; the desk's UI-stall watchdog and push budget | wp3-desk-gpu | — |
 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status by shape and word, preview age | wp3-desk-ux | M20 (the night theme) |
-| A per-machine MSI on every Windows 11 edition, built by the WiX toolset compiled from its source, unsigned with a SHA-256 list, with a supervising service, the engine in an auto-logged-on show user's session (never as administrator, never in session 0, every machine-level action done once by the installer), the MSI's version rules, an install refused while the show is armed | wp3-installer | R0.7, R4.5 (boot to show), R4.6 (in part: never updating an armed node) |
+| A per-machine installer on every Windows 11 edition, built with Inno Setup this round (an MSI next round), unsigned with a SHA-256 list, the Direct3D 12 runtime inside it under a licence page, with a supervising service, the engine in an auto-logged-on show user's session (never as administrator, never in session 0, every machine-level action done once by the installer), the installer's version rules, an install refused while the show is armed | wp3-installer | R0.7, R4.5 (boot to show), R4.6 (in part: never updating an armed node) |
 | The four-click quad that stays when the person looks away, its corners dragged, typed and nudged, a pin typed and nudged | wp3-desk-ux | — |
 | Docked, floating and collapsible panes; a menu bar, a palette and a typed console, with every command and feature reached from the menu bar and right-click menus, never only by typing; right-click menus generated from the catalogue; colour for status, identity and stage, never the only cue; the assistant's pane | wp3-desk-shell | R3.11 (the palette) |
 | Every corner, pin and warp handle dragged, typed and nudged by one pixel; what each screen shows; the advanced panes (effects chains, modulation and bindings, an area pane per STATE block) | wp3-desk-map | — |
@@ -218,7 +283,7 @@ Decisions where the lenses disagreed are in docs/COMPETITIVE.md §8. In short: f
 | R0.4 | Self-hosted Windows CI runner with NVIDIA and AMD GPUs and FFmpeg; nightly soak counts missed vblanks. **Built in part:** the hosted Windows job runs every test project on WARP and Mesa llvmpipe with the pinned FFmpeg, and builds the native test doubles (the fake NDI runtime, libvmx) with the runner's clang, so the NDI and OMT suites run there as on Linux; no GPU runner and no soak | ★★★ | M | R0.1 |
 | R0.5 | Hardware lab: three projectors from different makers (one DLP, one 3LCD or LCoS, one short-throw; at least one install model with internal warp); two nodes (RTX PRO with a sync card, GeForce); two UVC webcams (one with manual exposure, one without); an iPhone and an Android phone; a white box, a curved flat, a textured sculpture; material samples (scrim, glossy, black, glass). **Not yet:** no lab exists (docs/round3/PLAN.md D15; the rule in §0) | ★★★ | M + purchase | — |
 | R0.6 | Missed vblanks, present mode and p95 frame time per output in STATE. **Built:** `outputs[].present` (missed vblanks, `missed60s`, the late share), `outputs[].frameMsP95`, `machine.present` (path and dialect), `OUTPUT STATS`, `PRESENT RESET` | ★★ | S | R0.3 |
-| R0.7 | Release builds, unsigned this round and named `-unsigned`, each with a `SHA256SUMS` file; a SmartScreen and antivirus false-positive check; the firewall rules written once by the installer; FFmpeg as the LGPL build's replaceable libraries, with notices. Signing is next round's, with an identity the owner chooses (docs/round3/PLAN.md §9 decision 2). **Built in part:** the tests' media are made with LGPL-compatible encoders (OpenH264, Kvazaar, FFmpeg's own MPEG-4 part 2 and FFV1, ProRes, HAP, PCM, AAC), checked for any GPL encoder's mark; the one exception is a 10-bit HEVC clip made by libx265 at test time and never committed, kept by the owner's decision, since no LGPL-compatible encoder here writes 10-bit HEVC. Next (wp3-installer): the unsigned MSI with its `SHA256SUMS`, its firewall rules, and the LGPL FFmpeg under every decode test and inside the MSI; `LicenceTests` on the MSI at the round's integration pass. The SmartScreen and antivirus check waits for a lab (SmartScreen is the plan's L18) | ★★★ | S | R0.1 |
+| R0.7 | Release builds, unsigned this round and named `-unsigned`, each with a `SHA256SUMS` file; a SmartScreen and antivirus false-positive check; the firewall rules written once by the installer; FFmpeg as the LGPL build's replaceable libraries, with notices. Signing is next round's, with an identity the owner chooses (docs/round3/PLAN.md §9 decision 2). **Built in part:** the tests' media are made with LGPL-compatible encoders (OpenH264, Kvazaar, FFmpeg's own MPEG-4 part 2 and FFV1, ProRes, HAP, PCM, AAC), checked for any GPL encoder's mark; the one exception is a 10-bit HEVC clip made by libx265 at test time and never committed, kept by the owner's decision, since no LGPL-compatible encoder here writes 10-bit HEVC. Next (wp3-installer): the unsigned Inno Setup installer with its `SHA256SUMS`, its firewall rules, and the LGPL FFmpeg under every decode test and inside the installer; `LicenceTests` on the installer at the round's integration pass. The SmartScreen and antivirus check waits for a lab (SmartScreen is the plan's L18) | ★★★ | S | R0.1 |
 
 **Exit:** a fresh Windows PC plays a looped clip on a projector from the real desk for 24 hours with the missed-vblank count published (it need not be zero yet).
 
@@ -374,7 +439,7 @@ These are the biggest adoption risks and no code fixes them. Rental houses and i
 
 ## 7. Summary by group
 
-**Parity gaps that block real shows (must-have):** R0 integration and the release build (R0.1–R0.7; unsigned this round, named so, each with its SHA-256 list); scan runner and solves (R1.1, R1.2); projector verbs (R1.3); scan preflight and fallbacks (R1.13, R1.14); flip-model presenters on Direct3D 12 (R2.1); GPU HAP (R2.3); preflight (R2.6); frame-rate handling (R2.10); Show Mode (R3.5); bindings and OSC/MIDI (R3.1, R3.2); Spout/OMT/NDI (R3.3); timecode chase (R3.7); security posture (R3.14); redundancy (R4.1); framelock (R4.2); format versioning (R4.6); multi-camera capture (M3) for large rigs; the facade workflow (M23) for commercial mapping. Main has R0.1, R1.1, R1.2, R1.3, R2.3, R3.1, R3.2, R3.3, R3.5 and R3.7 in code (each but what its row names), and R0.4 (the hosted Windows job, no GPU runner), R0.7 (the tests' media, not the unsigned MSI), R2.1, R2.6, R2.10, R3.14, R4.1 (a manual takeover), R4.2 and M3 in part, and M23 in part (the site frame, survey import of PLY, OBJ, glTF, LAS and E57 with decimation and thinning, control points, long-throw priors, geodesy, stacks, the light plan and the facade guide; not LAZ, the night profile, photometry or glass masks); what they lack is proof on real hardware.
+**Parity gaps that block real shows (must-have):** R0 integration and the release build (R0.1–R0.7; unsigned this round, named so, each with its SHA-256 list); scan runner and solves (R1.1, R1.2); projector verbs (R1.3); scan preflight and fallbacks (R1.13, R1.14); flip-model presenters on Direct3D 12 (R2.1); GPU HAP (R2.3); preflight (R2.6); frame-rate handling (R2.10); Show Mode (R3.5); bindings and OSC/MIDI (R3.1, R3.2); Spout/OMT/NDI (R3.3); timecode chase (R3.7); security posture (R3.14); redundancy (R4.1); framelock (R4.2); format versioning (R4.6); multi-camera capture (M3) for large rigs; the facade workflow (M23) for commercial mapping. Main has R0.1, R1.1, R1.2, R1.3, R2.3, R3.1, R3.2, R3.3, R3.5 and R3.7 in code (each but what its row names), and R0.4 (the hosted Windows job, no GPU runner), R0.7 (the tests' media, not the unsigned installer), R2.1, R2.6, R2.10, R3.14, R4.1 (a manual takeover), R4.2 and M3 in part, and M23 in part (the site frame, survey import of PLY, OBJ, glTF, LAS and E57 with decimation and thinning, control points, long-throw priors, geodesy, stacks, the light plan and the facade guide; not LAZ, the night profile, photometry or glass masks); what they lack is proof on real hardware.
 
 **Differentiators where PlayMap can lead:** commodity-camera calibration with an explainable score (R1.4, R4.8); the edit overlay drawn on the wall (R1.5); pick-and-highlight verbs (R1.12); click-to-surface (R1.7, M30); optimise to HAP R/HDR (R2.4); measured sync and latency (R2.7, R1.11); laser and phone pointing (R3.10, R3.9); importers and designer templates (R3.12, R3.13); live-mirror redundancy for deterministic content (R4.1); rework-free recalibration (R1.2, R4.7); drift watch (M2); LED auto-locate (M5); geometry-aware instruments (M8); staged AI on a live show (R3.5 + assistant); camera glasses and headsets (M29, M10). Main has R1.4, R1.5 and R4.8 in large part, R1.2's rework-free re-solve of a moved projector from a camera (its pixel quads re-seated; not R4.7's retargeting to a changed mesh), R2.4 in part (HAP and HAP Q, not HAP R or HDR), R2.7 in part (the vblank board and the group's air latency, not the camera's certificate), R1.11 in part (each output's input lag held to the slowest display, not the camera's measure), R4.1 for a manual takeover, and camera auto-align of flat screens, with its white match, beside them.
 

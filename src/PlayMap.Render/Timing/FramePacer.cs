@@ -1,5 +1,3 @@
-using PlayMap.Render.Gpu;
-
 namespace PlayMap.Render.Timing;
 
 /// <summary>An output's pacing from its swaps: the refresh period estimated from the intervals between
@@ -111,75 +109,6 @@ public sealed class FramePacer
             return;
         Array.Sort(_scratch, 0, n);
         _periodNs = _scratch[n / 2];
-    }
-}
-
-/// <summary>GPU time of a span of work, from timer queries read back when the GPU has them (never waits): a
-/// ring of queries, so the time a frame took arrives a frame or two later. One span at a time — timer
-/// queries do not nest.</summary>
-public sealed class GpuTimer : IDisposable
-{
-    private readonly GlDevice _device;
-    private readonly uint[] _queries;
-    private readonly bool[] _pending;
-    private int _next;
-    private int _open = -1;
-    private bool _disposed;
-
-    public GpuTimer(GlDevice device, int depth = 4)
-    {
-        ArgumentNullException.ThrowIfNull(device);
-        _device = device;
-        // A context with no timer queries (ES without EXT_disjoint_timer_query) measures nothing: GPU times read 0.
-        var n = device.HasTimerQuery ? depth : 0;
-        _queries = new uint[n];
-        _pending = new bool[n];
-        for (var i = 0; i < n; i++)
-            _queries[i] = device.CreateQuery();
-    }
-
-    /// <summary>The last measured span, milliseconds (0 until one arrives).</summary>
-    public double LastMs { get; private set; }
-
-    public void Begin()
-    {
-        Collect();
-        if (_queries.Length == 0 || _open >= 0 || _pending[_next])
-            return;
-        _device.BeginTimeQuery(_queries[_next]);
-        _open = _next;
-    }
-
-    public void End()
-    {
-        if (_open < 0)
-            return;
-        _device.EndTimeQuery();
-        _pending[_open] = true;
-        _next = (_open + 1) % _queries.Length;
-        _open = -1;
-    }
-
-    /// <summary>Reads every finished query.</summary>
-    public void Collect()
-    {
-        for (var i = 0; i < _queries.Length; i++)
-        {
-            if (!_pending[i] || !_device.TryQueryResult(_queries[i], out var ns))
-                continue;
-            _pending[i] = false;
-            if (ns >= 0)
-                LastMs = ns / 1e6;
-        }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-        foreach (var q in _queries)
-            _device.DeleteQuery(q);
-        _disposed = true;
     }
 }
 

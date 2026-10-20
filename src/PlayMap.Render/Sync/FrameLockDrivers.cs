@@ -1,4 +1,4 @@
-using PlayMap.Render.Platform;
+using PlayMap.Core.Gpu;
 
 namespace PlayMap.Render.Sync;
 

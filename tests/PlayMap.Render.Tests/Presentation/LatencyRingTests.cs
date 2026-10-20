@@ -9,8 +9,8 @@ namespace PlayMap.Render.Tests.Presentation;
 /// 50 ms (raised to a group's, never lowered); a difference past six frames is refused with words and capped; the renderer presents
 /// the picture drawn two frames earlier on the delayed output and today's on the other, its clock says so, and a ring let go presents
 /// at once again.</summary>
-[Collection("gl")]
-public sealed class LatencyRingTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class LatencyRingTests(BackendFixture backends)
 {
     [Fact]
     public void SeventeenAndFiftyMillisecondsAtSixtyHertzMakeATwoFrameRingAndFiftyMillisecondsOfAir()
@@ -88,9 +88,9 @@ public sealed class LatencyRingTests(GlFixture gl)
             Scene.SourceOutput("op_fast", SourceRef.Solid($"#{Level(f):X2}{Level(f):X2}{Level(f):X2}"), 16, 8),
             Scene.SourceOutput("op_slow", SourceRef.Solid($"#{Level(f):X2}{Level(f):X2}{Level(f):X2}"), 16, 8),
         ]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false, Dither: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false, Dither: false));
             var plan = LatencyPlan.Make([("op_fast", 17, 60), ("op_slow", 50, 60)]);
             foreach (var d in plan.Outputs)
                 engine.SetDelay(d.OutputId, d.DelayFrames, d.ResidualMs);
@@ -120,7 +120,7 @@ public sealed class LatencyRingTests(GlFixture gl)
             engine.Render(Scene.Inputs(Frame(6), 2));
             Assert.True(engine.ReadPresented("op_fast", bgra));
             Assert.InRange(bgra[1], Level(6) - 1, Level(6) + 1);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -134,9 +134,9 @@ public sealed class LatencyRingTests(GlFixture gl)
             Scene.SourceOutput("op_fast", SourceRef.Solid(color), 16, 8) with { Enabled = enabled },
             Scene.SourceOutput("op_slow", SourceRef.Solid(color), 16, 8),
         ]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false, Dither: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false, Dither: false));
             engine.SetDelay("op_fast", 2, 0);
             var bgra = new byte[16 * 8 * 4];
             // Red for a while: the ring holds red.
@@ -153,7 +153,7 @@ public sealed class LatencyRingTests(GlFixture gl)
                 Assert.True(engine.ReadPresented("op_fast", bgra));
                 Assert.True((bgra[0], bgra[2]) == (255, 0), $"frame {f}: the delayed output presented a picture from before it was switched off");
             }
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 }

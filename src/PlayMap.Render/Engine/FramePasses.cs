@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
 using PlayMap.Render.Passes;
 
 namespace PlayMap.Render.Engine;
@@ -93,10 +93,11 @@ internal static class FxChains
 }
 
 /// <summary>What a pass is told about the frame: its number, its leader instant, the project it draws, the generators' frame, the
-/// device, whether the air is black or frozen, and per output whether the air shows something other than the show
+/// device it makes resources on and the frame's list it records into (a pass draws in passes of its own on that list, never inside
+/// another's), whether the air is black or frozen, and per output whether the air shows something other than the show
 /// (<see cref="Covered"/>) or holds its last picture (<see cref="Held"/>). A value; reading it allocates nothing.</summary>
-public readonly record struct PassFrame(long Frame, long LeaderNs, Project Project, GeneratorFrame Generator, GlDevice Device,
-    bool Blackout, bool Freeze)
+public readonly record struct PassFrame(long Frame, long LeaderNs, Project Project, GeneratorFrame Generator, IGpuDevice Device,
+    ICommandList List, bool Blackout, bool Freeze)
 {
     /// <summary>The air's test pattern, or null when none is up.</summary>
     public SourceRef? PatternOverride { get; init; }

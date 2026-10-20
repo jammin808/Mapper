@@ -1,14 +1,14 @@
+using System.Globalization;
 using System.Numerics;
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Render.Generators;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gpu;
 using PlayMap.Render.Passes;
-using PlayMap.Render.Platform;
 using PlayMap.Render.Projection;
 using PlayMap.Render.Timing;
 using SkiaSharp;
@@ -21,7 +21,8 @@ public sealed record RenderEngineOptions(
     bool Dither = true,
     /// <summary>Stream video planes through pixel-unpack buffers.</summary>
     bool StreamUploads = true,
-    /// <summary>Measure each output's GPU time with timer queries.</summary>
+    /// <summary>Measure the GPU time of each output and generator (and of the effects of a pass made with the renderer's choice)
+    /// between timestamps; off, the renderer writes no timestamp.</summary>
     bool GpuTiming = true);
 
 /// <summary>A preview a viewer asked for: a view id, the ring it goes to, its size (at most the ring's), and
@@ -33,15 +34,18 @@ public sealed record PreviewRequest(string ViewId, PreviewRingWriter Ring, int W
 
 /// <summary>The renderer the engine drives: once a frame, <see cref="Render"/> draws every enabled output of
 /// the project snapshot — sources, canvases, the projector pass, the output stage — into the output's
-/// finished picture and presents it to the output's presenter (<see cref="IOutputPresenter"/>: a GL window today), if one is
-/// attached; then <see cref="Preview"/> renders the views viewers asked for and reads them back without stalling. Every output
-/// keeps a <see cref="PresentClock"/>: the pacing presenter's is fitted to its vblanks, the others count against their own
-/// refresh (<see cref="Present"/>).
+/// finished picture, records it into the output's presenter (<see cref="IOutputPresenter"/>), if one is attached, submits the
+/// frame's list and presents; then <see cref="Preview"/> renders the views viewers asked for and reads them back without
+/// stalling. Every output keeps a <see cref="PresentClock"/>: the pacing presenter's is fitted to its vblanks, the others count
+/// against their own refresh (<see cref="Present"/>).
 ///
-/// Threading: everything here runs on the render thread that made the <see cref="RenderContext"/>, with that
-/// context current; providers are called on it and must not block. Blackout is checked before any content
-/// code runs. A faulting generator draws its error card; nothing a source or generator throws escapes a frame.
-/// The frame path reuses its targets, buffers and arrays; it allocates nothing once warm.</summary>
+/// It draws through the device's frame list (<see cref="IGpuDevice.BeginFrame"/> to <see cref="IGpuDevice.Submit"/>): each draw a
+/// program and one <see cref="DrawState"/>, in a pass over its target, its constants set by name through the program's layout; a
+/// preview asked for after the frame draws in a frame of its own.
+///
+/// Threading: everything here runs on the render thread that made the device; providers are called on it and must not block.
+/// Blackout is checked before any content code runs. A faulting generator draws its error card; nothing a source or generator
+/// throws escapes a frame. The frame path reuses its targets, buffers and arrays; it allocates nothing once warm.</summary>
 public sealed class RenderEngine : IDisposable
 {
     private const int PreviewIdleFrames = 120;
@@ -57,7 +61,7 @@ public sealed class RenderEngine : IDisposable
         public PresentClock Clock = new(60, measured: false, PresentPath.Offscreen);
         /// <summary>The refresh an offscreen output is measured against (its configured rate).</summary>
         public double OffscreenHz;
-        public GpuTimer? Timer;
+        public GpuSpanTimer? Timer;
         public bool HasPicture;
         /// <summary>The picture up is a raw frame, not the show's: a freeze has nothing of the show to hold.</summary>
         public bool Raw;
@@ -75,13 +79,14 @@ public sealed class RenderEngine : IDisposable
         /// <summary>The picture presented this frame (the ring's tail, or the finished picture with no delay).</summary>
         public GpuTexture? Shown;
         public RenderTarget? ShownTarget;
+        /// <summary>The window holds this frame's picture, recorded and not yet presented.</summary>
+        public bool Recorded;
 
         public void Dispose()
         {
             Ring.Dispose();
             Final?.Dispose();
             Projector?.Dispose();
-            Timer?.Dispose();
             IdentifyCard?.Dispose();
         }
     }
@@ -89,7 +94,7 @@ public sealed class RenderEngine : IDisposable
     private sealed class PreviewState : IDisposable
     {
         public required RenderTarget Target { get; init; }
-        public required PixelPackRing Readback { get; init; }
+        public required IReadbackRing Readback { get; init; }
         public required PreviewRingWriter Ring { get; set; }
         public long LastFrame;
 
@@ -104,8 +109,24 @@ public sealed class RenderEngine : IDisposable
         }
     }
 
-    private readonly RenderContext _context;
+    /// <summary>A copy of a picture into a delay ring's or a preview's target: opaque, every texel written.</summary>
+    private static readonly DrawState Copied = DrawState.Opaque;
+
+    /// <summary>The identify card over an output: premultiplied, as Skia draws it.</summary>
+    private static readonly DrawState Card = FrameLists.Quads(BlendMode.Premultiplied);
+
+    /// <summary>The engine's own draws: an output's picture copied into its delay ring and into a preview, an identify card over an
+    /// output's final picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("blit", Copied, TargetShape.Rgba8, TargetShape.Rgba8Depth);
+        keys.Add("quad", Card, TargetShape.Rgba8);
+    }
+
+    private readonly IGpuDevice _device;
     private readonly RenderEngineOptions _options;
+    private readonly ProgramId _blit;
     private readonly RenderServices _services;
     private readonly GeneratorHost _generators;
     private readonly SourceResolver _sources;
@@ -124,20 +145,30 @@ public sealed class RenderEngine : IDisposable
     private long _leaderNs;
     private bool _disposed;
 
-    public RenderEngine(RenderContext context, RenderEngineOptions? options = null)
+    public RenderEngine(IGpuDevice device, RenderEngineOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        _context = context;
+        ArgumentNullException.ThrowIfNull(device);
+        _device = device;
         _options = options ?? new RenderEngineOptions();
-        _services = new RenderServices(context.Device);
+        _blit = device.Programs.Id("blit");
+        _services = new RenderServices(device) { GpuTiming = _options.GpuTiming };
         _generators = new GeneratorHost(_services);
         _sources = new SourceResolver(_services, _generators, _options.StreamUploads);
-        _caches = new GpuCaches(context.Device);
+        _caches = new GpuCaches(_services);
         _stage = new StageRenderer(_services, _caches);
         _outputStage = new OutputStage(_services);
     }
 
-    public GlDevice Device => _context.Device;
+    /// <summary>The device the renderer draws on.</summary>
+    public IGpuDevice Device => _device;
+
+    /// <summary>Whether the renderer times its GPU work (outputs, generators, and the effects a pass made with it): only a renderer
+    /// that does writes the device's timestamps.</summary>
+    public bool GpuTiming => _options.GpuTiming;
+
+    /// <summary>The value the last frame's submit signalled (<see cref="FenceValue.None"/> before the first frame): a wait on it is a
+    /// wait for every output that frame drew.</summary>
+    public FenceValue Submitted { get; private set; } = FenceValue.None;
 
     /// <summary>Frames rendered.</summary>
     public long Frame { get; private set; }
@@ -154,11 +185,44 @@ public sealed class RenderEngine : IDisposable
     /// <summary>The generators faulted now (each shows its error card until its settings change).</summary>
     public IReadOnlyList<GeneratorFault> GeneratorFaults() => _generators.Faults();
 
-    /// <summary>Compiles every shader now, so the first show frame does not.</summary>
-    public void WarmUp()
+    /// <summary>How long <see cref="WarmUp"/> waits for the device's warm-up; what it has not made by then its first draw makes.</summary>
+    public static readonly TimeSpan WarmUpBound = TimeSpan.FromSeconds(20);
+
+    /// <summary>Makes now every pipeline the frame's passes list (<see cref="FramePipelines"/>), so the first show frame makes none. The
+    /// device's warm-up moves on frame by frame, so empty frames are submitted until it answers or <see cref="WarmUpBound"/> passes,
+    /// numbered from <see cref="long.MinValue"/> up: below every frame the engine draws, each above the last. A pipeline the device
+    /// could not make (a program its driver refuses) fails the warm-up with the device's words (a <see cref="GpuException"/>): the
+    /// renderer does not start with a pipeline a pass will draw that no frame could make. Past the bound the warm-up is let go and null
+    /// answered: what it had not made, its first draw makes (counted). Render thread, before the first frame.</summary>
+    public PipelineWarmResult? WarmUp()
     {
-        foreach (var name in Shaders.ShaderLibrary.Names)
-            Device.Program(name);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var keys = FramePipelines.Of(_device).Keys;
+        using var stop = new CancellationTokenSource();
+        var warm = _device.Pipelines.WarmAsync(keys, stop.Token);
+        var until = MonoClock.Instance.NowNs + (long)(WarmUpBound.TotalMilliseconds * 1e6);
+        var spin = default(SpinWait);
+        var label = long.MinValue;
+        while (!warm.IsCompleted && MonoClock.Instance.NowNs < until)
+        {
+            _device.Submit(_device.BeginFrame(++label));
+            spin.SpinOnce(sleep1Threshold: 10);
+        }
+        if (!warm.IsCompleted)
+        {
+            stop.Cancel();
+            return null;
+        }
+        if (!warm.IsCompletedSuccessfully)
+            throw new GpuException(string.Create(CultureInfo.InvariantCulture,
+                $"the device's warm-up of {keys.Count} pipelines did not finish: {warm.Exception?.GetBaseException().Message ?? "cancelled"}"));
+#pragma warning disable VSTHRD002 // The warm-up has completed (IsCompletedSuccessfully): Result reads it, it never waits.
+        var result = warm.Result;
+#pragma warning restore VSTHRD002
+        if (result.Failed.Length > 0)
+            throw new GpuException(string.Create(CultureInfo.InvariantCulture,
+                $"the device could not make {result.Failed.Length} of the {result.Asked} pipelines the passes draw: {string.Join("; ", result.Failed)}"));
+        return result;
     }
 
     /// <summary>Shows an output through a presenter (a window). The first presenter attached paces the loop (its present waits
@@ -170,6 +234,7 @@ public sealed class RenderEngine : IDisposable
         ArgumentNullException.ThrowIfNull(window);
         var st = State(outputId);
         st.Window = window;
+        st.Recorded = false;
         var hz = refreshHz > 1 && double.IsFinite(refreshHz) ? refreshHz : 60;
         if (Math.Abs(st.Pacer.NominalHz - hz) > 1e-6)
             st.Pacer = new FramePacer(hz);
@@ -185,6 +250,7 @@ public sealed class RenderEngine : IDisposable
         if (_outputs.TryGetValue(outputId, out var st) && st.Window is not null)
         {
             st.Window = null;
+            st.Recorded = false;
             st.Clock = new PresentClock(st.OffscreenHz > 1 ? st.OffscreenHz : 60, measured: false, PresentPath.Offscreen);
         }
         _paceOrder.Remove(outputId);
@@ -229,7 +295,7 @@ public sealed class RenderEngine : IDisposable
     {
         if (!_outputs.TryGetValue(outputId, out var st) || st.Final is null || !st.HasPicture)
             return false;
-        Device.ReadPixels(st.Final, bgra);
+        _device.ReadNow(st.Final, bgra);
         return true;
     }
 
@@ -239,7 +305,7 @@ public sealed class RenderEngine : IDisposable
     {
         if (!_outputs.TryGetValue(outputId, out var st) || st.ShownTarget is null || !st.HasPicture)
             return false;
-        Device.ReadPixels(st.ShownTarget, bgra);
+        _device.ReadNow(st.ShownTarget, bgra);
         return true;
     }
 
@@ -273,12 +339,31 @@ public sealed class RenderEngine : IDisposable
         return new OutputStats(p.Fps, p.Presented, p.Missed, p.FrameMs, p.FrameMsP95, st.RenderMs, st.Timer?.LastMs ?? 0, p.RefreshHz);
     }
 
-    /// <summary>Renders every enabled output for one frame and presents the ones with windows.</summary>
+    /// <summary>Renders every enabled output for one frame into the frame's list, records the ones with windows into their
+    /// presenters, submits the list, and presents.</summary>
     public void Render(in FrameInputs inputs)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(inputs.Project);
         Frame++;
+        var list = _device.BeginFrame(Frame);
+        _services.Begin(list, Frame);
+        try
+        {
+            Draw(list, in inputs);
+        }
+        finally
+        {
+            _services.End();
+            Submitted = _device.Submit(list);
+        }
+        PresentFrame(inputs.Project.Outputs);
+    }
+
+    /// <summary>The frame's draws, in its one order, into the frame's list, up to each windowed output's picture recorded into its
+    /// presenter.</summary>
+    private void Draw(ICommandList list, in FrameInputs inputs)
+    {
         _project = inputs.Project;
         _resources = inputs.Stage ?? EmptyStageResources.Instance;
         _leaderNs = inputs.LeaderNs;
@@ -291,7 +376,7 @@ public sealed class RenderEngine : IDisposable
             Audio = inputs.Audio,
         };
         OrderPasses(inputs.Passes);
-        var passFrame = new PassFrame(Frame, inputs.LeaderNs, inputs.Project, _generatorFrame, Device, inputs.Blackout, inputs.Freeze)
+        var passFrame = new PassFrame(Frame, inputs.LeaderNs, inputs.Project, _generatorFrame, _device, list, inputs.Blackout, inputs.Freeze)
         {
             PatternOverride = inputs.PatternOverride,
             PatternOutputs = inputs.PatternOutputs,
@@ -323,23 +408,23 @@ public sealed class RenderEngine : IDisposable
             if (inputs.Blackout)
             {
                 // Black before any content code runs.
-                Device.BindTarget(st.Final!);
-                Device.Clear(0, 0, 0, 1);
+                list.BeginPass(st.Final!, PassDesc.ClearBlack);
+                list.EndPass();
                 st.HasPicture = true;
                 st.Raw = false;
             }
             else if (inputs.Raw?.For(output.Id) is { IsNone: false } raw)
             {
-                DrawRaw(output, st, raw);
+                DrawRaw(list, output, st, raw);
                 st.HasPicture = true;
                 st.Raw = true;
             }
             else if (!((inputs.Freeze || (inputs.Levels?.Hold(output.Id, inputs.LeaderNs) ?? false)) && st.HasPicture && !st.Raw))
             {
                 if (_options.GpuTiming)
-                    (st.Timer ??= new GpuTimer(Device)).Begin();
-                DrawOutput(output, i, st, in inputs, in passFrame);
-                st.Timer?.End();
+                    (st.Timer ??= new GpuSpanTimer(_device)).Begin(list, Frame);
+                DrawOutput(list, output, i, st, in inputs, in passFrame);
+                st.Timer?.End(list);
                 st.HasPicture = true;
                 st.Raw = false;
             }
@@ -355,17 +440,32 @@ public sealed class RenderEngine : IDisposable
         {
             if (outputs[i].Enabled && _outputs.TryGetValue(outputs[i].Id, out var st) && st.LastFrame == Frame && st.Final is not null)
             {
-                st.ShownTarget = Delayed(st);
+                st.ShownTarget = Delayed(list, st);
                 st.Shown = st.ShownTarget.Color;
             }
         }
 
-        var presentStart = MonoClock.Instance.NowNs;
+        // Each window's picture into its next buffer; the presents follow the submit.
         foreach (var id in _paceOrder)
         {
             if (!_outputs.TryGetValue(id, out var st) || st.Window is null || st.Final is null)
                 continue;
-            var presented = st.Window.Present(st.Shown ?? st.Final.Color);
+            st.Window.Record(list, st.Shown ?? st.Final.Color);
+            st.Recorded = true;
+        }
+    }
+
+    /// <summary>After the frame's submit: presents every window recorded this frame in pace order, reads each display's own
+    /// statistics, counts the offscreen outputs, and lets go of what the frame no longer holds.</summary>
+    private void PresentFrame(System.Collections.Immutable.ImmutableArray<Output> outputs)
+    {
+        var presentStart = MonoClock.Instance.NowNs;
+        foreach (var id in _paceOrder)
+        {
+            if (!_outputs.TryGetValue(id, out var st) || st.Window is null || !st.Recorded)
+                continue;
+            st.Recorded = false;
+            var presented = st.Window.Present();
             if (presented.Queued)
                 st.Pacer.OnPresented(presented.ReturnedNs);
             st.Clock.OnPresented(in presented);
@@ -411,7 +511,7 @@ public sealed class RenderEngine : IDisposable
         _passes = given.IsDefaultOrEmpty ? [] : [.. given.OrderBy(p => p.Order)];
     }
 
-    private void DrawOutput(Output output, int index, OutputState st, in FrameInputs inputs, in PassFrame passFrame)
+    private void DrawOutput(ICommandList list, Output output, int index, OutputState st, in FrameInputs inputs, in PassFrame passFrame)
     {
         var project = inputs.Project;
         var projector = output.ProjectorId is { } pid ? project.FindProjector(pid) : null;
@@ -455,11 +555,11 @@ public sealed class RenderEngine : IDisposable
                 }
             }
         }
-        catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or NotSupportedException)
+        catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
-            // A source that could not be drawn this frame shows black; the generators keep their own faults.
+            // A source that could not be drawn this frame shows black; the generators keep their own faults. A device call that threw
+            // part way has let go of what it assumed of its state, so what follows sets its own.
             picture = _services.Black;
-            Device.InvalidateState();
         }
 
         foreach (var pass in _passes)
@@ -470,14 +570,14 @@ public sealed class RenderEngine : IDisposable
         var blend = _resources.Blend(output.Id) is { } b ? _caches.Blend(b) : null;
         var lens = _resources.LensPredistortion(output.Id) is { } l ? _caches.Lens(l) : null;
         // The dither is seeded by the show frame, a function of the leader instant: a backup's picture is the primary's to the byte.
-        _outputStage.Draw(st.Final!, new OutputStageInputs(picture, src, warp, mask, blend, lens, output.Color,
+        _outputStage.Draw(list, st.Final!, new OutputStageInputs(picture, src, warp, mask, blend, lens, output.Color,
             OutputStage.Quarters(output.Rotation), _options.Dither ? 0.49f : 0f, _generatorFrame.ShowFrame)
         {
             Gain = inputs.Levels?.Gain(output.Id, inputs.LeaderNs),
             Measured = inputs.Measured?.For(output.Id),
         });
         if (inputs.Identify)
-            DrawIdentify(st, context, output.Width, output.Height);
+            DrawIdentify(list, st, context, output.Width, output.Height);
         foreach (var pass in _passes)
             pass.Final(in passFrame, output, st.Final!);
     }
@@ -504,25 +604,24 @@ public sealed class RenderEngine : IDisposable
 
     /// <summary>A raw picture over the whole raster: the identity warp, no mask, blend or lens, a neutral trim,
     /// no rotation and no dither, so an 8-bit code in is the same code out at the same pixel.</summary>
-    private void DrawRaw(Output output, OutputState st, SourceRef raw)
+    private void DrawRaw(ICommandList list, Output output, OutputState st, SourceRef raw)
     {
         GpuTexture picture;
         try
         {
             picture = _sources.ResolvePlain(raw, output.Width, output.Height, new GeneratorContext(output.Name, 0, "#FFFFFF", true));
         }
-        catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or NotSupportedException)
+        catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
             picture = _services.Black;
-            Device.InvalidateState();
         }
-        _outputStage.Draw(st.Final!, new OutputStageInputs(picture, new Vector4(0, 0, 1, 1), _caches.Warp(null), null, null, null,
+        _outputStage.Draw(list, st.Final!, new OutputStageInputs(picture, new Vector4(0, 0, 1, 1), _caches.Warp(null), null, null, null,
             ColorTrim.Neutral, 0, 0f, Frame));
     }
 
     /// <summary>The identification card over an output: number, name and colour, drawn once per change at
     /// a modest size and scaled over the picture.</summary>
-    private void DrawIdentify(OutputState st, GeneratorContext context, int width, int height)
+    private void DrawIdentify(ICommandList list, OutputState st, GeneratorContext context, int width, int height)
     {
         if (st.IdentifyCard is null || st.IdentifyKey != context)
         {
@@ -536,22 +635,23 @@ public sealed class RenderEngine : IDisposable
                 IdentifyPattern.DrawCard(canvas, _services.Kit, w, h, context, grid: false, frame: true, ground: false);
                 canvas.Flush();
             }
-            st.IdentifyCard = Device.CreateTexture(w, h, TextureFormat.Rgba8);
-            Device.UploadPointer(st.IdentifyCard, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
+            st.IdentifyCard = _device.CreateTexture(new TextureDesc(w, h, TextureFormat.Rgba8, FrameLists.Uploaded));
+            RenderServices.Upload(list, st.IdentifyCard, bitmap);
             st.IdentifyKey = context;
         }
-        Device.SetBlend(BlendMode.Premultiplied);
-        _services.DrawQuad(st.Final!, st.IdentifyCard, 0, 0, width, height, 4, 1);
-        Device.SetBlend(BlendMode.Opaque);
+        using (list.Pass(st.Final!, PassDesc.Keep))
+            _services.DrawQuad(list, st.Final!, st.IdentifyCard, 0, 0, width, height, 4, 1, in Card);
     }
 
     /// <summary>Renders a preview and queues its read-back; the picture reaches the ring a frame or two later
     /// (finished reads are collected here and at the start of every <see cref="Render"/>). Call after
-    /// <see cref="Render"/> in the same frame. A view not asked for in a while is let go.</summary>
+    /// <see cref="Render"/> in the same frame: it draws in a frame of its own. A view not asked for in a while is let go.</summary>
     public void Preview(PreviewRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        using var frame = _services.Frame();
+        var list = _services.List;
         var w = Math.Clamp(request.Width, 1, request.Ring.MaxWidth);
         var h = Math.Clamp(request.Height, 1, request.Ring.MaxHeight);
         if (!_previews.TryGetValue(request.ViewId, out var pv) || pv.Target.Width != w || pv.Target.Height != h)
@@ -559,8 +659,8 @@ public sealed class RenderEngine : IDisposable
             pv?.Dispose();
             pv = new PreviewState
             {
-                Target = Device.CreateRenderTarget(w, h, TextureFormat.Rgba8, depth: true),
-                Readback = new PixelPackRing(Device),
+                Target = _device.CreateTarget(new TargetDesc(w, h, TextureFormat.Rgba8, Depth: true)),
+                Readback = _device.CreateReadbackRing(),
                 Ring = request.Ring,
             };
             _previews[request.ViewId] = pv;
@@ -571,7 +671,7 @@ public sealed class RenderEngine : IDisposable
 
         if (request.ProjectorId is { } projectorId && _project?.FindProjector(projectorId) is { } projector)
         {
-            PreviewProjector(pv, _project, projector, w, h);
+            PreviewProjector(list, pv, _project, projector, w, h);
         }
         else if (request.Editor is { } camera && _project is not null)
         {
@@ -580,19 +680,10 @@ public sealed class RenderEngine : IDisposable
         else
         {
             var picture = request.OutputId is { } id ? PresentedPicture(id) : null;
-            var d = Device;
-            d.BindTarget(pv.Target);
-            d.SetBlend(BlendMode.Opaque);
-            if (picture is null)
+            using (list.Pass(pv.Target, picture is null ? PassDesc.ClearBlack : PassDesc.Keep))
             {
-                d.Clear(0, 0, 0, 1);
-            }
-            else
-            {
-                var blit = d.Program("blit");
-                blit.Set("uSrc", 0, 0, 1, 1);
-                d.BindSampler(blit, "uTex", 0, picture);
-                d.DrawFullscreen(blit);
+                if (picture is not null)
+                    list.Draw(_blit, Copied).Set("uSrc", 0, 0, 1, 1).Texture("uTex", picture).Fullscreen();
             }
         }
         pv.Readback.Request(pv.Target, _leaderNs);
@@ -601,12 +692,12 @@ public sealed class RenderEngine : IDisposable
     /// <summary>A projector's view: the stage as the projector lights it (at the view's size, so the picture fills the raster as the
     /// output's does), then through the lens lookup of the first enabled output that drives it — no warp, mask, blend, trim or dither —
     /// so it equals that output's picture before those, and is black wherever the projector lights nothing.</summary>
-    private void PreviewProjector(PreviewState pv, Project project, Projector projector, int w, int h)
+    private void PreviewProjector(ICommandList list, PreviewState pv, Project project, Projector projector, int w, int h)
     {
         if (pv.Picture is null || pv.Picture.Width != w || pv.Picture.Height != h)
         {
             pv.Picture?.Dispose();
-            pv.Picture = Device.CreateRenderTarget(w, h, Device.TargetFormat(TextureFormat.Rgba16F, out _), depth: true);
+            pv.Picture = _device.CreateTarget(new TargetDesc(w, h, _device.TargetFormat(TextureFormat.Rgba16F), Depth: true));
         }
         Output? output = null;
         var index = 0;
@@ -619,7 +710,7 @@ public sealed class RenderEngine : IDisposable
         var context = new GeneratorContext(output?.Name ?? projector.Name, index + 1, projector.Color, true);
         _stage.RenderProjector(pv.Picture, project, projector, _resources, _sources, in _generatorFrame, context with { NativeRaster = false });
         var lens = output is not null && _resources.LensPredistortion(output.Id) is { } l ? _caches.Lens(l) : null;
-        _outputStage.Draw(pv.Target, new OutputStageInputs(pv.Picture.Color, new Vector4(0, 0, 1, 1), _caches.Warp(null), null, null, lens,
+        _outputStage.Draw(list, pv.Target, new OutputStageInputs(pv.Picture.Color, new Vector4(0, 0, 1, 1), _caches.Warp(null), null, null, lens,
             ColorTrim.Neutral, 0, 0f, Frame));
     }
 
@@ -679,7 +770,7 @@ public sealed class RenderEngine : IDisposable
     private static RenderTarget NoPicture() => throw new InvalidOperationException("a ring with no delay makes no pictures");
 
     /// <summary>The picture an output shows this frame through its delay ring (the finished one itself with no delay or a raw frame).</summary>
-    private RenderTarget Delayed(OutputState st)
+    private RenderTarget Delayed(ICommandList list, OutputState st)
     {
         var final = st.Final!;
         st.Clock.DelayFrames = st.DelayFrames;
@@ -702,13 +793,8 @@ public sealed class RenderEngine : IDisposable
         if (!unbroken)
             st.Ring.Restart();
         var head = st.Ring.Next();
-        var d = Device;
-        d.BindTarget(head);
-        d.SetBlend(BlendMode.Opaque);
-        var blit = d.Program("blit");
-        blit.Set("uSrc", 0, 0, 1, 1);
-        d.BindSampler(blit, "uTex", 0, final.Color);
-        d.DrawFullscreen(blit);
+        using (list.Pass(head, PassDesc.Keep))
+            list.Draw(_blit, Copied).Set("uSrc", 0, 0, 1, 1).Texture("uTex", final.Color).Fullscreen();
         return st.Ring.Presented();
     }
 
@@ -716,14 +802,14 @@ public sealed class RenderEngine : IDisposable
     /// size) is made only when the ring is remade. Written in <see cref="Delayed"/>, an optimised build would allocate that closure
     /// at the method's entry, on every frame of every output, whichever branch the frame takes.</summary>
     private void RemakeRing(OutputState st, int width, int height) =>
-        st.Ring.Configure(st.DelayFrames, () => Device.CreateRenderTarget(width, height, TextureFormat.Rgba8), remake: true);
+        st.Ring.Configure(st.DelayFrames, () => _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba8)), remake: true);
 
     private void EnsureFinal(OutputState st, int width, int height)
     {
         if (st.Final is not null && st.Final.Width == width && st.Final.Height == height)
             return;
         st.Final?.Dispose();
-        st.Final = Device.CreateRenderTarget(width, height, TextureFormat.Rgba8);
+        st.Final = _device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba8));
         st.HasPicture = false;
     }
 
@@ -732,8 +818,8 @@ public sealed class RenderEngine : IDisposable
         if (st.Projector is not null && st.Projector.Width == width && st.Projector.Height == height)
             return;
         st.Projector?.Dispose();
-        // RGBA16F where the context renders float colour; RGBA8 on an ES context without EXT_color_buffer_float.
-        st.Projector = Device.CreateRenderTarget(width, height, Device.TargetFormat(TextureFormat.Rgba16F, out _), depth: true);
+        // RGBA16F where the device renders float colour; RGBA8 where it does not (an ES context without EXT_color_buffer_float).
+        st.Projector = _device.CreateTarget(new TargetDesc(width, height, _device.TargetFormat(TextureFormat.Rgba16F), Depth: true));
     }
 
     /// <summary>Outputs gone from the project (and with no window) are let go after a while.</summary>

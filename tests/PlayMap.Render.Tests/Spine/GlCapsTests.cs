@@ -1,13 +1,26 @@
-using PlayMap.Render.Gpu;
+using PlayMap.Core.Gpu;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Spine;
 
-/// <summary>What a context can sample and render to, read from its version and extension list: fake lists for desktop Mesa, ES 3.0
-/// Mesa and an ANGLE-like ES context; then the real context of the tests in the fixture's dialect (core 3.3, or ES 3.00 on the ES
-/// leg), where every block family reads true and a float and a 16-bit target render a known colour.</summary>
-[Collection("gl")]
-public sealed class GlCapsTests(GlFixture gl)
+/// <summary>Every texture format has its own row in the GL format table. What a context can sample and render to, read from its
+/// version and extension list: fake lists for desktop Mesa, ES 3.0 Mesa and an ANGLE-like ES context; then the real context of the
+/// tests in the leg's dialect (core 3.3, or ES 3.00 on the ES leg), where every block family reads true and a float and a 16-bit
+/// target render a known colour.</summary>
+[Collection("gpu")]
+public sealed class GlCapsTests(BackendFixture backends)
 {
+    [Fact]
+    public void EveryFormatHasItsOwnRowInTheGlFormatTable()
+    {
+        foreach (var f in Enum.GetValues<TextureFormat>())
+        {
+            var (internalFormat, _, _) = GlDevice.Describe(f);
+            Assert.NotEqual(0, (int)internalFormat);
+        }
+        Assert.Equal(8, GlDevice.BytesPerPixel(UploadFormat.Rgba16));
+    }
+
     [Fact]
     public void ACoreMesaContextHasEveryFamilyFromItsVersionAndS3tc()
     {
@@ -55,11 +68,11 @@ public sealed class GlCapsTests(GlFixture gl)
     [Fact]
     public void OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect()
     {
-        var caps = gl.Run(c => c.Device.Caps);
-        Assert.Equal(GlDialects.Word(GlFixture.Dialect), caps.Dialect);
-        Assert.Equal(GlFixture.Dialect == GlDialect.Core330, caps.IsCore);
+        var caps = backends.RunGl(c => c.Device.Caps);
+        Assert.Equal(GlDialects.Word(GlLeg.Dialect), caps.Dialect);
+        Assert.Equal(GlLeg.Dialect == GlDialect.Core330, caps.IsCore);
         foreach (var f in new[] { TextureFormat.Bc1, TextureFormat.Bc3, TextureFormat.Bc4, TextureFormat.Bc7, TextureFormat.Bc6hUfloat })
-            Assert.True(caps.Supports(f), $"{f} on {gl.Run(c => c.Device.Renderer)}");
+            Assert.True(caps.Supports(f), $"{f} on {backends.RunGl(c => c.Device.Renderer)}");
     }
 
     [Theory]
@@ -67,13 +80,13 @@ public sealed class GlCapsTests(GlFixture gl)
     [InlineData(TextureFormat.Rgba16)]
     public void AFloatAndASixteenBitTargetRenderAKnownColour(TextureFormat format)
     {
-        var got = gl.Run(c =>
+        var got = backends.RunGl(c =>
         {
             var d = c.Device;
             using var target = d.CreateRenderTarget(8, 8, format, filter: TextureFilter.Nearest);
             d.BindTarget(target);
             d.Clear(0.25f, 0.5f, 1f, 1f);
-            var read = Pixels.Read(d, target);
+            var read = Pixels.Read(d.Backend, target);
             Assert.Empty(d.TakeErrors());
             return Pixels.At(read, 8, 3, 3);
         });
@@ -83,7 +96,7 @@ public sealed class GlCapsTests(GlFixture gl)
     [Fact]
     public void ABlockFormatIsNeverAPlainTextureOrATarget()
     {
-        gl.Run(c =>
+        backends.RunGl(c =>
         {
             var plain = Assert.Throws<ArgumentException>(() => c.Device.CreateTexture(8, 8, TextureFormat.Bc1));
             Assert.Contains("compressed upload path", plain.Message, StringComparison.Ordinal);

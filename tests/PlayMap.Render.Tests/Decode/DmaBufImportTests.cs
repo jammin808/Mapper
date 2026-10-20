@@ -1,9 +1,11 @@
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Decode;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
+using PlayMap.Render.Tests.Rhi;
 using PlayMap.Render.Video;
 using Xunit.Abstractions;
 
@@ -144,12 +146,12 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             Assert.True(probe is not null, "this EGL display does not import dmabufs: " + words);
             probe.Dispose();
             var layout = tenBit ? PixelLayout.P010 : PixelLayout.Nv12;
-            using var cpu = new VideoTextureSet(device);
+            using var cpu = new VideoTextureSet(device.Backend);
             Assert.True(cpu.Update(new TestLease(layout, width, height, 1, CpuPlanes(frame))));
             var expected = Read(device, cpu);
 
             var owner = new CountingOwner();
-            using var gpu = new VideoTextureSet(device);
+            using var gpu = new VideoTextureSet(device.Backend);
             Assert.True(gpu.Update(new TestLease(layout, width, height, 1, surface: Surface(frame, owner))), gpu.Refusal);
             Assert.Equal((1, 0), (gpu.Imports, gpu.ImportFailures));
             var actual = Read(device, gpu);
@@ -176,19 +178,177 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         {
             var device = ctx.Device;
             var owner = new CountingOwner();
-            using var set = new VideoTextureSet(device);
+            using var set = new VideoTextureSet(device.Backend);
             var shown = 0;
             for (var g = 1; g <= 12; g++)
             {
                 if (set.Update(new TestLease(PixelLayout.Nv12, 320, 180, g, surface: Surface(frame, owner))))
                     shown++;
-                Assert.InRange(set.HeldSurfaces, 0, 2);
+                Assert.InRange(device.Backend.GlImporter.Held, 0, 2);
                 Assert.InRange(owner.Holds, 0, 2);
             }
             Assert.True(shown >= 1);
             Assert.Equal(0, set.ImportFailures);
             Assert.True(owner.Peak <= 2, $"peak {owner.Peak} held");
             device.Finish();
+        });
+    }
+
+    /// <summary>One frame's import of a surface through a lease of its own, disposed as the resolver disposes it: right after the
+    /// update, before the frame is submitted.</summary>
+    private static void Import(VideoTextureSet set, ICommandList list, Frame f, ReferenceOwner owner, string key, long generation)
+    {
+        var lease = new SurfaceLease(PixelLayout.Nv12, f.Width, f.Height, generation, Surface(f, owner, key));
+        owner.Leased();
+        using (lease)
+            Assert.True(set.Update(lease, list), set.Refusal);
+    }
+
+    [LinuxFact]
+    [Trait("Category", "Linux")]
+    public void AnImportHoldsItsSurfaceFromTheImportWhileTheLeaseIsAliveUntilTheGpuReadIt()
+    {
+        using var frame = Make(320, 180, 512, 0, false, 41);
+        egl.Run(ctx =>
+        {
+            var backend = ctx.Device.Backend;
+            FenceValue? read = null;
+            var owner = new ReferenceOwner(() => read is { } v && backend.IsComplete(v));
+            using var set = new VideoTextureSet(backend);
+            read = BackendFrames.Run(backend, list =>
+            {
+                Import(set, list, frame, owner, "md_held", 1);
+                // The lease is gone and the frame not yet submitted: the import's hold keeps the slot from the decoder.
+                Assert.Equal(1, owner.Count);
+            });
+            Assert.Equal(1, owner.Count);
+            backend.WaitFor(read.Value);
+            BackendFrames.Run(backend, _ => { });
+            Assert.Empty(owner.Faults);
+            Assert.Equal((0, 1, 2), (owner.Count, owner.Retains, owner.Releases));
+            Assert.Equal(0, backend.GlImporter.Held);
+        });
+    }
+
+    [LinuxFact]
+    [Trait("Category", "Linux")]
+    public void AnImportIsWaitedForBeforeTheConversionSamplesItsPlanes()
+    {
+        using var frame = Make(320, 180, 512, 0, false, 23);
+        egl.Run(ctx =>
+        {
+            var d = new RecordingDevice(ctx.Device.Backend);
+            using var set = new VideoTextureSet(d);
+            var owner = new CountingOwner();
+            var done = At(d, BackendFrames.Next, list =>
+                Assert.True(set.Update(new TestLease(PixelLayout.Nv12, 320, 180, 1, surface: Surface(frame, owner, "md_wait")), list), set.Refusal));
+            Assert.Equal(2, d.Log.Count(e => e.Kind == "import"));
+            Assert.True(d.EverySampledValueWaitedFor(out var words), words);
+            d.WaitFor(done);
+        });
+    }
+
+    [LinuxFact]
+    [Trait("Category", "Linux")]
+    public void TwoReadersOfOneSourceInOneFrameEachHoldTheirOwnSurfaceAndReleaseItOnce()
+    {
+        using var a = Make(320, 180, 512, 0, false, 7);
+        using var b = Make(320, 180, 512, 0, false, 8);
+        egl.Run(ctx =>
+        {
+            var backend = ctx.Device.Backend;
+            FenceValue? read = null;
+            bool Done() => read is { } v && backend.IsComplete(v);
+            var ownerA = new ReferenceOwner(Done);
+            var ownerB = new ReferenceOwner(Done);
+            // One media on a layer and in a playlist: two decoders, two sets, one source key, both imported before one submit.
+            using var layer = new VideoTextureSet(backend);
+            using var playlist = new VideoTextureSet(backend);
+            read = BackendFrames.Run(backend, list =>
+            {
+                Import(layer, list, a, ownerA, "md_shared", 1);
+                Import(playlist, list, b, ownerB, "md_shared", 1);
+            });
+            Assert.Equal((1, 1), (ownerA.Count, ownerB.Count));
+            backend.WaitFor(read.Value);
+            BackendFrames.Run(backend, _ => { });
+            Assert.Empty(ownerA.Faults);
+            Assert.Empty(ownerB.Faults);
+            Assert.Equal((0, 1, 2), (ownerA.Count, ownerA.Retains, ownerA.Releases));
+            Assert.Equal((0, 1, 2), (ownerB.Count, ownerB.Retains, ownerB.Releases));
+            Assert.Equal(0, backend.GlImporter.Held);
+        });
+    }
+
+    /// <summary>One frame of the given number: begin, the body, submit; answers the frame's value.</summary>
+    private static FenceValue At(IGpuDevice device, long frame, Action<ICommandList> body)
+    {
+        var list = device.BeginFrame(frame);
+        var submitted = false;
+        try
+        {
+            body(list);
+            submitted = true;
+            return device.Submit(list);
+        }
+        finally
+        {
+            if (!submitted)
+                device.Submit(list);
+        }
+    }
+
+    [LinuxFact]
+    [Trait("Category", "Linux")]
+    public void AReaderKeepsItsImporterWhateverTheFrameNumbersAndHowLongItsPictureHolds()
+    {
+        using var frame = Make(320, 180, 512, 0, false, 13);
+        egl.Run(ctx =>
+        {
+            var backend = ctx.Device.Backend;
+            var owner = new CountingOwner();
+            using var air = new VideoTextureSet(backend);
+            var made = backend.GlImporter.DmabufImportersMade;
+            At(backend, 5000, list => Assert.True(air.Update(new TestLease(PixelLayout.Nv12, 320, 180, 1, surface: Surface(frame, owner, "md_air")), list)));
+            for (var k = 1; k <= 700; k++)
+            {
+                // The clip held paused on the air (its generation already on the GPU), beside a draft view whose frames count from 1.
+                At(backend, 5000 + k, list => Assert.False(air.Update(new TestLease(PixelLayout.Nv12, 320, 180, 1, surface: Surface(frame, owner, "md_air")), list)));
+                At(backend, k, _ => { });
+            }
+            var last = At(backend, 5701, list => Assert.True(air.Update(new TestLease(PixelLayout.Nv12, 320, 180, 2, surface: Surface(frame, owner, "md_air")), list)));
+            Assert.Equal(made + 1, backend.GlImporter.DmabufImportersMade);
+            Assert.Equal((2, 0), (air.Imports, air.ImportFailures));
+            backend.WaitFor(last);
+        });
+    }
+
+    [LinuxFact]
+    [Trait("Category", "Linux")]
+    public void AReaderDisposedWhileItsSurfaceIsInFlightLetsGoOfItOnceTheGpuReadIt()
+    {
+        using var frame = Make(320, 180, 512, 0, false, 17);
+        egl.Run(ctx =>
+        {
+            var backend = ctx.Device.Backend;
+            FenceValue? read = null;
+            var owner = new ReferenceOwner(() => read is { } v && backend.IsComplete(v));
+            var imports = backend.GlImporter.Imports;
+            read = BackendFrames.Run(backend, list =>
+            {
+                var set = new VideoTextureSet(backend);
+                Import(set, list, frame, owner, "md_gone", 1);
+                // The resolver lets go of a source it no longer draws, its last import still in the frame being recorded.
+                set.Dispose();
+            });
+            Assert.Equal(1, owner.Count);
+            backend.WaitFor(read.Value);
+            BackendFrames.Run(backend, _ => { });
+            Assert.Empty(owner.Faults);
+            Assert.Equal((0, 1, 2), (owner.Count, owner.Retains, owner.Releases));
+            // Its import is gone with its hold: none is left behind it.
+            Assert.InRange(backend.GlImporter.Imports, 0, imports);
+            Assert.Equal(0, backend.GlImporter.Held);
         });
     }
 
@@ -201,11 +361,11 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         {
             var device = ctx.Device;
             var share = new RecordingShare();
-            device.DecodeContext = new DecodeContext(share, new ZeroCopyPlatform(GpuApi.DmaBuf, false, true, "test"), "egl", null, "");
+            device.ImportShare = share;
             try
             {
                 var owner = new CountingOwner();
-                using var set = new VideoTextureSet(device);
+                using var set = new VideoTextureSet(device.Backend);
                 Assert.True(set.Update(new TestLease(PixelLayout.Nv12, 256, 144, 1, surface: Surface(frame, owner, "md_a"))));
                 var before = Read(device, set);
                 var picture = set.Picture;
@@ -230,7 +390,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
             }
             finally
             {
-                device.DecodeContext = null;
+                device.ImportShare = null;
             }
         });
     }
@@ -305,7 +465,7 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         for (var i = 0; i < 2; i++)
         {
             var none = EglImages.None;
-            var image = create(display, EglImages.GetCurrentContext(), EglImages.GlTexture2D, (nint)textures[i].Id, &none);
+            var image = create(display, EglImages.GetCurrentContext(), EglImages.GlTexture2D, (nint)((GlTexture)textures[i]).Id, &none);
             Assert.NotEqual(0, image);
             images[i] = image;
             int fourcc, count, fd, stride, offset;
@@ -317,12 +477,12 @@ public sealed partial class DmaBufImportTests(EglFixture egl, ITestOutputHelper 
         var s = new GpuSurface { Api = GpuApi.DmaBuf, Format = GpuSurfaceFormat.Nv12, Width = w, Height = h, CodedWidth = w, CodedHeight = h, PlaneCount = 2 };
         s.Planes[0] = planes[0];
         s.Planes[1] = planes[1];
-        using var set = new VideoTextureSet(device);
+        using var set = new VideoTextureSet(device.Backend);
         Assert.True(set.Update(new TestLease(PixelLayout.Nv12, w, h, 1, surface: s)), set.Refusal);
         var handles = new[] { GCHandle.Alloc(luma, GCHandleType.Pinned), GCHandle.Alloc(chroma, GCHandleType.Pinned) };
         try
         {
-            using var cpu = new VideoTextureSet(device);
+            using var cpu = new VideoTextureSet(device.Backend);
             Assert.True(cpu.Update(new TestLease(PixelLayout.Nv12, w, h, 1,
                 [new FramePlane(handles[0].AddrOfPinnedObject(), w, w, h), new FramePlane(handles[1].AddrOfPinnedObject(), w, w / 2, h / 2)])));
             Assert.Equal(Read(device, cpu), Read(device, set));

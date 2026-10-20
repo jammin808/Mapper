@@ -1,0 +1,83 @@
+[
+  {
+    "title": "Shader worker",
+    "path": "fx.compile.worker",
+    "light": [
+      {
+        "if": "missing",
+        "light": "amber"
+      },
+      {
+        "if": "running",
+        "light": "green"
+      },
+      {
+        "light": "grey"
+      }
+    ],
+    "words": "words",
+    "fields": [
+      {
+        "label": "Running",
+        "path": "running"
+      },
+      {
+        "label": "Restarts",
+        "path": "restarts"
+      },
+      {
+        "label": "Compiled",
+        "path": "compiled"
+      },
+      {
+        "label": "Failed",
+        "path": "failed"
+      },
+      {
+        "label": "Last compile (ms)",
+        "path": "lastMs"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Kinds",
+        "line": "FX KINDS"
+      }
+    ]
+  },
+  {
+    "title": "Quarantined effect",
+    "path": "fx.quarantine[]",
+    "label": "kind",
+    "light": [
+      {
+        "light": "red"
+      }
+    ],
+    "words": "words",
+    "fields": [
+      {
+        "label": "Kind",
+        "path": "kind"
+      },
+      {
+        "label": "Reason",
+        "path": "reason"
+      },
+      {
+        "label": "Slots",
+        "path": "slots.length"
+      },
+      {
+        "label": "Build",
+        "path": "build"
+      }
+    ],
+    "actions": [
+      {
+        "label": "Release",
+        "line": "FX RELEASE $(hash)"
+      }
+    ]
+  }
+]

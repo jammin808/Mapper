@@ -1,8 +1,10 @@
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 using PlayMap.Core.Model;
 using PlayMap.Core.Modulation;
+using PlayMap.Render.Engine;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Generators;
 
@@ -61,21 +63,35 @@ public readonly record struct GeneratorContext(string Name, int Number, string C
     public static readonly GeneratorContext None = new("", 0, "#3EC1F3", true);
 }
 
-/// <summary>What every generator shares: the device, the pool, the Skia kit, a white texel.</summary>
+/// <summary>What every generator shares: the device, the pool, the Skia kit, a white and a black texel, the quad program, and the
+/// frame's command list while a frame is open.
+///
+/// The list is the engine's for its frame (<see cref="Begin"/> to <see cref="End"/>); a draw asked for outside one (a preview after
+/// the frame, a test, a tool) opens a frame of its own through <see cref="Frame"/>, submitted when its scope ends. The texels are
+/// filled in the first frame. Render thread.</summary>
 internal sealed class RenderServices : IDisposable
 {
-    public RenderServices(GlDevice device)
+    private ICommandList? _list;
+    private long _frame;
+    private bool _filled;
+
+    public RenderServices(IGpuDevice device)
     {
+        ArgumentNullException.ThrowIfNull(device);
         Device = device;
         Pool = new ResourcePool(device);
         Kit = new SkiaKit();
-        White = device.CreateTexture(1, 1, TextureFormat.Rgba8, TextureFilter.Nearest);
-        device.Upload(White, [255, 255, 255, 255], UploadFormat.Rgba8);
-        Black = device.CreateTexture(1, 1, TextureFormat.Rgba8, TextureFilter.Nearest);
-        device.Upload(Black, [0, 0, 0, 255], UploadFormat.Rgba8);
+        White = device.CreateTexture(new TextureDesc(1, 1, TextureFormat.Rgba8, FrameLists.Uploaded, TextureFilter.Nearest));
+        Black = device.CreateTexture(new TextureDesc(1, 1, TextureFormat.Rgba8, FrameLists.Uploaded, TextureFilter.Nearest));
+        QuadProgram = device.Programs.Id("quad");
     }
 
-    public GlDevice Device { get; }
+    public IGpuDevice Device { get; }
+
+    /// <summary>Whether the renderer times its GPU work (a generator's draw measured between two timestamps); a renderer that times
+    /// nothing takes none of the device's timestamp slots.</summary>
+    public bool GpuTiming { get; init; } = true;
+
     public ResourcePool Pool { get; }
     public SkiaKit Kit { get; }
 
@@ -85,32 +101,97 @@ internal sealed class RenderServices : IDisposable
     /// <summary>A black texel: the picture of a source that has none yet.</summary>
     public GpuTexture Black { get; }
 
-    /// <summary>Draws a texture into a rectangle of the bound target (pixels, top-left origin) with a blend
-    /// shaped by the quad shader: mode 0 normal (straight alpha), 1 add, 2 multiply, 3 screen, 4 premultiplied.</summary>
-    public void DrawQuad(RenderTarget target, GpuTexture texture, float x, float y, float w, float h, int mode, float opacity,
-        float tr = 1, float tg = 1, float tb = 1, float ta = 1)
+    /// <summary>The <c>quad</c> program.</summary>
+    public ProgramId QuadProgram { get; }
+
+    /// <summary>The open frame's list; outside a frame, refused with words.</summary>
+    public ICommandList List => _list ?? throw new InvalidOperationException("Draws are recorded in a frame: no frame is open on this renderer.");
+
+    /// <summary>Whether a frame's list is open.</summary>
+    public bool InFrame => _list is not null;
+
+    /// <summary>Takes the engine's list for frame <paramref name="frame"/>.</summary>
+    public void Begin(ICommandList list, long frame)
     {
-        var d = Device;
-        var p = d.Program("quad");
-        d.BindTarget(target);
-        p.Set("uRect", x, y, w, h);
-        p.Set("uTarget", target.Width, target.Height);
-        p.Set("uUv", 0, 0, 1, 1);
-        p.SetInt("uMode", mode);
-        p.Set("uOpacity", opacity);
-        p.Set("uTint", tr, tg, tb, ta);
-        d.BindSampler(p, "uTex", 0, texture);
-        d.DrawGeneratedQuads(p);
+        ArgumentNullException.ThrowIfNull(list);
+        if (_list is not null)
+            throw new InvalidOperationException("A frame is open on this renderer: its list is submitted before the next begins.");
+        _list = list;
+        _frame = frame;
+        if (!_filled)
+        {
+            _filled = true;
+            list.Upload(White, [255, 255, 255, 255], UploadFormat.Rgba8);
+            list.Upload(Black, [0, 0, 0, 255], UploadFormat.Rgba8);
+        }
     }
 
-    /// <summary>A flat white veil over the whole target at an alpha (a sting's flash, already guarded).</summary>
+    /// <summary>Lets go of the engine's list (its submit is the engine's).</summary>
+    public void End() => _list = null;
+
+    /// <summary>A frame of its own on the device when none is open (numbered as the engine's last), submitted when the scope ends;
+    /// inside an open frame, nothing.</summary>
+    public FrameScope Frame()
+    {
+        if (_list is not null)
+            return default;
+        var list = Device.BeginFrame(_frame);
+        Begin(list, _frame);
+        return new FrameScope(this, list);
+    }
+
+    /// <summary>A frame <see cref="Frame"/> opened: submitted, and the renderer's list let go, when the scope ends.</summary>
+    internal readonly ref struct FrameScope
+    {
+        private readonly RenderServices? _owner;
+        private readonly ICommandList? _list;
+
+        public FrameScope(RenderServices owner, ICommandList list)
+        {
+            _owner = owner;
+            _list = list;
+        }
+
+        public void Dispose()
+        {
+            if (_owner is null)
+                return;
+            _owner.End();
+            _owner.Device.Submit(_list!);
+        }
+    }
+
+    /// <summary>Draws a texture into a rectangle of the current pass's target (pixels, top-left origin) with <paramref name="state"/>'s
+    /// blend, the quad shader shaping its output: mode 0 normal (straight alpha), 1 add, 2 multiply, 3 screen, 4 premultiplied.</summary>
+    public void DrawQuad(ICommandList list, RenderTarget target, GpuTexture texture, float x, float y, float w, float h, int mode, float opacity,
+        in DrawState state, float tr = 1, float tg = 1, float tb = 1, float ta = 1) =>
+        list.Draw(QuadProgram, state)
+            .Set(ProgramIds.Quad.uRect, x, y, w, h)
+            .Set(ProgramIds.Quad.uTarget, target.Width, target.Height)
+            .Set(ProgramIds.Quad.uUv, 0, 0, 1, 1)
+            .SetInt(ProgramIds.Quad.uMode, mode)
+            .Set(ProgramIds.Quad.uOpacity, opacity)
+            .Set(ProgramIds.Quad.uTint, tr, tg, tb, ta)
+            .Texture(ProgramIds.Quad.uTex, texture)
+            .GeneratedQuads();
+
+    /// <summary>A flat white veil over the whole target at an alpha (a sting's flash, already guarded), in a pass of its own.</summary>
     public void DrawFlash(RenderTarget target, float flash)
     {
         if (flash <= 0.01f)
             return;
-        Device.SetBlend(BlendMode.Normal);
-        DrawQuad(target, White, 0, 0, target.Width, target.Height, 0, Math.Clamp(flash * FlashGuard.MaxLevel, 0, 1));
-        Device.SetBlend(BlendMode.Opaque);
+        var list = List;
+        using (list.Pass(target, PassDesc.Keep))
+            DrawQuad(list, target, White, 0, 0, target.Width, target.Height, 0, Math.Clamp(flash * FlashGuard.MaxLevel, 0, 1),
+                FrameLists.Quads(BlendMode.Normal));
+    }
+
+    /// <summary>A bitmap's pixels (RGBA, premultiplied as Skia draws them) into a texture of its size through the frame's list.</summary>
+    public static unsafe void Upload(ICommandList list, GpuTexture texture, SkiaSharp.SKBitmap bitmap)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(bitmap);
+        list.Upload(texture, new ReadOnlySpan<byte>((void*)bitmap.GetPixels(), bitmap.ByteCount), UploadFormat.Rgba8, bitmap.RowBytes / 4);
     }
 
     public void Dispose()
@@ -126,6 +207,14 @@ internal sealed class RenderServices : IDisposable
 /// asked (every frame when <see cref="Animated"/>, once per change otherwise).</summary>
 internal abstract class GeneratorRenderer : IDisposable
 {
+    /// <summary>What every generator may draw over its picture, 8-bit or half float: a sting's flash and a caption.</summary>
+    internal static void OverlayPipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("quad", FrameLists.Quads(BlendMode.Normal), TargetShape.Rgba8, TargetShape.Rgba16F);
+        keys.Add("quad", FrameLists.Quads(BlendMode.Premultiplied), TargetShape.Rgba8, TargetShape.Rgba16F);
+    }
+
     protected GeneratorRenderer(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
     {
         Services = services;
@@ -136,7 +225,10 @@ internal abstract class GeneratorRenderer : IDisposable
     }
 
     protected RenderServices Services { get; }
-    protected GlDevice Device => Services.Device;
+    protected IGpuDevice Device => Services.Device;
+
+    /// <summary>The open frame's list (a generator draws inside a frame: the engine's, or one the host opened).</summary>
+    protected ICommandList List => Services.List;
 
     public GeneratorKind Kind { get; }
     public int Width { get; }

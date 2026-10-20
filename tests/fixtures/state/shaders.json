@@ -1,1 +1,39 @@
-{}
+{
+  "fx": {
+    "library": {
+      "builtin": 10,
+      "isf": 1,
+      "ffgl": 0,
+      "quarantined": 1
+    },
+    "compile": {
+      "lane": "none",
+      "pending": 0,
+      "words": "no renderer on this node",
+      "worker": {
+        "running": false,
+        "pid": null,
+        "restarts": 0,
+        "lastMs": 0,
+        "compiled": 0,
+        "failed": 0,
+        "missing": 0,
+        "natives": [],
+        "words": "the shader worker starts with the first effect to compile"
+      }
+    },
+    "quarantine": [
+      {
+        "hash": "ab2c03f83df6c6a6c29e4676becaa3286e8019bb84dde08120248cabfe70d818",
+        "kind": "Wobble",
+        "reason": "deviceRemoved",
+        "words": "the GPU stopped inside this effect\u0027s pass on Output 1",
+        "at": 1760000000000,
+        "build": "0.2.0\u002B17.abc1234",
+        "slots": [
+          "fx00000001"
+        ]
+      }
+    ]
+  }
+}

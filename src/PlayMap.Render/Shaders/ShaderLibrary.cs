@@ -3,15 +3,17 @@ using System.Collections.Frozen;
 namespace PlayMap.Render.Shaders;
 
 /// <summary>Every shader the renderer runs, by name, in GLSL 3.30 core (desktop GL 3.3 and up, Mesa included). A source carries
-/// no #version and no precision line: the device prepends its dialect's header (<see cref="Gpu.GlDialects.Header"/>).
+/// no #version and no precision line: the GL device prepends its dialect's header.
 /// A Direct3D backend supplies the same names in HLSL with the same uniforms.
 ///
 /// The conventions every source keeps:
 /// <list type="bullet">
 /// <item>Offscreen targets are drawn top row first: NDC y = −1 is the picture's top row, so
 /// <c>gl_FragCoord.xy</c> is the pixel position with y down and a texture's v = 0 is its top row — the same
-/// as a picture uploaded from the CPU. Only the present into a window flips.</item>
-/// <item>Matrices arrive in System.Numerics' row-vector layout; GLSL's <c>m * v</c> then computes <c>v * M</c>.</item>
+/// as a picture uploaded from the CPU (the render hardware interface's clip space, <c>ClipSpace</c>, is this). Only the present into
+/// a window flips.</item>
+/// <item>A <c>mat4</c> arrives in System.Numerics' row-vector layout: GLSL's <c>m * v</c> computes <c>v · M</c>. A <c>mat3</c> (the
+/// normal matrix) is a column-vector transform: <c>m * v</c> computes <c>M · v</c> (<c>ConstantType</c>).</item>
 /// <item>Surface UVs have (0, 0) at the picture's top-left, v down, like every texture here.</item>
 /// </list></summary>
 public static partial class ShaderLibrary

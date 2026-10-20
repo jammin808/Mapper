@@ -3,8 +3,9 @@
 **A playback node and a 3D projection-mapping suite, in one portable exe — and a full member of the Patterns /
 Stagewatch show network.**
 
-Today that exe renders through OpenGL. PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11,
-rendering on Direct3D 12, with a desk of guided workflows (**Next**, below).
+Today that exe draws through a rendering hardware interface with OpenGL behind it. PlayMap is becoming an installed,
+Windows-native show node on every edition of Windows 11, rendering on Direct3D 12, with a desk of guided workflows (**Next**,
+below).
 
 PlayMap plays anything FFmpeg can decode, the whole HAP family on the GPU, stills, image sequences, network streams, NDI and
 OMT sources, capture devices, test patterns, fractals, particle fields and sound-reactive scenes, through chains of ISF
@@ -141,33 +142,41 @@ encoders, surveys from real scanners and total stations, and a group or a backup
 run, never passed, and nothing claims a hardware fact it has not measured.
 
 **Next:** PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11 from build 26100, Home
-included (`docs/round3/PLAN.md`). It will install per machine from an MSI made by the WiX toolset built from its own source,
-with no paid WiX service; builds will stay unsigned for now, named as unsigned, each with a SHA-256 list. A supervising service
-will start the engine in the show user's session, never as administrator and never in session 0. The engine will render on
-Direct3D 12 behind a rendering hardware interface, and OpenGL stays the reference backend until the pixel and timing evidence
-says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present barrier on Direct3D 12, its
-swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured. The desk will open on
-guided workflows — two projectors blended or stacked on a flat screen, a film mapped onto a wall so it reads undistorted
-from the audience, an object mapped with one or two projectors — beside advanced panes and a typed console, with every command
-and feature in the menu bar and the right-click menus. Every mapping step will be doable by hand or with the assistant, and
-capture cards will pass through to the air. With no lab this round, what only hardware proves stays on the lab's list (above).
-Twenty-one packages build the direction in four waves, each of the plan's decisions answered in its §9, on the round's spine,
-which is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the new projects as placeholders
-and the CI legs (`docs/ROADMAP.md`, round 3).
+included (`docs/round3/PLAN.md`). It will install per machine from an installer built with Inno Setup this round (an MSI is
+revisited next round); builds will stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer will
+show a licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising
+service will start the engine in the show user's session, never as administrator and never in session 0. The engine will render
+on Direct3D 12 behind the rendering hardware interface it draws through today, and OpenGL stays the reference backend until the
+pixel and timing evidence says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present
+barrier on Direct3D 12, its swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured.
+The desk will open on guided workflows — two projectors blended or stacked on a flat screen, a film mapped onto a wall so it
+reads undistorted from the audience, an object mapped with one or two projectors — beside advanced panes and a typed console,
+with every command and feature in the menu bar and the right-click menus. Every mapping step will be doable by hand or with the
+assistant, and capture cards will pass through to the air. With no lab this round, what only hardware proves stays on the lab's
+list (above). Twenty-one packages build the direction in four waves, every decision of the plan's answered in its §9, on the
+round's spine, which is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the new projects as
+placeholders and the CI legs. Of the packages, the rendering hardware interface is built on it: every frame draws through Core's
+`IGpuDevice` with the GL backend behind it, its pixel goldens unedited and holding within their tolerances. So is the shaders
+package: PlayMap's programs written once more in HLSL, compiled on CI to validated, signed DXIL and held to the program table by
+reflection; a user's ISF effect compiled to DXIL in a worker process of its own, so none of that road's compilers (glslang,
+SPIRV-Tools, SPIRV-Cross, DXC) loads into the engine, with each stage of that road in `FX CHECK`'s report; what PlayMap ships and
+loads of DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator signs the DXIL, and no `dxil.dll` or
+`libdxil.so` is used or shipped (the plan's §9 decision 24); and a quarantine, kept in the node's home, whose kinds' slots draw
+bypassed until `FX RELEASE`. No device draws that DXIL yet (`docs/ROADMAP.md`, round 3).
 
 ## What it is made of
 
 | Module | What it does |
 |---|---|
 | `PlayMap.Core` | The immutable project model and its single writer (undo, coalesced drags). Also: the monotonic clock, the leader clock (slewed, stepped on the engine's lane, held while the leader is quiet) and its drift estimate; timeline anchors (frame = a pure function of show time); Patterns' clip semantics; the one verb catalogue; Show Bus hello/context/pairing; the solvers (SVD, Levenberg–Marquardt); mesh, ray caster and camera model. Mapping maths (warp lattices, pixel quads, Bézier masks, 3D blend), scan maths (structured light, calibration, point clouds, the multi-view solve), align's fits and the calibration score sit here too, with the show policy, preflight and the blind draft's diff, the ISF parser, audio analysis, the beat clock and the modulation bus, OSC/MIDI/DMX and binding maths, LTC/MTC and the chase, the frame-lock machine, the generator catalogue and its looks, LED layouts, patching and packets, fleet health, and optimise's planner, rules, governor, HAP packer and version choice. The site frame and the survey readers (rebased in double; chunked LAS, a managed E57 reader), decimation and voxel thinning, control-point files and the site check, and the long-throw solve with its priors sit here too. |
-| `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), the blind draft and its commit at a show boundary, preflight, frame-exact playlist lanes with pre-scheduled gapless switches and fades on a GO by hand, the air's sound, timecode chase, control bindings, the video I/O hub (each live input received once and lent to every consumer, each send's sender, the loss policy and tally), the calibration ledger, align runs, the scan runner (a scan's views solved together, kept on disk, its surface suggestions and the folder camera), survey import (read, thinned and decimated on its own thread, applied as one edit), the optimise queue and its worker (the same exe as `PlayMap optimise-worker`, a process of its own the engine starts and watches), STATE and context, journal, recovery record; the sync part: the role kept, the leader's air fanned out to its members, and a member taking the leader's anchors and air through its own verbs (answered with receipts) and its frame lock |
-| `PlayMap.Render` | One GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload and the unpack of packed network video; the edit overlay; LED sampling; the send stage (network video packed on the GPU and read back without a stall); previews; the GPU HAP encoder |
+| `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), the blind draft and its commit at a show boundary, preflight, frame-exact playlist lanes with pre-scheduled gapless switches and fades on a GO by hand, the air's sound, timecode chase, control bindings, the video I/O hub (each live input received once and lent to every consumer, each send's sender, the loss policy and tally), the calibration ledger, align runs, the scan runner (a scan's views solved together, kept on disk, its surface suggestions and the folder camera), survey import (read, thinned and decimated on its own thread, applied as one edit), the optimise queue and its worker (the same exe as `PlayMap optimise-worker`, a process of its own the engine starts and watches), the shader worker (the same exe as `PlayMap shader-worker`, started with the first source: a user's ISF effect through glslang, SPIRV-Tools, SPIRV-Cross and DXC to signed DXIL, the compilers pinned by hash and loaded only there) and the effect quarantine kept in the node's home (`FX RELEASE`), STATE and context, journal, recovery record; the sync part: the role kept, the leader's air fanned out to its members, and a member taking the leader's anchors and air through its own verbs (answered with receipts) and its frame lock |
+| `PlayMap.Render` | The frame drawn through Core's render hardware interface (`IGpuDevice`, its frame list, one `DrawState` per draw), with the GL backend behind it (`Render/Gl`): one GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload and the unpack of packed network video; the edit overlay; LED sampling; the send stage (network video packed on the GPU and read back without a stall); previews; the GPU HAP encoder |
 | `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; OMT (libomtnet and libvmx, vendored) and NDI 6 (the user's runtime, loaded at run time) receivers and senders over a lock-free frame pool; HAP's own parser with its Snappy stage on a worker pool; stills (JPEG, PNG, TIFF at 16 bits) read as grey for a folder camera; the HAP transcode (decode, encode, mux with the source's audio, read back); sound input (libavdevice; WASAPI with loopback on Windows); sound out through OpenAL Soft, slaved to a transport |
 | `PlayMap.Net` | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; also on the web port's `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS + MCP (9940) with `/health` and `/fleet`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and the leader's sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) input, the LED sender (Art-Net, sACN, DDP), the mDNS announcement (`_playmap._tcp`), the fleet monitor, media transfer, the Patterns and Stagewatch links |
 | `PlayMap.Devices` | Projectors: PJLink and the manufacturers' own protocols (Christie, Panasonic, Barco, Sony, Epson, NEC). Covers power, shutter, lens, health, resetting internal geometry before scans, and reading a Panasonic's own geometry and edge blend while PlayMap corrects its picture. Also the machine's MIDI ports (ALSA sequencer on Linux, WinMM on Windows). |
 | `PlayMap.Vision` | Local AI, offline: click-to-surface segmentation and suggested regions on the smart scan, by a classical segmenter or an optional ONNX segmentation model. Monocular depth previs, pin suggestions and drift watch are in the library; no verb reaches them yet. |
 | `PlayMap.Assistant` | Plain words → PlayMap verbs, with a hosted or a local model. High-risk verbs always wait for a person on the node's own proposal list. |
-| `PlayMap.Render.D3D12` | The Direct3D 12 backend (`docs/round3/design/d3d12.md`), Windows only, on TerraFX's raw bindings: one folder for each part — the device, queues, memory, descriptors, commands, pipelines, shaders, the exporter, the platform, the flip presenters, video, user effects, bindless records, the present barrier and the rebuild path — each a placeholder. Nothing renders through it yet, and neither the engine nor the desk references it; it never references `PlayMap.Render`, so the two backends meet only in Core's contracts |
+| `PlayMap.Render.D3D12` | The Direct3D 12 backend (`docs/round3/design/d3d12.md`), Windows only, on TerraFX's raw bindings: one folder for each part — the device, queues, memory, descriptors, commands, pipelines, shaders, the exporter, the platform, the flip presenters, video, user effects, bindless records, the present barrier and the rebuild path — each a placeholder but the shaders folder, which holds the HLSL library: PlayMap's 40 programs in HLSL with the render hardware interface's conventions, each program's header written by the build from Core's program table, embedded with, on Windows, the DXIL DXC's executable compiles at build time (`docs/round3/design/shaders.md`). Nothing renders through it yet, and neither the engine nor the desk references it; it never references `PlayMap.Render`, so the two backends meet only in Core's contracts |
 | `PlayMap.Platform.Windows` | What a show node claims from Windows (`docs/round3/design/platform.md`), Windows only: a placeholder. The engine runs on Core's null machine platform, which claims nothing and says so |
 | `PlayMap.Supervisor` | The supervising service's exe (`docs/round3/design/installer.md`): it does nothing yet, says so on its standard error and exits 1 |
 | `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words |
@@ -233,28 +242,59 @@ dotnet build PlayMap.sln -c Debug
 dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 ```
 
-GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared
-libraries: set `PLAYMAP_FFMPEG_DIR`. `PLAYMAP_GL_DIALECT=es300` runs the Render suite on an OpenGL ES 3.00 context.
+GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared libraries: set
+`PLAYMAP_FFMPEG_DIR`. `PLAYMAP_GL_DIALECT=es300` runs the Render suite on an OpenGL ES 3.00 context.
 
-CI does all of this on every push (`.github/workflows/build.yml`), on Linux and on Windows Server 2025 (`windows-2025`). Each
-job builds the whole solution in Release with the analyzers on and runs every test project to its end; on Windows that is on
-Mesa llvmpipe and WARP, since the runner has no GPU. Then:
+The shader worker's DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator signs the DXIL; no `dxil.dll` or
+`libdxil.so` is used (`docs/round3/PLAN.md` §9 decision 24). On Windows `dxcompiler.dll` comes from Microsoft.Direct3D.DXC, which
+the restore downloads. On Linux it is `libdxcompiler.so` from DXC v1.9.2609's Linux release (the URL and both hashes are the Linux
+job's `DXC for the shader worker (pinned)` step): set `PLAYMAP_DXC_DIR` to the absolute path of the folder holding it before the
+build, and the engine's build copies it beside every build of the engine. Wherever the build copies dxcompiler it lays down
+`licenses/DXC/` beside it, the text DXC's LLVM licence asks to travel with the binary: the package's `LICENSE-LLVM.txt` and DXC's
+own `LICENSE.TXT` and `ThirdPartyNotices.txt` (`THIRD-PARTY-NOTICES.md`). A Linux build without `PLAYMAP_DXC_DIR` has no DXC: the
+worker's `dxc` stage fails on every source ("libdxcompiler.so is not beside the worker (it comes from DXC 1.9.2609's Linux release
+…)"), so every `FX CHECK` and `FX IMPORT` report is `ok` false, `fx.compile.worker`'s `missing` reads 1 once the worker runs, and
+the tests that compile through DXC (`HlslBuildTests`, `ShaderLayoutTests`, `ShaderRoadTests` and `ShaderWorkerTests` among them)
+fail with the loader's words; none is skipped.
 
-- **Linux** runs the Render suite again on ES 3.00, and the Companion module's tests.
-- **Windows** runs the Direct3D 12 tests (`Backend=D3D12`) as a leg of their own, on WARP and the Agility SDK, both from NuGet at
-  pinned versions and hashes (`tools/ci-d3d12.ps1`), and lists their results apart in the job's summary. It asks the runner what
-  it gives (`bench/r3-probe`: the Agility runtime in a .NET apphost, MMCSS, the throttling read-back, the GPU scheduling class,
-  HDR10, the session calls) and writes the answers in the summary. It builds the lab's present bench (`bench/r3-present`) without
-  running it, and publishes the portable exe, named with its version (Versions, below).
+On Windows the shader worker's SPIR-V validator is SPIRV-Tools' own library, `SPIRV-Tools-shared.dll` from Google's Visual Studio
+2022 release build (the URL and both hashes are the Windows job's `SPIRV-Tools for the shader worker` step): set
+`PLAYMAP_SPIRV_TOOLS_DIR` to the folder holding it, and the engine's build copies it beside every build of the engine. A Windows
+build without it has no validator: the worker's `validate` stage fails on every source ("SPIRV-Tools-shared.dll is not beside the
+worker"), so every `FX CHECK` and `FX IMPORT` report is `ok` false, `fx.compile.worker`'s `missing` reads 1 once the worker runs,
+and the road's tests (`ShaderRoadTests`, `IsfVulkanTargetTests`) fail. On Linux SPIRV-Tools is inside shaderc's library.
+
+CI does all of this on every push (`.github/workflows/build.yml`), on Linux and on Windows Server 2025 (`windows-2025`). Each job
+builds the whole solution in Release with the analyzers on and runs every test project to its end; on Windows that is on Mesa
+llvmpipe and WARP, since the runner has no GPU. Both jobs compile every program of the HLSL library through the shader worker's
+pinned DXC, hold its reflection to the program table (`HlslBuildTests`, `ShaderLayoutTests`) and each container's digest to its
+retail hash. Then:
+
+- **Linux** fetches, before its restore, FFmpeg 9.0's shared libraries and DXC v1.9.2609's Linux release, each held to its SHA-256;
+  of the release it keeps `libdxcompiler.so` alone, held to the worker's pin and cached by it, in the folder it names in
+  `PLAYMAP_DXC_DIR` for the build and the suites. It runs the Render suite again on ES 3.00, and the Companion module's tests.
+- **Windows** fetches, before its build, FFmpeg 9.0's shared libraries and Mesa's llvmpipe at their pinned hashes, and SPIRV-Tools'
+  library at its pinned hash for the shader worker (`PLAYMAP_SPIRV_TOOLS_DIR`); its restore downloads Microsoft.Direct3D.DXC
+  1.9.2609.5 from NuGet, whose `dxcompiler.dll` alone the engine's build copies beside the engine. It runs the Direct3D 12 tests
+  (`Backend=D3D12`) as a leg of their own, on WARP and the Agility SDK, both from NuGet at pinned versions and hashes
+  (`tools/ci-d3d12.ps1`), and lists their results apart in the job's summary. It asks the runner what it gives (`bench/r3-probe`:
+  the Agility runtime in a .NET apphost, MMCSS, the throttling read-back, the GPU scheduling class, HDR10, the session calls) and
+  writes the answers in the summary. Its build compiles the HLSL library with that package's `dxc.exe` into the DXIL
+  `PlayMap.Render.D3D12` embeds, started without `DXC_DXIL_DLL_PATH` (the job names a path with nothing there in it, so a `dxc.exe`
+  that saw it would fail the build) so that dxcompiler's built-in validator signs it, and it uploads every entry's PDB as
+  `hlsl-symbols` (failing when there is none). It builds the lab's present bench (`bench/r3-present`) without running it, and
+  publishes the portable exe, which `DxcNativesTests` read again before it is named with its version (Versions, below) and
+  uploaded.
 - **A dispatched run** with the `d3d12` input runs only the Windows job's Direct3D 12 leg, narrowed by that test filter. It
   uploads the leg's results, diff images, info-queue log and DRED output, and gives the leg's minutes in the summary.
 
 A test whose subject exists on one platform only (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Direct3D 12, Spout and D3D11VA on
 Windows) carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words.
 
-On Ubuntu 24.04, `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack
-(PulseAudio with a virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints
-the variables to export.
+On Ubuntu 24.04, `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0, DXC's `libdxcompiler.so`
+in `/opt/dxc` (the Linux job's release, archive and file held to the same hashes) and a sound stack (PulseAudio with a virtual output
+whose monitor the audio tests capture from), starts the display and the sound card, and prints the variables to export, among them
+`PLAYMAP_DXC_DIR`.
 
 Third-party software, and the licences it comes under, is listed in `THIRD-PARTY-NOTICES.md`.
 

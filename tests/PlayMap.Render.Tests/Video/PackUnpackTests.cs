@@ -1,10 +1,11 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Video;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Hap;
 using PlayMap.Render.Passes;
 using PlayMap.Render.Video;
 using PlayMap.Tests;
@@ -15,8 +16,8 @@ namespace PlayMap.Render.Tests.Video;
 /// unpack within 1 code at 8 bits and 4 codes at 16 bits, with alpha; UYVY, UYVA and BGRA pack and read back equal to the twin at
 /// 1920×1080 and 1280×720; a read-back slot the sender holds stays mapped and unchanged until released, the ring never blocks, and
 /// the send stage allocates nothing per frame once warm.</summary>
-[Collection("gl")]
-public sealed class PackUnpackTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class PackUnpackTests(BackendFixture backends)
 {
     /// <summary>64 colours in 8×8 blocks of 8 pixels (8-bit codes), alpha a ramp across x.</summary>
     private static float[] Chart(int w, int h)
@@ -50,31 +51,14 @@ public sealed class PackUnpackTests(GlFixture gl)
         return new ArrayLease(layout, w, h, 1, ColorMatrix.Bt709, ColorRange.Limited, [.. planes]);
     }
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GlDevice, ShaderProgram> CopyPrograms = [];
-
-    /// <summary>A texture read back exactly as floats (RGBA, top row first), alpha included.</summary>
-    private static float[] ReadFloats(GlDevice d, GpuTexture texture)
+    /// <summary>A texture read back exactly as floats (RGBA, top row first), alpha included: the hap program's raw mode reads each
+    /// texel where it lands (a fetch at the fragment, no filtering) into a float target.</summary>
+    private static float[] ReadFloats(IGpuDevice d, GpuTexture texture)
     {
-        var copy = CopyPrograms.GetValue(d, dev => dev.CreateProgram("test.copy", """
-            out vec2 vUv;
-            void main() {
-                vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-                vUv = p;
-                gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
-            }
-            """, """
-            uniform sampler2D uTex;
-            out vec4 oColor;
-            void main() { oColor = texelFetch(uTex, ivec2(gl_FragCoord.xy), 0); }
-            """));
-        using var target = d.CreateRenderTarget(texture.Width, texture.Height, TextureFormat.Rgba32F, filter: TextureFilter.Nearest);
-        d.BindTarget(target);
-        d.SetBlend(BlendMode.Opaque);
-        d.BindSampler(copy, "uTex", 0, texture);
-        d.DrawFullscreen(copy);
-        var px = new float[texture.Width * texture.Height * 4];
-        d.ReadPixelsFloat(target, px);
-        return px;
+        using var target = d.CreateTarget(new TargetDesc(texture.Width, texture.Height, TextureFormat.Rgba32F, Filter: TextureFilter.Nearest));
+        var hap = d.Programs.Id("hap");
+        BackendFrames.Run(d, list => HapPass.Draw(list, hap, target, texture, null, HapPass.ModeRaw, 1, 0));
+        return Pixels.ReadFloat(d, target);
     }
 
     [Theory]
@@ -89,14 +73,14 @@ public sealed class PackUnpackTests(GlFixture gl)
         var frame = PackReference.Pack(layout, chart, w, h);
         var expected = PackReference.Unpack(layout, frame, w, h);
         var deep = LivePlanes.IsDeep(layout);
-        var got = gl.Run(c =>
+        var got = backends.Run(leg =>
         {
-            using var set = new VideoTextureSet(c.Device);
+            using var set = new VideoTextureSet(leg.Device);
             using var lease = LeaseOf(layout, frame, w, h);
             Assert.True(set.Update(lease));
             Assert.Equal(LivePlanes.HasAlpha(layout), set.HasAlpha);
-            var px = ReadFloats(c.Device, set.Picture!);
-            Assert.Empty(c.Device.TakeErrors());
+            var px = ReadFloats(leg.Device, set.Picture!);
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
         var scale = deep ? 65535f : 255f;
@@ -137,12 +121,12 @@ public sealed class PackUnpackTests(GlFixture gl)
             }
         }
         var frame = PackReference.Pack(PixelLayout.Uyvy, rgba, w, h);
-        var got = gl.Run(c =>
+        var got = backends.Run(leg =>
         {
-            using var set = new VideoTextureSet(c.Device);
+            using var set = new VideoTextureSet(leg.Device);
             using var lease = LeaseOf(PixelLayout.Uyvy, frame, w, h);
             set.Update(lease);
-            return ReadFloats(c.Device, set.Picture!);
+            return ReadFloats(leg.Device, set.Picture!);
         });
         var last = (w - 1) * 4;
         Assert.True(got[last] > 0.9f && got[last + 2] < 0.1f, $"last pixel {got[last]:0.00},{got[last + 1]:0.00},{got[last + 2]:0.00}");
@@ -151,9 +135,9 @@ public sealed class PackUnpackTests(GlFixture gl)
     [Fact]
     public void AnOddWidthIsRefusedWithWords()
     {
-        var why = gl.Run(c =>
+        var why = backends.Run(leg =>
         {
-            using var set = new VideoTextureSet(c.Device);
+            using var set = new VideoTextureSet(leg.Device);
             using var lease = new ArrayLease(PixelLayout.Uyvy, 63, 4, 1, ColorMatrix.Bt709, ColorRange.Limited, (new byte[126 * 4], 126, 63, 4));
             return Assert.Throws<ArgumentException>(() => set.Update(lease)).Message;
         });
@@ -194,24 +178,23 @@ public sealed class PackUnpackTests(GlFixture gl)
         }
     }
 
-    private static byte[] Packed(GlFixture gl, float[] chart, int w, int h, SendFormat format) => gl.Run(c =>
+    private static byte[] Packed(BackendFixture backends, float[] chart, int w, int h, SendFormat format) => backends.Run(leg =>
     {
-        var d = c.Device;
+        var d = leg.Device;
         var bytes = new byte[w * h * 4];
         for (var i = 0; i < bytes.Length; i++)
             bytes[i] = (byte)MathF.Round(chart[i] * 255);
-        using var picture = d.CreateTexture(w, h, TextureFormat.Rgba8, TextureFilter.Nearest);
-        d.Upload(picture, bytes, UploadFormat.Rgba8);
-        using var pack = new PackPass(d);
-        using var ring = new SendReadbackRing(d);
+        using var picture = Scene.Texture(d, w, h, TextureFormat.Rgba8, bytes, UploadFormat.Rgba8, TextureFilter.Nearest);
+        using var pack = new PackPass(leg.Device);
+        using var ring = new SendReadbackRing(leg.Device);
         var key = new object();
-        var target = pack.Pack(key, picture, w, h, format, SendFit.Fit);
+        var target = BackendFrames.Run(leg.Device, list => pack.Pack(list, key, picture, w, h, format, SendFit.Fit));
         var (frameBytes, stride) = PackPass.WireShape(format, w, h);
         Assert.True(ring.Request(target, format, w, h, frameBytes, stride, 0, 60, 1));
-        d.Finish();
+        leg.Finish();
         var sink = new TestSink(hold: false);
         Assert.Equal(1, ring.Collect(sink));
-        Assert.Empty(d.TakeErrors());
+        Assert.Empty(leg.TakeErrors());
         return sink.Frames.Single();
     });
 
@@ -227,7 +210,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         var chart = Chart(w, h);
         var layout = format switch { SendFormat.Uyvy => PixelLayout.Uyvy, SendFormat.Uyva => PixelLayout.Uyva, _ => PixelLayout.Bgra8 };
         var expected = PackReference.Pack(layout, chart, w, h);
-        var got = Packed(gl, chart, w, h, format);
+        var got = Packed(backends, chart, w, h, format);
         Assert.Equal(expected.Length, got.Length);
         var differ = 0;
         var first = -1;
@@ -253,7 +236,7 @@ public sealed class PackUnpackTests(GlFixture gl)
         var chart = Chart(w, h);
         var layout = format == SendFormat.P216 ? PixelLayout.P216 : PixelLayout.Pa16;
         var expected = PackReference.Pack(layout, chart, w, h);
-        var got = Packed(gl, chart, w, h, format);
+        var got = Packed(backends, chart, w, h, format);
         Assert.Equal(LivePlanes.FrameBytes(layout, w, h), got.Length);
         Assert.Equal(expected.Length, got.Length);
         // Little-endian 16-bit samples: within one code of 65535 (the GPU's float order may round a half the other way).
@@ -280,21 +263,24 @@ public sealed class PackUnpackTests(GlFixture gl)
     public void AHeldSlotStaysMappedAndUnchangedUntilReleasedAndAFullRingRefusesInsteadOfWaiting()
     {
         const int w = 64, h = 16;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var pack = new PackPass(d);
-            using var ring = new SendReadbackRing(d, slots: 4);
+            var d = leg.Device;
+            using var pack = new PackPass(leg.Device);
+            using var ring = new SendReadbackRing(leg.Device, slots: 4);
             var sink = new TestSink(hold: true);
-            using var picture = d.CreateTexture(w, h, TextureFormat.Rgba8, TextureFilter.Nearest);
+            using var picture = d.CreateTexture(new TextureDesc(w, h, TextureFormat.Rgba8, Scene.Uploaded, TextureFilter.Nearest));
             var key = new object();
             var (bytes, stride) = PackPass.WireShape(SendFormat.Uyvy, w, h);
             void Send(byte grey)
             {
-                d.Upload(picture, Enumerable.Repeat(grey, w * h * 4).ToArray(), UploadFormat.Rgba8);
-                var target = pack.Pack(key, picture, w, h, SendFormat.Uyvy, SendFit.Fit);
+                var target = BackendFrames.Run(d, list =>
+                {
+                    list.Upload(picture, Enumerable.Repeat(grey, w * h * 4).ToArray(), UploadFormat.Rgba8);
+                    return pack.Pack(list, key, picture, w, h, SendFormat.Uyvy, SendFit.Fit);
+                });
                 Assert.True(ring.Request(target, SendFormat.Uyvy, w, h, bytes, stride, 0, 60, 1));
-                d.Finish();
+                leg.Finish();
                 ring.Collect(sink);
             }
             Send(10);
@@ -310,7 +296,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             Assert.Equal(before, after);
             Assert.Equal(4, ring.Handed);
             // Every slot held: the next request is refused, not waited for.
-            var target = pack.Pack(key, picture, w, h, SendFormat.Uyvy, SendFit.Fit);
+            var target = BackendFrames.Run(leg.Device, list => pack.Pack(list, key, picture, w, h, SendFormat.Uyvy, SendFit.Fit));
             Assert.False(ring.HasFree);
             Assert.False(ring.Request(target, SendFormat.Uyvy, w, h, bytes, stride, 0, 60, 1));
             // Two released: the next collect frees exactly those.
@@ -322,7 +308,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             Assert.False(ring.TryDispose());
             sink.Dispose();
             Assert.True(ring.TryDispose());
-            Assert.Empty(d.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -341,9 +327,9 @@ public sealed class PackUnpackTests(GlFixture gl)
     public void ASendThatFollowsTheAirTakesItsBlackoutGainSafeLookAndHoldAndADisabledOutputSendsBlack()
     {
         const int w = 64, h = 36;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             static Canvas Card(string colour) =>
                 new("cv_1", "Card", w, h, "#000000", [new Layer("ly_1", "fill", SourceRef.Solid(colour), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -375,11 +361,11 @@ public sealed class PackUnpackTests(GlFixture gl)
                 };
                 i++;
                 engine.Render(inputs with { LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
-                c.Device.Finish();
+                leg.Finish();
                 i++;
                 // The read-back of the frame packed above is collected and offered on the next frame.
                 engine.Render(inputs with { LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
-                c.Device.Finish();
+                leg.Finish();
                 var f = sink.Frames[^1];
                 var o = ((h / 2) * w + x) * 4;
                 return f[o..(o + 4)];
@@ -428,7 +414,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             Assert.Equal([0, 0, 0, 0xFF], Frame(changed, new FixedLevels(1f, per: new() { ["op_3"] = (0f, null) }), pattern: SourceRef.Solid("#00FF00"),
                 patternOn: ["op_1"]));
             Assert.Equal([0x00, 0xFF, 0x00, 0xFF], Frame(changed, pattern: SourceRef.Solid("#00FF00"), patternOn: ["op_1", "op_3"]));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -442,9 +428,9 @@ public sealed class PackUnpackTests(GlFixture gl)
     public void AnOutputOnARawFrameSendsBlackAndDecidesNothingForASendThatFollowsTheAir()
     {
         const int w = 64, h = 36;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var card = new Canvas("cv_1", "Card", w, h, "#000000",
                 [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -471,7 +457,7 @@ public sealed class PackUnpackTests(GlFixture gl)
                 {
                     i++;
                     engine.Render(Scene.Inputs(project) with { Passes = passes, Raw = raw, Levels = levels, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
-                    c.Device.Finish();
+                    leg.Finish();
                 }
             }
             byte[] Centre(TestSink sink) => sink.Frames[^1][centre..(centre + 4)];
@@ -499,7 +485,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             // The scan ends: the output's send shows its picture again.
             Frames(null);
             Assert.Equal([0x20, 0x20, 0x20, 0xFF], Centre(outputSink));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -507,9 +493,9 @@ public sealed class PackUnpackTests(GlFixture gl)
     public void ASendThatFollowsTheAirTakesTheMasterWhenNoOutputDecidesForIt()
     {
         const int w = 64, h = 36;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var card = new Canvas("cv_1", "Card", w, h, "#000000",
                 [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -534,7 +520,7 @@ public sealed class PackUnpackTests(GlFixture gl)
                 {
                     i++;
                     engine.Render(Scene.Inputs(p) with { Passes = passes, Raw = raw, Levels = levels, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
-                    c.Device.Finish();
+                    leg.Finish();
                 }
                 return sink.Frames[^1][centre..(centre + 4)];
             }
@@ -546,7 +532,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             // Every output on a scan pattern decides nothing for the send, but the master still holds it down.
             Assert.Equal([0, 0, 0, 0xFF], Frames(withOutput, new FixedLevels(0f), new RawOn("op_1")));
             Assert.Equal([0x80, 0x80, 0x80, 0xFF], Frames(withOutput, null, new RawOn("op_1")));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -570,12 +556,11 @@ public sealed class PackUnpackTests(GlFixture gl)
     public void ASafeLookOrPatternOnASendIsDrawnAsTheOutputsDrawItThroughNoPass()
     {
         const int w = 64, h = 36;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
-            using var green = c.Device.CreateTexture(1, 1, TextureFormat.Rgba8, TextureFilter.Nearest);
-            c.Device.Upload(green, [0, 255, 0, 255], UploadFormat.Rgba8);
+            using var green = Scene.Texture(leg.Device, 1, 1, TextureFormat.Rgba8, [0, 255, 0, 255], UploadFormat.Rgba8, TextureFilter.Nearest);
             var show = new Canvas("cv_1", "Card", w, h, "#000000",
                 [new Layer("ly_1", "fill", SourceRef.Solid("#808080"), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
             // The look a panic shows (or the pattern the air shows): a canvas whose layer carries an effect in the show.
@@ -604,7 +589,7 @@ public sealed class PackUnpackTests(GlFixture gl)
                     {
                         Passes = passes, Levels = levels, PatternOverride = pattern, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9),
                     });
-                    c.Device.Finish();
+                    leg.Finish();
                 }
                 Assert.True(engine.ReadOutput("op_1", shown));
                 return (shown[centre..(centre + 4)], sink.Frames[^1][centre..(centre + 4)]);
@@ -620,7 +605,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             (output, sent) = Frames(pattern: SourceRef.Canvas("cv_look"));
             Assert.Equal([0x00, 0x00, 0xFF, 0xFF], output);
             Assert.Equal(output, sent);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -628,9 +613,9 @@ public sealed class PackUnpackTests(GlFixture gl)
     public void AHeldSendRepeatsWhatTheAirHeldNeverAFrameFromBeforeNobodyWatched()
     {
         const int w = 64, h = 36;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             static Canvas Card(string colour) =>
                 new("cv_1", "Card", w, h, "#000000", [new Layer("ly_1", "fill", SourceRef.Solid(colour), new RectD(0, 0, w, h), 1, LayerBlend.Normal, true)]);
@@ -654,7 +639,7 @@ public sealed class PackUnpackTests(GlFixture gl)
                 {
                     i++;
                     engine.Render(Scene.Inputs(p) with { Passes = passes, Freeze = freeze, LeaderNs = (long)((i + 0.5) / 60.0 * 1e9) });
-                    c.Device.Finish();
+                    leg.Finish();
                 }
                 Assert.True(engine.ReadOutput("op_1", shown));
                 return (shown[centre..(centre + 4)], sink.Frames[^1][centre..(centre + 4)]);
@@ -680,20 +665,20 @@ public sealed class PackUnpackTests(GlFixture gl)
             Assert.Equal(frozen, Frames(Showing("#FFFF00"), freeze: true).Send);
             // The hold ends: the send shows the show again.
             Assert.Equal([0x00, 0xFF, 0xFF, 0xFF], Frames(Showing("#FFFF00")).Send);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
     [Fact]
     public void ASendLargerThanThisGpusTexturesIsRefusedInWordsAndNeverPacked()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var project = Scene.Project([], [Scene.SourceOutput("op_1", SourceRef.Solid("#336699"), 64, 36)]);
             var sink = new TestSink(hold: false);
-            var wide = c.Device.MaxTextureSize + 2;
+            var wide = leg.Device.Features.MaxTextureSize + 2;
             var entry = new SendPlanEntry
             {
                 Id = "sd_w", Name = "Wide", Kind = SendTapKind.Output, Target = "op_1", Width = wide, Height = 2, Format = SendFormat.Bgra8,
@@ -702,11 +687,11 @@ public sealed class PackUnpackTests(GlFixture gl)
             using var stage = new SendStage(engine) { Plan = [entry] };
             for (var i = 1; i <= 3; i++)
                 engine.Render(Scene.Inputs(project, (i + 0.5) / 60.0) with { Passes = [stage] });
-            c.Device.Finish();
-            Assert.Contains($"larger than this GPU's {c.Device.MaxTextureSize}", entry.Refused, StringComparison.Ordinal);
+            leg.Finish();
+            Assert.Contains($"larger than this GPU's {leg.Device.Features.MaxTextureSize}", entry.Refused, StringComparison.Ordinal);
             Assert.Equal(0, entry.Packed);
             Assert.Empty(sink.Frames);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -736,9 +721,9 @@ public sealed class PackUnpackTests(GlFixture gl)
     public void TheSendStageAllocatesNothingPerFrameOnceWarmAndSkipsWorkNobodyWatches()
     {
         const int w = 128, h = 72;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.WarmUp();
             var output = Scene.SourceOutput("op_1", SourceRef.Solid("#336699"), w, h);
             var project = Scene.Project([], [output]);
@@ -755,7 +740,7 @@ public sealed class PackUnpackTests(GlFixture gl)
             for (var i = 1; i <= 30; i++)
             {
                 Frame(i);
-                c.Device.Finish();
+                leg.Finish();
             }
             Assert.True(entry.Packed >= 29, $"{entry.Packed} packed");
             Assert.NotEmpty(sink.Frames);
@@ -774,7 +759,7 @@ public sealed class PackUnpackTests(GlFixture gl)
                 Frame(i);
             Assert.Equal(packed, entry.Packed);
             Assert.Equal(10, entry.SkippedUnwatched);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 

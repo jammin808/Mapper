@@ -214,7 +214,7 @@ Bin search and tags; thumbnails with scrub; missing or offline media relink by h
 
 | Workflow | Target | Start → stop | Hardware and conditions | User | Benchmark |
 |---|---|---|---|---|---|
-| First light | ≤3 min new, ≤60 s returning | App launch → content looping on a projector | Laptop, one projector, an unsigned build (today's folder; the MSI once it lands) | New user | MadMapper first guide |
+| First light | ≤3 min new, ≤60 s returning | App launch → content looping on a projector | Laptop, one projector, an unsigned build (today's folder; the installer once it lands) | New user | MadMapper first guide |
 | Map a box, no camera (3 faces) | ≤3 min first time, ≤90 s regular | Q pressed → three faces with content | One projector | Regular | MadMapper and HeavyM: unmeasured (estimate 5–20 min first time) |
 | **Map a box with one projector and a webcam** | **≤3 min from plugging in; ≤2 min from pressing Scan** | Camera plugged in → content on three faces | Tested webcam, office light, matte box | Regular | Unmeasured. Vendor claims for AI entrants range from seconds to minutes (unverified) |
 | Known object from a model with pins | ≤4 min with 6–8 pins; ≤90 s with scan-bridged registration | Model loaded → accepted solve | One projector | 3D artist | MadMapper manual point matching |

@@ -1,4 +1,5 @@
 using System.Numerics;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
@@ -11,8 +12,8 @@ namespace PlayMap.Render.Tests.Align;
 /// reference draws within one code (the grid read bilinearly, the picture sampled where it says), a node the camera did not see is
 /// black; a γ of 2.2 with gains of one changes nothing, bit for bit, with or without an identity grid; a measured blend works in light
 /// through the output's γ; a measured γ alone turns the content's transfer into the output's.</summary>
-[Collection("gl")]
-public class AlignRenderTests(GlFixture gl)
+[Collection("gpu")]
+public class AlignRenderTests(BackendFixture backends)
 {
     private const int W = 64;
     private const int H = 36;
@@ -77,15 +78,15 @@ public class AlignRenderTests(GlFixture gl)
         return (columns, rows, values);
     }
 
-    private byte[] Render(Output output, ISourceProvider? sources, Func<Gpu.GlDevice, MeasuredStage?> stage)
+    private byte[] Render(Output output, ISourceProvider? sources, Func<IGpuDevice, MeasuredStage?> stage)
     {
         var project = Scene.Project([], [output]);
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
             // The context is shared: what an earlier test left in the debug log is not this render's.
-            _ = c.Device.TakeErrors();
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
-            using var measured = stage(c.Device);
+            _ = leg.TakeErrors();
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
+            using var measured = stage(leg.Device);
             var inputs = Scene.Inputs(project, 1, sources) with
             {
                 Measured = measured is null ? null : new Stages(new() { [output.Id] = measured }),
@@ -93,7 +94,7 @@ public class AlignRenderTests(GlFixture gl)
             engine.Render(inputs);
             var px = new byte[output.Width * output.Height * 4];
             Assert.True(engine.ReadOutput(output.Id, px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }

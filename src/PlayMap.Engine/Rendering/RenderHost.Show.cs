@@ -1,7 +1,6 @@
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
 using PlayMap.Render.Projection;
 
 namespace PlayMap.Engine.Rendering;
@@ -139,18 +138,17 @@ public sealed partial class RenderHost : IPreviewFeed
     private void DrawDraftViewsBetweenFrames()
     {
         _draftQueued = false;
-        if (_stopping || _context is null || _draftSnap is not { } snap || Volatile.Read(ref _engine) is not { } engine)
+        if (_stopping || _platform is null || _draftSnap is not { } snap || Volatile.Read(ref _engine) is not { } engine)
             return;
         _draftSnap = null;
         try
         {
             DrawDraftViews(engine, snap, _draftLeaderNs);
         }
-        catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException
+        catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException
             or UnauthorizedAccessException)
         {
             engine.Journal.Add("fault", $"draft view: {ex.GetType().Name}: {ex.Message} — the draft views stop", ok: false);
-            _context.Device.InvalidateState();
             OnContextLostShow();
         }
     }
@@ -198,7 +196,7 @@ public sealed partial class RenderHost : IPreviewFeed
             _draftFrom = draft;
             _draftBare = draft with { Outputs = [] };
         }
-        var renderer = _draftRenderer ??= new RenderEngine(_context!, _options.Engine with { GpuTiming = false });
+        var renderer = _draftRenderer ??= new RenderEngine(_platform!.Device, _options.Engine with { GpuTiming = false });
         renderer.Render(new FrameInputs { Project = _draftBare!, LeaderNs = leaderNs, Sources = _sources!, Stage = _stage! });
         _draftFrames++;
         for (var i = _draftRetiring.Count - 1; i >= 0; i--)

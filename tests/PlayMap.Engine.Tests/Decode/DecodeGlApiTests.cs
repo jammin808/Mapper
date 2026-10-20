@@ -2,6 +2,7 @@ using System.Text.Json;
 using PlayMap.Core.Model;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 using Xunit.Abstractions;
 

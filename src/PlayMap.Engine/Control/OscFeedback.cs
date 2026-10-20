@@ -40,6 +40,7 @@ internal sealed class OscFeedback
     private long _sent;
     private long _echoes;
 
+    /// <summary>Messages sent, each counted before its datagram goes.</summary>
     public long Sent => Interlocked.Read(ref _sent);
 
     public long Echoes => Interlocked.Read(ref _echoes);
@@ -229,12 +230,14 @@ internal sealed class OscFeedback
         return value;
     }
 
+    /// <summary>Sends a client its messages, each counted before the datagram carrying it goes: a reader holding a datagram never
+    /// reads a count that leaves it out.</summary>
     private void Send(List<OscMessage> messages, IPEndPoint to, Action<byte[], IPEndPoint> send)
     {
         if (messages.Count == 1)
         {
-            send(OscCodec.Write(messages[0]), to);
             Interlocked.Increment(ref _sent);
+            send(OscCodec.Write(messages[0]), to);
             return;
         }
         // A bundle is 16 bytes of header and each element 4 bytes of size and its own bytes.

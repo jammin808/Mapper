@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Time;
+using PlayMap.Engine.Control;
 
 namespace PlayMap.Engine.Tests.Control;
 
@@ -11,7 +12,7 @@ namespace PlayMap.Engine.Tests.Control;
 /// clock): a fader follows the desk on every client, once (dedupe); the client whose fader moved is not fought for 300 ms (the echo
 /// guard); a client sending back what it was sent within 50 ms is an echo, dropped; a 1 kHz stream of changes sends at most 50 a
 /// second; a lamp lights at once on a press; a node's feedback client and a binding's own feedback words are fed without speaking
-/// first.</summary>
+/// first; every message is counted before its datagram is sent, so the count never leaves out what a client holds.</summary>
 public sealed class OscFeedbackTests
 {
     private static Socket Client()
@@ -165,6 +166,39 @@ public sealed class OscFeedbackTests
         // One second of the node's clock (and the last 25 ms): at most one message per 20 ms.
         Assert.InRange(got.Count, 2, 52);
         Assert.Equal(got.Count, rig.Service.Feedback.Sent - before);
+    }
+
+    [Fact]
+    public async Task EveryMessageIsCountedBeforeItsDatagramIsSent()
+    {
+        // The pass driven by hand with a send of the test's own: what the count says while each datagram is sent.
+        var clock = new ManualClock(1_000_000_000);
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), clock: clock);
+        await rig.Ok("BIND ADD OSC /fader/1 TO SET sf_lobby opacity *");
+        var feedback = new OscFeedback();
+        Assert.True(feedback.Heard(new IPEndPoint(IPAddress.Parse(ControlRig.Loopback), 9000), OscMessage.Of("/hello"), clock.NowNs));
+        var sends = new List<(int Messages, long Counted)>();
+        void Pass() => feedback.Pass(rig.Engine, rig.Engine.ControlInput.Settings, [], _ => "", (bytes, _) => sends.Add((MessagesIn(bytes), feedback.Sent)), clock.NowNs);
+
+        // One message alone: counted by the time it is on the wire, so a reader holding it never reads a count without it.
+        Pass();
+        Assert.Equal(new[] { (1, 1L) }, sends);
+
+        // Two in one bundle: both counted before the bundle goes.
+        await rig.Ok("BIND ADD OSC /fader/2 TO SET sf_stage opacity *");
+        await rig.Ok("SET sf_lobby opacity 0.5");
+        clock.AdvanceMs(25);
+        Pass();
+        Assert.Equal(new[] { (1, 1L), (2, 3L) }, sends);
+        Assert.Equal(3, feedback.Sent);
+    }
+
+    private static int MessagesIn(byte[] datagram)
+    {
+        Assert.True(OscCodec.TryRead(datagram, out var packet, out var why), why);
+        var messages = new List<OscMessage>();
+        Flatten(packet!, messages);
+        return messages.Count;
     }
 
     [Fact]

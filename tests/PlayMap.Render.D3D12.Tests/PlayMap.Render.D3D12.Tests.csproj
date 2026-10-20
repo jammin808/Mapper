@@ -25,4 +25,12 @@
     <ProjectReference Include="..\..\src\PlayMap.Render.D3D12\PlayMap.Render.D3D12.csproj" />
   </ItemGroup>
 
+  <!-- The HLSL library's build, layout and set tests and the Vulkan target's tests: the shader worker's pinned compilers run in this
+       test process (never in an engine's), and the GLSL library and the built-in ISF files are read from the GL backend; a DXIL
+       container's validator hash from the published algorithm, shared with the Engine suite. -->
+  <ItemGroup Label="wp3-shaders">
+    <ProjectReference Include="..\..\src\PlayMap.Engine\PlayMap.Engine.csproj" />
+    <Compile Include="..\Shared\DxilHash.cs" Link="Shared\DxilHash.cs" />
+  </ItemGroup>
+
 </Project>

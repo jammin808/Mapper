@@ -1,7 +1,8 @@
 using System.Numerics;
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Generators;
 
@@ -36,16 +37,13 @@ public readonly record struct EffectUniforms(int Mode, Vector4 Params, ColorRgb 
         }
     }
 
-    /// <summary>Sets the stage program's effect uniforms.</summary>
-    public void Apply(ShaderProgram p, double seconds)
-    {
-        ArgumentNullException.ThrowIfNull(p);
-        p.SetInt("uMode", Mode);
-        p.Set("uParams", Params);
-        p.Set("uColorA", ColorA.R, ColorA.G, ColorA.B, 1);
-        p.Set("uColorB", ColorB.R, ColorB.G, ColorB.B, 1);
-        p.Set("uTime", (float)seconds);
-    }
+    /// <summary>Sets the stage program's effect constants into a draw.</summary>
+    public void Apply(DrawBuilder draw, double seconds) =>
+        draw.SetInt("uMode", Mode)
+            .Set("uParams", Params)
+            .Set("uColorA", ColorA.R, ColorA.G, ColorA.B, 1)
+            .Set("uColorB", ColorB.R, ColorB.G, ColorB.B, 1)
+            .Set("uTime", (float)seconds);
 }
 
 /// <summary>An effect drawn flat (on a canvas, an output): the stage shader over a picture-shaped plane one
@@ -53,23 +51,35 @@ public readonly record struct EffectUniforms(int Mode, Vector4 Params, ColorRgb 
 /// shades it as the light goes round.</summary>
 internal sealed class EffectGenerator : GeneratorRenderer
 {
-    private static readonly VertexAttribute[] Layout =
+    internal static readonly VertexAttribute[] Layout =
     [
         new(0, 3, 32, 0),
         new(1, 3, 32, 12),
         new(2, 2, 32, 24),
     ];
 
+    /// <summary>The plane's state: opaque, no depth, no culling.</summary>
+    private static readonly DrawState Flat = DrawState.Opaque;
+
+    /// <summary>A surface effect drawn flat into its half-float picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("stage", Flat, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
     private readonly GpuBuffer _vertices;
     private readonly GpuBuffer _indices;
-    private readonly VertexArray _vao;
+    private readonly GpuMesh _mesh;
+    private readonly ProgramId _stage;
     private EffectUniforms _uniforms;
 
     public EffectGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
         : base(services, kind, width, height, context)
     {
-        _target = Device.CreateRenderTarget(width, height, TextureFormat.Rgba16F);
+        _stage = Device.Programs.Id("stage");
+        _target = Device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F));
         var aspect = width / (float)height;
         // x, y, z, normal, u, v — world y up, UV v down.
         float[] plane =
@@ -79,11 +89,11 @@ internal sealed class EffectGenerator : GeneratorRenderer
             aspect, 0, 0, 0, 0, 1, 1, 1,
             0, 0, 0, 0, 0, 1, 0, 1,
         ];
-        _vertices = Device.CreateBuffer(BufferKind.Vertex);
-        Device.SetBufferData<float>(_vertices, plane, dynamic: false);
-        _indices = Device.CreateBuffer(BufferKind.Index);
-        Device.SetBufferData<uint>(_indices, [0, 1, 2, 0, 2, 3], dynamic: false);
-        _vao = Device.CreateVertexArray(Layout, _vertices, _indices);
+        _vertices = Device.CreateBuffer(new BufferDesc(0, BufferUsage.Vertex));
+        Device.SetBufferData<float>(_vertices, plane);
+        _indices = Device.CreateBuffer(new BufferDesc(0, BufferUsage.Index));
+        Device.SetBufferData<uint>(_indices, [0, 1, 2, 0, 2, 3]);
+        _mesh = Device.CreateMesh(Layout, _vertices, _indices);
     }
 
     public override GpuTexture Output => _target.Color;
@@ -94,35 +104,35 @@ internal sealed class EffectGenerator : GeneratorRenderer
 
     protected override void Draw(in GeneratorFrame frame)
     {
-        var d = Device;
         var aspect = Width / (float)Height;
-        d.BindTarget(_target);
-        d.Clear(0, 0, 0, 1);
-        var p = d.Program("stage");
         // World (x right, y up) onto the target drawn top row first: x 0..aspect → −1..1, y 1..0 → −1..1.
         var viewProj = new Matrix4x4(2 / aspect, 0, 0, 0, 0, -2, 0, 0, 0, 0, 1, 0, -1, 1, 0, 1);
-        p.Set("uModel", Matrix4x4.Identity);
-        p.Set("uViewProj", viewProj);
-        p.Set("uProjector", Matrix4x4.Identity);
-        p.Set("uNormalMat", Matrix3x3.Identity);
-        p.Set("uRegion", 0, 0, 1, 1);
-        p.SetInt("uHasMask", 0);
-        p.Set("uOpacity", 1f);
-        p.Set("uBoundsMin", 0, 0, 0);
-        p.Set("uBoundsMax", aspect, 1, 0);
-        p.Set("uEye", aspect / 2, 0.5f, 2);
-        d.BindSampler(p, "uSource", 0, Services.Black);
-        d.BindSampler(p, "uMask", 1, Services.White);
-        _uniforms.Apply(p, frame.Seconds);
-        d.SetDepth(false, false);
-        d.DrawIndexed(p, _vao, PrimitiveKind.Triangles, 6);
+        var list = List;
+        using (list.Pass(_target, PassDesc.ClearBlack))
+        {
+            var draw = list.Draw(_stage, Flat)
+                .Set("uModel", Matrix4x4.Identity)
+                .Set("uViewProj", viewProj)
+                .Set("uProjector", Matrix4x4.Identity)
+                .Set("uNormalMat", Matrix3x3.Identity)
+                .Set("uRegion", 0, 0, 1, 1)
+                .SetInt("uHasMask", 0)
+                .Set("uOpacity", 1f)
+                .Set("uBoundsMin", 0, 0, 0)
+                .Set("uBoundsMax", aspect, 1, 0)
+                .Set("uEye", aspect / 2, 0.5f, 2)
+                .Texture("uSource", Services.Black)
+                .Texture("uMask", Services.White);
+            _uniforms.Apply(draw, frame.Seconds);
+            draw.Indexed(_mesh, 6);
+        }
     }
 
     protected override void Dispose(bool disposing)
     {
         if (!disposing)
             return;
-        _vao.Dispose();
+        _mesh.Dispose();
         _vertices.Dispose();
         _indices.Dispose();
         _target.Dispose();

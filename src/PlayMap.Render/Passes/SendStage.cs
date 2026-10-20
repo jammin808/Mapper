@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 
@@ -209,7 +210,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
             var held = follows && holds && !entry.Stale
                 ? _pack.Last(entry, entry.Width, entry.Height, entry.Format)
                 : null;
-            Gpu.RenderTarget packed;
+            RenderTarget packed;
             if (held is not null)
             {
                 packed = held;
@@ -219,7 +220,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
                 var picture = Tap(entry, in frame, out var fit);
                 if (picture is null)
                     entry.CountBlank();
-                packed = _pack.Pack(entry, picture, entry.Width, entry.Height, entry.Format, fit, follows ? _airGain : 1f);
+                packed = _pack.Pack(frame.List, entry, picture, entry.Width, entry.Height, entry.Format, fit, follows ? _airGain : 1f);
                 entry.Stale = false;
             }
             var (bytes, stride) = Video.PackPass.WireShape(entry.Format, entry.Width, entry.Height);
@@ -309,10 +310,10 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
 
     /// <summary>Whether this entry's targets (its packed target, and the picture scaled to its size) are larger than this GPU's
     /// largest texture; refuses it once, in words, when they are.</summary>
-    private static bool TooLarge(SendPlanEntry entry, Gpu.GlDevice device)
+    private static bool TooLarge(SendPlanEntry entry, IGpuDevice device)
     {
         var (tw, th) = Video.PackPass.TargetSize(entry.Format, entry.Width, entry.Height);
-        var most = device.MaxTextureSize;
+        var most = device.Features.MaxTextureSize;
         if (Math.Max(Math.Max(tw, th), Math.Max(entry.Width, entry.Height)) <= most)
             return false;
         entry.Refuse(string.Create(System.Globalization.CultureInfo.InvariantCulture,
@@ -325,7 +326,7 @@ public sealed class SendStage(Engine.RenderEngine renderer) : Engine.IFramePass
     /// the send exactly as they reach the output; a disabled output, and one on a raw frame, sends black. A canvas or source tap that
     /// follows the air is black in blackout and shows the air's test pattern or safe look while it covers every output, drawn as the
     /// outputs draw it: as its source is, through no pass.</summary>
-    private Gpu.GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame, out SendFit fit)
+    private GpuTexture? Tap(SendPlanEntry entry, in Engine.PassFrame frame, out SendFit fit)
     {
         fit = entry.Fit;
         if (entry.Kind != SendTapKind.Output && entry.FollowAir)

@@ -18,8 +18,8 @@ namespace PlayMap.Render.Tests.Effects;
 /// even of a canvas or playlist the show shows with its chains; a playlist item's chain counts its time from the item's start,
 /// each side of a transition from its own; and once warm a frame with every kind of chain, and a test pattern over one output,
 /// allocates nothing.</summary>
-[Collection("gl")]
-public sealed class FxAttachTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class FxAttachTests(BackendFixture backends)
 {
     private const int W = 64, H = 36;
     private const int PW = 160, PH = 90;
@@ -145,10 +145,10 @@ public sealed class FxAttachTests(GlFixture gl)
     {
         Project Show(FxChain fx) => Scene.Project([], [CanvasOutput("op1", "cv1")],
             [new Canvas("cv1", "Canvas", W, H, "#0000FF", [L("ly_left", "#284664", new RectD(0, 0, 32, 36)), L("ly_fx", "#284664", new RectD(32, 0, 32, 18), fx)])]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, Exact);
-            using var fx = new FxPass(c);
+            using var engine = new RenderEngine(leg.Device, Exact);
+            using var fx = new FxPass(leg.Device);
             var plain = Draw(engine, Scene.Inputs(Show(FxChain.Empty)) with { Passes = [fx] });
             Assert.Equal((0, 0, 255), Pixels.At(plain, W, 40, 30));
 
@@ -169,7 +169,7 @@ public sealed class FxAttachTests(GlFixture gl)
                         Assert.True(Pixels.At(plain, W, x, y) == Pixels.At(inverted, W, x, y), $"({x}, {y}) outside the layer moved");
                 }
             }
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -179,10 +179,10 @@ public sealed class FxAttachTests(GlFixture gl)
         var asset = Asset("fa00000021", HalfAlpha);
         Project Show(FxChain fx) => Scene.Project([], [CanvasOutput("op1", "cv1")],
             [new Canvas("cv1", "Canvas", W, H, "#000000", [L("ly_full", "#FFFFFF", new RectD(0, 0, W, H), fx)])]) with { FxAssets = [asset] };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, Exact);
-            using var fx = new FxPass(c);
+            using var engine = new RenderEngine(leg.Device, Exact);
+            using var fx = new FxPass(leg.Device);
             Assert.Equal((255, 255, 255), Pixels.At(Draw(engine, Scene.Inputs(Show(FxChain.Empty)) with { Passes = [fx] }), W, 10, 10));
             // White at alpha one half over the black background: the effect's alpha blends, it is not written as the canvas's.
             var half = DrawCompiled(engine, fx, Scene.Inputs(Show(FxRig.Chain(FxRig.Slot("isf:fa00000021")))) with { Passes = [fx] }, ["fx00000001"]);
@@ -198,10 +198,10 @@ public sealed class FxAttachTests(GlFixture gl)
         stage.Meshes["ms1"] = Quad();
         Project Show(FxChain fx) => Scene.Project([Scene.Gen("pattern.testcard")], [ProjectorOutput("op1", "pj1", PW, PH), ProjectorOutput("op2", "pj2", SW, SH)],
             stage: Stage.Empty with { Surfaces = [Surf(SourceRef.Generator("gn_test"), fx)], Projectors = [Lamp("pj1"), Lamp("pj2")] }) with { FxAssets = [asset] };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, Exact);
-            using var fx = new FxPass(c);
+            using var engine = new RenderEngine(leg.Device, Exact);
+            using var fx = new FxPass(leg.Device);
             var frame = 0;
             (byte[] A, byte[] B) Both(Project p)
             {
@@ -236,7 +236,7 @@ public sealed class FxAttachTests(GlFixture gl)
             // Ten frames, ten steps of 6: two projectors drawing the surface never step it twice.
             Assert.InRange(a1 - a0, 58, 62);
             Assert.True(Said(fx, "fx00000001").State == FxSlotState.Ok);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -257,10 +257,10 @@ public sealed class FxAttachTests(GlFixture gl)
                  new Canvas("cv2", "Aside", W, H, "#000000", [L("ly_aside", "#284664", new RectD(0, 0, W, H), fxAside)])],
                 Stage.Empty with { Surfaces = [Surf(SourceRef.Solid("#284664"), fxSurface, visible)], Projectors = [Lamp("pj1")] });
         }
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, Exact);
-            using var fx = new FxPass(c);
+            using var engine = new RenderEngine(leg.Device, Exact);
+            using var fx = new FxPass(leg.Device);
             (byte[] Canvas, byte[] Stage) Frame(FrameInputs inputs)
             {
                 engine.Render(inputs with { Passes = [fx] });
@@ -342,10 +342,10 @@ public sealed class FxAttachTests(GlFixture gl)
             with { Playlists = [new Playlist("pl_1", "List", [item, waiting], false, null)] };
         var air = new AirOn(new Dictionary<string, SourceRef> { ["op1"] = SourceRef.Canvas("cv1"), ["op4"] = SourceRef.Playlist("pl_1") });
         var sources = new OneItem(new ItemOnAir(item, 0), white);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, Exact);
-            using var fx = new FxPass(c);
+            using var engine = new RenderEngine(leg.Device, Exact);
+            using var fx = new FxPass(leg.Device);
             var inputs = Scene.Inputs(project, 1, sources) with { Passes = [fx], Levels = air };
             DrawCompiled(engine, fx, inputs, ["fx00000001", "fx00000002"], "op2");
             engine.Render(inputs);
@@ -365,7 +365,7 @@ public sealed class FxAttachTests(GlFixture gl)
             Assert.Equal((FxSlotState.Idle, FxPass.CoveredWords), Said(fx, "fx00000002"));
             Assert.Equal((FxSlotState.Idle, FxPass.ItemUnshownWords), Said(fx, "fx00000003"));
             Assert.Equal(FxSlotState.Ok, Said(fx, "fx00000001").State);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 
@@ -377,10 +377,10 @@ public sealed class FxAttachTests(GlFixture gl)
         var a = PlaylistItem.For("it_a", white, "A") with { Fx = FxRig.Chain(FxRig.Slot("isf:fa00000023")) };
         var b = PlaylistItem.For("it_b", white, "B") with { Fx = FxRig.Chain(FxRig.Slot("isf:fa00000023", id: "fx00000002")) };
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Playlist("pl_1"), W, H)]) with { FxAssets = [asset] };
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, Exact);
-            using var fx = new FxPass(c);
+            using var engine = new RenderEngine(leg.Device, Exact);
+            using var fx = new FxPass(leg.Device);
             // Item A started at 10 s: its TIME is 0 then, 2.5 s later 2.5.
             var playing = new OneItem(new ItemOnAir(a, 10_000_000_000), white);
             var start = DrawCompiled(engine, fx, Scene.Inputs(project, 10, playing) with { Passes = [fx] }, ["fx00000001"]);
@@ -419,10 +419,10 @@ public sealed class FxAttachTests(GlFixture gl)
             Stage.Empty with { Surfaces = [Surf(SourceRef.Generator("gn_test"), FxRig.Chain(FxRig.Slot("fx.feedback", id: "fx00000002"), FxRig.Slot("fx.vignette", id: "fx00000003", scale: 0.5)))], Projectors = [Lamp("pj1")] })
             with { Playlists = [new Playlist("pl_1", "List", [item, waiting], false, null)] };
         var sources = new OneItem(new ItemOnAir(item, 1_000_000_000), white);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: true));
-            using var fx = new FxPass(c);
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: true));
+            using var fx = new FxPass(leg.Device);
             var inputs = Scene.Inputs(project, 1, sources, stage) with
             {
                 Passes = [fx],
@@ -447,7 +447,7 @@ public sealed class FxAttachTests(GlFixture gl)
             Assert.Equal(0, Allocations.Since(before));
             foreach (var id in new[] { "fx00000001", "fx00000002", "fx00000003", "fx00000004" })
                 Assert.Equal(FxSlotState.Ok, Said(fx, id).State);
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
         });
     }
 

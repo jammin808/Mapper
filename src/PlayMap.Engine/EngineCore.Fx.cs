@@ -548,7 +548,8 @@ public sealed partial class EngineCore
         w.WriteNumber("builtin", catalog.BuiltinCount);
         w.WriteNumber("isf", catalog.IsfCount);
         w.WriteNumber("ffgl", 0);
-        w.WriteNumber("quarantined", 0);
+        // The kinds the node's quarantine holds (wp3-shaders' EngineServices.Quarantine): fx.quarantine lists them.
+        w.WriteNumber("quarantined", Services.Quarantine.All.Length);
         w.WriteEndObject();
         w.WriteStartObject("compile");
         w.WriteString("lane", Fx.LaneMode);

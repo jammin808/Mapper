@@ -7,8 +7,8 @@ namespace PlayMap.Render.Tests;
 
 /// <summary>Video upload: YUV to RGB with the frame's matrix and range within two codes, any row stride,
 /// 10-bit and planar layouts, and no upload when the generation is already on the GPU.</summary>
-[Collection("gl")]
-public class VideoTests(GlFixture gl)
+[Collection("gpu")]
+public class VideoTests(BackendFixture backends)
 {
     private const int W = 32;
     private const int H = 16;
@@ -33,12 +33,12 @@ public class VideoTests(GlFixture gl)
         return new ArrayLease(PixelLayout.Nv12, W, H, generation, matrix, range, (luma, stride, W, H), (chroma, stride, W / 2, H / 2));
     }
 
-    private (int R, int G, int B) Convert(VideoFrameLease lease) => gl.Run(c =>
+    private (int R, int G, int B) Convert(VideoFrameLease lease) => backends.Run(leg =>
     {
-        using var set = new VideoTextureSet(c.Device);
+        using var set = new VideoTextureSet(leg.Device);
         Assert.True(set.Update(lease));
-        var px = Scene.ReadTexture(c.Device, set.Picture!);
-        Assert.Empty(c.Device.TakeErrors());
+        var px = Scene.ReadTexture(leg.Device, set.Picture!);
+        Assert.Empty(leg.TakeErrors());
         return Pixels.At(px, W, W / 2, H / 2);
     });
 
@@ -155,9 +155,9 @@ public class VideoTests(GlFixture gl)
         });
         var media = SourceRef.Media("md1");
         var project = Scene.Project([], [Scene.SourceOutput("op1", media, 64, 36)]);
-        var (afterThree, afterNew) = gl.Run(c =>
+        var (afterThree, afterNew) = backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             for (var f = 0; f < 3; f++)
                 engine.Render(Scene.Inputs(project, 1 + f / 60.0, sources));
             var three = engine.VideoUploads;
