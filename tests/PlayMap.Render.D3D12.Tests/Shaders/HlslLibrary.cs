@@ -2,8 +2,8 @@ using System.Text.Json;
 
 namespace PlayMap.Render.D3D12.Tests.Shaders;
 
-/// <summary>The HLSL library's files in the tree: its folder, its program table (programs.json: each program's family file, its
-/// vertex and pixel entries and how its pixels are held to the GL backend's) and the layout table its slot headers are made from.</summary>
+/// <summary>The HLSL library's files in the tree: its folder and its program list (programs.json: each program's family file, its
+/// vertex and pixel entries and how its pixels are held to the GL backend's).</summary>
 internal static class HlslLibrary
 {
     public sealed record Entry(string Name, string File, string Vs, string Ps, string Parity);
@@ -17,8 +17,6 @@ internal static class HlslLibrary
     }
 
     public static string Folder => Path.Combine(RepoRoot(), "src", "PlayMap.Render.D3D12", "Shaders");
-
-    public static string LayoutPath => Path.Combine(Folder, "programs.glsl.layout.json");
 
     public static IReadOnlyList<Entry> Programs()
     {

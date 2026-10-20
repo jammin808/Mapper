@@ -1,15 +1,17 @@
 <Project>
 
   <!-- The HLSL library's build. Every build writes each program's header (Layout.hlsli: its constants as the cbuffer at b0, in the
-       table's order, which HLSL packs at the table's offsets, and its texture slots) from the program table, read as data, so this project never references the GL
-       backend; and where DXC's executable runs (Microsoft.Direct3D.DXC's dxc.exe, Windows) it compiles every program's two entries
-       to validated, signed DXIL (Shader Model 6.6), with a PDB and reflection kept apart, only when a source, the layout table or the
-       program list (an entry's file or entry points) is newer. The sources, the tables, the headers and the DXIL with its reflection
-       are embedded (shaders/…); the PDBs are written to obj/ beside the DXIL and are not kept by CI yet (no step uploads them), never
-       in the exe. -->
+       table's order, which HLSL packs at the table's offsets, and its texture slots) from the render hardware interface's program
+       table (Core's Gpu/Programs/programs.layout.json, the one table the GL backend, this backend and this build read), read as
+       data, so this project never references the GL backend and Core stays its only reference; and where DXC's executable runs
+       (Microsoft.Direct3D.DXC's dxc.exe, Windows) it compiles every program's two entries to validated, signed DXIL (Shader Model
+       6.6), with a PDB and reflection kept apart, only when a source, the program table or the program list (an entry's file or
+       entry points) is newer. The sources, the program list, the headers and the DXIL with its reflection are embedded
+       (shaders/…); the table itself is Core's embedded resource. The PDBs are written to obj/ beside the DXIL and are not kept by CI
+       yet (no step uploads them), never in the exe. -->
   <PropertyGroup>
     <PlayMapHlslSources>$(MSBuildThisFileDirectory)</PlayMapHlslSources>
-    <PlayMapHlslTable>$(MSBuildThisFileDirectory)programs.glsl.layout.json</PlayMapHlslTable>
+    <PlayMapHlslTable>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', 'PlayMap.Core', 'Gpu', 'Programs', 'programs.layout.json'))</PlayMapHlslTable>
     <PlayMapDxc Condition="'$(OS)' == 'Windows_NT' And '$(PkgMicrosoft_Direct3D_DXC)' != ''">$(PkgMicrosoft_Direct3D_DXC)/build/native/bin/x64/dxc.exe</PlayMapDxc>
   </PropertyGroup>
 
@@ -46,7 +48,7 @@
             if (current == null)
                 return;
             var text = new StringBuilder();
-            text.Append("// Made by the build from programs.glsl.layout.json for the program ").Append(current).Append(": never edited by hand.\n");
+            text.Append("// Made by the build from the program table (programs.layout.json) for the program ").Append(current).Append(": never edited by hand.\n");
             text.Append("#define PM_PROGRAM_").Append(current.Replace('.', '_')).Append(" 1\n");
             if (block.Length > 0)
                 text.Append("cbuffer Program : register(b0)\n{\n").Append(block).Append("};\n");
@@ -154,7 +156,8 @@
   </Target>
 
   <ItemGroup>
-    <EmbeddedResource Include="$(MSBuildThisFileDirectory)*.hlsl;$(MSBuildThisFileDirectory)*.hlsli;$(MSBuildThisFileDirectory)programs.json;$(MSBuildThisFileDirectory)programs.glsl.layout.json" LogicalName="shaders/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)*.hlsl;$(MSBuildThisFileDirectory)*.hlsli;$(MSBuildThisFileDirectory)programs.json" LogicalName="shaders/%(Filename)%(Extension)" />
+    <UpToDateCheckInput Include="$(PlayMapHlslTable)" />
   </ItemGroup>
 
 </Project>

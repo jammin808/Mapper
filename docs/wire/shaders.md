@@ -114,9 +114,10 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
   conventions: positions in the render hardware interface's clip space and every vertex entry ending with `PmClip`, which is
   `ClipSpace.ToDirect3D`, so a draw lands on the GL backend's rows and depths; a `float4x4` constant read as `mul(v, M)` and the
   normal matrix's `float3x3` as `mul(M, v)`; the present drawing the picture unflipped into a back buffer that runs top row first;
-  one root signature with the binding block read through `ResourceDescriptorHeap`), `programs.json`, the layout table and the build
-  step that writes each program's `Layout.hlsli`, embeds the library and, on Windows, its DXIL (compiled again when a source, the
-  table or `programs.json` changes).
+  one root signature with the binding block read through `ResourceDescriptorHeap`), `programs.json`, and the build
+  step that writes each program's `Layout.hlsli` from the render hardware interface's program table
+  (`src/PlayMap.Core/Gpu/Programs/programs.layout.json`, read as data, the one table both backends and the HLSL build read), embeds
+  the library and, on Windows, its DXIL (compiled again when a source, the table or `programs.json` changes).
 - The assistant's FX RELEASE test sits in the Assistant suite (`tests/PlayMap.Assistant.Tests/Shaders/`) on a real node, through
   this package's `ProjectReference` to the engine there.
 - What CI proves: DXC's Linux build emits validated, signed DXIL (M6 answered yes), so every program compiles and is held to the

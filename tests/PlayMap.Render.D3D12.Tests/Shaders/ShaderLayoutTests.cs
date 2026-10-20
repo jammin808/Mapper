@@ -1,20 +1,25 @@
 using System.Text.RegularExpressions;
+using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 
 namespace PlayMap.Render.D3D12.Tests.Shaders;
 
-/// <summary>Each program's DXC reflection equals its layout in the program table (until wp3-rhi lands the table, the one the GLSL
-/// declarations give, in the same shape): every entry that binds the block at b0 reflects exactly the table's constants — name, type,
+/// <summary>Each program's DXC reflection equals its layout in the render hardware interface's program table: every entry that binds the block at b0 reflects exactly the table's constants — name, type,
 /// offset as HLSL packs them, array length — and the program reads its textures by the table's slots, sampling the ones the table
 /// says are sampled and only loading the rest; the binding block is at b1 and nothing else is bound.</summary>
 public sealed partial class ShaderLayoutTests
 {
+    private static readonly ProgramTable Table = new();
+
+    private static ProgramLayout Layout(string name) => Table.Layout(Table.Id(name));
+
     [Fact]
     public void EachProgramsReflectionIsItsTablesConstants()
     {
         var problems = new List<string>();
         foreach (var c in HlslCompile.Programs)
         {
-            var table = GlslLayout.Of(c.Program.Name).Layout;
+            var table = Layout(c.Program.Name);
             var bound = 0;
             foreach (var (stage, s) in new[] { ("vs", c.Vs), ("ps", c.Ps) })
             {
@@ -30,7 +35,7 @@ public sealed partial class ShaderLayoutTests
                     continue;
                 bound++;
                 var reflected = r.Constants.Where(k => k.Buffer == "Program").Select(k => (k.Name, k.Type, k.Offset, k.Count)).ToList();
-                var want = table.Constants.Select(k => (k.Name, k.Type, k.Offset, k.Count)).ToList();
+                var want = table.Constants.Select(k => (k.Name, ConstantTypes.Word(k.Type), k.Offset, k.Count)).ToList();
                 if (!reflected.SequenceEqual(want))
                     problems.Add($"{c.Program.Name} {stage}: reflects [{string.Join(", ", reflected)}], the table says [{string.Join(", ", want)}]");
             }
@@ -47,7 +52,7 @@ public sealed partial class ShaderLayoutTests
         foreach (var p in HlslLibrary.Programs())
         {
             var block = HlslLibrary.BlockOf(p);
-            var table = GlslLayout.Of(p.Name).Layout;
+            var table = Layout(p.Name);
             var used = SlotUse().Matches(block).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
             foreach (var t in table.Textures)
             {

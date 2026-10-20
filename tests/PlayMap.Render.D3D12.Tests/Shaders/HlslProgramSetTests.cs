@@ -1,11 +1,16 @@
+using System.Globalization;
+using System.Text;
+using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 using PlayMap.Render.Shaders;
 
 namespace PlayMap.Render.D3D12.Tests.Shaders;
 
-/// <summary>The HLSL library's set, on both jobs: programs.json names every program of the GLSL library once, each in a family file
-/// that holds its entries; the byte-exact programs are the two that only load (video.pack and video.unpack), the HAP encoder's four
-/// are compiled and reflected but held to no pixels this round; and the committed layout table is the one the GLSL declarations give
-/// (PLAYMAP_WRITE_FIXTURES=1 writes it).</summary>
+/// <summary>The HLSL library's set, on both jobs: programs.json names every program of the GLSL library once, in the program table's
+/// order, each in a family file that holds its entries; the byte-exact programs are the two that only load (video.pack and
+/// video.unpack), the HAP encoder's four are compiled and reflected but held to no pixels this round; and the build's header for
+/// each program is the one the render hardware interface's program table gives (its constants, in the table's order, and its
+/// texture slots), one header per program of the table.</summary>
 public sealed class HlslProgramSetTests
 {
     [Fact]
@@ -34,18 +39,47 @@ public sealed class HlslProgramSetTests
         Assert.All(programs, p => Assert.Contains(p.Parity, new[] { "exact", "encoder", "pixels" }));
         foreach (var exact in programs.Where(p => p.Parity == "exact"))
         {
-            var layout = GlslLayout.Of(exact.Name).Layout;
+            var layout = ProgramTable.Product.Single(l => l.Name == exact.Name);
             Assert.All(layout.Textures, t => Assert.False(t.Sampled, $"{exact.Name} samples {t.Name}"));
             Assert.DoesNotContain(".Sample", HlslLibrary.BlockOf(exact), StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public void TheCommittedLayoutTableIsTheOneTheGlslDeclarationsGive()
+    public void EachProgramsHeaderIsTheOneTheProgramTableGives()
     {
-        var table = GlslLayout.Json(GlslLayout.All());
-        if (Environment.GetEnvironmentVariable("PLAYMAP_WRITE_FIXTURES") == "1")
-            PlayMap.Core.Storage.DurableFile.WriteAllText(HlslLibrary.LayoutPath, table);
-        Assert.Equal(PlayMap.Core.Storage.DurableFile.ReadAllText(HlslLibrary.LayoutPath).ReplaceLineEndings("\n"), table);
+        Assert.Equal(ProgramTable.Product.Select(l => l.Name), HlslLibrary.Programs().Select(p => p.Name));
+        Assert.Equal(ProgramTable.Product.Select(l => $"shaders/gen/{l.Name}/Layout.hlsli").Order(StringComparer.Ordinal),
+            HlslCompile.Resources("shaders/gen/"));
+        foreach (var layout in ProgramTable.Product)
+        {
+            var header = HlslCompile.Resource($"shaders/gen/{layout.Name}/Layout.hlsli");
+            Assert.True(header is not null, $"the build embedded no header for {layout.Name}");
+            Assert.Equal(Header(layout), Encoding.UTF8.GetString(header!).ReplaceLineEndings("\n"));
+        }
+    }
+
+    /// <summary>A program's header as the build writes it from its layout: the program's define, its constants as the cbuffer at b0
+    /// in the table's order (a matrix row_major, an array with its length) and a SLOT_ define for each texture.</summary>
+    private static string Header(ProgramLayout layout)
+    {
+        var text = new StringBuilder();
+        text.Append(CultureInfo.InvariantCulture,
+            $"// Made by the build from the program table (programs.layout.json) for the program {layout.Name}: never edited by hand.\n");
+        text.Append(CultureInfo.InvariantCulture, $"#define {HlslLibrary.ProgramDefine(layout.Name)} 1\n");
+        if (!layout.Constants.IsEmpty)
+        {
+            text.Append("cbuffer Program : register(b0)\n{\n");
+            foreach (var c in layout.Constants)
+            {
+                var array = c.Count > 1 ? string.Create(CultureInfo.InvariantCulture, $"[{c.Count}]") : "";
+                text.Append(CultureInfo.InvariantCulture,
+                    $"    {(ConstantTypes.IsMatrix(c.Type) ? "row_major " : "")}{ConstantTypes.Word(c.Type)} {c.Name}{array}; // offset {c.Offset}\n");
+            }
+            text.Append("};\n");
+        }
+        foreach (var t in layout.Textures)
+            text.Append(CultureInfo.InvariantCulture, $"#define SLOT_{t.Name} {t.Slot}\n");
+        return text.ToString();
     }
 }
