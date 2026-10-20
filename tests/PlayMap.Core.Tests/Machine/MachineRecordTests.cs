@@ -114,6 +114,24 @@ public sealed class MachineRecordTests
     }
 
     [Fact]
+    public void APlatformThatReadsNothingBackAnswersTheContractsReadBackAsSuch()
+    {
+        using IMachinePlatform platform = new NullMachinePlatform("the platform seam is Windows only");
+        // The settings handed to it change nothing it claims.
+        platform.Use(MachineSettings.Default with { Timer = "default", Awake = "off" });
+        Assert.Equal(new Claim("process", "", false, "", platform.Words), Assert.Single(platform.ClaimProcess(MachineSettings.Default)));
+        Assert.Throws<ArgumentNullException>(() => platform.Use(null!));
+
+        // It holds nothing, so keep-awake is no claim even while asked; its timer is the runtime's; it reads no power settings.
+        using (platform.KeepAwake())
+            Assert.Null(platform.AwakeClaim);
+        using var timer = platform.CreateTimer();
+        Assert.Equal("default", platform.TimerMode(timer));
+        Assert.Throws<ArgumentNullException>(() => platform.TimerMode(null!));
+        Assert.Equal(PowerReading.Unread, platform.Power);
+    }
+
+    [Fact]
     public void TheRuntimeTimerNeverAnswersBeforeItsInstantAndAnswersFalseOnCancel()
     {
         var clock = MonoClock.Instance;
