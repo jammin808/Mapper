@@ -65,7 +65,20 @@ internal sealed class FakePlatform : IMachinePlatform
         ImmutableArray<Claim> made = claims.MmcssTask is { } task
             ? [Answer($"thread.{word}.priority", PlatformPolicy.Word(claims.Priority)), Answer($"thread.{word}.mmcss", task)]
             : [Answer($"thread.{word}.priority", PlatformPolicy.Word(claims.Priority))];
+        lock (_made)
+            _claimedOn.Add((word, Thread.CurrentThread.Name ?? ""));
         return new Claimed(made);
+    }
+
+    /// <summary>Each role claimed ("render", "audio", …) with the name of the thread it was claimed on ("" for an unnamed one), in
+    /// order.</summary>
+    public IReadOnlyList<(string Role, string Thread)> ClaimedOn
+    {
+        get
+        {
+            lock (_made)
+                return [.. _claimedOn];
+        }
     }
 
     /// <summary>The name of each thread a timer was made on ("" for an unnamed one), in order.</summary>
@@ -78,14 +91,32 @@ internal sealed class FakePlatform : IMachinePlatform
         }
     }
 
+    /// <summary>The name of each thread a timer was disposed on ("" for an unnamed one), in order.</summary>
+    public IReadOnlyList<string> TimersDisposedOn
+    {
+        get
+        {
+            lock (_made)
+                return [.. _timersDisposedOn];
+        }
+    }
+
     private readonly Lock _made = new();
+    private readonly List<(string, string)> _claimedOn = [];
     private readonly List<string> _timersMadeOn = [];
+    private readonly List<string> _timersDisposedOn = [];
 
     public IDeadlineTimer CreateTimer()
     {
         lock (_made)
             _timersMadeOn.Add(Thread.CurrentThread.Name ?? "");
-        return InUse.Timer == "high" ? new HighTimer() : new RuntimeDeadlineTimer();
+        return InUse.Timer == "high" ? new HighTimer(this) : new RuntimeDeadlineTimer();
+    }
+
+    private void Disposed()
+    {
+        lock (_made)
+            _timersDisposedOn.Add(Thread.CurrentThread.Name ?? "");
     }
 
     public string TimerMode(IDeadlineTimer timer) => timer is HighTimer ? "high" : "default";
@@ -136,8 +167,8 @@ internal sealed class FakePlatform : IMachinePlatform
         }
     }
 
-    /// <summary>The fake's high-resolution timer: the runtime's wait under another name.</summary>
-    private sealed class HighTimer : IDeadlineTimer
+    /// <summary>The fake's high-resolution timer: the runtime's wait under another name, its platform told the thread it is disposed on.</summary>
+    private sealed class HighTimer(FakePlatform platform) : IDeadlineTimer
     {
         private readonly RuntimeDeadlineTimer _inner = new();
 
@@ -145,7 +176,11 @@ internal sealed class FakePlatform : IMachinePlatform
 
         public bool WaitUntil(long monoNs, WaitHandle? cancel = null) => _inner.WaitUntil(monoNs, cancel);
 
-        public void Dispose() => _inner.Dispose();
+        public void Dispose()
+        {
+            platform.Disposed();
+            _inner.Dispose();
+        }
     }
 }
 

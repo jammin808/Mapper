@@ -508,7 +508,6 @@ public sealed partial class RenderHost : IRenderHost
 
     private void Main()
     {
-        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Render);
         try
         {
             _platform = _options.Dxgi is { } dxgi
@@ -542,7 +541,12 @@ public sealed partial class RenderHost : IRenderHost
             while (!_stopping && Volatile.Read(ref _engine) is null)
                 _wake.WaitOne(TimeSpan.FromMilliseconds(250));
             if (!_stopping && Volatile.Read(ref _engine) is { } engine)
+            {
+                // The role is claimed once the engine is attached: the node's host points ThreadClaims at its platform before it starts
+                // the render host, which this thread waited for. The claim holds for the loop.
+                using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Render);
                 Loop(engine);
+            }
         }
         // A fault in the loop stops the drawing, not the node: the engine plays on, STATE shows the outputs closed.
         catch (Exception ex)

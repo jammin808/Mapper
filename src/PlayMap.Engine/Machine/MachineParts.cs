@@ -8,8 +8,9 @@ using PlayMap.Platform.Windows;
 namespace PlayMap.Engine.Machine;
 
 /// <summary>wp3-platform's part of the node: the machine platform (Windows' on Windows, elsewhere the null platform with the words
-/// <see cref="NotWindowsWords"/>), read back through <see cref="RecordedPlatform"/>; the process's claims made once in Configure,
-/// before any part starts a thread; this machine's settings (kept in the node home by the network host, the settings file's one
+/// <see cref="NotWindowsWords"/>), read back through <see cref="RecordedPlatform"/>; the process's claims made once in Configure, and
+/// each thread's through it once the host points ThreadClaims at it, which it does before it starts the render host or any part; this
+/// machine's settings (kept in the node home by the network host, the settings file's one
 /// writer), every saved change handed to the platform before anything acts on it; the machine preflight; the GC's show mode as an arm
 /// hook, with the collector's pauses counted; and keep-awake held while the project has an enabled display output and AWAKE is ON, STATE
 /// saying whether the platform holds it.</summary>
