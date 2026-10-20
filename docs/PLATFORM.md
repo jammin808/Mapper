@@ -2,10 +2,10 @@
 
 Windows 11 lowers the quality of service of a process whose windows are hidden, covered or minimised, and stops honouring its timer
 requests; an engine whose outputs sit behind the desk, or that has no window at all, is that process. The engine claims what it needs
-once at start, by role for each of its threads, through one small seam — and every claim answers what it asked, what Windows said and
-what reading it back shows. The node's identity (its build, the OS edition and build, the CPU, every GPU by LUID with its driver and
-vendor tier, the runtimes it loaded) is one record in STATE that preflight compares with the driver set locked for the show. Nothing on
-the machine changes silently: what the engine cannot claim as a standard user is a fact with words.
+once at start, and by role for each thread that does show work, through one small seam — and every claim answers what it asked, what
+Windows said and what reading it back shows. The node's identity (its build, the OS edition and build, the CPU, every GPU by LUID with
+its driver and vendor tier, the runtimes it loaded) is one record in STATE that preflight compares with the driver set locked for the
+show. Nothing on the machine changes silently: what the engine cannot claim as a standard user is a fact with words.
 
 Design: `docs/round3/design/platform.md`. Wire: `docs/wire/machine.md`.
 
@@ -15,15 +15,20 @@ Design: `docs/round3/design/platform.md`. Wire: `docs/wire/machine.md`.
 |---|---|
 | `src/PlayMap.Core/Machine` | The seam (`IMachinePlatform` with what a platform reads back of what it uses and holds, answered by its defaults on a platform that claims nothing; `IThreadClaim`; `IDeadlineTimer`; `ThreadClaims` with each deadline thread's timer; `ShowDoor`) and the policy, pure, proven on both CI jobs: `MachineSettings` and `LockedDriverSet` (kept in the node's own settings, never the project), `PlatformPolicy` (MACHINE SET's words, each default with its cause, the role → claims table), `CpuSetPlan` (placement), `EditionTable` and `ServicingTable` (the edition, its support tier and its end of servicing), `VendorPolicy` (the published GPU policy), `MachineRows` (the machine's preflight rows from what was read), `FirewallRules` and `PeImage` (text the platform reads, parsed). Core's `NullMachinePlatform` claims nothing and says why |
 | `src/PlayMap.Platform.Windows` | `WindowsMachinePlatform`, an edge referencing Core alone: the Win32 calls by `LibraryImport`, the DXGI and NVAPI probes by its own minimal declarations, each structure pinned by a layout golden (`PlatformLayoutTests`). Every type is Windows only |
-| `src/PlayMap.Engine/Machine` | `MachineParts` composes the platform (Windows' on Windows; elsewhere the null platform, "the platform seam is Windows only"), makes the process's claims in its Configure before any part starts a thread, hands the platform every saved setting before anything acts on it (`IMachinePlatform.Use`) and the node's open show doors with its facts (the network host's, then the control inputs'), holds keep-awake, and adds the machine preflight; `RecordedPlatform` keeps every claim made through the platform, the kind of timer made, every deadline wait's lateness, and what the platform reads back of keep-awake and the power plan, for STATE; `MachineNode` keeps the settings through the network host, the settings file's one writer, and the runtimes their owners fill |
+| `src/PlayMap.Engine/Machine` | `MachineParts` composes the platform (Windows' on Windows; elsewhere the null platform, "the platform seam is Windows only"), makes the process's claims in its Configure, hands the platform every saved setting before anything acts on it (`IMachinePlatform.Use`) and the node's open show doors with its facts (the network host's, then the control inputs', then each open network send's), holds keep-awake, and adds the machine preflight; `RecordedPlatform` keeps every claim made through the platform, the kind of timer made, every deadline wait's lateness, and what the platform reads back of keep-awake and the power plan, for STATE; `MachineNode` keeps the settings through the network host, the settings file's one writer, and the runtimes their owners fill |
 
-The host points `ThreadClaims` at the composed platform once at start; each thread claims its role in one line at its start
-(`using var claim = ThreadClaims.Claim(ThreadRole.Decode);`) and the claim reverts at its end. The claim holds the thread itself, so any
-thread may dispose it. A listener with no thread of its own — an LTC reader, fed by the audio hub's capture thread with every other
-listener on that device — claims through a `DeliveryClaim`: on the delivering thread at its first delivery, and again when the device
-reopens on another thread. Windows' platform joins a second claim on a thread already claimed to the first (the same claims, reverted
-when the last holder lets go), so two LTC sources on one device never stack their priorities. The null platform attempts no thread
-claim: its one claim asks nothing and is grey, and nothing is recorded for a thread.
+The host points `ThreadClaims` at the composed platform once at start, after every part's Configure and before it starts the render host
+or any part; each thread claims its role in one line as its work starts (`using var claim = ThreadClaims.Claim(ThreadRole.Decode);`) and
+the claim reverts at its end. The render thread, made with the render host before the parts compose, claims once the engine is attached,
+just before its loop. The claim holds the thread itself, so any thread may dispose it. The threads that claim are the render thread, the
+decode workers (FFmpeg's and HAP's), each audio feeder, the LTC reader, the control lane and the LED sender. The present, capture,
+network and background roles have their claims in the policy, made on the Windows runner by `PlatformCallsTests`, but no node thread
+claims them yet: the plan thread's Background is wp3-d3d12-passes', the capture threads' Capture wp3-capture's, and the presenter's
+helper and the network servers run unclaimed. A listener with no thread of its own — an LTC reader, fed by the audio hub's capture
+thread with every other listener on that device — claims through a `DeliveryClaim`: on the delivering thread at its first delivery, and
+again when the device reopens on another thread. Windows' platform joins a second claim on a thread already claimed to the first (the
+same claims, reverted when the last holder lets go), so two LTC sources on one device never stack their priorities. The null platform
+attempts no thread claim: its one claim asks nothing and is grey, and nothing is recorded for a thread.
 
 ## The claims
 
@@ -65,12 +70,13 @@ elevated) and the high-resolution timer is made. Where a later runner refuses, t
 ## Time
 
 Every deadline thread waits on the platform's `IDeadlineTimer`, made on that thread (`ThreadClaims.CreateTimer`: the LED sender's and
-each audio feeder's as the thread starts, the headless pacer's at its first wait) and disposed at its end: the headless pacer (until
-its next frame's deadline, its wake handle the cancel), the LED sender (until a millisecond before its next instant, woken early by
-whatever hands it work, spinning the last millisecond) and each audio output's feeder (5 ms between service steps, its stop the
-cancel). Their instants are on the machine's monotonic clock, which the platform's timers wait on; a thread on any other clock (a
-test's hand-moved one) waits on the runtime's own wait on that clock, and the audio feeder never reads its output's clock to wait. The
-two waits measured on the hosted runner (`PlatformCallsTests`, 1 000 waits of 1 ms each, run 39214709394), lateness in µs:
+each audio feeder's as the thread starts, the headless pacer's at its first wait) and disposed at its end (the pacer's as the render
+thread tears down): the headless pacer (until its next frame's deadline, its wake handle the cancel), the LED sender (until a
+millisecond before its next instant, woken early by whatever hands it work, spinning the last millisecond) and each audio output's
+feeder (5 ms between service steps, its stop the cancel). Their instants are on the machine's monotonic clock, which the platform's
+timers wait on; a thread on any other clock (a test's hand-moved one) waits on the runtime's own wait on that clock, and the audio
+feeder never reads its output's clock to wait. The two waits measured on the hosted runner (`PlatformCallsTests`, 1 000 waits of 1 ms
+each, run 39214709394), lateness in µs:
 
 | Wait | p50 | p90 | p99 | p99.9 | max |
 |---|---|---|---|---|---|
@@ -135,7 +141,7 @@ Section `machine`, every row a fact with words, never a silent change; a fix lin
 | Smart App Control evaluating on an unsigned build | amber | "turn Smart App Control off before the show: once it enforces, Windows blocks this unsigned build and this node will not start"; enforcing has no row, since the unsigned engine that would raise it cannot start |
 | The OS version past its end of servicing | amber | "Windows 11 Home 24H2 left servicing on 13 Oct 2026: this node gets no security updates — move to 25H2 or later"; a version the build's servicing table (dated 19 Oct 2026) does not name is grey, "servicing unknown" |
 | An enabled display output on the primary display | amber | "notifications, UAC and setup screens open on Stage left: make the desk's monitor primary" |
-| A network show traffic can cross on Public with no rule letting PlayMap in there (the local and the policy store's rules read, a rule's program path expanded) | amber | when every show door (the line wire, the web port, the clock sync while leading, OSC, Art-Net, sACN) is bound to an address, only the networks whose adapters carry one are read (each network's connections give its adapters, joined to the machine's interfaces by adapter GUID), and the row names the doors, the address and the adapter; when a door listens on every interface, every connected network is read and the row says which doors do, and to make the network Private or bind the node to its show adapter's address; with nothing amber, a green row says what was read |
+| A network show traffic can cross on Public with no rule letting PlayMap in there (the local and the policy store's rules read, a rule's program path expanded) | amber | when every show door (the line wire, the web port, the clock sync while leading, OSC, Art-Net, sACN) is bound to an address, the networks whose adapters carry one are read (each network's connections give its adapters, joined to the machine's interfaces by adapter GUID; an address matched by its bytes, an IPv6 link-local one also by its zone where the door names one), and the row names the doors, the address and the adapter; so is every network whose adapters were not read whole (the machine's adapter list or the network's connections did not list, or a connection's adapter is not the machine's), which may carry one, the row saying its adapters could not be read; when a door listens on every interface, which an open NDI or OMT send always does, every connected network is read and the row says which doors do, and to make the network Private or, where no send listens, bind the node to its show adapter's address; with nothing amber, a green row says what was read and which networks' adapters were not |
 | The power plan | amber unless High or Ultimate Performance | on a machine that offers Balanced only, its power mode and the settings that matter, never "not High Performance" |
 | Sleep or display timeout on mains | amber | the timeout; with keep-awake off, the fix `MACHINE SET AWAKE ON` |
 | The screen saver | amber when on (its flag set and a screen saver chosen, `SCRNSAVE.EXE` or its policy key: the flag alone reads set with "(None)") | "keeping the display awake does not stop the screen saver" |
@@ -172,8 +178,9 @@ each claim lit by its answer, as feedback.
 | A listener fed by a capture thread claims on it, and again when the thread changes | both jobs (`DeliveryClaimTests`) |
 | The machine's lines through the assistant's gate: refused while armed by the Setup class, REALTIME waiting for a person, the result read back from STATE | both jobs (`AssistantMachineTests`) |
 | The probe structures' sizes and offsets, the vtable slots | both jobs (`PlatformLayoutTests`) |
-| Every deadline thread waits on the timer it made: the LED sender's and the audio feeder's on a hand-moved clock, each wait's instant and answer seen; a node's LED sender, audio feeder and headless pacer make theirs through the platform | both jobs (`LedSenderTimerTests`, `AudioFeederTimerTests`, `ThreadTimerTests`, `DeadlineThreadTests`) |
-| The show doors and their addresses (the network host's and the control inputs'), and the networks' row reading only the networks they are on | both jobs (`ShowDoorTests`, `MachineDoorTests`, `NetworkRowTests`); each network's adapters read on Windows (`PlatformCallsTests`) |
+| Every deadline thread waits on the timer it made: the LED sender's and the audio feeder's on a hand-moved clock, each wait's instant and answer seen; on a node composed as the exe composes it, over a fake Windows platform, the LED sender's and the audio feeder's are made through the platform on their own threads and STATE reads their kind and counts their waits, and the render host's headless pacer makes its timer on the render thread, which disposes it as it ends | both jobs (`LedSenderTimerTests`, `AudioFeederTimerTests`, `ThreadTimerTests`, `DeadlineThreadTests`, `RenderThreadClaimTests`) |
+| On such a node the render thread claims its role through the platform once the engine is attached, and STATE lists its claims | both jobs (`RenderThreadClaimTests`) |
+| The show doors and their addresses (the network host's, the control inputs' and the open network sends'), and the networks' row reading the networks they are on and every network whose adapters were not read, an IPv6 door matched by its bytes and a link-local one by its zone | both jobs (`ShowDoorTests`, `MachineDoorTests`, `NetworkRowTests`); each network's adapters read on Windows (`PlatformCallsTests`) |
 | Through the contract, the composed platform answers what the platform underneath reads back | both jobs (`ReadBackContractTests`, `MachineRecordTests`) |
 | Every claim answers on Windows with its named words; read-backs; MMCSS taken and reverted (Windows' answer to the revert kept); a second claim on a thread joins the first; every MACHINE SET word handed to one platform reaches its next hold, timer and thread claim and its facts; the two waits measured | the Windows job (`PlatformCallsTests`), its answers in the summary |
 | L10: p99.9 frame time with and without each claim on NVIDIA, AMD and Intel nodes, a hybrid Intel CPU, a dual-CCD X3D CPU | **not run** (no lab this round): `docs/round3/lab/L10-platform-claims.md` |

@@ -25,9 +25,9 @@ packages that fill it, the rendering hardware interface (`wp3-rhi`) is built: ev
 GL backend behind it, its pixel goldens unedited and holding within their tolerances, and `notes/rhi.md` holds its contracts as
 built. So is `wp3-shaders`: PlayMap's programs in HLSL, compiled to signed DXIL on CI and held to the program table by
 reflection, a user's ISF effect compiled to DXIL in the shader worker, and the node's quarantine with `FX RELEASE`; no device draws
-that DXIL yet, and its papers note is the last section of `docs/wire/shaders.md`. So is `wp3-platform`: what a show node claims
-from Windows, each claim read back into STATE, every deadline thread on the platform's timer, the node's identity and driver lock,
-and machine preflight (`docs/PLATFORM.md`), none of it measured on show hardware yet; its papers note is the last section of
+that DXIL yet, and its papers note is the last section of `docs/wire/shaders.md`. `wp3-platform` is built too: what a show node
+claims from Windows, each claim read back into STATE, every deadline thread on the platform's timer, the node's identity and driver
+lock, and machine preflight (`docs/PLATFORM.md`), none of it measured on show hardware yet; its papers note is the last section of
 `docs/wire/machine.md`. The other packages are not built yet: today PlayMap is the portable exe `docs/ARCHITECTURE.md` describes,
 drawing through that interface with OpenGL behind it.
 `PLAN.md` §1.2 and §9 hold the owner's answer to each of the round's decisions, and none is open.

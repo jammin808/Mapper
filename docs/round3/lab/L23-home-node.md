@@ -12,7 +12,8 @@ off, and the media volume encrypted and not, each with its frame times.
 ## Script
 
 1. Before installing: Smart App Control's state (Windows Security ▸ App & browser control) — it should read evaluating.
-2. Install by `docs/INSTALL.md` (wp3-installer's part of this line). Start the show account's session.
+2. Install the build with its installer, by the installer's paper (wp3-installer's part of this line). Start the show account's
+   session.
 3. `PREFLIGHT QUICK`, section machine. Expect, and record each against the screen:
    - grey **i** rows: updates cannot be deferred; no kiosk; outputs are desktop monitors; Remote Desktop cannot reach this node;
    - amber: Smart App Control evaluating while the build is unsigned, with its words;
@@ -25,7 +26,7 @@ off, and the media volume encrypted and not, each with its frame times.
 6. `MACHINE LOCK`, then let Windows Update install a driver; preflight's drift row says the node observes the change (Home cannot
    hold drivers back).
 7. Turn Smart App Control on enforcing (it cannot be turned back on once off — use a second clean install): record Windows' block of
-   the unsigned build and event 3077, as `docs/INSTALL.md` shows them.
+   the unsigned build and event 3077 in `Microsoft-Windows-CodeIntegrity/Operational` (`docs/round3/design/installer.md` §6).
 
 ## Record
 

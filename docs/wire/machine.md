@@ -72,35 +72,42 @@ key sends `MACHINE STATUS`, a query.
 ## Preflight
 
 Section `machine` (`docs/PLATFORM.md`, Machine preflight): row ids `machine.<item>` — `os.build`, `os.edition`, `os.servicing`,
-`edition.updates|kiosk|displays|remote`, `sac`, `power.plan|sleep|display`, `screensaver`, `reboot`, `network` (unread, or green
-with the networks the show doors are on) / `network.public:<name>` (a network the show doors are on, or any while a door listens on
-every interface), `claims` / `claim:<what>`, `timer`, `lock` / `lock.drift:<item>`, `display.primary:<output>`, and on a node
-that is not Windows `platform` (with `lock`, and `display.primary:<output>` where one is). Fix lines: `MACHINE SET AWAKE ON` (a timeout
-with keep-awake off), `MACHINE LOCK` (drift).
+`edition.updates|kiosk|displays|remote`, `sac`, `power.plan|sleep|display`, `screensaver`, `reboot`, `network` (unread, or green with
+the networks the show doors are on and those whose adapters were not read) / `network.public:<name>` (a network the show doors are on or
+whose adapters were not read, or any while a door listens on every interface, as an open NDI or OMT send always does), `power.usb`,
+`power.pcie`, `notifications`, `updates` (on an edition with the Update client policies: not on Home, nor where the edition is unknown),
+`hags`, `memoryIntegrity`, `gameMode`, `claims` / `claim:<what>`, `timer`, `lock` / `lock.drift:<item>`, `display.primary:<output>`, and
+on a node that is not Windows `platform` (with `lock`, and `display.primary:<output>` where one is). Fix lines: `MACHINE SET AWAKE ON`
+(a timeout with keep-awake off), `MACHINE LOCK` (drift).
 
 ## Papers note
 
 The papers this merge carries (plan §5.4 item 7), each sentence checked against the merged code: `docs/ARCHITECTURE.md` §2's module
 table has `PlayMap.Platform.Windows`, an edge of Core alone that the engine composes on Windows (Core's null platform elsewhere), the
-engine's row referencing it and holding the machine part, and Core's row holding the machine's records and policy; §4 says each
-deadline thread waits on the platform's timer. `README.md`'s module table, its Next paragraph, its Windows job and its papers list;
+engine's row referencing it and holding the machine part, and Core's row holding the machine's records and policy; §4 says each deadline
+thread waits on the platform's timer. `README.md`'s module table, its Next paragraph, its Windows job and its papers list;
 `docs/WIRE.md`'s round-3 section names wp3-platform's rows routed; `docs/ROADMAP.md`'s round 3 ("Built: the machine platform", the
-package's row, the Today paragraph, the spine's tree and the lab's list); `docs/COMPETITIVE.md` (where PlayMap is going, a Machine
-row, the routed rows), `docs/RESEARCH.md` §8 and `docs/round3/README.md`; the agent brief's constraint on threads and deadlines.
-`docs/PLATFORM.md` names no paper this head lacks and says the runtimes read empty, and L10's record installs the build under test by
-its installer.
+package's row, the Today paragraph, the spine's tree and the lab's list, a Windows thread time its clock ticks until L22 passes);
+`docs/COMPETITIVE.md` (where PlayMap is going, a Machine row, the routed rows), `docs/RESEARCH.md` §8 and `docs/round3/README.md`;
+`docs/SHOW.md`'s arm hooks (the machine part's `gc`) and its machine preflight paragraph; the agent brief's constraint on threads and
+deadlines. `docs/PLATFORM.md` names no paper this head lacks and says the runtimes read empty, and L10's record installs the build under
+test by its installer.
 
 `docs/ROADMAP.md`'s round-3 row for wp3-platform is built, with these deviations from the plan's words: keep-awake is a power request
 (`PowerCreateRequest`), not `SetThreadExecutionState`, whose state ends with the thread that set it; the Public-profile row knows the
-show adapter by the addresses the show doors are bound to, so a node bound to every interface reads every connected network; the power
-plan is in STATE as `machine.platform.powerPlan`; the dual-CCD option is built as `MACHINE SET CPUSETS ONE-CACHE`, off; the GC's
-latency mode while armed (the stretch) is built and DEFAULT. Not built: REALTIME's `GLOBAL_REALTIME` direct queue (wp3-d3d12-core's,
-plan §5.5); the runtimes' fill (`MachineNode.FillRuntimes` has no caller, so `machine.identity.runtimes` reads empty: the Agility
-runtime's is wp3-d3d12-core's, plan §5.5, FFmpeg's build Media's and the sync board's firmware wp3-framelock's); each media volume's
-encryption as a preflight fact. L10, L22 and L23 are not run. The spine amendments this merge carries (plan §5.7):
-`ThreadClaims.CreateTimer`, the LED sender's timer (`LedSenderOptions.Timer`) and the audio feeder's; `ShowDoor`, `NetworkHost.Doors`
-and `ControlService.Doors`; `IMachinePlatform`'s read-back members (`Use`, `AwakeClaim`, `TimerMode`, `Power`), answered by their
-defaults on a platform that claims nothing.
+show adapter by the addresses the show doors are bound to, so a node bound to every interface, or with an NDI or OMT send open, reads
+every connected network, and a network whose adapters could not be read is read as one show traffic can cross; the power plan is in
+STATE as `machine.platform.powerPlan`; the dual-CCD option is built as `MACHINE SET CPUSETS ONE-CACHE`, off; the GC's latency mode while
+armed (the stretch) is built and DEFAULT. Not built: REALTIME's `GLOBAL_REALTIME` direct queue (wp3-d3d12-core's, plan §5.5); the
+runtimes' fill (`MachineNode.FillRuntimes` has no caller, so `machine.identity.runtimes` reads empty: the Agility runtime's is
+wp3-d3d12-core's, plan §5.5, FFmpeg's build Media's and the sync board's firmware wp3-framelock's); each media volume's encryption as a
+preflight fact; a node thread's claim of the present, capture, network or background role, whose claims are in the policy and made on
+the Windows runner (the plan thread's Background is wp3-d3d12-passes', the capture threads' Capture wp3-capture's; the presenter's
+helper and the network servers run unclaimed). L10, L22 and L23 are not run. The spine amendments this merge carries (plan §5.7):
+`ThreadClaims.CreateTimer`, the LED sender's timer (`LedSenderOptions.Timer`) and the audio feeder's; `ShowDoor`, `NetworkHost.Doors`,
+`ControlService.Doors` and `VideoIoHub.Doors` (each open NDI or OMT send on every interface); `IMachinePlatform`'s read-back members
+(`Use`, `AwakeClaim`, `TimerMode`, `Power`), answered by their defaults on a platform that claims nothing; the exe's LED part and air's
+sound as the factories its composition holds (`LedExtension.Factory`, `EngineParts.AirSound`).
 
 For wp3-installer's merge, which brings `docs/INSTALL.md`: its sentence on the GPU support tiers reads as built, `machine.identity`
 carrying each adapter's `tier` and `support` and the OS's support tier (`os.tier`: `ltsc` for IoT Enterprise LTSC, `managed` for Pro,

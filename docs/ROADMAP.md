@@ -35,14 +35,14 @@ Companion's own host layer against a fake node and the real engine; the NVAPI ti
 D3D11VA are compiled on Linux and run by the Windows CI job, which has no GPU (WARP); VAAPI decode compiles here (no VA driver) and
 its dmabuf import half runs on Mesa; a sync group's nodes run in one process on loopback, on a manual clock with synthetic vblanks.
 The lab checks still to do:
-- GPUs and Windows: a DXGI start, its frame statistics and independent flip on NVIDIA, AMD and Intel GPUs; D3D11VA and VAAPI
-  decode imported on real GPUs (and the device lock under a decoder's load); Spout with Resolume and TouchDesigner; HAP layer
-  counts per GPU; per-output latency on displays of different lag; a precise Windows thread time — the time-stamp counter's
-  frequency from the platform, never a rate measured against the stopwatch, and a thread's cycles at it against its work — on bare
-  metal and on a Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), with round 3's platform
-  package (L22; until then a Windows thread time is its clock ticks, and the survey slice's budget there is proven by the stopwatch
-  and shown, not proven, by the ticks, docs/FACADE.md); the machine platform's claims against frame time on NVIDIA, AMD and Intel
-  nodes, a hybrid Intel CPU and a dual-CCD CPU (L10), and its edition rows and claims on a clean Home node (L23).
+- GPUs and Windows: a DXGI start, its frame statistics and independent flip on NVIDIA, AMD and Intel GPUs; D3D11VA and VAAPI decode
+  imported on real GPUs (and the device lock under a decoder's load); Spout with Resolume and TouchDesigner; HAP layer counts per
+  GPU; per-output latency on displays of different lag; a precise Windows thread time — the time-stamp counter's frequency from the
+  platform, never a rate measured against the stopwatch, and a thread's cycles at it against its work — on bare metal and on a
+  Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), under the machine platform's timer
+  claims (L22; until it passes, a Windows thread time is its clock ticks, and the survey slice's budget there is proven by the
+  stopwatch and shown, not proven, by the ticks, docs/FACADE.md); the machine platform's claims against frame time on NVIDIA, AMD
+  and Intel nodes, a hybrid Intel CPU and a dual-CCD CPU (L10), and its edition rows and claims on a clean Home node (L23).
 - Runtimes and SDKs loaded at run time: a real NDI runtime (the user's own install); the NVAPI tier on a sync board.
 - Devices: a real projector, and a Panasonic's answers to the double-correction guard's reads; a real camera scan (from one place
   or many, through a capture camera, a phone or a tethered camera's folder), a camera re-solve and a colour match through a real
@@ -244,12 +244,16 @@ show is measured yet.
   the text Windows hands back, parsed. `PlayMap.Platform.Windows`, an edge of Core alone, makes the Win32 calls and the DXGI and
   NVAPI probes through its own declarations, each structure pinned by a layout golden; the engine composes it on Windows and Core's
   null platform elsewhere ("the platform seam is Windows only").
-- **The claims.** Before any part starts a thread: HIGH process priority, HighQoS with every timer request honoured, the GPU
-  scheduling class (NORMAL). Each thread by its role: its priority, MMCSS (Games, Pro Audio, Capture), CPU sets (the critical pool on
-  the highest efficiency class, never a hard affinity) and EcoQoS for background pools. Keep-awake under `AWAKE ON` while the project
-  has an enabled display output, and the GC's SustainedLowLatency while armed under `GC SHOW`. A default is on only where its cause is
-  documented: the GPU scheduling class, the GC's show mode and ONE-CACHE are off until L10 measures them. A refused claim is amber in
-  STATE and preflight, with Windows' words.
+- **The claims.** The process's, as the machine part composes the platform: HIGH process priority, HighQoS with every timer request
+  honoured, the GPU scheduling class (NORMAL). Each thread that does show work by its role, through the platform once the host
+  points `ThreadClaims` at it (before it starts the render host or any part; the render thread claims once the engine is attached):
+  the render thread, decode workers, each audio feeder, the LTC reader, the control lane and the LED sender, each its priority,
+  MMCSS (Games for render, Pro Audio for audio and timecode) and CPU sets (the critical pool on the highest efficiency class, never
+  a hard affinity). The policy also holds the present, capture, network and background roles' claims (MMCSS's Capture task, EcoQoS
+  for background pools), which `PlatformCallsTests` makes on the Windows runner; no node thread claims them yet. Keep-awake under
+  `AWAKE ON` while the project has an enabled display output, and the GC's SustainedLowLatency while armed under `GC SHOW`. A
+  default is on only where its cause is documented: the GPU scheduling class, the GC's show mode and ONE-CACHE are off until L10
+  measures them. A refused claim is amber in STATE and preflight, with Windows' words.
 - **Time.** Every deadline thread — the headless pacer, the LED sender, each audio output's feeder — waits on the platform's
   deadline timer made on its thread; on Windows under TIMER HIGH that is the high-resolution waitable timer, 550 µs late at p99 on
   the hosted runner against 15 233 µs for a wait handle's timeout. The p99 of the last 1 000 waits is in STATE, amber in preflight
@@ -266,12 +270,15 @@ show is measured yet.
   words.
 - **As built, against the plan's words.** Keep-awake is a power request (`PowerCreateRequest`), not `SetThreadExecutionState`, whose
   state ends with the thread that set it; the Public-profile row knows the show adapter by the addresses the show doors are bound to
-  (the line wire, the web port, the clock sync while leading, OSC, Art-Net, sACN), so a node bound to every interface reads every
-  connected network; the power plan is in STATE as `machine.platform.powerPlan`; the dual-CCD option is `MACHINE SET CPUSETS
-  ONE-CACHE`, off; the GC's latency mode while armed is built and DEFAULT.
+  (the line wire, the web port, the clock sync while leading, OSC, Art-Net, sACN), so a node bound to every interface, or with an
+  NDI or OMT send open (a send listens on every interface), reads every connected network, and a network whose adapters could not be
+  read is read as one show traffic can cross; the power plan is in STATE as `machine.platform.powerPlan`; the dual-CCD option is
+  `MACHINE SET CPUSETS ONE-CACHE`, off; the GC's latency mode while armed is built and DEFAULT.
 - **Not built.** REALTIME's `GLOBAL_REALTIME` direct queue (wp3-d3d12-core's, docs/round3/PLAN.md §5.5); the runtimes' fill: no
   owner fills one yet, so `machine.identity.runtimes` reads empty (the Agility runtime's is wp3-d3d12-core's, FFmpeg's build
-  Media's, the sync board's firmware wp3-framelock's); each media volume's encryption as a preflight fact.
+  Media's, the sync board's firmware wp3-framelock's); each media volume's encryption as a preflight fact; a node thread's claim of
+  the present, capture, network or background role (the plan thread's Background is wp3-d3d12-passes', the capture threads' Capture
+  wp3-capture's; the presenter's helper and the network servers run unclaimed).
 - **Not proven.** L10 (each claim's effect on frame time on NVIDIA, AMD and Intel nodes, a hybrid Intel CPU and a dual-CCD CPU), L22
   (a precise Windows thread time) and L23 (the edition's rows and the claims on a clean Home node) are not run; every number above
   is the shared runner's.
