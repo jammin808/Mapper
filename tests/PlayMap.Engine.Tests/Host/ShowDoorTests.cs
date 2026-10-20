@@ -1,12 +1,14 @@
 using System.Net;
 using PlayMap.Core.Machine;
 using PlayMap.Engine.Tests.Control;
+using PlayMap.Engine.Tests.VideoIo;
 
 namespace PlayMap.Engine.Tests.Host;
 
 /// <summary>The show doors a node has open now, each with the address it is bound to: the network host's (the line wire, the web port,
-/// and the clock sync while it leads) at the node's bind address or every interface, and the control inputs' (OSC, Art-Net, sACN) at
-/// their own; a door that is closed is not one. The hello, which hears every interface to find its peers, is never one.</summary>
+/// and the clock sync while it leads) at the node's bind address or every interface, the control inputs' (OSC, Art-Net, sACN) at
+/// their own, and each open network send's (NDI, OMT) on every interface; a door that is closed is not one. The hello, which hears
+/// every interface to find its peers, is never one.</summary>
 public sealed class ShowDoorTests
 {
     private static readonly IPAddress Loopback = IPAddress.Parse("127.0.0.1");
@@ -47,6 +49,21 @@ public sealed class ShowDoorTests
         // OSC off, and neither DMX input on: no control door is open.
         await using var quiet = await ControlRig.StartAsync(service: true, settings: s => s with { OscEnabled = false });
         Assert.Empty(quiet.Service!.Doors);
+    }
+
+    [Fact]
+    public async Task EachOpenNetworkSendIsADoorOnEveryInterfaceWhileItsSenderIsOpen()
+    {
+        await using var rig = new VideoIoRig();
+        Assert.Empty(rig.Engine.VideoIo.Doors);
+        var omt = VideoIoRig.IdOf(await rig.Ok("SEND ADD OMT Main output:op_1 ALWAYS"));
+        await rig.Ok("SEND ADD NDI Wall output:op_1 ALWAYS");
+        Assert.Equal<ShowDoor>([new ShowDoor("omt", IPAddress.Any), new ShowDoor("ndi", IPAddress.Any)], rig.Engine.VideoIo.Doors);
+        Assert.All(rig.Engine.VideoIo.Doors, d => Assert.True(d.Everywhere, d.Name));
+
+        // A send turned off closes its sender, and its door with it.
+        await rig.Ok($"SEND ENABLE {omt} OFF");
+        Assert.Equal<ShowDoor>([new ShowDoor("ndi", IPAddress.Any)], rig.Engine.VideoIo.Doors);
     }
 
     [Fact]
