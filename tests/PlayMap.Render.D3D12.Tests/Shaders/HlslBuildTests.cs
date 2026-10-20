@@ -52,8 +52,9 @@ public sealed class HlslBuildTests
         foreach (var dxil in blobs.Where(b => b.EndsWith(".dxil", StringComparison.Ordinal)))
             Assert.True(new DxilOutput(true, HlslCompile.Resource(dxil)!, [], [], "").Signed, $"{dxil} is not signed");
 
-        // Each embedded entry is the one the sources and the program list make now: its reflection (constants and bindings) is the
-        // in-process compile's, so a blob the build left behind after an entry point, a file or a source changed fails here.
+        // Each embedded entry is the one the sources and the program list make now: its reflection (constants, bindings, block sizes
+        // and input signature) is the in-process compile's, so a blob the build left behind after an entry point, a file or a source
+        // changed fails here.
         var stale = new List<string>();
         foreach (var c in HlslCompile.Programs)
         {
@@ -65,7 +66,8 @@ public sealed class HlslBuildTests
                     stale.Add($"{c.Program.Name} {stage}: {words}{s.Words}");
                     continue;
                 }
-                if (!embedded.Constants.SequenceEqual(s.Reflection.Constants) || !embedded.Bindings.SequenceEqual(s.Reflection.Bindings))
+                if (!embedded.Constants.SequenceEqual(s.Reflection.Constants) || !embedded.Bindings.SequenceEqual(s.Reflection.Bindings)
+                    || !embedded.Buffers.SequenceEqual(s.Reflection.Buffers) || !embedded.Inputs.SequenceEqual(s.Reflection.Inputs))
                     stale.Add($"{c.Program.Name} {stage}: the embedded entry reflects [{Describe(embedded)}], the sources make [{Describe(s.Reflection)}]");
             }
         }
@@ -73,5 +75,8 @@ public sealed class HlslBuildTests
     }
 
     private static string Describe(DxilReflection r) =>
-        string.Join(", ", r.Constants.Select(k => $"{k.Buffer}.{k.Name}:{k.Type}@{k.Offset}").Concat(r.Bindings.Select(b => $"{b.Kind} {b.Name}@{b.Register}")));
+        string.Join(", ", r.Constants.Select(k => $"{k.Buffer}.{k.Name}:{k.Type}{(k.RowMajor ? " row_major" : "")}@{k.Offset}")
+            .Concat(r.Bindings.Select(b => $"{b.Kind} {b.Name}@{b.Register}"))
+            .Concat(r.Buffers.Select(b => $"{b.Name} {b.Size} bytes"))
+            .Concat(r.Inputs.Select(i => $"in {i.Semantic}{i.Index}:{i.Type}{i.Components}")));
 }

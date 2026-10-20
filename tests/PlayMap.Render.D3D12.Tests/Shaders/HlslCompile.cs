@@ -26,6 +26,16 @@ internal static class HlslCompile
     /// <summary>A reflection blob read through the shader worker's pinned DXC; null with words when it does not read.</summary>
     public static DxilReflection? Reflect(byte[] reflection, out string words) => Compiler.Value.Reflect(reflection, out words);
 
+    /// <summary>One entry of a source compiled with the build's arguments, and its reflection; null with words when either fails.</summary>
+    public static DxilReflection? CompileAndReflect(string source, string entry, string target, out string words)
+    {
+        var output = Compiler.Value.Compile(source, entry, target, Arguments);
+        if (output.Ok)
+            return Compiler.Value.Reflect(output.Reflection, out words);
+        words = output.Words;
+        return null;
+    }
+
     public static byte[]? Resource(string name)
     {
         using var stream = Backend.GetManifestResourceStream(name);

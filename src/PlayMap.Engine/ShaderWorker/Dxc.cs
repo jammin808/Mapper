@@ -12,14 +12,24 @@ public sealed record DxilOutput(bool Ok, byte[] Dxil, byte[] Pdb, byte[] Reflect
 }
 
 /// <summary>A constant as DXC's reflection reads it: its cbuffer, name, type word (as <see cref="LayoutConstant"/> spells it),
-/// offset, array length and whether the entry reads it.</summary>
-public readonly record struct ReflectedConstant(string Buffer, string Name, string Type, int Offset, int Count, bool Used);
+/// offset, array length, whether the entry reads it, and whether it is a matrix laid one row a register (row_major).</summary>
+public readonly record struct ReflectedConstant(string Buffer, string Name, string Type, int Offset, int Count, bool Used, bool RowMajor);
 
 /// <summary>A resource an entry binds: its name, kind (cbuffer, texture, sampler, other), register and space.</summary>
 public readonly record struct ReflectedBinding(string Name, string Kind, int Register, int Space);
 
-/// <summary>What an entry's reflection holds: every cbuffer's constants and every binding.</summary>
-public sealed record DxilReflection(ImmutableArray<ReflectedConstant> Constants, ImmutableArray<ReflectedBinding> Bindings);
+/// <summary>A cbuffer an entry declares: its name and its size in bytes, a whole number of 16-byte registers.</summary>
+public readonly record struct ReflectedBuffer(string Name, int Size);
+
+/// <summary>An element of an entry's input signature: its semantic name (a system value's in DXC's capitals, SV_VERTEXID) and index,
+/// its system value (D3D_NAME: 0 none, 6 SV_VertexID, 8 SV_InstanceID), its component type (float, int, uint; "?" for any other)
+/// and how many components it declares (its mask's bits).</summary>
+public readonly record struct ReflectedInput(string Semantic, int Index, int SystemValue, string Type, int Components);
+
+/// <summary>What an entry's reflection holds: every cbuffer's constants, every binding, every cbuffer's size, and its input
+/// signature in the signature's order.</summary>
+public sealed record DxilReflection(ImmutableArray<ReflectedConstant> Constants, ImmutableArray<ReflectedBinding> Bindings,
+    ImmutableArray<ReflectedBuffer> Buffers, ImmutableArray<ReflectedInput> Inputs);
 
 /// <summary>DXC through its COM interface (IDxcCompiler3, IDxcUtils, the validator): HLSL to DXIL, validated and signed by the
 /// pinned validator (loaded first, so the compiler's own look-up finds that build), and a container's reflection read through
@@ -243,11 +253,12 @@ public sealed unsafe class Dxc : IDisposable
 
     private static DxilReflection ReadReflection(nint r)
     {
-        // D3D12_SHADER_DESC: Version, Creator, Flags, then ConstantBuffers and BoundResources.
+        // D3D12_SHADER_DESC: Version, Creator, Flags, then ConstantBuffers, BoundResources and InputParameters.
         var desc = stackalloc byte[512];
         _ = ((delegate* unmanaged<nint, byte*, int>)Slot(r, 3))(r, desc);
         var buffers = *(int*)(desc + 20);
         var bound = *(int*)(desc + 24);
+        var parameters = *(int*)(desc + 28);
         var bindings = ImmutableArray.CreateBuilder<ReflectedBinding>();
         var b = stackalloc byte[64];
         var bd = stackalloc byte[64];
@@ -267,6 +278,24 @@ public sealed unsafe class Dxc : IDisposable
             };
             bindings.Add(new ReflectedBinding(Marshal.PtrToStringUTF8(*(nint*)b) ?? "", kind, *(int*)(b + 12), *(int*)(b + 36)));
         }
+        var inputs = ImmutableArray.CreateBuilder<ReflectedInput>();
+        var sp = stackalloc byte[64];
+        for (var i = 0; i < parameters; i++)
+        {
+            // D3D12_SIGNATURE_PARAMETER_DESC: SemanticName, SemanticIndex, Register, SystemValueType, ComponentType, Mask.
+            if (((delegate* unmanaged<nint, uint, byte*, int>)Slot(r, 7))(r, (uint)i, sp) < 0)
+                continue;
+            var type = *(int*)(sp + 20) switch
+            {
+                1 => "uint",
+                2 => "int",
+                3 => "float",
+                _ => "?",
+            };
+            inputs.Add(new ReflectedInput(Marshal.PtrToStringUTF8(*(nint*)sp) ?? "", *(int*)(sp + 8), *(int*)(sp + 16), type,
+                System.Numerics.BitOperations.PopCount(sp[24])));
+        }
+        var sizes = ImmutableArray.CreateBuilder<ReflectedBuffer>();
         var constants = ImmutableArray.CreateBuilder<ReflectedConstant>();
         for (var i = 0; i < buffers; i++)
         {
@@ -275,8 +304,10 @@ public sealed unsafe class Dxc : IDisposable
             var cb = ((delegate* unmanaged<nint, uint, nint>)Slot(r, 4))(r, (uint)i);
             if (cb == 0 || ((delegate* unmanaged<nint, byte*, int>)Slot(cb, 0))(cb, bd) < 0)
                 continue;
+            // D3D12_SHADER_BUFFER_DESC: Name, Type, Variables, Size.
             var buffer = Marshal.PtrToStringUTF8(*(nint*)bd) ?? "";
             var variables = *(int*)(bd + 12);
+            sizes.Add(new ReflectedBuffer(buffer, *(int*)(bd + 16)));
             for (var v = 0; v < variables; v++)
             {
                 var variable = ((delegate* unmanaged<nint, uint, nint>)Slot(cb, 1))(cb, (uint)v);
@@ -285,15 +316,15 @@ public sealed unsafe class Dxc : IDisposable
                 var type = ((delegate* unmanaged<nint, nint>)Slot(variable, 1))(variable);
                 if (type == 0 || ((delegate* unmanaged<nint, byte*, int>)Slot(type, 0))(type, td) < 0)
                     continue;
-                // D3D12_SHADER_VARIABLE_DESC: Name, StartOffset, Size, uFlags (2: used). D3D12_SHADER_TYPE_DESC: Class, Type,
-                // Rows, Columns, Elements.
+                // D3D12_SHADER_VARIABLE_DESC: Name, StartOffset, Size, uFlags (2: used). D3D12_SHADER_TYPE_DESC: Class (2: a
+                // matrix one row a register, 3: one column a register), Type, Rows, Columns, Elements.
                 var elements = *(int*)(td + 16);
                 constants.Add(new ReflectedConstant(buffer, Marshal.PtrToStringUTF8(*(nint*)vd) ?? "",
                     TypeWord(*(int*)td, *(int*)(td + 4), *(int*)(td + 8), *(int*)(td + 12)), *(int*)(vd + 8), Math.Max(1, elements),
-                    (*(int*)(vd + 16) & 2) != 0));
+                    (*(int*)(vd + 16) & 2) != 0, *(int*)td == 2));
             }
         }
-        return new DxilReflection(constants.ToImmutable(), bindings.ToImmutable());
+        return new DxilReflection(constants.ToImmutable(), bindings.ToImmutable(), sizes.ToImmutable(), inputs.ToImmutable());
     }
 
     /// <summary>A reflected type in <see cref="LayoutConstant"/>'s words: float, floatN, floatNxN, int, intN (bool and uint are
