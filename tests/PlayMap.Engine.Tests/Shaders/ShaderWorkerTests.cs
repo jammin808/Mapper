@@ -25,7 +25,8 @@ namespace PlayMap.Engine.Tests.Shaders;
 /// source meets a fresh one; a node that stops mid-compile answers so and fails nothing; the worker's own process ends when its input
 /// closes, mid-compile too, and runs below normal priority; a worker none of whose natives loaded says so in STATE; FX CHECK on an
 /// armed node reads the host's own words when its bound ends a check, and three such ends change no quarantine, so a runner given the
-/// node's quarantine still draws the kind; and the engine's own process holds no compiler module while its worker does. No test
+/// node's quarantine still draws the kind; and the engine's own process holds no compiler module and, like its worker's, no validator
+/// library, while its worker holds the compilers. No test
 /// asserts a time: the clocks the host waits on are moved by hand.</summary>
 public sealed class ShaderWorkerTests
 {
@@ -115,7 +116,8 @@ public sealed class ShaderWorkerTests
         Assert.All(natives, n => Assert.True(n.Ok && n.File.Length > 0, $"{n.Name} ({n.File}): {n.Words}"));
         Assert.Equal(dxcompiler, natives.Single(n => n.Name == "dxc").File);
         Assert.DoesNotContain(natives, n => n.File.Contains("dxil", StringComparison.OrdinalIgnoreCase));
-        var state = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker")
+        using var doc = JsonDocument.Parse(engine.State().Json);
+        var state = doc.RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker")
             .GetProperty("natives").EnumerateArray().Select(n => (n.GetProperty("name").GetString(), n.GetProperty("file").GetString())).ToList();
         Assert.Equal(natives.Select(n => ((string?)n.Name, (string?)n.File)), state);
 
@@ -416,7 +418,8 @@ public sealed class ShaderWorkerTests
         Assert.Equal(ShaderRoad.GlslangStage, reply.Stage);
         Assert.Contains(ShaderWorkerMain.UnloadedWords, reply.Words, StringComparison.Ordinal);
 
-        var worker = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker");
+        using var doc = JsonDocument.Parse(engine.State().Json);
+        var worker = doc.RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker");
         Assert.True(worker.GetProperty("running").GetBoolean());
         Assert.Equal(4, worker.GetProperty("missing").GetInt32());
         Assert.All(worker.GetProperty("natives").EnumerateArray(), n => Assert.False(n.GetProperty("ok").GetBoolean()));
@@ -437,7 +440,8 @@ public sealed class ShaderWorkerTests
             Assert.Equal(ShaderRoad.StageNames, stages.Select(s => s.GetProperty("name").GetString()));
             Assert.All(stages, s => Assert.True(s.GetProperty("ok").GetBoolean(), s.GetProperty("words").GetString()));
         }
-        var worker = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker");
+        using var doc = JsonDocument.Parse(engine.State().Json);
+        var worker = doc.RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker");
         Assert.True(worker.GetProperty("running").GetBoolean());
         Assert.Equal(0, worker.GetProperty("missing").GetInt32());
         var pid = worker.GetProperty("pid").GetInt32();
@@ -447,8 +451,10 @@ public sealed class ShaderWorkerTests
             [.. p.Modules.Cast<ProcessModule>().Select(m => Path.GetFileName(m.FileName ?? "")).Where(n => CompilerNatives.AllFiles.Contains(n))];
         using var self = Process.GetCurrentProcess();
         Assert.Empty(Modules(self));
+        Assert.DoesNotContain(ModulesOf(self.Id), IsValidatorLibrary);
         using var child = Process.GetProcessById(pid);
         var held = Modules(child);
+        Assert.DoesNotContain(ModulesOf(pid), IsValidatorLibrary);
         Assert.Contains(held, n => n is "libdxcompiler.so" or "dxcompiler.dll");
         Assert.Contains(held, n => n is "libshaderc_shared.so" or "shaderc_shared.dll");
         Assert.Contains(held, n => n is "libspirv-cross.so" or "spirv-cross.dll");

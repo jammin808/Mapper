@@ -162,11 +162,16 @@ public sealed partial class DxcNativesTests
             }
         }
 
-        // No project, build, publish or installer file of the tree names one (its comments aside): nothing copies one by name.
+        // No project, build, publish, installer, workflow or script file of the tree names one (its comments aside, each in its own
+        // format's words): nothing copies one by name.
+        var build = BuildFiles().ToList();
+        Assert.Contains(build, f => Path.GetFileName(f) == "build.yml");
+        Assert.Contains(build, f => Path.GetExtension(f) == ".ps1");
+        Assert.Contains(build, f => Path.GetExtension(f) == ".sh");
         var named = new List<string>();
-        foreach (var file in BuildFiles())
+        foreach (var file in build)
         {
-            var text = XmlComment().Replace(File.ReadAllText(file), "");
+            var text = WithoutComments(file);
             if (Validators.Any(v => text.Contains(v, StringComparison.OrdinalIgnoreCase)) || text.Contains("Vortice.Dxc", StringComparison.OrdinalIgnoreCase))
                 named.Add(Path.GetRelativePath(Root, file));
         }
@@ -291,19 +296,44 @@ public sealed partial class DxcNativesTests
         return folder;
     }
 
-    /// <summary>Every project, build, publish and installer file of the tree, build outputs and the Companion module's packages aside.</summary>
+    /// <summary>Every project, build, publish and installer file of the tree — MSBuild's, Inno Setup's and WiX's — with CI's workflows
+    /// and every script (PowerShell and shell), build outputs, a publish and the Companion module's packages aside.</summary>
     private static IEnumerable<string> BuildFiles()
     {
-        string[] patterns = ["*.csproj", "*.props", "*.targets", "*.pubxml", "*.iss", "*.wxs"];
+        string[] patterns = ["*.csproj", "*.props", "*.targets", "*.pubxml", "*.iss", "*.wxs", "*.yml", "*.yaml", "*.ps1", "*.psm1", "*.sh"];
         var sep = Path.DirectorySeparatorChar;
+        string[] aside = ["bin", "obj", "publish", "node_modules", ".git"];
         return patterns.SelectMany(p => Directory.EnumerateFiles(Root, p, SearchOption.AllDirectories))
-            .Where(f => !f.Contains($"{sep}bin{sep}", StringComparison.Ordinal) && !f.Contains($"{sep}obj{sep}", StringComparison.Ordinal)
-                && !f.Contains($"{sep}node_modules{sep}", StringComparison.Ordinal) && !f.Contains($"{sep}.git{sep}", StringComparison.Ordinal))
+            .Where(f => !aside.Any(a => f.Contains($"{sep}{a}{sep}", StringComparison.Ordinal)))
             .Order(StringComparer.Ordinal);
+    }
+
+    /// <summary>A build file's text without its comments, in its own format's words: XML's &lt;!-- --&gt;; Inno Setup's lines that start
+    /// with a semicolon; PowerShell's &lt;# #&gt; blocks; and from a # that starts a line or follows white space to the line's end in
+    /// PowerShell, shell scripts and YAML.</summary>
+    private static string WithoutComments(string file)
+    {
+        var text = File.ReadAllText(file);
+        return Path.GetExtension(file).ToLowerInvariant() switch
+        {
+            ".iss" => IssComment().Replace(text, ""),
+            ".ps1" or ".psm1" => HashComment().Replace(PowerShellBlock().Replace(text, ""), ""),
+            ".sh" or ".yml" or ".yaml" => HashComment().Replace(text, ""),
+            _ => XmlComment().Replace(text, ""),
+        };
     }
 
     [GeneratedRegex("<!--.*?-->", RegexOptions.Singleline)]
     private static partial Regex XmlComment();
+
+    [GeneratedRegex("^[ \\t]*;.*$", RegexOptions.Multiline)]
+    private static partial Regex IssComment();
+
+    [GeneratedRegex("<#.*?#>", RegexOptions.Singleline)]
+    private static partial Regex PowerShellBlock();
+
+    [GeneratedRegex("(^|[ \\t])#.*$", RegexOptions.Multiline)]
+    private static partial Regex HashComment();
 
     [GeneratedRegex("\\s+")]
     private static partial Regex Space();

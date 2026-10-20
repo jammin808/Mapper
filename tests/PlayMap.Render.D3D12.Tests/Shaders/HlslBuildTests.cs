@@ -8,8 +8,10 @@ namespace PlayMap.Render.D3D12.Tests.Shaders;
 /// library's. Signed is the retail hash: each container's digest is the hash recomputed over it from the published algorithm, never
 /// zeros or a bypass sentinel. On Windows the build's own compile (Microsoft.Direct3D.DXC's dxc.exe) embedded the same set: each
 /// entry's DXIL signed so and its reflection beside it, the reflection the sources make now (a stale blob fails); on Linux, where no
-/// DXC executable is packaged, the build embeds none. The Windows job keeps every entry's PDB the build writes. The Linux job lays
-/// down the shader worker's pinned dxcompiler before it restores.</summary>
+/// DXC executable is packaged, the build embeds none. The build starts dxc.exe without the variable through which DXC's driver would
+/// load an external validator, and the Windows job, which names a path with nothing there in it before its build, keeps every entry's
+/// PDB the build writes and holds its published exe to DXC's compiler alone with its licence before uploading it. The Linux job lays
+/// down the shader worker's pinned dxcompiler, the release's one file, before it restores.</summary>
 public sealed class HlslBuildTests
 {
     [Fact]
@@ -90,9 +92,9 @@ public sealed class HlslBuildTests
     }
 
     /// <summary>The Linux job lays down the shader worker's dxcompiler before it restores, in a step of its own: DXC's Linux release
-    /// downloaded, the archive held to its SHA-256, libdxcompiler.so held to the worker's pin, and the folder named in PLAYMAP_DXC_DIR
-    /// for the build (which copies it beside the engine) and the suites. The Windows job takes dxcompiler.dll from NuGet and has no
-    /// such step.</summary>
+    /// downloaded, the archive held to its SHA-256, its one member ./lib/libdxcompiler.so extracted (nothing of DXC's validator) and
+    /// held to the worker's pin, and the folder named in PLAYMAP_DXC_DIR for the build (which copies it beside the engine) and the
+    /// suites. The Windows job takes dxcompiler.dll from NuGet and has no such step.</summary>
     [Fact]
     public void TheLinuxJobLaysDownThePinnedDxcompilerBeforeItRestores()
     {
@@ -106,6 +108,11 @@ public sealed class HlslBuildTests
         Assert.Contains(CompilerNatives.PinsFor("linux-x64").Single(p => p.Name == CompilerNatives.Dxc).Sha256, run, StringComparison.Ordinal);
         Assert.Contains("sha256sum -c", run, StringComparison.Ordinal);
         Assert.Contains("$GITHUB_ENV", run, StringComparison.Ordinal);
+        // Of the release, the one file: the archive's single member ./lib/libdxcompiler.so, and nothing of DXC's validator.
+        var tar = Assert.Single(run.Split('\n'), l => l.StartsWith("tar ", StringComparison.Ordinal));
+        Assert.EndsWith(" --strip-components=2 ./lib/libdxcompiler.so", tar, StringComparison.Ordinal);
+        Assert.DoesNotContain("*", tar, StringComparison.Ordinal);
+        Assert.DoesNotContain("libdxil", run, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(WorkflowSteps("windows"), s => s.Run.Contains("PLAYMAP_DXC_DIR", StringComparison.Ordinal));
     }
 
