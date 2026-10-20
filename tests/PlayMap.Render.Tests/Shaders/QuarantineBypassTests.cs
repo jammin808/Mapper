@@ -6,8 +6,8 @@ using PlayMap.Render.Tests.Effects;
 namespace PlayMap.Render.Tests.Shaders;
 
 /// <summary>A quarantined kind on the reference backend (GL): its slot draws its input unchanged (± 0 codes: the chain hands on the
-/// input itself) and says so in its observed state, while the rest of the chain draws what it draws after a slot bypassed by hand;
-/// once released the slot draws its effect again.</summary>
+/// input itself) and says so in its observed state (quarantined, at no GPU time), while the rest of the chain draws what it draws
+/// after a slot bypassed by hand; once released the slot draws its effect again.</summary>
 [Collection("gpu")]
 public sealed class QuarantineBypassTests(BackendFixture backends)
 {
@@ -37,7 +37,7 @@ public sealed class QuarantineBypassTests(BackendFixture backends)
             Assert.Equal(input, held);
             Assert.Same(picture, FxRig.Step(d, lane, runner, Show, chain, picture, ref frame, 1_000_000_000));
             var live = FxRig.Live(runner, "fx00000001");
-            Assert.Equal(FxSlotState.Bypassed, live.State);
+            Assert.Equal((FxSlotState.Quarantined, 0.0), (live.State, live.GpuMs));
             Assert.StartsWith("quarantined on this node", live.Words, StringComparison.Ordinal);
 
             // The rest of the chain draws: the levels slot after it draws on the input itself, exactly as the same chain does on a
@@ -45,7 +45,7 @@ public sealed class QuarantineBypassTests(BackendFixture backends)
             var levels = FxRig.Slot("fx.levels", ParamSet.Empty.With("outWhite", 0.5), id: "fx00000002");
             var two = FxRig.Chain(FxRig.Slot("fx.invert"), levels);
             var after = FxRig.Run(d, lane, runner, Show, two, picture, ref frame, owner: "op_two");
-            Assert.Equal(FxSlotState.Bypassed, FxRig.Live(runner, "fx00000001").State);
+            Assert.Equal(FxSlotState.Quarantined, FxRig.Live(runner, "fx00000001").State);
             Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000002").State);
             using var plain = new FxChainRunner(d, lane);
             var expected = FxRig.Run(d, lane, plain, Show, FxRig.Chain(FxRig.Slot("fx.invert", bypass: true), levels), picture,

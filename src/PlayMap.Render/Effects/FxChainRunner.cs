@@ -179,7 +179,10 @@ public sealed class FxChainRunner : IDisposable
         }
         if (Quarantine?.Hashes.Contains(files.Hash) == true)
         {
-            Stats.For(slot.Id).Set(FxSlotState.Bypassed, "quarantined on this node (FX RELEASE lifts it): its input passes unchanged", _frame);
+            // Nothing of the slot is drawn, so it costs the frame nothing.
+            var held = Stats.For(slot.Id);
+            held.Set(FxSlotState.Quarantined, "quarantined on this node (FX RELEASE lifts it): its input passes unchanged", _frame);
+            held.Gpu(0);
             return current;
         }
         if (!_slots.TryGetValue(slot.Id, out var state))

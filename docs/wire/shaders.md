@@ -4,9 +4,9 @@
 Direct3D 12 road, and the HLSL library the Direct3D 12 backend reads. The exe composes the node's part (`EngineParts.Standard()`'s
 `Shaders` hook adds `ShadersExtension.Factory`, the shader worker at its default options), so every node it runs keeps its
 quarantine in its home, says `fx.compile.worker` and `fx.quarantine` in STATE, answers FX CHECK's Direct3D 12 stages through the
-worker and carries the quarantine's preflight rows; a node composed without the part holds an empty quarantine in memory. **No
-renderer bypasses a quarantined kind yet**: no render host hands the renderer the node's quarantine (the papers note's second
-merge-gate item). wp3-shaders-2 adds user effects drawn on the device (`design/shaders.md` §11).*
+worker and carries the quarantine's preflight rows; a node composed without the part holds an empty quarantine in memory. Its
+render host hands the renderer the node's quarantine, so a quarantined kind's slots draw bypassed. wp3-shaders-2 adds user effects
+drawn on the device (`design/shaders.md` §11).*
 
 ## Verbs
 
@@ -46,13 +46,16 @@ Inside wp2-fx's `fx` block (`tests/fixtures/state/shaders.json`, cards in `shade
   `reason` (`gpuTime`, `deviceRemoved`, `compilerStopped`, or the word a newer build wrote for a reason this one does not know,
   kept as it was), `words`, `at` (Unix ms), `build`, and `slots` — the show's slots whose kind it is.
 
-The renderer (`FxChainRunner.Quarantine`) draws a quarantined kind's slots bypassed, their input passing unchanged, and says so in
-the slot's observed state (`fx.slots[].state` "bypassed", with words) once it is handed the node's quarantine; no render host hands
-it one yet (the papers note's second merge-gate item), so on a node today a quarantined kind's slots still draw. Preflight's `fx`
-section is red for each quarantined kind (fix `FX RELEASE <hash>`, the kind's own entry whatever its name) and for each slot that
-uses one (fix `FX REMOVE <slot>`), and red while the record kept in the node's home could not be read whole at start ("The
-quarantine record could not be read", with where it was kept aside); it is one green row only when the whole record was read and
-no kind is quarantined.
+The renderer draws a quarantined kind's slots bypassed, their input passing unchanged and nothing of them drawn: the render host
+hands each effects pass the node's quarantine (`FxPass.Quarantine`, its chain runner's) before the engine reads the pass, a pass
+made again after a context loss included. The slot's observed state says so: `fx.slots[].state` "bypassed" with the words
+"quarantined on this node (FX RELEASE lifts it): its input passes unchanged", `gpuMs` 0 and `bypass` false (the show's own bypass
+is not set); once released, the slot draws its effect again.
+
+Preflight's `fx` section is red for each quarantined kind (fix `FX RELEASE <hash>`, the kind's own entry whatever its name) and
+for each slot that uses one (fix `FX REMOVE <slot>`), and red while the record kept in the node's home could not be read whole at
+start ("The quarantine record could not be read", with where it was kept aside); it is one green row only when the whole record
+was read and no kind is quarantined.
 
 ## The quarantine record
 
@@ -92,10 +95,14 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
      source). `ShadersExtensionTests` take that factory from `EngineParts.Standard()` by reference and start a node (`HostRig`) with
      it: STATE carries `fx.compile.worker` and `fx.quarantine`, preflight its `fx.quarantine` row, and an entry the node quarantined
      is read again, red with its `FX RELEASE`, by a node started from the same home (`ShaderParts.QuarantinePath`).
+  2. The renderer's quarantine: `FxPass.Quarantine` passes through to its chain runner's, and `RenderHost.Fx`'s `ComposeFx` hands it
+     `EngineServices.Quarantine` the first time each pass meets the engine (the render host's request is made before any extension
+     configures, so it cannot carry the quarantine). `FxSlotState.Quarantined` is the renderer's word for a held slot, and `FxBoard`
+     (wp2-fx's) reads it as "bypassed", while a renderer's `Bypassed` (the show's own bypass or mix 0) stays read from the project.
+     This package's `FxChainRunner` hunk reports a held slot `Quarantined` at no GPU time. `QuarantineRenderTests` start a node with
+     the exe's render host and shaders part: the quarantined slot's output shows its chain's input and its `fx.slots[].state` reads
+     "bypassed" with those words, and after `FX RELEASE` it draws its effect and reads "ok".
 - **Merge-gate items: the seams this package needs and does not own** (it works behind its own until they land):
-  2. The renderer's quarantine: `FxPass` and `RenderHost.Fx` are wp3-rhi's, and §4 grants this package only `FxChainRunner`'s hunk,
-     so the line that hands `EngineServices.Quarantine` to `FxChainRunner.Quarantine` needs a hunk named in §4 or a spine seam (the
-     render host's request carrying the quarantine, say). Then a quarantined slot's `fx.slots[].state` reads "bypassed" on that node.
   3. `fx.library.quarantined` (wp2-fx's `EngineCore.Fx.cs`) is a constant 0 beside a non-empty `fx.quarantine`: a hook or the line
      that writes `Services.Quarantine.All.Length` there, with this package's fixture then carrying `fx.library`.
   4. The HLSL library's PDBs: the build writes them to `obj/` beside the DXIL, and no CI step keeps them. A package edits only its
