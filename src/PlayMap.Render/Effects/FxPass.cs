@@ -1,3 +1,4 @@
+using PlayMap.Core.Effects;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
@@ -77,6 +78,14 @@ public sealed class FxPass : IFramePass
 
     /// <summary>The kinds the last frame's show could use.</summary>
     public FxCatalog Catalog => _runner.Catalog;
+
+    /// <summary>The node's quarantine, handed to the chain runner: a slot whose kind it holds draws bypassed, its input passing
+    /// unchanged (null: none). Set on the render thread before the pass draws.</summary>
+    public ShaderQuarantine? Quarantine
+    {
+        get => _runner.Quarantine;
+        set => _runner.Quarantine = value;
+    }
 
     /// <summary>The frame's leader instant as wall time, for DATE; the host sets it each frame.</summary>
     public long UnixMs { get; set; }

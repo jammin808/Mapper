@@ -6,7 +6,8 @@ namespace PlayMap.Engine.Rendering;
 
 /// <summary>wp2-fx's hooks into the render host: the effects pass in every frame (item, layer and surface chains as their pictures
 /// are made, output chains before the output stage), made with the device (its programs asked of the device's lane) and let go
-/// with it, and the engine told when a slot's observed state moves (the numbers ride the next push; a state change makes one).</summary>
+/// with it, handed the node's quarantine (a quarantined kind's slots draw bypassed), and the engine told when a slot's observed
+/// state moves (the numbers ride the next push; a state change makes one).</summary>
 public sealed partial class RenderHost
 {
 #pragma warning disable CA2213 // Disposed by OnContextLostFx on the render thread that made it, never from DisposeAsync's thread.
@@ -24,6 +25,8 @@ public sealed partial class RenderHost
         if (!ReferenceEquals(_fxEngine, engine))
         {
             _fxEngine = engine;
+            // The node's quarantine (one for the node's life), handed to each pass the device makes before the engine reads it.
+            fx.Quarantine = engine.Services.Quarantine;
             engine.Fx.Attach(fx);
         }
         if (_fxPasses.IsDefault || inputs.Passes != _fxGiven)
