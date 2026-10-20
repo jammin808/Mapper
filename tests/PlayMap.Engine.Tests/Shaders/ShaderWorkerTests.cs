@@ -12,11 +12,14 @@ using PlayMap.Engine.Tests.Show;
 using PlayMap.Engine.Tests.Spine;
 using PlayMap.Render.Effects;
 using PlayMap.Render.Platform;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Shaders;
 
 /// <summary>The shader worker as the engine runs it (the node host in its "shader-worker" role): a good source answers validated
-/// DXIL and a layout; a syntax error answers its stage and the ISF line; a fake compiler that aborts is started again after a backoff
+/// DXIL and a layout; the worker's hello (and STATE) names each native's file, DXC's being dxcompiler and none DXC's separate
+/// validator library, which its process never holds; its DXIL carries the retail hash recomputed here over each container, written by
+/// dxcompiler's built-in validator; a syntax error answers its stage and the ISF line; a fake compiler that aborts is started again after a backoff
 /// that doubles (counted on a manual clock), and the third stop fails the source with words in the host's own memory, writing no
 /// quarantine; a compile past the deadline is ended and counts no stop; a compile its caller abandons ends its worker, so the next
 /// source meets a fresh one; a node that stops mid-compile answers so and fails nothing; the worker's own process ends when its input
@@ -81,6 +84,65 @@ public sealed class ShaderWorkerTests
         Assert.Equal((0, 1, 0), (facts.Restarts, facts.Compiled, facts.Failed));
         Assert.Equal(["glslang", "spirv-val", "spirv-cross", "dxc"], facts.Natives.Select(n => n.Name));
         Assert.All(facts.Natives, n => Assert.True(n.Ok, n.Words));
+    }
+
+    /// <summary>The modules a process holds, by file name.</summary>
+    private static List<string> ModulesOf(int pid)
+    {
+        using var p = Process.GetProcessById(pid);
+        return [.. p.Modules.Cast<ProcessModule>().Select(m => Path.GetFileName(m.FileName ?? ""))];
+    }
+
+    private static bool IsValidatorLibrary(string file) =>
+        file.Equals("dxil.dll", StringComparison.OrdinalIgnoreCase) || file.Equals("libdxil.so", StringComparison.Ordinal);
+
+    [Fact]
+    public async Task TheWorkersHelloNamesDxcompilerAndItsProcessHoldsNoValidatorLibrary()
+    {
+        await using var host = Host(Options());
+        await using var engine = new EngineCore(ShaderParts.Compose(EngineServices.ForTests(), new ShaderQuarantine(), host));
+        ShaderParts.Attach(engine);
+        Assert.True(WireGrammar.TryParse("FX CHECK fx.levels", out var line, out var error), error?.Reason);
+        var reply = await engine.HandleAsync(line, SessionInfo.Desk("t"), CancellationToken.None);
+        Assert.True(reply.Ok, reply.Payload);
+
+        // DXC is one library, dxcompiler, with its built-in validator: the worker's hello names each native's file, the dxc native's
+        // is dxcompiler and none is a validator library; STATE says the same; and the worker's process holds dxcompiler and no
+        // validator library.
+        var dxcompiler = OperatingSystem.IsWindows() ? "dxcompiler.dll" : "libdxcompiler.so";
+        var natives = host.Facts.Natives;
+        Assert.Equal(["glslang", "spirv-val", "spirv-cross", "dxc"], natives.Select(n => n.Name));
+        Assert.All(natives, n => Assert.True(n.Ok && n.File.Length > 0, $"{n.Name} ({n.File}): {n.Words}"));
+        Assert.Equal(dxcompiler, natives.Single(n => n.Name == "dxc").File);
+        Assert.DoesNotContain(natives, n => n.File.Contains("dxil", StringComparison.OrdinalIgnoreCase));
+        var state = JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("fx").GetProperty("compile").GetProperty("worker")
+            .GetProperty("natives").EnumerateArray().Select(n => (n.GetProperty("name").GetString(), n.GetProperty("file").GetString())).ToList();
+        Assert.Equal(natives.Select(n => ((string?)n.Name, (string?)n.File)), state);
+
+        var pid = host.Facts.Pid ?? throw new InvalidOperationException("no worker runs after FX CHECK");
+        var held = ModulesOf(pid);
+        Assert.Contains(dxcompiler, held);
+        Assert.DoesNotContain(held, IsValidatorLibrary);
+    }
+
+    [Fact]
+    public async Task TheWorkersDxilCarriesTheRetailHashItsCompilerWrote()
+    {
+        await using var host = Host(Options());
+        var levels = Builtin("fx.levels");
+        var reply = await host.CompileAsync("Levels", levels.Fragment, levels.Vertex, CancellationToken.None);
+        Assert.True(reply.Ok, $"{reply.Stage}: {reply.Words}");
+        Assert.Equal(2, reply.Dxil.Length);
+        // Each container's digest is the retail hash recomputed here over the container from the published algorithm: neither the
+        // zeros of DXIL no validator saw nor a bypass sentinel, so the runtime takes it as validated. It was written with no
+        // validator library in the process that compiled it.
+        foreach (var dxil in reply.Dxil)
+        {
+            Assert.Equal(DxilHash.Kind.Hash, DxilHash.KindOf(dxil));
+            Assert.Equal(Convert.ToHexStringLower(DxilHash.RetailOf(dxil)), Convert.ToHexStringLower(DxilHash.Digest(dxil)));
+        }
+        var pid = host.Facts.Pid ?? throw new InvalidOperationException("no worker runs after a compile");
+        Assert.DoesNotContain(ModulesOf(pid), IsValidatorLibrary);
     }
 
     [Fact]

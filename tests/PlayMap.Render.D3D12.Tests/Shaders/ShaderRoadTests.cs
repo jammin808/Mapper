@@ -13,7 +13,8 @@ namespace PlayMap.Render.D3D12.Tests.Shaders;
 /// conversion to Direct3D's clip space (ClipSpace.ToDirect3D: y negated, then z to (z + w) / 2), whether the translator writes the
 /// stage or a file of the user's own does, and a pixel entry writes none; a varying carries one TEXCOORD semantic in both entries
 /// whatever order and subset the fragment file declares, and one the fragment file reads that no vertex output of its name and type
-/// writes is refused at cross with its name; a stage that fails leaves the later stages not run, with the words why.</summary>
+/// writes is refused at cross with its name; a stage that fails leaves the later stages not run, with the words why; a worker without
+/// dxcompiler says so in its hello, in words that say where the file comes from, and a source fails at the dxc stage with them.</summary>
 public sealed partial class ShaderRoadTests
 {
     private static readonly Lazy<RoadNatives> Natives = new(() => RoadNatives.Load());
@@ -198,6 +199,36 @@ public sealed partial class ShaderRoadTests
             Assert.Null(s.Ok);
             Assert.Equal("not run: the translate stage failed", s.Words);
         });
+        Assert.Empty(result.Dxil);
+    }
+
+    [Fact]
+    public void AWorkerWithoutDxcompilerSaysSoInItsHelloAndAtTheDxcStage()
+    {
+        // A folder holding every native the road needs but dxcompiler (a folder of the suite's own, kept: a library loaded from it
+        // stays loaded for the run): the worker's hello names the dxc native not loaded, in words that say where its file comes
+        // from, and a source passes every stage before dxc and fails there with the same words.
+        var folder = Path.Combine(AppContext.BaseDirectory, "natives-without-dxcompiler");
+        Directory.CreateDirectory(folder);
+        foreach (var pin in CompilerNatives.Pins.Where(p => p.Name != CompilerNatives.Dxc))
+        {
+            var from = CompilerNatives.Locate(pin) ?? throw new InvalidOperationException($"{pin.File} is not beside the suite (it comes from {pin.From})");
+            File.Copy(from, Path.Combine(folder, pin.File), overwrite: true);
+        }
+        var dxc = CompilerNatives.Pins.Single(p => p.Name == CompilerNatives.Dxc);
+        using var natives = RoadNatives.Load(folder);
+        var hello = Assert.IsType<ShaderHello>(ShaderWorkerProtocol.Parse(ShaderWorkerProtocol.Hello(1, natives.Loaded)));
+        Assert.Equal([("glslang", true), ("spirv-val", true), ("spirv-cross", true), ("dxc", false)], hello.Natives.Select(n => (n.Name, n.Ok)));
+        Assert.Equal(dxc.File, hello.Natives[3].File);
+        var missing = hello.Natives[3].Words;
+        Assert.Contains($"{dxc.File} is not beside the worker", missing, StringComparison.Ordinal);
+        Assert.Contains(OperatingSystem.IsWindows() ? "Microsoft.Direct3D.DXC" : "PLAYMAP_DXC_DIR", missing, StringComparison.Ordinal);
+
+        var source = FxCatalog.Builtin.Source("fx.invert")!;
+        var result = new ShaderRoad(natives).Run(source.Fragment, source.Vertex);
+        Assert.Equal(ShaderRoad.DxcStage, result.Stage);
+        Assert.Equal([true, true, true, true, false], result.Stages.Select(s => s.Ok));
+        Assert.Equal(missing, result.Words);
         Assert.Empty(result.Dxil);
     }
 

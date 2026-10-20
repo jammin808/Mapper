@@ -74,4 +74,10 @@
   <ItemGroup Label="wp3-rhi">
     <Compile Include="..\Shared\GlFence.cs" Link="Shared\GlFence.cs" />
   </ItemGroup>
+
+  <!-- wp3-shaders: a DXIL container's validator hash from the published algorithm, held by the Engine and Direct3D 12 suites
+       alike. -->
+  <ItemGroup Label="wp3-shaders">
+    <Compile Include="..\Shared\DxilHash.cs" Link="Shared\DxilHash.cs" />
+  </ItemGroup>
 </Project>

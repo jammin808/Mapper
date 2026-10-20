@@ -1,12 +1,15 @@
 using PlayMap.Engine.ShaderWorker;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.D3D12.Tests.Shaders;
 
 /// <summary>Every program of the HLSL library compiles to validated, signed DXIL with a PDB and its reflection, both entries, from
 /// the sources and headers the backend's assembly embeds — on both jobs (M6: DXC's Linux build signs) — and the set is the GL
-/// library's. On Windows the build's own compile (Microsoft.Direct3D.DXC's dxc.exe) embedded the same set: each entry's DXIL signed
-/// and its reflection beside it, the reflection the sources make now (a stale blob fails); on Linux, where no DXC executable is
-/// packaged, the build embeds none. The Windows job keeps every entry's PDB the build writes.</summary>
+/// library's. Signed is the retail hash: each container's digest is the hash recomputed over it from the published algorithm, never
+/// zeros or a bypass sentinel. On Windows the build's own compile (Microsoft.Direct3D.DXC's dxc.exe) embedded the same set: each
+/// entry's DXIL signed so and its reflection beside it, the reflection the sources make now (a stale blob fails); on Linux, where no
+/// DXC executable is packaged, the build embeds none. The Windows job keeps every entry's PDB the build writes. The Linux job lays
+/// down the shader worker's pinned dxcompiler before it restores.</summary>
 public sealed class HlslBuildTests
 {
     [Fact]
@@ -23,6 +26,7 @@ public sealed class HlslBuildTests
                     continue;
                 }
                 Assert.True(s.Output.Signed, $"{c.Program.Name} {stage}: unsigned DXIL");
+                AssertRetailHash(s.Output.Dxil, $"{c.Program.Name} {stage}");
                 Assert.NotEmpty(s.Output.Pdb);
                 Assert.NotEmpty(s.Output.Reflection);
                 Assert.NotNull(s.Reflection);
@@ -50,7 +54,10 @@ public sealed class HlslBuildTests
             .Order(StringComparer.Ordinal);
         Assert.Equal(want, blobs);
         foreach (var dxil in blobs.Where(b => b.EndsWith(".dxil", StringComparison.Ordinal)))
+        {
             Assert.True(new DxilOutput(true, HlslCompile.Resource(dxil)!, [], [], "").Signed, $"{dxil} is not signed");
+            AssertRetailHash(HlslCompile.Resource(dxil)!, dxil);
+        }
 
         // Each embedded entry is the one the sources and the program list make now: its reflection (constants, bindings, block sizes
         // and input signature) is the in-process compile's, so a blob the build left behind after an entry point, a file or a source
@@ -72,6 +79,34 @@ public sealed class HlslBuildTests
             }
         }
         Assert.True(stale.Count == 0, string.Join("\n", stale));
+    }
+
+    /// <summary>The container's digest is its retail hash, recomputed here: DXC's own validator signed it.</summary>
+    private static void AssertRetailHash(byte[] dxil, string what)
+    {
+        Assert.True(DxilHash.KindOf(dxil) == DxilHash.Kind.Hash, $"{what}: its digest is {DxilHash.KindOf(dxil)}, not a hash");
+        Assert.True(DxilHash.RetailOf(dxil).AsSpan().SequenceEqual(DxilHash.Digest(dxil)),
+            $"{what}: its digest {Convert.ToHexStringLower(DxilHash.Digest(dxil))} is not its retail hash {Convert.ToHexStringLower(DxilHash.RetailOf(dxil))}");
+    }
+
+    /// <summary>The Linux job lays down the shader worker's dxcompiler before it restores, in a step of its own: DXC's Linux release
+    /// downloaded, the archive held to its SHA-256, libdxcompiler.so held to the worker's pin, and the folder named in PLAYMAP_DXC_DIR
+    /// for the build (which copies it beside the engine) and the suites. The Windows job takes dxcompiler.dll from NuGet and has no
+    /// such step.</summary>
+    [Fact]
+    public void TheLinuxJobLaysDownThePinnedDxcompilerBeforeItRestores()
+    {
+        var steps = WorkflowSteps("test");
+        var restore = steps.FindIndex(s => s.Name == "Restore");
+        var dxc = steps.FindIndex(s => s.Run.Contains("PLAYMAP_DXC_DIR=", StringComparison.Ordinal));
+        Assert.True(dxc >= 0 && dxc < restore, $"the Linux job names PLAYMAP_DXC_DIR at step {dxc}, its Restore is step {restore}");
+        var run = steps[dxc].Run;
+        Assert.Contains("https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz", run, StringComparison.Ordinal);
+        Assert.Contains("96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1", run, StringComparison.Ordinal);
+        Assert.Contains(CompilerNatives.PinsFor("linux-x64").Single(p => p.Name == CompilerNatives.Dxc).Sha256, run, StringComparison.Ordinal);
+        Assert.Contains("sha256sum -c", run, StringComparison.Ordinal);
+        Assert.Contains("$GITHUB_ENV", run, StringComparison.Ordinal);
+        Assert.DoesNotContain(WorkflowSteps("windows"), s => s.Run.Contains("PLAYMAP_DXC_DIR", StringComparison.Ordinal));
     }
 
     /// <summary>Where the build writes each entry's PDB (Shaders.targets: the backend's intermediate folder, hlsl/&lt;program&gt;/), as the
@@ -111,17 +146,18 @@ public sealed class HlslBuildTests
         Assert.True(missing.Count == 0, "the build wrote no PDB for " + string.Join(", ", missing));
     }
 
-    /// <summary>A step of a job in .github/workflows/build.yml: its name, the action it uses, its condition and its inputs.</summary>
+    /// <summary>A step of a job in .github/workflows/build.yml: its name, the action it uses, its condition, its inputs and its script.</summary>
     private sealed record Step
     {
         public string? Name { get; init; }
         public string? Uses { get; init; }
         public string? If { get; init; }
+        public string Run { get; init; } = "";
         public Dictionary<string, string> With { get; } = new(StringComparer.Ordinal);
     }
 
     /// <summary>A job's steps, read from the workflow's lines: a job's key at two spaces, its steps at six ("- "), a step's keys at
-    /// eight and its inputs at ten; comments and blank lines are skipped.</summary>
+    /// eight, its inputs at ten and its script's lines (after "run: |") deeper than eight; comments and blank lines are skipped.</summary>
     private static List<Step> WorkflowSteps(string job)
     {
         var lines = File.ReadAllLines(Path.Combine(HlslLibrary.RepoRoot(), ".github", "workflows", "build.yml"));
@@ -129,6 +165,7 @@ public sealed class HlslBuildTests
         Assert.True(start >= 0, $"build.yml has no job {job}");
         var steps = new List<Step>();
         var inWith = false;
+        var inRun = false;
         foreach (var raw in lines.Skip(start + 1))
         {
             if (raw.Length > 2 && raw.StartsWith("  ", StringComparison.Ordinal) && raw[2] != ' ')
@@ -137,6 +174,12 @@ public sealed class HlslBuildTests
             if (text.Length == 0 || text.StartsWith('#'))
                 continue;
             var depth = raw.Length - text.Length;
+            if (inRun && depth > 8)
+            {
+                steps[^1] = steps[^1] with { Run = steps[^1].Run + text + "\n" };
+                continue;
+            }
+            inRun = false;
             if (depth == 6 && text.StartsWith("- ", StringComparison.Ordinal))
             {
                 steps.Add(new Step());
@@ -152,11 +195,13 @@ public sealed class HlslBuildTests
             if (depth == 8)
             {
                 inWith = key == "with";
+                inRun = key == "run";
                 steps[^1] = key switch
                 {
                     "name" => steps[^1] with { Name = value },
                     "uses" => steps[^1] with { Uses = value },
                     "if" => steps[^1] with { If = value },
+                    "run" => steps[^1] with { Run = value is "|" or "|-" ? "" : value + "\n" },
                     _ => steps[^1],
                 };
             }

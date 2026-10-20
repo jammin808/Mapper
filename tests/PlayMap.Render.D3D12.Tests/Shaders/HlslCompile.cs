@@ -5,7 +5,10 @@ namespace PlayMap.Render.D3D12.Tests.Shaders;
 
 /// <summary>The HLSL library as the Direct3D 12 backend's assembly embeds it (its sources, its tables and the build's generated
 /// headers), compiled here through the shader worker's pinned DXC — on both jobs, since DXC's Linux build signs its DXIL (M6) — one
-/// program at a time, each entry with the arguments the build's own compile uses. Compiled once per test run.</summary>
+/// program at a time, each entry with the arguments the build's own compile uses. Compiled once per test run. DXC is found by the
+/// worker's own rule: dxcompiler alone, beside this suite's assemblies, where the build copies it (on Linux from the folder
+/// PLAYMAP_DXC_DIR names, which CI's Linux job sets). A build without it fails every test that compiles, with the loader's words
+/// naming the file and where it comes from; none is skipped.</summary>
 internal static class HlslCompile
 {
     public sealed record Stage(DxilOutput Output, DxilReflection? Reflection, string Words);
