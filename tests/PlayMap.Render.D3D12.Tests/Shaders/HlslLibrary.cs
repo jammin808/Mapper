@@ -3,7 +3,8 @@ using System.Text.Json;
 namespace PlayMap.Render.D3D12.Tests.Shaders;
 
 /// <summary>The HLSL library's files in the tree: its folder and its program list (programs.json: each program's family file, its
-/// vertex and pixel entries and how its pixels are held to the GL backend's).</summary>
+/// vertex and pixel entries and how its pixels are held to the GL backend's: "pixels" to the GL program's in the same target,
+/// "exact" byte for byte, "window" to GL's present as each lands on its window's raster, "encoder" to none this round).</summary>
 internal static class HlslLibrary
 {
     public sealed record Entry(string Name, string File, string Vs, string Ps, string Parity);

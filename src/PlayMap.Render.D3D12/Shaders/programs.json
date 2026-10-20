@@ -1,6 +1,6 @@
 {
   "programs": [
-    { "name": "present", "file": "core.hlsl", "vs": "FullscreenVS", "ps": "PresentPS", "parity": "pixels" },
+    { "name": "present", "file": "core.hlsl", "vs": "FullscreenVS", "ps": "PresentPS", "parity": "window" },
     { "name": "blit", "file": "core.hlsl", "vs": "FullscreenVS", "ps": "BlitPS", "parity": "pixels" },
     { "name": "solid", "file": "core.hlsl", "vs": "FullscreenVS", "ps": "SolidPS", "parity": "pixels" },
     { "name": "quad", "file": "core.hlsl", "vs": "QuadVS", "ps": "QuadPS", "parity": "pixels" },

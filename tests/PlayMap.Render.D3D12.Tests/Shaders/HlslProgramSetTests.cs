@@ -8,7 +8,8 @@ namespace PlayMap.Render.D3D12.Tests.Shaders;
 
 /// <summary>The HLSL library's set, on both jobs: programs.json names every program of the GLSL library once, in the program table's
 /// order, each in a family file that holds its entries; the byte-exact programs are the two that only load (video.pack and
-/// video.unpack), the HAP encoder's four are compiled and reflected but held to no pixels this round; and the build's header for
+/// video.unpack), the HAP encoder's four are compiled and reflected but held to no pixels this round, the present is held to GL's
+/// present on each window's raster (never to GL's present in a target, which it mirrors); and the build's header for
 /// each program is the one the render hardware interface's program table gives (its constants, in the table's order, and its
 /// texture slots), one header per program of the table.</summary>
 public sealed class HlslProgramSetTests
@@ -31,12 +32,13 @@ public sealed class HlslProgramSetTests
     }
 
     [Fact]
-    public void TheExactProgramsAreTheTwoThatOnlyLoadAndTheEncodersAreHeldToNoPixels()
+    public void TheExactProgramsAreTheTwoThatOnlyLoadTheEncodersAreHeldToNoPixelsAndThePresentToTheWindow()
     {
         var programs = HlslLibrary.Programs();
         Assert.Equal(["video.pack", "video.unpack"], programs.Where(p => p.Parity == "exact").Select(p => p.Name));
         Assert.Equal(["hapenc.bc1", "hapenc.bc3", "hapenc.bc4", "hapenc.ycocg"], programs.Where(p => p.Parity == "encoder").Select(p => p.Name));
-        Assert.All(programs, p => Assert.Contains(p.Parity, new[] { "exact", "encoder", "pixels" }));
+        Assert.Equal(["present"], programs.Where(p => p.Parity == "window").Select(p => p.Name));
+        Assert.All(programs, p => Assert.Contains(p.Parity, new[] { "exact", "encoder", "window", "pixels" }));
         foreach (var exact in programs.Where(p => p.Parity == "exact"))
         {
             var layout = ProgramTable.Product.Single(l => l.Name == exact.Name);
