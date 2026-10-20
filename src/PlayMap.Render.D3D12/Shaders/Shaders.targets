@@ -7,8 +7,8 @@
        (Microsoft.Direct3D.DXC's dxc.exe, Windows) it compiles every program's two entries to validated, signed DXIL (Shader Model
        6.6), with a PDB and reflection kept apart, only when a source, the program table or the program list (an entry's file or
        entry points) is newer. The sources, the program list, the headers and the DXIL with its reflection are embedded
-       (shaders/…); the table itself is Core's embedded resource. The PDBs are written to obj/ beside the DXIL and are not kept by CI
-       yet (no step uploads them), never in the exe. -->
+       (shaders/…); the table itself is Core's embedded resource. The PDBs are written to obj/ beside the DXIL, never in the exe;
+       the Windows job keeps them (hlsl-symbols). -->
   <PropertyGroup>
     <PlayMapHlslSources>$(MSBuildThisFileDirectory)</PlayMapHlslSources>
     <PlayMapHlslTable>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', 'PlayMap.Core', 'Gpu', 'Programs', 'programs.layout.json'))</PlayMapHlslTable>

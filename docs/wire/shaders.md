@@ -108,11 +108,12 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
      agree. This package's fixture carries `fx.library` beside `fx.compile` and `fx.quarantine`, and `ShadersFixtureTests` hold its
      count to the one entry the fixture's node quarantines; every other committed fixture comes from a node that quarantines nothing
      and reads 0.
+  4. The HLSL library's PDBs: the build writes each entry's beside its DXIL in `obj/` where DXC's executable runs (Windows), and
+     the Windows job uploads them after its build and version check (`src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb` as
+     `hlsl-symbols`, `if-no-files-found: error`), a spine step outside this package's named block, which sits before `Restore`.
+     `HlslBuildTests` read the workflow: the upload follows the Windows job's `Build` with no condition of its own and that path, the
+     Linux job has none, and on Windows the glob holds both entries' PDBs of every program.
 - **Merge-gate items: the seams this package needs and does not own** (it works behind its own until they land):
-  4. The HLSL library's PDBs: the build writes them to `obj/` beside the DXIL, and no CI step keeps them. A package edits only its
-     own named block of the workflow, and this package's block must sit before `Restore` (it fetches a native the build copies), so
-     an upload after the Windows job's `Build` step (`src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb` as `hlsl-symbols`) is the
-     spine's step to add; until then the PDBs are not kept.
   5. Design §5 and §11 give user effects four static samplers (`s0`–`s3`); the worker emits every image's sampling through one
      sampler at `s0` (linear and clamped, as the GL path samples ISF images), which those four hold.
 - Design §6 states the record's invariant as "one writer (the engine's lane)". It is met as one lock that orders every add and
