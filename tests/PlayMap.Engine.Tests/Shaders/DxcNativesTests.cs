@@ -18,8 +18,9 @@ namespace PlayMap.Engine.Tests.Shaders;
 /// LICENSE-LLVM.txt (the copyright notice, the three conditions and the disclaimer) and DXC's LICENSE.TXT and ThirdPartyNotices.txt
 /// at tag v1.9.2609 (the licences of the third-party code inside it). Nothing the desk's publish lays down can carry a validator
 /// library: no package the desk restores holds one, no project, build, publish, installer, workflow or script file of the tree names
-/// one, and the engine takes DXC's package at the version the Direct3D 12 backend's build uses. The validator hash written here from
-/// the published algorithm is the reference implementation's on both of its paths.</summary>
+/// one, and the engine takes DXC's package at the version the Direct3D 12 backend's build uses. THIRD-PARTY-NOTICES.md reproduces the
+/// licence and the notices of the OpenBSD regular-expression code inside dxcompiler. The validator hash written here from the
+/// published algorithm is the reference implementation's on both of its paths.</summary>
 public sealed partial class DxcNativesTests
 {
     /// <summary>DXC's separate validator library, on Windows and on Linux.</summary>
@@ -143,6 +144,21 @@ public sealed partial class DxcNativesTests
         }
         Assert.True(problems.Count == 0, string.Join("\n", problems));
         Assert.True(held >= outputs.Count, $"{held} dxcompiler files in {outputs.Count} outputs");
+    }
+
+    /// <summary>THIRD-PARTY-NOTICES.md carries DXC's licence whole, as the package's LICENSE-LLVM.txt has it, and the notices of the
+    /// OpenBSD regular-expression code compiled into dxcompiler, as DXC's ThirdPartyNotices.txt has them.</summary>
+    [Fact]
+    public void TheNoticesFileReproducesDxcsLicenceAndTheRegexNotices()
+    {
+        var notices = Words(File.ReadAllText(Path.Combine(Root, "THIRD-PARTY-NOTICES.md")));
+        Assert.Contains(Words(File.ReadAllText(Path.Combine(PackageFolder(), "LICENSE-LLVM.txt"))), notices, StringComparison.Ordinal);
+        var carried = File.ReadAllText(Path.Combine(Root, "src", "PlayMap.Engine", "ShaderWorker", "DxcNotices", "ThirdPartyNotices.txt"));
+        var start = carried.IndexOf("$OpenBSD: COPYRIGHT", StringComparison.Ordinal);
+        var berkeley = carried.IndexOf("@(#)COPYRIGHT", StringComparison.Ordinal);
+        Assert.True(start >= 0 && berkeley > start, "DXC's ThirdPartyNotices.txt carries the OpenBSD regular-expression code's notices");
+        var end = carried.IndexOf("*/", berkeley, StringComparison.Ordinal) + 2;
+        Assert.Contains(Words(carried[start..end]), notices, StringComparison.Ordinal);
     }
 
     [Fact]
