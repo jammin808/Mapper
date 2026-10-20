@@ -139,18 +139,19 @@ five stages, each failure in its stage's words with the line mapped back to the 
 
 | Stage | What it does |
 |---|---|
-| `translate` | Core's Vulkan target: GLSL 4.50, the colour and the varyings at explicit locations, images at set 0 with fixed bindings (at most 16), the inputs and each image's size, rect and flag as loose uniforms, the built-ins as a block |
+| `translate` | Core's Vulkan target: GLSL 4.50, the colour at an explicit location (each stage's varyings at the locations glslang gives them, matched by name at `cross`), images at set 0 with fixed bindings (at most 16), the inputs and each image's size, rect and flag as loose uniforms, the built-ins as a block |
 | `glslang` | GLSL to SPIR-V under Vulkan's rules relaxed (glslang's `-R`, through shaderc), the loose uniforms gathered into the default block |
 | `validate` | `spirv-val` for Vulkan 1.0: the module is valid before anything reads it |
-| `cross` | SPIRV-Cross to Shader Model 6.0 HLSL: the default block at `b0`, the built-ins at `b1`, the images at `t0` onward in the file's order and every image sampled through the one sampler at `s0` (linear and clamped, as GL samples the pictures an effect reads); the vertex entry ends with the render hardware interface's conversion to Direct3D's clip space (`ClipSpace.ToDirect3D`), so an effect lands on the rows and depths it lands on in GL; any other resource is refused with its name |
+| `cross` | SPIRV-Cross to Shader Model 6.0 HLSL: the default block at `b0`, the built-ins at `b1`, the images at `t0` onward in the file's order and every image sampled through the one sampler at `s0` (linear and clamped, as GL samples the pictures an effect reads); the vertex entry ends with the render hardware interface's conversion to Direct3D's clip space (`ClipSpace.ToDirect3D`), so an effect lands on the rows and depths it lands on in GL; each varying the pixel entry reads takes the vertex output of its name, so both entries carry one `TEXCOORD` semantic for it whatever order and subset each file declares, as GL links varyings by name, and one no vertex output of its name and type writes is refused with its name; any other resource is refused with its name |
 | `dxc` | DXC to validated, signed DXIL (`vs_6_0`, `ps_6_0`) and its reflection |
 
-The compilers — glslang and SPIRV-Tools (shaderc), SPIRV-Cross, DXC and its validator — load only in the worker, each file held to
-its SHA-256; the engine's process holds none. The worker compiles one source at a time: a source it does not answer (past the
-compile's 10 s deadline, past an `FX CHECK`'s bound, or abandoned by its caller) ends that worker and counts nothing; a worker that
-stops mid-compile is started again after a backoff doubling from 1 s to 30 s and given the source again; a source that stops it
-three times fails with words and is answered at once from then on, without a worker, until it changes. STATE says the worker in
-`fx.compile.worker` (whether it runs, its pid, restarts, the last compile's time, counts, and each native's state from its hello).
+The compilers — glslang (shaderc), SPIRV-Tools (inside shaderc on Linux, its own library on Windows), SPIRV-Cross, DXC and its
+validator — load only in the worker, each file held to its SHA-256; the engine's process holds none. The worker compiles one source
+at a time: a source it does not answer (past the compile's 10 s deadline, past an `FX CHECK`'s bound, or abandoned by its caller)
+ends that worker and counts nothing; a worker that stops mid-compile is started again after a backoff doubling from 1 s to 30 s and
+given the source again; a source that stops it three times fails with words and is answered at once from then on, without a worker,
+until it changes. STATE says the worker in `fx.compile.worker` (whether it runs, its pid, restarts, the last compile's time,
+counts, and each native's state from its hello).
 
 `FX CHECK`'s report, and `FX IMPORT`'s check, carry `stages` beside the GL dialects: each stage of the road in order with `ok`
 (true, false, or null when not run), its words and the ISF line it points at; a failed stage makes the report's `ok` false. A
@@ -162,11 +163,13 @@ nothing on the air. GL user effects compile on the device's compile lane, as abo
 **The quarantine.** The kinds a node will not draw are its own, kept in its home (`playmap.quarantine.json`), never in the show, so
 a blind draft never carries one and a hot backup does not mirror it. A quarantined kind's slots draw bypassed: their input passes
 unchanged, nothing of them is drawn, and each reads `"state": "bypassed"` with the words "quarantined on this node (FX RELEASE lifts
-it): its input passes unchanged", `gpuMs` 0 and `bypass` false; the rest of the chain draws. STATE lists the entries in
+it): its input passes unchanged", `gpuMs` 0 and `bypass` false, on every frame the quarantine holds the kind (a slot that drew
+before lets go of its renderer at once); the rest of the chain draws. STATE lists the entries in
 `fx.quarantine` (each kind's hash, name, reason, words, when, build and the show's slots of it) and counts them in
 `fx.library.quarantined`; preflight's `fx` section is red for each quarantined kind (`FX RELEASE <hash>`) and each slot that uses
 one (`FX REMOVE <slot>`). `FX RELEASE <kind>|ALL` lifts one or all: class Setup, refused while the show is armed and never drafted,
-refused with words for a kind not quarantined and for `ALL` with none. Nothing on the node adds a kind yet: wp3-shaders-2's
+refused with words for a kind not quarantined and for `ALL` with none. A release answers the kinds it lifted and says how many of
+the show's slots use them; whether a slot draws is its own `state`'s. Nothing on the node adds a kind yet: wp3-shaders-2's
 GPU-time guard and wp3-stability-2's removal breadcrumbs are to, and the worker's three-stop failure writes none.
 
 ## The built-in library

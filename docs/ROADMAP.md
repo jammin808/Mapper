@@ -50,7 +50,7 @@ The lab checks still to do:
 - Shows: a projector solved at 100 m; a sync group across machines, and its air latency across nodes whose displays differ; a power
   cut just after a takeover (the epoch kept on disk); a second machine (the video checklist in docs/VIDEO.md among them).
 
-**Open fixes** (the detail of each but the last two is in docs/round2/CARRYOVER.md):
+**Open fixes** (the detail of each but the last three is in docs/round2/CARRYOVER.md):
 - An optimise pause whose knobs reach the worker before its encode thread has woken for the governor's let-go stays pending, with
   no "paused at frame" row, while STATE says held: the thread's hold waits on an event that a reset before it ran leaves unset. A
   worker that says every let-go it takes closes it.
@@ -81,10 +81,15 @@ The lab checks still to do:
   candidate by its absolute path, as FFmpeg's loader does, closes it.
 - `HapSourceTests.NothingAllocatesPerFrameOnceWarm` failed once in Release and has not failed since; its cause is not
   named. Finding the cause and making the test deterministic closes it.
+- DXC's validator (`dxil.dll` and `libdxil.so`, from Vortice.Dxc.Native 1.0.6) comes under Microsoft's own licence, which grants
+  use solely on Windows, asks distributors to bind external end users to terms that protect it and Microsoft, and asks them to
+  indemnify Microsoft. The Linux worker and the Linux job's tests load `libdxil.so`, the Windows job's published exe and the
+  installer's payload carry `dxil.dll`, and the owner's acceptance of Microsoft's terms (docs/round3/PLAN.md §9 decision 23)
+  names `D3D12Core.dll`. The owner's call (§9 decision 24, open) closes it.
 
 **Next:** round 3's packages (below). On the spine they build the Windows-native node of docs/round3/PLAN.md, the desk's
-guided workflows and capture-card pass-through. Every decision the plan put to the owner is answered (its §9), and the round
-carries twenty-one packages.
+guided workflows and capture-card pass-through. Every decision the plan put to the owner is answered (its §9) but DXC's
+validator's terms (decision 24, open), and the round carries twenty-one packages.
 
 **The rule:** real hardware is the proof, and nothing claims a hardware fact it has not measured. No lab exists this round
 (docs/round3/PLAN.md D15), so round 3 goes ahead on what CI, WARP and the simulators prove. Every lab line keeps its script and

@@ -161,7 +161,7 @@ asserts a time (§2.1).
 | The RHI's own tests: fences, layouts, draw states, the module fence | ✓ | ✓ | — |
 | The render graph compiler, the frame block ring, evidence maths, observer verdicts, platform policy, supervisor policy, the version maths | ✓ (pure) | ✓ | — |
 | Direct3D 12: device, debug layer and GPU-based validation with no message, every pixel scene within its row of the D3D12 tolerance table, aliasing on and off, zero warm-frame allocation | — | ✓ | real GPUs (L15) |
-| HLSL through DXC, reflection against the program layouts | to be measured (M6) | ✓ | — |
+| HLSL through DXC, reflection against the program layouts | ✓ (M6: every program compiled and reflected; the build embeds no DXIL) | ✓ | — |
 | User ISF to SPIR-V (glslang, spirv-val, SPIRV-Cross) | ✓ | ✓ (on to DXIL, drawn on WARP, the pinned public corpus counted) | — |
 | D3D12 flip presenters: bring-up, 120 presents, read-back, HDR swap chains | — | ✓ (statistics may be absent on WARP) | real vblank |
 | Independent Flip proven, PresentMon agreeing | — | — | ✓ |
@@ -198,7 +198,7 @@ M9's proof, M10, M11, M12, M13 and M20 — stands on its "if no" column all roun
 | M3 | **Does the Windows 11 composition swapchain take D3D12 buffers and present at a target time?** | `bench/r3-present` in W1 | wp3-present's stretch 7 | A timed-present tier for outputs whose cadence is not the display's | Not built; flip presenters with the predicted display time are the path |
 | M4 | **Does the present barrier join several swap chains in one process on a Sync wall?** | The lab's two-machine RTX PRO Sync wall, two outputs each: nvpro-samples' barrier sample (no PlayMap code), then the engine | W4's entry condition: the sample's run booked before W3 ends (§9 decision 13) | A client per output's swap chain, as designed, the record confirming it | Each node answers it for itself: every output's swap chain still joins as its own client at `SYNC APPLY` (disarmed only), and one the driver does not take reaches no in-sync count within 120 refreshes, leaves and runs free with its phase and words; the node keeps that driver's answer in its settings (`NodeSettings.Sync`, by driver version), so the next `SYNC APPLY` joins only what the driver took; Mosaic stays a stretch |
 | M5 | **Does Reflex work on RTX PRO drivers, and with the present barrier?** | The lab's RTX PRO node: `NvAPI_D3D_SetSleepMode` answers and its latency markers | after W3 | An optional low-latency tier on outputs that are not in a barrier | PlayMap's own just-in-time pacing (waitable, then sample, then record) is the only one; never both on one output until measured |
-| M6 | Does DXC on Linux emit validated, signed DXIL? | The shaders package's first day | wp3-shaders | HLSL compiles on both jobs | HLSL compiles on the Windows job only; the Linux build embeds none and a Linux test holds the HLSL program set to the library's names |
+| M6 | Does DXC on Linux emit validated, signed DXIL? | The shaders package's first day | wp3-shaders | HLSL compiles on both jobs. **Measured: yes.** The shader worker's DXC (Vortice.Dxc.Native's Linux build, its validator signing) compiles every program to validated, signed DXIL on the Linux job, and `HlslBuildTests` and `ShaderLayoutTests` compile and reflect every program on both jobs; the build embeds DXIL on the Windows job only, where DXC's executable is packaged, so the Linux build embeds none | HLSL compiles on the Windows job only; the Linux build embeds none and a Linux test holds the HLSL program set to the library's names |
 | M7 | Does a .NET apphost load the Agility SDK's runtime (no `D3D12SDKVersion` export) through `ID3D12SDKConfiguration1::CreateDeviceFactory`? | The spine's probe step, on the runner (its WARP test and the hard gate's debug layer rest on the answer) | the spine | The MSI places `D3D12Core.dll` beside the exe and STATE names the runtime loaded | The OS runtime, named in STATE, its debug layer from Windows' Graphics Tools optional feature installed in the job; features that need a newer runtime are probed and refused with words |
 | M8 | Does WARP honour `ID3D12Device5::RemoveDevice`, does it decode video, do the NuGet WARP (Direct3D 12) and the system WARP (Direct3D 11) share NT-handle textures and fences, and can a WARP allocation be duplicated into a child process? | wp3-d3d12-core's first day | wp3-stability-2, wp3-video, wp3-desk-gpu | Removal, D3D12VA open, Spout's cross-API bridge and the child-process preview run in CI | Removal through a fault seam in CI and a real one in the lab; D3D12VA's handoff tested with a fake decoder; CI shares Direct3D 12 to Direct3D 12 in one process, and the cross-API and cross-process cases move to L8 and L3 |
 | M9 | Can the supervisor start the engine into the logged-on session (`WTSQueryUserToken`, `CreateProcessAsUser`)? | wp3-installer, on a lab machine with auto-logon, and as a probe on the runner (its job runs in an interactive session) | wp3-installer | As designed | A scheduled task at the show user's logon starts the engine; the service only watches and stops |
@@ -720,7 +720,8 @@ no documented cause stay off.
    conventions (targets top row first, row-vector matrices, UV v down, geometry from `SV_VertexID`, exact reads with `Load`), one
    root signature for all (the program's constants in `b0`; a binding block in `b1` of sixteen texture and sixteen sampler
    indices into directly indexed heaps, Shader Model 6.6); compiled by DXC at build time to DXIL with PDBs and reflection,
-   embedded in the assembly (on the Windows job; on Linux too if M6 says yes). (12 h)
+   embedded in the assembly on the Windows job, where DXC's executable is packaged (M6 answered yes: the tests compile every
+   program on both jobs; the Linux build embeds none). (12 h)
 2. `ShaderLayoutTests`: each program's DXC reflection (constant names, types, offsets; texture slots) equals its
    `ProgramLayout` in rhi's program table; before rhi merges, against a parse of the GLSL declarations; the slot headers generated
    from the table's file by an MSBuild step, so `Render.D3D12` reads data and never references Render. The integer-exact
@@ -757,8 +758,9 @@ compiler natives).
 **Depends on.** The spine; rhi before merge (the layouts).
 
 **Acceptance.**
-- `HlslBuildTests` (Windows): every program compiles to validated DXIL with a PDB; the set equals `ShaderLibrary.Names`.
-- `ShaderLayoutTests` (Windows; the GLSL side on both).
+- `HlslBuildTests` (both; the embedded set on Windows): every program compiles to validated DXIL with a PDB; the set equals
+  `ShaderLibrary.Names`.
+- `ShaderLayoutTests` (both).
 - `IsfVulkanTargetTests` (both): the built-in ISF files and the test corpus translate, compile under glslang `-R` and pass
   `spirv-val`; a translator error keeps its ISF line.
 - `ShaderWorkerTests`: a good source → DXIL and a layout; a syntax error → the stage and the ISF line; a fake compiler that aborts
@@ -768,9 +770,9 @@ compiler natives).
   refused, disarmed acting on the node's quarantine at once, the draft holding no quarantine either way; on a free kind, and `ALL`
   with none, refused with words; else the slot draws again.
 
-**Verified here.** Translator, glslang, spirv-val and SPIRV-Cross (their Linux natives), the worker's protocol and supervision,
-quarantine. **On CI (Windows).** DXC, reflection, the worker end to end to DXIL. **Manual.** None (pixel parity is
-wp3-d3d12-core's).
+**Verified here.** Translator, glslang, spirv-val, SPIRV-Cross and DXC (their Linux natives; M6 answered yes), reflection, the
+worker's protocol and supervision, its road end to end to DXIL, quarantine. **On CI (both jobs).** The same; on Windows, the
+build's embedded DXIL too. **Manual.** None (pixel parity is wp3-d3d12-core's).
 
 **Next round.** The GLSL library deleted with GL; Shader Model 7's SPIR-V intake when it ships; user HLSL.
 
@@ -2456,11 +2458,12 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 
 ## 9. Decisions: the owner's answers
 
-The owner answered every decision on 18 October 2026, and on 19 October 2026 chose this round's installer (decision 3) and the Direct3D
-12 runtime's terms (decision 23). Each decision below says the answer, in the owner's words where they gave them, and what it changes;
-the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, calls 7–11) are decisions 14–18. None stays open. Decisions 2
-(the next round's signing identity), 3 (Inno Setup's licence request), 5 (the sign-off on L1's record), 12 and 20 name choices the
-owner may still make, and the round runs as planned without them.
+The owner answered decisions 1 to 23 on 18 October 2026, and on 19 October 2026 chose this round's installer (decision 3) and the
+Direct3D 12 runtime's terms (decision 23). Each decision below says the answer, in the owner's words where they gave them, and what
+it changes; the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, calls 7–11) are decisions 14–18. Decision 24, DXC's
+validator's terms, is open: the owner's call, put with wp3-shaders' merge (also in `docs/ROADMAP.md`'s open fixes). Decisions 2 (the
+next round's signing identity), 3 (Inno Setup's licence request), 5 (the sign-off on L1's record), 12 and 20 name choices the owner
+may still make, and the round runs as planned without them.
 
 1. **The size of the round.** *Answered: "All 16."* The sixteen packages stay in their waves (§5.1) and none is deferred. For the
    owner's requirements of the same day the round carries five more packages (desk-shell, desk-map, canvas, workflows, capture;
@@ -2598,3 +2601,16 @@ owner may still make, and the round runs as planned without them.
     The installer package adds the page (§3.5 item 3), and `THIRD-PARTY-NOTICES.md` names the runtime and its terms under its
     heading. FFmpeg asks for no such terms: its pinned build is configured `--enable-version3`, so what ships is LGPL version 3 or
     later, as replaceable files with its licence text (decision 4).
+24. **DXC's validator's terms.** *Open: the owner's call.* The shader worker's DXC signs the DXIL it compiles with DXC's validator,
+    `dxil.dll` on Windows and `libdxil.so` on Linux, from Vortice.Dxc.Native 1.0.6, whose licence is Microsoft's own for the
+    DirectX Shader Compiler (`LICENSE-MS.txt`, the package's licence, which asks its user to accept it; DXC's compiler itself is
+    under the LLVM Release License). It grants use "solely for use on Windows", and lets its distributable code be distributed on
+    Distribution Requirements in decision 23's words: to "require distributors and external end users to agree to terms that
+    protect it and Microsoft at least as much as this agreement" and to "indemnify, defend, and hold harmless Microsoft".
+    Decision 23's acceptance names the Agility runtime's `D3D12Core.dll`, and the installer's licence page carries that runtime's
+    licence alone. Three uses rest on this call: the Linux worker, which every node the exe composes starts with its first
+    source, and the Linux job's tests (`HlslBuildTests`, `ShaderLayoutTests`, `ShaderRoadTests`) load `libdxil.so`, against the
+    Windows-only grant; the Windows job's published exe carries `dxil.dll`, with no terms page; and the installer's payload
+    (`design/installer.md` §2) lays `dxil.dll` down under a page that carries `D3D12Core.dll`'s licence only. The owner decides
+    whether PlayMap accepts the validator's terms as decision 23 accepts the runtime's, the indemnity included, and so what the
+    installer's page and the published exe carry for it, and whether the validator runs on Linux.

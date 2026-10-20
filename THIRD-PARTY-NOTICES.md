@@ -175,10 +175,10 @@ engine's packages, and on Windows SPIRV-Tools' library from the Windows job's pi
 when the worker loads it (`src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs`) and loaded by the worker process only, never by
 the engine:
 
-- shaderc (Apache-2.0, © The Shaderc Authors), with glslang (BSD-3-Clause, the Khronos Group and contributors; parts under the
-  MIT, Apache-2.0 and GPL-with-the-Bison-exception licences listed in glslang's `LICENSE.txt`) and SPIRV-Tools (Apache-2.0, ©
-  The Khronos Group Inc.) linked inside it: `libshaderc_shared.so` / `shaderc_shared.dll` from Silk.NET.Shaderc.Native 2.23.0
-  (shaderc at commit 9460514). glslang compiles the GLSL 4.50 PlayMap's translator makes of a user's ISF effect into SPIR-V; on
+- shaderc (Apache-2.0, © The Shaderc Authors), with glslang (BSD-3-Clause, the Khronos Group and contributors; parts under the MIT,
+  Apache-2.0 and GPL-with-the-Bison-exception licences listed in glslang's `LICENSE.txt`) and SPIRV-Tools (Apache-2.0, © The
+  Khronos Group Inc.) linked inside it: `libshaderc_shared.so` / `shaderc_shared.dll` from Silk.NET.Shaderc.Native 2.23.0 (built by
+  Silk.NET at its commit 9460514). glslang compiles the GLSL 4.50 PlayMap's translator makes of a user's ISF effect into SPIR-V; on
   Linux the same library's SPIRV-Tools validates it.
 - SPIRV-Tools (Apache-2.0, © The Khronos Group Inc.) on Windows: `SPIRV-Tools-shared.dll` from Google's own Visual Studio 2022
   release build (continuous build 261 of 16 October 2026), fetched by the Windows job at its hash, since shaderc's Windows build
@@ -196,7 +196,9 @@ the engine:
   "solely for use on Windows", and lets its distributable code be distributed on its Distribution Requirements, among them to
   "require distributors and external end users to agree to terms that protect it and Microsoft at least as much as this
   agreement" and to "indemnify, defend, and hold harmless Microsoft". The owner's acceptance of Microsoft's distribution terms
-  (`docs/round3/PLAN.md` §9 decision 23) names the Agility runtime's `D3D12Core.dll`.
+  (`docs/round3/PLAN.md` §9 decision 23) names the Agility runtime's `D3D12Core.dll`; the validator's terms are the owner's open
+  call (§9 decision 24), which covers the Linux worker's and the Linux job's use of `libdxil.so` against the Windows-only grant
+  and the `dxil.dll` the Windows job's published exe and the installer carry.
 
 ### wp3-installer
 

@@ -16,23 +16,26 @@ drawn on the device (`design/shaders.md` §11).*
 
 `FX RELEASE` takes a kind by its hash first (each entry's own, so two entries quarantined under one name are told apart), then by
 the name it was quarantined under, then by a kind of the show (`fx.invert`, `isf:fa…`, an asset id) whose sources are quarantined,
-and answers `{"released": [<kind names>]}`. It is class Setup: the gate refuses it while the show is armed ("Not while armed: FX
-RELEASE puts set-up pictures or settings on the air. SHOW DISARM on the desk first."), and it is never drafted — from the blind
-owner it is refused armed and acts on the node's quarantine at once when disarmed, the draft staging nothing. A kind that is not
-quarantined is refused with the kinds that are ("fx.blur is not quarantined on this node (quarantined: Invert)"), and `ALL` with
-none is refused ("no kind is quarantined on this node"); either changes nothing. A release the node's home refuses to record is
-refused with the home's words ("the quarantine record could not be written (…): nothing changed") and changes nothing, in memory or
-on disk. Each release is a journal row (`fx.release`).
+and answers `{"released": [<kind names>]}`, its words naming what it released and counting the show's slots that use it, read
+before the release ("released Invert from this node's quarantine; 1 slot of this show uses it"); whether a slot draws is its
+`fx.slots[].state`'s. It is class Setup: the gate refuses it while the show is armed ("Not while armed: FX RELEASE puts set-up
+pictures or settings on the air. SHOW DISARM on the desk first."), and it is never drafted — from the blind owner it is refused
+armed and acts on the node's quarantine at once when disarmed, the draft staging nothing. A kind that is not quarantined is refused
+with the kinds that are ("fx.blur is not quarantined on this node (quarantined: Invert)"), and `ALL` with none is refused ("no kind
+is quarantined on this node"); either changes nothing. A release the node's home refuses to record is refused with the home's words
+("the quarantine record could not be written (…): nothing changed") and changes nothing, in memory or on disk. Each release is a
+journal row (`fx.release`).
 
 ## Forms added to existing rows
 
 `FX CHECK <asset>|<kind>|<json>` keeps its syntax; on a node composed with the shader worker its report carries `stages`, the
-Direct3D 12 road in order — `translate`, `glslang`, `validate`, `cross`, `dxc` — each with `ok` (true, false, or null when not run),
-its words and the ISF line it points at. A quarantined kind answers one failed `quarantine` stage with the words that lift it; a
-worker that could not answer answers one failed `worker` stage with the host's own words. The worker's stage check answers within 8 s
-of the line (the engine bounds a stage check at 10 s): a check still waiting then — for the worker, its start or its compile — is
-ended ("the check ran past 8 s and was ended") and the worker that held it is ended with it. FX CHECK is a query: whatever it meets,
-it changes no quarantine and nothing on the air.
+Direct3D 12 road in order — `translate`, `glslang`, `validate`, `cross`, `dxc` — each with `ok` (true, false, or null when not
+run), its words and the ISF line it points at, and a failed stage makes the report's `ok` false (`docs/wire/fx.md`'s check report).
+A quarantined kind answers one failed `quarantine` stage with the words that lift it; a worker that could not answer answers one
+failed `worker` stage with the host's own words. The worker's stage check answers within 8 s of the line (the engine bounds a stage
+check at 10 s): a check still waiting then — for the worker, its start or its compile — is ended ("the check ran past 8 s and was
+ended") and the worker that held it is ended with it. FX CHECK is a query: whatever it meets, it changes no quarantine and nothing
+on the air.
 
 ## STATE
 
@@ -52,7 +55,8 @@ The renderer draws a quarantined kind's slots bypassed, their input passing unch
 hands each effects pass the node's quarantine (`FxPass.Quarantine`, its chain runner's) before the engine reads the pass, a pass
 made again after a context loss included. The slot's observed state says so: `fx.slots[].state` "bypassed" with the words
 "quarantined on this node (FX RELEASE lifts it): its input passes unchanged", `gpuMs` 0 and `bypass` false (the show's own bypass
-is not set); once released, the slot draws its effect again.
+is not set), on every frame the quarantine holds the kind: a slot that drew before lets go of its renderer at once, and the
+renderer's idle sweep never forgets its state. Once released, the slot draws its effect again, `compiling` and then `ok`.
 
 Preflight's `fx` section is red for each quarantined kind (fix `FX RELEASE <hash>`, the kind's own entry whatever its name) and
 for each slot that uses one (fix `FX REMOVE <slot>`), and red while the record kept in the node's home could not be read whole at
@@ -82,16 +86,20 @@ stopping the worker. A worker that stops while it compiles is started again afte
 source again; a source that stops it three times fails with words ("the source stopped the shader worker 3 times (…): it fails,
 and is not sent again until it changes") and is answered at once from then on, without a worker. That memory is the host's own,
 for the node's run: it writes no quarantine, so no kind leaves the air for a compile on the Direct3D 12 road. A node that stops
-mid-compile answers "the node is stopping" and counts nothing. The compilers — glslang and SPIRV-Tools (shaderc), SPIRV-Cross, DXC
-and its validator — load only in the worker, each held to its SHA-256; the engine's process holds none.
+mid-compile answers "the node is stopping" and counts nothing. The compilers — glslang (shaderc), SPIRV-Tools (inside shaderc on
+Linux, its own library on Windows), SPIRV-Cross, DXC and its validator — load only in the worker, each held to its SHA-256; the
+engine's process holds none. A vertex file's varyings meet its fragment file's by name: `cross` gives each pixel-entry input the
+location, and so the `TEXCOORD` semantic, of the vertex output of its name, and refuses one no vertex output of its name and type
+writes ("c: the fragment shader reads a varying the vertex shader does not write").
 
 ## Papers note
 
 (For the integration pass.)
 
-- **Merge-gate items: the seams this package needs and does not own, each landed on this branch** (§5.7: each spine part a
-  `Spine:` commit of its own before the fill that uses it, reaching `main` with the package's merge; PLAN §2.3's `Shaders` row
-  names the stub). Items 1 to 4, 6 and 7 are spine code; item 5 is a design fact and lands in the design:
+- **Merge-gate items: the seams this package needs and does not own, each landed on this branch** (§5.7: each a `Spine:` commit
+  of its own, reaching `main` with the package's merge; PLAN §2.3's `Shaders` row names the stub). Items 1 to 4 and 6 are spine
+  code, each committed before the fill that uses it; item 7 is spine words, committed after the fill, bringing `FxStage`'s summary
+  in line with the stage names the worker and the FX CHECK row carry; item 5 is a design fact and lands in the design:
   1. The composition's `Shaders` hook, in `src/PlayMap.Engine/Host/EngineParts.cs`, `tools/gen_stubs3.py` and the stub
      `src/PlayMap.Engine/Host/EngineParts.Shaders.cs`: `EngineParts.Standard()` calls `AddShadersParts` between Observe's and
      Preview's (§2.3's hook-word order), `tools/gen_stubs3.py`'s `ENGINE_PARTS` table names the word, and its stub
@@ -129,9 +137,10 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
      loaded where that helper's own sampler parameter is only the first argument of `texelFetch`, `textureSize` or another such
      helper, so the output program's `uMeasuredGrid` and `uMeasuredBlend` are loaded, as the GLSL reads them and the HLSL `Load`s
      them; no other program's flag, constant, slot or input changes, and `ProgramLayoutTests` hold the rule.
-  7. The stage words, in `src/PlayMap.Engine/Seams.Round3.cs`: `FxStage`'s summary names the stages FX CHECK carries in the road's
-     order (`translate`, `glslang`, `validate`, `cross`, `dxc`) and the single stages that answer for the whole road
-     (`quarantine`, `worker`, `stages`), and `IFxStageCheck`'s names what this package's worker checks and what wp3-shaders-2 adds.
+  7. The stage words, in `src/PlayMap.Engine/Seams.Round3.cs` (doc comments only): `FxStage`'s summary names the stages FX CHECK
+     carries in the road's order (`translate`, `glslang`, `validate`, `cross`, `dxc`) and the single stages that answer for the
+     whole road (`quarantine`, `worker`, `stages`), and `IFxStageCheck`'s names what this package's worker checks and what
+     wp3-shaders-2 adds.
 - Design §6 states the record's invariant as the code meets it: one lock that orders every add and release, from whichever thread
   makes it, each written to the home before it is held, rather than one writer on the engine's lane; FX RELEASE on the control lane
   is today's only writer, since the worker host writes no quarantine, and wp3-shaders-2's GPU-time guard and wp3-stability-2's
@@ -139,8 +148,9 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
 - `docs/EFFECTS.md`: user ISF on the Direct3D 12 road (the Vulkan target: GLSL 4.50, glslang's relaxed rules, `spirv-val`,
   SPIRV-Cross to Shader Model 6.0 HLSL with the default block at b0, the built-ins at b1, image i at t i and every image sampled
   through the one sampler at s0, the vertex entry ending with the render hardware interface's conversion to Direct3D's clip space
-  (`ClipSpace.ToDirect3D`), any other resource refused with its name, DXC to validated, signed DXIL) in the shader worker; the
-  quarantine and FX RELEASE; FX CHECK's stages. GL user effects compile on the device's compile lane.
+  (`ClipSpace.ToDirect3D`), each varying matched by name across the entries, any other resource refused with its name, DXC to
+  validated, signed DXIL) in the shader worker; the quarantine and FX RELEASE; FX CHECK's stages. GL user effects compile on the
+  device's compile lane.
 - `docs/ARCHITECTURE.md` §5: the HLSL library under `src/PlayMap.Render.D3D12/Shaders` (one file per family, `Common.hlsli`'s
   conventions: positions in the render hardware interface's clip space and every vertex entry ending with `PmClip`, which is
   `ClipSpace.ToDirect3D`, so a draw lands on the GL backend's rows and depths; a `float4x4` constant read as `mul(v, M)` and the
@@ -158,4 +168,5 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
   make (`ATTR<location>`, a float format of each input's float count, buffer 0 per vertex and buffer 1 per instance);
   `HlslConventionTests` hold the clip conversion, the matrices' order and the vertex inputs in the source there too; the build
   embeds DXIL on Windows only, where the DXC executable is packaged, and each embedded entry's reflection is the sources' own.
-  Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's; nothing here was drawn on a device.
+  Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's (the present held to GL's on the window, `programs.json`'s
+  `window` class); CI draws none of it on a device.

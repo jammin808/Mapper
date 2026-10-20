@@ -153,14 +153,16 @@ The desk will open on guided workflows — two projectors blended or stacked on 
 reads undistorted from the audience, an object mapped with one or two projectors — beside advanced panes and a typed console,
 with every command and feature in the menu bar and the right-click menus. Every mapping step will be doable by hand or with the
 assistant, and capture cards will pass through to the air. With no lab this round, what only hardware proves stays on the lab's
-list (above). Twenty-one packages build the direction in four waves, each of the plan's decisions answered in its §9, on the
-round's spine, which is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the new projects
-as placeholders and the CI legs. Of the packages, the rendering hardware interface is built on it: every frame draws through
-Core's `IGpuDevice` with the GL backend behind it, its pixel goldens unedited and holding within their tolerances. So is the
+list (above). Twenty-one packages build the direction in four waves, every decision of the plan's but DXC's validator's terms
+answered in its §9 (that one is open: decision 24), on the round's spine, which is built: the catalogue's rows, Core's contracts,
+the engine's seams, the model's fields, the new projects as placeholders and the CI legs. Of the packages, the rendering hardware
+interface is built on it: every frame draws through Core's `IGpuDevice` with the GL backend behind it, its pixel goldens unedited
+and holding within their tolerances. So is the
 shaders package: PlayMap's programs written once more in HLSL, compiled on CI to validated, signed DXIL and held to the program
-table by reflection; a user's ISF effect compiled to DXIL in a worker process of its own, so no compiler loads into the engine,
-with each stage of that road in `FX CHECK`'s report; and a quarantine, kept in the node's home, whose kinds' slots draw bypassed
-until `FX RELEASE`. No device draws that DXIL yet (`docs/ROADMAP.md`, round 3).
+table by reflection; a user's ISF effect compiled to DXIL in a worker process of its own, so none of that road's compilers
+(glslang, SPIRV-Tools, SPIRV-Cross, DXC) loads into the engine, with each stage of that road in `FX CHECK`'s report; and a
+quarantine, kept in the node's home, whose kinds' slots draw bypassed until `FX RELEASE`. No device draws that DXIL yet
+(`docs/ROADMAP.md`, round 3).
 
 ## What it is made of
 
@@ -241,18 +243,28 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 ```
 
 GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared
-libraries: set `PLAYMAP_FFMPEG_DIR`. `PLAYMAP_GL_DIALECT=es300` runs the Render suite on an OpenGL ES 3.00 context.
+libraries: set `PLAYMAP_FFMPEG_DIR`. `PLAYMAP_GL_DIALECT=es300` runs the Render suite on an OpenGL ES 3.00 context. On Windows the
+shader worker's validator is SPIRV-Tools' own library, `SPIRV-Tools-shared.dll` from Google's Visual Studio 2022 release build
+(the URL and both hashes are the Windows job's `SPIRV-Tools for the shader worker` step): set `PLAYMAP_SPIRV_TOOLS_DIR` to the
+folder holding it, and the engine's build copies it beside every build of the engine. A Windows build without it has no
+validator: the worker's `validate` stage fails on every source ("SPIRV-Tools-shared.dll is not beside the worker"), so every
+`FX CHECK` and `FX IMPORT` report is `ok` false, `fx.compile.worker`'s `missing` reads 1 once the worker runs, and the road's
+tests (`ShaderRoadTests`, `IsfVulkanTargetTests`) fail. Linux needs nothing: there SPIRV-Tools is inside shaderc's library.
 
 CI does all of this on every push (`.github/workflows/build.yml`), on Linux and on Windows Server 2025 (`windows-2025`). Each
 job builds the whole solution in Release with the analyzers on and runs every test project to its end; on Windows that is on
-Mesa llvmpipe and WARP, since the runner has no GPU. Then:
+Mesa llvmpipe and WARP, since the runner has no GPU. Both jobs compile every program of the HLSL library through the shader
+worker's pinned DXC and hold its reflection to the program table (`HlslBuildTests`, `ShaderLayoutTests`). Then:
 
 - **Linux** runs the Render suite again on ES 3.00, and the Companion module's tests.
 - **Windows** runs the Direct3D 12 tests (`Backend=D3D12`) as a leg of their own, on WARP and the Agility SDK, both from NuGet at
   pinned versions and hashes (`tools/ci-d3d12.ps1`), and lists their results apart in the job's summary. It asks the runner what
   it gives (`bench/r3-probe`: the Agility runtime in a .NET apphost, MMCSS, the throttling read-back, the GPU scheduling class,
-  HDR10, the session calls) and writes the answers in the summary. It builds the lab's present bench (`bench/r3-present`) without
-  running it, and publishes the portable exe, named with its version (Versions, below).
+  HDR10, the session calls) and writes the answers in the summary. Before its build it fetches SPIRV-Tools' library at its pinned
+  hash for the shader worker (`PLAYMAP_SPIRV_TOOLS_DIR`); its build compiles the HLSL library with Microsoft.Direct3D.DXC's
+  `dxc.exe` into the DXIL `PlayMap.Render.D3D12` embeds, and it uploads every entry's PDB as `hlsl-symbols` (failing when there
+  is none). It builds the lab's present bench (`bench/r3-present`) without running it, and publishes the portable exe, named with
+  its version (Versions, below).
 - **A dispatched run** with the `d3d12` input runs only the Windows job's Direct3D 12 leg, narrowed by that test filter. It
   uploads the leg's results, diff images, info-queue log and DRED output, and gives the leg's minutes in the summary.
 

@@ -85,13 +85,16 @@ float4 OutputPS(OutputOut i) : SV_Target
 `ShaderLayoutTests` read each program's reflection (DXC's `IDxcUtils::CreateReflection`) on both jobs and compare it with its
 `ProgramLayout` in the RHI's program table: every constant's name, HLSL type, offset as HLSL packs it, array length and a matrix's
 `row_major`, the block's size, nothing bound but the block at `b0` and the binding block at `b1`, every texture read by the table's
-slot and sampled exactly where the table says sampled, and the vertex entry's input signature as the input layout the table's inputs
-make (`ATTR<location>`, a float format of each input's float count, buffer 0 per vertex and buffer 1 per instance).
+slot and sampled exactly where the table says sampled, and the vertex entry's input signature as the input layout the table's
+inputs make (`ATTR<location>`, a float format of each input's float count, buffer 0 per vertex and buffer 1 per instance).
 `HlslConventionTests` hold the clip conversion, the matrices' order and the vertex inputs in the source. The integer-exact programs
-that only `Load` (`video.pack`, `video.unpack`) are listed for wp3-d3d12-core's byte-exact parity tests. The four HAP encoder
-programs (`hapenc.*`) are written, compiled, reflected and drawn once on WARP like the rest, but their blocks are not a parity test
-this round: the encoder stays a GL user in the optimise worker, and its Direct3D 12 version (wp3-video's stretch) carries its own
-evidence.
+that only `Load` (`video.pack`, `video.unpack`) are listed for wp3-d3d12-core's byte-exact parity tests. The present is listed
+apart (`window`): its pixel entry draws the picture as it is into a back buffer that runs top row first, so it is held to GL's
+present as each lands on its window's raster, or in a target to GL's blit of the whole source (`uSrc` (0, 0, 1, 1)), and never to
+GL's present drawn into a target, whose flip answers GL's bottom-first default framebuffer and mirrors it. The four HAP encoder
+programs (`hapenc.*`) are written, compiled and reflected like the rest, and wp3-d3d12-core's `ProgramSmokeTests` is to draw them
+once on WARP, but their blocks are not a parity test this round: the encoder stays a GL user in the optimise worker, and its
+Direct3D 12 version (wp3-video's stretch) carries its own evidence.
 
 ## 5. The shader worker
 
@@ -117,10 +120,10 @@ directives:
 
 | # | Stage | Native | What it checks |
 |---|---|---|---|
-| 1 | `translate` | — (Core) | `IsfTranslator.TranslateVulkan`: `#version 450`, explicit `layout(location)` ins and outs, images at set 0 and fixed bindings (`IsfVulkanBindings`: image i at binding 2 + i, at most 16), ISF's inputs and each image's size, rect and flag as loose uniforms, its built-ins (`PASSINDEX`, `RENDERSIZE`, `TIME`, `TIMEDELTA`, `DATE`, `FRAMEINDEX`) as a block at binding 1 |
+| 1 | `translate` | — (Core) | `IsfTranslator.TranslateVulkan`: `#version 450`, an explicit location on the colour it writes (each stage's varyings at the locations glslang gives them in its own declaration order, matched by name at `cross`), images at set 0 and fixed bindings (`IsfVulkanBindings`: image i at binding 2 + i, at most 16), ISF's inputs and each image's size, rect and flag as loose uniforms, its built-ins (`PASSINDEX`, `RENDERSIZE`, `TIME`, `TIMEDELTA`, `DATE`, `FRAMEINDEX`) as a block at binding 1 |
 | 2 | `glslang` | glslang through shaderc's C interface, Vulkan's rules relaxed (glslang's `-R`) | compiles existing OpenGL GLSL without edits; loose uniforms gathered into the default uniform block, at a binding glslang chooses |
 | 3 | `validate` | SPIRV-Tools (`spvValidateBinary`, Vulkan 1.0) | the SPIR-V is valid before anything trusts it |
-| 4 | `cross` | SPIRV-Cross (C API) | HLSL Shader Model 6.0, combined image samplers split and each split sampler a name for the one at `s0`, registers remapped to user effects' root signature (below), the vertex entry ending with `ClipSpace.ToDirect3D`; any other resource (a storage buffer or image, a separate texture or sampler, a push-constant block, a subpass input, an atomic counter, an acceleration structure) refused with its name |
+| 4 | `cross` | SPIRV-Cross (C API) | HLSL Shader Model 6.0, combined image samplers split and each split sampler a name for the one at `s0`, registers remapped to user effects' root signature (below), the vertex entry ending with `ClipSpace.ToDirect3D`; each pixel-stage input at the location of the vertex output of its name, so a varying carries one `TEXCOORD` semantic in both entries whatever order and subset the fragment file declares, as GL links varyings by name, and an input no vertex output of its name and type writes refused with its name; any other resource (a storage buffer or image, a separate texture or sampler, a push-constant block, a subpass input, an atomic counter, an acceleration structure) refused with its name |
 | 5 | `dxc` | DXC (`vs_6_0`, `ps_6_0`) | validated, signed DXIL and its reflection |
 
 **User effects' root signature.** User HLSL from SPIRV-Cross binds the classic way, so user effects get a root signature of their
@@ -215,14 +218,14 @@ the entries `fx.quarantine` lists (`tests/fixtures/state/shaders.json`).
 | Test | Job | Holds |
 |---|---|---|
 | `HlslBuildTests` | both | every program compiles to validated, signed DXIL with a PDB and reflection; the set equals `ShaderLibrary.Names`; on Windows the build embedded the same set, each entry's reflection the sources'; the Windows job uploads every entry's PDB |
-| `HlslProgramSetTests` | both | `programs.json` names every library program once; each program's header is the one the program table gives |
+| `HlslProgramSetTests` | both | `programs.json` names every library program once; the byte-exact pair, the encoder's four and the present (`window`) are the classes apart from `pixels`; each program's header is the one the program table gives |
 | `ShaderLayoutTests` | both | reflection equals each program's layout in the program table (§4) |
 | `HlslConventionTests` | both | `PmClip` is `ClipSpace.ToDirect3D` and every vertex entry writes its position through it; each matrix constant multiplied as its type is read; the vertex inputs at their `ATTR` locations |
 | `IsfVulkanTargetTests` | both | the built-in ISF files and the test corpus translate, compile under `-R` and validate; a translator error keeps its ISF line |
-| `ShaderRoadTests` | both | the built-ins and the corpus to signed DXIL with reflection; the layout the file's own names at DXC's offsets; images at `t0`… and one sampler at `s0`; the vertex entry's clip conversion; a resource no ISF effect binds refused at `cross` |
+| `ShaderRoadTests` | both | the built-ins and the corpus to signed DXIL with reflection; the layout the file's own names at DXC's offsets; images at `t0`… and one sampler at `s0`; the vertex entry's clip conversion; same-named varyings at one `TEXCOORD` in both entries whatever order and subset the fragment file declares, and a varying no vertex output of its name and type writes refused at `cross`; a resource no ISF effect binds refused at `cross` |
 | `ShaderWorkerTests` | both | a good source → validated DXIL and a layout; an error → its stage and ISF line; a fake compiler that aborts → restarts with backoff, the third stop fails the source with no quarantine written; a compile past the deadline is ended and counts no stop; the engine holds no compiler module |
-| `QuarantineTests` | both | STATE and preflight carry a quarantined kind; `FX RELEASE` armed → the gate's verdict is a refusal by class and the quarantine is unchanged; from the blind owner never drafted — armed refused, disarmed acting on the node's quarantine at once, the draft holding no quarantine either way; a kind not quarantined and `ALL` with none refused with words; a release the home refuses changes nothing |
-| `QuarantineBypassTests`, `QuarantineRenderTests` | both | a quarantined slot passes its input through (± 0 codes on GL) and reads "bypassed" at no GPU time on a node; released, the slot draws again |
+| `QuarantineTests` | both | STATE and preflight carry a quarantined kind; `FX RELEASE` armed → the gate's verdict is a refusal by class and the quarantine is unchanged; from the blind owner never drafted — armed refused, disarmed acting on the node's quarantine at once, the draft holding no quarantine either way; a kind not quarantined and `ALL` with none refused with words; a release says what it applied and how many of the show's slots use the kind, never that they draw; a release the home refuses changes nothing |
+| `QuarantineBypassTests`, `QuarantineRenderTests` | both | a quarantined slot passes its input through (± 0 codes on GL) and reads "bypassed" at no GPU time on a node; a slot that drew before its kind was quarantined reads so after every frame past the renderer's idle sweep; released, the slot draws again |
 
 ## 10. Risks
 
