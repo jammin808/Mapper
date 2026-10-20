@@ -86,6 +86,10 @@ public static class ShaderParts
 /// stopped with the node.</summary>
 public sealed class ShadersExtension(ExtensionSetup setup, ShaderWorkerOptions options) : IEngineExtension
 {
+    /// <summary>The part as the exe composes it (EngineParts.Standard): the worker at its default options, this exe in its
+    /// "shader-worker" role, started with the first source.</summary>
+    public static readonly EngineExtensionFactory Factory = s => new ShadersExtension(s, new ShaderWorkerOptions());
+
     private ShaderWorkerHost? _worker;
 
     public string Name => "shaders";
