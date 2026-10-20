@@ -110,9 +110,12 @@ directives:
 
 **User effects' root signature.** User HLSL from SPIRV-Cross binds the classic way, so user effects get a root signature of their
 own: the default uniform block at `b0`, ISF's built-ins as root constants at `b1`, a descriptor table of `t0`–`t15` and one of
-`s0`–`s3`. The effect pass copies its textures' descriptors into the frame's ring range per draw (`CopyDescriptorsSimple`,
-allocation-free). Product programs keep the bindless root signature. This package fixes the remap the worker emits; the root
-signature, the copies and the pipelines on the device are wp3-shaders-2's (§11).
+`s0`–`s3`. The worker gives every image one sampler, declared once at `s0` (SPIRV-Cross's split samplers are each a name for it),
+so a user effect reads every image through `s0`, and the table's `s0` is the linear, clamped one of the four static samplers
+(`d3d12.md` §4), as the pictures an effect reads are on the GL path. The effect pass copies its textures' descriptors into the
+frame's ring range per draw (`CopyDescriptorsSimple`, allocation-free). Product programs keep the bindless root signature. This
+package fixes the remap the worker emits; the root signature, the copies and the pipelines on the device are wp3-shaders-2's
+(§11).
 
 **Supervision.** Started and watched as the optimise worker is: restarted with backoff (1 s doubling to 30 s); a compile that runs
 past 10 s is ended and fails with words; a source that stops the worker three times fails its kind with words and is never sent
@@ -209,7 +212,7 @@ with effects runs end to end on `PRESENT PATH D3D12`.
   (`ProgramCode.Dxil`), whose answer — a `ProgramId` and a `ProgramLayout` — the effect pass draws through the builder, as on GL. A
   kind whose DXIL has not come back draws bypassed with words ("compiling on the shader worker"), counted.
 - **The root signature** of §5 and the per-draw descriptor copies into the frame's ring (`Render.D3D12/Effects/`); ISF's built-ins
-  as root constants; samplers from the four static ones.
+  as root constants; samplers from the four static ones, `s0` the linear, clamped one every user effect's image reads through (§5).
 - **ISF on the device.** Multi-pass with sizes, persistent buffers (`ImportKind.IsfPersistent` in the plan: never aliased),
   imported pictures, `EffectGenerator` (an effect drawn as a source), feedback through the persistent buffers — each as the GL
   path draws it today.

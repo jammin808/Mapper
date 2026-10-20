@@ -89,8 +89,8 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
 
 (For the integration pass.)
 
-- **The spine seams this branch carries** (§5.7: each its own `Spine:` commit before the fill that uses it, reaching main with the
-  merge; PLAN §2.3's `Shaders` row names the stub):
+- **The seams this package needs and does not own, as the branch carries them** (§5.7: each spine part its own `Spine:` commit
+  before the fill that uses it, reaching main with the merge; PLAN §2.3's `Shaders` row names the stub):
   1. The composition's `Shaders` hook: `EngineParts.Standard()` calls `AddShadersParts` between Observe's and Preview's (§2.3's
      hook-word order), `tools/gen_stubs3.py`'s `ENGINE_PARTS` table names the word, and its stub `Host/EngineParts.Shaders.cs` adds
      `ShadersExtension.Factory` (the worker at its default options: this exe in its `shader-worker` role, started with the first
@@ -113,9 +113,10 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
      `hlsl-symbols`, `if-no-files-found: error`), a spine step outside this package's named block, which sits before `Restore`.
      `HlslBuildTests` read the workflow: the upload follows the Windows job's `Build` with no condition of its own and that path, the
      Linux job has none, and on Windows the glob holds both entries' PDBs of every program.
-- **Merge-gate items: the seams this package needs and does not own** (it works behind its own until they land):
-  5. Design §5 and §11 give user effects four static samplers (`s0`–`s3`); the worker emits every image's sampling through one
-     sampler at `s0` (linear and clamped, as the GL path samples ISF images), which those four hold.
+  5. The user effects' samplers, a design fact with no code: design §5 and §11 give user effects a table of the four static
+     samplers (`s0`–`s3`), and the worker gives every image one sampler, declared once at `s0` (`SpirvCross.ShareSampler`;
+     `ShaderRoadTests` read one sampler, register 0, space 0, from DXC's reflection), so the table's `s0` is the linear, clamped one,
+     as the pictures an effect reads are on the GL path. Design §5 and §11 say so for wp3-shaders-2, whose root signature it is.
 - Design §6 states the record's invariant as "one writer (the engine's lane)". It is met as one lock that orders every add and
   release, from whichever thread makes it, each written to the home before it is held; FX RELEASE on the control lane is today's only
   writer, since the worker host writes no quarantine, and wp3-shaders-2's GPU-time guard and wp3-stability-2's removal breadcrumbs
