@@ -359,4 +359,24 @@ public sealed class PlatformCallsTests
         ]);
         Evidence("Machine facts", facts.Select(f => $"- {f.Item}: {f.Light} {f.Value} — {f.Words}"));
     }
+
+    [WindowsFact]
+    public void EachConnectedNetworkNamesTheAdaptersItsConnectionsGoThroughWithTheirAddresses()
+    {
+        var read = WindowsReadings.TryNetworks(Environment.ProcessPath ?? "", out var networks, out var words);
+        var local = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
+        foreach (var network in networks)
+            foreach (var adapter in network.Adapters)
+            {
+                var nic = Assert.Single(local, i => Guid.TryParse(i.Id, out var id) && id == adapter.Id);
+                Assert.Equal(nic.Name, adapter.Name);
+            }
+        // A connected network has a connection, and each connection goes through an adapter this machine lists.
+        if (read && !networks.IsEmpty)
+            Assert.Contains(networks, n => !n.Adapters.IsEmpty);
+        Evidence("Networks and their adapters", read
+            ? networks.Select(n => $"- {n.Name}: {n.Category}, rule {(n.PublicRule ? "yes" : "no")}, through "
+                + string.Join("; ", n.Adapters.Select(a => $"{a.Name} ({string.Join(", ", a.Addresses)})")))
+            : [$"- not read: {words}"]);
+    }
 }

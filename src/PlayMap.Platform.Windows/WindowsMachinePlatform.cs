@@ -26,6 +26,7 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform, IMachineRe
     private readonly IMonoClock _clock;
     private readonly Func<long> _unixMs;
     private readonly Func<RuntimeIdentity> _runtimes;
+    private readonly Func<ImmutableArray<ShowDoor>> _doors;
     private readonly Lateness _late = new();
     private readonly Lock _gate = new();
     private readonly List<Claim> _threadClaims = [];
@@ -43,11 +44,14 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform, IMachineRe
 
     /// <param name="unixMs">The wall clock (Unix ms) for the servicing row's date and the capability snapshot's stamp.</param>
     /// <param name="runtimes">The runtimes their owners filled (Agility, FFmpeg, the sync firmware), read with the identity.</param>
-    public WindowsMachinePlatform(IMonoClock? clock = null, Func<long>? unixMs = null, Func<RuntimeIdentity>? runtimes = null)
+    /// <param name="doors">The node's show doors open now, read with the facts: the networks' row reads the networks they are on.</param>
+    public WindowsMachinePlatform(IMonoClock? clock = null, Func<long>? unixMs = null, Func<RuntimeIdentity>? runtimes = null,
+        Func<ImmutableArray<ShowDoor>>? doors = null)
     {
         _clock = clock ?? MonoClock.Instance;
         _unixMs = unixMs ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         _runtimes = runtimes ?? (() => RuntimeIdentity.Empty);
+        _doors = doors ?? (() => []);
     }
 
     public string Name => "windows";
@@ -408,6 +412,7 @@ public sealed unsafe class WindowsMachinePlatform : IMachinePlatform, IMachineRe
             RebootRead = true,
             Networks = networks,
             NetworksRead = networksRead,
+            Doors = _doors(),
             Claims = claims,
             TimerWaits = _late.Count,
             TimerLateP99Us = _late.P99Us,

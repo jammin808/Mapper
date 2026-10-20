@@ -171,9 +171,13 @@ internal static class Slots
     public const int AdapterCheckInterfaceSupport = 9;
     public const int AdapterGetDesc1 = 10;
 
-    // IDispatch 3–6; INetworkListManager 7– (GetNetworks), IEnumNetworks 7– (Next at 8), INetwork 7– (GetName 7, GetCategory 18).
+    // IDispatch 3–6; INetworkListManager 7– (GetNetworks), IEnumNetworks 7– (Next at 8), INetwork 7– (GetName 7,
+    // GetNetworkConnections 13, GetCategory 18), IEnumNetworkConnections 7– (Next at 8), INetworkConnection 7– (GetAdapterId 12).
     public const int NetworkListGetNetworks = 7;
     public const int EnumNetworksNext = 8;
     public const int NetworkGetName = 7;
+    public const int NetworkGetNetworkConnections = 13;
     public const int NetworkGetCategory = 18;
+    public const int EnumNetworkConnectionsNext = 8;
+    public const int NetworkConnectionGetAdapterId = 12;
 }

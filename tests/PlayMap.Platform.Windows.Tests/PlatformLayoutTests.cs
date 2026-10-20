@@ -99,6 +99,10 @@ public sealed class PlatformLayoutTests
         // IDispatch 3–6; INetwork's GetCategory is its twelfth method.
         Assert.Equal(7 + 11, Slots.NetworkGetCategory);
         Assert.Equal((7, 8, 7), (Slots.NetworkListGetNetworks, Slots.EnumNetworksNext, Slots.NetworkGetName));
+        // INetwork: GetName, SetName, GetDescription, SetDescription, GetNetworkId, GetDomainType, then GetNetworkConnections (its seventh);
+        // IEnumNetworkConnections: _NewEnum, then Next; INetworkConnection: GetNetwork, IsConnectedToInternet, IsConnected,
+        // GetConnectivity, GetConnectionId, then GetAdapterId (its sixth).
+        Assert.Equal((7 + 6, 7 + 1, 7 + 5), (Slots.NetworkGetNetworkConnections, Slots.EnumNetworkConnectionsNext, Slots.NetworkConnectionGetAdapterId));
     }
 
     [Fact]

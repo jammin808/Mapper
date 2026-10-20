@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Net;
 using PlayMap.Core.Bus;
 
 namespace PlayMap.Core.Machine;
@@ -20,9 +21,37 @@ public sealed record UpdatePolicy(bool Read, bool Held, string Values)
     public static UpdatePolicy Unread { get; } = new(false, false, "");
 }
 
-/// <summary>A connected network as read: its name, its firewall profile ("public", "private", "domain") and whether an inbound rule for
-/// PlayMap covers the Public profile.</summary>
-public sealed record NetworkProfile(string Name, string Category, bool PublicRule);
+/// <summary>An adapter a connected network is reached through: its id (the adapter's GUID), its name and its unicast addresses.</summary>
+public sealed record NetworkAdapter(Guid Id, string Name, ImmutableArray<IPAddress> Addresses)
+{
+    /// <summary>The adapters <paramref name="ids"/> name among <paramref name="adapters"/>, once each, in the order named; an id that
+    /// names none is left out.</summary>
+    public static ImmutableArray<NetworkAdapter> Of(IEnumerable<Guid> ids, IReadOnlyList<NetworkAdapter> adapters)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        ArgumentNullException.ThrowIfNull(adapters);
+        var found = ImmutableArray.CreateBuilder<NetworkAdapter>();
+        foreach (var id in ids.Distinct())
+            if (adapters.FirstOrDefault(a => a.Id == id) is { } adapter)
+                found.Add(adapter);
+        return found.ToImmutable();
+    }
+
+    /// <summary>Whether the adapter carries <paramref name="address"/> (an IPv4 address mapped into IPv6 read as IPv4).</summary>
+    public bool Carries(IPAddress address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        var wanted = MachineRows.Normal(address);
+        return Addresses.Any(a => MachineRows.Normal(a).Equals(wanted));
+    }
+}
+
+/// <summary>A connected network as read: its name, its firewall profile ("public", "private", "domain"), whether an inbound rule for
+/// PlayMap covers the Public profile, and the adapters it is reached through (empty where the list named none).</summary>
+public sealed record NetworkProfile(string Name, string Category, bool PublicRule)
+{
+    public ImmutableArray<NetworkAdapter> Adapters { get; init; } = [];
+}
 
 /// <summary>Everything the platform read for the machine's preflight rows, each "unread" where Windows did not answer (−1, "", or
 /// false with the reading's own flag). Pure data: the Windows platform fills it, a test fakes it.</summary>
@@ -50,6 +79,10 @@ public sealed record MachineReadings
 
     /// <summary>Whether the networks were read (false: their row is unread, with words).</summary>
     public bool NetworksRead { get; init; }
+
+    /// <summary>The node's show doors open now, each with the address it is bound to (the network host's, then the control inputs');
+    /// empty where none was handed to the platform.</summary>
+    public ImmutableArray<ShowDoor> Doors { get; init; } = [];
 
     /// <summary>The claims made so far, process and threads.</summary>
     public ImmutableArray<Claim> Claims { get; init; } = [];
@@ -85,9 +118,9 @@ public sealed record MachineReadings
 
 /// <summary>The machine's preflight rows, pure: each a fact with its light and words, never a silent change, a fix line only where a
 /// verb fixes it. The edition's rows follow D4: a layer the edition lacks is a grey information row ("i") — Home's four, and on Pro and
-/// Pro for Workstations the kiosk's (no Shell Launcher) — and the hard rows are amber. A connected network on Public with no rule letting
-/// PlayMap in is amber whichever adapter the show uses, since the node names no show adapter. Rows that fail name what is wrong; the
-/// must rows that pass are green, so a person sees what was checked.</summary>
+/// Pro for Workstations the kiosk's (no Shell Launcher) — and the hard rows are amber. A network show traffic can cross on Public with
+/// no rule letting PlayMap in is amber: one whose adapters carry a show door's address, or any connected one while a show door listens
+/// on every interface. Rows that fail name what is wrong; the must rows that pass are green, so a person sees what was checked.</summary>
 public static class MachineRows
 {
     /// <summary>The value an information row carries (grey, with the i).</summary>
@@ -122,9 +155,8 @@ public static class MachineRows
             : new MachineFact("reboot", Light.Amber, "pending", "a reboot is pending (" + string.Join(", ", r.RebootPending) + "): restart before the show, not during it"));
         if (!r.NetworksRead)
             rows.Add(new MachineFact("network", Light.Grey, "unknown", Unread("the networks' firewall profiles")));
-        foreach (var n in r.Networks.Where(n => n.Category == "public" && !n.PublicRule))
-            rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public",
-                $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there: if show traffic crosses it, make it Private in Settings ▸ Network & internet ▸ {n.Name} ▸ Network profile type"));
+        else
+            Networks(r.Networks, r.Doors, rows);
         Settings(r, rows);
         Claims(r.Claims, rows);
         rows.Add(r.TimerWaits == 0 ? new MachineFact("timer", Light.Grey, "no waits", "no deadline wait has been timed yet")
@@ -135,6 +167,81 @@ public static class MachineRows
     }
 
     private static string Us(double us) => string.Create(CultureInfo.InvariantCulture, $"{Math.Round(us)} µs");
+
+    private const string NonePublic = "no connected network is on the Public firewall profile without a rule letting PlayMap in";
+
+    /// <summary>The networks' firewall rows, for the networks show traffic can cross: every connected one when a show door listens on
+    /// every interface (the row saying which doors do) or no door was handed over, else only those whose adapters carry a door's
+    /// address (the row naming the doors, the address and the adapter). Each such Public network with no rule letting PlayMap in is
+    /// amber; with none, one green row says what was read.</summary>
+    private static void Networks(ImmutableArray<NetworkProfile> networks, ImmutableArray<ShowDoor> doors, ImmutableArray<MachineFact>.Builder rows)
+    {
+        var everywhere = doors.Where(d => d.Everywhere).Select(d => DoorWord(d.Name)).Distinct(StringComparer.Ordinal).ToList();
+        if (doors.IsEmpty || everywhere.Count > 0)
+        {
+            var listen = $"this node's {List(everywhere)} {(everywhere.Count == 1 ? "listens" : "listen")} on every interface";
+            var amber = false;
+            foreach (var n in networks.Where(n => n.Category == "public" && !n.PublicRule))
+            {
+                amber = true;
+                rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public", doors.IsEmpty
+                    ? $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there: if show traffic crosses it, make it Private in {ProfileSetting(n.Name)}"
+                    : $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there, and {listen}, so show traffic can cross it: make it Private in {ProfileSetting(n.Name)}, or bind the node to its show adapter's address"));
+            }
+            if (!amber)
+                rows.Add(doors.IsEmpty
+                    ? new MachineFact("network", Light.Green, "none public", NonePublic)
+                    : new MachineFact("network", Light.Green, "every interface", $"{listen}, and {NonePublic}"));
+            return;
+        }
+        // Every door is bound to an address: the networks whose adapters carry none are not the show's, and are not read.
+        var addresses = string.Join(", ", doors.Select(d => Normal(d.Address)).Distinct().Select(a => a.ToString()));
+        var carried = networks.Select(n => (Network: n, Through: Through(n, doors))).Where(c => c.Through.Count > 0).ToList();
+        var refused = false;
+        foreach (var (n, through) in carried.Where(c => c.Network.Category == "public" && !c.Network.PublicRule))
+        {
+            refused = true;
+            rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public",
+                $"the network {n.Name} carries this node's {string.Join("; ", through)} and is on the Public firewall profile with no rule letting PlayMap in: make it Private in {ProfileSetting(n.Name)}"));
+        }
+        if (refused)
+            return;
+        rows.Add(new MachineFact("network", Light.Green, addresses, carried.Count == 0
+            ? $"the show doors are bound to {addresses}, which no connected network carries"
+            : "the show doors are " + string.Join("; ", carried.Select(c => $"on {c.Network.Name} ({c.Network.Category}): {string.Join("; ", c.Through)}"))));
+    }
+
+    /// <summary>The doors a network's adapters carry, by adapter and address ("line wire and web port on 192.168.10.20 through Ethernet
+    /// 2"), in the adapters' order.</summary>
+    private static List<string> Through(NetworkProfile network, ImmutableArray<ShowDoor> doors)
+    {
+        var through = new List<string>();
+        foreach (var adapter in network.Adapters)
+            foreach (var at in doors.Where(d => adapter.Carries(d.Address)).GroupBy(d => Normal(d.Address)))
+                through.Add($"{List(at.Select(d => DoorWord(d.Name)).Distinct(StringComparer.Ordinal))} on {at.Key} through {adapter.Name}");
+        return through;
+    }
+
+    private static string ProfileSetting(string network) => $"Settings ▸ Network & internet ▸ {network} ▸ Network profile type";
+
+    /// <summary>A show door as a row names it.</summary>
+    private static string DoorWord(string door) => door switch
+    {
+        "wire" => "line wire",
+        "web" => "web port",
+        "sync" => "clock sync",
+        "osc" => "OSC",
+        "artnet" => "Art-Net",
+        "sacn" => "sACN",
+        _ => door,
+    };
+
+    /// <summary>"a", "a and b", "a, b and c".</summary>
+    private static string List(IEnumerable<string> words)
+    {
+        var list = words.ToList();
+        return list.Count < 2 ? string.Concat(list) : string.Join(", ", list.Take(list.Count - 1)) + " and " + list[^1];
+    }
 
     private static void Os(OsIdentity os, DateOnly today, ImmutableArray<MachineFact>.Builder rows)
     {
@@ -346,6 +453,9 @@ public static class MachineRows
     }
 
     private static string Number(int n) => n.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>An address as rows compare it: an IPv4 address mapped into IPv6 read as IPv4.</summary>
+    internal static IPAddress Normal(IPAddress address) => address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
 
     private static string Date(DateOnly d) => d.ToString("d MMM yyyy", CultureInfo.InvariantCulture);
 }

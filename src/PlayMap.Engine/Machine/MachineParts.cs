@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
@@ -63,7 +64,8 @@ internal sealed class MachineParts : IEngineExtension
         var settings = node?.Saved ?? MachineSettings.Default;
         // Deadline waits are on the machine's monotonic clock, as every caller's deadline is, whatever clock the node's show runs on.
         IMachinePlatform inner = _given?.Platform ?? (OperatingSystem.IsWindows()
-            ? WindowsPlatformProject.Create(MonoClock.Instance, () => services.Wall.UnixMs, () => node?.Runtimes ?? RuntimeIdentity.Empty)
+            ? WindowsPlatformProject.Create(MonoClock.Instance, () => services.Wall.UnixMs, () => node?.Runtimes ?? RuntimeIdentity.Empty,
+                () => ShowDoors(setup?.Network, _engine))
             : new NullMachinePlatform(NotWindowsWords, MonoClock.Instance));
         _platform = new RecordedPlatform(inner, MonoClock.Instance, () => node?.Runtimes ?? RuntimeIdentity.Empty);
         _platform.Use(settings);
@@ -100,6 +102,11 @@ internal sealed class MachineParts : IEngineExtension
     }
 
     private void OnProject(long revision) => Hold();
+
+    /// <summary>The node's show doors open now, read with the machine's facts: the network host's (the line wire, the web port, the clock
+    /// sync while it leads), then the control inputs' (OSC, Art-Net, sACN); none before the engine starts.</summary>
+    internal static ImmutableArray<ShowDoor> ShowDoors(NetworkHost? network, EngineCore? engine) =>
+        [.. network?.Doors ?? [], .. engine?.Services.Control?.Doors ?? []];
 
     /// <summary>A saved change reaches the platform first, so keep-awake, the next thread claim and timer, and the facts follow it.</summary>
     private void OnSettings(MachineSettings settings)
