@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
 using PlayMap.Core.Presentation;
@@ -8,7 +9,7 @@ using PlayMap.Core.Time;
 using PlayMap.Engine.Presentation;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Tests.Rendering;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
 
@@ -261,9 +262,17 @@ public sealed class FrameLockHostTests
 
         public void SetSwapInterval(int interval) => SwapInterval = interval;
 
-        public PresentResult Present(GpuTexture picture) => PresentBlack();
+        public void Record(ICommandList list, GpuTexture picture)
+        {
+            // Every present here is timed the same, whatever it shows.
+        }
 
-        public PresentResult PresentBlack()
+        public void RecordBlack(ICommandList list)
+        {
+            // As Record.
+        }
+
+        public PresentResult Present()
         {
             var hold = ++_presents % 10 == 0;
             if (hold)

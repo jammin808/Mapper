@@ -114,11 +114,15 @@ When `TIME` leaves the range a float holds to a millisecond (past 65 536 s, or b
 
 ## The compile lane
 
-Programs are compiled on a **second GL context that shares the render context's objects**, on a thread of its own. A slot shows
-its input untouched while its program compiles, and a compile — however long — never holds a frame: the render thread takes the
-finished program at its next frame. Where a second context cannot be made, the lane runs on the render thread instead, one
-program a frame, and STATE says so (`fx.compile.lane: "render-thread"` with words). `FX CHECK` and `FX IMPORT` compile through
-the same lane, off the control lane, with a 10 s bound.
+Each pass of an effect is a program the device makes (`IGpuDevice.CreateProgramAsync`, the translated source in): the GL backend
+compiles and links it on a **second GL context that shares the render context's objects**, on a thread of its own, and reads its
+uniforms and samplers back into the program's layout, so a draw sets only the names its program holds. A slot shows its input
+untouched while its program compiles, and a compile — however long — never holds a frame: the render thread takes the finished
+program at its next frame. A program that does not compile answers its stage and the ISF line of the error. Where a second
+context cannot be made, the lane runs on the render thread instead, one program a frame, and STATE says so
+(`fx.compile.lane: "render-thread"` with words). A program no slot has drawn for 600 frames is released, and the device lets it
+go once the last frame that drew it has completed. `FX CHECK` and `FX IMPORT` compile through the same lane, off the control
+lane, with a 10 s bound, and release what they made.
 
 On the Direct3D 12 device the direction is that nothing compiles during the show (docs/round3/PLAN.md §3.13, §3.16): `SHOW ARM`
 waits, up to its deadline, for every pipeline the armed show can reach, ISF kinds' included, made from the shader worker's DXIL; a
@@ -151,14 +155,16 @@ frame the drawn project carries the slot's bound numbers at their live values wh
 ## Measured, not governed
 
 Each slot's GPU time is measured between two GPU timestamps around its passes and its mix, three frames deep so reading never
-waits, and reported in STATE (`gpuMs`; on a GLES context, which has no timestamp queries, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
+waits, and reported in STATE (`gpuMs`; on a GLES context with no timestamp counter, `EXT_disjoint_timer_query` absent or
+reporting no bits, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
 (`NodeSettings.fx.budgetMs`, 4 ms): amber past it, red past twice it. Nothing acts on it today. The direction on the Direct3D 12
 device is a GPU-time guard with a measured cause (docs/round3/PLAN.md §3.16 item 4): a user slot that is the cause of its output
 missing vblanks — the frame's GPU time over the output's period, and under it without the slot's own time — on 30 frames in a row is
 bypassed and quarantined, with both numbers in its words.
 
 Once warm, a frame with chains on outputs, layers, surfaces and items — and with chains that are not drawn, saying why —
-allocates nothing on the frame path.
+allocates nothing on the frame path while no layer, surface or effect slot is modulated; a frame with a modulated one builds its
+drawn project afresh (docs/ROADMAP.md R2.8).
 
 ## Next
 

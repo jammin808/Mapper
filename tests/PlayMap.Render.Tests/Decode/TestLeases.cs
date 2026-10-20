@@ -23,6 +23,54 @@ internal sealed class TestLease(PixelLayout layout, int width, int height, long 
     }
 }
 
+/// <summary>A lease that carries a surface as a decoder's does: disposing it gives back the lease's reference to the surface.</summary>
+internal sealed class SurfaceLease(PixelLayout layout, int width, int height, long generation, GpuSurface surface) : VideoFrameLease
+{
+    public override PixelLayout Layout => layout;
+    public override int Width => width;
+    public override int Height => height;
+    public override IReadOnlyList<FramePlane> Planes => [];
+    public override long PtsNs => 0;
+    public override long DurationNs => 40_000_000;
+    public override long Generation => generation;
+    public override ColorMatrix Matrix => ColorMatrix.Bt709;
+    public override GpuSurface? Surface => surface;
+
+    protected override void Release() => surface.Release();
+}
+
+/// <summary>A decoder's slot as its pool counts references: the lease's (<see cref="Leased"/>) and every hold the renderer takes. When
+/// the count reaches 0 the slot is the decoder's again, so it must not reach 0 while the GPU can still read the surface
+/// (<paramref name="readDone"/>), nor be retained once it did; each such fault is recorded.</summary>
+internal sealed class ReferenceOwner(Func<bool> readDone) : IGpuSurfaceOwner
+{
+    public int Count { get; private set; }
+    public int Retains { get; private set; }
+    public int Releases { get; private set; }
+    public List<string> Faults { get; } = [];
+
+    /// <summary>The lease's reference (the decoder's queue has already let go of its own).</summary>
+    public void Leased() => Count++;
+
+    public void Retain(GpuSurface surface)
+    {
+        if (Count == 0)
+            Faults.Add("retained after the slot went back to the decoder");
+        Count++;
+        Retains++;
+    }
+
+    public void Release(GpuSurface surface)
+    {
+        Releases++;
+        Count--;
+        if (Count < 0)
+            Faults.Add("released more often than it was referenced");
+        else if (Count == 0 && !readDone())
+            Faults.Add("given back to the decoder while the GPU could still read it");
+    }
+}
+
 /// <summary>A producer's side of a surface's holds, counted.</summary>
 internal sealed class CountingOwner : IGpuSurfaceOwner
 {

@@ -1,6 +1,8 @@
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
+using PlayMap.Core.Gpu.Programs;
 using PlayMap.Core.Model;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Generators;
 
@@ -10,8 +12,19 @@ namespace PlayMap.Render.Generators;
 /// (through the flash guard's bound) move it.</summary>
 internal sealed class RaymarchGenerator : GeneratorRenderer
 {
+    private static readonly DrawState Upscaled = FrameLists.Quads(BlendMode.Opaque);
+
+    /// <summary>The march at its inner size and the picture scaled up from it, both half float.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("content.raymarch", DrawState.Opaque, TargetShape.Rgba16F);
+        keys.Add("quad", Upscaled, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
     private readonly FlashGuard _guard = new();
+    private readonly ProgramId _march;
     private RenderTarget? _inner;
     private Fractal3DSettings _settings = null!;
     private ColorRgb[] _palette = [ColorRgb.White];
@@ -20,7 +33,8 @@ internal sealed class RaymarchGenerator : GeneratorRenderer
     public RaymarchGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
         : base(services, kind, width, height, context)
     {
-        _target = Device.CreateRenderTarget(width, height, TextureFormat.Rgba16F);
+        _march = Device.Programs.Id("content.raymarch");
+        _target = Device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F));
     }
 
     public override GpuTexture Output => _target.Color;
@@ -51,21 +65,22 @@ internal sealed class RaymarchGenerator : GeneratorRenderer
         {
             _inner?.Dispose();
             _inner = null;
-            _inner = Device.CreateRenderTarget(w, h, TextureFormat.Rgba16F);
+            _inner = Device.CreateTarget(new TargetDesc(w, h, TextureFormat.Rgba16F));
         }
         var sound = Hear(frame, Num("sound"));
         var bright = (float)Num("brightness") * (1 + surge.Glow * 0.5f);
         if (sound.Amount > 0)
             bright = FlashGuard.Brightness(bright, sound.Low, sound.Amount);
         var camera = Camera(frame.Seconds, surge);
-        var p = Device.Program("content.raymarch");
-        Apply(p, camera, w, h, mode: 0);
-        p.Set("uBright", bright);
-        Device.BindTarget(_inner);
-        Device.SetBlend(BlendMode.Opaque);
-        Device.DrawFullscreen(p);
-        Device.SetBlend(BlendMode.Opaque);
-        Services.DrawQuad(_target, _inner.Color, 0, 0, Width, Height, 0, 1);
+        var list = List;
+        using (list.Pass(_inner, PassDesc.Keep))
+        {
+            var draw = list.Draw(_march, DrawState.Opaque);
+            Apply(draw, camera, w, h, mode: 0);
+            draw.Set(ProgramIds.ContentRaymarch.uBright, bright).Fullscreen();
+        }
+        using (list.Pass(_target, PassDesc.Keep))
+            Services.DrawQuad(list, _target, _inner.Color, 0, 0, Width, Height, 0, 1, in Upscaled);
         var flash = frame.FlashGuard ? _guard.Limit(surge.Flash, frame.Seconds) : surge.Flash;
         Services.DrawFlash(_target, flash);
     }
@@ -90,38 +105,37 @@ internal sealed class RaymarchGenerator : GeneratorRenderer
         };
     }
 
-    /// <summary>Sets the marcher's uniforms for a camera at an internal size; mode 1 writes the distance travelled.</summary>
-    public void Apply(ShaderProgram p, in Fractal3DCamera camera, int w, int h, int mode)
+    /// <summary>Sets the marcher's constants for a camera at an internal size into a draw; mode 1 writes the distance travelled.</summary>
+    public void Apply(DrawBuilder draw, in Fractal3DCamera camera, int w, int h, int mode)
     {
-        ArgumentNullException.ThrowIfNull(p);
         var q = De();
-        p.Set("uRes", w, h);
-        p.Set("uEye", camera.Eye.X, camera.Eye.Y, camera.Eye.Z);
-        p.Set("uRight", camera.Right.X, camera.Right.Y, camera.Right.Z);
-        p.Set("uUp", camera.Up.X, camera.Up.Y, camera.Up.Z);
-        p.Set("uFwd", camera.Forward.X, camera.Forward.Y, camera.Forward.Z);
-        p.Set("uTanHalf", camera.TanHalfFov);
-        p.SetInt("uKind", (int)_settings.Kind);
-        p.SetInt("uIters", q.Iterations);
-        p.Set("uPower", q.Power);
-        p.Set("uScale", q.Scale);
-        p.Set("uFoldLimit", q.FoldLimit);
-        p.Set("uMinR", q.MinRadius);
-        p.Set("uFixedR", q.FixedRadius);
-        p.SetInt("uFold", (int)q.Fold);
-        p.Set("uOffset", q.Offset.X, q.Offset.Y, q.Offset.Z);
-        p.Set("uTwist", q.Twist);
-        p.SetInt("uSteps", Int("steps"));
-        p.Set("uCone", Fractal3D.Cone(camera.TanHalfFov, h, (float)Num("detail")));
-        p.Set("uGlow", (float)Num("glow"));
-        p.Set("uAo", (float)Num("ao"));
-        p.Set("uFog", (float)Num("fog"));
-        p.Set("uBright", (float)Num("brightness"));
-        p.Set("uPhase", 0f);
-        p.Set("uBg", _background.R, _background.G, _background.B);
-        p.SetInt("uMode", mode);
-        p.Set("uNcol", Math.Min(_palette.Length, Fractal3DSettings.PaletteColors));
-        FractalGenerator.SetPalette(p, _palette);
+        draw.Set(ProgramIds.ContentRaymarch.uRes, w, h)
+            .Set(ProgramIds.ContentRaymarch.uEye, camera.Eye.X, camera.Eye.Y, camera.Eye.Z)
+            .Set(ProgramIds.ContentRaymarch.uRight, camera.Right.X, camera.Right.Y, camera.Right.Z)
+            .Set(ProgramIds.ContentRaymarch.uUp, camera.Up.X, camera.Up.Y, camera.Up.Z)
+            .Set(ProgramIds.ContentRaymarch.uFwd, camera.Forward.X, camera.Forward.Y, camera.Forward.Z)
+            .Set(ProgramIds.ContentRaymarch.uTanHalf, camera.TanHalfFov)
+            .SetInt(ProgramIds.ContentRaymarch.uKind, (int)_settings.Kind)
+            .SetInt(ProgramIds.ContentRaymarch.uIters, q.Iterations)
+            .Set(ProgramIds.ContentRaymarch.uPower, q.Power)
+            .Set(ProgramIds.ContentRaymarch.uScale, q.Scale)
+            .Set(ProgramIds.ContentRaymarch.uFoldLimit, q.FoldLimit)
+            .Set(ProgramIds.ContentRaymarch.uMinR, q.MinRadius)
+            .Set(ProgramIds.ContentRaymarch.uFixedR, q.FixedRadius)
+            .SetInt(ProgramIds.ContentRaymarch.uFold, (int)q.Fold)
+            .Set(ProgramIds.ContentRaymarch.uOffset, q.Offset.X, q.Offset.Y, q.Offset.Z)
+            .Set(ProgramIds.ContentRaymarch.uTwist, q.Twist)
+            .SetInt(ProgramIds.ContentRaymarch.uSteps, Int("steps"))
+            .Set(ProgramIds.ContentRaymarch.uCone, Fractal3D.Cone(camera.TanHalfFov, h, (float)Num("detail")))
+            .Set(ProgramIds.ContentRaymarch.uGlow, (float)Num("glow"))
+            .Set(ProgramIds.ContentRaymarch.uAo, (float)Num("ao"))
+            .Set(ProgramIds.ContentRaymarch.uFog, (float)Num("fog"))
+            .Set(ProgramIds.ContentRaymarch.uBright, (float)Num("brightness"))
+            .Set(ProgramIds.ContentRaymarch.uPhase, 0f)
+            .Set(ProgramIds.ContentRaymarch.uBg, _background.R, _background.G, _background.B)
+            .SetInt(ProgramIds.ContentRaymarch.uMode, mode)
+            .Set(ProgramIds.ContentRaymarch.uNcol, Math.Min(_palette.Length, Fractal3DSettings.PaletteColors));
+        FractalGenerator.SetPalette(draw, _palette);
     }
 
     protected override void Dispose(bool disposing)

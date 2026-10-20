@@ -48,7 +48,7 @@ public sealed partial class RenderHost
 
     partial void OnContextLed(RenderEngine renderer)
     {
-        _led = new LedPass(_context!.Device, new RendererPictures(renderer));
+        _led = new LedPass(renderer.Device, new RendererPictures(renderer));
     }
 
     partial void OnContextLostLed()

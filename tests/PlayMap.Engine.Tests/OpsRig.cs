@@ -29,14 +29,17 @@ internal sealed class OpsRig : IAsyncDisposable
 
     /// <param name="display">The outputs a real scan shows its patterns on (null: none — the simulator scans).</param>
     /// <param name="services">A test's own parts on top of the rig's (a camera re-solve's display and camera).</param>
+    /// <param name="clock">The node's and the devices' clock (null: the real monotonic clock, which a scan display's stamps share).</param>
     public OpsRig(AssistantSettings? assistant = null, ScriptedModel? model = null, Project? project = null, INetworkControl? network = null,
-        ScanRunnerOptions? scan = null, IScanDisplay? display = null, Func<EngineServices, EngineServices>? services = null)
+        ScanRunnerOptions? scan = null, IScanDisplay? display = null, Func<EngineServices, EngineServices>? services = null,
+        IMonoClock? clock = null)
     {
         Folder = Directory.CreateTempSubdirectory("playmap-ops-").FullName;
         Credentials = new NodeCredentialStore(Path.Combine(Folder, "keys"));
         Model = model ?? new ScriptedModel();
         Scanner = new ScanRunner(display, scan);
-        Devices = new DeviceService(Credentials, MonoClock.Instance, new DeviceServiceOptions
+        clock ??= MonoClock.Instance;
+        Devices = new DeviceService(Credentials, clock, new DeviceServiceOptions
         {
             PjLinkUdpPort = -1,
             Timings = DriverTimings.Fast,
@@ -53,7 +56,7 @@ internal sealed class OpsRig : IAsyncDisposable
                 return Model;
             },
         });
-        var parts = EngineServices.ForTests(MonoClock.Instance);
+        var parts = EngineServices.ForTests(clock);
         parts = parts with
         {
             // A node id of its own: the preview rings are files every process of this user shares.

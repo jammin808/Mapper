@@ -4,10 +4,10 @@ What PlayMap ships or loads from others is listed here, each under the package t
 licence asks for. NDI's runtime loads from the user's own install and NVAPI from the user's NVIDIA driver, and neither is ever
 shipped. Round 3 will load NVIDIA's Aftermath library from wherever the user put it, AMD's runtimes (ADLX among them) from the
 driver, and the capture cards' runtimes (DeckLink's, and AJA's and Magewell's if their stretch lands) from their drivers' installs,
-and will ship none of them. Today no FFmpeg is shipped: PlayMap loads the shared libraries the user puts in place. Round 3's MSI
-will carry the LGPL build's replaceable shared libraries, and no other FFmpeg build is ever shipped (`docs/round3/PLAN.md` §9
-decision 4). ANGLE's library comes beside the exe in the desk's Avalonia package (wp2-d3d11, below). Vendored source lives under
-`src/ThirdParty`, outside the analyzers' fences, with its licence beside it.
+and will ship none of them. Today no FFmpeg is shipped: PlayMap loads the shared libraries the user puts in place. Round 3's
+installer will carry the LGPL build's replaceable shared libraries and the portable folder none, and no other FFmpeg build is ever
+shipped (`docs/round3/PLAN.md` §9 decision 4). ANGLE's library comes beside the exe in the desk's Avalonia package (wp2-d3d11,
+below). Vendored source lives under `src/ThirdParty`, outside the analyzers' fences, with its licence beside it.
 
 ## Round 1
 
@@ -33,7 +33,7 @@ decision 4). ANGLE's library comes beside the exe in the desk's Avalonia package
   rights reserved." with the BSD-3-Clause conditions and disclaimer. The render tests reference the same package so the loader
   finds the file beside the test assembly.
 - The Direct3D 11, DXGI, user32 and display-configuration structure layouts and COM vtable slots in
-  `src/PlayMap.Render/Platform/Windows` and `src/PlayMap.Media/Video/Spout` follow the Windows SDK's published declarations; the
+  `src/PlayMap.Render/Gl/Windows` and `src/PlayMap.Media/Video/Spout` follow the Windows SDK's published declarations; the
   test goldens were taken from the mingw-w64 headers (public domain / ZPL; read at test time where installed, nothing copied).
 - Spout 2 (BSD-2-Clause, © Lynn Jarvis and the Spout contributors): PlayMap's Spout code speaks its protocol (the shared-memory
   names and layouts, the frame counter and access lock order) written from the published protocol; no Spout source or binary is

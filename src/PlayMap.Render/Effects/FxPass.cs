@@ -1,8 +1,7 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
 
 namespace PlayMap.Render.Effects;
 
@@ -19,8 +18,9 @@ namespace PlayMap.Render.Effects;
 /// programs and buffers, says the air's reason and draws on the first frame back; a chain whose owner is out of the picture (a
 /// layer or surface that is not visible, a canvas nothing shows, an item its playlist is not showing) lets them go once unused for
 /// <see cref="FxChainRunner.IdleFrames"/> frames. Which outputs would show an owner is read from the show: an output's canvas,
-/// source or projector's surfaces, through canvases' layers and every item of a playlist. The pass owns the compile lane and the
-/// chain runner; it is made, drawn and disposed on the render thread.</summary>
+/// source or projector's surfaces, through canvases' layers and every item of a playlist. The pass owns the effects' lane (the
+/// programs it asked of the device) and the chain runner, and draws into the frame's list; it is made, drawn and disposed on the
+/// render thread.</summary>
 public sealed class FxPass : IFramePass
 {
     internal const string CoveredWords = "not drawn: a test pattern or safe look covers its output";
@@ -55,13 +55,14 @@ public sealed class FxPass : IFramePass
     private long _frame = -1;
     private bool _disposed;
 
-    /// <param name="context">The render context, current on the calling thread.</param>
-    /// <param name="sharedContextLane">False compiles on the render thread (the lane's fallback).</param>
-    public FxPass(RenderContext context, bool sharedContextLane = true)
+    /// <param name="device">The device the frame draws on (render thread).</param>
+    /// <param name="sharedContextLane">False makes the effects' programs on the render thread (the lane's fallback).</param>
+    /// <param name="gpuTiming">Whether each slot's GPU time is measured (the renderer's <see cref="RenderEngine.GpuTiming"/>).</param>
+    public FxPass(IGpuDevice device, bool sharedContextLane = true, bool gpuTiming = true)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        Lane = new FxCompileLane(context, sharedContextLane);
-        _runner = new FxChainRunner(context.Device, Lane);
+        ArgumentNullException.ThrowIfNull(device);
+        Lane = new FxLane(device, sharedContextLane);
+        _runner = new FxChainRunner(device, Lane, gpuTiming);
     }
 
     public string Name => "fx";
@@ -69,7 +70,7 @@ public sealed class FxPass : IFramePass
     /// <summary>After the packages that draw the picture, before overlays that draw on it.</summary>
     public int Order => 100;
 
-    public FxCompileLane Lane { get; }
+    public FxLane Lane { get; }
 
     /// <summary>What each slot did on the renderer, for STATE (any thread).</summary>
     public FxStats Stats => _runner.Stats;
@@ -84,21 +85,21 @@ public sealed class FxPass : IFramePass
     {
         ArgumentNullException.ThrowIfNull(item);
         Begin(in frame);
-        return item.Fx.IsEmpty ? picture : _runner.Apply(item.Fx, item.Id, picture, Frame(in frame, startNs));
+        return item.Fx.IsEmpty ? picture : _runner.Apply(frame.List, item.Fx, item.Id, picture, Frame(in frame, startNs));
     }
 
     public GpuTexture Layer(in PassFrame frame, Layer layer, GpuTexture picture)
     {
         ArgumentNullException.ThrowIfNull(layer);
         Begin(in frame);
-        return layer.Fx.IsEmpty ? picture : _runner.Apply(layer.Fx, layer.Id, picture, Frame(in frame, 0));
+        return layer.Fx.IsEmpty ? picture : _runner.Apply(frame.List, layer.Fx, layer.Id, picture, Frame(in frame, 0));
     }
 
     public GpuTexture Surface(in PassFrame frame, Surface surface, GpuTexture picture)
     {
         ArgumentNullException.ThrowIfNull(surface);
         Begin(in frame);
-        return surface.Fx.IsEmpty ? picture : _runner.Apply(surface.Fx, surface.Id, picture, Frame(in frame, 0));
+        return surface.Fx.IsEmpty ? picture : _runner.Apply(frame.List, surface.Fx, surface.Id, picture, Frame(in frame, 0));
     }
 
     public GpuTexture Picture(in PassFrame frame, Output output, GpuTexture picture)
@@ -111,7 +112,7 @@ public sealed class FxPass : IFramePass
             _runner.Skip(output.Fx, output.Id, CoveredWords);
             return picture;
         }
-        return output.Fx.IsEmpty ? picture : _runner.Apply(output.Fx, output.Id, picture, Frame(in frame, 0));
+        return output.Fx.IsEmpty ? picture : _runner.Apply(frame.List, output.Fx, output.Id, picture, Frame(in frame, 0));
     }
 
     /// <summary>Every enabled output whose chain the frame did not reach (blackout, a held picture, a scan frame) says why in its
@@ -142,7 +143,7 @@ public sealed class FxPass : IFramePass
         _frame = frame.Frame;
         _drawing = frame;
         _drawn.Clear();
-        Lane.Collect(frame.Frame);
+        Lane.Collect(frame.Frame, frame.List);
         _runner.BeginFrame(frame.Frame, frame.Project);
     }
 
@@ -289,7 +290,7 @@ public sealed class FxPass : IFramePass
         return true;
     }
 
-    /// <summary>Stops the lane and deletes every target and program; render thread.</summary>
+    /// <summary>Lets go of every target, picture and program the pass holds; render thread.</summary>
     public void Dispose()
     {
         if (_disposed)

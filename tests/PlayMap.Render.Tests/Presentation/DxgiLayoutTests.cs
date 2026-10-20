@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
-using PlayMap.Render.Platform.Windows;
+using PlayMap.Render.Gl.Windows;
 
 namespace PlayMap.Render.Tests.Presentation;
 

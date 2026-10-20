@@ -1,6 +1,7 @@
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
+using PlayMap.Render.Engine;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gpu;
 using SkiaSharp;
 
 namespace PlayMap.Render.Generators;
@@ -18,7 +19,7 @@ internal sealed class SkiaPatternRenderer : GeneratorRenderer
     {
         _pattern = pattern;
         _bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
-        _texture = Device.CreateTexture(width, height, TextureFormat.Rgba8);
+        _texture = Device.CreateTexture(new TextureDesc(width, height, TextureFormat.Rgba8, FrameLists.Uploaded));
     }
 
     public override GpuTexture Output => _texture;
@@ -33,7 +34,7 @@ internal sealed class SkiaPatternRenderer : GeneratorRenderer
             _pattern.Draw(in p);
             canvas.Flush();
         }
-        Device.UploadPointer(_texture, _bitmap.GetPixels(), UploadFormat.Rgba8, _bitmap.RowBytes / 4);
+        RenderServices.Upload(List, _texture, _bitmap);
     }
 
     /// <summary>The pattern for a still kind, or null when the kind is not a Skia pattern.</summary>
@@ -110,7 +111,7 @@ internal sealed class TextOverlay : IDisposable
             _texture?.Dispose();
             _bitmap = new SKBitmap(new SKImageInfo(bw, bh, SKColorType.Rgba8888, SKAlphaType.Premul));
             _canvas = new SKCanvas(_bitmap);
-            _texture = _services.Device.CreateTexture(bw, bh, TextureFormat.Rgba8);
+            _texture = _services.Device.CreateTexture(new TextureDesc(bw, bh, TextureFormat.Rgba8, FrameLists.Uploaded));
         }
         Width = w;
         Height = h;
@@ -122,27 +123,20 @@ internal sealed class TextOverlay : IDisposable
         font.Size = size;
         Px.TextCentered(c, text, w / 2f, h / 2f, font, kit.Text(SKColors.White));
         c.Flush();
-        _services.Device.UploadPointer(_texture!, _bitmap.GetPixels(), UploadFormat.Rgba8, _bitmap.RowBytes / 4);
+        RenderServices.Upload(_services.List, _texture!, _bitmap);
     }
 
-    /// <summary>Lays the text over a target with its top-left at (x, y), tinted (straight colour).</summary>
+    private static readonly DrawState Premultiplied = FrameLists.Quads(BlendMode.Premultiplied);
+
+    /// <summary>Lays the text over a target with its top-left at (x, y), tinted (straight colour), in a pass of its own.</summary>
     public void Draw(RenderTarget target, float x, float y, float r = 1, float g = 1, float b = 1, float a = 1)
     {
         if (_texture is null || _bitmap is null)
             return;
-        var d = _services.Device;
-        d.SetBlend(BlendMode.Premultiplied);
-        var p = d.Program("quad");
-        d.BindTarget(target);
-        p.Set("uRect", MathF.Round(x), MathF.Round(y), _bitmap.Width, _bitmap.Height);
-        p.Set("uTarget", target.Width, target.Height);
-        p.Set("uUv", 0, 0, 1, 1);
-        p.SetInt("uMode", 4);
-        p.Set("uOpacity", 1f);
-        p.Set("uTint", r * a, g * a, b * a, a);
-        d.BindSampler(p, "uTex", 0, _texture);
-        d.DrawGeneratedQuads(p);
-        d.SetBlend(BlendMode.Opaque);
+        var list = _services.List;
+        using (list.Pass(target, PassDesc.Keep))
+            _services.DrawQuad(list, target, _texture, MathF.Round(x), MathF.Round(y), _bitmap.Width, _bitmap.Height, 4, 1f, in Premultiplied,
+                r * a, g * a, b * a, a);
     }
 
     public void Dispose()

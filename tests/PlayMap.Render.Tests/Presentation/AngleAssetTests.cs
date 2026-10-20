@@ -1,5 +1,5 @@
 using System.Text.Json;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Render.Tests.Presentation;
 
