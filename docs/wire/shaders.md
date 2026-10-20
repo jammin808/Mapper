@@ -1,11 +1,12 @@
 # wp3-shaders, wp3-shaders-2 on the wire
 
 *What wp3-shaders builds: the node's quarantine and its verb, the shader worker's facts in STATE, FX CHECK's stages of the
-Direct3D 12 road, and the HLSL library the Direct3D 12 backend reads. **The published exe composes none of the node's parts yet**:
-the spine's composition has no hook for them (the papers note's first two merge-gate items), so on the exe the quarantine is the
-empty in-memory one, STATE has no `fx.compile.worker`, FX CHECK reports no Direct3D 12 stages, nothing is kept in the node's home
-and no renderer bypasses a quarantined kind. Everything below holds on a node composed with `ShaderParts` (`ShadersExtension`), as
-every test of this package composes it. wp3-shaders-2 adds user effects drawn on the device (`design/shaders.md` §11).*
+Direct3D 12 road, and the HLSL library the Direct3D 12 backend reads. The exe composes the node's part (`EngineParts.Standard()`'s
+`Shaders` hook adds `ShadersExtension.Factory`, the shader worker at its default options), so every node it runs keeps its
+quarantine in its home, says `fx.compile.worker` and `fx.quarantine` in STATE, answers FX CHECK's Direct3D 12 stages through the
+worker and carries the quarantine's preflight rows; a node composed without the part holds an empty quarantine in memory. **No
+renderer bypasses a quarantined kind yet**: no render host hands the renderer the node's quarantine (the papers note's second
+merge-gate item). wp3-shaders-2 adds user effects drawn on the device (`design/shaders.md` §11).*
 
 ## Verbs
 
@@ -83,13 +84,15 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
 
 (For the integration pass.)
 
-- **Merge-gate items: the seams this package needs and does not own** (it works behind its own until they land, and the exe
-  composes none of the node's parts meanwhile):
-  1. The spine's composition (§5.7): `static partial void AddShaderParts(List<EngineExtensionFactory>)` in `EngineParts.Standard()`
-     beside the other round-3 hooks, and a `Host/EngineParts.Shaders.cs` stub for the `Shaders` hook word, which this package fills
-     with `extensions.Add(setup => new ShadersExtension(setup, new ShaderWorkerOptions()))`. Then a test on an
-     `EngineParts.Standard()`-composed node (`HostRig`): STATE carries `fx.compile.worker` and `fx.quarantine`, preflight carries the
-     `fx.quarantine` row, an entry written survives a restart from the same home (`ShaderParts.QuarantinePath`).
+- **The spine seams this branch carries** (§5.7: each its own `Spine:` commit before the fill that uses it, reaching main with the
+  merge; PLAN §2.3's `Shaders` row names the stub):
+  1. The composition's `Shaders` hook: `EngineParts.Standard()` calls `AddShadersParts` between Observe's and Preview's (§2.3's
+     hook-word order), `tools/gen_stubs3.py`'s `ENGINE_PARTS` table names the word, and its stub `Host/EngineParts.Shaders.cs` adds
+     `ShadersExtension.Factory` (the worker at its default options: this exe in its `shader-worker` role, started with the first
+     source). `ShadersExtensionTests` take that factory from `EngineParts.Standard()` by reference and start a node (`HostRig`) with
+     it: STATE carries `fx.compile.worker` and `fx.quarantine`, preflight its `fx.quarantine` row, and an entry the node quarantined
+     is read again, red with its `FX RELEASE`, by a node started from the same home (`ShaderParts.QuarantinePath`).
+- **Merge-gate items: the seams this package needs and does not own** (it works behind its own until they land):
   2. The renderer's quarantine: `FxPass` and `RenderHost.Fx` are wp3-rhi's, and §4 grants this package only `FxChainRunner`'s hunk,
      so the line that hands `EngineServices.Quarantine` to `FxChainRunner.Quarantine` needs a hunk named in §4 or a spine seam (the
      render host's request carrying the quarantine, say). Then a quarantined slot's `fx.slots[].state` reads "bypassed" on that node.
