@@ -12,6 +12,9 @@ namespace PlayMap.Engine.Led;
 /// the settings writer for the machine master, and the preflight check. The send thread starts with the engine.</summary>
 internal sealed class LedExtension : IEngineExtension
 {
+    /// <summary>The factory the exe's composition holds (one instance, so a test can find it there).</summary>
+    public static readonly EngineExtensionFactory Factory = setup => new LedExtension(setup);
+
     private readonly ExtensionSetup _setup;
     private LedSender? _sender;
 
