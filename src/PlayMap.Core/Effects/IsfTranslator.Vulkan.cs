@@ -8,7 +8,7 @@ namespace PlayMap.Core.Effects;
 /// <summary>The bindings the Vulkan target gives an ISF file's resources (set 0): the block of ISF's built-ins, then the images in
 /// the order the file declares them; the default uniform block that glslang's relaxed rules gather the inputs and each image's
 /// size, rect and flag into takes a binding of glslang's choosing. The shader worker remaps them to user effects' registers (the
-/// default block b0, the built-ins b1, image i at t i and s i).</summary>
+/// default block b0, the built-ins b1, image i at t i, every image sampled through the one sampler at s0).</summary>
 public static class IsfVulkanBindings
 {
     /// <summary>The block of ISF's built-ins: PASSINDEX, RENDERSIZE, TIME, TIMEDELTA, DATE, FRAMEINDEX.</summary>

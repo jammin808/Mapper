@@ -13,9 +13,12 @@ public sealed record HlslStage(bool Ok, string Hlsl, ShaderLayout Layout, string
 /// root signature — the default uniform block (the ISF inputs, each image's size, rect and flag) at b0, ISF's built-ins at b1,
 /// image i at t i, and every image sampled through the one sampler at s0 (linear and clamped, as the GL path samples ISF images),
 /// all in space 0 — and the default block's layout read from the module (its members' names as the ISF file wrote them, their
-/// offsets as the cbuffer packs them). A module that declares any other resource (a storage buffer or image, a separate texture or
-/// sampler, a push-constant block, a subpass input, an atomic counter, an acceleration structure) is refused with the resource's
-/// name: an ISF effect binds none, and the root signature has no place for it. One context per stage.</summary>
+/// offsets as the cbuffer packs them). A vertex stage's position is written in the render hardware interface's clip space, as the
+/// GLSL's, and its entry ends with the conversion every Direct3D 12 vertex stage ends with (ClipSpace.ToDirect3D: y negated, then z
+/// to (z + w) / 2, SPIRV-Cross's vertex flip and depth fixup), so an effect lands on the rows and depths it lands on in GL. A module
+/// that declares any other resource (a storage buffer or image, a separate texture or sampler, a push-constant block, a subpass
+/// input, an atomic counter, an acceleration structure) is refused with the resource's name: an ISF effect binds none, and the root
+/// signature has no place for it. One context per stage.</summary>
 public sealed unsafe partial class SpirvCross
 {
     /// <summary>The one sampler every image samples through, at s0.</summary>
@@ -44,6 +47,8 @@ public sealed unsafe partial class SpirvCross
     private const int DecorationDescriptorSet = 34;
     private const int OptionHlslShaderModel = 0x400000d;
     private const int OptionEmitLineDirectives = 0x1000025;
+    private const int OptionFixupDepthConvention = 0x1000003;
+    private const int OptionFlipVertexY = 0x1000004;
     private const int BaseBoolean = 2;
     private const int BaseInt32 = 7;
     private const int BaseUint32 = 8;
@@ -150,7 +155,8 @@ public sealed unsafe partial class SpirvCross
                 return Failed(context, "no HLSL compiler for the module");
             nint options;
             if (_createOptions(compiler, &options) != 0 || _setUint(options, OptionHlslShaderModel, 60) != 0
-                || _setBool(options, OptionEmitLineDirectives, 1) != 0 || _installOptions(compiler, options) != 0)
+                || _setBool(options, OptionEmitLineDirectives, 1) != 0 || _setBool(options, OptionFlipVertexY, 1) != 0
+                || _setBool(options, OptionFixupDepthConvention, 1) != 0 || _installOptions(compiler, options) != 0)
                 return Failed(context, "the HLSL options were refused");
             nint resources;
             if (_createResources(compiler, &resources) != 0)

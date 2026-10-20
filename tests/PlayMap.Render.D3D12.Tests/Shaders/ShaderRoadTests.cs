@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+using PlayMap.Core.Effects;
 using PlayMap.Engine.ShaderWorker;
 using PlayMap.Render.Effects;
 
@@ -7,8 +9,11 @@ namespace PlayMap.Render.D3D12.Tests.Shaders;
 /// and every corpus sample reaches signed DXIL with each entry's reflection; the layout the road answers is the ISF file's own names
 /// at the offsets DXC's reflection reads, the images at their slots; the HLSL binds the default block at b0, the built-ins at b1 (when
 /// an entry reads one), image i at t i and every image's sampling through the one sampler at s0; a resource an ISF effect never binds
-/// is refused at cross with its name, before DXC; a stage that fails leaves the later stages not run, with the words why.</summary>
-public sealed class ShaderRoadTests
+/// is refused at cross with its name, before DXC; a vertex entry's last writes of its position are the render hardware interface's
+/// conversion to Direct3D's clip space (ClipSpace.ToDirect3D: y negated, then z to (z + w) / 2), whether the translator writes the
+/// stage or a file of the user's own does, and a pixel entry writes none; a stage that fails leaves the later stages not run, with
+/// the words why.</summary>
+public sealed partial class ShaderRoadTests
 {
     private static readonly Lazy<RoadNatives> Natives = new(() => RoadNatives.Load());
 
@@ -87,6 +92,39 @@ public sealed class ShaderRoadTests
         var sampler = Assert.Single(reflection.Bindings, b => b.Kind == "sampler");
         Assert.Equal((SpirvCross.SharedSampler, 0, 0), (sampler.Name, sampler.Register, sampler.Space));
     }
+
+    [Fact]
+    public void AVertexEntryEndsWithTheConversionToDirect3DsClipSpaceAndAPixelEntryWritesNoPosition()
+    {
+        const string own = "/*{ }*/\nvoid main() {\n    isf_vertShaderInit();\n    gl_Position.xy *= 0.5;\n    gl_Position.z = -0.25;\n}\n";
+        var invert = FxCatalog.Builtin.Source("fx.invert")!;
+        var (_, v1, v1Vertex) = IsfCorpus.Samples.Single(x => x.Name == "v1");
+        (string Name, string Fs, string? Vs)[] effects = [("fx.invert", invert.Fragment, null), ("v1", v1, v1Vertex), ("own", invert.Fragment, own)];
+        var glslang = Natives.Value.Glslang!;
+        var cross = Natives.Value.Cross!;
+        foreach (var (name, fs, vs) in effects)
+        {
+            var source = IsfTranslator.TranslateVulkan(IsfParser.Parse(fs), vs);
+            Assert.Empty(source.Issues);
+            var vertex = glslang.Compile(source.Vertex, vertex: true, "effect.vs");
+            Assert.True(vertex.Ok, $"{name}: {vertex.Log}");
+            var hlsl = cross.ToHlsl(vertex.Words);
+            Assert.True(hlsl.Ok, $"{name}: {hlsl.Words}");
+            var writes = PositionWrite().Matches(hlsl.Hlsl).Select(m => m.Groups["s"].Value).ToList();
+            Assert.True(writes.Count >= 3, $"{name}: the vertex entry writes its position {writes.Count} times:\n{hlsl.Hlsl}");
+            Assert.Equal(["gl_Position.y = -gl_Position.y;", "gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;"], writes[^2..]);
+
+            var fragment = glslang.Compile(source.Fragment, vertex: false, "effect.fs");
+            Assert.True(fragment.Ok, $"{name}: {fragment.Log}");
+            var pixel = cross.ToHlsl(fragment.Words);
+            Assert.True(pixel.Ok, $"{name}: {pixel.Words}");
+            Assert.Empty(PositionWrite().Matches(pixel.Hlsl));
+            Assert.True(Road.Run(fs, vs).Ok, name);
+        }
+    }
+
+    [GeneratedRegex(@"^\s*(?<s>gl_Position\b[^=;]*[-+*/]?=[^=][^;]*;)", RegexOptions.Multiline)]
+    private static partial Regex PositionWrite();
 
     [Fact]
     public void AResourceAnIsfEffectNeverBindsIsRefusedAtCrossWithItsNameBeforeDxc()
