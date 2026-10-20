@@ -105,9 +105,10 @@ internal sealed class MachineParts : IEngineExtension
     private void OnProject(long revision) => Hold();
 
     /// <summary>The node's show doors open now, read with the machine's facts: the network host's (the line wire, the web port, the clock
-    /// sync while it leads), then the control inputs' (OSC, Art-Net, sACN); none before the engine starts.</summary>
+    /// sync while it leads), then the control inputs' (OSC, Art-Net, sACN), then each open network send's (NDI, OMT) on every interface;
+    /// none before the engine starts.</summary>
     internal static ImmutableArray<ShowDoor> ShowDoors(NetworkHost? network, EngineCore? engine) =>
-        [.. network?.Doors ?? [], .. engine?.Services.Control?.Doors ?? []];
+        [.. network?.Doors ?? [], .. engine?.Services.Control?.Doors ?? [], .. engine?.VideoIoMade?.Doors ?? []];
 
     /// <summary>A saved change reaches the platform first, so keep-awake, the next thread claim and timer, and the facts follow it.</summary>
     private void OnSettings(MachineSettings settings)

@@ -113,8 +113,8 @@ public sealed record MachineReadings
     /// <summary>Whether the networks were read (false: their row is unread, with words).</summary>
     public bool NetworksRead { get; init; }
 
-    /// <summary>The node's show doors open now, each with the address it is bound to (the network host's, then the control inputs');
-    /// empty where none was handed to the platform.</summary>
+    /// <summary>The node's show doors open now, each with the address it is bound to (the network host's, then the control inputs',
+    /// then the network sends' on every interface); empty where none was handed to the platform.</summary>
     public ImmutableArray<ShowDoor> Doors { get; init; } = [];
 
     /// <summary>The claims made so far, process and threads.</summary>
@@ -214,13 +214,17 @@ public static class MachineRows
         if (doors.IsEmpty || everywhere.Count > 0)
         {
             var listen = $"this node's {List(everywhere)} {(everywhere.Count == 1 ? "listens" : "listen")} on every interface";
+            // Binding the node to an address narrows its own doors, never a send's listener.
+            var fix = doors.Any(d => d.Everywhere && IsSend(d.Name))
+                ? " (a send listens on every interface whatever address the node is bound to)"
+                : ", or bind the node to its show adapter's address";
             var amber = false;
             foreach (var n in networks.Where(n => n.Category == "public" && !n.PublicRule))
             {
                 amber = true;
                 rows.Add(new MachineFact("network.public:" + n.Name, Light.Amber, "public", doors.IsEmpty
                     ? $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there: if show traffic crosses it, make it Private in {ProfileSetting(n.Name)}"
-                    : $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there, and {listen}, so show traffic can cross it: make it Private in {ProfileSetting(n.Name)}, or bind the node to its show adapter's address"));
+                    : $"the network {n.Name} is on the Public firewall profile and no rule lets PlayMap in there, and {listen}, so show traffic can cross it: make it Private in {ProfileSetting(n.Name)}{fix}"));
             }
             if (!amber)
                 rows.Add(doors.IsEmpty
@@ -279,8 +283,13 @@ public static class MachineRows
         "osc" => "OSC",
         "artnet" => "Art-Net",
         "sacn" => "sACN",
+        "ndi" => "NDI send",
+        "omt" => "OMT send",
         _ => door,
     };
+
+    /// <summary>Whether a show door is a network send's listener (NDI, OMT), which the node's bind address does not narrow.</summary>
+    private static bool IsSend(string door) => door is "ndi" or "omt";
 
     /// <summary>"a", "a and b", "a, b and c".</summary>
     private static string List(IEnumerable<string> words)

@@ -76,6 +76,25 @@ public sealed class NetworkRowTests
     }
 
     [Fact]
+    public void AnOpenSendListensOnEveryInterfaceWhereverTheNodeIsBound()
+    {
+        // The node is bound to its show adapter, and an OMT send listens on every interface: every network is read, and binding is no fix.
+        var rows = Rows([Door("wire", "192.168.10.20"), Door("web", "192.168.10.20"), new ShowDoor("omt", IPAddress.Any)],
+            Network("Show LAN", "private", Ethernet), Network("Venue Wi-Fi", "public", WiFi));
+        var row = Assert.Single(rows);
+        Assert.Equal(("network.public:Venue Wi-Fi", Light.Amber, "public"), (row.Item, row.Light, row.Value));
+        Assert.Equal("the network Venue Wi-Fi is on the Public firewall profile and no rule lets PlayMap in there, and this node's OMT send "
+            + "listens on every interface, so show traffic can cross it: make it Private in Settings ▸ Network & internet ▸ Venue Wi-Fi ▸ "
+            + "Network profile type (a send listens on every interface whatever address the node is bound to)", row.Words);
+
+        var green = Assert.Single(Rows([Door("wire", "192.168.10.20"), new ShowDoor("ndi", IPAddress.Any), new ShowDoor("omt", IPAddress.Any)],
+            Network("Show LAN", "private", Ethernet)));
+        Assert.Equal(("network", Light.Green, "every interface"), (green.Item, green.Light, green.Value));
+        Assert.Equal("this node's NDI send and OMT send listen on every interface, and no connected network is on the Public firewall "
+            + "profile without a rule letting PlayMap in", green.Words);
+    }
+
+    [Fact]
     public void ANodeBoundToAnAddressNoNetworkCarriesHasNothingToReadAndSaysSo()
     {
         var row = Assert.Single(Rows([Door("wire", "127.0.0.1"), Door("web", "127.0.0.1")], Network("Venue Wi-Fi", "public", WiFi)));
