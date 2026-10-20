@@ -88,7 +88,9 @@ separate same-coloured surfaces), vectorise to Bézier paths, lift to 3D with pl
   flip-model waitable swap chains (independent flip, one frame of latency), `GetFrameStatistics` to map vblanks.
   PlayMap draws through a rendering hardware interface (RHI) cut at `GlDevice`, with OpenGL 3.3 core or ES 3.00 behind it
   (testable headless on Mesa) and an experimental Direct3D 11 flip path through ANGLE; the direction is Direct3D 12 behind that
-  interface, with OpenGL the reference backend until the pixel and timing evidence agrees (§8).
+  interface, with OpenGL the reference backend until the pixel and timing evidence agrees (§8). PlayMap's programs are written in
+  HLSL for that backend too, compiled by DXC at build time, and a user's ISF effect reaches DXIL through SPIR-V (glslang,
+  SPIRV-Cross) in a worker process of its own, so no compiler loads into the engine; no device draws either yet.
 - **Sync:** Watchout 7 (NTP via w32time, "millisecond-level"; frame-exact needs NVIDIA sync boards), Pixera
   (sync cards + "RX Frame Sync"), disguise (genlock + QTP/VSync messages), Resolume/Millumin (OSC/LTC mirror —
   users report drift). PlayMap: own UDP exchange on the monotonic clock with min-RTT filtering and drift

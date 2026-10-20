@@ -89,38 +89,53 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
 
 (For the integration pass.)
 
-- **The seams this package needs and does not own, as the branch carries them** (§5.7: each spine part its own `Spine:` commit
-  before the fill that uses it, reaching main with the merge; PLAN §2.3's `Shaders` row names the stub):
-  1. The composition's `Shaders` hook: `EngineParts.Standard()` calls `AddShadersParts` between Observe's and Preview's (§2.3's
-     hook-word order), `tools/gen_stubs3.py`'s `ENGINE_PARTS` table names the word, and its stub `Host/EngineParts.Shaders.cs` adds
-     `ShadersExtension.Factory` (the worker at its default options: this exe in its `shader-worker` role, started with the first
-     source). `ShadersExtensionTests` take that factory from `EngineParts.Standard()` by reference and start a node (`HostRig`) with
-     it: STATE carries `fx.compile.worker` and `fx.quarantine`, preflight its `fx.quarantine` row, and an entry the node quarantined
-     is read again, red with its `FX RELEASE`, by a node started from the same home (`ShaderParts.QuarantinePath`).
-  2. The renderer's quarantine: `FxPass.Quarantine` passes through to its chain runner's, and `RenderHost.Fx`'s `ComposeFx` hands it
-     `EngineServices.Quarantine` the first time each pass meets the engine (the render host's request is made before any extension
-     configures, so it cannot carry the quarantine). `FxSlotState.Quarantined` is the renderer's word for a held slot, and `FxBoard`
-     (wp2-fx's) reads it as "bypassed", while a renderer's `Bypassed` (the show's own bypass or mix 0) stays read from the project.
-     This package's `FxChainRunner` hunk reports a held slot `Quarantined` at no GPU time. `QuarantineRenderTests` start a node with
-     the exe's render host and shaders part: the quarantined slot's output shows its chain's input and its `fx.slots[].state` reads
-     "bypassed" with those words, and after `FX RELEASE` it draws its effect and reads "ok".
-  3. `fx.library.quarantined` (wp2-fx's `EngineCore.Fx.cs`) is the count of `EngineServices.Quarantine`, so it and `fx.quarantine`
-     agree. This package's fixture carries `fx.library` beside `fx.compile` and `fx.quarantine`, and `ShadersFixtureTests` hold its
-     count to the one entry the fixture's node quarantines; every other committed fixture comes from a node that quarantines nothing
-     and reads 0.
-  4. The HLSL library's PDBs: the build writes each entry's beside its DXIL in `obj/` where DXC's executable runs (Windows), and
-     the Windows job uploads them after its build and version check (`src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb` as
-     `hlsl-symbols`, `if-no-files-found: error`), a spine step outside this package's named block, which sits before `Restore`.
-     `HlslBuildTests` read the workflow: the upload follows the Windows job's `Build` with no condition of its own and that path, the
-     Linux job has none, and on Windows the glob holds both entries' PDBs of every program.
-  5. The user effects' samplers, a design fact with no code: design §5 and §11 give user effects a table of the four static
-     samplers (`s0`–`s3`), and the worker gives every image one sampler, declared once at `s0` (`SpirvCross.ShareSampler`;
-     `ShaderRoadTests` read one sampler, register 0, space 0, from DXC's reflection), so the table's `s0` is the linear, clamped one,
-     as the pictures an effect reads are on the GL path. Design §5 and §11 say so for wp3-shaders-2, whose root signature it is.
-- Design §6 states the record's invariant as "one writer (the engine's lane)". It is met as one lock that orders every add and
-  release, from whichever thread makes it, each written to the home before it is held; FX RELEASE on the control lane is today's only
-  writer, since the worker host writes no quarantine, and wp3-shaders-2's GPU-time guard and wp3-stability-2's removal breadcrumbs
-  add through the same lock.
+- **Merge-gate items: the seams this package needs and does not own, each landed on this branch** (§5.7: each spine part a
+  `Spine:` commit of its own before the fill that uses it, reaching `main` with the package's merge; PLAN §2.3's `Shaders` row
+  names the stub). Items 1 to 4, 6 and 7 are spine code; item 5 is a design fact and lands in the design:
+  1. The composition's `Shaders` hook, in `src/PlayMap.Engine/Host/EngineParts.cs`, `tools/gen_stubs3.py` and the stub
+     `src/PlayMap.Engine/Host/EngineParts.Shaders.cs`: `EngineParts.Standard()` calls `AddShadersParts` between Observe's and
+     Preview's (§2.3's hook-word order), `tools/gen_stubs3.py`'s `ENGINE_PARTS` table names the word, and its stub
+     `Host/EngineParts.Shaders.cs` adds `ShadersExtension.Factory` (the worker at its default options: this exe in its
+     `shader-worker` role, started with the first source). `ShadersExtensionTests` take that factory from `EngineParts.Standard()`
+     by reference and start a node (`HostRig`) with it: STATE carries `fx.compile.worker` and `fx.quarantine`, preflight its
+     `fx.quarantine` row, and an entry the node quarantined is read again, red with its `FX RELEASE`, by a node started from the
+     same home (`ShaderParts.QuarantinePath`).
+  2. The renderer's quarantine, in `src/PlayMap.Render/Effects/FxPass.cs` and `FxStats.cs`,
+     `src/PlayMap.Engine/Rendering/RenderHost.Fx.cs` and `src/PlayMap.Engine/Fx/FxBoard.cs`: `FxPass.Quarantine` passes through to
+     its chain runner's, and `RenderHost.Fx`'s `ComposeFx` hands it `EngineServices.Quarantine` the first time each pass meets the
+     engine (the render host's request is made before any extension configures, so it cannot carry the quarantine).
+     `FxSlotState.Quarantined` is the renderer's word for a held slot, and `FxBoard` (wp2-fx's) reads it as "bypassed", while a
+     renderer's `Bypassed` (the show's own bypass or mix 0) stays read from the project. This package's `FxChainRunner` hunk reports
+     a held slot `Quarantined` at no GPU time. `QuarantineRenderTests` start a node with the exe's render host and shaders part: the
+     quarantined slot's output shows its chain's input and its `fx.slots[].state` reads "bypassed" with those words, and after
+     `FX RELEASE` it draws its effect and reads "ok".
+  3. `fx.library.quarantined`, in wp2-fx's `src/PlayMap.Engine/EngineCore.Fx.cs`: it is the count of `EngineServices.Quarantine`, so
+     it and `fx.quarantine` agree. This package's fixture carries `fx.library` beside `fx.compile` and `fx.quarantine`, and
+     `ShadersFixtureTests` hold its count to the one entry the fixture's node quarantines; every other committed fixture comes from
+     a node that quarantines nothing and reads 0.
+  4. The HLSL library's PDBs, in `.github/workflows/build.yml`: the build writes each entry's beside its DXIL in `obj/` where DXC's
+     executable runs (Windows), and the Windows job uploads them after its build and version check
+     (`src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb` as `hlsl-symbols`, `if-no-files-found: error`), a spine step outside this
+     package's named block, which sits before `Restore`. `HlslBuildTests` read the workflow: the upload follows the Windows job's
+     `Build` with no condition of its own and that path, the Linux job has none, and on Windows the glob holds both entries' PDBs of
+     every program.
+  5. The user effects' samplers, a design fact with no code, in `docs/round3/design/shaders.md` §5 and §11 (a `Papers:` commit):
+     design §5 and §11 give user effects a table of the four static samplers (`s0`–`s3`), and the worker gives every image one
+     sampler, declared once at `s0` (`SpirvCross.ShareSampler`; `ShaderRoadTests` read one sampler, register 0, space 0, from DXC's
+     reflection), so the table's `s0` is the linear, clamped one, as the pictures an effect reads are on the GL path. Design §5 and
+     §11 say so for wp3-shaders-2, whose root signature it is.
+  6. The program table's `sampled` flag, in wp3-rhi's generator (`tests/PlayMap.Render.Tests/Rhi/GlslDeclarations.cs`) and the
+     table it writes (`src/PlayMap.Core/Gpu/Programs/programs.layout.json`): a sampler handed to a helper a stage defines counts as
+     loaded where that helper's own sampler parameter is only the first argument of `texelFetch`, `textureSize` or another such
+     helper, so the output program's `uMeasuredGrid` and `uMeasuredBlend` are loaded, as the GLSL reads them and the HLSL `Load`s
+     them; no other program's flag, constant, slot or input changes, and `ProgramLayoutTests` hold the rule.
+  7. The stage words, in `src/PlayMap.Engine/Seams.Round3.cs`: `FxStage`'s summary names the stages FX CHECK carries in the road's
+     order (`translate`, `glslang`, `validate`, `cross`, `dxc`) and the single stages that answer for the whole road
+     (`quarantine`, `worker`, `stages`), and `IFxStageCheck`'s names what this package's worker checks and what wp3-shaders-2 adds.
+- Design §6 states the record's invariant as the code meets it: one lock that orders every add and release, from whichever thread
+  makes it, each written to the home before it is held, rather than one writer on the engine's lane; FX RELEASE on the control lane
+  is today's only writer, since the worker host writes no quarantine, and wp3-shaders-2's GPU-time guard and wp3-stability-2's
+  removal breadcrumbs add through the same lock.
 - `docs/EFFECTS.md`: user ISF on the Direct3D 12 road (the Vulkan target: GLSL 4.50, glslang's relaxed rules, `spirv-val`,
   SPIRV-Cross to Shader Model 6.0 HLSL with the default block at b0, the built-ins at b1, image i at t i and every image sampled
   through the one sampler at s0, the vertex entry ending with the render hardware interface's conversion to Direct3D's clip space

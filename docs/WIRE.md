@@ -420,3 +420,6 @@ with no package code. No node answers one until its package routes it. Until the
   [shaders](wire/shaders.md) · [gpu](wire/gpu.md) · [plan](wire/plan.md) · [observe](wire/observe.md) ·
   [present](wire/present.md) · [undo](wire/undo.md) · [preview](wire/preview.md) · [handles](wire/handles.md) ·
   [canvas](wire/canvas.md) · [guide](wire/guide.md) · [capture](wire/capture.md).
+- **Routed:** wp3-shaders' row. Every node answers `FX RELEASE` (a Setup line: refused while armed, never drafted) and counts its
+  quarantine in `fx.library.quarantined`; every node the exe composes writes `fx.compile.worker` and `fx.quarantine` in STATE and
+  carries the Direct3D 12 road's `stages` in `FX CHECK`'s and `FX IMPORT`'s reports ([shaders](wire/shaders.md)).

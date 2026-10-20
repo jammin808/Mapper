@@ -197,6 +197,31 @@ with its pixel goldens unedited and holding within their tolerances.
 - **Not proven.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend
   runs on llvmpipe and, on the Windows job, Mesa WGL only.
 
+**Built: one HLSL source and user ISF out of process (W1, `wp3-shaders`).** PlayMap's programs are written once more in HLSL for
+the Direct3D 12 backend, and a user's ISF effect reaches validated, signed DXIL outside the engine; no device draws either yet.
+
+- **The HLSL library.** `src/PlayMap.Render.D3D12/Shaders` holds the 40 programs, one file per family, listed in `programs.json`,
+  with the render hardware interface's conventions (`Common.hlsli`: every vertex entry ends with `ClipSpace.ToDirect3D`, a
+  `float4x4` read as `mul(v, M)` and the normal matrix as `mul(M, v)`, the present unflipped, one root signature with the binding
+  block read through `ResourceDescriptorHeap`). The build writes each program's header from the program table and embeds the
+  library and, on Windows, the DXIL DXC's executable compiles, with its reflection; the Windows job keeps every entry's PDB
+  (`hlsl-symbols`).
+- **The layout check.** DXC's Linux build signs its DXIL (M6), so every program compiles on both jobs, and `ShaderLayoutTests` hold
+  each program's reflection to its `ProgramLayout` in the program table: constants, offsets, counts, block size and `row_major`
+  matrices, texture slots sampled exactly where the table says, and the vertex entry's input signature as the table's inputs make
+  it. `HlslConventionTests` hold the clip conversion, the matrices' order and the vertex inputs in the source.
+- **The shader worker.** `PlayMap shader-worker`, started by the engine with the first source: ISF to GLSL 4.50 (Core's Vulkan
+  target), glslang under relaxed rules, `spirv-val`, SPIRV-Cross to Shader Model 6.0 HLSL with user effects' registers and one
+  sampler at `s0`, DXC to signed DXIL, each failure in its stage's words with the ISF line a compiler names. The compilers load only
+  there, each held to its SHA-256; the worker is restarted with backoff, and a source that stops it three times fails with words.
+  `FX CHECK` and `FX IMPORT` report each stage; STATE carries `fx.compile.worker`.
+- **The quarantine.** The kinds a node will not draw, kept in its home: their slots draw bypassed, reading "bypassed" with words at
+  no GPU time; `fx.quarantine`, `fx.library.quarantined` and red preflight rows say so; `FX RELEASE <kind>|ALL` (Setup: refused
+  armed, never drafted) lifts them. The exe composes the part on every node. Nothing adds a kind yet: wp3-shaders-2's GPU-time
+  guard and wp3-stability-2's removal breadcrumbs are to.
+- **Not proven.** Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's, and user effects drawn on the device and the public
+  ISF corpus counted to DXIL are wp3-shaders-2's.
+
 **Next** (the plan's packages build these in four waves on the spine — the fifteen of the Windows move and the five for the
 owner's requirements; GL stays the reference backend through the round and retires once the pixel and timing evidence agrees; at
 the round's end the integration pass updates the statuses of the items in the last column):
@@ -206,7 +231,7 @@ the round's end the integration pass updates the statuses of the items in the la
 | A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels. **Built** (above), its pixel goldens unedited and holding within their tolerances; L20 not run | wp3-rhi | — |
 | Direct3D 12 behind it: the device, queues, fences, memory, DRED and Aftermath, every pixel scene on WARP in CI | wp3-d3d12-core | — |
 | The render graph compiled on show change; pipelines compiled at arm and keyed by driver; bindless records; zero allocation on a warm frame, modulated layers included | wp3-d3d12-passes, -2 | R2.8 |
-| One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined | wp3-shaders | — |
+| One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined. **Built** (above): the library compiled to signed DXIL and held to the program table on both jobs, the worker's road to DXIL, the quarantine and `FX RELEASE`; no device draws the DXIL yet, and what quarantines a crashing shader is wp3-shaders-2's and wp3-stability-2's | wp3-shaders | — |
 | User ISF effects drawn on the Direct3D 12 device; a GPU-time guard per effect slot; the public ISF corpus counted on the new road | wp3-shaders-2 | — |
 | Flip-model presenters on Direct3D 12, Independent Flip proven per output, one queued frame, the frame drawn for its predicted display instant, HDR10 and 10-bit | wp3-present | R2.1, R2.5, M21 |
 | The present barrier on Direct3D 12 and the swap group on OpenGL where the hardware allows them (RTX PRO Sync), each output locked by its own evidence; every other output in the software lock, reporting measured phase, never in a locked state | wp3-framelock | R4.2 |

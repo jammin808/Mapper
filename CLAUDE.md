@@ -73,8 +73,11 @@ MCP, desk, menus and right-click menus, papers.
 - **Comments state the invariant**, not the history. No model or tool identifiers in anything pushed.
 - **Never** skip, disable or quarantine a test to get green; never rewrite pushed history.
 - Module rules: Core references only the runtime; edges reference Core and their own native library; only App
-  references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, never `PlayMap.Render`, so the two backends
-  meet only in Core's contracts. Windows-only types carry `[SupportedOSPlatform("windows")]`.
+  references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, and DXC's package (`Microsoft.Direct3D.DXC`)
+  only at build time (`ExcludeAssets="all"`, `PrivateAssets="all"`: the HLSL build runs its `dxc.exe` on Windows, found
+  through `GeneratePathProperty`, and nothing of it reaches the output or a project that references this one), never
+  `PlayMap.Render`, so the two backends meet only in Core's contracts. Windows-only types carry
+  `[SupportedOSPlatform("windows")]`.
 - **The GL line**: no source under `src/` outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL
   side (in Render, of any of Silk.NET) but the platform factory, which names the GL platforms' maker (`RhiFenceTests`,
   `EngineFenceTests` hold it); the lab's bench (`bench/r3-present`) drives the GL platforms directly and is outside the
@@ -110,6 +113,7 @@ CI runs both jobs on every push: Linux (with the ES 3.00 leg) and Windows on `wi
 | The design | `docs/ARCHITECTURE.md` |
 | Where it is going: round 3's plan, designs and research | `docs/round3/PLAN.md`, `docs/round3/design/`, `docs/round3/research/` |
 | The render hardware interface | `src/PlayMap.Core/Gpu`, `docs/round3/design/rhi.md`, the contracts as built in `docs/round3/notes/rhi.md` §2 |
+| The HLSL library, the shader worker, the effect quarantine | `src/PlayMap.Render.D3D12/Shaders`, `src/PlayMap.Engine/ShaderWorker`, `src/PlayMap.Core/Effects/ShaderQuarantine.cs`, `docs/round3/design/shaders.md`, `docs/wire/shaders.md` |
 | The wire, STATE, the verbs | `docs/WIRE.md`, `src/PlayMap.Core/Wire/VerbCatalog.cs` (the one table) |
 | The Show Bus node (Patterns/Stagewatch interop) | `docs/SHOWBUS-NODE.md` |
 | Mapping and scanning | `docs/MAPPING.md` |
