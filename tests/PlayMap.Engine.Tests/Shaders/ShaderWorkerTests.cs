@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Core.Effects;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Optimise;
@@ -10,7 +11,6 @@ using PlayMap.Engine.Tests.Fleet;
 using PlayMap.Engine.Tests.Show;
 using PlayMap.Engine.Tests.Spine;
 using PlayMap.Render.Effects;
-using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
 
 namespace PlayMap.Engine.Tests.Shaders;
@@ -21,8 +21,8 @@ namespace PlayMap.Engine.Tests.Shaders;
 /// quarantine; a compile past the deadline is ended and counts no stop; a compile its caller abandons ends its worker, so the next
 /// source meets a fresh one; a node that stops mid-compile answers so and fails nothing; the worker's own process ends when its input
 /// closes, mid-compile too, and runs below normal priority; a worker none of whose natives loaded says so in STATE; FX CHECK on an
-/// armed node reads the host's own words when its bound ends a check, and three such ends change no quarantine, so a GL runner given
-/// the node's quarantine still draws the kind; and the engine's own process holds no compiler module while its worker does. No test
+/// armed node reads the host's own words when its bound ends a check, and three such ends change no quarantine, so a runner given the
+/// node's quarantine still draws the kind; and the engine's own process holds no compiler module while its worker does. No test
 /// asserts a time: the clocks the host waits on are moved by hand.</summary>
 public sealed class ShaderWorkerTests
 {
@@ -247,38 +247,50 @@ public sealed class ShaderWorkerTests
             Assert.True(check == 1 || host.Facts.Restarts == started + 1);
         }
 
-        // Nothing was counted or quarantined: STATE's list is as it was, and a GL runner given the node's quarantine draws the kind.
+        // Nothing was counted or quarantined: STATE's list is as it was, and a runner given the node's quarantine draws the kind.
         Assert.Equal(0, host.StopsOf(blur.Hash));
         Assert.Empty(quarantine.All);
         Assert.Empty(rig.State().GetProperty("fx").GetProperty("quarantine").EnumerateArray());
         Assert.Equal(FxSlotState.Ok, DrawnThrough(quarantine, "fx.blur"));
     }
 
-    /// <summary>A slot of <paramref name="kind"/> drawn on GL by a runner given <paramref name="quarantine"/>, frame after frame on a
-    /// thread that holds its own context, until it is no longer compiling: its observed state.</summary>
+    /// <summary>A slot of <paramref name="kind"/> drawn by a runner given <paramref name="quarantine"/> on the device of this machine's GL
+    /// platform (the engine's own factory), frame after frame on a thread of its own, until it is no longer compiling: its observed
+    /// state.</summary>
     private static FxSlotState DrawnThrough(ShaderQuarantine quarantine, string kind)
     {
         var state = FxSlotState.Compiling;
         System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
-        var gl = new Thread(() =>
+        var render = new Thread(() =>
         {
             try
             {
-                var options = new GlDeviceOptions(CheckErrors: true, DebugOutput: false);
-                using var context = OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
-                    ? RenderContext.CreateSurfaceless(options) : RenderContext.CreateHidden(options);
-                using var lane = new FxCompileLane(context, sharedContext: false);
-                using var runner = new FxChainRunner(context.Device, lane) { Quarantine = quarantine };
-                using var picture = context.Device.CreateTexture(16, 9, TextureFormat.Rgba8);
+                var surfaceless = OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+                using var platform = GpuPlatforms.Create(new PlatformRequest("gl", Surfaceless: surfaceless),
+                    new GpuDeviceOptions(CheckErrors: true, DebugOutput: false));
+                var device = platform.Device;
+                using var lane = new FxLane(device);
+                using var runner = new FxChainRunner(device, lane) { Quarantine = quarantine };
+                using var picture = device.CreateTexture(new TextureDesc(16, 9, TextureFormat.Rgba8, TextureUsage.Sampled | TextureUsage.CopyDest));
                 var chain = new FxChain([new FxSlot("fx00000001", kind, "", ParamSet.Empty, false, 1, FxBlend.Normal, 1, 0)]);
                 var show = Project.CreateDefault("Drawn");
                 var waited = Stopwatch.StartNew();
                 for (long frame = 1; state == FxSlotState.Compiling && waited.Elapsed < Patience; frame++)
                 {
-                    lane.Collect(frame);
-                    runner.BeginFrame(frame, show);
-                    runner.Apply(chain, "op_1", picture, new FxFrame(frame, 1_000_000_000, 60, 1_760_000_000_000, 0));
-                    runner.EndFrame();
+                    var list = device.BeginFrame(frame);
+                    try
+                    {
+                        if (frame == 1)
+                            list.Upload(picture, new byte[16 * 9 * 4], UploadFormat.Rgba8);
+                        lane.Collect(frame, list);
+                        runner.BeginFrame(frame, show);
+                        runner.Apply(list, chain, "op_1", picture, new FxFrame(frame, 1_000_000_000, 60, 1_760_000_000_000, 0));
+                        runner.EndFrame();
+                    }
+                    finally
+                    {
+                        device.Submit(list);
+                    }
                     state = runner.Stats.TryGet("fx00000001", out var live) ? live.State : FxSlotState.Compiling;
                 }
             }
@@ -287,9 +299,9 @@ public sealed class ShaderWorkerTests
                 failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
             }
         })
-        { IsBackground = true, Name = "gl quarantine" };
-        gl.Start();
-        gl.Join();
+        { IsBackground = true, Name = "render quarantine" };
+        render.Start();
+        render.Join();
         failure?.Throw();
         return state;
     }

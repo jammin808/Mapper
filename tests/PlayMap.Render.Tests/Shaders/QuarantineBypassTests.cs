@@ -5,11 +5,11 @@ using PlayMap.Render.Tests.Effects;
 
 namespace PlayMap.Render.Tests.Shaders;
 
-/// <summary>A quarantined kind on GL: its slot draws its input unchanged (± 0 codes: the chain hands on the input itself) and says so
-/// in its observed state, while the rest of the chain draws what it draws after a slot bypassed by hand; once released the slot draws
-/// its effect again.</summary>
-[Collection("gl")]
-public sealed class QuarantineBypassTests(GlFixture gl)
+/// <summary>A quarantined kind on the reference backend (GL): its slot draws its input unchanged (± 0 codes: the chain hands on the
+/// input itself) and says so in its observed state, while the rest of the chain draws what it draws after a slot bypassed by hand;
+/// once released the slot draws its effect again.</summary>
+[Collection("gpu")]
+public sealed class QuarantineBypassTests(BackendFixture backends)
 {
     private const int W = 32, H = 18;
     private static readonly Project Show = Project.CreateDefault("Quarantine");
@@ -19,10 +19,10 @@ public sealed class QuarantineBypassTests(GlFixture gl)
     [Fact]
     public void AQuarantinedSlotPassesItsInputUnchangedAndDrawsAgainOnceReleased()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxCompileLane(c);
+            var d = leg.Device;
+            using var lane = new FxLane(d);
             using var runner = new FxChainRunner(d, lane);
             using var picture = FxRig.Picture(d, W, H, Ramp);
             var input = Scene.ReadTexture(d, picture);
