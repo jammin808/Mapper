@@ -38,6 +38,8 @@ it changes no quarantine and nothing on the air.
 
 Inside wp2-fx's `fx` block (`tests/fixtures/state/shaders.json`, cards in `shaders.cards.json`):
 
+- `fx.library.quarantined` (wp2-fx's library counts): how many kinds the node's quarantine holds, the entries `fx.quarantine`
+  lists; 0 on a node that quarantines nothing.
 - `fx.compile.worker` (a node composed with the shader worker): `running`, `pid` (null when none runs), `restarts`, `lastMs` (the
   last compile's own time, recorded, never a pass mark), `compiled`, `failed`, `missing` (how many of the natives its hello named
   did not load: every compile then fails at the first stage that needs one; the card is amber while it is above 0), `natives` (each
@@ -102,9 +104,11 @@ and its validator — load only in the worker, each held to its SHA-256; the eng
      This package's `FxChainRunner` hunk reports a held slot `Quarantined` at no GPU time. `QuarantineRenderTests` start a node with
      the exe's render host and shaders part: the quarantined slot's output shows its chain's input and its `fx.slots[].state` reads
      "bypassed" with those words, and after `FX RELEASE` it draws its effect and reads "ok".
+  3. `fx.library.quarantined` (wp2-fx's `EngineCore.Fx.cs`) is the count of `EngineServices.Quarantine`, so it and `fx.quarantine`
+     agree. This package's fixture carries `fx.library` beside `fx.compile` and `fx.quarantine`, and `ShadersFixtureTests` hold its
+     count to the one entry the fixture's node quarantines; every other committed fixture comes from a node that quarantines nothing
+     and reads 0.
 - **Merge-gate items: the seams this package needs and does not own** (it works behind its own until they land):
-  3. `fx.library.quarantined` (wp2-fx's `EngineCore.Fx.cs`) is a constant 0 beside a non-empty `fx.quarantine`: a hook or the line
-     that writes `Services.Quarantine.All.Length` there, with this package's fixture then carrying `fx.library`.
   4. The HLSL library's PDBs: the build writes them to `obj/` beside the DXIL, and no CI step keeps them. A package edits only its
      own named block of the workflow, and this package's block must sit before `Restore` (it fetches a native the build copies), so
      an upload after the Windows job's `Build` step (`src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb` as `hlsl-symbols`) is the

@@ -1,5 +1,11 @@
 {
   "fx": {
+    "library": {
+      "builtin": 10,
+      "isf": 1,
+      "ffgl": 0,
+      "quarantined": 1
+    },
     "compile": {
       "lane": "none",
       "pending": 0,

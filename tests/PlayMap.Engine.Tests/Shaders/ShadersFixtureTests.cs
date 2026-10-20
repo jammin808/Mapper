@@ -11,10 +11,10 @@ using PlayMap.Render.Effects;
 
 namespace PlayMap.Engine.Tests.Shaders;
 
-/// <summary>wp3-shaders' STATE fixture (tests/fixtures/state/shaders.json: fx.compile with its worker, fx.quarantine) from a node
-/// composed with the shader parts, its worker not yet started and one kind quarantined that a slot of the show draws; and its card
-/// descriptors (shaders.cards.json), every path of which reads a value of the fixture and every action of which is a catalogue line.
-/// PLAYMAP_WRITE_FIXTURES=1 writes both.</summary>
+/// <summary>wp3-shaders' STATE fixture (tests/fixtures/state/shaders.json: fx.library with the quarantine's count, fx.compile with its
+/// worker, fx.quarantine) from a node composed with the shader parts, its worker not yet started and one kind quarantined that a slot
+/// of the show draws; and its card descriptors (shaders.cards.json), every path of which reads a value of the fixture and every
+/// action of which is a catalogue line. PLAYMAP_WRITE_FIXTURES=1 writes both.</summary>
 public sealed class ShadersFixtureTests
 {
     private static string Folder => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state");
@@ -80,7 +80,10 @@ public sealed class ShadersFixtureTests
         var fx = JsonNode.Parse(rig.Engine.State().Json)!["fx"]!;
         var fixture = new JsonObject
         {
-            ["fx"] = new JsonObject { ["compile"] = fx["compile"]!.DeepClone(), ["quarantine"] = fx["quarantine"]!.DeepClone() },
+            ["fx"] = new JsonObject
+            {
+                ["library"] = fx["library"]!.DeepClone(), ["compile"] = fx["compile"]!.DeepClone(), ["quarantine"] = fx["quarantine"]!.DeepClone(),
+            },
         }.ToJsonString(FixtureJson.Indented) + "\n";
         var cards = Cards().ToJsonString(FixtureJson.Indented) + "\n";
         var statePath = Path.Combine(Folder, "shaders.json");
@@ -95,6 +98,8 @@ public sealed class ShadersFixtureTests
 
         var state = JsonNode.Parse(fixture)!;
         Assert.Equal(slot, state["fx"]!["quarantine"]![0]!["slots"]![0]!.GetValue<string>());
+        // The library counts the kinds the node quarantines: the one entry fx.quarantine lists.
+        Assert.Equal((1, 1), (state["fx"]!["library"]!["quarantined"]!.GetValue<int>(), state["fx"]!["quarantine"]!.AsArray().Count));
         Assert.False(state["fx"]!["compile"]!["worker"]!["running"]!.GetValue<bool>());
         Assert.Equal(0, state["fx"]!["compile"]!["worker"]!["missing"]!.GetValue<int>());
         foreach (var card in Cards().Select(c => c!.AsObject()))
