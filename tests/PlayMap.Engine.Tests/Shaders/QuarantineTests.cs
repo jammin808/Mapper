@@ -13,7 +13,8 @@ namespace PlayMap.Engine.Tests.Shaders;
 /// with the lines that lift it and take the slot out; FX RELEASE armed is the gate's refusal by class and the quarantine is
 /// unchanged; from the blind owner it is never drafted — refused armed, acting on the node's quarantine at once when disarmed, the
 /// draft staging nothing either way; a kind not quarantined, and ALL with none, are refused with words; a release empties STATE's
-/// list. (A quarantined slot's pixels are the GL suite's: QuarantineBypassTests.)</summary>
+/// list and says what it applied and how many of the show's slots use the kind, leaving what they draw to their observed state. (A
+/// quarantined slot's pixels are the GL suite's: QuarantineBypassTests.)</summary>
 public sealed class QuarantineTests
 {
     private static readonly FxSource Invert = FxCatalog.Builtin.Source("fx.invert")!;
@@ -135,6 +136,35 @@ public sealed class QuarantineTests
         Assert.Empty(quarantine.All);
         Assert.Equal("no kind is quarantined on this node", await rig.Refused("FX RELEASE ALL"));
         Assert.Contains(rig.Engine.Journal.Recent(10), r => r.Kind == "fx.release" && r.Text.Contains("Wobble Pro", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AReleaseSaysWhatItAppliedAndHowManySlotsOfTheShowUseTheKindNeverThatTheyDraw()
+    {
+        var quarantine = new ShaderQuarantine();
+        await using var rig = Rig(quarantine);
+        var first = await AddInvert(rig);
+        await AddInvert(rig);
+        quarantine.Add(Entry());
+        quarantine.Add(Entry("Wobble Pro", new string('a', 64)));
+
+        async Task<(string Released, string Words)> Release(string line)
+        {
+            var reply = await rig.Run(line);
+            Assert.True(reply.Ok, reply.Effect);
+            var released = JsonDocument.Parse(reply.Payload!).RootElement.GetProperty("released").EnumerateArray();
+            return (string.Join(", ", released.Select(e => e.GetString())), reply.Effect);
+        }
+
+        Assert.Equal(("Wobble Pro", "released Wobble Pro from this node's quarantine; no slot of this show uses it"),
+            await Release("FX RELEASE Wobble Pro"));
+        quarantine.Add(Entry("Wobble Pro", new string('a', 64)));
+        Assert.Equal(("Invert, Wobble Pro", "released Invert, Wobble Pro from this node's quarantine; 2 slots of this show use them"),
+            await Release("FX RELEASE ALL"));
+        await rig.Ok($"FX REMOVE {first}");
+        quarantine.Add(Entry());
+        Assert.Equal(("Invert", "released Invert from this node's quarantine; 1 slot of this show uses it"), await Release("FX RELEASE Invert"));
+        Assert.Empty(quarantine.All);
     }
 
     [Fact]

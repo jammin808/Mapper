@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Effects;
 using PlayMap.Core.Model;
@@ -28,6 +29,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail(Syntax);
         var quarantine = Services.Quarantine;
         var key = string.Join(' ', args).Trim().Trim('"');
+        var users = QuarantinedSlots(Store.Project);
         QuarantineChange change;
         if (key.Equals("ALL", StringComparison.OrdinalIgnoreCase))
         {
@@ -64,8 +66,17 @@ public sealed partial class EngineCore
             w.WriteEndArray();
             w.WriteEndObject();
         });
+        // What was applied, and how many of the show's slots use what was released; whether a slot draws is its observed state's.
         var names = string.Join(", ", released.Select(e => e.Kind));
-        return CommandReply.Success(payload, $"released {names}: {(released.Length == 1 ? "its slots draw" : "their slots draw")} again{doubt}");
+        var count = released.Sum(e => users[e.KindHash].Count());
+        var them = released.Length == 1 ? "it" : "them";
+        var use = count switch
+        {
+            0 => $"no slot of this show uses {them}",
+            1 => $"1 slot of this show uses {them}",
+            _ => $"{count.ToString(CultureInfo.InvariantCulture)} slots of this show use {them}",
+        };
+        return CommandReply.Success(payload, $"released {names} from this node's quarantine; {use}{doubt}");
     }
 
     /// <summary>The quarantined kind a word names: its hash first (each entry's own, so two entries quarantined under one name are told
