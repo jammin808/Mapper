@@ -4,7 +4,8 @@
 scheduling class is NORMAL, CPU sets are AUTO (never ONE-CACHE), and nothing is claimed of the GC.
 
 **Machines.** An NVIDIA RTX PRO node, a Radeon RDNA 3 or 4 node, an Intel Arc node, a hybrid Intel CPU (performance and efficiency
-cores), a dual-CCD X3D CPU. Each on Windows 11 24H2 or later, the build under test installed by its MSI, outputs on real displays.
+cores), a dual-CCD X3D CPU. Each on Windows 11 24H2 or later, the build under test installed by its installer, outputs on real
+displays.
 
 **Pass mark.** With each claim on, p99.9 frame time at or below the same show with that claim off; each default confirmed or changed
 in one commit that cites this record; the high-resolution timer's lateness at or below today's wait.

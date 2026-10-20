@@ -80,14 +80,30 @@ with keep-awake off), `MACHINE LOCK` (drift).
 
 ## Papers note
 
-For the integration pass: `docs/ARCHITECTURE.md` §2's module table gains `PlayMap.Platform.Windows` (an edge of Core; the engine
-composes it); `docs/INSTALL.md` (wp3-installer) names the three support tiers the identity reports and the privilege GPU-PRIORITY REALTIME
-needs. `docs/ROADMAP.md`'s round-3 row for wp3-platform is built, with these deviations from the plan's words: keep-awake is a power
-request (`PowerCreateRequest`), not `SetThreadExecutionState`, whose state ends with the thread that set it; the Public-profile row knows
-the show adapter by the addresses the show doors are bound to, so a node bound to every interface reads every connected network; the
-power plan is in STATE as `machine.platform.powerPlan`; the dual-CCD option is built as `MACHINE SET CPUSETS ONE-CACHE`, off; the GC's
+The papers this merge carries (plan §5.4 item 7), each sentence checked against the merged code: `docs/ARCHITECTURE.md` §2's module
+table has `PlayMap.Platform.Windows`, an edge of Core alone that the engine composes on Windows (Core's null platform elsewhere), the
+engine's row referencing it and holding the machine part, and Core's row holding the machine's records and policy; §4 says each
+deadline thread waits on the platform's timer. `README.md`'s module table, its Next paragraph, its Windows job and its papers list;
+`docs/WIRE.md`'s round-3 section names wp3-platform's rows routed; `docs/ROADMAP.md`'s round 3 ("Built: the machine platform", the
+package's row, the Today paragraph, the spine's tree and the lab's list); `docs/COMPETITIVE.md` (where PlayMap is going, a Machine
+row, the routed rows), `docs/RESEARCH.md` §8 and `docs/round3/README.md`; the agent brief's constraint on threads and deadlines.
+`docs/PLATFORM.md` names no paper this head lacks and says the runtimes read empty, and L10's record installs the build under test by
+its installer.
+
+`docs/ROADMAP.md`'s round-3 row for wp3-platform is built, with these deviations from the plan's words: keep-awake is a power request
+(`PowerCreateRequest`), not `SetThreadExecutionState`, whose state ends with the thread that set it; the Public-profile row knows the
+show adapter by the addresses the show doors are bound to, so a node bound to every interface reads every connected network; the power
+plan is in STATE as `machine.platform.powerPlan`; the dual-CCD option is built as `MACHINE SET CPUSETS ONE-CACHE`, off; the GC's
 latency mode while armed (the stretch) is built and DEFAULT. Not built: REALTIME's `GLOBAL_REALTIME` direct queue (wp3-d3d12-core's,
-plan §5.5); each media volume's encryption as a preflight fact. L10, L22 and L23 are not run. The spine amendments this merge carries
-(plan §5.7): `ThreadClaims.CreateTimer`, the LED sender's timer (`LedSenderOptions.Timer`) and the audio feeder's; `ShowDoor`,
-`NetworkHost.Doors` and `ControlService.Doors`; `IMachinePlatform`'s read-back members (`Use`, `AwakeClaim`, `TimerMode`, `Power`),
-answered by their defaults on a platform that claims nothing.
+plan §5.5); the runtimes' fill (`MachineNode.FillRuntimes` has no caller, so `machine.identity.runtimes` reads empty: the Agility
+runtime's is wp3-d3d12-core's, plan §5.5, FFmpeg's build Media's and the sync board's firmware wp3-framelock's); each media volume's
+encryption as a preflight fact. L10, L22 and L23 are not run. The spine amendments this merge carries (plan §5.7):
+`ThreadClaims.CreateTimer`, the LED sender's timer (`LedSenderOptions.Timer`) and the audio feeder's; `ShowDoor`, `NetworkHost.Doors`
+and `ControlService.Doors`; `IMachinePlatform`'s read-back members (`Use`, `AwakeClaim`, `TimerMode`, `Power`), answered by their
+defaults on a platform that claims nothing.
+
+For wp3-installer's merge, which brings `docs/INSTALL.md`: its sentence on the GPU support tiers reads as built, `machine.identity`
+carrying each adapter's `tier` and `support` and the OS's support tier (`os.tier`: `ltsc` for IoT Enterprise LTSC, `managed` for Pro,
+Pro for Workstations, Enterprise and Education, `home`, or `unsupported` for a build below 24H2 or a server, `unknown` for an edition
+the table does not know), the three tiers its OS paragraph names; and the show account's `SeIncreaseBasePriorityPrivilege` it grants
+is the privilege `MACHINE SET GPU-PRIORITY REALTIME` needs, refused without it in words that name it and say the installer grants it.

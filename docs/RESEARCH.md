@@ -138,6 +138,12 @@ decisions (`docs/round3/PLAN.md` §1.2). What they found, in short:
 - **The lock only where the hardware gives one.** Tearing between outputs is phase, and only sync hardware removes it (§6).
 - **Every edition of Windows 11, Home included.** Home runs every API the engine and the desk use and lacks only the management
   layers (Assigned Access, Shell Launcher, specialized displays, the update policies), so each has a fallback and a preflight row.
+- **What a real-time engine claims from Windows.** Windows 11 lowers the quality of service of a process whose windows are hidden,
+  covered or minimised, or that has none, and stops honouring its timer requests; a high-resolution waitable timer wakes near its
+  due time; MMCSS serves time-critical multimedia threads; and CPU sets, never a hard affinity, place threads on hybrid processors.
+  So the engine claims HighQoS with its timer requests honoured, high process priority, MMCSS and CPU sets by thread role and that
+  timer for every deadline thread, each claim read back into STATE, and keeps off what has no documented cause (the GPU scheduling
+  class, the GC's show mode, one cache for the critical threads) until the lab measures it (docs/PLATFORM.md).
 - **A per-machine installer.** An MSI rolls back services and machine-level writes, and the WiX toolset built from its own source
   needs no paid service, but WiX v7.0.0's pinned source does not build on the Windows runner (M17: it needs Visual Studio's v143
   C++ tools, which the runner's Visual Studio 2026 lacks) and checks a licence gesture in three places that PlayMap never passes.

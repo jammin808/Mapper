@@ -31,7 +31,7 @@ claim: its one claim asks nothing and is grey, and nothing is recorded for a thr
 |---|---|---|---|---|---|---|
 | Process priority | `SetPriorityClass(HIGH_PRIORITY_CLASS)`; realtime never | `GetPriorityClass` | HIGH | documented: the class for a process whose threads are mostly blocked and run briefly for time-critical events | `PROCESS HIGH\|NORMAL` | now |
 | HighQoS, every timer request honoured | `SetProcessInformation(ProcessPowerThrottling)`, `EXECUTION_SPEED \| IGNORE_TIMER_RESOLUTION` in the control mask, a zero state mask | `GetProcessInformation` | HIGH | documented: Windows 11 lowers the QoS of an occluded, minimised or windowless process and ignores its timer requests | `QOS HIGH\|AUTO` | now |
-| GPU scheduling class | `D3DKMTSetProcessSchedulingPriorityClass` | `D3DKMTGetProcessSchedulingPriorityClass` | **NORMAL** | none documented: off until the lab measures HIGH (L10) | `GPU-PRIORITY NORMAL\|HIGH\|REALTIME`; REALTIME needs `SeIncreaseBasePriorityPrivilege`, which the installer grants the show account, and is refused without it, naming it; REALTIME's `GLOBAL_REALTIME` direct queue is wp3-d3d12-core's (plan §5.5) and is not asked on this build, which has no Direct3D 12 device | now |
+| GPU scheduling class | `D3DKMTSetProcessSchedulingPriorityClass` | `D3DKMTGetProcessSchedulingPriorityClass` | **NORMAL** | none documented: off until the lab measures HIGH (L10) | `GPU-PRIORITY NORMAL\|HIGH\|REALTIME`; REALTIME needs `SeIncreaseBasePriorityPrivilege` and is refused without it, in words that name it and say the installer grants it to the show account (wp3-installer's grant); REALTIME's `GLOBAL_REALTIME` direct queue is wp3-d3d12-core's (plan §5.5) and is not asked on this build, whose engine opens no Direct3D 12 device | now |
 | MMCSS | render and present `"Games"`, audio and timecode `"Pro Audio"`, capture `"Capture"` (`AvSetMmThreadCharacteristicsW`, `AvSetMmThreadPriority(HIGH)`), reverted with `AvRevertMmThreadCharacteristics` | the task index | ON | documented: Windows' service for time-critical multimedia threads | `MMCSS ON\|OFF` | each thread's next start |
 | Thread priority | above normal for render, present, decode, audio, timecode, control, LED and capture; normal for network servers; below normal for background pools | `GetThreadPriority` | — | the roles' table | — | — |
 | CPU sets | the critical pool (render, present, decode, capture) on the highest efficiency class, background pools on the rest (`SetThreadSelectedCpuSets`, soft, never a hard affinity); one efficiency class sets nothing and says so | `GetThreadSelectedCpuSets` | AUTO | documented: CPU sets, never affinity, on hybrid processors | `CPUSETS AUTO\|OFF\|ONE-CACHE`; ONE-CACHE confines the critical pool to the highest class's first last-level cache (a dual-CCD CPU's first CCD), the background on every other set, and has no documented cause: off until L10 step 6 measures it | each thread's next start |
@@ -64,13 +64,13 @@ elevated) and the high-resolution timer is made. Where a later runner refuses, t
 
 ## Time
 
-Every deadline thread waits on the platform's `IDeadlineTimer`, made on that thread as it starts (`ThreadClaims.CreateTimer`) and
-disposed at its end: the headless pacer (until its next frame's deadline, its wake handle the cancel), the LED sender (until a
-millisecond before its next instant, woken early by whatever hands it work, spinning the last millisecond) and each audio output's
-feeder (5 ms between service steps, its stop the cancel). Their instants are on the machine's monotonic clock, which the platform's
-timers wait on; a thread on any other clock (a test's hand-moved one) waits on the runtime's own wait on that clock, and the audio
-feeder never reads its output's clock to wait. The two waits measured on the hosted runner (`PlatformCallsTests`, 1 000 waits of 1 ms
-each, run 39214709394), lateness in µs:
+Every deadline thread waits on the platform's `IDeadlineTimer`, made on that thread (`ThreadClaims.CreateTimer`: the LED sender's and
+each audio feeder's as the thread starts, the headless pacer's at its first wait) and disposed at its end: the headless pacer (until
+its next frame's deadline, its wake handle the cancel), the LED sender (until a millisecond before its next instant, woken early by
+whatever hands it work, spinning the last millisecond) and each audio output's feeder (5 ms between service steps, its stop the
+cancel). Their instants are on the machine's monotonic clock, which the platform's timers wait on; a thread on any other clock (a
+test's hand-moved one) waits on the runtime's own wait on that clock, and the audio feeder never reads its output's clock to wait. The
+two waits measured on the hosted runner (`PlatformCallsTests`, 1 000 waits of 1 ms each, run 39214709394), lateness in µs:
 
 | Wait | p50 | p90 | p99 | p99.9 | max |
 |---|---|---|---|---|---|
@@ -93,17 +93,18 @@ keyword at Informational: each pause from the execution engine's suspension to i
 - **Build** — PlayMap's version, its SemVer with build metadata and its file version.
 - **OS** — `RtlGetVersion`'s build, `GetProductInfo`'s product type and the registry's `EditionID`, `DisplayVersion` and `UBR`,
   classified by `EditionTable`: the family (home, pro, workstation, enterprise, education, iot, server), the LTSC and IoT flags and
-  the support tier: one of the plan's three (D4; wp3-installer's `docs/INSTALL.md` publishes them) — `ltsc` for IoT Enterprise LTSC,
-  `managed` for Pro, Pro for Workstations, Enterprise and Education, `home` — or `unsupported` for a build below 24H2 or a server,
-  `unknown` for an edition the table does not know.
+  the support tier: one of the plan's three (D4) — `ltsc` for IoT Enterprise LTSC, `managed` for Pro, Pro for Workstations, Enterprise
+  and Education, `home` — or `unsupported` for a build below 24H2 or a server, `unknown` for an edition the table does not know.
 - **CPU** — its name, its logical processors by efficiency class, the widest vector .NET accelerates, AVX-512 and AVX10.
 - **GPUs** — every DXGI 1.6 adapter by LUID with vendor and device ids, name, the user-mode driver's version, whether an output is
   attached and its memory; on NVIDIA the driver's version and branch from NVAPI, and RTX PRO told from RTX by
-  `NvAPI_GPU_QueryWorkstationFeatureSupport(PROVIZ)`, never by the name. NVAPI is the driver's (`nvapi64.dll`, never shipped), loaded from the system directory by its absolute path, never by a search by name. The vendor tier and support level are the plan's (D4), which wp3-installer's `docs/INSTALL.md` publishes:
+  `NvAPI_GPU_QueryWorkstationFeatureSupport(PROVIZ)`, never by the name. NVAPI is the driver's (`nvapi64.dll`, never shipped), loaded
+  from the system directory by its absolute path, never by a search by name. The vendor tier and support level are the plan's (D4):
   NVIDIA RTX and RTX PRO tier 1; AMD's RDNA 3 and 4 Radeons validated per driver (none is validated before the lab runs); Intel Arc
   best effort; software adapters and anything else unsupported.
 - **Runtimes** — the Agility runtime, FFmpeg's build and the sync board's firmware, each filled by its owner through
-  `MachineNode.FillRuntimes` (empty until then).
+  `MachineNode.FillRuntimes` (wp3-d3d12-core the Agility runtime's, Media FFmpeg's, wp3-framelock the firmware's); no owner fills one
+  on this build, so each reads empty in STATE and in `MACHINE LOCK`'s set.
 
 `machine.capabilities` carries the platform's own probes: the realtime privilege; hardware-accelerated GPU scheduling for each adapter by
 its LUID with its driver, as its kernel driver answers (`D3DKMTQueryAdapterInfo`, `KMTQAITYPE_WDDM_2_7_CAPS`: supported, and on or off

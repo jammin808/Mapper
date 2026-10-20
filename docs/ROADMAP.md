@@ -41,7 +41,8 @@ The lab checks still to do:
   frequency from the platform, never a rate measured against the stopwatch, and a thread's cycles at it against its work — on bare
   metal and on a Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), with round 3's platform
   package (L22; until then a Windows thread time is its clock ticks, and the survey slice's budget there is proven by the stopwatch
-  and shown, not proven, by the ticks, docs/FACADE.md).
+  and shown, not proven, by the ticks, docs/FACADE.md); the machine platform's claims against frame time on NVIDIA, AMD and Intel
+  nodes, a hybrid Intel CPU and a dual-CCD CPU (L10), and its edition rows and claims on a clean Home node (L23).
 - Runtimes and SDKs loaded at run time: a real NDI runtime (the user's own install); the NVAPI tier on a sync board.
 - Devices: a real projector, and a Panasonic's answers to the double-correction guard's reads; a real camera scan (from one place
   or many, through a capture camera, a phone or a tethered camera's folder), a camera re-solve and a colour match through a real
@@ -136,14 +137,14 @@ every command and feature reachable from the menus and right-click menus (§9). 
 
 **Today.** PlayMap is one portable exe. It draws through the rendering hardware interface (below) with OpenGL 3.3 core or ES 3.00
 behind it, on GLFW windows, EGL or a surfaceless context; on Windows the Direct3D 11 flip model through ANGLE is an explicit,
-experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no evidence yet marks as in Independent Flip. The NVAPI frame-lock
-tier reads a sync board and joins no output. A lost device stops the drawing after 30 faulting frames while the engine plays on.
-The engine claims nothing from Windows beyond above-normal thread priority. Previews reach the desk through four CPU copies. CI
-publishes a self-contained folder that nothing installs, signs or supervises; every build carries its version, build number and
-commit from one source (`Version.props`; README, Versions). On the desk a half-drawn quad is dropped when the person looks away,
-only a quad's corner nudges, no output says what it shows, Simple hides nothing, the panels are fixed columns and about a third of
-the catalogue's rows are sent by a desk control of their own; a capture card is read through FFmpeg, outside the video I/O hub,
-with three CPU copies (docs/round3/research/desk-today.md and video-today.md).
+experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no evidence yet marks as in Independent Flip. The NVAPI frame-lock tier
+reads a sync board and joins no output. A lost device stops the drawing after 30 faulting frames while the engine plays on. On Windows
+the engine claims what a real-time process needs through its machine platform and reads each claim back into STATE (below). Previews
+reach the desk through four CPU copies. CI publishes a self-contained folder that nothing installs, signs or supervises; every build
+carries its version, build number and commit from one source (`Version.props`; README, Versions). On the desk a half-drawn quad is
+dropped when the person looks away, only a quad's corner nudges, no output says what it shows, Simple hides nothing, the panels are
+fixed columns and about a third of the catalogue's rows are sent by a desk control of their own; a capture card is read through
+FFmpeg, outside the video I/O hub, with three CPU copies (docs/round3/research/desk-today.md and video-today.md).
 
 **Built: the spine (W0, `wp3-spine`).** The spine holds the contracts every package of the round builds on. Every lab line
 still waits: nothing in it claims a hardware fact.
@@ -164,9 +165,10 @@ still waits: nothing in it claims a hardware fact.
   read unchanged but for γ, and the load note names each output moved.
 - **Seams packages need.** `UNDO TO` with its store and gate, HEALTH's shown and observed frames and GPU phase (−1 and unknown
   until filled), the engine's pid record for the supervisor, and arm hooks with deadlines that `SHOW ARM` names in its answer.
-- **Tree.** The Direct3D 12, Windows platform and supervisor projects hold their folders and placeholders. Each hook word has
-  its stubs. Round 3's STATE keys have their places, absent until written. Each package has a placeholder fixture and a wire
-  page.
+- **Tree.** The spine makes the Direct3D 12, Windows platform and supervisor projects with their folders and placeholders, which their
+  packages fill (wp3-shaders the Direct3D 12 backend's shaders folder, wp3-platform the Windows platform; below). Each hook word has
+  its stubs. Round 3's STATE keys have their places, absent until written. Each package has a fixture and a wire page, placeholders
+  until it fills them.
 - **CI.** The Windows job runs on `windows-2025`. It has WARP and the Agility SDK pinned beside the test hosts. The
   `Backend=D3D12` tests are a leg listed apart, with a dispatch input that runs one filtered leg and uploads its evidence.
   The one Direct3D 12 test makes a WARP device through TerraFX and says its feature level. The runner's answers to M7 and M14
@@ -231,6 +233,49 @@ the Direct3D 12 backend, and a user's ISF effect reaches validated, signed DXIL 
 - **Not proven.** Pixel parity of the HLSL with the GLSL is wp3-d3d12-core's, and user effects drawn on the device and the public
   ISF corpus counted to DXIL are wp3-shaders-2's.
 
+**Built: the machine platform (W1, `wp3-platform`).** What a show node claims from Windows, what it is and the driver set its shows
+run on, every claim read back into STATE with what Windows answered (docs/PLATFORM.md, docs/wire/machine.md); no claim's effect on a
+show is measured yet.
+
+- **The seam and the policy.** `src/PlayMap.Core/Machine` holds `IMachinePlatform` with what a platform reads back (`Use`,
+  `AwakeClaim`, `TimerMode`, `Power`, answered by their defaults on Core's null platform), thread claims by role, each deadline
+  thread's timer (`ThreadClaims.CreateTimer`) and the show doors, and the policy, pure and proven on both jobs: MACHINE SET's words
+  and each default with its cause, CPU-set placement, the edition, servicing and GPU vendor tables, the machine preflight's rows and
+  the text Windows hands back, parsed. `PlayMap.Platform.Windows`, an edge of Core alone, makes the Win32 calls and the DXGI and
+  NVAPI probes through its own declarations, each structure pinned by a layout golden; the engine composes it on Windows and Core's
+  null platform elsewhere ("the platform seam is Windows only").
+- **The claims.** Before any part starts a thread: HIGH process priority, HighQoS with every timer request honoured, the GPU
+  scheduling class (NORMAL). Each thread by its role: its priority, MMCSS (Games, Pro Audio, Capture), CPU sets (the critical pool on
+  the highest efficiency class, never a hard affinity) and EcoQoS for background pools. Keep-awake under `AWAKE ON` while the project
+  has an enabled display output, and the GC's SustainedLowLatency while armed under `GC SHOW`. A default is on only where its cause is
+  documented: the GPU scheduling class, the GC's show mode and ONE-CACHE are off until L10 measures them. A refused claim is amber in
+  STATE and preflight, with Windows' words.
+- **Time.** Every deadline thread — the headless pacer, the LED sender, each audio output's feeder — waits on the platform's
+  deadline timer made on its thread; on Windows under TIMER HIGH that is the high-resolution waitable timer, 550 µs late at p99 on
+  the hosted runner against 15 233 µs for a wait handle's timeout. The p99 of the last 1 000 waits is in STATE, amber in preflight
+  over 1 ms; the collector's pauses are counted from the runtime's own GC events into a histogram.
+- **Identity and the driver lock.** `machine.identity`: the build, the edition with its support tier, the CPU by efficiency class,
+  every GPU by LUID with its driver, vendor tier and support level (RTX PRO told from RTX by NVAPI's workstation probe, never by the
+  name), and the runtimes; `machine.capabilities`: the platform's own probes. `MACHINE LOCK` keeps the driver set in the node's
+  settings, never in the project, keyed by vendor, device and name, and preflight names every move from it.
+- **Verbs and preflight.** `MACHINE [STATUS]`, `MACHINE SET` and `MACHINE LOCK [CLEAR]` are routed (both changes Setup lines; REALTIME
+  high risk), with STATE's `machine` keys, the context's `machine:platform` item on a Windows node and INDEX's `machine` section.
+  Preflight's `machine` section reads the build, the edition and the layers it lacks, Smart App Control, servicing, the primary
+  display, the networks the show doors are on, power, sleep, the screen saver, a pending reboot, USB and PCIe power saving,
+  notifications, Windows Update, HAGS, Memory Integrity and Game Mode, refused claims, the timer and drift, each row a fact with
+  words.
+- **As built, against the plan's words.** Keep-awake is a power request (`PowerCreateRequest`), not `SetThreadExecutionState`, whose
+  state ends with the thread that set it; the Public-profile row knows the show adapter by the addresses the show doors are bound to
+  (the line wire, the web port, the clock sync while leading, OSC, Art-Net, sACN), so a node bound to every interface reads every
+  connected network; the power plan is in STATE as `machine.platform.powerPlan`; the dual-CCD option is `MACHINE SET CPUSETS
+  ONE-CACHE`, off; the GC's latency mode while armed is built and DEFAULT.
+- **Not built.** REALTIME's `GLOBAL_REALTIME` direct queue (wp3-d3d12-core's, docs/round3/PLAN.md §5.5); the runtimes' fill: no
+  owner fills one yet, so `machine.identity.runtimes` reads empty (the Agility runtime's is wp3-d3d12-core's, FFmpeg's build
+  Media's, the sync board's firmware wp3-framelock's); each media volume's encryption as a preflight fact.
+- **Not proven.** L10 (each claim's effect on frame time on NVIDIA, AMD and Intel nodes, a hybrid Intel CPU and a dual-CCD CPU), L22
+  (a precise Windows thread time) and L23 (the edition's rows and the claims on a clean Home node) are not run; every number above
+  is the shared runner's.
+
 **Next** (the plan's packages build these in four waves on the spine — the fifteen of the Windows move and the five for the
 owner's requirements; GL stays the reference backend through the round and retires once the pixel and timing evidence agrees; at
 the round's end the integration pass updates the statuses of the items in the last column):
@@ -245,7 +290,7 @@ the round's end the integration pass updates the statuses of the items in the la
 | Flip-model presenters on Direct3D 12, Independent Flip proven per output, one queued frame, the frame drawn for its predicted display instant, HDR10 and 10-bit | wp3-present | R2.1, R2.5, M21 |
 | The present barrier on Direct3D 12 and the swap group on OpenGL where the hardware allows them (RTX PRO Sync), each output locked by its own evidence; every other output in the software lock, reporting measured phase, never in a locked state | wp3-framelock | R4.2 |
 | D3D12VA decode sampled in place, the copy-queue upload arena, Spout through a D3D11 side device | wp3-video | R2.2 |
-| The Windows platform seam: QoS, timers, MMCSS, process and GPU priority, keep-awake, the GC's latency mode while armed; the node's identity and drivers in STATE; machine preflight with driver drift | wp3-platform | R2.8, R2.9 |
+| The Windows platform seam: QoS, timers, MMCSS, process and GPU priority, keep-awake, the GC's latency mode while armed; the node's identity and drivers in STATE; machine preflight with driver drift. **Built** (above): every claim read back into STATE, every deadline thread on the platform's timer, the identity, the driver lock and machine preflight; not the `GLOBAL_REALTIME` queue (wp3-d3d12-core's) or the runtimes' fill; L10, L22 and L23 not run | wp3-platform | R2.8, R2.9 |
 | A watermark read back by an independent observer; the shown-frame heartbeat; `LATENCY STEP`; one rebuild path for a lost device, rehearsed in CI | wp3-stability, -2 | R1.11 |
 | Shared-texture previews into the desk; the desk's UI-stall watchdog and push budget | wp3-desk-gpu | — |
 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status by shape and word, preview age | wp3-desk-ux | M20 (the night theme) |

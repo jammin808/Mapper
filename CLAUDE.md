@@ -87,6 +87,12 @@ MCP, desk, menus and right-click menus, papers.
 - **Round 3's ownership**: a package edits only the files `docs/round3/PLAN.md` §4 gives it and its hook word's stubs; a
   missing seam goes through the spine amendment lane (§5.7). Every new verb is a catalogue row; every new STATE block has
   its fixture written by a test and a card descriptor.
+- **Threads and deadlines.** The render, decode, audio, control and LED threads claim their roles from the machine platform in
+  one line at their start (`using var claim = ThreadClaims.Claim(ThreadRole.Decode);`; the LTC reader, fed on the capture thread,
+  through a `DeliveryClaim`). A deadline thread (the headless pacer, the LED sender, each audio feeder) waits on the timer
+  `ThreadClaims.CreateTimer(clock)` makes on it, disposed at its end: on the machine's clock the platform's (on Windows the
+  high-resolution waitable timer under `TIMER HIGH`), on any other clock the runtime's wait on that clock. `MACHINE SET`'s MMCSS and
+  CPUSETS reach a thread at its next claim, TIMER at its next timer (`docs/PLATFORM.md`).
 - **Native libraries the user installs** (NDI, NVIDIA's Aftermath, vendor SDKs) are never shipped and load at run time.
   A new loader finds its library by absolute path only, never by a bare-name search, which on Windows takes in the
   current directory and `PATH` (Aftermath: round 3 §9 decision 7; NDI's and libvmx's loaders still end with one, an open
