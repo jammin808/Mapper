@@ -220,6 +220,19 @@ public sealed class ThreadClaimsTests
         Assert.Equal("the platform seam is Windows only", Assert.Single(after.Claims).Words);
         Assert.Equal([ThreadRole.Capture], platform.Roles);
     }
+
+    [Fact]
+    public void AThreadsDeadlineTimerOnAClockWaitsOnThatClock()
+    {
+        var clock = new ManualClock(1_000_000_000);
+        using var timer = ThreadClaims.CreateTimer(clock);
+        Assert.IsType<RuntimeDeadlineTimer>(timer);
+        // An instant the clock has reached answers at once; one it has not waits until the cancel, however long the machine runs.
+        Assert.True(timer.WaitUntil(1_000_000_000));
+        using var cancel = new ManualResetEvent(true);
+        Assert.False(timer.WaitUntil(2_000_000_000, cancel));
+        Assert.Throws<ArgumentNullException>(() => ThreadClaims.CreateTimer(null!));
+    }
 }
 
 /// <summary>The tests that point the process's thread claims at a platform: they run alone, after the parallel tests.</summary>

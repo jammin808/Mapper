@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PlayMap.Core.Time;
 
 namespace PlayMap.Core.Machine;
 
@@ -57,6 +58,15 @@ public static class ThreadClaims
     {
         ArgumentNullException.ThrowIfNull(platform);
         Volatile.Write(ref _platform, platform);
+    }
+
+    /// <summary>The deadline timer of a thread that waits for instants on <paramref name="clock"/> (the LED sender's, the audio feeder's):
+    /// the runtime's own wait on <paramref name="clock"/>. Made on the thread that waits on it, which disposes it, since a timer takes one
+    /// caller at a time.</summary>
+    public static IDeadlineTimer CreateTimer(IMonoClock clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        return new RuntimeDeadlineTimer(clock);
     }
 
     /// <summary>The role's word in STATE and in a claim's <see cref="Claim.What"/>: "render", "present", "decode", "audio",
