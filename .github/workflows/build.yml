@@ -205,6 +205,15 @@ jobs:
         # whatever the suites say.
         shell: pwsh
         run: ./tools/ci-stamp.ps1 -File src/PlayMap.Core/bin/Release/net10.0/PlayMap.Core.dll -Label Windows -Heading
+      - name: Upload the HLSL library's symbols
+        # The PDB of each program's two entries, which the build writes beside their DXIL where DXC's executable runs (here) and
+        # never puts in the exe (src/PlayMap.Render.D3D12/Shaders/Shaders.targets), kept after the build: a build that wrote none
+        # fails here.
+        uses: actions/upload-artifact@v5
+        with:
+          name: hlsl-symbols
+          path: src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb
+          if-no-files-found: error
       - name: The native test doubles' compiler (the runner's LLVM clang)
         shell: pwsh
         run: |
