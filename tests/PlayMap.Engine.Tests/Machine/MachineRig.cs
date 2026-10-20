@@ -68,7 +68,25 @@ internal sealed class FakePlatform : IMachinePlatform, IMachineReadBack
         return new Claimed(made);
     }
 
-    public IDeadlineTimer CreateTimer() => InUse.Timer == "high" ? new HighTimer() : new RuntimeDeadlineTimer();
+    /// <summary>The name of each thread a timer was made on ("" for an unnamed one), in order.</summary>
+    public IReadOnlyList<string> TimersMadeOn
+    {
+        get
+        {
+            lock (_made)
+                return [.. _timersMadeOn];
+        }
+    }
+
+    private readonly Lock _made = new();
+    private readonly List<string> _timersMadeOn = [];
+
+    public IDeadlineTimer CreateTimer()
+    {
+        lock (_made)
+            _timersMadeOn.Add(Thread.CurrentThread.Name ?? "");
+        return InUse.Timer == "high" ? new HighTimer() : new RuntimeDeadlineTimer();
+    }
 
     public string TimerMode(IDeadlineTimer timer) => timer is HighTimer ? "high" : "default";
 

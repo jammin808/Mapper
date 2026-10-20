@@ -60,13 +60,15 @@ public static class ThreadClaims
         Volatile.Write(ref _platform, platform);
     }
 
-    /// <summary>The deadline timer of a thread that waits for instants on <paramref name="clock"/> (the LED sender's, the audio feeder's):
-    /// the runtime's own wait on <paramref name="clock"/>. Made on the thread that waits on it, which disposes it, since a timer takes one
-    /// caller at a time.</summary>
+    /// <summary>The deadline timer of a thread that waits for instants on <paramref name="clock"/> (the headless pacer's, the LED
+    /// sender's, the audio feeder's): the platform in use's when <paramref name="clock"/> is the machine's monotonic clock, which a
+    /// platform's timers wait on; else, and before any platform is in use, the runtime's own wait on <paramref name="clock"/>, so a
+    /// thread on a test's hand-moved clock never waits on the machine's. Made on the thread that waits on it, which disposes it, since a
+    /// timer takes one caller at a time.</summary>
     public static IDeadlineTimer CreateTimer(IMonoClock clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
-        return new RuntimeDeadlineTimer(clock);
+        return ReferenceEquals(clock, MonoClock.Instance) && Platform is { } platform ? platform.CreateTimer() : new RuntimeDeadlineTimer(clock);
     }
 
     /// <summary>The role's word in STATE and in a claim's <see cref="Claim.What"/>: "render", "present", "decode", "audio",

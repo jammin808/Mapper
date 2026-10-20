@@ -1,5 +1,6 @@
 using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
+using PlayMap.Core.Time;
 using PlayMap.Render.Timing;
 
 namespace PlayMap.Engine.Rendering;
@@ -17,11 +18,12 @@ internal sealed class HeadlessPacing : IDisposable
     private IDeadlineTimer? _timer;
 
     /// <summary>Waits until the deadline (ns, the machine's monotonic clock) or until <paramref name="wake"/> is signalled, on the
-    /// platform's deadline timer, made at the first wait: on Windows under TIMER HIGH the high-resolution waitable timer, which wakes
-    /// near its due time without raising the system's timer resolution; elsewhere, and under TIMER DEFAULT, the runtime's own wait.</summary>
+    /// platform's deadline timer (<see cref="ThreadClaims.CreateTimer"/>), made at the first wait: on Windows under TIMER HIGH the
+    /// high-resolution waitable timer, which wakes near its due time without raising the system's timer resolution; elsewhere, and
+    /// under TIMER DEFAULT, the runtime's own wait.</summary>
     public void WaitUntil(long deadlineNs, WaitHandle wake)
     {
-        _timer ??= ThreadClaims.Platform?.CreateTimer() ?? new RuntimeDeadlineTimer();
+        _timer ??= ThreadClaims.CreateTimer(MonoClock.Instance);
         _ = _timer.WaitUntil(deadlineNs, wake);
     }
 
