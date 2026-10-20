@@ -14,8 +14,9 @@ public sealed class NetworkRowTests
 {
     private static readonly DateOnly Today = new(2026, 10, 20);
 
+    /// <summary>An adapter as Windows reads it: its link-local address carries its interface's zone (12), its global one none.</summary>
     private static readonly NetworkAdapter Ethernet = new(Guid.Parse("6f1d2c3b-0a4e-4b5c-9d8e-7f6a5b4c3d2e"), "Ethernet 2",
-        [IPAddress.Parse("192.168.10.20"), IPAddress.Parse("fe80::1c2d:3e4f:5a6b:7c8d")]);
+        [IPAddress.Parse("192.168.10.20"), IPAddress.Parse("2001:db8:10::20"), IPAddress.Parse("fe80::1c2d:3e4f:5a6b:7c8d%12")]);
 
     private static readonly NetworkAdapter WiFi = new(Guid.Parse("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e"), "Wi-Fi", [IPAddress.Parse("10.0.0.57")]);
 
@@ -88,6 +89,32 @@ public sealed class NetworkRowTests
         var row = Assert.Single(Rows([new ShowDoor("sync", IPAddress.Parse("192.168.10.20").MapToIPv6())], Network("Show LAN", "public", Ethernet)));
         Assert.Equal(("network.public:Show LAN", Light.Amber), (row.Item, row.Light));
         Assert.Contains("clock sync on 192.168.10.20 through Ethernet 2", row.Words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ADoorOnAGlobalIPv6AddressIsOnTheAdapterThatCarriesThatAddressWhateverZoneIsWritten()
+    {
+        var row = Assert.Single(Rows([Door("wire", "2001:db8:10::20")], Network("Show LAN", "public", Ethernet), Network("Venue Wi-Fi", "public", WiFi)));
+        Assert.Equal(("network.public:Show LAN", Light.Amber), (row.Item, row.Light));
+        Assert.Contains("line wire on 2001:db8:10::20 through Ethernet 2", row.Words, StringComparison.Ordinal);
+        // A zone names an interface only on a link-local address: written on a global one, it names no other address.
+        Assert.True(Ethernet.Carries(IPAddress.Parse("2001:db8:10::20%7")));
+        Assert.False(Ethernet.Carries(IPAddress.Parse("2001:db8:10::21")));
+    }
+
+    [Fact]
+    public void ALinkLocalDoorIsOnTheAdapterOfItsZoneOrOnAnyThatCarriesItWhenItNamesNone()
+    {
+        Assert.True(Ethernet.Carries(IPAddress.Parse("fe80::1c2d:3e4f:5a6b:7c8d%12")));
+        Assert.False(Ethernet.Carries(IPAddress.Parse("fe80::1c2d:3e4f:5a6b:7c8d%7")));
+        // A door that names no zone may be on any interface carrying the address: the row reads that network as the show's.
+        Assert.True(Ethernet.Carries(IPAddress.Parse("fe80::1c2d:3e4f:5a6b:7c8d")));
+        var row = Assert.Single(Rows([Door("sync", "fe80::1c2d:3e4f:5a6b:7c8d")], Network("Show LAN", "public", Ethernet)));
+        Assert.Equal(("network.public:Show LAN", Light.Amber), (row.Item, row.Light));
+        Assert.Contains("clock sync on fe80::1c2d:3e4f:5a6b:7c8d through Ethernet 2", row.Words, StringComparison.Ordinal);
+        var zoned = Assert.Single(Rows([Door("sync", "fe80::1c2d:3e4f:5a6b:7c8d%12")], Network("Show LAN", "private", Ethernet)));
+        Assert.Equal(("network", Light.Green), (zoned.Item, zoned.Light));
+        Assert.Contains("clock sync on fe80::1c2d:3e4f:5a6b:7c8d%12 through Ethernet 2", zoned.Words, StringComparison.Ordinal);
     }
 
     [Fact]

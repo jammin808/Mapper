@@ -37,12 +37,22 @@ public sealed record NetworkAdapter(Guid Id, string Name, ImmutableArray<IPAddre
         return found.ToImmutable();
     }
 
-    /// <summary>Whether the adapter carries <paramref name="address"/> (an IPv4 address mapped into IPv6 read as IPv4).</summary>
+    /// <summary>Whether the adapter carries <paramref name="address"/>: one of its addresses has the same bytes (an IPv4 address mapped
+    /// into IPv6 read as IPv4), and, for an IPv6 link-local address, the same zone where <paramref name="address"/> names one. A
+    /// link-local address is unique only on its link, and its zone (the interface's index, which Windows reads on each adapter's own)
+    /// says which interface: one that names no zone may be on any adapter with those bytes, and each such adapter carries it, so the
+    /// row reads each such network as the show's. A zone written on any other address names no other address and is not compared.</summary>
     public bool Carries(IPAddress address)
     {
         ArgumentNullException.ThrowIfNull(address);
         var wanted = MachineRows.Normal(address);
-        return Addresses.Any(a => MachineRows.Normal(a).Equals(wanted));
+        var bytes = wanted.GetAddressBytes();
+        return Addresses.Any(a =>
+        {
+            var have = MachineRows.Normal(a);
+            return have.AddressFamily == wanted.AddressFamily && have.GetAddressBytes().AsSpan().SequenceEqual(bytes)
+                && (!wanted.IsIPv6LinkLocal || wanted.ScopeId == 0 || have.ScopeId == wanted.ScopeId);
+        });
     }
 }
 
