@@ -219,6 +219,16 @@ jobs:
           $hash = (Get-FileHash $dll -Algorithm SHA256).Hash
           if ($hash -ne $pinned) { throw "SPIRV-Tools-shared.dll is not the pinned build ($hash)" }
           "PLAYMAP_SPIRV_TOOLS_DIR=$dir" >> $env:GITHUB_ENV
+      # The HLSL build's dxc.exe validates with dxcompiler's built-in validator alone. DXC's driver loads an external validator from
+      # the absolute path DXC_DXIL_DLL_PATH names and fails when nothing is there: the job names such a path for every later step, so
+      # a build whose dxc.exe saw the variable fails (Shaders.targets starts dxc.exe without it).
+      - name: DXC's driver takes no external validator (a path with nothing there)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:GITHUB_WORKSPACE '.natives/none/validator.dll'
+          if (Test-Path -LiteralPath $path) { throw "$path is there: the job names a path with nothing there" }
+          "DXC_DXIL_DLL_PATH=$path" >> $env:GITHUB_ENV
       - name: Restore
         run: dotnet restore
       - name: Build

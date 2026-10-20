@@ -109,6 +109,29 @@ public sealed class HlslBuildTests
         Assert.DoesNotContain(WorkflowSteps("windows"), s => s.Run.Contains("PLAYMAP_DXC_DIR", StringComparison.Ordinal));
     }
 
+    /// <summary>The build's dxc.exe validates and signs with dxcompiler's built-in validator alone: the build's task starts it without
+    /// DXC_DXIL_DLL_PATH, through which DXC's driver loads an external validator from the absolute path the variable names and fails
+    /// when nothing is there. Before its build the Windows job names such a path for every later step, so a build whose dxc.exe saw the
+    /// variable fails there.</summary>
+    [Fact]
+    public void TheBuildsDxcStartsWithoutAnExternalValidatorsPath()
+    {
+        var targets = File.ReadAllText(Path.Combine(HlslLibrary.RepoRoot(), "src", "PlayMap.Render.D3D12", "Shaders", "Shaders.targets"));
+        var start = targets.IndexOf("Process.Start(", StringComparison.Ordinal);
+        Assert.True(start >= 0 && start == targets.LastIndexOf("Process.Start(", StringComparison.Ordinal), "the build's task starts one process, dxc.exe");
+        var remove = targets.IndexOf("info.Environment.Remove(\"DXC_DXIL_DLL_PATH\");", StringComparison.Ordinal);
+        Assert.True(remove >= 0 && remove < start, $"the task removes DXC_DXIL_DLL_PATH from dxc.exe's environment at {remove}, and starts it at {start}");
+
+        var steps = WorkflowSteps("windows");
+        var build = steps.FindIndex(s => s.Name == "Build");
+        var named = steps.FindIndex(s => s.Run.Contains("\"DXC_DXIL_DLL_PATH=$path\" >> $env:GITHUB_ENV", StringComparison.Ordinal));
+        Assert.True(named >= 0 && named < build, $"the Windows job names DXC_DXIL_DLL_PATH at step {named}, its Build is step {build}");
+        Assert.Null(steps[named].If);
+        Assert.Contains("$path = Join-Path $env:GITHUB_WORKSPACE", steps[named].Run, StringComparison.Ordinal);
+        Assert.Contains("if (Test-Path -LiteralPath $path) { throw", steps[named].Run, StringComparison.Ordinal);
+        Assert.DoesNotContain(WorkflowSteps("test"), s => s.Run.Contains("DXC_DXIL_DLL_PATH", StringComparison.Ordinal));
+    }
+
     /// <summary>The Windows job holds its portable exe to DXC's compiler alone, with its licence: straight after it publishes the desk
     /// to publish/PlayMap, under the same condition and before the exe is named or uploaded, it runs the Engine suite's
     /// DxcNativesTests again on that build, which read publish/PlayMap as one more output once it is there.</summary>
