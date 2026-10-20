@@ -291,10 +291,10 @@ retail hash. Then:
 A test whose subject exists on one platform only (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Direct3D 12, Spout and D3D11VA on
 Windows) carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words.
 
-On Ubuntu 24.04, `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0 and a sound stack
-(PulseAudio with a virtual output whose monitor the audio tests capture from), starts the display and the sound card, and prints
-the variables to export. It lays down no DXC and prints no `PLAYMAP_DXC_DIR`: fetch DXC's Linux release and set that variable as
-above before the build, or the tests that compile through DXC fail.
+On Ubuntu 24.04, `sudo tools/setup-dev.sh start` installs the .NET 10 SDK, Mesa and Xvfb, FFmpeg 9.0, DXC's `libdxcompiler.so`
+in `/opt/dxc` (the Linux job's release, archive and file held to the same hashes) and a sound stack (PulseAudio with a virtual output
+whose monitor the audio tests capture from), starts the display and the sound card, and prints the variables to export, among them
+`PLAYMAP_DXC_DIR`.
 
 Third-party software, and the licences it comes under, is listed in `THIRD-PARTY-NOTICES.md`.
 
