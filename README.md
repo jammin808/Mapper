@@ -156,7 +156,8 @@ assistant, and capture cards will pass through to the air. With no lab this roun
 list (above). Twenty-one packages build the direction in four waves, each of the plan's decisions answered in its §9, on the
 round's spine, which is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the new projects
 as placeholders and the CI legs. Of the packages, the rendering hardware interface is built on it: every frame draws through
-Core's `IGpuDevice` with the GL backend behind it, its pixels unchanged (`docs/ROADMAP.md`, round 3).
+Core's `IGpuDevice` with the GL backend behind it, its pixel goldens unedited and holding within their tolerances
+(`docs/ROADMAP.md`, round 3).
 
 ## What it is made of
 

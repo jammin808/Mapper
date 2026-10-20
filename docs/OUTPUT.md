@@ -211,13 +211,13 @@ present there is amber, with `PRESENT PATH D3D12` or `GL` as the fix.
   targets, an output through the whole frame on ES; the presenter seam with the GL window and a scripted presenter; vblank and
   ledger arithmetic on synthetic sequences (Xvfb's swaps are no real display); the lock machine, the counter and the verbs against
   the scripted board on the real render host (headless and windowed).
-- **The backend fixture**: every GPU test of the Render suite runs on `BackendFixture`, whose legs are the backends the job has,
-  each a device on a thread of its own — GL today, its hidden context in the run's dialect; a later backend adds its leg to
-  `BackendLegs.Makers`. A scene draws through the device a leg hands it (`IGpuDevice`, its frame list) and reads back through
-  `Pixels.Read(IGpuDevice, RenderTarget)`, so it names no backend; only the GL backend's own tests, listed by name in
-  `RhiFenceTests`, name a GL type or reach the GL leg's context, and they leave with GL. The goldens are the GL leg's, unedited.
-  L20, the GL backend behind the render hardware interface on NVIDIA, AMD and Intel Windows drivers, is not run (no lab): the
-  GL backend is proven on llvmpipe here and on Mesa WGL on the Windows job only.
+- **The backend fixture**: every GPU test of the Render suite but the GL backend's own runs on `BackendFixture`, whose legs are the
+  backends the job has, each a device on a thread of its own — GL today, its hidden context in the run's dialect; a later backend
+  adds its leg to `BackendLegs.Makers`. A scene draws through the device a leg hands it (`IGpuDevice`, its frame list) and reads
+  back through `Pixels.Read(IGpuDevice, RenderTarget)`, so it names no backend; only the GL backend's own tests, listed by name in
+  `RhiFenceTests`, name a GL type, reach the GL leg's context or open a GL context of their own, and they leave with GL. The
+  goldens are the GL leg's, unedited. L20, the GL backend behind the render hardware interface on NVIDIA, AMD and Intel Windows
+  drivers, is not run (no lab): the GL backend runs on llvmpipe here and, on the Windows job, Mesa WGL only.
 - **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here), and
   the Linux CI job runs it as its own step after the core suites, its results in `PlayMap.Render.Tests.es300.trx`. Every test
   passes on it whole. A test that names a dialect reads the GL leg's: the caps and every program in it

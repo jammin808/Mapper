@@ -1,12 +1,22 @@
 # The render hardware interface (`wp3-rhi`): papers note
 
-*For the integration pass (`PLAN.md` §4, §5.6). The package's text for `README.md`, `docs/ARCHITECTURE.md` and `docs/ROADMAP.md`
-stands in them (§1). This note holds the contracts as they are built where they differ from `design/rhi.md`, where the code proves a
-design wrong, the hunks outside the package's Owns in the order they merge, and what waits for the Windows job and the lab.*
+*For the integration pass (`PLAN.md` §4, §5.6). The package's text for `README.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`
+and the agent brief stands in them (§1 says where). This note holds the contracts as they are built where they differ from
+`design/rhi.md`, where the code proves a design wrong, the hunks outside the package's Owns in the order they merge, and what waits
+for the Windows job and the lab.*
 
-## 1. Text for the spine's papers
+## 1. Where the papers carry the package
 
-The text of this section stands in `README.md`, `docs/ARCHITECTURE.md` and `docs/ROADMAP.md`.
+- `README.md`: the opening's line on what the exe draws through, the round-3 paragraph's lines on the interface and the module
+  table's `PlayMap.Render` row.
+- `docs/ARCHITECTURE.md`: the opening's direction paragraph; the module table's `PlayMap.Core` and `PlayMap.Render` rows; §5's
+  first line, its paragraph on the render hardware interface ("Every pass draws through …") and the direction paragraph after it.
+- `docs/ROADMAP.md`: the opening, round 3's "Today", the section "Built: the render hardware interface" and the item's row in the
+  table after it.
+- `CLAUDE.md` (the agent brief): the engine's description, the GL line in "Constraints that bite" and the render hardware
+  interface's row in "Where things live".
+- `docs/round3/README.md` (the round's opening and its index row for `notes/`), `docs/COMPETITIVE.md` (the direction paragraph and
+  the Render row) and `docs/RESEARCH.md` (the GPU and presentation line): the RHI built, the rest of round 3 not.
 
 ## 2. The contracts as built
 
@@ -19,7 +29,7 @@ implements these, not the design's shapes where the two differ.
 | `BufferUsage.Dynamic` | 64: data set again every frame or so, kept where the CPU writes cheaply (GL a streaming store, Direct3D 12 upload memory); without it a buffer is static (GL a static store, Direct3D 12 device memory) | `GpuResources.cs` | dynamic: `ParticleGenerator`, `OverlayPass`'s cursors, `StageRenderer`'s lines; static: `GpuCaches`, `StageRenderer`'s meshes, `EffectGenerator`, `OverlayPass`'s shapes |
 | Buffers' content | a desc of 0 bytes makes no store until the first set; a set replaces the content for the draws recorded after it, and the draws recorded or submitted before it keep theirs (the backend renames the store and releases the old one at the last fence that read it); `GpuBuffer.Bytes` is the content's size | `GpuDevice.cs`, `GpuResources.cs` | every buffer maker (each makes at 0 bytes and sets) |
 | `ProgramLayout.Inputs` | each product program's vertex inputs (location, float count, offset, stride, buffer 0 or 1, divisor), in the table as `"inputs"`; empty for a program that makes its geometry from the vertex index and for a user program | `Programs.cs`, `Programs/ProgramTable.cs`, `Programs/programs.layout.json` | a pipeline's input layout before any mesh is at hand (`d3d12.md` §8); `ProgramLayoutTests` hold every mesh a pass draws to it |
-| `ConstantId`, `TextureId`, `ProgramIds` | a constant or texture by its place in a product program's layout, generated with the table (`Programs/ProgramIds.g.cs`, named `ProgramIds` because `Ids` is `PlayMap.Core.Model.Ids`); `DrawBuilder.Set(ConstantId, …)`, `SetInt(ConstantId, …)`, `Texture(TextureId, …)` | `Programs.cs`, `Commands.cs` | the five hottest passes: the particle step (`FlowGenerator`), the canvas quad (`GeneratorRenderer`), the raymarcher, `OutputStage`, `StageRenderer` |
+| `ConstantId`, `TextureId`, `ProgramIds` | a constant or texture by its place in a product program's layout, generated with the table (`Programs/ProgramIds.g.cs`, named `ProgramIds` because `Ids` is `PlayMap.Core.Model.Ids`); `DrawBuilder.Set(ConstantId, …)`, `SetInt(ConstantId, …)`, `Texture(TextureId, …)` | `Programs.cs`, `Commands.cs` | five passes: the particle step (`FlowGenerator`), the canvas quad (`GeneratorRenderer`), the raymarcher, `OutputStage`, `StageRenderer` |
 | `ConstantTypes` | sizes, words and the block's packing rules (a scalar or vector does not cross a register; a matrix row and an array element start one) | `Programs.cs` | `ProgramTable`, both backends' constant blocks, the HLSL build's slot headers |
 | The matrices | a `Float4x4` is a row-vector transform (the shader computes v·M: HLSL `row_major`, `mul(v, M)`); a `Float3x3` a column-vector one (M·v: `row_major`, `mul(M, v)`); both lay one row a register | `Programs.cs`, `Commands.cs` | the HLSL library (`shaders.md`), the normal matrix of `StageRenderer` |
 | `ClipSpace` | clip y = −w is the target's top row, z from −w to w is depth 0 to 1, `CullMode.Back` culls what is clockwise in the raster seen top row first; Direct3D 12 converts as the last step of each vertex stage (`ToDirect3D`: y negated, z to (z + w) / 2) and culls with `FrontCounterClockwise = TRUE`, `CULL_MODE_BACK` | `GpuTypes.cs` | every HLSL vertex entry, d3d12-core's rasteriser state |
@@ -46,13 +56,14 @@ returns the device's `PipelineWarmResult` (null once `WarmUpBound` passed, the r
 
 - **`d3d12.md` §8, the input layout.** A key carries no mesh, and `TryGet` and `WarmAsync` take only keys, so the mesh's attributes
   cannot give the input layout of a pipeline warmed before the show; `sprite`'s instance inputs (buffer 1, divisor 1) cannot be
-  inferred from DXIL at all. The input layout comes from the program table (`ProgramLayout.Inputs`). `d3d12.md` §8 says so now.
+  inferred from DXIL at all. The input layout comes from the program table (`ProgramLayout.Inputs`). `d3d12.md` §8 says so.
 - **`d3d12.md` §3, frames in flight.** One frame number opens several direct lists (the frame's, each preview's, resolves, uploads),
   so frame resources keyed by frame number or held one per displayed frame either reset an allocator still running or run out of
-  slots. Lists take their resources from pools fenced per submission. `d3d12.md` §3 says so now.
+  slots. Lists take their resources from pools fenced per submission. `d3d12.md` §3 says so, and its summary, its `Queues/` folder,
+  its start's `rings` stage, its `b0` row and §6's constants and uploads follow it.
 - **`shaders.md`, the conventions.** The two matrix types are read opposite ways round (`Float4x4` with `mul(v, M)`, `Float3x3`
   with `mul(M, v)`), and the texture origin agrees with Direct3D's while the rasteriser's does not (clip y = +w is Direct3D's top
-  row, and it clips z < 0): every vertex entry ends with the clip-space conversion. `shaders.md`'s table says so now; wp3-shaders,
+  row, and it clips z < 0): every vertex entry ends with the clip-space conversion. `shaders.md`'s table says so; wp3-shaders,
   writing the HLSL in W1, is told.
 - **`rhi.md` §3.5, one importer.** An importer per device shares its slots and its holds between readers of one source (a layer and
   a draft view's renderer), so each reader opens its own import (`OpenImport`), and a hold is taken at the import, not at the
@@ -74,19 +85,20 @@ on them.
 
 | File | Hunk | Why the cut forces it |
 |---|---|---|
-| `src/PlayMap.Engine/Optimise/OptimiseWorker.cs` | the HAP encoder from `IGpuPlatform.CreateHapEncoder()`, the hello's words from `Device.Adapter`, `GpuException` in place of `GlException`; `GlfwException` leaves the catch, which changes nothing: `GlPlatforms.Create` rethrows it as `PlatformNotSupportedException`, still caught | the engine names no GL type (`EngineFenceTests`), and `GlHapEncoder` lives in `Render/Gl` |
+| `src/PlayMap.Engine/Optimise/OptimiseWorker.cs` | the HAP encoder from `IGpuPlatform.CreateHapEncoder()`, the hello's words from `Device.Adapter`, `GpuException` in the catch and no GL type: `GlPlatforms.Create` rethrows a `GlfwException` as a `PlatformNotSupportedException`, which the catch takes | the engine names no GL type (`EngineFenceTests`), and `GlHapEncoder` lives in `Render/Gl` |
 | `tests/PlayMap.Core.Tests/Threading/ComputeTests.cs` | one allow-list line for `Render/Effects/FxLane.cs` | FxLane's one `Compute` call: a program made after its lane went is let go when its make lands |
-| `THIRD-PARTY-NOTICES.md` | the Direct3D 11, DXGI, user32 and display-configuration layouts' path, `src/PlayMap.Render/Gl/Windows` | the layouts moved with the ANGLE platform into the GL backend's folder |
-| `bench/r3-present/PlayMap.Bench.Present.csproj`, `PlayMapPath.cs`, `Program.cs` | a `wp3-rhi` using group for `PlayMap.Core.Gpu`, the moved types' namespaces, the presenter's record then present | the presenter seam is Core's and presents in two steps |
+| `THIRD-PARTY-NOTICES.md` | the Direct3D 11, DXGI, user32 and display-configuration layouts' path, `src/PlayMap.Render/Gl/Windows` | the layouts live with the ANGLE platform in the GL backend's folder |
+| `bench/r3-present/PlayMap.Bench.Present.csproj`, `PlayMapPath.cs`, `Program.cs` | a `wp3-rhi` using group for `PlayMap.Core.Gpu`, the GL types' namespaces (`PlayMap.Render.Gl`, `PlayMap.Render.Gl.Windows`), the presenter's record then present | the presenter seam is Core's and presents in two steps |
 | `src/PlayMap.Core/PlayMap.Core.csproj` | a `wp3-rhi` item group embedding `programs.layout.json` | the program table is data in Core |
 | `src/PlayMap.Engine/PlayMap.Engine.csproj` | a `wp3-rhi` using group for `PlayMap.Core.Gpu` | the engine's render files name the contracts |
 | `src/PlayMap.Core/Led/LedFrames.cs`, `tests/PlayMap.Core.Tests/Led/LedReferenceTests.cs` | the LED frame pool sizes a frame to the plan's high water when it is rented or returned, off the warm path, and two tests hold it | Render's `LedSamplingTests.AWarmFrameAllocatesNothing` measures the pool as a show uses it, without sizing it first |
 | `tests/Shared/GlFence.cs` (new), `tests/PlayMap.Engine.Tests/PlayMap.Engine.Tests.csproj` | the GL fence's source, project-file and IL scan, linked into the Render and Engine suites by a `wp3-rhi` item group | one line around the GL backend, held from both suites |
 | `tests/PlayMap.Engine.Tests/Rendering/EngineFenceTests.cs`, `WarmUpHostTests.cs` (new) | the engine's side of the fence; the start failing on a pipeline the device refuses | the render host's checks, in its own area |
-| `tests/PlayMap.Engine.Tests/Content/ReactiveRealBusTests.cs`, `Decode/DecodeGlApiTests.cs`, `Optimise/HapEncoderTests.cs`, `Optimise/OptimiseClips.cs`, `Presentation/SyncVerbTests.cs`, `Rendering/DeviceLockHostTests.cs` | `Render.Gl` in place of `Render.Gpu` and `Render.Platform`, a renderer over the context's backend, a scripted presenter's `Record` | the GL types moved; these are the engine tests that name GL, listed in `EngineFenceTests`, and they leave with GL |
+| `tests/PlayMap.Engine.Tests/Content/ReactiveRealBusTests.cs`, `Decode/DecodeGlApiTests.cs`, `Optimise/HapEncoderTests.cs`, `Optimise/OptimiseClips.cs`, `Presentation/SyncVerbTests.cs`, `Rendering/DeviceLockHostTests.cs` | the GL types' namespace `Render.Gl`, a renderer over the context's backend, a scripted presenter's `Record` | the GL types live in `Render.Gl`; these are the engine tests that name GL, listed in `EngineFenceTests`, and they leave with GL |
 | `tests/PlayMap.Core.Tests/Gpu/**` (new) | the contracts' tests (`ProgramTableTests`, `DrawBuilderTests`, `ClipSpaceTests`) | the contracts live in Core |
-| `docs/OUTPUT.md`, `docs/EFFECTS.md`, `docs/OPTIMISE.md` | the presenter's record and present, the backend fixture, GPU times per context, the effects' programs on the device, the encoder's path | the papers of the areas the package changed |
-| `docs/round3/design/d3d12.md` §3 and §8, `docs/round3/design/shaders.md`'s conventions, `docs/round3/design/rhi.md`'s opening | the corrections of §3 above, and a line pointing here | the code proves the designs wrong there |
+| `docs/OUTPUT.md`, `docs/EFFECTS.md`, `docs/OPTIMISE.md` | the presenter's record and present, the backend fixture, GPU times per context, the effects' programs on the device, what a warm frame with a modulated slot allocates, the encoder's path | the papers of the areas the package changed |
+| `README.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `CLAUDE.md` (the agent brief), `docs/COMPETITIVE.md`, `docs/RESEARCH.md`, `docs/round3/README.md` | the RHI built and every frame drawn through it with GL behind it: the Render rows, the RHI paragraph of `ARCHITECTURE.md` §5, the GL line, the roadmap's "Built" section and its row (§1 says where) | the merge applies the package's papers text; `PLAN.md` §4 gives the first five to the integration pass (§5.6), with none during the waves, and names no owner of the last two; its rows are the spine's to amend on `main` |
+| `docs/round3/design/d3d12.md` §3 and §8 and the lines that follow §3 (the summary, the `Queues/` folder, the `rings` stage, the `b0` row, §6's constants and uploads), `docs/round3/design/shaders.md`'s conventions, `docs/round3/design/rhi.md`'s opening and its `DrawBuilder` summary | the corrections of §3 above, and a line pointing here | the code proves the designs wrong there |
 
 ## 5. What waits
 
@@ -94,5 +106,5 @@ on them.
   reader's `ITextureImport`, built here and run only there; the elapsed-time GPU timers on a counter with no bits (ANGLE's
   Direct3D 11 back end), proved here only with the mode forced; `EngineFenceTests`' and `RhiFenceTests`' walk of the Windows
   build's types; `bench/r3-present`'s build.
-- **The lab.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend is
-  proven on llvmpipe here (core 3.30 and ES 3.00) and on Mesa WGL on the Windows job only.
+- **The lab.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend runs on
+  llvmpipe here (core 3.30 and ES 3.00) and, on the Windows job, Mesa WGL only.

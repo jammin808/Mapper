@@ -163,7 +163,8 @@ missing vblanks — the frame's GPU time over the output's period, and under it 
 bypassed and quarantined, with both numbers in its words.
 
 Once warm, a frame with chains on outputs, layers, surfaces and items — and with chains that are not drawn, saying why —
-allocates nothing on the frame path.
+allocates nothing on the frame path while no layer, surface or effect slot is modulated; a frame with a modulated one builds its
+drawn project afresh (docs/ROADMAP.md R2.8).
 
 ## Next
 

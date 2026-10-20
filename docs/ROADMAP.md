@@ -170,7 +170,7 @@ still waits: nothing in it claims a hardware fact.
 - **Bench.** `bench/r3-present`, the bench for M1 and M3, is built on the Windows job and waits for the lab (L1, L4).
 
 **Built: the render hardware interface (W1, `wp3-rhi`).** Every frame draws through Core's contracts, and GL stands behind them
-with its pixels unchanged.
+with its pixel goldens unedited and holding within their tolerances.
 
 - **Contracts.** `Core/Gpu` holds the device, its resources, programs and their layouts (the program table as data,
   `programs.layout.json`), `DrawState` and `PipelineKey`, the frame's command list with its draw builder, fences as values on a
@@ -178,19 +178,22 @@ with its pixels unchanged.
   and presenter seams (a presenter records the picture into the frame's list, then presents after the submit).
 - **The GL backend.** `Render/Gl` holds GL whole: `GlBackend` behind `IGpuDevice` with one immediate list, fences over GL syncs,
   the pack and unpack rings, timer-query spans, the importers, user programs linked on the compile lane, transients from a pool.
-  No code outside it names a GL type or a type of Silk.NET's GL side (in Render, of any of Silk.NET) but the platform factory,
-  which names the GL platforms' maker (`RhiFenceTests`, `EngineFenceTests`).
+  No source under `src/` outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL side (in Render, of any of
+  Silk.NET) but the platform factory, which names the GL platforms' maker (`RhiFenceTests`, `EngineFenceTests`); the lab's bench
+  (`bench/r3-present`) drives the GL platforms directly and is outside the line.
 - **The callers.** The render engine, passes, generators, video, LED sampling, sends, the overlay, HAP, effects and the projector
-  pass each draw one `DrawState` a draw, their constants set by name through the program's layout; a warm frame with no modulated
-  layer, surface or effect slot allocates nothing, and after each draw of a scripted show the GL state read back is the recorded
-  one, draw for draw (`DrawStateTests`).
+  pass each draw one `DrawState` a draw, their constants set through the program's layout (by name, or by generated id in the five
+  passes below); a warm frame with no modulated layer, surface or effect slot allocates nothing, and after each draw of a scripted
+  show the GL state read back is the recorded one, draw for draw (`DrawStateTests`).
 - **Constant ids and pipeline lists.** Five passes (the particle step, the output stage, the canvas quad, the projector pass's
   surfaces and the raymarcher) set their constants by ids generated with the program table (`ProgramIds`), and each pass lists the
-  pipelines it can draw, which the warm-up makes before the first frame.
-- **The tests.** Every GPU test of the Render suite runs on a backend fixture whose legs are the backends the job has (GL today)
-  and draws through the device a leg hands it; only the GL backend's own tests, each listed by name, name a GL type. Every pixel
-  golden and STATE fixture is unedited: the goldens hold within their tolerances on llvmpipe in core 3.30 and ES 3.00, and the
-  STATE fixtures are written again byte for byte.
+  pipelines it can draw, which the warm-up makes before the first frame within `RenderEngine.WarmUpBound` (20 s); past it the
+  render host starts with a journalled fault and the first draws make what the warm-up had not, counted
+  (`IPipelineCache.RenderThreadMakes`).
+- **The tests.** Every GPU test of the Render suite but the GL backend's own runs on a backend fixture whose legs are the backends
+  the job has (GL today) and draws through the device a leg hands it; the GL backend's own tests, each listed by name, name GL
+  types and some open GL contexts of their own. Every pixel golden and STATE fixture is unedited: the goldens hold within their
+  tolerances on llvmpipe in core 3.30 and ES 3.00, and the STATE fixtures are written again byte for byte.
 - **Not proven.** L20, the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers, is not run: the GL backend
   runs on llvmpipe and, on the Windows job, Mesa WGL only.
 
@@ -200,7 +203,7 @@ the round's end the integration pass updates the statuses of the items in the la
 
 | Item | Package | Moves |
 |---|---|---|
-| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels. **Built** (above); L20 not run | wp3-rhi | — |
+| A rendering hardware interface cut at `GlDevice`, GL behind it with unchanged pixels. **Built** (above), its pixel goldens unedited and holding within their tolerances; L20 not run | wp3-rhi | — |
 | Direct3D 12 behind it: the device, queues, fences, memory, DRED and Aftermath, every pixel scene on WARP in CI | wp3-d3d12-core | — |
 | The render graph compiled on show change; pipelines compiled at arm and keyed by driver; bindless records; zero allocation on a warm frame, modulated layers included | wp3-d3d12-passes, -2 | R2.8 |
 | One HLSL source for PlayMap's programs; user ISF through SPIR-V in a shader worker, a crashing shader quarantined | wp3-shaders | — |

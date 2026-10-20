@@ -253,7 +253,7 @@ public interface ICommandList
 }
 
 /// <summary>One draw being built: constants by name through the program's layout, textures by slot name, then the draw itself.
-/// A ref struct over the list's per-frame constant ring: nothing escapes the frame, nothing allocates.</summary>
+/// A ref struct over the list's constant-ring page: nothing escapes the frame, nothing allocates.</summary>
 public ref struct DrawBuilder
 {
     public DrawBuilder Set(string name, float x);

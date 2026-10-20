@@ -22,8 +22,9 @@ pattern, media or generator will span several outputs as one canvas.
 The round's spine is built: the catalogue's rows, Core's contracts, the engine's seams, the model's fields, the Direct3D 12,
 Windows platform and supervisor projects as placeholders, and the Direct3D 12 CI leg on WARP (`docs/ROADMAP.md`, Round 3). Of the
 packages that fill it, the rendering hardware interface (`wp3-rhi`) is built: every frame draws through Core's `IGpuDevice` with the
-GL backend behind it, its pixels unchanged, and `notes/rhi.md` holds its contracts as built. The other packages are not built yet:
-today PlayMap is the portable exe `docs/ARCHITECTURE.md` describes, drawing through that interface with OpenGL behind it.
+GL backend behind it, its pixel goldens unedited and holding within their tolerances, and `notes/rhi.md` holds its contracts as
+built. The other packages are not built yet: today PlayMap is the portable exe `docs/ARCHITECTURE.md` describes, drawing through
+that interface with OpenGL behind it.
 `PLAN.md` §1.2 and §9 hold the owner's answer to each of the round's decisions, and none is open.
 
 | What | Where |

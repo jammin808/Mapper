@@ -75,10 +75,11 @@ MCP, desk, menus and right-click menus, papers.
 - Module rules: Core references only the runtime; edges reference Core and their own native library; only App
   references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, never `PlayMap.Render`, so the two backends
   meet only in Core's contracts. Windows-only types carry `[SupportedOSPlatform("windows")]`.
-- **The GL line**: no code outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL side (in Render,
-  of any of Silk.NET) but the platform factory, which names the GL platforms' maker (`RhiFenceTests`, `EngineFenceTests`
-  hold it), and a Render GPU test draws through the device its `BackendFixture` leg hands it (only the GL backend's own
-  tests, listed by name in those fences, name a GL type).
+- **The GL line**: no source under `src/` outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL
+  side (in Render, of any of Silk.NET) but the platform factory, which names the GL platforms' maker (`RhiFenceTests`,
+  `EngineFenceTests` hold it); the lab's bench (`bench/r3-present`) drives the GL platforms directly and is outside the
+  line. A Render GPU test draws through the device its `BackendFixture` leg hands it (only the GL backend's own tests,
+  listed by name in those fences, name a GL type or open a GL context of their own).
 - **Round 3's ownership**: a package edits only the files `docs/round3/PLAN.md` §4 gives it and its hook word's stubs; a
   missing seam goes through the spine amendment lane (§5.7). Every new verb is a catalogue row; every new STATE block has
   its fixture written by a test and a card descriptor.
