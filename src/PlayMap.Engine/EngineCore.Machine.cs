@@ -131,7 +131,7 @@ public sealed partial class EngineCore
             applies = row.Applies;
             words = $"{word} {asked.ToUpperInvariant()} is kept and applies from " + word switch
             {
-                "TIMER" => "the render host's next start",
+                "TIMER" => "each deadline thread's next start (the render host's, the LED sender's, an audio output's)",
                 "GC" => "the show's next arm",
                 _ => "each claimed thread's next start",
             };

@@ -93,8 +93,11 @@ public sealed class MachineSettingsReachTests
         using (rig.Recorded.CreateTimer())
             Assert.Equal("high", Platform(rig).GetProperty("timer").GetProperty("mode").GetString());
 
-        await rig.Ok("MACHINE SET TIMER DEFAULT");
+        var receipt = await rig.Ok("MACHINE SET TIMER DEFAULT");
         Assert.Equal("default", rig.Platform.Used[^1].Timer);
+        // Each deadline thread makes its timer as it starts: the receipt names them.
+        Assert.Equal(("next start", "TIMER DEFAULT is kept and applies from each deadline thread's next start (the render host's, the LED sender's, an audio output's)"),
+            (receipt.GetProperty("applies").GetString(), receipt.GetProperty("words").GetString()));
         // The setting applies to the next timer made; the one STATE names is still the last made.
         Assert.Equal(("high", "default"), (Platform(rig).GetProperty("timer").GetProperty("mode").GetString(),
             Platform(rig).GetProperty("settings").GetProperty("timer").GetString()));
