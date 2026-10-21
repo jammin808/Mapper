@@ -1,5 +1,7 @@
+using System.Globalization;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.Link;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.App.ViewModels;
@@ -11,6 +13,8 @@ public sealed class ConnectionManager : IAsyncDisposable
     private readonly DeskSession _session;
     private readonly Func<EngineEndpoint, IEngineLink?> _links;
     private readonly Func<EngineSupervisor> _makeSupervisor;
+    private readonly Func<bool> _supervisedMachine;
+    private readonly Func<SupervisorStatus?> _supervisorStatus;
     private readonly TimeProvider _time;
     private IAsyncDisposable? _owned;
     private EngineSupervisor? _supervisor;
@@ -22,13 +26,19 @@ public sealed class ConnectionManager : IAsyncDisposable
     /// <param name="supervisor">Makes the watcher of this machine's own engine, once, the first time the engine does not answer on
     /// loopback; the manager disposes it.</param>
     /// <param name="time">The clock the waits for a link to go live run on.</param>
+    /// <param name="supervisedMachine">Whether this machine's supervisor keeps its engine (the install's mark,
+    /// <see cref="Engine.Install.InstallFacts.SupervisedMachine"/>); the default supervisor asks the same.</param>
+    /// <param name="supervisorStatus">The supervisor's status file as this machine holds it (<see cref="SupervisorStatus.ReadThisMachine"/>),
+    /// read when Connect waits for the engine a supervisor keeps.</param>
     public ConnectionManager(DeskSession session, Func<EngineEndpoint, IEngineLink?>? links = null, Func<EngineSupervisor>? supervisor = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null, Func<bool>? supervisedMachine = null, Func<SupervisorStatus?>? supervisorStatus = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
         _links = links ?? EngineLinks.Create;
-        _makeSupervisor = supervisor ?? (() => new EngineSupervisor());
+        _supervisedMachine = supervisedMachine ?? Engine.Install.InstallFacts.SupervisedMachine;
+        _supervisorStatus = supervisorStatus ?? SupervisorStatus.ReadThisMachine;
+        _makeSupervisor = supervisor ?? (() => new EngineSupervisor(supervisedMachine: _supervisedMachine));
         _time = time ?? TimeProvider.System;
     }
 
@@ -36,6 +46,33 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     /// <summary>The note when this machine's engine does not answer and its supervisor started none: it waits for the engine.</summary>
     public const string WaitingWords = "Waiting for this machine's engine…";
+
+    /// <summary>Whether this machine's supervisor keeps its engine: Connect then attaches to that engine and starts none.</summary>
+    public bool MachineSupervised => _supervisedMachine();
+
+    /// <summary>What this machine's supervisor said of its engine as the last Connect to it waited on a supervised machine
+    /// (<see cref="SupervisorSays"/>); empty when that Connect did not wait for a supervisor's engine.</summary>
+    public string SupervisorWords { get; private set; } = "";
+
+    /// <summary>Pure: what the supervisor's status file says of this machine's engine, for a person — its state and the last cause, the
+    /// line that resumes it where the supervisor holds the engine or has stopped trying, and when the file was written (the supervisor
+    /// writes it at every change, so a file older than its service's last start says what the service last did).</summary>
+    public static string SupervisorSays(SupervisorStatus? status)
+    {
+        if (status is null)
+            return "This machine's supervisor has written no status it can read: is the PlayMapSupervisor service running? (PlayMap.Supervisor.exe status)";
+        var cause = status.LastCause;
+        var said = status.State switch
+        {
+            "held" => "The supervisor holds the engine" + (cause.Length > 0 ? ": " + cause : "") + " — PlayMap.Supervisor.exe resume starts it again",
+            "stopped-too-many-restarts" => "The supervisor stopped after too many restarts" + (cause.Length > 0 ? " (" + cause + ")" : "")
+                + " — PlayMap.Supervisor.exe resume starts the engine again",
+            "waiting-for-session" => "The supervisor waits for the show user's session to start the engine in",
+            _ => "The supervisor's state is " + status.State.Replace('-', ' ') + (cause.Length > 0 ? " (last cause: " + cause + ")" : ""),
+        };
+        var at = DateTimeOffset.FromUnixTimeMilliseconds(status.AtUnixMs).ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
+        return said + " (its status file, written " + at + ").";
+    }
 
     /// <summary>What the desk takes back from the node before it lets go of it (another node, the desk closing): awaited, within
     /// <see cref="MainViewModel.LeaveWithin"/>.</summary>
@@ -48,9 +85,11 @@ public sealed class ConnectionManager : IAsyncDisposable
     }
 
     /// <summary>This machine's engine: attach on loopback if one runs; otherwise start it, watch it, and attach when it answers. A
-    /// supervisor already watching starts nothing, and the note says the desk waits for the engine.</summary>
+    /// supervisor already watching starts nothing, and the note says the desk waits for the engine. On a supervised machine nothing is
+    /// started: the notes say that the supervisor keeps the engine and what its status file says (<see cref="SupervisorWords"/>).</summary>
     public async Task<bool> ConnectOwnAsync(CancellationToken ct)
     {
+        SupervisorWords = "";
         var link = _links(EngineEndpoint.Loopback);
         if (link is null)
         {
@@ -67,7 +106,14 @@ public sealed class ConnectionManager : IAsyncDisposable
             _supervisor.Note += text => Note?.Invoke(text);
         }
         if (!_supervisor.Start())
+        {
+            if (_supervisedMachine())
+            {
+                SupervisorWords = SupervisorSays(_supervisorStatus());
+                Note?.Invoke(SupervisorWords);
+            }
             Note?.Invoke(WaitingWords);
+        }
         return await WaitLiveAsync(link, TimeSpan.FromSeconds(15), ct);
     }
 
@@ -226,10 +272,16 @@ public sealed class ConnectViewModel : ObservableObject
         }
     }
 
+    /// <summary>What Connect ▸ This machine does where no supervisor keeps the engine.</summary>
+    public const string OwnSentence = "Attach to this machine's engine on loopback, starting it (and restarting it if it stops) when it is not running.";
+
+    /// <summary>What Connect ▸ This machine does where this machine's supervisor keeps the engine.</summary>
+    public const string SupervisedOwnSentence = "Attach to the engine this machine's supervisor keeps, on loopback: the desk starts none, and says what the supervisor says when it does not answer.";
+
     /// <summary>What pressing Connect is about to do, in one sentence.</summary>
     public string Sentence => _choice switch
     {
-        ConnectChoice.OwnEngine => "Attach to this machine's engine on loopback, starting it (and restarting it if it stops) when it is not running.",
+        ConnectChoice.OwnEngine => _connections.MachineSupervised ? SupervisedOwnSentence : OwnSentence,
         ConnectChoice.Network => "Operate a node across the network: its host, and its pairing token (shown on that node's Network drawer).",
         _ => "Open the demo show inside the desk: every panel works, nothing reaches a projector.",
     };
@@ -284,7 +336,9 @@ public sealed class ConnectViewModel : ObservableObject
                     if (await _connections.ConnectOwnAsync(ct))
                         IsOpen = false;
                     else
-                        Fail("This machine's engine did not answer.");
+                        Fail(_connections.SupervisorWords is { Length: > 0 } said
+                            ? "This machine's engine did not answer. " + said
+                            : "This machine's engine did not answer.");
                     break;
                 case ConnectChoice.Network:
                     if (!EngineEndpoint.TryParse(_host, _token, out var endpoint))

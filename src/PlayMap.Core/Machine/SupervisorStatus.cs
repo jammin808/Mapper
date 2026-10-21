@@ -8,8 +8,8 @@ namespace PlayMap.Core.Machine;
 /// <summary>The supervisor's status file (<c>%ProgramData%\PlayMap\supervisor\status.json</c>, in <see cref="MachineFolder"/>, above the
 /// engine's folder that holds <see cref="EnginePidRecord"/>), replaced whole at every change by PlayMap.Supervisor, its one writer: its
 /// state, the engine's pid (0 none), restarts within the window, the last cause, the freeze rule's words and when (Unix ms). The
-/// engine reads it into STATE's <c>machine.install.supervisor</c>, the desk shows it while the engine is being started. It holds no
-/// secret.</summary>
+/// engine reads it into STATE's <c>machine.install.supervisor</c>; the desk's Connect says what it says when this machine's supervisor
+/// keeps an engine that does not answer. It holds no secret.</summary>
 public sealed record SupervisorStatus(string State, int Pid, int Restarts, string LastCause, string FreezeRule, long AtUnixMs)
 {
     /// <summary>The file's name in the supervisor's folder (<see cref="MachineFolder"/>).</summary>
@@ -77,6 +77,23 @@ public sealed record SupervisorStatus(string State, int Pid, int Restarts, strin
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
         DurableFile.WriteAllText(Path.Combine(folder, FileName), ToJson());
+    }
+
+    /// <summary>This machine's status (in <see cref="MachineFolder"/>), or null: off Windows, where no supervisor runs, and when the
+    /// folder holds none this process may read.</summary>
+    public static SupervisorStatus? ReadThisMachine()
+    {
+        if (!OperatingSystem.IsWindows())
+            return null;
+        try
+        {
+            return Read(MachineFolder());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A file being replaced, or not this account's to read: the caller says no status was read.
+            return null;
+        }
     }
 
     /// <summary>The status <paramref name="folder"/> holds, or null when it holds none (no file, or a file that is not one).</summary>

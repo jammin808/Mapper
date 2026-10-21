@@ -1,14 +1,17 @@
 using PlayMap.App.Link;
 using PlayMap.App.Tests.Quad;
 using PlayMap.App.ViewModels;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.App.Tests.Install;
 
 /// <summary>On a supervised machine the desk attaches to the engine the supervisor keeps and never starts its own: no start is asked,
-/// nothing is watched, the start answers that it began nothing, and the desk says why; Connect ▸ This machine there makes the
-/// supervisor once, starts nothing, notes that the supervisor keeps the engine and that the desk waits for it, and attaches when the
-/// engine answers on loopback. On any other machine the desk starts and watches its own as before.</summary>
+/// nothing is watched, the start answers that it began nothing, and the desk says why; Connect ▸ This machine there says it attaches
+/// to that engine, makes the supervisor once, starts nothing, notes that the supervisor keeps the engine, what the supervisor's status
+/// file says of it (its state and cause, and the line that resumes it when it holds the engine or has stopped trying) and that the
+/// desk waits for it, attaches when the engine answers on loopback, and, when it does not, fails with the supervisor's words. On any
+/// other machine the desk starts and watches its own as before.</summary>
 public sealed class DeskAttachTests
 {
     private sealed class FakeEngine : IEngineProcess
@@ -62,7 +65,9 @@ public sealed class DeskAttachTests
     /// loopback, the supervisor it makes, the clock its waits run on).</summary>
     private sealed class SupervisedRig : IAsyncDisposable
     {
-        public SupervisedRig(LinkStatus status)
+        /// <param name="status">The link's status as Connect begins.</param>
+        /// <param name="supervisorStatus">The supervisor's status file as the desk reads it (null: none).</param>
+        public SupervisedRig(LinkStatus status, SupervisorStatus? supervisorStatus = null)
         {
             Link = new FakeEngineLink(clock: new PlayMap.Core.Time.ManualClock());
             Link.SetStatus(status);
@@ -83,7 +88,9 @@ public sealed class DeskAttachTests
                     }, supervisedMachine: () => true);
                     return Supervisor;
                 },
-                time: Time);
+                time: Time,
+                supervisedMachine: () => true,
+                supervisorStatus: () => supervisorStatus);
             Connections.Note += Notes.Add;
         }
 
@@ -137,7 +144,7 @@ public sealed class DeskAttachTests
         Assert.Equal(0, rig.Asked);
         Assert.Equal(0, rig.Supervisor!.Starts);
         Assert.False(rig.Supervisor.IsWatching);
-        Assert.Equal([EngineSupervisor.SupervisedWords, ConnectionManager.WaitingWords], rig.Notes);
+        Assert.Equal([EngineSupervisor.SupervisedWords, ConnectionManager.SupervisorSays(null), ConnectionManager.WaitingWords], rig.Notes);
 
         // The supervisor's engine answers on loopback: the desk is on it, and still nothing was started.
         rig.Link.SetStatus(LinkStatus.Live);
@@ -161,6 +168,62 @@ public sealed class DeskAttachTests
         Assert.Equal(0, rig.Supervisors);
         Assert.Equal(0, rig.Asked);
         Assert.Empty(rig.Notes);
+    }
+
+    [Fact]
+    public async Task ConnectOnASupervisedMachineWhoseSupervisorHoldsTheEngineSaysItsStateCauseAndTheLineThatResumesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var held = new SupervisorStatus("held", 0, 1, "stopped by a person (PlayMap.Supervisor.exe stop)", "", 1_760_000_000_000);
+        await using var rig = new SupervisedRig(LinkStatus.Down, held);
+        var connect = new ConnectViewModel(rig.Connections) { Choice = ConnectChoice.OwnEngine };
+        // What Connect is about to do on a supervised machine: attach to the engine its supervisor keeps, starting none.
+        Assert.Equal(ConnectViewModel.SupervisedOwnSentence, connect.Sentence);
+        Assert.DoesNotContain("starting it", connect.Sentence, StringComparison.Ordinal);
+
+        connect.ConnectCommand.Execute(null);
+        await Waits(rig.Time, 1);
+        rig.Time.Advance(TimeSpan.FromMilliseconds(1_500));
+        await Waits(rig.Time, 1);
+        rig.Time.Advance(TimeSpan.FromSeconds(15));
+        await connect.ConnectCommand.Last.WaitAsync(TimeSpan.FromSeconds(30), ct);
+
+        // Nothing was started, and the desk says what the supervisor's status file says: the state, its cause, the line that resumes it
+        // and when the file was written.
+        Assert.Equal(0, rig.Asked);
+        var said = ConnectionManager.SupervisorSays(held);
+        Assert.Equal([EngineSupervisor.SupervisedWords, said, ConnectionManager.WaitingWords], rig.Notes);
+        Assert.Equal(said, rig.Connections.SupervisorWords);
+        Assert.Contains("holds the engine", said, StringComparison.Ordinal);
+        Assert.Contains("stopped by a person (PlayMap.Supervisor.exe stop)", said, StringComparison.Ordinal);
+        Assert.Contains("PlayMap.Supervisor.exe resume", said, StringComparison.Ordinal);
+        Assert.Contains("2025-10-09 08:53:20 UTC", said, StringComparison.Ordinal);
+        Assert.True(connect.IsOpen);
+        Assert.Equal("This machine's engine did not answer. " + said, connect.Error);
+    }
+
+    [Fact]
+    public void TheSupervisorsStatusIsSaidForEachStateWithTheResumeLineWhereOneIsNeeded()
+    {
+        static SupervisorStatus In(string state, string cause = "") => new(state, 0, 5, cause, "", 1_760_000_000_000);
+        var stopped = ConnectionManager.SupervisorSays(In("stopped-too-many-restarts", "the engine exited (code 3)"));
+        Assert.Contains("stopped after too many restarts (the engine exited (code 3))", stopped, StringComparison.Ordinal);
+        Assert.Contains("PlayMap.Supervisor.exe resume", stopped, StringComparison.Ordinal);
+        foreach (var state in new[] { "waiting-for-session", "starting", "running", "stopping", "backoff" })
+            Assert.DoesNotContain("resume", ConnectionManager.SupervisorSays(In(state)), StringComparison.Ordinal);
+        Assert.Contains("waits for the show user's session", ConnectionManager.SupervisorSays(In("waiting-for-session")), StringComparison.Ordinal);
+        Assert.Contains("backoff (last cause: the engine exited)", ConnectionManager.SupervisorSays(In("backoff", "the engine exited")), StringComparison.Ordinal);
+        Assert.Contains("PlayMap.Supervisor.exe status", ConnectionManager.SupervisorSays(null), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task OnAMachineNoSupervisorKeepsConnectSaysItStartsTheEngine()
+    {
+        await using var connections = new ConnectionManager(new DeskSession(a => a()), links: _ => null, supervisedMachine: () => false,
+            supervisorStatus: () => throw new InvalidOperationException("an unsupervised machine's desk reads no supervisor's status"));
+        var connect = new ConnectViewModel(connections) { Choice = ConnectChoice.OwnEngine };
+        Assert.Equal(ConnectViewModel.OwnSentence, connect.Sentence);
+        Assert.Contains("starting it", connect.Sentence, StringComparison.Ordinal);
     }
 
     [Fact]
