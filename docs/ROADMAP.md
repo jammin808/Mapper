@@ -85,10 +85,11 @@ The lab checks still to do:
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
   which is fixed, not proven; its wait now names what it saw), `HostNetworkTests`' one Windows wait for a fetched file (its
-  cause is not shown: the journal it printed says only that the pull had not ended within the wait, not at which stage it stood;
-  a busy thread pool stretching 64 KiB turns is one reading, reproduced on Linux under one synthetic load only; a pull's blocks
-  are now 1 MiB and its wait names the transfer's row, so a recurrence names its stage), `FleetMonitorTests`' 10 s wait for the
-  peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
+  cause is not shown: the journal it printed shows that the pull had not ended through its catches, each of which journals a
+  refused row, within the wait; it shows neither the stage the pull stood at nor whether it faulted outside those catches, which
+  at 529b7d94 reached the node's log only; a busy thread pool stretching 64 KiB turns is one reading, reproduced on Linux under
+  one synthetic load only; a pull's blocks are now 1 MiB and its wait names the transfer's row, so a recurrence names its stage),
+  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every

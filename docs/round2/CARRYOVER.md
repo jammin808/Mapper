@@ -370,8 +370,10 @@ Round 2 W1 notes:
   build 2 min 35 s against 2 min 52 s, App 1 min 40 s against 1 min 50 s (241 tests against 235), Core 58 s against 1 min 7 s,
   Engine 10 min 10 s against 8 min 10 s (1 167 tests against 1 164), Net 14 s against 10 s (the same 194 tests), Render 1 min 29 s
   against 1 min 27 s, and Assistant, Devices, Media, Platform.Windows, Render.D3D12, Supervisor and Vision the same to the second.
-  So the Engine suite was longer by two minutes, Net by 4 s (40 %) and Render by 2 s, while the build, App and Core were shorter;
-  one pair of runs says nothing of the runners' spread, and where the Engine suite's two minutes went is not known.
+  That job itself ended failed: its App suite failed one test (`CalibrationDeskTests.TheScoreCardsFixSendsEachTermsLine`, "Failed:
+  1, Passed: 234"), so its 1 min 50 s holds a failing test. So the Engine suite was longer by two minutes, Net by 4 s (40 %) and
+  Render by 2 s, while the build, App and Core were shorter; one pair of runs says nothing of the runners' spread, and where the
+  Engine suite's two minutes went is not known.
   What was measured, on Linux only: the holder wrote a file to the socket 64 KiB at a time (the framework's file copy) and the
   fetcher read and wrote 64 KiB at a time, and across that test's 3 MiB body, in an otherwise idle process, the thread pool's
   completed count rose by 454, 461 and 488 in three probe runs (not kept in the tree). 5aaec503's message gives about 70 with 1 MiB
@@ -451,22 +453,33 @@ Round 2 W1 notes:
   `APullsBytesReachItsListenerInTheOrderTheyLandedHoweverLongTheListenerTakes`; `HostNetworkTests`'
   `AFetchFromAPeerThatFallsSilentSaysSoAndEndsWithItsWords` (two try rows before) and
   `AFetchOfSeveralFilesFromAPeerWhoseListFailsEndsEachWithTheListsWords`; and
-  `DrawerTests.TheNetworkDrawerSaysWhereEachTransferStandsAndItsLastTrysWords`. Failed against 1e1567e9 and pass now:
-  `MediaTransferTests.APullSaysHowFarItIsAsItsBlocksLandAndThatItVerifiesOnceEveryByteIsIn` (only its first block said there)
-  and `AnInterruptedPullResumesFromItsChunkMapAndVerifies` (its first word came once a chunk's bytes had landed);
-  `MirrorPullerTests.AFilesSilenceIsCountedOnTheNodesClock` (still waiting after 30 s); `HostNetworkTests`'
-  `AFetchOfManyFilesFromAPeerThatRefusesEveryChunkJournalsEachPullsFirstFailedTryAndItsEndUpToItsBound` (16 files, no row counting
-  the rest), `AFetchOfMoreFilesThanTheJournalHoldsFromAPeerWhoseListFailsLeavesTheNodesOwnRows` (250 files, the recent rows
-  starting at the 51st file's) and `AFetchThatMovesOnToAnotherPeerKeepsTheChunksItHasAndSaysThemAtOnce` (0 bytes at the second
-  peer); `BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows`;
-  `DrawerTests.PlayCountsAPullOnItsWayAsACopyAndOneThatFailedAsNone`;
-  `ExplainAndRecipeTests.ExplainCountsOnlyTheTransfersOnTheirWayAndSaysOnesThatFailed`; and the Companion module's variables test of
-  a failed row (3 transfers and 0.17 there). Of the five fault tests 5aaec503 named as failing against the pull before it, four use
+  `DrawerTests.TheNetworkDrawerSaysWhereEachTransferStandsAndItsLastTrysWords`. Their commits report these failing against
+  1e1567e9 and they pass now: `MediaTransferTests.APullSaysHowFarItIsAsItsBlocksLandAndThatItVerifiesOnceEveryByteIsIn` (only its
+  first block said there) and `AnInterruptedPullResumesFromItsChunkMapAndVerifies` (its first word came once a chunk's bytes had
+  landed); `HostNetworkTests.AFetchThatMovesOnToAnotherPeerKeepsTheChunksItHasAndSaysThemAtOnce` (0 bytes at the second peer);
+  `DrawerTests.PlayCountsAPullOnItsWayAsACopyAndOneThatFailedAsNone`; and
+  `ExplainAndRecipeTests.ExplainCountsOnlyTheTransfersOnTheirWayAndSaysOnesThatFailed`. The same commits (74cf79f2, 970fbe79,
+  85d2c1bb) report more runs against 1e1567e9 of tests that, as committed, cannot compile there; the runs were of variants
+  neither kept nor described, so how those tests fare against 1e1567e9 is not shown, only that they pass now:
+  `MirrorPullerTests.AFilesSilenceIsCountedOnTheNodesClock` passes `pulls:`, which 1e1567e9's `MirrorPuller` does not take
+  ("still waiting after 30 s" reported); `HostNetworkTests`'
+  `AFetchOfManyFilesFromAPeerThatRefusesEveryChunkJournalsEachPullsFirstFailedTryAndItsEndUpToItsBound` and
+  `AFetchOfMoreFilesThanTheJournalHoldsFromAPeerWhoseListFailsLeavesTheNodesOwnRows` and
+  `BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows` read `FetchJournal.Most`, and
+  `FetchJournal` is new in 970fbe79 ("no row counting the rest", "the recent rows starting at the 51st file's" reported); the
+  Companion module's variables test imports `movingTransfers`, new in 85d2c1bb, so against the module before it the file fails at
+  its import and cannot give the "3 transfers and 0.17" reported; and
+  `MediaTransferTests.APullHeldByTheBandwidthBucketIsNotCountedSilentHoweverFarTheClockMoves` reads `TokenBucket.Waiting`, new in
+  74cf79f2, whose message says it passes against 1e1567e9 too. The context reads e969871d added to the 250-file tests, written
+  with members 404e605c has, failed against 404e605c as committed, in Debug (the context's 20 rows began at the second file's
+  refused row, the opening verb gone). Of the five fault tests 5aaec503 named as failing against the pull before it, four use
   members that pull lacks (`Quiet`, `Trouble`, `BlockBytes`, the stage, the rig's pulls), so as committed they could not run
   against it, and the variants its message reports are not kept; the fifth,
-  `HostNetworkTests.AFetchFromAPeerThatListsTheFileTwiceStillLandsIt`, uses none of them and can run against that pull as kept.
-  The variant that message reports failing there ("queued" for good) took the same steps and the same wait; its run is recorded
-  only in that message, and it was not made again. The progress variant it names, written without the pace's option, met
+  `HostNetworkTests.AFetchFromAPeerThatListsTheFileTwiceStillLandsIt`, uses none of them and runs against that pull as kept. Run
+  so (the test, its two helpers and `tests/Shared/FakeMediaPeer.cs` as at a55c36a0, against 529b7d94's src, in Debug), it failed
+  two runs of two: after 20 s the transfer was `queued` at 0 bytes with no peer, and the journal ended at "media: fetching 1 file
+  from Twice". 5aaec503's message reports a variant of it failing there ("queued" for good); what that variant was is recorded
+  nowhere. The progress variant it names, written without the pace's option, met
   5aaec503's default 250 ms pace against the new pull, which said a block only when it landed 250 ms or more after the last word,
   so whether it could pass there hung on how far apart the blocks landed (the pace is gone now). The fetch test's wait fails with
   the transfer's row, the time since the fetch, the thread pool's counts and both nodes' journals and log tails, so a recurrence

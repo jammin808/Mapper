@@ -13,9 +13,9 @@ using PlayMap.Core.Storage;
 
 namespace PlayMap.Net.Media;
 
-/// <summary>A token bucket for transfer bandwidth: bytes per second, lowered while a show plays so a pull never
-/// starves playback's disk or network (0 = no limit). A take may run the bucket into debt by one read; the next
-/// take waits the debt out, so the long-run rate is exact whatever the read size.</summary>
+/// <summary>A token bucket for transfer bandwidth: bytes per second (0 = no limit), which the node's own pull lowers while a show plays
+/// so it never starves playback's disk or network (the fleet's pulls run with no rate). A take may run the bucket into debt by one read;
+/// the next take waits the debt out, so the long-run rate is exact whatever the read size.</summary>
 public sealed class TokenBucket(long bytesPerSecond, IMonoClock? clock = null)
 {
     private readonly IMonoClock _clock = clock ?? MonoClock.Instance;

@@ -39,7 +39,9 @@ public sealed record MediaTransferView(string Hash, string MediaId, string Name,
     public bool Moving => State is "queued" or "pulling";
 }
 
-/// <summary>The media pulls the network edge runs (MEDIA FETCH), for STATE's media.transfers and MEDIA LIST.</summary>
+/// <summary>The node's own media pulls, over a peer's /api/media, for STATE's media.transfers and MEDIA LIST: the network edge runs them
+/// for MEDIA FETCH only on a node without the fleet's part. The exe composes that part, and there MEDIA FETCH runs the fleet's pull
+/// (BackupNode.FetchMedia), which lists nothing here.</summary>
 public interface IMediaTransfers
 {
     IReadOnlyList<MediaTransferView> Transfers();
