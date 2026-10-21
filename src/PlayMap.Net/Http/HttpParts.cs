@@ -19,14 +19,18 @@ public sealed class ChangeSignal
     public void Fire() => Interlocked.Exchange(ref _next, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
 
     /// <summary>True when a change came within the wait; false on the wait's end.</summary>
-    public async Task<bool> WaitAsync(Task next, TimeSpan max, CancellationToken ct)
+    public Task<bool> WaitAsync(Task next, TimeSpan max, CancellationToken ct) => WaitAsync(next, max, TimeProvider.System, ct);
+
+    /// <summary>True when a change came within the wait, counted on <paramref name="time"/>; false on the wait's end.</summary>
+    public async Task<bool> WaitAsync(Task next, TimeSpan max, TimeProvider time, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(next);
+        ArgumentNullException.ThrowIfNull(time);
         if (max <= TimeSpan.Zero)
             return next.IsCompleted;
         try
         {
-            await next.WaitAsync(max, ct);
+            await next.WaitAsync(max, time, ct);
             return true;
         }
         catch (TimeoutException)

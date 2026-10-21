@@ -494,6 +494,48 @@ Round 2 W1 notes:
   it landed 250 ms or more after the last word, so whether it could pass there hung on how far apart the blocks landed (the pace is
   gone now). The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both
   nodes' journals and log tails, so a recurrence names its stage.
+- Done: a long-poll counts its limit on the web port's clock (`HttpHostOptions.Time`, the system's in a node), so
+  `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit` moves that clock by hand and no longer races its own pace.
+  What was seen: its one failure on the Windows job (run 417, job 119488722915, wp3-installer e03befea, which touches neither
+  `src/PlayMap.Net` nor its tests; the test passed there in run 418 and on Linux in both) was "Assert.False() Failure, Expected:
+  False, Actual: True" at line 163, `Assert.False(waiting.IsCompleted)` after `await Task.Delay(150)` against a 600 ms
+  `LongPollMax`, then line 170 (the method's end, where the host is disposed), in 756 ms, 7 s into a 14 s Net run of 194 tests.
+  That is all the log gives: it does not say whether the poll had answered or faulted, or when. Read against the code, the handler
+  answers a `since` poll only with a newer STATE or, once the limit has passed since it took the request, the one it holds. It
+  takes the change signal's next task before it reads STATE, so a change between the two ends the wait; a wake that brings
+  nothing newer, or a timer that fires early, waits on for what is left; the signal swaps its task before completing the old one,
+  so no waiter holds a task no later change completes; its clock is the process's own monotonic one. Nothing there ends a poll
+  early, and the tests below hold it. So the poll could have answered before the check only if the check ran 600 ms or more
+  after the handler took the request, over 450 ms after its 150 ms delay was due. On Linux, where the host's start completes at
+  once, the check runs on a thread xunit starts for it when the delay's timer fires (the test's first await that does not
+  complete at once resumes through xunit's context, which runs it on a long-running thread of its own); the poll's limit, its
+  answer and the client's read of it run on the thread pool. There the passing test takes about 770 ms, 750 of them its two
+  waits, so its host's start and stop take about 20 ms; a failure at line 163 ends the test at the check, so the Windows run's
+  756 ms puts the check about 0.7 s into the test, after the limit, which is what the limit's path gives; a request that faulted
+  inside the 150 ms would have needed about 0.6 s more of start and stop. Consistent with the check's thread running late on the loaded runner, not proven.
+  Forced on Linux, the test unchanged: with every new thread's start held 700 ms (strace's delay injection on `clone`) under the
+  default algorithm, it failed at line 163 with the same words and the same second frame in 3 of 15 runs and at line 165 in 4
+  (the poll had answered seq 1 at its limit just after the check passed and before the publish: the same race a step later),
+  and passed 8; a copy of its steps traced under the same hold saw the handler give up 605 ms after it began to wait and the
+  client hold that answer 538 ms before the check ran, on xunit's thread. With xunit's aggressive algorithm on one thread and a
+  test beside it that holds that thread 900 ms at a time, it failed at line 163 with the same words in 6 of 6 runs (holds of
+  700 ms did not: the request reached the handler about 120 ms after it was sent, so the check still came first).
+  Now the test asks with a `since` older than STATE (answered at once, no wait made), then with STATE's own seq: it holds that
+  the poll waits on the clock (`ManualTime.Made` and `Waiting`), that a wake with nothing newer (`FakeEndpoint.Touch`) leaves it
+  waiting, that the next change answers it, and, with nothing newer, that it answers the one it holds when the clock has moved
+  the limit since it took the request, a wake on the way counting toward the limit, and not a tick before. It passed 6 of 6 runs
+  under each hold above. Two local mutations of the handler, not kept, fail it: a wake that restarts the limit (at its last
+  answer) and a wake that answers whatever it holds (at the first wake).
+  The same race, the test's own pace against a short real limit, was in two more Net tests and is gone from them, neither
+  forced: `AFrameMayOvertakeTheReceiptOfTheCommandThatMovedIt` made the frame come first by holding the line's answer 300 ms of
+  real time, so a sender that woke later than that let the receipt come first; the answer is now held until the test has the
+  frame (`FakeEndpoint.HoldReplyUntil`). `AnchorFeedLineTests` waited 100 and 200 ms of real time for receipts the test hands in
+  its next statements, so a test thread held that long read them silent; their waits now run on a manual clock
+  (`SendAirAsync`'s `time`) moved once the receipts are in, and the one-deadline test holds that twenty members make one timer
+  and end at its one move instead of reading 1.5 s of real time. The other Net tests that read real time after a real delay leave
+  more room (`LinkTests`' counted clip position 1.7 s, `StagewatchLinkTests`' countdown 9 s) and are unchanged; `HelloTests`' 150 ms
+  for a datagram already sent to land before its clock moves is a wait of another shape (a receive held longer would fail it) and
+  is unchanged too.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -523,7 +565,9 @@ Round 2 W1 notes:
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
-  wait for the link's first clip in STATE (one failure on the batch's baseline).
+  wait for the link's first clip in STATE (one failure on the batch's baseline);
+  `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
+  (consistent with the check's thread running late, above, not proven; the poll's limit now runs on a clock the test moves).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

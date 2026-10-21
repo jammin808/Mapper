@@ -48,6 +48,10 @@ public sealed record HttpHostOptions
 
     public TimeSpan LongPollMax { get; init; } = TimeSpan.FromSeconds(25);
 
+    /// <summary>The clock a long-poll counts <see cref="LongPollMax"/> on, from its start through every wake (the system's in a node;
+    /// a test's own, so a poll's limit is never raced against the test's own pace).</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     public TimeSpan BeatEvery { get; init; } = TimeSpan.FromSeconds(2);
 
     public bool Mcp { get; init; } = true;
@@ -515,17 +519,20 @@ public sealed class HttpHost : IAsyncDisposable
         app.MapFallback((HttpContext c) => WriteErrorAsync(c, StatusCodes.Status404NotFound, "no such route — /api/state, /api/context, /api/project, /api/verbs, /api/cmd, /ws, /tls, /api/media, /api/thumb, /mcp"));
     }
 
-    /// <summary>STATE now; with <c>?since=&lt;seq&gt;</c> it waits (at most the long-poll time) for a newer one.</summary>
+    /// <summary>STATE now; with <c>?since=&lt;seq&gt;</c> it answers the first STATE newer than that, or the one it holds once the
+    /// long-poll time has passed on <see cref="HttpHostOptions.Time"/> since it took the request. A wake that brings nothing newer
+    /// waits on for what is left of that time.</summary>
     private async Task StateAsync(HttpContext context)
     {
         var (json, revision) = _endpoint.State();
         if (long.TryParse(context.Request.Query["since"].ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var since))
         {
-            var started = Stopwatch.GetTimestamp();
+            var time = _options.Time;
+            var started = time.GetTimestamp();
             using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stop.Token);
             while (revision <= since)
             {
-                var left = _options.LongPollMax - Stopwatch.GetElapsedTime(started);
+                var left = _options.LongPollMax - time.GetElapsedTime(started);
                 if (left <= TimeSpan.Zero)
                     break;
                 var next = _changes.Next;
@@ -534,7 +541,7 @@ public sealed class HttpHost : IAsyncDisposable
                     break;
                 try
                 {
-                    await _changes.WaitAsync(next, left, stop.Token);
+                    await _changes.WaitAsync(next, left, time, stop.Token);
                 }
                 catch (OperationCanceledException)
                 {
