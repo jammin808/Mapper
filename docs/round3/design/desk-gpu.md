@@ -100,7 +100,9 @@ public interface IPreviewSource : IDisposable
 4. Re-imports once when the compositor's device is lost (`IsLost`) or the block's epoch moves; a second failure in a minute → the
    ring, with the words.
 
-`PreviewSurface` hosts either picture; the age badge (wp3-desk-ux) reads `StampNs` on both paths.
+`PreviewSurface` hosts either picture; the age badge (wp3-desk-ux) reads a picture's rate from `StampNs` on both paths and its age on
+the desk's clock, since the stamps are on the node's (a slot stamped on a clock the desk shares would let it read the age from the
+stamp).
 
 ## 5. When the ring stays
 

@@ -65,8 +65,9 @@ These run over the wire, HTTP, MCP, Companion and the bindings; on the desk they
 right-click entries, with no view of their own: the effects browser and inspector, modulation sockets, tempo, bindings and learn,
 timecode, LED fixture placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide,
 the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks, the
-content library. Every package's card renders from its final fixture, and every
-card action sends its catalogue line (`EveryCardTests`).
+content library, the machine platform's claims, identity and driver lock (`MACHINE SET`, `MACHINE LOCK`) and the effect quarantine
+(`FX RELEASE`). Every package's card renders from its final fixture, and every card action sends its catalogue line
+(`EveryCardTests`).
 
 ## Where the desk is going
 
@@ -120,8 +121,8 @@ raises only what moved; views registered with `ModuleViews`;
 `StateSnapshot.Root` and `Section<T>` (read once per snapshot); `IMenuTarget` on every row and inspector; `DeskSession.Gate`
 and `DeskSession.Verbs`; `StatusRow`, `HoldButton`, `ScoreRing`, `DeskDrop`; the param templates in
 `Theme/ParamTemplates.axaml` with a socket slot; `Theme/Desk1|2|3.axaml`. `DeskVerbRuleTests` walks every reachable action
-with every fixture loaded and fails on a line the catalogue does not parse, a line with a secret, or a toolbar not in its
-menu.
+with every fixture loaded and fails on a line the catalogue does not parse, a line with a secret, a toolbar not in its
+menu, or a control Map anything outlines whose line the node's `BIND LEARN` would not learn.
 
 ## The top bar
 

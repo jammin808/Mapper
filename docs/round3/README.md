@@ -28,15 +28,19 @@ reflection, a user's ISF effect compiled to DXIL in the shader worker, and the n
 that DXIL yet, and its papers note is the last section of `docs/wire/shaders.md`. `wp3-platform` is built too: what a show node
 claims from Windows, each claim read back into STATE, every deadline thread on the platform's timer, the node's identity and driver
 lock, and machine preflight (`docs/PLATFORM.md`), none of it measured on show hardware yet; its papers note is the last section of
-`docs/wire/machine.md`. The other packages are not built yet: today PlayMap is the portable exe `docs/ARCHITECTURE.md` describes,
-drawing through that interface with OpenGL behind it.
+`docs/wire/machine.md`. So is `wp3-desk-ux`: the consoles' safety patterns the desk lacked — the GO guard, drawn for a GO from any
+client through `STATE.show.lastGo`; blind in grey; the Oops history with `UNDO LIST` and `UNDO TO`; the dark room and daylight looks
+with every light's shape and word; preview age; the question before closing an armed desk — the four-click quad that stays with its
+corners and a pin moved by one pixel, and Map anything (`docs/DESK.md`), proven headless and not yet tried by operators (L19 is not
+run); its papers note is the last section of `docs/wire/undo.md`. The other packages are not built yet: today PlayMap is the
+portable exe `docs/ARCHITECTURE.md` describes, drawing through that interface with OpenGL behind it.
 `PLAN.md` §1.2 and §9 hold the owner's answer to each of the round's decisions, and none is open.
 
 | What | Where |
 |---|---|
 | The plan of record: the goal and the decisions, the version rules, what each CI job proves, the questions measured first, done means, the ownership rules, the spine, the fifteen packages of the Windows move and the five for the owner's requirements with their slices, cut lines, hunks and acceptance tests, the shared files, the waves and the cloud split, the merge order and the gate, the risks, the lab checklist, the coverage of the direction and of each of the owner's sentences, and the decisions answered | `PLAN.md` |
 | The designs that go beyond the plan, each with its interfaces, threading, facts in STATE, verbs and tests | `design/` — `rhi.md` (the RHI and the GL backend behind it), `d3d12.md` (the Direct3D 12 device), `graph.md` (the render graph, pipelines at arm, bindless records), `shaders.md` (HLSL through DXC, the shader worker for user ISF, quarantine, user effects on the device), `present.md` (flip presenters, the predicted display time, the present barrier, the GL swap group and the honest software lock), `platform.md` (the Windows platform seam, the node's identity and capabilities), `desk-gpu.md` (shared-texture previews), `stability.md` (the observer, the heartbeat, `LATENCY STEP`, the rebuild path), `installer.md` (this round's installer from Inno Setup and the MSI kept for the next, the supervisor, the version rules, unsigned builds, the editions), `desk-workflows.md` (the guides, every map by hand, the assistant in every step, the quad, the handles, what each screen shows, one canvas across outputs, menus, panes and colour), `capture.md` (capture cards passed through to the air) |
-| A merged package's papers note: its contracts as built where they differ from its design, where the code proves a design wrong, its hunks outside its Owns and what waits for the Windows job and the lab | `notes/` — `rhi.md`; wp3-shaders' and wp3-platform's are their wire pages' "Papers note" (`docs/wire/shaders.md`, `docs/wire/machine.md`) |
+| A merged package's papers note: its contracts as built where they differ from its design, where the code proves a design wrong, its hunks outside its Owns and what waits for the Windows job and the lab | `notes/` — `rhi.md`; wp3-shaders', wp3-platform's and wp3-desk-ux's are their wire pages' "Papers note" (`docs/wire/shaders.md`, `docs/wire/machine.md`, `docs/wire/undo.md`) |
 | The research: the direction note that the plan follows, the six notes it synthesises (graphics API, framelock and presentation, vendor features, the Windows platform and packaging, gaming and medical architecture, the desk's UI and UX) and the map of what the move touches in the tree; for the owner's answers and requirements, Windows 11 Home, an installer without a paid service, capture cards, the workflows and the desk, and two readings of the tree at `6f24310` (the desk; the video input path) | `research/` — `windows-gpu-direction.md`, `codebase-map.md` and the six notes; `windows11_home.md`, `installer_tools.md`, `capture_cards.md`, `workflows_ux.md`, `desk-today.md`, `video-today.md` |
 
 The round builds on `main`, which carries one version source (`Version.props`, 0.2.x): every build is stamped with its
@@ -44,7 +48,8 @@ version, build number and commit, named on the desk, in HEALTH and in the engine
 the plan adds the installer's version rules on top of it.
 
 Lab results (the checklist of `PLAN.md` §7, each with its machine, driver and build) will be kept in `lab/` as they are measured. No
-lab exists yet (the owner's answer), so every line is reported not run until one does.
+lab exists yet (the owner's answer), so every line is reported not run until one does. `lab/` holds the merged packages' scripts, each
+with its pass mark: L10, L22 and L23 (wp3-platform) and L19 (wp3-desk-ux).
 
 This round is the third build round, after `docs/round2/`. It is numbered apart from the prioritised rounds of
 `docs/ROADMAP.md`, whose own "Round 3" is "Plays with others".

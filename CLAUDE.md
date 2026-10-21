@@ -94,6 +94,11 @@ MCP, desk, menus and right-click menus, papers.
   `ThreadClaims.CreateTimer(clock)` makes on it, disposed at its end: on the machine's clock the platform's (on Windows the
   high-resolution waitable timer under `TIMER HIGH`), on any other clock the runtime's wait on that clock. `MACHINE SET`'s MMCSS and
   CPUSETS reach a thread at its next claim, TIMER at its next timer (`docs/PLATFORM.md`).
+- **The desk's lights and its own state.** Every light the desk draws, in a template or on a canvas, carries its shape and word
+  beside its colour (`StatusMark`, `StatusShapes`: ✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i information), ok, warn and fault each
+  3:1 or more against every theme's panels; red only in the air's styles and a fault's light; nothing repeats faster than 2 Hz
+  (`StatusRuleTests`). The desk's own preferences and each unfinished quad live in the user's `desk.json`, never in the project. Map
+  anything outlines a control only where the node's `BIND LEARN` learns its line (Core's `TargetLine`; `DeskVerbRuleTests`).
 - **Native libraries the user installs** (NDI, NVIDIA's Aftermath, vendor SDKs) are never shipped and load at run time.
   A new loader finds its library by absolute path only, never by a bare-name search, which on Windows takes in the
   current directory and `PATH` (Aftermath: round 3 §9 decision 7; NDI's and libvmx's loaders still end with one, an open

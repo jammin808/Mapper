@@ -937,9 +937,10 @@ The desk on `main` already has the show strip, the gate desk-wide, the armed red
 its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package adds only what it lacks.
 
 **Slice.**
-1. The GO guard made visible: while the node's min-GO window is open after a GO (STATE.show's last GO and MinGo), every GO control
-   draws a red border that closes with the window; a GO the node refuses flashes once — a single event, never twice in 333 ms —
-   with the node's words in its tooltip and the attention bar. (3 h)
+1. The GO guard made visible: while the node's min-GO window is open after a GO (`STATE.show.lastGo`, each playlist's last accepted
+   GO with its session, added through the amendment lane with this package's merge, §5.7, and MinGo), every GO control draws a red
+   border that closes with the window, for a GO from any client; a GO the node refuses flashes once — a single event, never twice in
+   333 ms — with the node's words in its tooltip and the attention bar. (3 h)
 2. Blind made unmistakable: while STATE.show.blind names this desk's session, the whole desk turns grey (a theme variant), every
    pane showing draft content carries the word BLIND, and the window's frame takes the blind colour (distinct from armed red);
    another desk's draft leaves this one's colours and says whose it is. (3 h)
@@ -951,11 +952,23 @@ its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package 
    panel, and "Undo to here" in each step's right-click menu. (6 h)
 4. The dark room and the status rules: a dim mode (unselected chrome dimmed, the selected and the critical at full contrast) with
    a desk brightness from 20 to 100 % apart from Windows', and a daylight theme; every light paired with a shape and a word (✓ ok,
-   △ warn, ✕ fault, ■ armed); ok, warn and fault at least 3:1 apart in luminance in every theme; saturated red only where the air is
-   affected; no alarm faster than 2 Hz; a confirmation before closing the desk while armed ("The show keeps playing on the node").
-   (6 h)
-5. Preview age: each preview's age from its ring slot's stamp; older than two frames of its own rate → a "stale" badge with the
-   age; frozen for 1 s → greyed with the reason (the engine quiet, the ring gone). wp3-desk-gpu reuses it on the GPU path. (3 h)
+   △ warn, ✕ fault, ■ armed); ok, warn and fault each at least 3:1 against every theme's panels; saturated red only for the air and a
+   fault; no alarm faster than 2 Hz; a confirmation before closing the desk while armed ("The show keeps playing on the node").
+   (6 h) *Amended to what the code proves:* ok, warn and fault 3:1 apart in luminance cannot be met by lights legible on the dark
+   panel. Three lights each 3:1 from the others cannot all be 3:1 from a panel as dark as `#191C20` (the brightest would need a
+   luminance of 1.6, past white's 1.0), and with the design's §11 tokens green `#3FB950` against amber `#D29922` is 1.01:1, amber
+   against red `#E5484D` 1.55:1 and green against red 1.54:1. So each light is 3:1 or more against every theme's panels, its shape
+   and word carrying what its colour does not (`StatusRuleTests`): on `#191C20` green 6.73, amber 6.77 and red 4.37:1; the least of
+   any light on any theme's panel, the blind greys included, 3.87:1 (red on the dark theme's raised panel in its blind grey,
+   `#262626`); the daylight theme's darkened lights 4.08 to 5.36:1 on its light panels. Red marks a fault's light as well as the air,
+   as the design's §11 status channel does.
+5. Preview age: each preview's frame rate from its ring slots' stamps and its age on the desk's clock since the desk read the
+   picture; older than two frames of its own rate → a "stale" badge with the age; no new picture for 1 s → greyed with the reason
+   (the engine quiet, or the ring brings no new picture); a ring gone takes its picture away at once, the stand-in saying why.
+   wp3-desk-gpu reuses it on the GPU path, and may stamp slots on a clock the desk shares. (3 h) *Amended to what the code proves:*
+   the slots' stamps are on the node's clock, which the desk does not share, so the age is read on the desk's clock, and a ring that
+   delivers regularly but late is not called stale by this rule; a frozen picture's reasons are the engine quiet and no new picture,
+   since a ring gone takes its picture away (`PreviewAgeTests`).
 6. The four-click quad that stays, its corners and a pin by one pixel (the owner's requirements; `design/desk-workflows.md` §6.1):
    an unfinished quad kept per projector until Enter or a Discard — a tool change, another projector, leaving MAP, a menu entry
    chosen, the first-light guide closed, a push, a desk restart and a reattach to the same node keep it (the draft in the user's
@@ -970,26 +983,31 @@ its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package 
 
 ⟂ *(≈ 26 h)*
 
-7. *(stretch)* Map anything: every control whose line can be bound highlighted; touching one starts `BIND LEARN` for its line.
+7. *(stretch)* Map anything: every control whose line the node's `BIND LEARN` learns (Core's `TargetLine`) highlighted, but the
+   air's and a panic's, which always act (their Bind ▸ entry learns them); touching one starts `BIND LEARN` for its line; arming the
+   show and Esc end it.
 
 **Preflight.** None (desk). **INDEX.** None.
 
 **Owns.** `src/PlayMap.App/**` for W1, the `Undo` stub, `tests/PlayMap.App.Tests/**` for W1 (but `Install/**`, wp3-installer's
 area), `tests/PlayMap.Assistant.Tests/Quad/**` (new), `docs/DESK.md`.
 
-**Hunks.** None (the spine lands `ProjectStore.UndoTo`, its steps' list and the gate's `UNDO TO` rule).
+**Hunks.** None (the spine lands `ProjectStore.UndoTo`, its steps' list and the gate's `UNDO TO` rule; `STATE.show.lastGo` comes
+through the amendment lane, §5.7, as a spine commit of its own in this package's merge).
 
 **Depends on.** The spine.
 
 **Acceptance.**
-- `GoGuardTests` (headless Avalonia, manual clock): GO with MinGo 500 → the border on, off at 500 ms; a refused GO flashes once.
+- `GoGuardTests` (headless Avalonia, manual clock): GO with MinGo 500 → the border on, off at 500 ms; a refused GO flashes once; a
+  GO from another client in `STATE.show.lastGo`, 200 ms old → the border for the 300 ms left. `LastGoTests` (Engine): an accepted
+  GO's row with its session, newest first; a GO the fence refuses leaves the rows as they were.
 - `BlindLookTests`: this desk's draft → the grey variant and BLIND on every draft pane; another desk's → neither, its owner named.
 - `UndoListTests` (Engine): five edits → five steps newest first in field words; `UNDO TO` the third → the root after the second,
   one journal row; across a lock → refused, nothing undone; an unknown step → refused with the range; an empty list → refused
   "nothing to undo"; armed, from an operator → allowed, as `UNDO`; from the blind owner disarmed → the draft's steps listed and
   undone, the live project's revision unchanged.
-- `StatusRuleTests`: every status template has a shape and a word per light; the 3:1 contrast computed from each theme's tokens;
-  the red token used only by air styles; no animation period under 500 ms.
+- `StatusRuleTests`: every status template has a shape and a word per light; each light's 3:1 against each theme's panels computed
+  from its tokens; the red token used only by air styles; no animation period under 500 ms.
 - `PreviewAgeTests`: a frozen ring → stale after two frames, grey at 1 s with the reason.
 - `CloseArmedTests`; `DeskVerbRuleTests` pass with the new actions.
 - `QuadDraftTests`, `QuadSelectTests`, `QuadCornerDragTests`, `QuadCornerEditTests`, `PinNudgeTests` (`design/desk-workflows.md`
@@ -2366,7 +2384,7 @@ until it lands, the package works behind its own interface in its own files.
 
 What the Windows job cannot prove. Each line's script is written by the package named, inside its budget, in `docs/round3/lab/`
 before that package merges; a line's result is recorded with the machine, driver and build it ran on. The benches that answer
-M1–M3 are the spine's (`bench/r3-present`) and desk-ux's (`bench/r3-avalonia-import`).
+M1–M3 are the spine's (`bench/r3-present`) and desk-gpu's (`bench/r3-avalonia-import`).
 
 **The lab itself.** The owner's answer (§9 decision 11): "Full physical hardware testing is not available yet." No machine of this
 inventory exists this round, so every line below is reported not run, with its reason ("no lab: the owner's answer 5"), never as

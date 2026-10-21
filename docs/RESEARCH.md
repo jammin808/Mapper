@@ -159,8 +159,10 @@ decisions (`docs/round3/PLAN.md` §1.2). What they found, in short:
   when the show changes; an observer, independent of the engine, of what the audience saw; device loss rehearsed; every hazard
   traced to a fault test.
 - **The desk.** It keeps Avalonia; its previews are to move from CPU copies to shared textures, and it borrows the lighting
-  consoles' safety patterns. Every command is to be in the menu bar, by Microsoft's rule that no command lives only in a
-  context menu. Colour is to mark status, identity and stage, and never be the only cue (ISA-101 and IEC 60601-1-8 reserve
-  alarm colours).
+  consoles' safety patterns (built: the GO guard, blind in grey, the Oops history, the dark room look; docs/DESK.md). Every command
+  is to be in the menu bar, by Microsoft's rule that no command lives only in a context menu. Colour is to mark status, identity
+  and stage, and never be the only cue (ISA-101 and IEC 60601-1-8 reserve alarm colours): three status lights each 3:1 from a dark
+  panel cannot also be 3:1 from one another, so each light keeps 3:1 against every panel and carries a shape and a word beside its
+  colour (docs/round3/PLAN.md §3.6 item 4).
 - **Capture cards.** A pass-through's floor is one input frame plus the render, so the direction is one frame in flight and
   the fewest copies the card and the path allow.
