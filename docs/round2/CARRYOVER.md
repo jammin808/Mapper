@@ -336,18 +336,21 @@ Round 2 W1 notes:
   check's task twice, once for "finished well" and once for "finished", so a check that returned between the two reads was a grey
   "could not check: cancelled" row and its report incomplete; a member's incomplete report made its `fleet:<node>` row grey in the
   group's report. That was `FanoutTests.PreflightAllListsOneSectionPerNodeAndASilentMemberIsRed`'s failure at line 165 (`fleet:nb`
-  not green), twice on the Windows job and most likely the round-2 gate run's too. A loop of the test on four cores hit it 10 times
-  in 17 000 runs on Linux, each time with a grey `<section>:check` row of the member's, and holding the runner between its two reads
-  hit it every time. The runner now reads how a check ended only once it has seen it end, and reads the clock before it looks, so
-  a check it cuts had not finished when its budget ran out. `PreflightTests.ACheckThatReturnsIsItsOwnRowsHoweverItsReturnMeetsTheRunnersLook`
-  failed all six of its runs against the old runner (three in Debug, three in Release) and passes against the new;
+  not green), twice on the Windows job (wp3-shaders c8b993e3, wp3-desk-ux b3fea9c9). A loop of the test on four cores hit it 10
+  times in 17 000 runs on Linux, each time with a grey `<section>:check` row of the member's, and holding the runner between its
+  two reads hit it every time. The runner now reads how a check ended only once it has seen it end, and reads the clock before it
+  looks, so a check it cuts had not finished when its budget ran out.
+  `PreflightTests.ACheckThatReturnsIsItsOwnRowsHoweverItsReturnMeetsTheRunnersLook` failed all six of its runs against the old
+  runner (three in Debug, three in Release) and passes against the new;
   `PreflightTests.ACheckThatReturnsIsItsOwnRowsAndOneThatThrowsOrCancelsItselfIsAGreyRowWithItsWords` holds the rows of a check
   that throws or cancels itself. The fan-out test names a member's unfinished rows before it reads the member's fleet row.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
-  `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); `FleetMonitorTests`' 10 s wait for the
-  peer to read live (the test now waits until the headline and the context match the record the monitor holds; the 10 s "peer not
-  live" is not reproduced); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` at line 100, its wait
-  for the link's first clip in STATE (one failure on the batch's baseline).
+  `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
+  run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
+  `FleetMonitorTests`' 10 s wait for the peer to read live (the test now waits until the headline and the context match the record
+  the monitor holds; the 10 s "peer not live" is not reproduced);
+  `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` at line 100, its wait for the link's first clip
+  in STATE (one failure on the batch's baseline).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
