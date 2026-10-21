@@ -25,6 +25,10 @@
         <ColorPaletteResources x:Key="Dark" Accent="#3D9BFF" RegionColor="#121417" AltHigh="#121417" BaseHigh="#E7E9EC"
                                ChromeMediumLow="#22262B" ChromeMedium="#2B3036" ChromeLow="#191C20" ChromeHigh="#3C434B"
                                ListLow="#22262B" ListMedium="#2B3036" ErrorText="#E5484D" />
+        <!-- Daylight (the desk's light theme, a desk preference): Fluent's own controls on the daylight tokens. -->
+        <ColorPaletteResources x:Key="Light" Accent="#1F6FD1" RegionColor="#E9EBEE" AltHigh="#F3F4F6" BaseHigh="#15181C"
+                               ChromeMediumLow="#FFFFFF" ChromeMedium="#E3E6EA" ChromeLow="#F3F4F6" ChromeHigh="#B4BBC3"
+                               ListLow="#EEF0F3" ListMedium="#E3E6EA" ErrorText="#CF222E" />
       </FluentTheme.Palettes>
     </FluentTheme>
     <StyleInclude Source="avares://PlayMap/Theme/DeskStyles.axaml" />

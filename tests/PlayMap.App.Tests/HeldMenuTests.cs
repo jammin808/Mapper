@@ -260,7 +260,7 @@ public class HeldMenuTests(ITestOutputHelper output)
         Assert.Equal(AtEveryPress, DeskAction.SentAtOnce.Order(StringComparer.Ordinal));
         var heldRows = VerbCatalog.All.Where(s => VerbParams.Press(s) == PressShapes.Hold && !AtEveryPress.Contains(s.Name)).Select(s => s.Name)
             .ToHashSet(StringComparer.Ordinal);
-        var (all, _, _) = DeskVerbRuleTests.Reach(desk, window);
+        var (all, _, _) = await DeskVerbRuleTests.ReachAsync(desk, window);
         var actions = all.Distinct().Where(a => !a.HasChildren && a.Verb.Length > 0).ToList();
         foreach (var a in actions)
             Assert.True(a.IsHold == heldRows.Contains(RowOf(a.Verb)), $"{a.Id}: {a.Verb} is{(a.IsHold ? "" : " not")} held");

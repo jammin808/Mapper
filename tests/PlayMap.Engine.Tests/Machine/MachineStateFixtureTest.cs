@@ -76,7 +76,7 @@ public sealed class MachineStateFixtureTest
             ["title"] = "Driver lock",
             ["path"] = "machine.locked",
             ["light"] = new JsonArray(new JsonObject { ["if"] = "drift", ["light"] = "amber" }, new JsonObject { ["fixed"] = "green" }),
-            ["words"] = "{drift?{count} moved since the lock — MACHINE LOCK takes the new set:the drivers are the locked set}",
+            ["words"] = "{drift?{drift.length} moved since the lock — MACHINE LOCK takes the new set:the drivers are the locked set}",
             ["fields"] = new JsonArray(Field("Windows", "set.os"), Field("PlayMap", "set.playmap"), Field("Agility", "set.agility"), Field("FFmpeg", "set.ffmpeg"),
                 Field("Drift", "drift")),
             ["actions"] = new JsonArray("MACHINE LOCK", "MACHINE LOCK CLEAR"),

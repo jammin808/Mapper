@@ -14,8 +14,8 @@ A card descriptor:
 | `each` | `true`: one card per element of the array at `path` |
 | `label` | The element field added to the title of a per-element card |
 | `key` | The element field that names the entity the card is about (for the inspector), when not `id` |
-| `light` | A path to a light word; `{ "path", "red": [...], "amber": [...], "green": [...] }`; or rules `[{ "if": <path>, "light" }, { "from": <path> }, { "from": <path>, "green": <word or [...]>, "red": … }, { "fixed": <light> }, { "light" }]` |
-| `words` | A path to words, or a template: `{field}`, `{field?then:else}` (either side may hold `{field}`), `{count}` |
+| `light` | A path to a light word; `{ "path", "red": [...], "amber": [...], "green": [...] }`; or rules `[{ "if": <path>, "light" }, { "from": <path> }, { "from": <path>, "green": <word or [...]>, "red": … }, { "fixed": <light> }, { "light" }]`. An `if` rule's or a bare rule's `light` is `green`, `amber`, `red`, `grey`, or `info` for a card that is information (drawn grey, marked "i info") |
+| `words` | A path to words, or a template: `{field}`, `{field?then:else}` (either side may hold `{field}`), `{count}` (a list block's element count; on an object block, name the list: `{drift.length}`). Every field the branch STATE takes names a value in the fixture (`CardTests`): one that names nothing would read "—" |
 | `fields` | `{ "label", "path", "unit"? }`: the first six on the card's face, the rest under its "more" |
 | `actions` | Verb lines, or `{ "label", "line" }`; `$(field)` and `{field}` are the element's (or an owner's) field, or the id of the owner reached by that key (`$(scan)` in `scan.regions.0`). A line takes every value from STATE: it carries no value only the fixture holds, and no slot of its row's syntax (`<scan>`) — a line that needs the operator's value is no button, and goes over the wire, MCP, Companion or a binding |
 

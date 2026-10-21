@@ -269,7 +269,9 @@ so the group cuts together.
 `SHOW SET MINGO <ms> [ARMED|REHEARSAL]` (300 ms armed, 0 in rehearsal by default): a `PLAYLIST GO|NEXT|PREV` or `VIDEO
 PLAY|RESTART` on a playlist within that window of its last accepted GO (the lane's leader time) is refused "double GO protection:
 0.20 s since the last GO on Show (0.30 s armed)". `EXPECT <item>|#<n>` on the same verbs refuses when the item that would play is
-not the one the caller's key showed: "the next item on Show is now 'C', not 'B' — the key was out of date".
+not the one the caller's key showed: "the next item on Show is now 'C', not 'B' — the key was out of date". `STATE.show.lastGo` names
+each playlist's last accepted GO — its leader time, its wall time and the session it came from — so every client sees a GO any
+other client made (the desk's GO guard draws it).
 
 ## Preflight
 

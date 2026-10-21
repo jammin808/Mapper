@@ -5,6 +5,11 @@
              xmlns:views="using:PlayMap.App.Views"
              x:Class="PlayMap.App.Views.OutputsDrawer"
              x:DataType="vm:OutputsDrawerViewModel">
+  <Panel>
+  <Border Classes="blindTag" x:Name="BlindTag" ZIndex="10" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,2,0,0" IsHitTestVisible="False"
+          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsBlindMine, FallbackValue=False}">
+    <TextBlock Text="{Binding $parent[Window].((vm:MainViewModel)DataContext).BlindTag, FallbackValue=''}" />
+  </Border>
   <Grid RowDefinitions="Auto,260,Auto,*" Margin="14" RowSpacing="10">
     <Grid ColumnDefinitions="*,Auto">
       <StackPanel>
@@ -40,4 +45,5 @@
       <views:InspectorView DataContext="{Binding Inspector}" />
     </Border>
   </Grid>
+  </Panel>
 </UserControl>

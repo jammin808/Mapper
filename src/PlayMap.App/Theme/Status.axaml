@@ -5,7 +5,7 @@
   <!-- A status row: light, title, value, the words, and Fix (the fix line, sent as a verb). -->
   <DataTemplate x:Key="StatusRowTemplate" x:DataType="vm:StatusRow">
     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8" Margin="0,2">
-      <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" VerticalAlignment="Top" Margin="0,5,0,0" />
+      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Top" Margin="0,5,0,0"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
       <StackPanel Grid.Column="1">
         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
         <TextBlock Classes="faint" Text="{Binding Words}" TextWrapping="Wrap" IsVisible="{Binding HasWords}" />

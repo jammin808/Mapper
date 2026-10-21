@@ -272,7 +272,8 @@
     },
     "preflight": null,
     "sound": null,
-    "minGoMs": 0
+    "minGoMs": 0,
+    "lastGo": []
   },
   "fleet": {
     "role": "solo",

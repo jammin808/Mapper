@@ -9,13 +9,33 @@ namespace PlayMap.App.ViewModels;
 public sealed class ConnectionManager : IAsyncDisposable
 {
     private readonly DeskSession _session;
+    private readonly Func<EngineEndpoint, IEngineLink?> _links;
+    private readonly Func<EngineSupervisor> _makeSupervisor;
+    private readonly TimeProvider _time;
     private IAsyncDisposable? _owned;
     private EngineSupervisor? _supervisor;
     private bool _ownsLocalNode;
 
-    public ConnectionManager(DeskSession session) => _session = session;
+    /// <param name="session">The desk's session the links are attached to.</param>
+    /// <param name="links">Makes the link to an endpoint (this build's engine link; null when the build has none). The manager owns
+    /// and disposes what it makes.</param>
+    /// <param name="supervisor">Makes the watcher of this machine's own engine, once, the first time the engine does not answer on
+    /// loopback; the manager disposes it.</param>
+    /// <param name="time">The clock the waits for a link to go live run on.</param>
+    public ConnectionManager(DeskSession session, Func<EngineEndpoint, IEngineLink?>? links = null, Func<EngineSupervisor>? supervisor = null,
+        TimeProvider? time = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        _session = session;
+        _links = links ?? EngineLinks.Create;
+        _makeSupervisor = supervisor ?? (() => new EngineSupervisor());
+        _time = time ?? TimeProvider.System;
+    }
 
     public event Action<string>? Note;
+
+    /// <summary>The note when this machine's engine does not answer and its supervisor started none: it waits for the engine.</summary>
+    public const string WaitingWords = "Waiting for this machine's engine…";
 
     /// <summary>What the desk takes back from the node before it lets go of it (another node, the desk closing): awaited, within
     /// <see cref="MainViewModel.LeaveWithin"/>.</summary>
@@ -27,11 +47,11 @@ public sealed class ConnectionManager : IAsyncDisposable
         await AttachAsync(link, link, "Demo node");
     }
 
-    /// <summary>This machine's engine: attach on loopback if one runs; otherwise start it, watch it, and
-    /// attach when it answers.</summary>
+    /// <summary>This machine's engine: attach on loopback if one runs; otherwise start it, watch it, and attach when it answers. A
+    /// supervisor already watching starts nothing, and the note says the desk waits for the engine.</summary>
     public async Task<bool> ConnectOwnAsync(CancellationToken ct)
     {
-        var link = EngineLinks.Create(EngineEndpoint.Loopback);
+        var link = _links(EngineEndpoint.Loopback);
         if (link is null)
         {
             Note?.Invoke("This build has no link to a real engine yet — the demo engine is ready instead.");
@@ -43,17 +63,17 @@ public sealed class ConnectionManager : IAsyncDisposable
             return true;
         if (_supervisor is null)
         {
-            _supervisor = new EngineSupervisor();
+            _supervisor = _makeSupervisor();
             _supervisor.Note += text => Note?.Invoke(text);
         }
-        _supervisor.Start();
-        Note?.Invoke("Starting this machine's engine…");
+        if (!_supervisor.Start())
+            Note?.Invoke(WaitingWords);
         return await WaitLiveAsync(link, TimeSpan.FromSeconds(15), ct);
     }
 
     public async Task<bool> ConnectNetworkAsync(EngineEndpoint endpoint, CancellationToken ct)
     {
-        var link = EngineLinks.Create(endpoint);
+        var link = _links(endpoint);
         if (link is null)
         {
             Note?.Invoke("This build has no network link yet — the demo engine is ready instead.");
@@ -63,10 +83,10 @@ public sealed class ConnectionManager : IAsyncDisposable
         return await WaitLiveAsync(link, TimeSpan.FromSeconds(5), ct);
     }
 
-    private static async Task<bool> WaitLiveAsync(IEngineLink link, TimeSpan within, CancellationToken ct)
+    /// <summary>True once the link is live, within <paramref name="within"/> on the manager's clock. The link's status is read after
+    /// its changes are listened to, so a link that goes live between the two is never missed.</summary>
+    private async Task<bool> WaitLiveAsync(IEngineLink link, TimeSpan within, CancellationToken ct)
     {
-        if (link.Status == LinkStatus.Live)
-            return true;
         var live = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         void OnStatus(LinkStatus s)
         {
@@ -76,12 +96,12 @@ public sealed class ConnectionManager : IAsyncDisposable
         link.StatusChanged += OnStatus;
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(within);
-            await live.Task.WaitAsync(timeout.Token);
+            if (link.Status == LinkStatus.Live)
+                return true;
+            await live.Task.WaitAsync(within, _time, ct);
             return true;
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (TimeoutException)
         {
             return link.Status == LinkStatus.Live;
         }

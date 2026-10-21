@@ -114,6 +114,51 @@ public class DeskLogicTests
     }
 
     [Fact]
+    public async Task ACommitDropsTheLineTheIntervalSentUnderItsKeyAndARefusedOneGoesAgain()
+    {
+        var time = new PlayMap.App.Tests.Quad.ManualTime();
+        var sent = new List<string>();
+        var refuse = false;
+        using var throttle = new ThrottledSender((line, _) =>
+        {
+            sent.Add(line);
+            return Task.FromResult(!refuse);
+        }, TimeSpan.FromMilliseconds(16), time);
+
+        // The interval sends A; the release posts A again: the node has it, so the commit sends nothing.
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 10 10 RASTER");
+        time.Advance(TimeSpan.FromMilliseconds(16));
+        await throttle.Pump;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 10 10 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(["SURFACE CORNER sf TR TO 10 10 RASTER"], sent);
+
+        // The commit forgot what the interval sent: the next gesture's same line goes.
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 10 10 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(2, sent.Count);
+
+        // A line the node refused is not the node's: the commit sends it again.
+        refuse = true;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 20 20 RASTER");
+        time.Advance(TimeSpan.FromMilliseconds(16));
+        await throttle.Pump;
+        refuse = false;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 20 20 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(["SURFACE CORNER sf TR TO 20 20 RASTER", "SURFACE CORNER sf TR TO 20 20 RASTER"], sent[2..]);
+
+        // A different line under the key, and the same line under another key, both go.
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 30 30 RASTER");
+        time.Advance(TimeSpan.FromMilliseconds(16));
+        await throttle.Pump;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 31 30 RASTER");
+        throttle.Post("other", "SURFACE CORNER sf TR TO 30 30 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(["SURFACE CORNER sf TR TO 30 30 RASTER", "SURFACE CORNER sf TR TO 31 30 RASTER", "SURFACE CORNER sf TR TO 30 30 RASTER"], sent[4..]);
+    }
+
+    [Fact]
     public void TheRestartBackoffDoublesToItsCeilingAndAHealthyRunStartsItAgain()
     {
         var b = new RestartBackoff();
@@ -151,7 +196,7 @@ public class DeskLogicTests
             return p;
         }, backoff: new RestartBackoff(TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(4)));
         supervisor.Note += notes.Add;
-        supervisor.Start();
+        Assert.True(supervisor.Start());
         await supervisor.Watching.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         Assert.Equal(3, supervisor.Starts);
         Assert.All(made, p => Assert.True(p.Disposed));

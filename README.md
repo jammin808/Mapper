@@ -124,12 +124,17 @@ views of its own for getting a show ready and keeping it right: a readiness ligh
 and the sync group, each lit as the node lights it); the blind chip, whose panel shows the draft's diff and commits it now or at
 the next item, discards it or draws it in MAP's 3D view; Health ▸ Fleet with each machine's card and FAILOVER, held to confirm;
 Health ▸ Preflight with a Fix button on every row; Health ▸ Calibration with each target's score card, a Fix per term and the
-history strip's Recall; MAP's quad tool (Q, four clicks, Enter; the arrows nudge a corner in wall pixels) with the overlay on the
-wall (O); and a first-light guide from LIGHT WALL to the first clip (docs/DESK.md). The rest runs over the wire, HTTP, MCP,
-Companion and the bindings, and shows on the desk as generic cards and generated right-click entries: the effects browser,
-modulation, tempo, bindings and learn, timecode, LED placement and patching, optimise jobs, live inputs and sends, the phone scan
-path, align, the facade guide, the sync tab, the present path chips, the per-output panic plans, Companion decks and the content
-library.
+history strip's Recall; MAP's quad tool (Q, four clicks, Enter; a half-drawn quad kept as its projector's draft when the person
+looks away; a quad's corners dragged, typed in wall pixels and nudged by the arrows, and a pin's pixel typed and nudged) with the
+overlay on the wall (O); a first-light guide from LIGHT WALL to the first clip; and the lighting consoles' safety patterns — a red
+border on the GO controls while the node's min-GO window after a GO from any client is open, the whole desk in grey with BLIND
+while it edits its own blind draft, the Oops history (`UNDO LIST`, `UNDO TO`), the dark room and daylight looks with a desk
+brightness and every light's shape beside its colour, each preview's age, a question before closing an armed desk, and Map anything, where
+a touch on an outlined control learns its line (docs/DESK.md). The rest runs over the wire, HTTP, MCP, Companion and the bindings,
+and shows on the desk as generic cards and generated right-click entries: the effects browser, modulation, tempo, bindings and
+learn, timecode, LED placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the
+sync tab, the present path chips, the per-output panic plans, Companion decks, the content library, the machine platform's claims
+and driver lock, and the effect quarantine.
 
 **Tested, and what is left for the lab.** Every push builds PlayMap and runs every test on Linux and on Windows (Build, below):
 the GPU work on software renderers (Mesa llvmpipe, in desktop GL and in ES 3.00; WARP for the Direct3D 11 path, Spout and
@@ -168,7 +173,8 @@ timecode, control and LED threads by their roles, a high-resolution timer for ev
 in STATE with what Windows answered and what reading it back shows; the node's identity (its build, the edition and its support
 tier, every GPU with its driver) and the driver set its shows run on (`MACHINE LOCK`) are in STATE, and machine preflight says what
 it reads of the machine, each row with words. A default is on only where its cause is documented, and none of it is measured on show
-hardware yet (`docs/ROADMAP.md`, round 3).
+hardware yet (`docs/ROADMAP.md`, round 3). The desk's part of the first wave is built as well: the safety patterns and the quad
+that stays (above), proven headless on both CI jobs and not yet tried by operators in a dark room (L19 is not run).
 
 ## What it is made of
 
@@ -185,7 +191,7 @@ hardware yet (`docs/ROADMAP.md`, round 3).
 | `PlayMap.Render.D3D12` | The Direct3D 12 backend (`docs/round3/design/d3d12.md`), Windows only, on TerraFX's raw bindings: one folder for each part — the device, queues, memory, descriptors, commands, pipelines, shaders, the exporter, the platform, the flip presenters, video, user effects, bindless records, the present barrier and the rebuild path — each a placeholder but the shaders folder, which holds the HLSL library: PlayMap's 40 programs in HLSL with the render hardware interface's conventions, each program's header written by the build from Core's program table, embedded with, on Windows, the DXIL DXC's executable compiles at build time (`docs/round3/design/shaders.md`). Nothing renders through it yet, and neither the engine nor the desk references it; it never references `PlayMap.Render`, so the two backends meet only in Core's contracts |
 | `PlayMap.Platform.Windows` | What a show node claims from Windows (`docs/PLATFORM.md`), Windows only, an edge of Core alone: the process's claims and each thread's by its role (priority, HighQoS with its timer requests honoured, MMCSS, CPU sets; the policy's EcoQoS for background pools, which no node thread claims yet), each read back; the high-resolution deadline timer; keep-awake as a power request; the node's identity (the edition and its support tier, every GPU by LUID with its driver and vendor tier) and capabilities; and the machine's facts for preflight, through Win32 calls and its own DXGI and NVAPI declarations. The engine composes it on Windows, and elsewhere Core's null machine platform, which claims nothing and says so |
 | `PlayMap.Supervisor` | The supervising service's exe (`docs/round3/design/installer.md`): it does nothing yet, says so on its standard error and exits 1 |
-| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words |
+| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words; its own preferences (Simple or Pro, the look, each unfinished quad) in the user's desk.json, never in the show |
 
 ## Talking to Patterns and Stagewatch
 
@@ -233,8 +239,8 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/RESEARCH.md` — what the field does and why PlayMap chose what it chose
 - `docs/COMPETITIVE.md` — where PlayMap stands against MadMapper, disguise, Pixera, Watchout and the rest, and what to learn from each
 - `docs/UX.md` — the desk's principles, workflows and time targets
-- `docs/DESK.md` — the desk as built: the show strip, the attention bar, drawers, generic STATE cards, generated menus and the
-  spine its parts build on
+- `docs/DESK.md` — the desk as built: the show strip, the attention bar, drawers, generic STATE cards, generated menus, the safety
+  patterns, the quad that stays and the spine its parts build on
 - `docs/XR.md` — phones, smart glasses and headsets: look at a surface and control it
 - `docs/ROADMAP.md` — what is built, what only the lab can prove, the fixes still open, and the prioritised rounds
 - `docs/round2/CARRYOVER.md` — the open fixes in detail, and the owner's calls with their answers in one place

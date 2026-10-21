@@ -81,7 +81,7 @@ public sealed partial class EngineCore
             "HELLO" or "NONCE" or "AUTH" or "AUTH-PROOF" or "PING" or "SUBSCRIBE" =>
                 CommandReply.Fail($"{spec.Name} is the connection's own word — the transport answers it"),
 
-            "VIDEO PLAY" or "VIDEO PAUSE" or "VIDEO STOP" or "VIDEO RESTART" or "VIDEO SEEK" or "VIDEO END" or "VIDEO RATE" => Video(spec.Name, args),
+            "VIDEO PLAY" or "VIDEO PAUSE" or "VIDEO STOP" or "VIDEO RESTART" or "VIDEO SEEK" or "VIDEO END" or "VIDEO RATE" => Video(spec.Name, args, session),
 
             "PLAYLIST LIST" => CommandReply.Success(PlaylistsJson()),
             "PLAYLIST GET" => PlaylistGet(args),
@@ -90,10 +90,10 @@ public sealed partial class EngineCore
             "PLAYLIST REMOVE" => PlaylistRemove(args),
             "PLAYLIST MOVE" => PlaylistMove(args),
             "PLAYLIST DELETE" => PlaylistDelete(args),
-            "PLAYLIST GO" => PlaylistGo(args),
+            "PLAYLIST GO" => PlaylistGo(args, session),
             "PLAYLIST CUE" => PlaylistCue(args),
-            "PLAYLIST NEXT" => PlaylistStep(args, 1),
-            "PLAYLIST PREV" => PlaylistStep(args, -1),
+            "PLAYLIST NEXT" => PlaylistStep(args, 1, session),
+            "PLAYLIST PREV" => PlaylistStep(args, -1, session),
             "PLAYLIST LOOP" => PlaylistLoop(args),
             "PLAYLIST SYNC" => PlaylistSync(args),
             "PLAYLIST FOCUS" => PlaylistFocus(args),

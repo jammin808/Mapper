@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
@@ -9,10 +10,15 @@ namespace PlayMap.Engine;
 /// <summary>The clip verbs (Patterns' meaning) and the playlist verbs, behind the GO fence (MinGo and EXPECT).</summary>
 public sealed partial class EngineCore
 {
-    /// <summary>The leader time of the last accepted GO on each playlist (lane only).</summary>
-    private readonly Dictionary<string, long> _lastGo = new(StringComparer.Ordinal);
+    /// <summary>The last accepted GO on each playlist: the leader time the GO fence counts from, the node's wall time and the session it
+    /// came from. Replaced whole on the lane, read whole from any thread (STATE.show.lastGo).</summary>
+    private volatile ImmutableDictionary<string, LastGo> _lastGo = ImmutableDictionary.Create<string, LastGo>(StringComparer.Ordinal);
 
-    private CommandReply Video(string verb, List<string> args)
+    /// <summary>One playlist's last accepted GO: its leader time, its node wall time (Unix ms), and the session id, transport and client
+    /// name of the line that made it.</summary>
+    private sealed record LastGo(long LeaderNs, long AtUnixMs, string Session, string Transport, string By);
+
+    private CommandReply Video(string verb, List<string> args, SessionInfo session)
     {
         var on = TakeOn(args);
         var (at, atError) = TakeAt(args);
@@ -50,7 +56,7 @@ public sealed partial class EngineCore
         var moved = isGo ? BlindOnGo(list.Id, now, switches: false) : null;
         var (ok, words) = Playback.Transport(list, op, now);
         if (ok && isGo)
-            NoteGo(list);
+            NoteGo(list, session);
         else
             BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: $"{list.Name}: {words}") : CommandReply.Fail(words);
@@ -179,7 +185,7 @@ public sealed partial class EngineCore
         return FromEdit(Edits.Apply($"delete playlist {list.Name}", p => p with { Playlists = p.Playlists.RemoveId(list.Id) }));
     }
 
-    private CommandReply PlaylistGo(List<string> args)
+    private CommandReply PlaylistGo(List<string> args, SessionInfo session)
     {
         var (at, atError) = TakeAt(args);
         if (atError is not null)
@@ -212,7 +218,7 @@ public sealed partial class EngineCore
         var moved = BlindOnGo(list.Id, at!.Value, switches: true);
         var (ok, words) = Playback.Go(list, index, at.Value);
         if (ok)
-            NoteGo(list);
+            NoteGo(list, session);
         else
             BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
@@ -232,7 +238,7 @@ public sealed partial class EngineCore
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
     }
 
-    private CommandReply PlaylistStep(List<string> args, int step)
+    private CommandReply PlaylistStep(List<string> args, int step, SessionInfo session)
     {
         var (at, atError) = TakeAt(args);
         if (atError is not null)
@@ -248,7 +254,7 @@ public sealed partial class EngineCore
         var moved = target >= 0 ? BlindOnGo(list.Id, at!.Value, switches: true) : null;
         var (ok, words) = Playback.Step(list, step, at!.Value);
         if (ok)
-            NoteGo(list);
+            NoteGo(list, session);
         else
             BlindGoRefused(moved);
         return ok ? CommandReply.Success(effect: words) : CommandReply.Fail(words);
@@ -285,18 +291,23 @@ public sealed partial class EngineCore
         }
         var ms = MinGoMsNow;
         var now = LeaderNowNs;
-        if (ms > 0 && _lastGo.TryGetValue(list.Id, out var last) && now >= last && now - last < ms * 1_000_000L)
+        if (ms > 0 && _lastGo.TryGetValue(list.Id, out var last) && now >= last.LeaderNs && now - last.LeaderNs < ms * 1_000_000L)
         {
             return string.Create(CultureInfo.InvariantCulture,
-                $"double GO protection: {(now - last) / 1e9:0.00} s since the last GO on {list.Name} ({ms / 1000.0:0.00} s {(_showMode.Armed ? "armed" : "in rehearsal")})");
+                $"double GO protection: {(now - last.LeaderNs) / 1e9:0.00} s since the last GO on {list.Name} ({ms / 1000.0:0.00} s {(_showMode.Armed ? "armed" : "in rehearsal")})");
         }
         return null;
     }
 
-    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here). A blind commit
-    /// waiting for a GO there was given the GO's instant before the GO was applied (<see cref="BlindOnGo"/>), so one snapshot carries
-    /// both.</summary>
-    private void NoteGo(Playlist list) => _lastGo[list.Id] = LeaderNowNs;
+    /// <summary>Notes an accepted GO on a playlist at the lane's leader time (the double-GO window runs from here), with the node's wall
+    /// time and the session that sent it, and moves STATE's revision, so the STATE that carries it is written after it and its <c>at</c>
+    /// is never older than the GO. A blind commit waiting for a GO there was given the GO's instant before the GO was applied
+    /// (<see cref="BlindOnGo"/>), so one snapshot carries both.</summary>
+    private void NoteGo(Playlist list, SessionInfo session)
+    {
+        _lastGo = _lastGo.SetItem(list.Id, new LastGo(LeaderNowNs, Services.Wall.UnixMs, session.SessionId, session.Transport, session.ClientName));
+        FactsChanged();
+    }
 
     private CommandReply PlaylistLoop(List<string> args)
     {

@@ -360,11 +360,12 @@ coverage meter's facts, so it says what is missing before a solve fails.
 
 ### 6.1 The quad, its corners and a pin by one pixel (desk-ux item 6, W1)
 
-Today the quad works, and a half-drawn one is lost the moment the person looks away: the clicks are dropped on a tool change, on
-showing another projector, on leaving MAP and at Esc; after Enter the tool stays Q, so the next click starts a new quad instead of
-selecting the old one; a reselected quad resets to its top-left corner without telling the wall, and the desk never sends `HANDLE
-SELECT NONE`; picking a quad in the outliner does not show its projector; the first-light guide's × closes it for good; corners are
-neither dragged nor typed, and a pin's pixel is read-only [today §a].
+desk-ux builds this section (`docs/DESK.md`, MAP's quad tool) against the reading of the tree at `6f24310`, where the quad works and
+a half-drawn one is lost the moment the person looks away: the clicks are dropped on a tool change, on showing another projector, on
+leaving MAP and at Esc; after Enter the tool stays Q, so the next click starts a new quad instead of selecting the old one; a
+reselected quad resets to its top-left corner without telling the wall, and the desk never sends `HANDLE SELECT NONE`; picking a
+quad in the outliner does not show its projector; the first-light guide's × closes it for good; corners are neither dragged nor
+typed, and a pin's pixel is read-only [today §a].
 
 - **A draft per projector.** The clicks of an unfinished quad stay on the desk (never in the project, so the one-writer rule is
   untouched) until Enter sends `SURFACE QUAD` or the person discards it — the draft chip's ✕, or Esc while the view has the keyboard
@@ -391,10 +392,9 @@ neither dragged nor typed, and a pin's pixel is read-only [today §a].
 
 ### 6.2 Every handle: selected, dragged, typed, nudged (desk-map, W3)
 
-Today only a quad's corner nudges; pins and output warp corners move by drag alone, a pin's pixel is read-only in its row, and the
+desk-ux (§6.1) drags, types and nudges a quad's corners and types and nudges a pin; output warp corners move by drag alone, and the
 projector view has no zoom, so at 1600 px about two raster pixels sit under each screen pixel and a one-pixel drag is out of reach
-[today §a]. desk-ux (§6.1) types and nudges a quad's corners and a pin first; desk-map gives every handle the same, with the engine
-rows an encoder, a dial and an assistant use.
+[today §a]. desk-map gives every handle the same, with the engine rows an encoder, a dial and an assistant use.
 
 | Handle | Selected by | Dragged | Typed (inspector) | Nudged | The line |
 |---|---|---|---|---|---|
@@ -586,7 +586,7 @@ daylight, desk-ux) recolours neutrals, never a meaning.
 
 | Channel | Its job | Tokens | Rules |
 |---|---|---|---|
-| **Status** (desk-ux's rules) | the air and the node's condition | red (fault, the air at risk, armed) `#E5484D`, amber (attention) `#D29922`, green (ready, sparingly) `#3FB950` — today's `LightRed`, `LightAmber`, `LightGreen` — and grey `#6F7882` (`LightGrey`) for off, unknown and information | reserved for this job alone; every light a shape and a word (✓ △ ✕ ■, and ○ or **i** on grey); ok, warn and fault 3:1 apart in luminance; a flash only for an unacknowledged red or amber, once per event, at most 2 Hz, never text; red, amber and green at chroma C* ≥ 40; grey is the channel's achromatic token, exempt from that rule and never the only cue — its shape and word carry it; the edition's information rows are grey with **i**; the controllers rows (the owner's call 9) keep their own lights |
+| **Status** (desk-ux's rules) | the air and the node's condition | red (fault, the air at risk, armed) `#E5484D`, amber (attention) `#D29922`, green (ready, sparingly) `#3FB950` — today's `LightRed`, `LightAmber`, `LightGreen` — and grey `#6F7882` (`LightGrey`) for off, unknown and information | reserved for this job alone; every light a shape and a word (✓ △ ✕ ■, and ○ or **i** on grey); ok, warn and fault each 3:1 or more against every theme's panels (`PLAN.md` §3.6 item 4: three lights 3:1 apart cannot all be 3:1 from a panel as dark as `#191C20`); a flash only for an unacknowledged red or amber, once per event, at most 2 Hz, never text; red, amber and green at chroma C* ≥ 40; grey is the channel's achromatic token, exempt from that rule and never the only cue — its shape and word carry it; the edition's information rows are grey with **i**; the controllers rows (the owner's call 9) keep their own lights |
 | **Identity** (new) | which projector, output or client | dark themes: P1 azure `#3C9AF2`, P2 lavender `#D6C3FA`, P3 magenta `#CC64C3`; daylight: P1 `#1F79CC`, P2 `#524A98`, P3 `#B5479E`; then repeating — always with the number badge (P1, P2 …) | never a status hue (amber, orange, yellow, red, green) and never a grey: today's projector `#FFB74D` collides with amber and goes for new projectors; a stored colour within ΔE₀₀ 20 of a status token stays the project's and is drawn in its projector's identity token, the inspector saying so ("stored #FFB74D reads as amber: shown as P1's azure"); outlines, pins, cameras, the wall's line-up overlay and Identify use it |
 | **Stage** (new) | where in the workflow | low-chroma tints: Setup and Outputs `#AAC4D9` (steel), MAP `#9DCAC3` (teal), SCAN `#C2C3A8` (sage), PLAY and the show none | a 2–4 % tint over the panel background and a 2 px bar on the workspace tab, pane headers and a guide's step headers; red never marks a stage; the armed frame and the blind grey override every tint |
 
@@ -602,9 +602,9 @@ Computed from the tokens above (CIEDE2000; colour-vision simulation by Machado's
 | SCAN `#C2C3A8` | 23.2 (green) | 15.3 | 14 | — |
 
 The identity tokens are at least ΔE₀₀ 23 from one another (P1–P2 28.6, P1–P3 38.5, P2–P3 23.9); the daylight set has 4.1, 6.8 and 4.4 :
-1 on a `#F3F4F6` panel, and its distances are computed against desk-ux's daylight status tokens when that theme lands. Today's tokens
-fail these rules (stage `#7F8C9A` is 7.6 from the status grey, SCAN `#8E86B5` has C* 27, the pale grey identity reads as the status
-grey), which is why they are not used.
+1 on a `#F3F4F6` panel, and its distances are computed against desk-ux's daylight status tokens (`DeskPalette.Daylight`: green
+`#1A7F37`, amber `#9A6700`, red `#CF222E`, grey `#5F6873`). Today's tokens fail these rules (stage `#7F8C9A` is 7.6 from the status
+grey, SCAN `#8E86B5` has C* 27, the pale grey identity reads as the status grey), which is why they are not used.
 
 `AreaColourTests` (App, from each theme's own tokens): every identity and stage token at least ΔE₀₀ 20 from every status token, and at
 least 10 under simulated protanopia, deuteranopia and tritanopia; identity tokens at least ΔE₀₀ 20 from one another and at C* ≥ 20;

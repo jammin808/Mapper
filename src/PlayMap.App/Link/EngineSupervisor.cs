@@ -70,11 +70,18 @@ public sealed class EngineSupervisor : IAsyncDisposable
 
     public bool IsWatching => !_loop.IsCompleted;
 
-    public void Start()
+    /// <summary>The note a start makes, before the engine's first start of a watch.</summary>
+    public const string StartingWords = "Starting this machine's engine…";
+
+    /// <summary>Starts watching this machine's engine: true when this call began a watch (it notes <see cref="StartingWords"/>, then
+    /// starts the engine), false when one already runs and nothing was started.</summary>
+    public bool Start()
     {
         if (IsWatching)
-            return;
+            return false;
+        Note?.Invoke(StartingWords);
         _loop = WatchAsync(_stop.Token);
+        return true;
     }
 
     private async Task WatchAsync(CancellationToken ct)

@@ -24,7 +24,8 @@
     <ProjectReference Include="..\..\src\PlayMap.Assistant\PlayMap.Assistant.csproj" />
   </ItemGroup>
 
-  <!-- A real node for the assistant's FX RELEASE: the gate, the quarantine and STATE are the engine's own. -->
+  <!-- A real node for the assistant's FX RELEASE (the gate, the quarantine and STATE are the engine's own), and for the
+       quad's and the Oops history's assistant tests, which read the lines back from a real engine's STATE and project. -->
   <ItemGroup Label="wp3-shaders">
     <ProjectReference Include="..\..\src\PlayMap.Engine\PlayMap.Engine.csproj" />
   </ItemGroup>

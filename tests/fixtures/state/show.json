@@ -120,6 +120,16 @@
       "gain": 0.4,
       "problem": ""
     },
-    "minGoMs": 300
+    "minGoMs": 300,
+    "lastGo": [
+      {
+        "playlist": "pl_show",
+        "leaderNs": 5000000000,
+        "at": 1760000000000,
+        "session": "c1",
+        "transport": "companion",
+        "by": "Companion: FOH deck"
+      }
+    ]
   }
 }

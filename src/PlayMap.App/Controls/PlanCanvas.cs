@@ -109,8 +109,12 @@ public sealed class PlanCanvas : Control
                 r, 4, 4);
             var name = new FormattedText(t.Name, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 12.5, StageDrawing.TextBrush);
             var detail = new FormattedText(t.Detail, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10.5, StageDrawing.DimText);
-            context.DrawEllipse(LightBrushConverter.Brushes.For(t.Light), null, new Point(r.X + 12, r.Y + 14), 4, 4);
-            context.DrawText(name, new Point(r.X + 22, r.Y + 6));
+            // The tile's light: its colour and its shape (✓ △ ✕ ○), never the colour alone.
+            var light = LightBrushConverter.Brushes.For(t.Light);
+            context.DrawEllipse(light, null, new Point(r.X + 12, r.Y + 14), 4, 4);
+            var shape = new FormattedText(Infrastructure.StatusShapes.Shape(t.Light), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 11, light);
+            context.DrawText(shape, new Point(r.X + 20, r.Y + 6));
+            context.DrawText(name, new Point(r.X + 22 + shape.Width + 2, r.Y + 6));
             if (r.Height > 44)
                 context.DrawText(detail, new Point(r.X + 10, r.Y + 26));
         }

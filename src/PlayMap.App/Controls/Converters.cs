@@ -22,10 +22,16 @@ public sealed class LightBrushConverter : IValueConverter
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => null;
 
-    /// <summary>The desk's shared brushes for lights and model colours.</summary>
+    /// <summary>The desk's shared brushes for lights and model colours. A status word's brush is its status token's, one instance per
+    /// token, recoloured in place when the theme changes (<see cref="Recolour"/>), so every light already drawn follows the theme; a
+    /// model colour (#RRGGBB) is its own.</summary>
     public static class Brushes
     {
         private static readonly Dictionary<string, IBrush> Cache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, SolidColorBrush> Tokens = new(StringComparer.Ordinal);
+
+        /// <summary>The blind draft's colour (the chip, the window's frame): distinct from every status hue and from armed red.</summary>
+        public const uint Blind = 0x6E4FD8;
 
         public static IBrush For(string? word)
         {
@@ -34,19 +40,47 @@ public sealed class LightBrushConverter : IValueConverter
             {
                 if (Cache.TryGetValue(key, out var b))
                     return b;
-                var color = key switch
+                IBrush brush = key.ToLowerInvariant() switch
                 {
-                    "green" or "live" or "ready" or "good" => Color.Parse("#3FB950"),
-                    "amber" or "stale" or "connecting" or "fetching" or "fair" => Color.Parse("#D29922"),
-                    "red" or "down" or "missing" or "poor" or "unplayable" => Color.Parse("#E5484D"),
-                    "accent" => Color.Parse("#3D9BFF"),
-                    _ when ColorText.TryParse(key, out var rgb) => Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb),
-                    _ => Color.Parse("#6F7882"),
+                    "accent" => TokenBrush("DeskAccent"),
+                    "blind" => new SolidColorBrush(Rgb(Blind)).ToImmutable(),
+                    _ when Infrastructure.StatusShapes.StatusOf(key) != "off" => TokenBrush(Infrastructure.StatusShapes.Token(key)),
+                    _ when ColorText.TryParse(key, out var rgb) => new SolidColorBrush(Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)).ToImmutable(),
+                    _ => TokenBrush("LightGrey"),
                 };
-                var brush = new SolidColorBrush(color).ToImmutable();
                 Cache[key] = brush;
                 return brush;
             }
+        }
+
+        /// <summary>Recolours every token brush handed out to the palette's colour (the theme moved).</summary>
+        public static void Recolour(Infrastructure.DeskPalette palette)
+        {
+            ArgumentNullException.ThrowIfNull(palette);
+            lock (Cache)
+            {
+                foreach (var (token, brush) in Tokens)
+                {
+                    if (palette.Tokens.TryGetValue(token, out var rgb))
+                        brush.Color = Rgb(rgb);
+                }
+                Palette = palette;
+            }
+        }
+
+        /// <summary>The palette the token brushes are drawn in now.</summary>
+        public static Infrastructure.DeskPalette Palette { get; private set; } = Infrastructure.DeskPalette.Dark;
+
+        public static Color Rgb(uint rgb) => Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+
+        private static SolidColorBrush TokenBrush(string token)
+        {
+            if (!Tokens.TryGetValue(token, out var brush))
+            {
+                brush = new SolidColorBrush(Rgb(Palette.Tokens[token]));
+                Tokens[token] = brush;
+            }
+            return brush;
         }
     }
 }
