@@ -317,6 +317,7 @@ named blocks).
 | Word | Package | Stubs |
 |---|---|---|
 | `Machine` | wp3-platform | `EngineCore.Machine.cs`, `EngineServices.Machine.cs`, `NodeSettings.Machine.cs`, `Host/EngineParts.Machine.cs` (its extension sets `EngineServices.MachinePlatform` and its arm hook) |
+| `Install` | wp3-installer | `Install/EngineCore.Install.cs` (`MachineInstall`: `machine.install`, inside `machine`), `Host/EngineParts.Install.cs` (its extension adds preflight's `install` section) |
 | `Gpu` | wp3-d3d12-core (wp3-d3d12-passes-2 adds `EngineCore.Pipelines.cs`, wp3-stability-2 `EngineCore.Rebuild.cs`) | `EngineCore.Gpu.cs` (its `StateGpu` writes STATE `render` and calls `WriteRenderExtras` last inside it), `RenderHost.Gpu.cs`, `NodeSettings.Gpu.cs` |
 | `Plan` | wp3-d3d12-passes (wp3-d3d12-passes-2 continues it, then wp3-stability-2 in W4) | `Rendering/RenderHost.Plan.cs`, `EngineCore.Plan.cs` (`RenderPlan`: STATE `render.graph`, inside `render`), `Host/EngineParts.Plan.cs` (its arm hook) |
 | `Observe` | wp3-stability | `EngineCore.Observe.cs` (with `OutputObserve`: `outputs[].observed`, after `measured`), `EngineServices.Observe.cs`, `Host/EngineParts.Observe.cs`, `Host/EngineEntry.Observer.cs`, `NodeSettings.Observe.cs` |

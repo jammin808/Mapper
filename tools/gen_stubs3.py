@@ -59,8 +59,8 @@ ENGINE_CORE = [
 ENGINE_SERVICES = [("Machine", "platform"), ("Observe", "stability"), ("Shaders", "shaders"), ("Guide", "workflows"), ("Capture", "capture")]
 
 # Host/EngineParts stub files: (word, package).
-ENGINE_PARTS = [("Machine", "platform"), ("Plan", "d3d12-passes"), ("Observe", "stability"), ("Shaders", "shaders"), ("Preview", "desk-gpu"),
-                ("Capture", "capture")]
+ENGINE_PARTS = [("Machine", "platform"), ("Install", "installer"), ("Plan", "d3d12-passes"), ("Observe", "stability"), ("Shaders", "shaders"),
+                ("Preview", "desk-gpu"), ("Capture", "capture")]
 
 # Host/EngineEntry stub files: (file word, method, package, what the process is).
 ENGINE_ENTRY = [
