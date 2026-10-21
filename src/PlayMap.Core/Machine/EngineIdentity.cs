@@ -25,16 +25,19 @@ public sealed record EngineExpectation(string InstalledExe, string ShowUserSid, 
 /// <summary>The rule every reader of <c>engine.pid</c> holds a process to before it acts on the record's word — the supervisor that
 /// adopts or ends it, the installer's armed check that asks it, and the engine that would write its own record over it
 /// (<see cref="EnginePidRecord.TryWrite(string, out EnginePidRecord?)"/>). The record's folder is one the show user may write, so the
-/// record says only which process to look at: that process must be PlayMap.exe run as the engine, started no later than its record
-/// was written and not long before it (the host stamps the record as the engine comes up; a pid that another process took after an
-/// unclean stop fails here), and, for a caller that would end it or adopt it with high rights, the installed exe, run as the show
-/// user in the show user's session.</summary>
+/// record says only which process to look at: that process must be PlayMap.exe run as the engine, started no later than its record's
+/// stamp and not long before it (the stamp is the host's start; a pid that another process took after an unclean stop fails here),
+/// and, for a caller that would end it or adopt it with high rights, the installed exe, run as the show user in the show user's
+/// session.</summary>
 public static class EngineIdentity
 {
     /// <summary>The engine's image name.</summary>
     public const string ImageName = "PlayMap";
 
-    /// <summary>How long before its record an engine may have started: the host stamps the record once its doors are open.</summary>
+    /// <summary>How long before its record's stamp an engine may have started. The stamp is the host's start — the wall clock as the
+    /// host's StartAsync begins, before its settings, parts and project — and the record carrying it is written once the doors are
+    /// open; so this window covers the process's own start up to the host's, and a process started longer before the stamp, or after
+    /// it beyond <see cref="StampSlack"/>, is not the engine the record names.</summary>
     public static readonly TimeSpan StartedBefore = TimeSpan.FromSeconds(120);
 
     /// <summary>How far the OS's start time and the record's stamp may differ the wrong way: two clocks' rounding.</summary>
