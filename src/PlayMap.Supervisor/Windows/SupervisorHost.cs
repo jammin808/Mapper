@@ -334,7 +334,7 @@ public sealed class SupervisorHost : IDisposable
     {
         SupervisorStatus status;
         lock (_gate)
-            status = SupervisorStatus.Of(_core, _engine?.Pid ?? 0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            status = SupervisorStatusWords.Of(_core, _engine?.Pid ?? 0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         var key = status with { AtUnixMs = 0 };
         if (key.ToJson() == _lastStatus)
             return;
@@ -499,8 +499,8 @@ public sealed class SupervisorHost : IDisposable
         {
             return word switch
             {
-                "status" => SupervisorStatus.Of(_core, _engine?.Pid ?? 0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToJson(),
-                "resume" => _core.Resume() ? "OK resumed: the supervisor starts the engine again" : "ERR there is nothing to resume: " + SupervisorStatus.Word(_core.State),
+                "status" => SupervisorStatusWords.Of(_core, _engine?.Pid ?? 0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToJson(),
+                "resume" => _core.Resume() ? "OK resumed: the supervisor starts the engine again" : "ERR there is nothing to resume: " + SupervisorStatusWords.Word(_core.State),
                 "stop" => StopAnswer(),
                 _ => NotAWord,
             };

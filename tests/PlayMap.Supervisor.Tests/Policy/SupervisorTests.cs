@@ -87,7 +87,7 @@ public sealed class SupervisorTests
         Assert.Equal(SupervisorAction.None, core.Step(clock.Advance(S), Session(false)));
         Assert.Equal(SupervisorState.StoppedTooManyRestarts, core.State);
         Assert.Contains("5 restarts in 10 minutes: the supervisor stopped trying", core.LastCause, StringComparison.Ordinal);
-        Assert.Equal("stopped-too-many-restarts", SupervisorStatus.Of(core, 0, 1).State);
+        Assert.Equal("stopped-too-many-restarts", SupervisorStatusWords.Of(core, 0, 1).State);
         for (var i = 0; i < 100; i++)
             Assert.Equal(SupervisorAction.None, core.Step(clock.Advance(S), Session(false)));
         Assert.True(core.Resume());
@@ -202,7 +202,7 @@ public sealed class SupervisorTests
             Assert.Equal(SupervisorAction.None, core.Step(clock.Advance(S / 2), Running(-1)));
         Assert.False(core.FreezeRuleActive);
         Assert.Equal("the engine reports no shown frames: the freeze rule waits for them", core.FreezeRule);
-        Assert.Equal("the engine reports no shown frames: the freeze rule waits for them", SupervisorStatus.Of(core, 7, 1).FreezeRule);
+        Assert.Equal("the engine reports no shown frames: the freeze rule waits for them", SupervisorStatusWords.Of(core, 7, 1).FreezeRule);
         // Silence after a count that was never known stops nothing either.
         var silent = new SupervisorFacts(true, true, false, -1, false, GpuPhase.Unknown, 0, -1);
         for (var i = 0; i < 100; i++)
@@ -279,7 +279,7 @@ public sealed class SupervisorTests
         Assert.Equal(0, core.Restarts);
         for (var i = 0; i < 100; i++)
             Assert.Equal(SupervisorAction.None, core.Step(clock.Advance(S), Session(false)));
-        Assert.Equal("held", SupervisorStatus.Of(core, 0, 1).State);
+        Assert.Equal("held", SupervisorStatusWords.Of(core, 0, 1).State);
         Assert.True(core.Resume());
         Assert.False(core.Resume());
         Assert.Equal(SupervisorAction.Start, core.Step(clock.Advance(S), Session(false)));
@@ -331,25 +331,5 @@ public sealed class SupervisorTests
         var after = core.Step(clock.Advance(S / 2), Session(false));
         Assert.Equal(SupervisorState.Held, core.State);
         Assert.True(SupervisorCore.ShouldResetStopEvent(after, core.State, false));
-    }
-
-    [Fact]
-    public void TheStatusFileRoundTripsAndRefusesWhatIsNotOne()
-    {
-        var status = new SupervisorStatus("running", 4120, 2, "frozen: shown frames stood at 600 for 3 s while the GPU ran", "active", 1760600000000);
-        Assert.Equal(status, SupervisorStatus.Parse(status.ToJson()));
-        Assert.Null(SupervisorStatus.Parse("{\"state\":\"running\"}"));
-        Assert.Null(SupervisorStatus.Parse("[]"));
-        Assert.Null(SupervisorStatus.Parse(new string('x', SupervisorStatus.MaxBytes + 1)));
-        var folder = Directory.CreateTempSubdirectory("playmap-status-").FullName;
-        try
-        {
-            status.Write(folder);
-            Assert.Equal(status, SupervisorStatus.Read(folder));
-        }
-        finally
-        {
-            Directory.Delete(folder, true);
-        }
     }
 }

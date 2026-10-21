@@ -195,7 +195,7 @@ public static class Program
         switch (word)
         {
             case "status":
-                var status = Status.SupervisorStatus.Read(EnginePidRecord.MachineFolder());
+                var status = SupervisorStatus.Read(EnginePidRecord.MachineFolder());
                 say(status is null ? "the supervisor is not running and has written no status" : "the supervisor is not running; its last status: " + status.ToJson());
                 return status is null ? Refused : Done;
             case "stop":
