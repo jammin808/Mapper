@@ -23,6 +23,8 @@ public sealed class UxModule : DeskModule
     private readonly DeskPrefs _prefs;
     private readonly Func<bool> _ownsDraft;
     private readonly ImmutableArray<DeskAction> _noActions = [];
+    /// <summary>The STATE.show.lastGo row last seen for each playlist (its leader time and wall time).</summary>
+    private readonly Dictionary<string, (long LeaderNs, long At)> _goSeen = new(StringComparer.Ordinal);
     private bool _armed;
     private bool _blindMine;
     private int _draftChanges = -1;
@@ -176,6 +178,27 @@ public sealed class UxModule : DeskModule
         }
         _draftChanges = changes;
         Oops.Moved(_session.ProjectRevision, _draftChanges);
+        if (show is { } published)
+            OnLastGo(state.Root, published);
+    }
+
+    /// <summary>STATE.show.lastGo: each playlist's last GO from any client. A row this desk has not seen opens its playlist's window for
+    /// what is left of the node's MinGo, the GO's age read on the node's clock alone (the row's <c>at</c> against the push's), after this
+    /// push is drawn; a row seen once (by its leader time and its wall time) opens nothing again, however many pushes carry it.</summary>
+    private void OnLastGo(JsonElement root, JsonElement show)
+    {
+        var pushedAt = root.Long("at");
+        var minGoMs = (int)show.Long("minGoMs");
+        foreach (var row in show.Arr("lastGo"))
+        {
+            var playlist = row.Str("playlist");
+            var seen = (LeaderNs: row.Long("leaderNs"), At: row.Long("at"));
+            if (playlist.Length == 0 || (_goSeen.TryGetValue(playlist, out var had) && had == seen))
+                continue;
+            _goSeen[playlist] = seen;
+            var agoMs = pushedAt - seen.At;
+            _session.OnUi(() => Guard.Published(playlist, agoMs, minGoMs));
+        }
     }
 
     public override void OnProject(Project project) => Oops.Moved(_session.ProjectRevision, _draftChanges);

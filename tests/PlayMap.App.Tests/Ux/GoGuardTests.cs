@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
+using PlayMap.App.Link;
 
 namespace PlayMap.App.Tests.Ux;
 
@@ -99,6 +100,99 @@ public class GoGuardTests
         Assert.True(next.IsGoGuarded);
         Assert.Equal(1, desk.Main.Ux.Guard.Flashes);
         window.Close();
+    }
+
+    /// <summary>STATE.show.lastGo as the node writes it: one playlist's last GO, from the session named.</summary>
+    private static string LastGo(string playlist, long atUnixMs, string session, string transport, string by) =>
+        new System.Text.Json.Nodes.JsonObject
+        {
+            ["lastGo"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+            {
+                ["playlist"] = playlist, ["leaderNs"] = 5_000_000_000, ["at"] = atUnixMs, ["session"] = session, ["transport"] = transport, ["by"] = by,
+            }),
+        }.ToJsonString();
+
+    private static long PushedAt(DeskHarness desk) => desk.Session.State.Root.GetProperty("at").GetInt64();
+
+    /// <summary>A GO from another client (Companion here) reaches this desk only as STATE.show.lastGo: its playlist's GO controls draw the
+    /// red border for what is left of the node's MinGo, the GO's age read on the node's clock (the row's <c>at</c> against the push's), so
+    /// nothing of the node's clock is shared; the same row in a later push opens nothing again, a GO older than the window opens nothing,
+    /// and another playlist's GO leaves this one's controls alone. Nothing is sent.</summary>
+    [AvaloniaFact]
+    public async Task AGoFromAnotherClientBordersThisDesksGoControlsForWhatIsLeftOfItsWindow()
+    {
+        await using var desk = Desk();
+        var window = MainWindowTests.Open(desk);
+        Assert.True((await desk.Session.SendAsync("SHOW SET MINGO 500", Ct)).Ok);
+        DeskHarness.Pump();
+        var next = desk.Main.Master.Next;
+        var playlist = desk.Session.State.FocusedPlaylist!.Id;
+        Assert.False(next.IsGoGuarded);
+
+        // Companion's GO, 200 ms before the node wrote the push that carries it: 300 ms of the node's 500 are left.
+        desk.Link.ClearSent();
+        desk.Link.SetSection("show", LastGo(playlist, PushedAt(desk) - 200, "c1", "companion", "Companion: FOH deck"));
+        DeskHarness.Pump();
+        Assert.True(next.IsGoGuarded);
+        Assert.True(desk.Main.Master.Prev.IsGoGuarded);
+        Assert.False(desk.Main.Master.Stop.IsGoGuarded);
+        Assert.Contains("goGuard", NextButton(window, desk).Classes);
+        Assert.Equal(300, desk.Main.Ux.Guard.DueInMs);
+        Assert.Empty(desk.Verbs());
+        Advance(desk, 299);
+        Assert.True(next.IsGoGuarded);
+        Advance(desk, 1);
+        Assert.False(next.IsGoGuarded);
+        Assert.DoesNotContain("goGuard", NextButton(window, desk).Classes);
+
+        // A later push still carrying that GO opens nothing again.
+        desk.Link.SetSection("show", "{\"words\":\"a later push\"}");
+        DeskHarness.Pump();
+        Assert.False(next.IsGoGuarded);
+        Assert.Null(desk.Main.Ux.Guard.DueInMs);
+
+        // A GO as old as the window opens nothing; another playlist's GO guards that playlist's controls, not this one's.
+        desk.Link.SetSection("show", LastGo(playlist, PushedAt(desk) - 500, "w1", "wire", "Remote desk"));
+        DeskHarness.Pump();
+        Assert.False(next.IsGoGuarded);
+        Assert.Null(desk.Main.Ux.Guard.DueInMs);
+        desk.Link.SetSection("show", LastGo("pl_elsewhere", PushedAt(desk), "w1", "wire", "Remote desk"));
+        DeskHarness.Pump();
+        Assert.False(next.IsGoGuarded);
+        Assert.True(desk.Main.Ux.Guard.IsOpen("PLAYLIST GO pl_elsewhere"));
+        Assert.Empty(desk.Verbs());
+        window.Close();
+    }
+
+    /// <summary>The demo node publishes an accepted GO in STATE.show.lastGo as the node does: the row has the node's keys (show.json's,
+    /// written by the engine), the desk's own session, the GO's leader time and the push's wall time; a GO its fence refuses leaves the
+    /// row as it was.</summary>
+    [AvaloniaFact]
+    public async Task TheDemoPublishesAnAcceptedGoAsTheNodeDoes()
+    {
+        await using var desk = Desk();
+        Assert.True((await desk.Session.SendAsync("SHOW SET MINGO 500", Ct)).Ok);
+        DeskHarness.Pump();
+        var playlist = desk.Session.State.FocusedPlaylist!.Id;
+        var leaderNs = desk.Clock.NowNs;
+        await desk.Main.Master.Next.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        var row = Assert.Single(desk.Session.State.Root.GetProperty("show").GetProperty("lastGo").EnumerateArray());
+        var node = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(StateFixtures.Folder, "show.json"))).RootElement
+            .GetProperty("show").GetProperty("lastGo")[0];
+        Assert.Equal(node.EnumerateObject().Select(p => p.Name), row.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(playlist, row.GetProperty("playlist").GetString());
+        Assert.Equal(leaderNs, row.GetProperty("leaderNs").GetInt64());
+        Assert.Equal(PushedAt(desk), row.GetProperty("at").GetInt64());
+        Assert.Equal(desk.Session.SessionId, row.GetProperty("session").GetString());
+        Assert.Equal(desk.Session.Transport, row.GetProperty("transport").GetString());
+        Assert.Equal(FakeEngineLink.ClientName, row.GetProperty("by").GetString());
+
+        Advance(desk, 100);
+        Assert.False((await desk.Session.SendAsync("PLAYLIST NEXT " + playlist, Ct)).Ok);
+        DeskHarness.Pump();
+        Assert.Equal(leaderNs, Assert.Single(desk.Session.State.Root.GetProperty("show").GetProperty("lastGo").EnumerateArray())
+            .GetProperty("leaderNs").GetInt64());
     }
 
     /// <summary>The red border is drawn on the button's presenter, so it holds under the pointer and while pressed (where Fluent's own

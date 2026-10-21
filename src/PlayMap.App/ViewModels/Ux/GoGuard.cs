@@ -5,8 +5,9 @@ namespace PlayMap.App.ViewModels.Ux;
 
 /// <summary>The GO guard made visible, on the desk's clock. A GO line (PLAYLIST GO, NEXT, PREV, VIDEO PLAY, VIDEO RESTART: the lines the
 /// node's GO fence holds) that the node accepted opens its playlist's window for the node's MinGo (STATE.show.minGoMs) from the
-/// reply: while it is open every GO control of that playlist draws its red border, and it closes when the window does. A GO the node
-/// refused with its double-GO words is one flash of <see cref="FlashMs"/> — a single event, and no flash starts within
+/// reply, and a GO from any client opens it from STATE.show.lastGo for what is left of MinGo: while it is open every GO control of
+/// that playlist draws its red border, and it closes when the window does; a later report of a GO never shortens an open window. A GO
+/// the node refused with its double-GO words is one flash of <see cref="FlashMs"/> — a single event, and no flash starts within
 /// <see cref="StatusShapes.MinAlarmPeriodMs"/> of the last one's start, so the guard never flashes faster than 2 Hz however fast the
 /// refusals come — whose words the controls' tooltips and the attention bar carry until the window it hit has closed. The guard only
 /// shows the node's fence; the node decides.</summary>
@@ -110,6 +111,23 @@ public sealed class GoGuard
             _flashOn = true;
             Flashes++;
         }
+        Changed?.Invoke();
+    }
+
+    /// <summary>The node published a GO on <paramref name="playlist"/> (STATE.show.lastGo, from any client) <paramref name="agoMs"/>
+    /// before it wrote the push that carries it, both on the node's clock: the playlist's window opens for what is left of
+    /// <paramref name="minGoMs"/>, on the desk's clock from now. A GO the window has already passed opens nothing, and an open window
+    /// (this desk's own GO, opened from its reply) is never shortened.</summary>
+    public void Published(string playlist, long agoMs, int minGoMs)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        var left = minGoMs - Math.Max(0, agoMs);
+        if (playlist.Length == 0 || left <= 0)
+            return;
+        var until = _nowMs() + left;
+        if (_openUntil.TryGetValue(playlist, out var open) && open >= until)
+            return;
+        _openUntil[playlist] = until;
         Changed?.Invoke();
     }
 

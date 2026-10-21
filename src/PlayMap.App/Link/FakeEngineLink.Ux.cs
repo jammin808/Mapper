@@ -7,8 +7,8 @@ namespace PlayMap.App.Link;
 
 /// <summary>The consoles' safety patterns in the demo, with the engine's meaning: the GO fence (a GO, NEXT, PREV, VIDEO PLAY or VIDEO
 /// RESTART within STATE.show.minGoMs of the last accepted one on the same playlist is refused with the engine's double-GO words, on the
-/// demo's show clock), and the Oops history (UNDO LIST and UNDO TO of the store the line's edits go to: the blind owner's draft, else
-/// the live project).</summary>
+/// demo's show clock, and an accepted one is published in STATE.show.lastGo as the engine writes it), and the Oops history (UNDO LIST
+/// and UNDO TO of the store the line's edits go to: the blind owner's draft, else the live project).</summary>
 public sealed partial class FakeEngineLink
 {
     private readonly Dictionary<string, long> _lastGoMs = new(StringComparer.Ordinal);
@@ -64,8 +64,34 @@ public sealed partial class FakeEngineLink
             _ => Video(verb, line, words),
         };
         if (reply.Ok && playlist.Length > 0)
+        {
             _lastGoMs[playlist] = now;
+            PublishGo(playlist);
+        }
         return reply;
+    }
+
+    /// <summary>STATE.show.lastGo with this GO first (a node with Show Mode, as the demo has once a show verb made its section): the
+    /// playlist's row replaced by the GO's leader time and wall time and this connection's session, in the engine's keys.</summary>
+    private void PublishGo(string playlist)
+    {
+        if (!_sections.ContainsKey("show"))
+            return;
+        var rows = new JsonArray(new JsonObject
+        {
+            ["playlist"] = playlist, ["leaderNs"] = _clock.NowNs, ["at"] = UnixMs, ["session"] = SessionId, ["transport"] = Transport,
+            ["by"] = ClientName,
+        });
+        if (Section("show")["lastGo"] is JsonArray had)
+        {
+            foreach (var row in had)
+            {
+                if (row is JsonObject o && o["playlist"]?.GetValue<string>() != playlist)
+                    rows.Add(o.DeepClone());
+            }
+        }
+        Section("show")["lastGo"] = rows;
+        Moved();
     }
 
     private static string? OnPlaylist(WireLine line, int words)
