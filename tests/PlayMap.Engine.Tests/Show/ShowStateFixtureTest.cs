@@ -5,9 +5,9 @@ using PlayMap.Engine.Tests.Spine;
 
 namespace PlayMap.Engine.Tests.Show;
 
-/// <summary>tests/fixtures/state/show.json is the show's STATE keys from a real scenario — armed with a reason, an area locked,
-/// a SAFE plan, a refusal, a blind draft waiting for the next GO, the air's sound on a silent output, the master at 80, a panic half
-/// way through its fade, a preflight done — and show.cards.json the cards the desk draws from them. This test writes both
+/// <summary>tests/fixtures/state/show.json is the show's STATE keys from a real scenario — a GO from Companion, armed with a reason, an
+/// area locked, a SAFE plan, a refusal, a blind draft waiting for the next GO, the air's sound on a silent output, the master at 80, a
+/// panic half way through its fade, a preflight done — and show.cards.json the cards the desk draws from them. This test writes both
 /// (PLAYMAP_WRITE_FIXTURES=1) and otherwise checks the committed files are what the engine writes now, with the clock's numbers
 /// fixed; every card's path resolves in the fixture and every action line is a line of the catalogue.</summary>
 public sealed class ShowStateFixtureTest
@@ -89,6 +89,18 @@ public sealed class ShowStateFixtureTest
                 Field("Problem", "problem")),
             ["actions"] = new JsonArray("MASTER 100", "PANIC CLEAR"),
         },
+        new JsonObject
+        {
+            ["title"] = "Last GO",
+            ["path"] = "show.lastGo[]",
+            ["label"] = "playlist",
+            ["key"] = "playlist",
+            ["light"] = new JsonArray(new JsonObject { ["light"] = "grey" }),
+            ["words"] = "GO by {by} ({transport})",
+            ["fields"] = new JsonArray(Field("Playlist", "playlist"), Field("By", "by"), Field("Session", "session"), Field("Transport", "transport"),
+                Field("At", "at"), Field("Leader (ns)", "leaderNs")),
+            ["actions"] = new JsonArray("PLAYLIST GET $(playlist)", "SHOW SET MINGO 500"),
+        },
     ];
 
     private static JsonObject Rule(string kind, string path, string light) => new() { [kind] = path, ["light"] = light };
@@ -105,6 +117,8 @@ public sealed class ShowStateFixtureTest
         foreach (var l in show["locks"]!.AsArray())
             l!["at"] = 1_760_000_000_000;
         show["blind"]!["since"] = 1_760_000_000_000;
+        foreach (var g in show["lastGo"]!.AsArray())
+            g!["at"] = 1_760_000_000_000;
         var preflight = show["preflight"]!.AsObject();
         preflight["id"] = "pf_fixture";
         preflight["at"] = 1_760_000_000_000;
@@ -136,6 +150,7 @@ public sealed class ShowStateFixtureTest
     {
         await using var rig = new ShowRig();
         await using var sound = rig.Engine.StartAirAudio(PlayMap.Media.Audio.AudioOut.OpenNull("the fixture's silent output", rig.Clock));
+        await rig.Ok("PLAYLIST GO pl_show", ShowRig.Companion);
         await rig.Ok("SHOW SET EXPECT-ARMED ON");
         await rig.Ok("PANIC SET op_1 SAFE FADE 2000 SAFE color:#000000");
         await rig.Ok("LOCK AREA content show night");
@@ -157,6 +172,7 @@ public sealed class ShowStateFixtureTest
         Assert.Equal(0.5, show.GetProperty("panic").GetProperty("outputs")[0].GetProperty("level").GetDouble(), 1e-3);
         Assert.Equal(0.8, state.GetProperty("air").GetProperty("master").GetProperty("level").GetDouble(), 1e-3);
         Assert.Equal(1, show.GetProperty("refused").GetProperty("last60s").GetInt32());
+        Assert.Equal("c1", Assert.Single(show.GetProperty("lastGo").EnumerateArray()).GetProperty("session").GetString());
 
         var fixture = Fixture(state);
         var cards = Cards().ToJsonString(Indented) + "\n";
@@ -172,11 +188,19 @@ public sealed class ShowStateFixtureTest
         var root = JsonNode.Parse(fixture);
         foreach (var card in Cards())
         {
-            var at = At(root, card!["path"]!.GetValue<string>());
-            Assert.NotNull(at);
-            foreach (var field in card["fields"]!.AsArray())
-                Assert.True(at is JsonObject or JsonArray && (At(at, field!["path"]!.GetValue<string>()) is not null
-                    || at.AsObject().ContainsKey(field["path"]!.GetValue<string>())), $"{card["title"]}: {field!["path"]}");
+            // A path ending "[]" is one card per element: every element of the block has every field.
+            var path = card!["path"]!.GetValue<string>();
+            var each = path.EndsWith("[]", StringComparison.Ordinal);
+            var block = At(root, each ? path[..^2] : path);
+            Assert.NotNull(block);
+            JsonNode?[] scopes = each ? [.. block.AsArray()] : [block];
+            Assert.NotEmpty(scopes);
+            foreach (var at in scopes)
+            {
+                foreach (var field in card["fields"]!.AsArray())
+                    Assert.True(at is JsonObject or JsonArray && (At(at, field!["path"]!.GetValue<string>()) is not null
+                        || at.AsObject().ContainsKey(field["path"]!.GetValue<string>())), $"{card["title"]}: {field!["path"]}");
+            }
             foreach (var action in card["actions"]!.AsArray())
             {
                 Assert.True(WireGrammar.TryParse(action!.GetValue<string>(), out var line, out _));
