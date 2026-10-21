@@ -76,9 +76,10 @@ The lab checks still to do:
 - Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - `PANIC REWIND` publishes its lane as Cued before it writes the panic's journal row, so a reader that sees Cued can read the
   journal without it; `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads it at once and failed one gate run on that.
-- Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, one `FanoutTests`
-  failure, `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
-  and `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
+- Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
+  `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
+  returned, which is fixed), `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns
+  link's first clip, and `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

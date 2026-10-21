@@ -162,7 +162,11 @@ public sealed class FanoutTests
         // A member's fix runs on the member: it is in the note, never a line this node's report would run here.
         Assert.Null(mingo.Fix);
         Assert.EndsWith("— on FOH-B: SHOW SET MINGO 300", mingo.Note, StringComparison.Ordinal);
-        Assert.Contains(report.Rows, r => r.Node == "FOH-B" && r.Id == "fleet:nb" && r.Light == Core.Bus.Light.Green);
+        // The member that answered finished every one of its checks, so its fleet row is green. A check of it left unfinished
+        // is named here by its own row before the fleet row says only that one was.
+        Assert.DoesNotContain(report.Rows, r => r.Node == "FOH-B" && PreflightReports.IsUnfinished(r));
+        var answered = report.Rows.Single(r => r.Id == "fleet:nb");
+        Assert.Equal(("FOH-B", Core.Bus.Light.Green, "answered", "FOH-B checked itself"), (answered.Node, answered.Light, answered.Value, answered.Note));
         var silent = report.Rows.Single(r => r.Id == "fleet:nc");
         Assert.Equal((Core.Bus.Light.Red, "timeout", "FOH-C did not answer in 2 s"), (silent.Light, silent.Value, silent.Note));
         Assert.False(report.Complete);

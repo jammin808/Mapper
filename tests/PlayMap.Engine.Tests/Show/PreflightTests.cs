@@ -1,8 +1,11 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Devices.Model;
 using PlayMap.Engine.Show;
@@ -11,8 +14,9 @@ namespace PlayMap.Engine.Tests.Show;
 
 /// <summary>Preflight: each built-in check turns red (or amber) on an injected fault and green once it is fixed, with a fix line
 /// the catalogue reads; the budgets hold on a manual clock (a check past its budget is a grey row, its show-ready step stays open
-/// and the report is not complete); PREFLIGHT answers its id and publishes the report in STATE, the context and the journal;
-/// REPORT round-trips, from memory and from the file kept beside the journal.</summary>
+/// and the report is not complete); a check that returned is its own rows however its return meets the runner's look, and one
+/// that throws or cancels itself is a grey row with its words; PREFLIGHT answers its id and publishes the report in STATE, the
+/// context and the journal; REPORT round-trips, from memory and from the file kept beside the journal.</summary>
 public sealed class PreflightTests
 {
     /// <summary>Displays and media readiness a test sets.</summary>
@@ -58,6 +62,44 @@ public sealed class PreflightTests
             await Task.Delay(Timeout.Infinite, ct);
             return [];
         }
+    }
+
+    /// <summary>A check that returns one green row of its own at once.</summary>
+    private sealed class Returns(string section) : IPreflightCheck
+    {
+        public string Section => section;
+
+        public PreflightDepth MinDepth => PreflightDepth.Quick;
+
+        public TimeSpan Budget => TimeSpan.FromSeconds(5);
+
+        public Task<IReadOnlyList<PreflightRow>> RunAsync(PreflightContext context, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<PreflightRow>>([new PreflightRow(section + ":ok", "FOH-A", section, section, Light.Green, "ok", "returned", null)]);
+    }
+
+    /// <summary>A check that throws with its words.</summary>
+    private sealed class Throws(string section, string words) : IPreflightCheck
+    {
+        public string Section => section;
+
+        public PreflightDepth MinDepth => PreflightDepth.Quick;
+
+        public TimeSpan Budget => TimeSpan.FromSeconds(5);
+
+        public Task<IReadOnlyList<PreflightRow>> RunAsync(PreflightContext context, CancellationToken ct) => throw new InvalidOperationException(words);
+    }
+
+    /// <summary>A check that ends cancelled by a token of its own (the runner cancelled nothing).</summary>
+    private sealed class CancelsItself(string section) : IPreflightCheck
+    {
+        public string Section => section;
+
+        public PreflightDepth MinDepth => PreflightDepth.Quick;
+
+        public TimeSpan Budget => TimeSpan.FromSeconds(5);
+
+        public Task<IReadOnlyList<PreflightRow>> RunAsync(PreflightContext context, CancellationToken ct) =>
+            Task.FromCanceled<IReadOnlyList<PreflightRow>>(new CancellationToken(true));
     }
 
     private static Project WithClip()
@@ -267,6 +309,48 @@ public sealed class PreflightTests
         {
             Directory.Delete(folder, true);
         }
+    }
+
+    [Fact]
+    public async Task ACheckThatReturnsIsItsOwnRowsAndOneThatThrowsOrCancelsItselfIsAGreyRowWithItsWords()
+    {
+        await using var rig = new ShowRig();
+        var context = new PreflightContext(rig.Engine, PreflightDepth.Quick, false);
+        IPreflightCheck[] checks = [new Returns("outputs"), new Throws("media", "the decoder is gone"), new CancelsItself("disk")];
+
+        var (rows, complete) = await PreflightRunner.RunAsync(checks, context, new ManualClock(0), "FOH-A", CancellationToken.None);
+
+        Assert.Equal(
+            [("outputs:ok", Light.Green, "returned"), ("media:check", Light.Grey, "could not check: the decoder is gone"), ("disk:check", Light.Grey, "could not check: cancelled")],
+            rows.Select(r => (r.Id, r.Light, r.Note)));
+        Assert.Equal([false, true, true], rows.Select(PreflightReports.IsUnfinished));
+        Assert.False(complete);
+    }
+
+    [Fact]
+    public async Task ACheckThatReturnsIsItsOwnRowsHoweverItsReturnMeetsTheRunnersLook()
+    {
+        await using var rig = new ShowRig();
+        var context = new PreflightContext(rig.Engine, PreflightDepth.Quick, false);
+        // Thirty-two checks that return at once finish on the pool's threads while the runner looks at them, in two runners side
+        // by side, run after run: a return lands at every point of the runner's look at a check, and each must read as the
+        // check's own green row in a complete report. Nothing here waits on a clock, and no check is cut or cancelled.
+        IPreflightCheck[] checks = [.. Enumerable.Range(0, 32).Select(i => new Returns("s" + i.ToString(CultureInfo.InvariantCulture)))];
+        var own = checks.Select(c => c.Section + ":ok").ToList();
+        const int Runners = 2, Runs = 2500;
+        var misread = new ConcurrentQueue<string>();
+        await Task.WhenAll(Enumerable.Range(0, Runners).Select(_ => Task.Run(async () =>
+        {
+            var clock = new ManualClock(0);
+            for (var run = 0; run < Runs; run++)
+            {
+                var (rows, complete) = await PreflightRunner.RunAsync(checks, context, clock, "FOH-A", CancellationToken.None);
+                if (!complete || !rows.Select(r => r.Id).SequenceEqual(own))
+                    misread.Enqueue(string.Join(", ", rows.Where(r => !own.Contains(r.Id)).Select(r => $"{r.Id} {r.Light} \"{r.Note}\"")));
+            }
+        })));
+
+        Assert.Empty(misread);
     }
 
     [Fact]
