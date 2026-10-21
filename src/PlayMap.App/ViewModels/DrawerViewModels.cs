@@ -338,8 +338,22 @@ public sealed class OutputsDrawerViewModel : ObservableObject
 /// <summary>A Show Bus peer row.</summary>
 public sealed record PeerRow(string Name, string Kind, string Light, string Headline, bool Live);
 
-/// <summary>A media copy in flight.</summary>
-public sealed record TransferRow(string Name, string From, double Progress, string Text);
+/// <summary>A media pull: its line (on its way, the peer, how far and its stage; once failed, its words) and, beneath it, the last
+/// failed try's words while it tries again ("" when none failed).</summary>
+public sealed record TransferRow(string Name, string From, double Progress, string Text, string Note = "")
+{
+    public bool HasNote => Note.Length > 0;
+
+    public static TransferRow Of(TransferState t)
+    {
+        ArgumentNullException.ThrowIfNull(t);
+        var text = t.State.StartsWith("failed", StringComparison.Ordinal)
+            ? $"{t.Name} · {t.State}"
+            : string.Create(CultureInfo.InvariantCulture,
+                $"{t.Name}{(t.From.Length > 0 ? " from " + t.From : "")} · {t.Progress * 100:0} % · {(t.Stage.Length > 0 ? t.Stage : t.State)}");
+        return new TransferRow(t.Name, t.From, t.Progress, text, t.Note.Length > 0 ? "last try: " + t.Note : "");
+    }
+}
 
 /// <summary>The NETWORK drawer: Show Bus peers, the Patterns and Stagewatch links, sync, media transfers,
 /// the assistant's door, and this node's pairing token (read where it lives, never from a line).</summary>
@@ -546,7 +560,7 @@ public sealed class NetworkDrawerViewModel : ObservableObject
             $"{(sync.Role == "leader" ? "Leading" : sync.Role == "follower" ? "Following " + (sync.Leader ?? "?") + " · leader time " + sync.UncertaintyText + " (half the round trip)" : "On its own")} · round trip {sync.RttMs:0.00} ms · drift {sync.DriftPpm:0.0} ppm{(sync.Groups.Length > 0 ? " · groups " + string.Join(", ", sync.Groups) : "")}");
         Transfers.Clear();
         foreach (var t in s.Media.Transfers)
-            Transfers.Add(new TransferRow(t.Name, t.From, t.Progress, string.Create(CultureInfo.InvariantCulture, $"{t.Name} from {t.From} · {t.Progress * 100:0} %")));
+            Transfers.Add(TransferRow.Of(t));
         AiText = s.Ai.Mcp
             ? string.Create(CultureInfo.InvariantCulture, $"MCP is served at /mcp (port 9940): an assistant sees this node's STATE and context and may use every verb; high-risk verbs wait for a human. {s.Ai.Clients} connected · {s.Ai.Proposals} proposal(s) waiting.")
             : "The assistant's door (MCP) is closed on this node.";

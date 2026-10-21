@@ -38,7 +38,16 @@ public sealed record OutputState(string Id, string Name, string Mode, string Dis
     public string PresentPath { get; init; } = "";
 }
 
-public sealed record TransferState(string MediaId, string Name, double Progress, string From, string State);
+/// <summary>A media pull as STATE's <c>media.transfers</c> row says it: where it stands (<see cref="State"/>, and on its way its
+/// <see cref="Stage"/>), the peer it asks (<see cref="From"/>, at <see cref="At"/>), and the last failed try's words (<see cref="Note"/>).</summary>
+public sealed record TransferState(string MediaId, string Name, double Progress, string From, string State)
+{
+    public string At { get; init; } = "";
+
+    public string Stage { get; init; } = "";
+
+    public string Note { get; init; } = "";
+}
 
 public sealed record MediaState(int Items, int Missing, bool Ready, ImmutableArray<TransferState> Transfers);
 
@@ -237,7 +246,12 @@ public sealed record StateSnapshot(
 
     private static MediaState ReadMedia(JsonElement? m) => m is { } e
         ? new MediaState((int)e.Long("items"), (int)e.Long("missing"), e.Bool("ready", true),
-            e.Arr("transfers").Select(t => new TransferState(t.Str("media"), t.Str("name"), t.Num("progress"), t.Str("from"), t.Str("state"))).ToImmutableArray())
+            e.Arr("transfers").Select(t => new TransferState(t.Str("media"), t.Str("name"), t.Num("progress"), t.Str("from"), t.Str("state"))
+            {
+                At = t.Str("at"),
+                Stage = t.Str("stage"),
+                Note = t.Str("note"),
+            }).ToImmutableArray())
         : new MediaState(0, 0, true, []);
 
     private static StageState ReadStage(JsonElement? s) => s is { } e

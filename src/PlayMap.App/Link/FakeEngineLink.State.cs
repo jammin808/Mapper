@@ -218,7 +218,11 @@ public sealed partial class FakeEngineLink
                 w.WriteString("name", t.Name);
                 w.WriteNumber("progress", Math.Round(Math.Clamp((now - t.StartNs) / (8.0 * DemoProject.Second), 0, 1), 3));
                 w.WriteString("from", t.From);
-                w.WriteString("state", "copying");
+                w.WriteString("at", "10.0.0.12:9940");
+                w.WriteString("state", "pulling");
+                w.WriteString("stage", "receiving");
+                w.WriteNumber("since", 1_760_000_000_000 + t.StartNs / 1_000_000);
+                w.WriteString("note", "");
                 w.WriteEndObject();
             }
             w.WriteEndArray();

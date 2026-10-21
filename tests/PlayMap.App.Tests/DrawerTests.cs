@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 using PlayMap.App.Controls;
 using PlayMap.App.State;
 using PlayMap.App.ViewModels;
@@ -13,8 +14,8 @@ namespace PlayMap.App.Tests;
 
 /// <summary>The drawers: dragging an output on the plan sets its plan rectangle; the blend-grid helper lays
 /// canvas outputs side by side with soft edges where they overlap; the Network drawer's links are the LINK
-/// verbs and the pairing token is read where it lives, never from a line; the preview surface shows the
-/// engine's picture from its ring.</summary>
+/// verbs and the pairing token is read where it lives, never from a line, and each media transfer says where it stands and its
+/// last failed try's words; the preview surface shows the engine's picture from its ring.</summary>
 public class DrawerTests
 {
     [AvaloniaFact]
@@ -101,6 +102,41 @@ public class DrawerTests
         Assert.Equal("PAIRING NEW", desk.Verbs()[^1]);
         Assert.NotEqual(before, net.Token);
         Screens.Save(window, "network-drawer");
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task TheNetworkDrawerSaysWhereEachTransferStandsAndItsLastTrysWords()
+    {
+        await using var desk = new DeskHarness();
+        var window = MainWindowTests.Open(desk);
+        desk.Main.IsNetworkOpen = true;
+        var net = desk.Main.Network;
+        // The fake engine's own pull, its row in the engine's keys.
+        var missing = desk.Link.CurrentProject.Media.First(m => desk.Link.Availability(m).State == "missing");
+        await desk.Session.SendAsync("MEDIA FETCH " + missing.Id, Ct);
+        DeskHarness.Pump();
+        Assert.Equal($"{missing.Name} from Stage right · 0 % · receiving", Assert.Single(net.Transfers).Text);
+
+        // A pull whose last try met a silent peer: its stage, and the try's words beneath it.
+        const string Note = "chunk 1 of 63 from 10.0.0.12:9940: sent nothing for 10 s, 65536 of 8388608 bytes in";
+        desk.Link.SetSection("media", """
+            {"transfers":[{"media":"md1","name":"Intro","progress":0.42,"from":"Stage left","at":"10.0.0.12:9940","state":"pulling",
+              "stage":"receiving","since":1760000000000,"note":"chunk 1 of 63 from 10.0.0.12:9940: sent nothing for 10 s, 65536 of 8388608 bytes in",
+              "hash":"5e3f","bytesDone":220200960,"size":524288000}]}
+            """);
+        DeskHarness.Pump();
+        Assert.Equal("Intro from Stage left · 42 % · receiving", Assert.Single(net.Transfers).Text);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "last try: " + Note && t.IsEffectivelyVisible);
+
+        // A pull that failed says its words in place of its progress.
+        desk.Link.SetSection("media", """
+            {"transfers":[{"media":"md1","name":"Intro","progress":0,"from":"","at":"","state":"failed: Stage left: chunk 3 of 63 from 10.0.0.12:9940 could not be had: answered 503",
+              "stage":"","since":1760000005000,"note":"","hash":"5e3f","bytesDone":0,"size":524288000}]}
+            """);
+        DeskHarness.Pump();
+        Assert.Equal("Intro · failed: Stage left: chunk 3 of 63 from 10.0.0.12:9940 could not be had: answered 503", Assert.Single(net.Transfers).Text);
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.StartsWith("last try: ", StringComparison.Ordinal) == true && t.IsEffectivelyVisible);
         window.Close();
     }
 
