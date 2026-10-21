@@ -164,13 +164,17 @@ These are the keys every node writes; the packages' keys follow at the end of th
   leader's from its board, a follower's from its feed and clock, grey in no group), the context item's light (docs/wire/sync.md).
 - `links.patterns.clip` is the desk's clip as this node counts it on ("VT 2:28"), or why there is none;
   `links.stagewatch.timer.text` is `?` whenever the time is not a fact (no frame, the link quiet, Stagewatch stuck).
-- `media.transfers` lists pulls on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the
-  next fetch of that file); a verified pull leaves the list and its item turns ready. `at` is the peer's address the pull asks,
-  `stage` where a pull on its way stands (`asking` while a peer's list is read, `receiving` while the bytes come, `verifying` while
-  the whole file is hashed and put in place; `""` before a peer is asked and once failed), `since` when the state or the stage last
-  changed (Unix ms), and `note` the last failed try's words while the pull tries again. `bytesDone` moves as each 1 MiB block lands
-  (at most four times a second). A peer that sends nothing for 10 s fails that try; each failed try is a journal row while the pull
-  tries again (three tries a chunk), and the last try's words are the refused row's.
+- `media.transfers` lists pulls on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the next fetch of
+  that file); a verified pull leaves the list and its item turns ready. `at` is the peer's address the pull asks, `stage` where a
+  pull on its way stands (`asking` while a peer's list is read, `receiving` while the bytes come, `verifying` while the whole file
+  is hashed and put in place; `""` before a peer is asked and once failed), `since` when the state or the stage last changed (Unix
+  ms), and `note` the last failed try's words while the pull tries again. `bytesDone` never steps back while one peer is asked: it
+  moves as the pull's 1 MiB blocks land, at most once in 250 ms, and at each chunk's end and once every byte is in, whenever those
+  come. A chunk's body that sends nothing for 10 s on the node's clock (a chosen bound) fails that try; the peer's list and each
+  answer's headers wait as long as the node's HTTP client allows (60 s). A chunk has three tries; a pull journals its first failed
+  try at each peer and its end, the tries between are its `note` and the log's, and the last try's words are the refused row's. A
+  peer's list is asked once a fetch; when it could not be read, each file of the fetch that no other peer gives ends with its
+  words.
 - `faults` lists what the node is running without, each `{"part","words"}`: a door whose port was refused (`wire`,
   `web`, `hello`, `sync`), a control input or the announcement that could not open (`osc`, `artnet`, `sacn`, `midi`,
   `mdns`), no certificate (`tls`), the render host, the scanner, an extension, the node's settings (`settings`; `settings-flush`

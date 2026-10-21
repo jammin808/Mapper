@@ -79,9 +79,10 @@ The lab checks still to do:
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
-  which is fixed, not proven; its wait now names what it saw), `HostNetworkTests`' one Windows wait for a fetched file
-  (consistent with a pull's 64 KiB turns on a busy thread pool, which are now 1 MiB blocks, not proven; its wait now names what it
-  saw), `FleetMonitorTests`' 10 s wait for the peer to read live,
+  which is fixed, not proven; its wait now names what it saw), `HostNetworkTests`' one Windows wait for a fetched file (its
+  cause is not shown: the journal it printed reads the same at every stage of the pull; a busy thread pool stretching 64 KiB
+  turns is one reading, reproduced on Linux under one synthetic load only; a pull's blocks are now 1 MiB and its wait names the
+  transfer's row, so a recurrence names its stage), `FleetMonitorTests`' 10 s wait for the peer to read live,
   `HostNetworkTests`' wait for the Patterns link's first clip, and `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
