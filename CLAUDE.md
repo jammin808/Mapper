@@ -9,8 +9,9 @@ projection-mapping suite (structured-light scanning, LiDAR import, pose solving,
 is one portable .NET 10 exe that runs as the **desk** (`PlayMap`, Avalonia 12) and the **engine** (`PlayMap engine`,
 the node: project, playback, FFmpeg decode, rendering through the RHI with the GL backend behind it, outputs, Show Bus,
 scan); the engine starts its optimise worker and, with the first effect source, its shader worker as processes of their
-own (`docs/ARCHITECTURE.md` §1). `docs/ARCHITECTURE.md` is the design; read it first. Round 3 (`docs/round3/PLAN.md`) is
-the plan of record for where it is going.
+own (`docs/ARCHITECTURE.md` §1). On an installed node the supervising service (`PlayMap.Supervisor`, an exe of its own)
+starts the engine in the show user's session and the desk attaches to it (`docs/INSTALL.md`). `docs/ARCHITECTURE.md` is the
+design; read it first. Round 3 (`docs/round3/PLAN.md`) is the plan of record for where it is going.
 
 ## The direction (the owner's)
 
@@ -106,7 +107,10 @@ MCP, desk, menus and right-click menus, papers.
   fix in `docs/ROADMAP.md`). FFmpeg ships only as the LGPL build's replaceable shared libraries. No GPL code is copied.
   DXC ships only as its LLVM-licensed compiler, dxcompiler (`dxcompiler.dll` from Microsoft.Direct3D.DXC, which the
   engine downloads and never references; `libdxcompiler.so` from DXC's pinned Linux release), whose built-in validator
-  signs DXIL; no `dxil.dll` or `libdxil.so` is used or shipped (round 3 §9 decision 24).
+  signs DXIL; no `dxil.dll` or `libdxil.so` is used or shipped (round 3 §9 decision 24). Every package the Windows publish
+  carries, and by its file name every native library no package lists, is named in `THIRD-PARTY-NOTICES.md`, each package's licence
+  and notice files under `licenses/<id>/`: `installer/notices.ps1` stops the Windows and installer jobs otherwise, and
+  `LicenceTests` hold the portable folder and the installer's payload to it.
 
 ## The loop
 
@@ -121,11 +125,15 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 # DXC on Linux, set before the build: PLAYMAP_DXC_DIR=<absolute folder with libdxcompiler.so from the pinned DXC release>
 #   (the Linux job's pinned download, README's Build); without it the worker's dxc stage and the HLSL tests say so
 # Generated files (STATE fixtures, the Companion module's fixtures): regenerate with PLAYMAP_WRITE_FIXTURES=1
+# The installer's tests sit outside PlayMap.sln (installer/tests/PlayMap.Installer.Tests): their life cycle runs elevated on the
+#   installer job only; LicenceTests read the folder PLAYMAP_SHIPPED_DIR names
 ```
 
-CI runs both jobs on every push: Linux (with the ES 3.00 leg) and Windows on `windows-2025`, where Direct3D 12 tests
+CI runs three jobs on every push: Linux (with the ES 3.00 leg); Windows on `windows-2025`, where Direct3D 12 tests
 (`[WindowsFact]`, trait `Backend=D3D12`) run on WARP with the Agility SDK as a leg of their own and cannot skip
-(`PLAYMAP_D3D12_REQUIRED=1`). Windows-only acceptance is read from that job.
+(`PLAYMAP_D3D12_REQUIRED=1`); and the installer on `windows-2025`, elevated, which builds the unsigned Inno Setup installer and
+the one numbered before it and proves install, upgrade, a downgrade refused and uninstall, a hard gate (round 3 §5.4 item 5).
+Windows-only acceptance is read from the two Windows jobs.
 
 ## Where things live
 

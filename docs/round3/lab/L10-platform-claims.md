@@ -20,7 +20,8 @@ in one commit that cites this record; the high-resolution timer's lateness at or
    next start (TIMER, MMCSS, CPUSETS), run 20 minutes, record as in 2:
    - `QOS AUTO`, then with the desk's window covering every output and minimised (the case HighQoS is for);
    - `PROCESS NORMAL`; `MMCSS OFF`; `CPUSETS OFF`; `TIMER DEFAULT`;
-   - `GPU-PRIORITY HIGH`; on the RTX PRO node with the privilege granted by the installer, `GPU-PRIORITY REALTIME`.
+   - `GPU-PRIORITY HIGH`; on the RTX PRO node with the privilege granted by the installer (`/SHOWUSER=` naming the account the
+     engine runs as, signed in after the install: `machine.capabilities`' `realtimePrivilege` supported), `GPU-PRIORITY REALTIME`.
 4. Background load during every run: a 4K H.264 export in another process at normal priority, and a file copy to the media volume.
 5. On the hybrid Intel CPU: the critical threads' processors from ETW (`Microsoft-Windows-Kernel-Process` context switches) — the
    render, present and decode threads on the performance cores with `CPUSETS AUTO`, anywhere with `OFF`.

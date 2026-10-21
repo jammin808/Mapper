@@ -147,10 +147,10 @@ encoders, surveys from real scanners and total stations, and a group or a backup
 run, never passed, and nothing claims a hardware fact it has not measured.
 
 **Next:** PlayMap is becoming an installed, Windows-native show node on every edition of Windows 11 from build 26100, Home
-included (`docs/round3/PLAN.md`). It will install per machine from an installer built with Inno Setup this round (an MSI is
-revisited next round); builds will stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer will
-show a licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising
-service will start the engine in the show user's session, never as administrator and never in session 0. The engine will render
+included (`docs/round3/PLAN.md`). It installs per machine from an installer built with Inno Setup this round (an MSI is
+revisited next round); builds stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer shows a
+licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising service
+starts the engine in the show user's session, never as administrator and never in session 0. The engine will render
 on Direct3D 12 behind the rendering hardware interface it draws through today, and OpenGL stays the reference backend until the
 pixel and timing evidence says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present
 barrier on Direct3D 12, its swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured.
@@ -174,14 +174,21 @@ in STATE with what Windows answered and what reading it back shows; the node's i
 tier, every GPU with its driver) and the driver set its shows run on (`MACHINE LOCK`) are in STATE, and machine preflight says what
 it reads of the machine, each row with words. A default is on only where its cause is documented, and none of it is measured on show
 hardware yet (`docs/ROADMAP.md`, round 3). The desk's part of the first wave is built as well: the safety patterns and the quad
-that stays (above), proven headless on both CI jobs and not yet tried by operators in a dark room (L19 is not run).
+that stays (above), proven headless on both CI jobs and not yet tried by operators in a dark room (L19 is not run). So is the
+installer: a per-machine installer built with Inno Setup, unsigned and named `-unsigned` with its `SHA256SUMS`, whose licence page
+carries a section for PlayMap's own terms (none named yet) and Microsoft's licence for `D3D12Core.dll` verbatim, a quiet install
+laying nothing down without `/ACCEPTTERMS=yes`; the supervising service, which starts the engine, restarts it after an exit and
+stops it on its stop event; every machine-level action done by the supervisor's own commands; an install, upgrade or uninstall
+refused while the node answers armed or while a live engine does not answer; and STATE's `machine.install` with preflight's
+`install` section — proven elevated on the Windows runner and on no clean machine (L11, L18, L21 and L23's install part are not
+run; `docs/INSTALL.md`).
 
 ## What it is made of
 
 | Module | What it does |
 |---|---|
 | `PlayMap.Core` | The immutable project model and its single writer (undo, coalesced drags). Also: the monotonic clock, the leader clock (slewed, stepped on the engine's lane, held while the leader is quiet) and its drift estimate; timeline anchors (frame = a pure function of show time); Patterns' clip semantics; the one verb catalogue; Show Bus hello/context/pairing; the solvers (SVD, Levenberg–Marquardt); mesh, ray caster and camera model. Mapping maths (warp lattices, pixel quads, Bézier masks, 3D blend), scan maths (structured light, calibration, point clouds, the multi-view solve), align's fits and the calibration score sit here too, with the show policy, preflight and the blind draft's diff, the ISF parser, audio analysis, the beat clock and the modulation bus, OSC/MIDI/DMX and binding maths, LTC/MTC and the chase, the frame-lock machine, the generator catalogue and its looks, LED layouts, patching and packets, fleet health, and optimise's planner, rules, governor, HAP packer and version choice. The site frame and the survey readers (rebased in double; chunked LAS, a managed E57 reader), decimation and voxel thinning, control-point files and the site check, and the long-throw solve with its priors sit here too. |
-| `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), the blind draft and its commit at a show boundary, preflight, frame-exact playlist lanes with pre-scheduled gapless switches and fades on a GO by hand, the air's sound, timecode chase, control bindings, the video I/O hub (each live input received once and lent to every consumer, each send's sender, the loss policy and tally), the calibration ledger, align runs, the scan runner (a scan's views solved together, kept on disk, its surface suggestions and the folder camera), survey import (read, thinned and decimated on its own thread, applied as one edit), the optimise queue and its worker (the same exe as `PlayMap optimise-worker`, a process of its own the engine starts and watches), the shader worker (the same exe as `PlayMap shader-worker`, started with the first source: a user's ISF effect through glslang, SPIRV-Tools, SPIRV-Cross and DXC to signed DXIL, the compilers pinned by hash and loaded only there) and the effect quarantine kept in the node's home (`FX RELEASE`), the machine part (the machine platform composed for this machine, its process claims made as it composes and each thread's role claimed through it, keep-awake, the machine's settings and driver lock, machine preflight, the GC's show mode while armed), STATE and context, journal, recovery record; the sync part: the role kept, the leader's air fanned out to its members, and a member taking the leader's anchors and air through its own verbs (answered with receipts) and its frame lock |
+| `PlayMap.Engine` | The node: control lane, command router (every verb), the show gate (Show Mode, locks, panic, master, the GO fence), the blind draft and its commit at a show boundary, preflight, frame-exact playlist lanes with pre-scheduled gapless switches and fades on a GO by hand, the air's sound, timecode chase, control bindings, the video I/O hub (each live input received once and lent to every consumer, each send's sender, the loss policy and tally), the calibration ledger, align runs, the scan runner (a scan's views solved together, kept on disk, its surface suggestions and the folder camera), survey import (read, thinned and decimated on its own thread, applied as one edit), the optimise queue and its worker (the same exe as `PlayMap optimise-worker`, a process of its own the engine starts and watches), the shader worker (the same exe as `PlayMap shader-worker`, started with the first source: a user's ISF effect through glslang, SPIRV-Tools, SPIRV-Cross and DXC to signed DXIL, the compilers pinned by hash and loaded only there) and the effect quarantine kept in the node's home (`FX RELEASE`), the machine part (the machine platform composed for this machine, its process claims made as it composes and each thread's role claimed through it, keep-awake, the machine's settings and driver lock, machine preflight, the GC's show mode while armed), the install part (STATE `machine.install`, read at most every two seconds from the install's registry key, Winlogon's auto-logon user and the supervisor's status file; preflight's `install` section; under `--supervised`, the supervisor's stop event, waited on for the engine's life), STATE and context, journal, recovery record; the sync part: the role kept, the leader's air fanned out to its members, and a member taking the leader's anchors and air through its own verbs (answered with receipts) and its frame lock |
 | `PlayMap.Render` | The frame drawn through Core's render hardware interface (`IGpuDevice`, its frame list, one `DrawState` per draw), with the GL backend behind it (`Render/Gl`): one GL context on a platform seam (OpenGL 3.3 core or ES 3.00; GLFW windows, EGL or surfaceless), a presenter per output with its vblank clock and present ledger, the frame-lock tiers; the projector pass through the 3D stage and pixel quads, warp/mask/blend/black level/colour, align's measured warp and blend, the air's gain last; ISF effect chains; the HAP pass; generators (Patterns' test patterns, fractals, the GPU particle field, raymarched fractals, reactive scenes, surface-aware effects); YUV video upload and the unpack of packed network video; the edit overlay; LED sampling; the send stage (network video packed on the GPU and read back without a stall); previews; the GPU HAP encoder |
 | `PlayMap.Media` | FFmpeg 9.0: probe, hardware decode, frame-accurate seek, preroll, gapless loop, capture devices, content hashing; OMT (libomtnet and libvmx, vendored) and NDI 6 (the user's runtime, loaded at run time) receivers and senders over a lock-free frame pool; HAP's own parser with its Snappy stage on a worker pool; stills (JPEG, PNG, TIFF at 16 bits) read as grey for a folder camera; the HAP transcode (decode, encode, mux with the source's audio, read back); sound input (libavdevice; WASAPI with loopback on Windows); sound out through OpenAL Soft, slaved to a transport |
 | `PlayMap.Net` | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; also on the web port's `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS + MCP (9940) with `/health` and `/fleet`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and the leader's sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) input, the LED sender (Art-Net, sACN, DDP), the mDNS announcement (`_playmap._tcp`), the fleet monitor, media transfer, the Patterns and Stagewatch links |
@@ -190,8 +197,8 @@ that stays (above), proven headless on both CI jobs and not yet tried by operato
 | `PlayMap.Assistant` | Plain words → PlayMap verbs, with a hosted or a local model. High-risk verbs always wait for a person on the node's own proposal list. |
 | `PlayMap.Render.D3D12` | The Direct3D 12 backend (`docs/round3/design/d3d12.md`), Windows only, on TerraFX's raw bindings: one folder for each part — the device, queues, memory, descriptors, commands, pipelines, shaders, the exporter, the platform, the flip presenters, video, user effects, bindless records, the present barrier and the rebuild path — each a placeholder but the shaders folder, which holds the HLSL library: PlayMap's 40 programs in HLSL with the render hardware interface's conventions, each program's header written by the build from Core's program table, embedded with, on Windows, the DXIL DXC's executable compiles at build time (`docs/round3/design/shaders.md`). Nothing renders through it yet, and neither the engine nor the desk references it; it never references `PlayMap.Render`, so the two backends meet only in Core's contracts |
 | `PlayMap.Platform.Windows` | What a show node claims from Windows (`docs/PLATFORM.md`), Windows only, an edge of Core alone: the process's claims and each thread's by its role (priority, HighQoS with its timer requests honoured, MMCSS, CPU sets; the policy's EcoQoS for background pools, which no node thread claims yet), each read back; the high-resolution deadline timer; keep-awake as a power request; the node's identity (the edition and its support tier, every GPU by LUID with its driver and vendor tier) and capabilities; and the machine's facts for preflight, through Win32 calls and its own DXGI and NVAPI declarations. The engine composes it on Windows, and elsewhere Core's null machine platform, which claims nothing and says so |
-| `PlayMap.Supervisor` | The supervising service's exe (`docs/round3/design/installer.md`): it does nothing yet, says so on its standard error and exits 1 |
-| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words; its own preferences (Simple or Pro, the look, each unfinished quad) in the user's desk.json, never in the show |
+| `PlayMap.Supervisor` | The supervising service's exe (`docs/INSTALL.md`, `docs/round3/design/installer.md`), on Core: as the `PlayMapSupervisor` service (LocalSystem) it starts `PlayMap.exe engine --supervised` in the show user's console session, never session 0, restarts it after an exit with backoff (1 s doubling to 30 s) and stops trying after five restarts in ten minutes, its freeze rule waiting for HEALTH's shown frames, which no engine reports yet; every stop sets the engine's stop event (`Global\PlayMap-Engine-Stop`), on which the engine stops as any asked stop does, and terminates it 5 s later only if it still runs; its commands — `run`, `status`, `stop`, `resume`, `preinstall-check`, `install`, `uninstall`, `upgrade-stop`, `grant`, `revoke`, `rights`, `version-check`, `previous-build`, `session-probe` — are the installer's armed check and every machine-level action of the install (`docs/INSTALL.md`'s table) |
+| `PlayMap.App` | The desk (Avalonia 12): starts and watches this machine's engine — on a supervised machine (`Supervised` under `HKLM\SOFTWARE\PlayMap`) it starts none and attaches to the engine the supervisor keeps — or attaches to a node on the network; three workspaces, a show strip, four drawers, a generic card for every package's STATE (the packages' card descriptors built in), right-click menus on everything with entries built from the node's own answers; edits only through the verbs every peer uses, each control asking the node's doors before the press (pairing, the fleet's, the Core show policy, the locks) and greying with the node's own words; its own preferences (Simple or Pro, the look, each unfinished quad) in the user's desk.json, never in the show |
 
 ## Talking to Patterns and Stagewatch
 
@@ -235,6 +242,8 @@ tests (`docs/FLEET.md`); until then it draws PlayMap as a grey app heard on the 
 - `docs/FLEET.md` — machine health, the fleet board and PlayMap on Patterns' Eye
 - `docs/PLATFORM.md` — the machine platform: what a show node claims from Windows, its identity, the driver lock and machine
   preflight
+- `docs/INSTALL.md` — installing a show node: the installer, the supervisor, unsigned builds, the show machine and its support
+  tiers
 - `docs/PROJECTORS.md` — projector control: PJLink and the makers' own protocols
 - `docs/RESEARCH.md` — what the field does and why PlayMap chose what it chose
 - `docs/COMPETITIVE.md` — where PlayMap stands against MadMapper, disguise, Pixera, Watchout and the rest, and what to learn from each
@@ -278,17 +287,18 @@ build without it has no validator: the worker's `validate` stage fails on every 
 worker"), so every `FX CHECK` and `FX IMPORT` report is `ok` false, `fx.compile.worker`'s `missing` reads 1 once the worker runs,
 and the road's tests (`ShaderRoadTests`, `IsfVulkanTargetTests`) fail. On Linux SPIRV-Tools is inside shaderc's library.
 
-CI does all of this on every push (`.github/workflows/build.yml`), on Linux and on Windows Server 2025 (`windows-2025`). Each job
-builds the whole solution in Release with the analyzers on and runs every test project to its end; on Windows that is on Mesa
-llvmpipe and WARP, since the runner has no GPU. Both jobs compile every program of the HLSL library through the shader worker's
+CI does all of this on every push (`.github/workflows/build.yml`), on Linux and on Windows Server 2025 (`windows-2025`), and a
+third job builds and proves the installer (below). The Linux and Windows jobs each build the whole solution in Release with the
+analyzers on and run every test project to its end; on Windows that is on Mesa llvmpipe and WARP, since the runner has no GPU. Both jobs compile every program of the HLSL library through the shader worker's
 pinned DXC, hold its reflection to the program table (`HlslBuildTests`, `ShaderLayoutTests`) and each container's digest to its
 retail hash. Then:
 
-- **Linux** fetches, before its restore, FFmpeg 9.0's shared libraries and DXC v1.9.2609's Linux release, each held to its SHA-256;
-  of the release it keeps `libdxcompiler.so` alone, held to the worker's pin and cached by it, in the folder it names in
+- **Linux** fetches, before its restore, FFmpeg 9.0.2's LGPL shared libraries (FFmpeg-Builds' `lgpl-shared`, the build the
+  installer carries), which every decode test loads, with its GPL command-line build on the path only to encode test media, and DXC
+  v1.9.2609's Linux release, each held to its SHA-256; of the release it keeps `libdxcompiler.so` alone, held to the worker's pin and cached by it, in the folder it names in
   `PLAYMAP_DXC_DIR` for the build and the suites. It runs the Render suite again on ES 3.00, and the Companion module's tests.
-- **Windows** fetches, before its build, FFmpeg 9.0's shared libraries and Mesa's llvmpipe at their pinned hashes, and SPIRV-Tools'
-  library at its pinned hash for the shader worker (`PLAYMAP_SPIRV_TOOLS_DIR`); its restore downloads Microsoft.Direct3D.DXC
+- **Windows** fetches, before its build, the same FFmpeg 9.0.2 LGPL shared libraries (its GPL command-line build on the path only
+  to encode test media) and Mesa's llvmpipe at their pinned hashes, and SPIRV-Tools' library at its pinned hash for the shader worker (`PLAYMAP_SPIRV_TOOLS_DIR`); its restore downloads Microsoft.Direct3D.DXC
   1.9.2609.5 from NuGet, whose `dxcompiler.dll` alone the engine's build copies beside the engine. It runs the Direct3D 12 tests
   (`Backend=D3D12`) as a leg of their own, on WARP and the Agility SDK, both from NuGet at pinned versions and hashes
   (`tools/ci-d3d12.ps1`), and lists their results apart in the job's summary. It asks the runner what it gives (`bench/r3-probe`:
@@ -299,8 +309,18 @@ retail hash. Then:
   `PlayMap.Render.D3D12` embeds, started without `DXC_DXIL_DLL_PATH` (the job names a path with nothing there in it, so a `dxc.exe`
   that saw it would fail the build) so that dxcompiler's built-in validator signs it, and it uploads every entry's PDB as
   `hlsl-symbols` (failing when there is none). It builds the lab's present bench (`bench/r3-present`) without running it, and
-  publishes the portable exe, which `DxcNativesTests` read again before it is named with its version (Versions, below) and
+  publishes the portable exe, which `DxcNativesTests` read again before it is named with its version and `-unsigned` (Versions,
+  below); the folder carries its notices (`installer/notices.ps1`) and its `SHA256SUMS` and no file of the Agility SDK,
+  `LicenceTests` hold it to DXC's compiler alone and to notices naming every package and native library it carries, and it is
   uploaded.
+- **The installer job** (`windows-2025`, elevated) publishes the exe with ReadyToRun and the supervisor, fetches the same pinned LGPL
+  FFmpeg, the Agility SDK's runtime, libvmx and SPIRV-Tools, and builds this build's installer and the one numbered before it with
+  Inno Setup 7.1.0 (pinned by its hash, the release's digest and its publisher's signature checked). It checks the release order
+  (`PlayMap.Supervisor.exe version-check`), runs `InstallerTests`, `UnsignedArtifactTests` and `LicenceTests` on the installer and its
+  payload (the licence page, a quiet install's `/ACCEPTTERMS=yes`, install, upgrade from the build before, a downgrade refused, the
+  armed and silent refusals, uninstall: `docs/INSTALL.md`, "What is proven, and where"), probes mDNS beside Windows' own responder
+  and M9's session calls, and uploads `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned-installer`: the installer, its
+  `SHA256SUMS` and `SHA256SUMS.payload`. It is a hard gate for every merge (`docs/round3/PLAN.md` §5.4 item 5).
 - **A dispatched run** with the `d3d12` input runs only the Windows job's Direct3D 12 leg, narrowed by that test filter. It
   uploads the leg's results, diff images, info-queue log and DRED output, and gives the leg's minutes in the summary.
 
@@ -332,7 +352,9 @@ local build:
 
 The assembly version moves only with MAJOR.MINOR, so binding does not churn between builds. A part of a Windows file version
 holds at most 65535: a build number past it fails the build with words (wrapped, it would read to an installer as an older
-build; clamped, as the same one). CI's run numbers never start again (they count the workflow's runs), so a raised version
+build; clamped, as the same one). A MAJOR or MINOR above 255 fails every build with words: the installer's version is
+MAJOR.MINOR.BUILD (`BuildInfo.MsiVersion`; `docs/INSTALL.md`, "The two version numbers"), and an MSI's version holds at most 255
+in each of its first two fields. CI's run numbers never start again (they count the workflow's runs), so a raised version
 alone keeps the count; raising MAJOR or MINOR and setting `PlayMapRunBase` to the last run's number in the same commit starts
 it again at 1. A raised PATCH never starts it again: Windows Installer reads three fields of a version, so an installer of
 PlayMap orders builds by MAJOR.MINOR and the build number, and a count started again under the same MAJOR.MINOR would read to
@@ -342,5 +364,6 @@ PlayMap replaces every file of a build, not only those whose version rose. Where
 (File version, Product version); the desk's title and the About line of its help (F1); the engine's log, where the first line
 of every file it starts, the start line and every crash line name it, and the journal's start line; HEALTH's `build`, which the
 context's machine item and the fleet's board carry (docs/wire/fleet.md); the web port's MCP server info; each CI job's summary,
-written straight after its build, and the Windows artifact's name (`PlayMap-0.2.0.17-win-x64`). STATE's `version` is the
+written straight after its build, and the artifacts' names (the Windows job's portable `PlayMap-0.2.0.17-win-x64-unsigned`; the
+installer job's `PlayMap-0.2.0.17-win-x64-unsigned-installer`, holding `PlayMap-0.2.0.17-win-x64-unsigned.exe`). STATE's `version` is the
 product version alone, the same for every build of a release, so the committed STATE fixtures hold on any machine.

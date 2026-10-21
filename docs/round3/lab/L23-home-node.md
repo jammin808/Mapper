@@ -1,4 +1,4 @@
-# L23 — a Windows 11 Home node (wp3-platform's part; wp3-installer holds the install's)
+# L23 — a Windows 11 Home node (wp3-platform's part; the install's is wp3-installer's, `docs/round3/lab/L23.md`)
 
 **Status: not run** (no lab this round, D15).
 
@@ -12,8 +12,10 @@ off, and the media volume encrypted and not, each with its frame times.
 ## Script
 
 1. Before installing: Smart App Control's state (Windows Security ▸ App & browser control) — it should read evaluating.
-2. Install the build with its installer, by the installer's paper (wp3-installer's part of this line). Start the show account's
-   session.
+2. Install the build with its installer, by the installer's paper, `docs/INSTALL.md`, as steps 2–5 of `docs/round3/lab/L23.md`
+   (wp3-installer's part of this line) do, with Smart App Control still evaluating: the installer shows its warning page and installs.
+   Start the show account's session. Turn Smart App Control off (that script's step 1) only once step 3 below is recorded: its amber
+   row needs it evaluating, and it cannot be turned back on.
 3. `PREFLIGHT QUICK`, section machine. Expect, and record each against the screen:
    - grey **i** rows: updates cannot be deferred; no kiosk; outputs are desktop monitors; Remote Desktop cannot reach this node;
    - amber: Smart App Control evaluating while the build is unsigned, with its words;

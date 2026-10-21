@@ -30,8 +30,8 @@ and on the machine: the `PlayMapSupervisor` service (LocalSystem, automatic, res
 day, non-crash failures too); inbound firewall rules for `PlayMap.exe` — TCP 9940 (web, MCP) and 9941 (line wire), UDP 9928, 9942,
 9943, 6454, 5568 and 5353 — on the private and domain profiles, scoped to the local subnet (`/PUBLICFIREWALL=1` adds Public; a new
 network is Public until the person sets it Private); WER LocalDumps for `PlayMap.exe` (full dumps, five kept, in
-`%ProgramData%\PlayMap\dumps`); the `PlayMap` Event Log source; and `SeIncreaseBasePriorityPrivilege` for the show account. No URL
-reservation is made: the node binds its own sockets.
+`%ProgramData%\PlayMap\dumps`); the `PlayMap` Event Log source; and `SeIncreaseBasePriorityPrivilege` for the show account
+`/SHOWUSER=` names (the show machine, below). No URL reservation is made: the node binds its own sockets.
 
 **The licence page.** Before anything is laid down the installer shows its terms, which a person accepts to go on: a section for
 PlayMap's own terms, which the owner has not named yet and which states none; Microsoft's licence terms for the DirectX Agility SDK,
@@ -101,13 +101,17 @@ MINOR, the first build of the line below.
 ## The supervisor
 
 `PlayMapSupervisor` starts `PlayMap.exe engine --supervised` in the auto-logged-on show user's console session (never session 0,
-which cannot drive displays), restarts it after an exit with backoff (1 s doubling to 30 s), stops trying after five restarts in ten
-minutes and says so, and stops an engine whose open outputs' shown frames have stood still for the stale time (3 s, or four of the
-rebuild's first good frames) while HEALTH says the GPU runs — never while the engine reports no shown frames, never during a start or
-a device rebuild within its budget (30 s while the first good frame is unmeasured on a real node), never for a slow HEALTH while
-frames move. Its status (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install`, and preflight's `install`
-section reads it too (`PREFLIGHT QUICK` on the node: the install or a folder run, the supervisor's state, auto-logon, the show
-machine's policies and the unsigned build). Stopping the service leaves the engine running; the next supervisor adopts it.
+which cannot drive displays; an install that names no show user starts it in the session of whoever is signed in at the console),
+restarts it after an exit with backoff (1 s doubling to 30 s), stops trying after five restarts in ten minutes and says so, and
+stops an engine whose open outputs' shown frames have stood still for the stale time (3 s, or four of the rebuild's first good
+frames) while HEALTH says the GPU runs — never while the engine reports no shown frames, never during a start or a device rebuild
+within its budget (30 s while the first good frame is unmeasured on a real node), never for a slow HEALTH while frames move. No
+engine reports shown frames yet (HEALTH's `shownFrames` is −1 on every node until wp3-stability fills it), so on every node the
+rule waits — the status's `freezeRule` and preflight's `install:supervisor` row say "the engine reports no shown frames: the
+freeze rule waits for them" — and the supervisor restarts the engine after an exit alone. Its status
+(`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install`, and preflight's `install` section reads it too
+(`PREFLIGHT QUICK` on the node: the install or a folder run, the supervisor's state, auto-logon, the show machine's policies and
+the unsigned build). Stopping the service leaves the engine running; the next supervisor adopts it.
 
 **A stop is the engine's own; a termination comes only 5 s later.** To stop the engine — the freeze rule's stop,
 `PlayMap.Supervisor.exe stop`, an upgrade's or an uninstall's — the supervisor sets the engine's stop event
@@ -192,17 +196,42 @@ feature updates, Shell Launcher and specialized displays); Pro or Enterprise 25H
 policies; Home 25H2 or later, supported and unmanaged (no kiosk, no specialized displays, no update deferral). Build 26100 is the
 floor every edition shares, so Home or Pro 24H2, out of servicing since 13 Oct 2026, installs and runs and machine preflight says
 it gets no security updates. S mode (Home only) runs no installer: switch out of it first (free and one-way). Windows 10 is not
-supported.
+supported. `machine.identity.os.tier` names the node's tier, and machine preflight's grey `os.edition` row says it in words
+(`docs/wire/machine.md`): `ltsc` for IoT Enterprise LTSC ("the permanent show node's tier"); `managed` for Pro, Pro for
+Workstations, Pro Education, Enterprise (Enterprise LTSC among them), Education and IoT Enterprise outside LTSC ("supported, managed
+with update policies"); `home` ("supported, unmanaged"); `unsupported` for a build below 26100 or Windows Server; and `unknown` for
+an edition PlayMap's table does not know.
 
-**The GPU support tiers.** NVIDIA RTX and RTX PRO: tier 1, validated. AMD RDNA 3 and RDNA 4: tier 2, validated per driver, so a
-driver outside the validated list reads amber. Intel Arc: best effort, and said so. Any other GPU: unsupported, and said so. This
-round no lab has measured any of them, so no tier is validated yet and each says that too. Once wp3-platform lands,
-`machine.identity.adapters[].tier` carries each adapter's tier (`docs/round3/design/platform.md`).
+**The GPU support tiers.** NVIDIA RTX and RTX PRO: tier 1, validated. AMD RDNA 3 and RDNA 4: tier 2, validated per driver. Intel
+Arc: best effort. Any other GPU — an older Radeon, and Microsoft's software adapters (WARP, the Basic Render Driver) — unsupported.
+This round no lab has measured any of them, so no tier is validated yet and no driver is on a validated list.
+`machine.identity.adapters[]` carries each adapter's vendor `tier` (`nvidiaRtxPro`, `nvidiaRtx`, `radeon`, `intelArc`, `software`,
+`other`; RTX PRO told from RTX by NVAPI's workstation probe, never by the name) and the support the policy gives it (`support`:
+`tier1`; `validatedPerDriver` for a Radeon whose model number is RDNA 3's or RDNA 4's, `unsupported` for any other Radeon;
+`bestEffort`; `unsupported`). No preflight row reads `support` yet, so an unsupported GPU or a driver no lab has validated lights
+nothing: STATE's word is the only place a node says it.
 
 **The show account.** A local standard user, "show". Auto-logon through Sysinternals Autologon, which keeps the password as an LSA
 secret — never `DefaultPassword` in plain text in the registry. Give the account to the installer (`/SHOWUSER=`). On Home, whose
 setup asks for a Microsoft account (and a new one has no password), make the local "show" account after setup, with a password, and
 set auto-logon to it.
+
+**The show account's right.** `MACHINE SET GPU-PRIORITY REALTIME` needs `SeIncreaseBasePriorityPrivilege` in the engine's own
+token. The installer grants it (`PlayMap.Supervisor.exe install --show-user`, through `LsaAddAccountRights`) to the account
+`/SHOWUSER=` names — on an upgrade that names none, to the account the earlier install recorded — and to no other: an install that
+names no show user grants it to no account. An upgrade that names another account takes it back from the earlier one, the uninstall
+takes it back, and `PlayMap.Supervisor.exe rights <account>` (elevated) reads what the local security policy holds. On a node
+installed with no show user, a person grants it to the account the engine runs as, elevated, with
+`PlayMap.Supervisor.exe grant <account>`, or runs the installer again with `/SHOWUSER=`. Windows puts an account's rights into the token it makes when the account
+signs in, so an account signed in when the right is granted holds it only from its next sign-in: restart after the install, and
+auto-logon signs the show account in again. The engine says whether its own process holds it in `machine.capabilities`
+(`realtimePrivilege`, supported or not, with the words below). Without it, `MACHINE SET GPU-PRIORITY REALTIME` is refused with
+"GPU-PRIORITY REALTIME needs SeIncreaseBasePriorityPrivilege, which this account does not hold: the installer grants it to the show
+account", and a REALTIME the node's settings kept from an account that held it is refused as the engine claims it, an amber machine
+preflight row (`machine.claim:process.gpuPriority`) with the same words. With it, REALTIME sets the engine's GPU scheduling class to
+realtime; the class stays NORMAL by default until L10 measures it, and REALTIME's realtime direct queue is not built yet
+(wp3-d3d12-core). `InstallerTests` read the grant back with `rights` after an install and find it gone after the uninstall; no test
+reads the engine's token on an installed node, so the sign-in rule is Windows' documented one, unproven here.
 
 **Shell Launcher** where the edition has it (IoT Enterprise, Enterprise, Education:
 `Dism /online /Enable-Feature /all /FeatureName:Client-EmbeddedShellLauncher`), with the engine as the show account's shell on a
@@ -213,8 +242,7 @@ and setup screens open.
 **Updates.** On the editions with Update client policies: feature updates deferred 365 days, quality updates 30, no automatic
 restart with a user logged on, a maintenance window. On Home, which honours none of them: pause updates past the show (35 days at a
 time), set active hours, restart without updating from the power menu, choose the maintenance window by hand. This build writes no
-update policy; preflight's `install` section has an information row that says so, which the exe shows once that section is
-registered (above, the supervisor).
+update policy; preflight's `install` section has an information row that says so (`install:policies`).
 
 **Security defaults.** Smart App Control off for an unsigned build; Memory Integrity left as it is (a capture or sync driver that
 does not load under it says so); the device-encryption recovery key kept where it can be found; show media outside OneDrive
