@@ -688,10 +688,14 @@ public sealed class BackupNode : IAsyncDisposable
             answer.TrySetResult(words);
             _engine?.FactsChanged();
         };
-        link.StatusChanged += _ =>
+        link.StatusChanged += status =>
         {
-            if (link.Status != LinkStatus.Live)
+            // A subscription lives as long as its connection: a quiet spell (stale) keeps it, so the primary's next line on the same
+            // connection finds the mirror followed again; a connection that ends takes it, and the next one subscribes anew.
+            if (status is LinkStatus.Connecting or LinkStatus.Down)
                 _subscribed = false;
+            else if (status == LinkStatus.Stale)
+                _log.LogInformation("{Primary}'s mirror has said nothing for over {Seconds} s: lost while it is quiet.", peer.Name, ShowBusConstants.StaleMs / 1000);
             _engine?.FactsChanged();
         };
         var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, http, peer.Hello.TlsFingerprint ?? "", token), _pins(),
@@ -1546,6 +1550,9 @@ public sealed class BackupNode : IAsyncDisposable
 
     // ---- What STATE reads -------------------------------------------------------------------------------------------------
 
+    /// <summary>The link to the primary this backup mirrors (null while it mirrors none).</summary>
+    internal MirrorLink? Link => _link;
+
     /// <summary>The backup's mirror now (null on a node that mirrors none): identical once the primary's show is here at its revision,
     /// every file it names is here, the group's clock is followed and the feed is live.</summary>
     public MirrorView? Mirror()
@@ -1558,8 +1565,8 @@ public sealed class BackupNode : IAsyncDisposable
         string state, words;
         if (_link is not { } link)
             (state, words) = ("joining", _mirrorWords);
-        else if (link.Status != LinkStatus.Live || !_subscribed)
-            (state, words) = (applied < 0 ? "joining" : "lost", _mirrorWords.Length > 0 && link.RefusedWords.Length > 0 ? _mirrorWords : $"{_primaryName}'s mirror is {(link.Status == LinkStatus.Live ? "not subscribed" : "down")} — the last show and air hold here");
+        else if (link.Status is var status && (status != LinkStatus.Live || !_subscribed))
+            (state, words) = (applied < 0 ? "joining" : "lost", _mirrorWords.Length > 0 && link.RefusedWords.Length > 0 ? _mirrorWords : LostWords(status));
         else if (applied < 0)
             (state, words) = ("joining", _mirrorWords);
         else if (_pulling || behind > 0)
@@ -1576,6 +1583,16 @@ public sealed class BackupNode : IAsyncDisposable
             (state, words) = ("identical", string.Create(CultureInfo.InvariantCulture, $"same show (rev {applied}), clock, transports and air as {_primaryName}"));
         return new MirrorView(_settings.Of, _primaryName, state, applied, behind, words);
     }
+
+    /// <summary>Why the mirror is lost, by where its link stands: quiet (the primary has said nothing on it past the stale mark, on this
+    /// node's clock), down (no connection), or connected with no subscription standing.</summary>
+    private string LostWords(LinkStatus status) => status switch
+    {
+        LinkStatus.Stale => string.Create(CultureInfo.InvariantCulture,
+            $"{_primaryName}'s mirror has said nothing for over {ShowBusConstants.StaleMs / 1000} s — the last show and air hold here"),
+        LinkStatus.Live => $"{_primaryName}'s mirror is not subscribed — the last show and air hold here",
+        _ => $"{_primaryName}'s mirror is down — the last show and air hold here",
+    };
 
     /// <summary>The files the show names beside its folder (meshes, measured maps, survey clouds) that could not be pulled from the
     /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror is live.</summary>

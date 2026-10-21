@@ -87,7 +87,9 @@ HEAD.
 `fleet` (after `show`, keys in this order): `role` (solo|primary|backup|fenced), `epoch`, `state` (serving, fenced, or the mirror's
 state on a backup), `of` (the primary a backup mirrors, the node a primary took over from, the node that fenced this one), `backups`
 (`[{"node","name","state","light","words"}]`, a primary's backups with the state each reports in its HEALTH), `mirror` (null, or
-`{"of","name","state":"joining|resyncing|identical|different|lost","rev","behindRev","words"}`), `succession` (the show's plan; `[]`),
+`{"of","name","state":"joining|resyncing|identical|different|lost","rev","behindRev","words"}`; a lost mirror's words say
+why: "FOH-A's mirror is down", "… has said nothing for over 6 s" or "… is not subscribed", each "— the last show and air hold
+here", or the primary's refusal), `succession` (the show's plan; `[]`),
 `alarm` (null: automatic takeover is not built), `last` (null, or `{"kind":"takeover|failback|promote","id","at","words"}`), `nodes`,
 `light`, `headline`, `routes` (`[{"output","device","input","backupInput","primaryNode"}]`), `routeTest` (null, or `{"at","words"}`),
 `door` (the words a client's line that would change the show meets on this node — a backup's way out, or a fenced node's — exactly

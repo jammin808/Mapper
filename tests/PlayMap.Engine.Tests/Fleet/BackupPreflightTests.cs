@@ -79,7 +79,7 @@ public sealed class BackupPreflightTests
         Assert.Equal("MEDIA FETCH md_clip VERSION mv_1 FROM 0badc0de", files.Fix);
         Assert.Contains("meshes/ms00000009-gone.ply", files.Note, StringComparison.Ordinal);
         var mirror = rows.Single(r => r.Id == "backup:mirror");
-        Assert.Equal(("different", Light.Amber), (mirror.Value, mirror.Light));
+        Assert.True(("different", Light.Amber) == (mirror.Value, mirror.Light), $"backup:mirror read {mirror.Value} {mirror.Light}: {BackupRig.Saw(backup)}");
         Assert.Contains("could not be pulled from FOH-A", mirror.Note, StringComparison.Ordinal);
         var route = rows.Single(r => r.Id == "route:op_1");
         Assert.Equal((Light.Red, "unreachable", "FLEET ROUTE TEST"), (route.Light, route.Value, route.Fix));
@@ -92,7 +92,8 @@ public sealed class BackupPreflightTests
 
         // INDEX: the backup's FAILOVER key, lit by its mirror; the primary's key per backup.
         var failover = (await Index(backup)).Single(r => r.GetProperty("id").GetString() == "FAILOVER");
-        Assert.Equal(("amber", "different"), (failover.GetProperty("light").GetString(), failover.GetProperty("state").GetString()));
+        var lit = (failover.GetProperty("light").GetString(), failover.GetProperty("state").GetString());
+        Assert.True(("amber", "different") == lit, $"FAILOVER read {lit}: {BackupRig.Saw(backup)}");
         await deck.Heard("\"id\":\"FAILOVER\",\"kind\":\"takeover\",\"label\":\"FAILOVER\",\"parent\":\"fleet\",\"light\":\"amber\",\"state\":\"different\"");
         Assert.Contains(await Index(primary), r => r.GetProperty("label").GetString() == "FOH-B" && r.GetProperty("kind").GetString() == "backup");
     }

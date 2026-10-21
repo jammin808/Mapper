@@ -149,7 +149,10 @@ that falls silent for 10 s on the node's clock fails that try.
 
 The backup is **identical** when the primary's show is here at its revision, every file it names is here, the backup's clock reads
 the primary's time line and the group's feed is live; `joining`, `resyncing` (a pull under way), `different` (a file could not be
-pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. The backup keeps the highest epoch its primary is
+pulled) and `lost` (the mirror is down, or has said nothing for over 6 s; the last show and air hold) say otherwise. The mirror's
+link counts the primary's silence on the backup's own clock, as its pulls count a body's: a subscription lives as long as its
+connection, so a mirror quiet past 6 s is followed again with the primary's next line on that connection, and one quiet past 12 s
+is dropped and dialled again, and the new connection subscribes anew. The backup keeps the highest epoch its primary is
 heard to hold (the mirror's hello, its HEALTH) in its settings, so a takeover after the backup restarted, its primary silent by
 then, still commits above it. A client's edit on a backup is refused with the way out ("FOH-B mirrors FOH-A — send it to FOH-A
 (10.0.0.21), or FAILOVER to make this node the show", the words STATE.fleet.door carries, so the desk greys what the node would
