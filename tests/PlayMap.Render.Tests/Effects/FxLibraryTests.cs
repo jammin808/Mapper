@@ -1,30 +1,29 @@
 using PlayMap.Core.Effects;
 using PlayMap.Core.Model;
 using PlayMap.Render.Effects;
-using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Tests.Effects;
 
 /// <summary>The ten built-in effects, each drawn at 64×36 over a picture made for it and read back at chosen pixels: the codes
 /// each one promises, the right way up.</summary>
-[Collection("gl")]
-public sealed class FxLibraryTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class FxLibraryTests(BackendFixture backends)
 {
     private const int W = 64, H = 36;
     private static readonly Project Show = Project.CreateDefault("Effects");
 
     private byte[] Draw(string kind, ParamSet ps, Func<int, int, (int, int, int)> input)
     {
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxCompileLane(c);
-            using var runner = new FxChainRunner(d, lane);
+            var d = leg.Device;
+            using var lane = new FxLane(leg.Device);
+            using var runner = new FxChainRunner(leg.Device, lane);
             using var picture = FxRig.Picture(d, W, H, input);
             long frame = 0;
             var px = FxRig.Run(d, lane, runner, Show, FxRig.Chain(FxRig.Slot(kind, ps)), picture, ref frame);
             Assert.Equal(FxSlotState.Ok, FxRig.Live(runner, "fx00000001").State);
-            Assert.Empty(d.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }
@@ -130,11 +129,11 @@ public sealed class FxLibraryTests(GlFixture gl)
     [Fact]
     public void FeedbackKeepsTheLastFrameFadedByItsDecay()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            var d = c.Device;
-            using var lane = new FxCompileLane(c);
-            using var runner = new FxChainRunner(d, lane);
+            var d = leg.Device;
+            using var lane = new FxLane(leg.Device);
+            using var runner = new FxChainRunner(leg.Device, lane);
             using var white = FxRig.Picture(d, W, H, (_, _) => (255, 255, 255));
             using var black = FxRig.Picture(d, W, H, (_, _) => (0, 0, 0));
             var chain = FxRig.Chain(FxRig.Slot("fx.feedback", ParamSet.Empty.With("decay", 0.5)));

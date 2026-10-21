@@ -1,6 +1,7 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Presentation;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 
 namespace PlayMap.Render.Tests.Presentation;
@@ -11,7 +12,7 @@ namespace PlayMap.Render.Tests.Presentation;
 /// elsewhere on the window system's hidden context.</remarks>
 public sealed class GpuPlatformFaultTests
 {
-    private static readonly GlDeviceOptions Device = GlDeviceOptions.Default;
+    private static readonly GpuDeviceOptions Device = GpuDeviceOptions.Default;
 
     /// <summary>A request of <paramref name="path"/>, surfaceless where the platform has it.</summary>
     private static PlatformRequest Request(string path) => new(path, Surfaceless: OperatingSystem.IsLinux());
@@ -25,7 +26,7 @@ public sealed class GpuPlatformFaultTests
     {
         public int Calls { get; private set; }
 
-        public IGpuPlatform Make(GlDeviceOptions options)
+        public IGpuPlatform Make(GpuDeviceOptions options)
         {
             Calls++;
             throw new GpuPlatformStartException(stage, $"fake {GpuPlatformStartException.Word(stage)} failure");

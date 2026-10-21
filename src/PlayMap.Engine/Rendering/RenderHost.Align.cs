@@ -1,6 +1,6 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Engine.Align;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
 using PlayMap.Render.Passes;
 
 namespace PlayMap.Engine.Rendering;
@@ -11,7 +11,7 @@ namespace PlayMap.Engine.Rendering;
 public sealed partial class RenderHost
 {
 #pragma warning disable CA2213 // The device is the renderer's; the stages' textures are disposed by OnContextLostAlign on this thread.
-    private GlDevice? _alignDevice;
+    private IGpuDevice? _alignDevice;
 #pragma warning restore CA2213
     private MeasuredSet? _alignSet;
     private readonly Dictionary<string, (string Key, MeasuredStage Stage)> _alignStages = new(StringComparer.Ordinal);
@@ -36,7 +36,7 @@ public sealed partial class RenderHost
 
     /// <summary>The stages made to match a new set: what changed uploaded, what went let go. Its own method, so the closures it makes
     /// are made only when the set changes and never on a frame where it is the same.</summary>
-    private void UploadAlign(GlDevice device, MeasuredSet set)
+    private void UploadAlign(IGpuDevice device, MeasuredSet set)
     {
         _alignSet = set;
         foreach (var id in _alignStages.Keys.Where(id => !set.Loads.TryGetValue(id, out var l) || l.Key != _alignStages[id].Key).ToList())

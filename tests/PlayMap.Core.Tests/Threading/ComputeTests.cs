@@ -210,6 +210,7 @@ public sealed partial class ComputeTests
         ["PlayMap.Net/Sync/ClockSync.cs"] = 3, // socket loops
         ["PlayMap.Net/Wire/LineSessions.cs"] = 1, // push loop
         ["PlayMap.Net/Wire/WireServer.cs"] = 1, // accept loop
+        ["PlayMap.Render/Effects/FxLane.cs"] = 1, // a program made after its lane went, let go when its make lands (its pictures decode through Compute)
     };
 
     /// <summary>The scan finds pool work in each form it takes: a run of any result type (a nested generic among them), a factory start,

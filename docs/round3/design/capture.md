@@ -54,7 +54,7 @@ glass-to-glass time; until then it says "unmeasured", never a number.
 | The GL path says it is the slower one | `GlPassThroughTests`: one copy, the fence wait, `passThrough.path` "gl", the amber row |
 | An input's phase is measured, never read from a card's reference status | `InputPhaseTests` |
 | Every latency figure is measured, with its method, or "unmeasured" | `CaptureLatencyTests`; `PassThroughLatencyTests` |
-| No SDK file is shipped; a missing runtime is said in words | `LicenceTests` on the MSI; `CaptureProviderTests` |
+| No SDK file is shipped; a missing runtime is said in words | `LicenceTests` on the installer; `CaptureProviderTests` |
 
 **The target.** A mapped pass-through has a floor of about one input frame plus the render: a warp may read any input line to draw any
 output line, so the render waits for the whole frame [cap §0, §1]. Shipping media servers publish 2 to 4 frames from capture to output
@@ -259,9 +259,9 @@ picks the newest; this design states it as the newest published by the sample in
 | FFmpeg with DeckLink | — | never: such a build is nonfree | — | — |
 | NVIDIA GPUDirect for Video | on application | not this round | — | yes (NVIDIA and the card's vendor) |
 
-Each provider's notice sits under capture's heading of `THIRD-PARTY-NOTICES.md`; `LicenceTests` (the integration pass) assert that the
-MSI holds no DeckLink or Magewell binary and no AJA driver or SDK binary — the shim compiled from AJA's MIT sources, if the stretch
-lands, is allowed with its notice.
+Each provider's notice sits under capture's heading of `THIRD-PARTY-NOTICES.md`; `LicenceTests` (the integration pass) assert that
+the installer holds no DeckLink or Magewell binary and no AJA driver or SDK binary — the shim compiled from AJA's MIT sources, if
+the stretch lands, is allowed with its notice.
 
 ## 10. Verbs, STATE, preflight
 

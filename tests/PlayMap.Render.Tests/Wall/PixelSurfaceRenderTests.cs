@@ -10,8 +10,8 @@ namespace PlayMap.Render.Tests.Wall;
 
 /// <summary>A pixel quad in the projector pass: its edges land where its corners say to within half a pixel, its picture is the
 /// homography's (no affine seam along the diagonal), and a quad with no source shows the UV checker.</summary>
-[Collection("gl")]
-public class PixelSurfaceRenderTests(GlFixture gl)
+[Collection("gpu")]
+public class PixelSurfaceRenderTests(BackendFixture backends)
 {
     private const int PW = 320;
     private const int PH = 240;
@@ -33,13 +33,13 @@ public class PixelSurfaceRenderTests(GlFixture gl)
         var lamp = Lamp();
         var output = Scene.SourceOutput("op1", SourceRef.None, PW, PH) with { Mode = OutputMode.Projector, ProjectorId = lamp.Id };
         var project = Scene.Project(generator is null ? [] : [generator], [output], stage: Stage.Empty with { Surfaces = [surface], Projectors = [lamp] });
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             engine.Render(Scene.Inputs(project, 1, stage: new TestStage()));
             var px = new byte[PW * PH * 4];
             Assert.True(engine.ReadOutput("op1", px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }

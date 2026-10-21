@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Net;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
@@ -61,6 +63,7 @@ public sealed class VideoIoHub : IDisposable
     private readonly Func<long> _mono;
     private readonly VideoIoSettings _running;
     private SendPlanEntry[] _plan = [];
+    private ShowDoor[] _doors = [];
     private Project? _reconciled;
     private VideoIoSettings _settings;
     private Thread? _thread;
@@ -114,6 +117,12 @@ public sealed class VideoIoHub : IDisposable
 
     /// <summary>The send plan the render thread runs (published whole).</summary>
     public ImmutableArray<SendPlanEntry> Plan => System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray(Volatile.Read(ref _plan));
+
+    /// <summary>The show doors the node's network sends hold open now: one per open sender, by its protocol's word ("ndi", "omt"), in the
+    /// project's order, each on every interface (<see cref="IPAddress.Any"/>), since a sender's listener does not follow the node's
+    /// bind address (an OMT sender binds every interface, an NDI sender's runtime listens on every adapter its configuration does not
+    /// leave out, and the node names none). Published whole as the sends are reconciled; none once the hub closes. Any thread.</summary>
+    public ImmutableArray<ShowDoor> Doors => System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray(Volatile.Read(ref _doors));
 
     public ILiveInputProvider? InputProvider(LiveProtocol protocol)
     {
@@ -630,7 +639,20 @@ public sealed class VideoIoHub : IDisposable
             _sends.Remove(id);
         }
         Volatile.Write(ref _plan, plan.ToArray());
+        var doors = new List<ShowDoor>();
+        foreach (var send in project.Sends)
+            if (_sends.TryGetValue(send.Id, out var slot) && slot.Sink is not null && DoorWord(slot.MadeFor) is { } word)
+                doors.Add(new ShowDoor(word, IPAddress.Any));
+        Volatile.Write(ref _doors, doors.ToArray());
     }
+
+    /// <summary>A network sender's door word: "ndi", "omt"; null for a protocol whose sends hold no door.</summary>
+    private static string? DoorWord(SendProtocol protocol) => protocol switch
+    {
+        SendProtocol.Ndi => "ndi",
+        SendProtocol.Omt => "omt",
+        _ => null,
+    };
 
     private static bool SameShape(SendPlanEntry e, VideoSend send, SendShape shape) =>
         e.Kind == shape.Kind && e.Target == shape.Target && Equals(e.Source, shape.Source) && e.Width == shape.Width && e.Height == shape.Height
@@ -1024,6 +1046,7 @@ public sealed class VideoIoHub : IDisposable
                 CloseSink(slot);
             _sends.Clear();
             Volatile.Write(ref _plan, []);
+            Volatile.Write(ref _doors, []);
         }
         lock (_wakeGate)
             _wake.Dispose();

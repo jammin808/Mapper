@@ -6,17 +6,24 @@ Read this before any change. The papers people read are `README.md`, `docs/`; th
 
 PlayMap (repo: Mapper) is a media player / render node of the Patterns ecosystem (Patterns, Stagewatch) and a 3D
 projection-mapping suite (structured-light scanning, LiDAR import, pose solving, 3D blending, pen-tool masks). Today it
-is one portable .NET 10 exe with two processes: the **desk** (`PlayMap`, Avalonia 12) and the **engine** (`PlayMap
-engine`, the node: project, playback, FFmpeg decode, OpenGL render, outputs, Show Bus, scan). `docs/ARCHITECTURE.md` is
-the design; read it first. Round 3 (`docs/round3/PLAN.md`) is the plan of record for where it is going.
+is one portable .NET 10 exe that runs as the **desk** (`PlayMap`, Avalonia 12) and the **engine** (`PlayMap engine`,
+the node: project, playback, FFmpeg decode, rendering through the RHI with the GL backend behind it, outputs, Show Bus,
+scan); the engine starts its optimise worker and, with the first effect source, its shader worker as processes of their
+own (`docs/ARCHITECTURE.md` §1). `docs/ARCHITECTURE.md` is the design; read it first. Round 3 (`docs/round3/PLAN.md`) is
+the plan of record for where it is going.
 
 ## The direction (the owner's)
 
 - **An installed Windows-native show node.** Windows 11 from build 26100, every edition, Home included (a fallback for
-  each edition-only feature, said in preflight). A per-machine MSI from the WiX toolset built from its MS-RL source in CI:
-  no WiX paid service, no official WiX binary, the EULA gesture never passed. Unsigned for now, named `-unsigned`, with
-  `SHA256SUMS`. A supervising service starts the engine in the show user's session; the engine never runs as
-  administrator or in session 0. Every build carries its version (`Version.props`, `BuildInfo`).
+  each edition-only feature, said in preflight). A per-machine installer built with Inno Setup this round, every
+  machine-level action done by the supervisor's own commands; an MSI is revisited next round. No WiX paid service or
+  official WiX binary, and WiX's EULA gesture is never passed. Unsigned for now, named `-unsigned`, with `SHA256SUMS`.
+  The Agility SDK's Direct3D 12 runtime ships in the installer under a licence page that carries Microsoft's own licence
+  for `D3D12Core.dll` verbatim, answering its requirement that distributors and external end users "agree to terms that
+  protect it and Microsoft at least as much as this agreement"; PlayMap's own terms are the owner's to name, and none are
+  named yet. The owner accepts Microsoft's distribution terms, including indemnifying Microsoft (round 3 §9 decisions 3 and
+  23). A supervising service starts the engine in the show user's session; the engine never runs as administrator or in
+  session 0. Every build carries its version (`Version.props`, `BuildInfo`).
 - **Direct3D 12 behind an RHI** (`PlayMap.Core/Gpu`), deep Windows, CPU and GPU features (RTX, Radeon) where measured.
   OpenGL stays the reference backend with unchanged pixels until parity is measured; AUTO stays OpenGL until a lab record
   says otherwise. No Vulkan.
@@ -67,15 +74,33 @@ MCP, desk, menus and right-click menus, papers.
 - **Comments state the invariant**, not the history. No model or tool identifiers in anything pushed.
 - **Never** skip, disable or quarantine a test to get green; never rewrite pushed history.
 - Module rules: Core references only the runtime; edges reference Core and their own native library; only App
-  references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, never `PlayMap.Render`, so the two backends
-  meet only in Core's contracts. Windows-only types carry `[SupportedOSPlatform("windows")]`.
+  references Avalonia; `PlayMap.Render.D3D12` references Core and TerraFX, and DXC's package (`Microsoft.Direct3D.DXC`)
+  only at build time (`ExcludeAssets="all"`, `PrivateAssets="all"`: the HLSL build runs its `dxc.exe` on Windows, found
+  through `GeneratePathProperty`, and nothing of it reaches the output or a project that references this one), never
+  `PlayMap.Render`, so the two backends meet only in Core's contracts. Windows-only types carry
+  `[SupportedOSPlatform("windows")]`.
+- **The GL line**: no source under `src/` outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL
+  side (in Render, of any of Silk.NET) but the platform factory, which names the GL platforms' maker (`RhiFenceTests`,
+  `EngineFenceTests` hold it); the lab's bench (`bench/r3-present`) drives the GL platforms directly and is outside the
+  line. A Render GPU test draws through the device its `BackendFixture` leg hands it (only the GL backend's own tests,
+  listed by name in those fences, name a GL type or open a GL context of their own).
 - **Round 3's ownership**: a package edits only the files `docs/round3/PLAN.md` §4 gives it and its hook word's stubs; a
   missing seam goes through the spine amendment lane (§5.7). Every new verb is a catalogue row; every new STATE block has
   its fixture written by a test and a card descriptor.
+- **Threads and deadlines.** The render, decode, audio, control and LED threads claim their roles from the machine platform in
+  one line as their work starts (`using var claim = ThreadClaims.Claim(ThreadRole.Decode);`; the render thread once the engine is
+  attached, after the host points `ThreadClaims` at the platform; the LTC reader, fed on the capture thread, through a
+  `DeliveryClaim`). A deadline thread (the headless pacer, the LED sender, each audio feeder) waits on the timer
+  `ThreadClaims.CreateTimer(clock)` makes on it, disposed at its end: on the machine's clock the platform's (on Windows the
+  high-resolution waitable timer under `TIMER HIGH`), on any other clock the runtime's wait on that clock. `MACHINE SET`'s MMCSS and
+  CPUSETS reach a thread at its next claim, TIMER at its next timer (`docs/PLATFORM.md`).
 - **Native libraries the user installs** (NDI, NVIDIA's Aftermath, vendor SDKs) are never shipped and load at run time.
   A new loader finds its library by absolute path only, never by a bare-name search, which on Windows takes in the
   current directory and `PATH` (Aftermath: round 3 §9 decision 7; NDI's and libvmx's loaders still end with one, an open
   fix in `docs/ROADMAP.md`). FFmpeg ships only as the LGPL build's replaceable shared libraries. No GPL code is copied.
+  DXC ships only as its LLVM-licensed compiler, dxcompiler (`dxcompiler.dll` from Microsoft.Direct3D.DXC, which the
+  engine downloads and never references; `libdxcompiler.so` from DXC's pinned Linux release), whose built-in validator
+  signs DXIL; no `dxil.dll` or `libdxil.so` is used or shipped (round 3 §9 decision 24).
 
 ## The loop
 
@@ -85,6 +110,10 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 # GL tests need a display: Xvfb :99 & export DISPLAY=:99 (Mesa llvmpipe is enough)
 # The Render suite's ES 3.00 leg: PLAYMAP_GL_DIALECT=es300
 # FFmpeg tests need FFmpeg 9.0 shared libraries: PLAYMAP_FFMPEG_DIR=/path/to/lib
+# The shader worker's SPIR-V validator on Windows: PLAYMAP_SPIRV_TOOLS_DIR=<folder with SPIRV-Tools-shared.dll>
+#   (the Windows job's pinned download, README's Build); without it every FX CHECK fails at validate
+# DXC on Linux, set before the build: PLAYMAP_DXC_DIR=<absolute folder with libdxcompiler.so from the pinned DXC release>
+#   (the Linux job's pinned download, README's Build); without it the worker's dxc stage and the HLSL tests say so
 # Generated files (STATE fixtures, the Companion module's fixtures): regenerate with PLAYMAP_WRITE_FIXTURES=1
 ```
 
@@ -98,6 +127,9 @@ CI runs both jobs on every push: Linux (with the ES 3.00 leg) and Windows on `wi
 |---|---|
 | The design | `docs/ARCHITECTURE.md` |
 | Where it is going: round 3's plan, designs and research | `docs/round3/PLAN.md`, `docs/round3/design/`, `docs/round3/research/` |
+| The render hardware interface | `src/PlayMap.Core/Gpu`, `docs/round3/design/rhi.md`, the contracts as built in `docs/round3/notes/rhi.md` §2 |
+| The HLSL library, the shader worker, the effect quarantine | `src/PlayMap.Render.D3D12/Shaders`, `src/PlayMap.Engine/ShaderWorker`, `src/PlayMap.Core/Effects/ShaderQuarantine.cs`, `docs/round3/design/shaders.md`, `docs/wire/shaders.md` |
+| The machine platform: what a node claims from Windows, its identity, the driver lock, machine preflight | `src/PlayMap.Core/Machine`, `src/PlayMap.Platform.Windows`, `src/PlayMap.Engine/Machine`, `docs/PLATFORM.md`, `docs/wire/machine.md` |
 | The wire, STATE, the verbs | `docs/WIRE.md`, `src/PlayMap.Core/Wire/VerbCatalog.cs` (the one table) |
 | The Show Bus node (Patterns/Stagewatch interop) | `docs/SHOWBUS-NODE.md` |
 | Mapping and scanning | `docs/MAPPING.md` |

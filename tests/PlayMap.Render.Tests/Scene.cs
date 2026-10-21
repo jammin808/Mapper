@@ -1,12 +1,12 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using PlayMap.Core.Geometry;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Mapping;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Tests;
 
@@ -31,20 +31,36 @@ public static class Scene
     };
 
     /// <summary>A texture drawn into an 8-bit target and read back as BGRA, top row first.</summary>
-    public static byte[] ReadTexture(GlDevice d, GpuTexture texture)
+    public static byte[] ReadTexture(IGpuDevice d, GpuTexture texture)
     {
-        using var target = d.CreateRenderTarget(texture.Width, texture.Height, TextureFormat.Rgba8, filter: TextureFilter.Nearest);
-        d.BindTarget(target);
-        d.SetBlend(BlendMode.Opaque);
-        var blit = d.Program("blit");
-        blit.Set("uSrc", 0, 0, 1, 1);
-        d.BindSampler(blit, "uTex", 0, texture);
-        d.DrawFullscreen(blit);
+        ArgumentNullException.ThrowIfNull(d);
+        ArgumentNullException.ThrowIfNull(texture);
+        using var target = d.CreateTarget(new TargetDesc(texture.Width, texture.Height, TextureFormat.Rgba8, Filter: TextureFilter.Nearest));
+        var blit = d.Programs.Id("blit");
+        BackendFrames.Pass(d, target, PassDesc.Keep, list => list.Draw(blit, DrawState.Opaque)
+            .Set("uSrc", 0, 0, 1, 1)
+            .Texture("uTex", texture)
+            .Fullscreen());
         return Pixels.Read(d, target);
     }
 
+    /// <summary>A texture of the format asked filled from <paramref name="pixels"/> (rows of <paramref name="rowPixels"/> pixels, 0
+    /// for tightly packed) in a frame of its own.</summary>
+    public static GpuTexture Texture(IGpuDevice d, int width, int height, TextureFormat format, ReadOnlySpan<byte> pixels,
+        UploadFormat upload, TextureFilter filter = TextureFilter.Linear, int rowPixels = 0)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        var texture = d.CreateTexture(new TextureDesc(width, height, format, Uploaded, filter));
+        var bytes = pixels.ToArray();
+        BackendFrames.Run(d, list => list.Upload(texture, bytes, upload, rowPixels));
+        return texture;
+    }
+
+    /// <summary>The usage of a texture a test fills from the CPU and samples.</summary>
+    public const TextureUsage Uploaded = TextureUsage.Sampled | TextureUsage.CopySource | TextureUsage.CopyDest;
+
     /// <summary>A generator rendered once at a size and read back.</summary>
-    internal static byte[] RenderGenerator(GlDevice d, Generator g, int w, int h, GeneratorFrame frame, GeneratorContext? context = null)
+    internal static byte[] RenderGenerator(IGpuDevice d, Generator g, int w, int h, GeneratorFrame frame, GeneratorContext? context = null)
     {
         using var services = new RenderServices(d);
         using var host = new GeneratorHost(services);

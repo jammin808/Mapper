@@ -3,7 +3,7 @@ using PlayMap.Core.Media.Optimise;
 using PlayMap.Core.Model;
 using PlayMap.Engine.Tests.Host;
 using PlayMap.Media.Optimise;
-using PlayMap.Render.Encode;
+using PlayMap.Render.Gl;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Optimise;

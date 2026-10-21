@@ -127,6 +127,7 @@ internal sealed unsafe class HapWorkers : IDisposable
 
     private void Work()
     {
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Decode);
         while (true)
         {
             _ready.Wait();

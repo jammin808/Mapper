@@ -4,7 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Engine.Tests.Audio;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
-using PlayMap.Render.Platform;
+using PlayMap.Render.Gl;
 
 namespace PlayMap.Engine.Tests.Content;
 
@@ -52,7 +52,7 @@ public sealed class ReactiveRealBusTests
         var frame = new ContentFrame();
         var pictures = OnGl(c =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var engine = new RenderEngine(c.Backend, new RenderEngineOptions(Dither: false, GpuTiming: false));
             byte[][] Draw(long t, bool hears = true)
             {
                 bus.BeginFrame(t);
@@ -110,7 +110,7 @@ public sealed class ReactiveRealBusTests
         {
             try
             {
-                using var context = RenderContext.CreateHidden(new Render.Gpu.GlDeviceOptions(CheckErrors: true, DebugOutput: false));
+                using var context = RenderContext.CreateHidden(new Render.Gl.GlDeviceOptions(CheckErrors: true, DebugOutput: false));
                 result = body(context);
             }
             catch (Exception ex)

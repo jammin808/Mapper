@@ -1,3 +1,4 @@
+using PlayMap.Core.Machine;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Time;
 using Silk.NET.OpenAL;
@@ -58,12 +59,13 @@ public enum AudioOutMode
 /// hard: queue dropped, decoder seeked to the timeline, refilled. Sound plays rates from <see cref="MinRate"/> to
 /// <see cref="MaxRate"/>, with the correction's room beyond either end; at any other rate, as while the timeline is paused, the
 /// output holds silent. Every mode runs this one step: a device's thread (OpenAL Soft over WASAPI, PulseAudio, ALSA or
-/// CoreAudio), the loopback's pull, the null output's thread. The null output's playhead is a function of its clock — the media
-/// time at the instant its rate was last set, plus the time since at that rate, never run back by a clock read before its last
-/// step — so a step consumes the whole frames up to its instant and carries the part of a frame after them: no step loses or
-/// invents a frame, wherever the clock steps. While the timeline is paused the playhead holds at the paused media time; a step
-/// whose frames span more than the hard-resync window passes them by a seek, so no step decodes more than the window. The
-/// decoder is the caller's; this class only reads it, on the thread that services the output.</summary>
+/// CoreAudio), the loopback's pull, the null output's thread. A thread steps every 5 ms, waiting on a deadline timer it makes as it
+/// starts for instants on the machine's monotonic clock, so no wait reads the output's clock. The null output's playhead is a
+/// function of its clock — the media time at the instant its rate was last set, plus the time since at that rate, never run back
+/// by a clock read before its last step — so a step consumes the whole frames up to its instant and carries the part of a frame
+/// after them: no step loses or invents a frame, wherever the clock steps. While the timeline is paused the playhead holds at the
+/// paused media time; a step whose frames span more than the hard-resync window passes them by a seek, so no step decodes more than
+/// the window. The decoder is the caller's; this class only reads it, on the thread that services the output.</summary>
 public sealed unsafe class AudioOut : IDisposable
 {
     public const int BlockFrames = 480;
@@ -84,6 +86,9 @@ public sealed unsafe class AudioOut : IDisposable
     private const int AlcFrequency = 0x1007;
     private const int AlSampleOffsetLatencySoft = 0x1200;
 
+    /// <summary>How long the feeder waits after one service step before the next (ns, on its cadence clock).</summary>
+    private const long FeedPeriodNs = 5_000_000;
+
     private static readonly Lock GlobalContextGate = new();
 
     private readonly Lock _gate = new();
@@ -100,6 +105,8 @@ public sealed unsafe class AudioOut : IDisposable
     private readonly delegate* unmanaged[Cdecl]<uint, int, long*, void> _getSourceI64;
     private readonly uint _source;
     private readonly IMonoClock _clock;
+    private readonly IMonoClock _cadence;
+    private readonly Func<IDeadlineTimer> _timers;
 
     private FfmpegAudioDecoder? _decoder;
     private IAudioTimeline? _timeline;
@@ -119,13 +126,20 @@ public sealed unsafe class AudioOut : IDisposable
     private long _framesFed;
     private bool _disposed;
 
-    private AudioOut(AudioOutMode mode, string status, Device* device, Context* context, IMonoClock clock, bool feeder = true)
+    /// <param name="cadence">The clock the feeder's waits are on (the machine's monotonic clock by default), never the output's.</param>
+    /// <param name="timers">Makes the feeder's deadline timer, on its thread as it starts (the thread disposes it); null:
+    /// <see cref="ThreadClaims.CreateTimer"/> on <paramref name="cadence"/>.</param>
+    private AudioOut(AudioOutMode mode, string status, Device* device, Context* context, IMonoClock clock, bool feeder = true,
+        IMonoClock? cadence = null, Func<IDeadlineTimer>? timers = null)
     {
         Mode = mode;
         Status = status;
         _device = device;
         _context = context;
         _clock = clock;
+        var paced = cadence ?? MonoClock.Instance;
+        _cadence = paced;
+        _timers = timers ?? (() => ThreadClaims.CreateTimer(paced));
         if (mode != AudioOutMode.Null)
         {
             var alc = OpenAlLibrary.Alc;
@@ -267,6 +281,11 @@ public sealed unsafe class AudioOut : IDisposable
     /// <summary>A null output with no thread of its own: each service step is a call of <see cref="Service"/> (tests: every step at
     /// an instant the test sets).</summary>
     internal static AudioOut OpenNullPulled(string why, IMonoClock clock) => new(AudioOutMode.Null, why, null, null, clock, feeder: false);
+
+    /// <summary>A null output whose feeder waits on the timer <paramref name="timers"/> makes on its thread, for instants on
+    /// <paramref name="cadence"/> (tests: every wait of the feeder seen, and its cadence moved by the test's timer).</summary>
+    internal static AudioOut OpenNullPaced(string why, IMonoClock clock, IMonoClock cadence, Func<IDeadlineTimer> timers) =>
+        new(AudioOutMode.Null, why, null, null, clock, feeder: true, cadence, timers);
 
     /// <summary>One service step of a pulled null output.</summary>
     internal void Service()
@@ -629,9 +648,13 @@ public sealed unsafe class AudioOut : IDisposable
 
     private void Feed()
     {
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Audio);
+        // The feeder's waits are on its cadence clock, never the output's, which only a service step reads.
+        using var timer = _timers();
+        var stop = _stopFeeder.WaitHandle;
         if (Mode != AudioOutMode.Null && _setThreadContext is not null)
             _setThreadContext(_context);
-        while (!_stopFeeder.Wait(5))
+        while (timer.WaitUntil(_cadence.NowNs + FeedPeriodNs, stop))
         {
             lock (_gate)
             {

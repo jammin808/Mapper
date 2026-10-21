@@ -7,9 +7,12 @@ namespace PlayMap.Core.Machine;
 
 /// <summary>What a show node claims from its operating system and what it is: the process's claims made once at start, each
 /// thread's claims by role, a deadline timer, keeping the machine awake, the node's identity and capabilities, and the machine's
-/// facts for preflight. Every claim answers what it asked, what the system said and what reading it back shows; nothing on the
-/// machine changes silently. A node's services carry one (Core's <see cref="NullMachinePlatform"/> until wp3-platform sets its own),
-/// and the node's host points <see cref="ThreadClaims"/> at it once at start.</summary>
+/// facts for preflight; and what it reads back of what it uses and holds — the settings handed to it, keep-awake as a claim, the
+/// kind of each timer it made, the power settings — answered for a platform that claims nothing by the members' defaults. Every
+/// claim answers what it asked, what the system said and what reading it back shows; nothing on the machine changes silently. A
+/// node's services carry the platform its machine part composes (Windows' on Windows, Core's <see cref="NullMachinePlatform"/> on any
+/// other machine and on a node composed without a machine part), and the node's host points <see cref="ThreadClaims"/> at it once at
+/// start.</summary>
 public interface IMachinePlatform : IDisposable
 {
     /// <summary>"windows", or "none" on a node whose platform claims nothing.</summary>
@@ -36,6 +39,27 @@ public interface IMachinePlatform : IDisposable
 
     /// <summary>The machine's facts as preflight rows read them, each with its light and its words.</summary>
     ImmutableArray<MachineFact> Facts();
+
+    /// <summary>Hands the platform the settings just saved: each thread's next claim, the next timer, the next keep-awake and the facts
+    /// follow them; the process's claims are made again only by <see cref="ClaimProcess"/>. A platform that uses no setting beyond its
+    /// process claims takes nothing.</summary>
+    void Use(MachineSettings settings) => ArgumentNullException.ThrowIfNull(settings);
+
+    /// <summary>Keep-awake as a claim ("process.awake", asked "on") while any holder asks for it: applied while a hold is in force as
+    /// read back, else refused with the system's words; null while nobody asks, and on a platform that holds nothing.</summary>
+    Claim? AwakeClaim => null;
+
+    /// <summary>The kind of a deadline timer this platform made: "high" for the high-resolution waitable timer, "default" for the
+    /// runtime's own wait, the only kind a platform without another makes.</summary>
+    string TimerMode(IDeadlineTimer timer)
+    {
+        ArgumentNullException.ThrowIfNull(timer);
+        return "default";
+    }
+
+    /// <summary>The power settings as last read (with the capabilities, and again with the facts), never on a reader's path: the active
+    /// plan's name and kind among them; <see cref="PowerReading.Unread"/> before any read, and on a platform that reads none.</summary>
+    PowerReading Power => PowerReading.Unread;
 }
 
 /// <summary>A wait until an instant on the machine's monotonic clock, for a claimed thread's deadline waits.</summary>
@@ -53,15 +77,8 @@ public interface IDeadlineTimer : IDisposable
 /// verb does (else null, and the words say what a person does).</summary>
 public sealed record MachineFact(string Item, Light Light, string Value, string Words, string? Fix = null);
 
-/// <summary>MACHINE SET's settings, one per claim, kept in this node's own settings by its settings writer (never in the project, so a
-/// hot backup keeps its own). A claim's setting lands with the claim, with its default and the cause of that default.</summary>
-public sealed record MachineSettings
-{
-    public static MachineSettings Default { get; } = new();
-}
-
-/// <summary>The platform of a node that claims nothing from its operating system: every claim is a no-op that says so with
-/// <see cref="Words"/>, the timer waits at the runtime's own resolution, and the identity carries this build and what the runtime
+/// <summary>The platform of a node that claims nothing from its operating system: every claim is a no-op that asks nothing and says so
+/// with <see cref="Words"/>, the timer waits at the runtime's own resolution, and the identity carries this build and what the runtime
 /// itself reports (the logical processors, the vector width it accelerates), every other field unread.</summary>
 public sealed class NullMachinePlatform : IMachinePlatform
 {
@@ -87,7 +104,8 @@ public sealed class NullMachinePlatform : IMachinePlatform
         return [new Claim("process", "", false, "", Words)];
     }
 
-    public IThreadClaim ClaimThread(ThreadRole role) => new UnclaimedThread(role, Words);
+    /// <summary>No claim is attempted: the one claim asks nothing (a grey light), with the words why.</summary>
+    public IThreadClaim ClaimThread(ThreadRole role) => new UnclaimedThread(role, Words, asked: "");
 
     public IDeadlineTimer CreateTimer() => new RuntimeDeadlineTimer(_clock);
 

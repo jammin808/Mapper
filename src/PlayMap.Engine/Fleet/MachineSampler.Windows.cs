@@ -6,7 +6,8 @@ namespace PlayMap.Engine.Fleet;
 
 /// <summary>Windows' counters: <c>GetSystemTimes</c> (kernel time includes idle), <c>GlobalMemoryStatusEx</c>, <c>GetTickCount64</c>, the
 /// free space of the home's volume, the network's bytes from the interfaces' statistics, and the GPU's 3D engines from the PDH
-/// counter <c>\GPU Engine(*engtype_3D)\Utilization Percentage</c> (summed over the engines, at most 100). A PDH query that does not
+/// counter <c>\GPU Engine(*engtype_3D)\Utilization Percentage</c> (summed over the engines of the adapter that drives the outputs, as
+/// the machine platform's identity names it, else over every engine; at most 100). A PDH query that does not
 /// open leaves the GPU unknown with the status in its words. GPU temperature is not read here (NVML, next round).</summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsMachineReader : IMachineReader, IDisposable
@@ -138,10 +139,13 @@ public sealed class WindowsMachineReader : IMachineReader, IDisposable
                     return -1;
                 }
                 var items = (CounterValueItem*)p;
+                // The engines of the adapter that drives the outputs, by its LUID in the instance's name, where the identity names one.
+                var show = Core.Machine.ThreadClaims.Platform?.Identity().Adapters.FirstOrDefault(a => a.DrivesOutputs) is { } a
+                    ? string.Create(CultureInfo.InvariantCulture, $"luid_0x{(uint)(a.Luid >> 32):X8}_0x{(uint)a.Luid:X8}") : null;
                 double sum = 0;
                 for (var i = 0; i < count; i++)
                 {
-                    if (items[i].CStatus == 0)
+                    if (items[i].CStatus == 0 && (show is null || (Marshal.PtrToStringUni(items[i].Name)?.Contains(show, StringComparison.OrdinalIgnoreCase) ?? false)))
                         sum += items[i].DoubleValue;
                 }
                 why = "";

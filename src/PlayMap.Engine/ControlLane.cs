@@ -88,6 +88,7 @@ public sealed class ControlLane : IDisposable
 
     private void Loop()
     {
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Control);
         Volatile.Write(ref _managedThreadId, Environment.CurrentManagedThreadId);
         try
         {

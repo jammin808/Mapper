@@ -102,7 +102,7 @@ internal sealed class GlThread : IDisposable
 {
     private readonly System.Collections.Concurrent.BlockingCollection<Action> _work = [];
     private readonly Thread _thread;
-    private Render.Platform.RenderContext? _context;
+    private Render.Gl.RenderContext? _context;
 
     public GlThread()
     {
@@ -111,7 +111,7 @@ internal sealed class GlThread : IDisposable
         {
             try
             {
-                _context = Render.Platform.RenderContext.CreateHidden(new Render.Gpu.GlDeviceOptions(true, false));
+                _context = Render.Gl.RenderContext.CreateHidden(new Render.Gl.GlDeviceOptions(true, false));
                 ready.SetResult();
             }
             catch (Exception ex)
@@ -127,7 +127,7 @@ internal sealed class GlThread : IDisposable
         ready.Task.GetAwaiter().GetResult();
     }
 
-    public Render.Platform.RenderContext Context => _context!;
+    public Render.Gl.RenderContext Context => _context!;
 
     public T Run<T>(Func<T> work)
     {

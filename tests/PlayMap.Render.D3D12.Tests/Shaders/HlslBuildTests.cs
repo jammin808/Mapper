@@ -1,0 +1,268 @@
+using PlayMap.Engine.ShaderWorker;
+using PlayMap.Tests;
+
+namespace PlayMap.Render.D3D12.Tests.Shaders;
+
+/// <summary>Every program of the HLSL library compiles to validated, signed DXIL with a PDB and its reflection, both entries, from
+/// the sources and headers the backend's assembly embeds — on both jobs (M6: DXC's Linux build signs) — and the set is the GL
+/// library's. Signed is the retail hash: each container's digest is the hash recomputed over it from the published algorithm, never
+/// zeros or a bypass sentinel. On Windows the build's own compile (Microsoft.Direct3D.DXC's dxc.exe) embedded the same set: each
+/// entry's DXIL signed so and its reflection beside it, the reflection the sources make now (a stale blob fails); on Linux, where no
+/// DXC executable is packaged, the build embeds none. The build starts dxc.exe without the variable through which DXC's driver would
+/// load an external validator, and the Windows job, which names a path with nothing there in it before its build, keeps every entry's
+/// PDB the build writes and holds its published exe to DXC's compiler alone with its licence before uploading it. The Linux job lays
+/// down the shader worker's pinned dxcompiler, the release's one file, before it restores.</summary>
+public sealed class HlslBuildTests
+{
+    [Fact]
+    public void EveryProgramCompilesToSignedDxilWithAPdbAndReflection()
+    {
+        var failed = new List<string>();
+        foreach (var c in HlslCompile.Programs)
+        {
+            foreach (var (stage, s) in new[] { ("vs", c.Vs), ("ps", c.Ps) })
+            {
+                if (!s.Output.Ok)
+                {
+                    failed.Add($"{c.Program.Name} {stage}: {s.Words}");
+                    continue;
+                }
+                Assert.True(s.Output.Signed, $"{c.Program.Name} {stage}: unsigned DXIL");
+                AssertRetailHash(s.Output.Dxil, $"{c.Program.Name} {stage}");
+                Assert.NotEmpty(s.Output.Pdb);
+                Assert.NotEmpty(s.Output.Reflection);
+                Assert.NotNull(s.Reflection);
+            }
+        }
+        Assert.True(failed.Count == 0, string.Join("\n", failed));
+        Assert.Equal(PlayMap.Render.Shaders.ShaderLibrary.Names.Order(StringComparer.Ordinal),
+            HlslCompile.Programs.Select(c => c.Program.Name).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void TheBuildEmbedsTheLibraryAndOnWindowsItsSignedDxil()
+    {
+        foreach (var p in HlslLibrary.Programs())
+            Assert.NotNull(HlslCompile.Resource($"shaders/gen/{p.Name}/Layout.hlsli"));
+        Assert.NotNull(HlslCompile.Resource("shaders/programs.json"));
+        Assert.NotNull(HlslCompile.Resource("shaders/Common.hlsli"));
+        var blobs = HlslCompile.Resources("shaders/dxil/").ToList();
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Empty(blobs);
+            return;
+        }
+        var want = HlslLibrary.Programs().SelectMany(p => new[] { "vs.dxil", "vs.refl", "ps.dxil", "ps.refl" }.Select(f => $"shaders/dxil/{p.Name}.{f}"))
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(want, blobs);
+        foreach (var dxil in blobs.Where(b => b.EndsWith(".dxil", StringComparison.Ordinal)))
+        {
+            Assert.True(new DxilOutput(true, HlslCompile.Resource(dxil)!, [], [], "").Signed, $"{dxil} is not signed");
+            AssertRetailHash(HlslCompile.Resource(dxil)!, dxil);
+        }
+
+        // Each embedded entry is the one the sources and the program list make now: its reflection (constants, bindings, block sizes
+        // and input signature) is the in-process compile's, so a blob the build left behind after an entry point, a file or a source
+        // changed fails here.
+        var stale = new List<string>();
+        foreach (var c in HlslCompile.Programs)
+        {
+            foreach (var (stage, s) in new[] { ("vs", c.Vs), ("ps", c.Ps) })
+            {
+                var embedded = HlslCompile.Reflect(HlslCompile.Resource($"shaders/dxil/{c.Program.Name}.{stage}.refl")!, out var words);
+                if (embedded is null || s.Reflection is null)
+                {
+                    stale.Add($"{c.Program.Name} {stage}: {words}{s.Words}");
+                    continue;
+                }
+                if (!embedded.Constants.SequenceEqual(s.Reflection.Constants) || !embedded.Bindings.SequenceEqual(s.Reflection.Bindings)
+                    || !embedded.Buffers.SequenceEqual(s.Reflection.Buffers) || !embedded.Inputs.SequenceEqual(s.Reflection.Inputs))
+                    stale.Add($"{c.Program.Name} {stage}: the embedded entry reflects [{Describe(embedded)}], the sources make [{Describe(s.Reflection)}]");
+            }
+        }
+        Assert.True(stale.Count == 0, string.Join("\n", stale));
+    }
+
+    /// <summary>The container's digest is its retail hash, recomputed here: DXC's own validator signed it.</summary>
+    private static void AssertRetailHash(byte[] dxil, string what)
+    {
+        Assert.True(DxilHash.KindOf(dxil) == DxilHash.Kind.Hash, $"{what}: its digest is {DxilHash.KindOf(dxil)}, not a hash");
+        Assert.True(DxilHash.RetailOf(dxil).AsSpan().SequenceEqual(DxilHash.Digest(dxil)),
+            $"{what}: its digest {Convert.ToHexStringLower(DxilHash.Digest(dxil))} is not its retail hash {Convert.ToHexStringLower(DxilHash.RetailOf(dxil))}");
+    }
+
+    /// <summary>The Linux job lays down the shader worker's dxcompiler before it restores, in a step of its own: DXC's Linux release
+    /// downloaded, the archive held to its SHA-256, its one member ./lib/libdxcompiler.so extracted (nothing of DXC's validator) and
+    /// held to the worker's pin, and the folder named in PLAYMAP_DXC_DIR for the build (which copies it beside the engine) and the
+    /// suites. The Windows job takes dxcompiler.dll from NuGet and has no such step.</summary>
+    [Fact]
+    public void TheLinuxJobLaysDownThePinnedDxcompilerBeforeItRestores()
+    {
+        var steps = WorkflowSteps("test");
+        var restore = steps.FindIndex(s => s.Name == "Restore");
+        var dxc = steps.FindIndex(s => s.Run.Contains("PLAYMAP_DXC_DIR=", StringComparison.Ordinal));
+        Assert.True(dxc >= 0 && dxc < restore, $"the Linux job names PLAYMAP_DXC_DIR at step {dxc}, its Restore is step {restore}");
+        var run = steps[dxc].Run;
+        Assert.Contains("https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz", run, StringComparison.Ordinal);
+        Assert.Contains("96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1", run, StringComparison.Ordinal);
+        Assert.Contains(CompilerNatives.PinsFor("linux-x64").Single(p => p.Name == CompilerNatives.Dxc).Sha256, run, StringComparison.Ordinal);
+        Assert.Contains("sha256sum -c", run, StringComparison.Ordinal);
+        Assert.Contains("$GITHUB_ENV", run, StringComparison.Ordinal);
+        // Of the release, the one file: the archive's single member ./lib/libdxcompiler.so, and nothing of DXC's validator.
+        var tar = Assert.Single(run.Split('\n'), l => l.StartsWith("tar ", StringComparison.Ordinal));
+        Assert.EndsWith(" --strip-components=2 ./lib/libdxcompiler.so", tar, StringComparison.Ordinal);
+        Assert.DoesNotContain("*", tar, StringComparison.Ordinal);
+        Assert.DoesNotContain("libdxil", run, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(WorkflowSteps("windows"), s => s.Run.Contains("PLAYMAP_DXC_DIR", StringComparison.Ordinal));
+    }
+
+    /// <summary>The build's dxc.exe validates and signs with dxcompiler's built-in validator alone: the build's task starts it without
+    /// DXC_DXIL_DLL_PATH, through which DXC's driver loads an external validator from the absolute path the variable names and fails
+    /// when nothing is there. Before its build the Windows job names such a path for every later step, so a build whose dxc.exe saw the
+    /// variable fails there.</summary>
+    [Fact]
+    public void TheBuildsDxcStartsWithoutAnExternalValidatorsPath()
+    {
+        var targets = File.ReadAllText(Path.Combine(HlslLibrary.RepoRoot(), "src", "PlayMap.Render.D3D12", "Shaders", "Shaders.targets"));
+        var start = targets.IndexOf("Process.Start(", StringComparison.Ordinal);
+        Assert.True(start >= 0 && start == targets.LastIndexOf("Process.Start(", StringComparison.Ordinal), "the build's task starts one process, dxc.exe");
+        var remove = targets.IndexOf("info.Environment.Remove(\"DXC_DXIL_DLL_PATH\");", StringComparison.Ordinal);
+        Assert.True(remove >= 0 && remove < start, $"the task removes DXC_DXIL_DLL_PATH from dxc.exe's environment at {remove}, and starts it at {start}");
+
+        var steps = WorkflowSteps("windows");
+        var build = steps.FindIndex(s => s.Name == "Build");
+        var named = steps.FindIndex(s => s.Run.Contains("\"DXC_DXIL_DLL_PATH=$path\" >> $env:GITHUB_ENV", StringComparison.Ordinal));
+        Assert.True(named >= 0 && named < build, $"the Windows job names DXC_DXIL_DLL_PATH at step {named}, its Build is step {build}");
+        Assert.Null(steps[named].If);
+        Assert.Contains("$path = Join-Path $env:GITHUB_WORKSPACE", steps[named].Run, StringComparison.Ordinal);
+        Assert.Contains("if (Test-Path -LiteralPath $path) { throw", steps[named].Run, StringComparison.Ordinal);
+        Assert.DoesNotContain(WorkflowSteps("test"), s => s.Run.Contains("DXC_DXIL_DLL_PATH", StringComparison.Ordinal));
+    }
+
+    /// <summary>The Windows job holds its portable exe to DXC's compiler alone, with its licence: straight after it publishes the desk
+    /// to publish/PlayMap, under the same condition and before the exe is named or uploaded, it runs the Engine suite's
+    /// DxcNativesTests again on that build, which read publish/PlayMap as one more output once it is there.</summary>
+    [Fact]
+    public void TheWindowsJobHoldsItsPublishToDxcompilerAloneWithItsLicenceBeforeItUploadsIt()
+    {
+        var steps = WorkflowSteps("windows");
+        var publish = steps.FindIndex(s => s.Name == "Publish the portable exe");
+        var upload = steps.FindIndex(s => s.Name == "Upload the exe");
+        Assert.True(publish >= 0 && upload > publish + 1, $"the Windows job publishes at step {publish} and uploads the exe at step {upload}");
+        Assert.Contains("-o publish/PlayMap", steps[publish].Run, StringComparison.Ordinal);
+        var check = steps[publish + 1];
+        Assert.Equal(steps[publish].If, check.If);
+        Assert.Contains("dotnet test tests/PlayMap.Engine.Tests -c Release --no-build", check.Run, StringComparison.Ordinal);
+        Assert.Contains("--filter FullyQualifiedName~PlayMap.Engine.Tests.Shaders.DxcNativesTests\n", check.Run, StringComparison.Ordinal);
+    }
+
+    /// <summary>Where the build writes each entry's PDB (Shaders.targets: the backend's intermediate folder, hlsl/&lt;program&gt;/), as the
+    /// Windows job's upload names it.</summary>
+    private const string SymbolsGlob = "src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb";
+
+    /// <summary>The Windows job keeps the library's symbols: after its build, in a step that runs whenever the build passed, it uploads
+    /// every PDB the build wrote as hlsl-symbols and fails when there is none. Where DXC's executable runs (Windows) that glob holds
+    /// both entries' PDBs of every program; elsewhere the build writes none, and the job that would find none uploads nothing.</summary>
+    [Fact]
+    public void TheWindowsJobUploadsTheSymbolsOfEveryEntryTheBuildCompiles()
+    {
+        var steps = WorkflowSteps("windows");
+        Assert.DoesNotContain(WorkflowSteps("test"), s => s.With.GetValueOrDefault("name") == "hlsl-symbols");
+        var build = steps.FindIndex(s => s.Name == "Build");
+        var upload = steps.FindIndex(s => s.With.TryGetValue("name", out var n) && n == "hlsl-symbols");
+        Assert.True(build >= 0 && upload > build, $"the Windows job's Build is step {build}, the symbols' upload step {upload}");
+        var step = steps[upload];
+        Assert.Equal("actions/upload-artifact@v5", step.Uses);
+        // No condition of its own: it runs whenever the build passed, the build that wrote the PDBs.
+        Assert.Null(step.If);
+        Assert.Equal((SymbolsGlob, "error"), (step.With.GetValueOrDefault("path"), step.With.GetValueOrDefault("if-no-files-found")));
+
+        var obj = Path.Combine(HlslLibrary.RepoRoot(), "src", "PlayMap.Render.D3D12", "obj");
+        var made = Directory.Exists(obj)
+            ? Directory.EnumerateFiles(obj, "*.pdb", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(obj, f).Replace('\\', '/'))
+                .Where(f => f.Contains("/hlsl/", StringComparison.Ordinal)).ToList()
+            : [];
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Empty(made);
+            return;
+        }
+        var have = made.Select(f => f[(f.IndexOf("/hlsl/", StringComparison.Ordinal) + "/hlsl/".Length)..]).ToHashSet(StringComparer.Ordinal);
+        var want = HlslLibrary.Programs().SelectMany(p => new[] { $"{p.Name}/vs.pdb", $"{p.Name}/ps.pdb" });
+        var missing = want.Where(w => !have.Contains(w)).ToList();
+        Assert.True(missing.Count == 0, "the build wrote no PDB for " + string.Join(", ", missing));
+    }
+
+    /// <summary>A step of a job in .github/workflows/build.yml: its name, the action it uses, its condition, its inputs and its script.</summary>
+    private sealed record Step
+    {
+        public string? Name { get; init; }
+        public string? Uses { get; init; }
+        public string? If { get; init; }
+        public string Run { get; init; } = "";
+        public Dictionary<string, string> With { get; } = new(StringComparer.Ordinal);
+    }
+
+    /// <summary>A job's steps, read from the workflow's lines: a job's key at two spaces, its steps at six ("- "), a step's keys at
+    /// eight, its inputs at ten and its script's lines (after "run: |") deeper than eight; comments and blank lines are skipped.</summary>
+    private static List<Step> WorkflowSteps(string job)
+    {
+        var lines = File.ReadAllLines(Path.Combine(HlslLibrary.RepoRoot(), ".github", "workflows", "build.yml"));
+        var start = Array.IndexOf(lines, $"  {job}:");
+        Assert.True(start >= 0, $"build.yml has no job {job}");
+        var steps = new List<Step>();
+        var inWith = false;
+        var inRun = false;
+        foreach (var raw in lines.Skip(start + 1))
+        {
+            if (raw.Length > 2 && raw.StartsWith("  ", StringComparison.Ordinal) && raw[2] != ' ')
+                break;
+            var text = raw.TrimStart();
+            if (text.Length == 0 || text.StartsWith('#'))
+                continue;
+            var depth = raw.Length - text.Length;
+            if (inRun && depth > 8)
+            {
+                steps[^1] = steps[^1] with { Run = steps[^1].Run + text + "\n" };
+                continue;
+            }
+            inRun = false;
+            if (depth == 6 && text.StartsWith("- ", StringComparison.Ordinal))
+            {
+                steps.Add(new Step());
+                inWith = false;
+                text = text[2..];
+                depth = 8;
+            }
+            var colon = text.IndexOf(':', StringComparison.Ordinal);
+            if (steps.Count == 0 || colon < 0)
+                continue;
+            var key = text[..colon];
+            var value = text[(colon + 1)..].Trim().Trim('"');
+            if (depth == 8)
+            {
+                inWith = key == "with";
+                inRun = key == "run";
+                steps[^1] = key switch
+                {
+                    "name" => steps[^1] with { Name = value },
+                    "uses" => steps[^1] with { Uses = value },
+                    "if" => steps[^1] with { If = value },
+                    "run" => steps[^1] with { Run = value is "|" or "|-" ? "" : value + "\n" },
+                    _ => steps[^1],
+                };
+            }
+            else if (depth == 10 && inWith)
+            {
+                steps[^1].With[key] = value;
+            }
+        }
+        return steps;
+    }
+
+    private static string Describe(DxilReflection r) =>
+        string.Join(", ", r.Constants.Select(k => $"{k.Buffer}.{k.Name}:{k.Type}{(k.RowMajor ? " row_major" : "")}@{k.Offset}")
+            .Concat(r.Bindings.Select(b => $"{b.Kind} {b.Name}@{b.Register}"))
+            .Concat(r.Buffers.Select(b => $"{b.Name} {b.Size} bytes"))
+            .Concat(r.Inputs.Select(i => $"in {i.Semantic}{i.Index}:{i.Type}{i.Components}")));
+}

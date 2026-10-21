@@ -419,7 +419,7 @@ public static class VerbCatalog
         V2("FX BYPASS", "FX BYPASS <slot>|<target>|ALL ON|OFF|TOGGLE", "Bypasses effects (ALL ON is the panic outcome 'effects off')", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX RESET", "FX RESET <slot>", "Sets an effect's parameters back to their defaults", VerbCategory.Effects, VerbRisk.Review, true),
         V2("FX IMPORT", "FX IMPORT <path>|<json>", "Adds an ISF effect to the show (content-addressed, carried with it); answers its asset id and the compile report", VerbCategory.Effects, VerbRisk.Review, true),
-        V2("FX CHECK", "FX CHECK <asset>|<kind>|<json>", "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node's context and reports its issues by line", VerbCategory.Effects, VerbRisk.Low, false),
+        V2("FX CHECK", "FX CHECK <asset>|<kind>|<json>", "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node's context and reports its issues by line; on a node with a shader worker, each stage of the Direct3D 12 road too (translate, glslang, validate, cross, dxc)", VerbCategory.Effects, VerbRisk.Low, false),
 
         // Sound, the beat clock and the modulation bus (wp2-audio).
         V2("AUDIO INPUTS", "AUDIO INPUTS", "The sound inputs this node can listen to (devices, the system's sound, test signals)", VerbCategory.Audio, VerbRisk.Low, false),
@@ -538,7 +538,7 @@ public static class VerbCatalog
 
         // The machine: what a show node claims from Windows, its identity and its driver lock (wp3-platform).
         V3("MACHINE", "MACHINE [STATUS]", "This machine's identity, edition and support tier, the claims PlayMap made of Windows with what Windows answered, and any drift from the locked driver set, in words", VerbCategory.Fleet, VerbRisk.Low, false),
-        V3("MACHINE SET", "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC SHOW|DEFAULT | AWAKE ON|OFF", "Changes one of this machine's claims (power throttling, the timer, MMCSS, the process priority, CPU sets, the GPU scheduling class, the GC's show mode, keep-awake), kept on the node and applied now where Windows allows, else at the next start, saying which; REALTIME needs the privilege the installer grants", VerbCategory.Fleet, VerbRisk.Review, true) with { Show = ShowClass.Setup, RiskWhen = [new(-1, "REALTIME", VerbRisk.High)] },
+        V3("MACHINE SET", "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF|ONE-CACHE | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC DEFAULT|SHOW | AWAKE ON|OFF", "Changes one of this machine's claims (power throttling, the timer, MMCSS, the process priority, CPU sets, the GPU scheduling class, the GC's show mode, keep-awake), kept on the node and applied now where Windows allows, else at the next start, saying which; REALTIME needs the privilege the installer grants", VerbCategory.Fleet, VerbRisk.Review, true) with { Show = ShowClass.Setup, RiskWhen = [new(-1, "REALTIME", VerbRisk.High)] },
         V3("MACHINE LOCK", "MACHINE LOCK [CLEAR]", "Keeps this machine's driver set (adapters, the Direct3D runtime, FFmpeg, the sync board's firmware, the OS build, PlayMap's build) as the one its shows run on, so preflight names any drift; CLEAR forgets it (kept on the node, never in the project)", VerbCategory.Fleet, VerbRisk.Review, true) with { Show = ShowClass.Setup },
 
         // The Direct3D 12 device (wp3-d3d12-core).

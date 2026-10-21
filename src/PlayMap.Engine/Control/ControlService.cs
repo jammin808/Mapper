@@ -9,6 +9,7 @@ using PlayMap.Core.Control;
 using PlayMap.Core.Control.Midi;
 using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Dmx;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
 using PlayMap.Core.Tc;
 using PlayMap.Core.Wire;
@@ -319,6 +320,24 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
 
     /// <summary>The OSC socket's address (its port once bound; 0 = ephemeral in tests).</summary>
     public IPEndPoint? OscLocal => _osc.Local;
+
+    /// <summary>The control inputs open now, each with the address it is bound to: OSC (its socket's own), Art-Net while DMX input or an
+    /// Art-Net timecode source reads the shared socket bound as asked (its interface, or every interface), and sACN while its receiver
+    /// is open (its interface, or every interface).</summary>
+    public ImmutableArray<ShowDoor> Doors
+    {
+        get
+        {
+            var doors = ImmutableArray.CreateBuilder<ShowDoor>(3);
+            if (_osc.Local is { } osc)
+                doors.Add(new ShowDoor("osc", osc.Address));
+            if (Volatile.Read(ref _artSubscribed) && _options.ArtNet is { Problem: null } art)
+                doors.Add(new ShowDoor("artnet", art.Interface ?? IPAddress.Any));
+            if (Volatile.Read(ref _sacn) is { IsOpen: true } sacn)
+                doors.Add(new ShowDoor("sacn", sacn.Interface ?? IPAddress.Any));
+            return doors.ToImmutable();
+        }
+    }
 
     private void OpenOsc(ControlSettings settings, NodeSettings node)
     {

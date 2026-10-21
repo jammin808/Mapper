@@ -172,13 +172,14 @@ public interface IShowArmHook
     Task<string> DisarmingAsync(CancellationToken ct) => Task.FromResult("");
 }
 
-/// <summary>One stage of a user effect's road to a device as FX CHECK reports it: its name ("spirv", "validate", "hlsl", "dxil"),
-/// whether it passed (null: not run, with the words why), its words, and the ISF line it points at (0 for none).</summary>
+/// <summary>One stage of a user effect's road to a device as FX CHECK reports it: its name (the shader worker's road in order:
+/// "translate", "glslang", "validate", "cross", "dxc"; or the one stage that answers for the whole road: "quarantine", "worker",
+/// "stages"), whether it passed (null: not run, with the words why), its words, and the ISF line it points at (0 for none).</summary>
 public readonly record struct FxStage(string Name, bool? Ok, string Words, int Line);
 
 /// <summary>The stages of a user effect's road a package checks for FX CHECK and FX IMPORT beside the GL dialects' (wp3-shaders: the
-/// shader worker's SPIR-V, validation and HLSL; wp3-shaders-2: DXIL drawn on the Direct3D 12 device). Off the lane, bounded by the
-/// caller; a stage that fails makes the report's ok false.</summary>
+/// shader worker's Vulkan GLSL, SPIR-V, its validation, HLSL and signed DXIL; wp3-shaders-2: that DXIL drawn on the Direct3D 12
+/// device). Off the lane, bounded by the caller; a stage that fails makes the report's ok false.</summary>
 public interface IFxStageCheck
 {
     /// <summary>Checks an ISF source (its fragment and, when it has one, its vertex shader) and answers each stage in the road's order.</summary>

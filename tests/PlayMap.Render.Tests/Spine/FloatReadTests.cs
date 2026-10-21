@@ -1,12 +1,13 @@
-using PlayMap.Render.Gpu;
+using System.Numerics;
+using PlayMap.Core.Gpu;
 
 namespace PlayMap.Render.Tests.Spine;
 
 /// <summary>A target read back as floats gives the same values in either dialect: a fixed-point target its codes over 2^bits − 1
 /// (on ES, which reads such a buffer only as integers, the device reads the codes and scales them), a float target its floats, and a
 /// channel the format lacks 0 (alpha 1). The ES leg runs this through the ES branch, the core leg through the float read.</summary>
-[Collection("gl")]
-public sealed class FloatReadTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class FloatReadTests(BackendFixture backends)
 {
     // No component times 255, 1023 or 65535 lands on a half code, so the clear's rounding cannot move the expected code.
     private static readonly float[] Colour = [0.2f, 0.6f, 0.85f, 1f];
@@ -22,17 +23,18 @@ public sealed class FloatReadTests(GlFixture gl)
     public void ATargetReadsBackAsItsOwnValues(TextureFormat format, int channels, int bits)
     {
         const int Size = 4;
-        var (px, errors, renders) = gl.Run(c =>
+        var (px, errors, renders, name) = backends.Run(leg =>
         {
-            var d = c.Device;
-            using var target = d.CreateRenderTarget(Size, Size, format, filter: TextureFilter.Nearest);
-            d.BindTarget(target);
-            d.Clear(Colour[0], Colour[1], Colour[2], Colour[3]);
-            var read = new float[Size * Size * 4];
-            d.ReadPixelsFloat(target, read);
-            return (read, d.TakeErrors(), d.Caps.SupportsRenderTarget(format));
+            var d = leg.Device;
+            using var target = d.CreateTarget(new TargetDesc(Size, Size, format, Filter: TextureFilter.Nearest));
+            BackendFrames.Run(d, list =>
+            {
+                list.BeginPass(target, new PassDesc(LoadOp.Clear, new Vector4(Colour[0], Colour[1], Colour[2], Colour[3])));
+                list.EndPass();
+            });
+            return (Pixels.ReadFloat(d, target), leg.TakeErrors(), d.Features.Formats[format].Target, leg.Name);
         });
-        Assert.True(renders, $"{format} is a render target on {GlDialects.Word(GlFixture.Dialect)}");
+        Assert.True(renders, $"{format} is a render target on {name}");
         Assert.Empty(errors);
         for (var i = 0; i < Size * Size; i++)
         {

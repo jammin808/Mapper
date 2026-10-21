@@ -24,4 +24,41 @@
     <InternalsVisibleTo Include="PlayMap.Engine.Tests" />
   </ItemGroup>
 
+  <!-- wp3-rhi: the render hardware interface's contracts (PlayMap.Core.Gpu), named by every file that composes or feeds a
+       backend. -->
+  <ItemGroup Label="wp3-rhi">
+    <Using Include="PlayMap.Core.Gpu" />
+  </ItemGroup>
+
+  <!-- The shader worker's compilers (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs pins each file by hash): glslang and
+       SPIRV-Tools inside shaderc, SPIRV-Cross, and DXC's open-source compiler, dxcompiler, whose built-in validator validates DXIL
+       and writes its hash. Only the worker process loads them, from beside the engine's assemblies, where each is copied (and
+       published). On Windows SPIRV-Tools' own library comes from CI's pinned download (PLAYMAP_SPIRV_TOOLS_DIR), and dxcompiler.dll
+       from Microsoft.Direct3D.DXC, the version the Direct3D 12 backend's build uses, downloaded and never referenced: of the package
+       only build/native/bin/x64/dxcompiler.dll and LICENSE-LLVM.txt reach the output, never its validator library, executables,
+       symbols or other licence files. On Linux libdxcompiler.so comes from DXC's Linux release, in the folder PLAYMAP_DXC_DIR names
+       (an absolute path; CI's pinned download). Wherever dxcompiler is copied, the text its licence asks to travel with it goes
+       beside it in licenses/DXC/: the package's LICENSE-LLVM.txt (the same file DXC's Linux release carries) and DXC's own
+       LICENSE.TXT and ThirdPartyNotices.txt at tag v1.9.2609 (ShaderWorker/DxcNotices, byte for byte), the licences of the
+       third-party code inside it. -->
+  <PropertyGroup Label="wp3-shaders">
+    <PlayMapDxcPackage>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))microsoft.direct3d.dxc/1.9.2609.5/</PlayMapDxcPackage>
+    <PlayMapDxcompiler Condition="'$(OS)' == 'Windows_NT' And '$(NuGetPackageRoot)' != ''">$(PlayMapDxcPackage)build/native/bin/x64/dxcompiler.dll</PlayMapDxcompiler>
+    <PlayMapDxcompiler Condition="'$(OS)' != 'Windows_NT' And '$(PLAYMAP_DXC_DIR)' != '' And $([System.IO.Path]::IsPathRooted('$(PLAYMAP_DXC_DIR)')) And Exists('$(PLAYMAP_DXC_DIR)/libdxcompiler.so')">$(PLAYMAP_DXC_DIR)/libdxcompiler.so</PlayMapDxcompiler>
+  </PropertyGroup>
+  <ItemGroup Label="wp3-shaders">
+    <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.SPIRV.Cross.Native" Version="2.23.0" />
+    <PackageDownload Include="Microsoft.Direct3D.DXC" Version="[1.9.2609.5]" />
+    <None Include="$(PlayMapDxcompiler)" Condition="'$(PlayMapDxcompiler)' != ''" Link="$([System.IO.Path]::GetFileName('$(PlayMapDxcompiler)'))" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(PlayMapDxcPackage)LICENSE-LLVM.txt" Condition="'$(PlayMapDxcompiler)' != ''" Link="licenses/DXC/LICENSE-LLVM.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <None Update="ShaderWorker/DxcNotices/LICENSE.TXT;ShaderWorker/DxcNotices/ThirdPartyNotices.txt" Condition="'$(PlayMapDxcompiler)' != ''" Link="licenses/DXC/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(PLAYMAP_SPIRV_TOOLS_DIR)/SPIRV-Tools-shared.dll" Condition="'$(PLAYMAP_SPIRV_TOOLS_DIR)' != '' And Exists('$(PLAYMAP_SPIRV_TOOLS_DIR)/SPIRV-Tools-shared.dll')" Link="SPIRV-Tools-shared.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <!-- The machine platform the node composes on Windows (wp3-platform); Core's null platform elsewhere. -->
+  <ItemGroup Label="wp3-platform">
+    <ProjectReference Include="..\PlayMap.Platform.Windows\PlayMap.Platform.Windows.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -48,6 +48,30 @@ jobs:
           echo "01a9764d0b5364b66cfeb4617557c64321b0e232e172ec73f0a701c5f7694326  ff.tar.xz" | sha256sum -c -
           tar -xJf ff.tar.xz -C .ffmpeg --strip-components=1
           echo "$GITHUB_WORKSPACE/.ffmpeg/bin" >> "$GITHUB_PATH"
+      # wp3-shaders: the shader worker's pinned compiler natives. glslang (in shaderc) and SPIRV-Cross come from NuGet at the versions
+      # the engine's project pins, and each file is held to its SHA-256 when the worker loads it
+      # (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs). DXC is its open-source compiler alone, whose built-in validator signs
+      # DXIL: libdxcompiler.so from DXC v1.9.2609's Linux release, the archive held to its SHA-256, the one file extracted into a
+      # folder of its own and held to the worker's pin, cached by that pin, and named in PLAYMAP_DXC_DIR, from which the build copies
+      # it beside every build of the engine.
+      - name: DXC for the shader worker (cached by its pin)
+        uses: actions/cache@v4
+        with:
+          path: .natives/dxc
+          key: dxc-linux-d40e4a7b3b46490313f4bfd08101946483a673831b3ea65c93d746de1c2f9216
+      - name: DXC for the shader worker (pinned)
+        run: |
+          set -euo pipefail
+          dir="$GITHUB_WORKSPACE/.natives/dxc"
+          so="$dir/libdxcompiler.so"
+          if [ ! -f "$so" ]; then
+            curl -sSfL -o dxc.tar.gz "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz"
+            echo "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1  dxc.tar.gz" | sha256sum -c -
+            mkdir -p "$dir"
+            tar -xzf dxc.tar.gz -C "$dir" --strip-components=2 ./lib/libdxcompiler.so
+          fi
+          echo "d40e4a7b3b46490313f4bfd08101946483a673831b3ea65c93d746de1c2f9216  $so" | sha256sum -c -
+          echo "PLAYMAP_DXC_DIR=$dir" >> "$GITHUB_ENV"
       - name: Restore
         run: dotnet restore
       - name: Build (the analyzers are fences)
@@ -166,6 +190,45 @@ jobs:
         # package's d3d12.h. WARP's binaries are CI's only: nothing published carries them.
         shell: pwsh
         run: ./tools/ci-d3d12.ps1 -Restore -Into d3d12
+      # wp3-shaders: the shader worker's pinned compiler natives. glslang (in shaderc), SPIRV-Cross and DXC's open-source compiler
+      # (dxcompiler.dll, the one file the engine takes from Microsoft.Direct3D.DXC) come from NuGet at the versions the engine's
+      # project pins, and each file is held to its SHA-256 when the worker loads it (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs).
+      # shaderc's Windows build exports no SPIRV-Tools validator, so Google's own SPIRV-Tools build (Apache-2.0) is fetched here at its
+      # hash, cached by that hash, and its library copied beside every build of the engine through PLAYMAP_SPIRV_TOOLS_DIR.
+      - name: SPIRV-Tools for the shader worker (cached by its pin)
+        id: spirv-tools-cache
+        uses: actions/cache@v4
+        with:
+          path: .natives/spirv-tools
+          key: spirv-tools-c6be6878878df8b9cf799126824e19275f7751a62947b70c177a74bc65ddbc0a
+      - name: SPIRV-Tools for the shader worker (pinned)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE '.natives/spirv-tools'
+          $dll = Join-Path $dir 'SPIRV-Tools-shared.dll'
+          if (-not (Test-Path $dll)) {
+            Invoke-WebRequest -Uri 'https://storage.googleapis.com/spirv-tools/artifacts/prod/graphics_shader_compiler/spirv_tools/windows-vs2022-amd64-release/continuous/261/20261016-105527/install.zip' -OutFile spirv-tools.zip
+            $hash = (Get-FileHash spirv-tools.zip -Algorithm SHA256).Hash
+            if ($hash -ne 'C6BE6878878DF8B9CF799126824E19275F7751A62947B70C177A74BC65DDBC0A') { throw "spirv-tools.zip is not the pinned build ($hash)" }
+            Expand-Archive spirv-tools.zip -DestinationPath spirv-tools
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            Copy-Item spirv-tools/install/bin/SPIRV-Tools-shared.dll $dll
+          }
+          $pinned = '288DD59CBD1473B02927950B076016641B59E9E3AA7D5C029F7E0C896397C0BB'
+          $hash = (Get-FileHash $dll -Algorithm SHA256).Hash
+          if ($hash -ne $pinned) { throw "SPIRV-Tools-shared.dll is not the pinned build ($hash)" }
+          "PLAYMAP_SPIRV_TOOLS_DIR=$dir" >> $env:GITHUB_ENV
+      # The HLSL build's dxc.exe validates with dxcompiler's built-in validator alone. DXC's driver loads an external validator from
+      # the absolute path DXC_DXIL_DLL_PATH names and fails when nothing is there: the job names such a path for every later step, so
+      # a build whose dxc.exe saw the variable fails (Shaders.targets starts dxc.exe without it).
+      - name: DXC's driver takes no external validator (a path with nothing there)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:GITHUB_WORKSPACE '.natives/none/validator.dll'
+          if (Test-Path -LiteralPath $path) { throw "$path is there: the job names a path with nothing there" }
+          "DXC_DXIL_DLL_PATH=$path" >> $env:GITHUB_ENV
       - name: Restore
         run: dotnet restore
       - name: Build
@@ -176,6 +239,15 @@ jobs:
         # whatever the suites say.
         shell: pwsh
         run: ./tools/ci-stamp.ps1 -File src/PlayMap.Core/bin/Release/net10.0/PlayMap.Core.dll -Label Windows -Heading
+      - name: Upload the HLSL library's symbols
+        # The PDB of each program's two entries, which the build writes beside their DXIL where DXC's executable runs (here) and
+        # never puts in the exe (src/PlayMap.Render.D3D12/Shaders/Shaders.targets), kept after the build: a build that wrote none
+        # fails here.
+        uses: actions/upload-artifact@v5
+        with:
+          name: hlsl-symbols
+          path: src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb
+          if-no-files-found: error
       - name: The native test doubles' compiler (the runner's LLVM clang)
         shell: pwsh
         run: |
@@ -302,6 +374,17 @@ jobs:
           }
           $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           Get-Content $answers, $system -ErrorAction SilentlyContinue | Write-Host
+      # wp3-platform: what Windows answered each machine claim, the identity and facts it read, and both waits' lateness, as
+      # PlatformCallsTests wrote them on this runner, in the log and the summary. A suite that ran and wrote none fails here.
+      - name: The machine platform's answers (wp3-platform)
+        if: ${{ !cancelled() && !inputs.d3d12 }}
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'platform-evidence.md'
+          if (-not (Test-Path $evidence)) { Write-Host "::error::PlatformCallsTests wrote no evidence to $evidence"; exit 1 }
+          '## The machine platform on this runner (wp3-platform)', '' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          Get-Content $evidence | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          Get-Content $evidence | Write-Host
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
@@ -328,6 +411,12 @@ jobs:
         if: ${{ !inputs.d3d12 }}
         # Publishing compiles again for win-x64, so it is given the same build number and commit as the build.
         run: dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      # wp3-shaders: the published folder carries DXC's compiler alone, the pinned dxcompiler.dll beside the exe with the text its
+      # licence asks to travel with it in licenses\DXC\, and no other file of DXC's package: DxcNativesTests run again, now with
+      # publish\PlayMap among the outputs they read, before the exe is named or uploaded.
+      - name: The published exe's DXC (dxcompiler alone, with its licence)
+        if: ${{ !inputs.d3d12 }}
+        run: dotnet test tests/PlayMap.Engine.Tests -c Release --no-build --filter FullyQualifiedName~PlayMap.Engine.Tests.Shaders.DxcNativesTests
       - name: The published exe's version
         if: ${{ !inputs.d3d12 }}
         id: version

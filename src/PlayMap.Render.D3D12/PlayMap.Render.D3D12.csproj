@@ -22,4 +22,11 @@
     <InternalsVisibleTo Include="PlayMap.Render.D3D12.Tests" />
   </ItemGroup>
 
+  <!-- The HLSL library (Shaders/Shaders.targets): DXC's executable for the build's compile on Windows (its package's own build
+       files are not imported: nothing of it reaches the output), and the step that writes the headers and embeds the library. -->
+  <ItemGroup Label="wp3-shaders">
+    <PackageReference Include="Microsoft.Direct3D.DXC" Version="1.9.2609.5" ExcludeAssets="all" PrivateAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+  <Import Project="Shaders\Shaders.targets" />
+
 </Project>

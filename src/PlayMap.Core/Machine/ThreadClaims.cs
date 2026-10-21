@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PlayMap.Core.Time;
 
 namespace PlayMap.Core.Machine;
 
@@ -25,17 +26,20 @@ public enum ThreadRole
 public readonly record struct Claim(string What, string Asked, bool Applied, string ReadBack, string Words);
 
 /// <summary>The claims made for one thread; disposing it reverts what reverting needs (a scheduler registration, a throttling
-/// state). Disposed on the thread that made it, at that thread's end.</summary>
+/// state). The claim holds the thread itself, not the thread that disposes it, so any thread may dispose it (at the claimed thread's end,
+/// or when its owner lets go).</summary>
 public interface IThreadClaim : IDisposable
 {
     ImmutableArray<Claim> Claims { get; }
 }
 
-/// <summary>Where a thread in Media, Net or the engine claims its role in one line at its start (<c>using var claim =
+/// <summary>Where a thread in Media, Net or the engine claims its role in one line as its work starts (<c>using var claim =
 /// ThreadClaims.Claim(ThreadRole.Decode);</c>), since those projects cannot see the engine's platform. The node's host points it at
-/// the platform its services carry once at start (<see cref="Use"/>), before any part starts a thread; until then, and on a node whose
-/// platform claims nothing (Core's null platform, until wp3-platform composes its own), a claim changes nothing and its one
-/// <see cref="Claim"/> says so (not applied, with the words). Any thread.</summary>
+/// the platform its services carry once at start (<see cref="Use"/>), after every part's Configure and before it starts the render host
+/// or any part, so every thread they start claims through it (the render thread, made before the parts compose, claims once the host
+/// has started the render host); until then, and on a node whose platform claims nothing (Core's null platform: the one a node's
+/// machine part composes on any machine but Windows, and the one a node composed without a machine part carries), a claim changes
+/// nothing and its one <see cref="Claim"/> says so (not applied, with the words). Any thread.</summary>
 public static class ThreadClaims
 {
     /// <summary>The words of a claim made before any platform is in use.</summary>
@@ -58,6 +62,17 @@ public static class ThreadClaims
         Volatile.Write(ref _platform, platform);
     }
 
+    /// <summary>The deadline timer of a thread that waits for instants on <paramref name="clock"/> (the headless pacer's, the LED
+    /// sender's, the audio feeder's): the platform in use's when <paramref name="clock"/> is the machine's monotonic clock, which a
+    /// platform's timers wait on; else, and before any platform is in use, the runtime's own wait on <paramref name="clock"/>, so a
+    /// thread on a test's hand-moved clock never waits on the machine's. Made on the thread that waits on it, which disposes it, since a
+    /// timer takes one caller at a time.</summary>
+    public static IDeadlineTimer CreateTimer(IMonoClock clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        return ReferenceEquals(clock, MonoClock.Instance) && Platform is { } platform ? platform.CreateTimer() : new RuntimeDeadlineTimer(clock);
+    }
+
     /// <summary>The role's word in STATE and in a claim's <see cref="Claim.What"/>: "render", "present", "decode", "audio",
     /// "timecode", "control", "led", "network", "background", "capture".</summary>
     public static string Word(ThreadRole role) => role switch
@@ -76,16 +91,17 @@ public static class ThreadClaims
     };
 }
 
-/// <summary>A thread claim that changed nothing: one claim for the role, not applied, with the words why. Disposing it reverts
-/// nothing.</summary>
+/// <summary>A thread claim that changed nothing: one claim for the role, not applied, with the words why. It asked the role's word
+/// where a claim was attempted (no platform in use yet, a thread whose handle could not be taken: a refusal), and nothing ("") where
+/// none was (a platform that claims nothing: a grey claim). Disposing it reverts nothing.</summary>
 public sealed class UnclaimedThread : IThreadClaim
 {
-    public UnclaimedThread(ThreadRole role, string words)
+    public UnclaimedThread(ThreadRole role, string words, string? asked = null)
     {
         ArgumentNullException.ThrowIfNull(words);
         Role = role;
         var word = ThreadClaims.Word(role);
-        Claims = [new Claim("thread." + word, word, false, "", words)];
+        Claims = [new Claim("thread." + word, asked ?? word, false, "", words)];
     }
 
     public ThreadRole Role { get; }
@@ -95,5 +111,91 @@ public sealed class UnclaimedThread : IThreadClaim
     public void Dispose()
     {
         // Nothing was claimed, so nothing reverts.
+    }
+}
+
+/// <summary>A role claimed by whichever thread delivers a callback, for a listener that owns no thread of its own (an LTC reader fed by
+/// the audio hub's capture thread, which fans one device out to every listener): <see cref="Here"/>, called at each delivery, claims
+/// the role on the delivering thread the first time, and again when the delivering thread changes (a device reopened on a new thread,
+/// told apart even where the new thread takes the old one's id), giving the old claim back first; <see cref="Dispose"/> gives back the
+/// claim held. A delivery on the thread already claimed costs one read and allocates nothing. Any thread.</summary>
+public sealed class DeliveryClaim : IDisposable
+{
+    [ThreadStatic]
+    private static object? t_self;
+
+    private readonly ThreadRole _role;
+    private readonly Func<ThreadRole, IThreadClaim> _claim;
+    private readonly Lock _gate = new();
+    private IThreadClaim? _held;
+    private object? _owner;
+    private int _thread;
+    private bool _disposed;
+
+    /// <param name="claim">Where the role is claimed (<see cref="ThreadClaims.Claim"/> unless a test says otherwise).</param>
+    public DeliveryClaim(ThreadRole role, Func<ThreadRole, IThreadClaim>? claim = null)
+    {
+        _role = role;
+        _claim = claim ?? ThreadClaims.Claim;
+    }
+
+    /// <summary>The managed id of the thread whose claim is held, or 0 when none is.</summary>
+    public int Thread => Volatile.Read(ref _thread);
+
+    /// <summary>The claim held now, or null.</summary>
+    public IThreadClaim? Held
+    {
+        get
+        {
+            lock (_gate)
+                return _held;
+        }
+    }
+
+    /// <summary>One object per thread for its life: a thread's identity that no later thread shares.</summary>
+    private static object Self => t_self ??= new object();
+
+    /// <summary>Called on the delivering thread at each delivery: claims the role here unless this thread's claim is the one held.</summary>
+    public void Here()
+    {
+        var self = Self;
+        if (ReferenceEquals(Volatile.Read(ref _owner), self))
+            return;
+        IThreadClaim? old;
+        lock (_gate)
+        {
+            if (_disposed || ReferenceEquals(_owner, self))
+                return;
+            (old, _held) = (_held, null);
+            Volatile.Write(ref _owner, null);
+            Volatile.Write(ref _thread, 0);
+        }
+        // The old thread's claim goes back first, so a thread that took over a finished thread's id never joins its stale claim.
+        old?.Dispose();
+        var made = _claim(_role);
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                _held = made;
+                Volatile.Write(ref _thread, Environment.CurrentManagedThreadId);
+                Volatile.Write(ref _owner, self);
+                return;
+            }
+        }
+        made.Dispose();
+    }
+
+    public void Dispose()
+    {
+        IThreadClaim? held;
+        lock (_gate)
+        {
+            _disposed = true;
+            (held, _held) = (_held, null);
+            Volatile.Write(ref _owner, null);
+            Volatile.Write(ref _thread, 0);
+        }
+        held?.Dispose();
     }
 }
