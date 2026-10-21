@@ -1454,9 +1454,10 @@ public sealed class BackupNode : IAsyncDisposable
         }
     }
 
-    /// <summary>A backup whose show is here and whose mirror is live but whose sync part does not follow the primary's group (a follow
-    /// that found no clock port yet, a group that moved, a clock port that moved since) follows it again, about once a second (the watch's
-    /// own task alone counts its turns).</summary>
+    /// <summary>A backup whose show is here and whose mirror's subscription stands (from the primary's answer to its connection's end, a
+    /// quiet spell included) but whose sync part does not follow the primary's group (a follow that found no clock port yet, a group
+    /// that moved, a clock port that moved since) follows it again, about once a second (the watch's own task alone counts its
+    /// turns).</summary>
     private async Task KeepFollowingAsync(EngineCore engine)
     {
         if (_settings.Role != FleetRoles.Backup || !_subscribed || Interlocked.Read(ref _appliedRev) < 0 || _group.Length == 0
@@ -1494,8 +1495,9 @@ public sealed class BackupNode : IAsyncDisposable
             await engine.HandleAsync(line, FleetSession, _stop.Token).ConfigureAwait(false);
     }
 
-    /// <summary>Files the show names that could not be pulled are asked again about every two seconds while the mirror is live; any
-    /// that land are read at once (the show was applied without them).</summary>
+    /// <summary>Files the show names that could not be pulled are asked again about every two seconds while the mirror's subscription
+    /// stands (for its connection's life, a quiet spell included); any that land are read at once (the show was applied without
+    /// them).</summary>
     private async Task RepullShowFilesAsync(EngineCore engine)
     {
         if (_showMissing.Length == 0 || _puller is not { } puller || !_subscribed || Interlocked.Read(ref _appliedRev) < 0)
@@ -1595,7 +1597,8 @@ public sealed class BackupNode : IAsyncDisposable
     };
 
     /// <summary>The files the show names beside its folder (meshes, measured maps, survey clouds) that could not be pulled from the
-    /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror is live.</summary>
+    /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror's subscription stands
+    /// (for its connection's life, a quiet spell included).</summary>
     public IReadOnlyList<string> MissingShowFiles => _showMissing;
 
     /// <summary>The files and optimised versions the show names that this node does not hold (verified, by hash).</summary>
