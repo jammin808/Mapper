@@ -244,14 +244,16 @@ public sealed class InstallerTests
             Assert.True(first.Exit == 0, first.Log);
             var engine = WaitForEngine();
             // The engine's stop event, made by the service for this engine under a name drawn for it and named on its command line: the
-            // show user may wait on it and read its owner, SYSTEM, and nothing more.
+            // show user may wait on it and read its owner, and nothing more. SYSTEM makes it naming no owner, so its owner is the one the
+            // service's token gives what it makes (administrators on the installer job's runner), an owner the engine trusts.
             var line = ProcessReader.Read(engine).CommandLine;
             var name = SupervisorNames.StopEventIn(line, SupervisorNames.StopEventPrefix);
             Assert.True(name is not null, "the engine's command line names no stop event: " + line);
             using (var stopEvent = EventWaitHandleAcl.OpenExisting(name, EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions))
             {
                 var security = stopEvent.GetAccessControl();
-                Assert.Equal("S-1-5-18", ((SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier))!).Value);
+                var owner = ((SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier))!).Value;
+                Assert.True(SupervisorNames.StopEventOwnerTrusted(owner), name + " is owned by " + owner + ", neither SYSTEM nor administrators");
                 var rules = security.GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<EventWaitHandleAccessRule>().ToList();
                 var showUser = Assert.Single(rules, r => r.IdentityReference.Equals(WindowsIdentity.GetCurrent().User));
                 Assert.Equal(AccessControlType.Allow, showUser.AccessControlType);
