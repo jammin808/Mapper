@@ -12,10 +12,12 @@ namespace PlayMap.Supervisor.Tests.Windows;
 /// inherited); the supervisor's folder with no rule of its own, so only SYSTEM and administrators may change what it holds; the dumps
 /// and the engine's folder each letting the show user make and replace what they hold (Modify on their contents) but neither move nor
 /// delete the folder itself (no Delete right on the folder); an earlier show user's rule replaced; and the uninstall's take-back
-/// leaving no rule of the show user's. A folder that is a link is refused with words and nothing is granted through it; the owner and
-/// the access are set through the one handle the reparse point was checked on, so a conversion to a link while the install runs lands
-/// nothing on another folder, and what another layout placed in the supervisor's folder is removed — a folder another account owns only
-/// when it is empty, nothing inside one ever deleted. A caller that is not elevated is refused: the install runs elevated.</summary>
+/// leaving no rule of the show user's. A folder that is a link is refused with words and nothing is granted through it, and so is one
+/// that was there before the install and that another account owns, nothing made inside it; the owner and the access are set through
+/// the one handle the reparse point was checked on, so a conversion to a link while the install runs lands nothing on another folder,
+/// and what another layout placed in the supervisor's folder is removed — a folder another account owns only when it is empty, nothing
+/// inside one ever deleted. A caller that is not elevated is refused: the install runs elevated. A folder a test makes before the
+/// install stands for one an earlier install left, so it is given to administrators, as an install leaves it.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class MachineFoldersTests
 {
@@ -38,6 +40,21 @@ public sealed class MachineFoldersTests
     // A rule that applies to the folder object itself (not inherit-only), so it governs the folder, not only its children.
     private static bool OnTheFolder(FileSystemAccessRule r) => (r.PropagationFlags & PropagationFlags.InheritOnly) == 0;
 
+    private static SecurityIdentifier OwnerOf(string folder) =>
+        (SecurityIdentifier)new DirectoryInfo(folder).GetAccessControl(AccessControlSections.Owner).GetOwner(typeof(SecurityIdentifier))!;
+
+    /// <summary>Gives each folder to <paramref name="owner"/> (an elevated caller may name itself or administrators).</summary>
+    private static void GiveTo(SecurityIdentifier owner, params string[] folders)
+    {
+        foreach (var folder in folders)
+        {
+            var security = new DirectoryInfo(folder).GetAccessControl();
+            security.SetOwner(owner);
+            new DirectoryInfo(folder).SetAccessControl(security);
+            Assert.Equal(owner, OwnerOf(folder));
+        }
+    }
+
     [WindowsFact]
     public void TheFoldersAreAdministratorsAndOnlyTheDumpsAndTheEnginesFolderAreTheShowUsersToWrite()
     {
@@ -54,6 +71,7 @@ public sealed class MachineFoldersTests
             }
             // An earlier install's rule for another account (here, every user) on the engine's folder is replaced.
             Directory.CreateDirectory(Path.Combine(root, "supervisor", "engine"));
+            GiveTo(Administrators, root, Path.Combine(root, "supervisor"), Path.Combine(root, "supervisor", "engine"));
             var engineFolder = new DirectoryInfo(Path.Combine(root, "supervisor", "engine"));
             var earlier = engineFolder.GetAccessControl();
             earlier.AddAccessRule(new FileSystemAccessRule(Users, FileSystemRights.Modify, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
@@ -131,6 +149,7 @@ public sealed class MachineFoldersTests
                 return;
             }
             Directory.CreateDirectory(root);
+            GiveTo(Administrators, root);
             Directory.CreateSymbolicLink(Path.Combine(root, "supervisor"), target);
             var refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
             Assert.Contains("is a link (a junction or a symbolic link)", refused.Message, StringComparison.Ordinal);
@@ -183,10 +202,48 @@ public sealed class MachineFoldersTests
                 return;
             }
             Directory.CreateDirectory(root);
+            GiveTo(Administrators, root);
             Directory.CreateSymbolicLink(Path.Combine(root, "dumps"), target);
             var refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
             Assert.Contains("is a link (a junction or a symbolic link)", refused.Message, StringComparison.Ordinal);
             Assert.DoesNotContain(Explicit(target), r => r.IdentityReference.Equals(user) && r.AccessControlType == AccessControlType.Allow);
+        }
+        finally
+        {
+            Directory.Delete(parent, true);
+        }
+    }
+
+    [WindowsFact]
+    public void AMachineFolderAnotherAccountMadeBeforeTheInstallIsRefusedAndNothingIsMadeInsideIt()
+    {
+        // %ProgramData% lets every account make a folder in it, and its maker, its owner, may hold it open with leave to change its
+        // access, which no owner or access the install sets takes back: a folder that was there before the install and that neither
+        // SYSTEM nor administrators own is refused with words, its owner left, nothing made inside it. Here the PlayMap folder itself,
+        // then — the PlayMap folder as an install leaves it — the supervisor's folder.
+        if (!Elevated)
+            return;
+        var parent = Directory.CreateTempSubdirectory("playmap-machine-").FullName;
+        var root = Path.Combine(parent, "PlayMap");
+        var supervisor = Path.Combine(root, "supervisor");
+        var user = WindowsIdentity.GetCurrent().User!;
+        try
+        {
+            Directory.CreateDirectory(root);
+            GiveTo(user, root);
+            var refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
+            Assert.Contains(root + " was made by " + user.Value + ", neither SYSTEM nor administrators", refused.Message, StringComparison.Ordinal);
+            Assert.Contains("remove it, then run the installer again", refused.Message, StringComparison.Ordinal);
+            Assert.Equal(user, OwnerOf(root));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+
+            GiveTo(Administrators, root);
+            Directory.CreateDirectory(supervisor);
+            GiveTo(user, supervisor);
+            refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
+            Assert.Contains(supervisor + " was made by " + user.Value + ", neither SYSTEM nor administrators", refused.Message, StringComparison.Ordinal);
+            Assert.Equal(user, OwnerOf(supervisor));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(supervisor));
         }
         finally
         {
@@ -207,6 +264,7 @@ public sealed class MachineFoldersTests
         {
             var supervisor = Path.Combine(root, "supervisor");
             Directory.CreateDirectory(supervisor);
+            GiveTo(Administrators, root, supervisor);
             // A link, the pid record's earlier place beside the status file, and a file whose owner is not SYSTEM or administrators.
             var link = Path.Combine(supervisor, "stale-link");
             Directory.CreateSymbolicLink(link, elsewhere);
@@ -267,6 +325,7 @@ public sealed class MachineFoldersTests
         try
         {
             var empty = Directory.CreateDirectory(Path.Combine(supervisor, "placed-empty")).FullName;
+            GiveTo(Administrators, root, supervisor);
             OwnedByThisUser(empty);
             MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, said.Add);
             Assert.False(Directory.Exists(empty), "the empty folder another account placed stayed");

@@ -10,7 +10,9 @@ using PlayMap.Supervisor.Install;
 namespace PlayMap.Supervisor.Windows;
 
 /// <summary>The machine's folders (<see cref="MachinePlan.Folders"/>), made and given their access by the elevated install: each owned
-/// by administrators (a folder another account made is taken back from it); the PlayMap folder's access its own — SYSTEM and
+/// by administrators — one the install makes is given to them, and one that was there before it is used only when SYSTEM or
+/// administrators own it: one another account made is refused with words, never taken over, for its maker may hold it open with leave
+/// to change its access, which no later change of its owner or access takes back; the PlayMap folder's access its own — SYSTEM and
 /// administrators full control, every account read — and every folder below it inheriting that alone but for the writer's Modify on
 /// what the folders the show user writes (the dumps and the engine's folder) hold, and read-and-write but not delete on those folders
 /// themselves (so the writer may make and replace files in them but neither move nor delete the folder). Each folder's owner and
@@ -27,6 +29,7 @@ public static class MachineFolders
     private static readonly SecurityIdentifier Administrators = new(WellKnownSidType.BuiltinAdministratorsSid, null);
     private static readonly SecurityIdentifier Users = new(WellKnownSidType.BuiltinUsersSid, null);
     private const int ErrorDirNotEmpty = 145;
+    private const int ErrorAlreadyExists = 183;
     private const InheritanceFlags Inherited = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
 
     /// <summary>The account that writes the show user's folders: the show user, or, when the install names none, INTERACTIVE
@@ -40,7 +43,9 @@ public static class MachineFolders
     }
 
     /// <summary>Makes the machine's folders under <paramref name="root"/> and sets their owner and access as the plan says, the show
-    /// user's folders written by <see cref="WriterOf"/>; every explicit rule another install left is replaced. Says what it did.</summary>
+    /// user's folders written by <see cref="WriterOf"/>; every explicit rule another install left is replaced. A folder that was there
+    /// before this call and that neither SYSTEM nor administrators own is refused with words before anything is made inside it or set
+    /// on it. Says what it did.</summary>
     public static void Make(string root, string showUser, Action<string> say)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
@@ -52,11 +57,20 @@ public static class MachineFolders
             foreach (var plan in MachinePlan.Folders)
             {
                 var path = plan.In(root);
-                Directory.CreateDirectory(path);
+                var made = MakeFolder(path);
                 var handle = Hold(path);
                 held.Add(handle);
                 var owner = OwnerThrough(handle);
-                var setOwner = owner is null || !MachinePlan.OwnerTrusted(owner.Value);
+                var trusted = owner is not null && MachinePlan.OwnerTrusted(owner.Value);
+                // A folder this call made, no other account held open with leave to change its access before: what is made in the
+                // folder it lies in inherits that leave for no other account (%ProgramData% gives every account read and make, the
+                // PlayMap folder SYSTEM and administrators alone), and its owner, the maker's token's default, is given to
+                // administrators. One that was there already and that neither owns is refused: its owner may hold it open with leave
+                // to change its access, which no owner or access set here takes back.
+                if (!made && !trusted)
+                    throw new InvalidOperationException(path + " was made by " + (owner?.Value ?? "an account Windows does not name")
+                        + ", neither SYSTEM nor administrators: the install takes over no folder another account made, for that account may "
+                        + "keep it open to change its access after the install — remove it, then run the installer again");
                 var security = new DirectorySecurity();
                 bool isProtected;
                 if (plan.Under.Count == 0)
@@ -80,7 +94,7 @@ public static class MachineFolders
                 }
                 // The owner and the DACL are set through the same handle the reparse point was checked on (Hold), so neither is set
                 // through a link that may have replaced the folder by name after the check.
-                ApplySecurity(handle, path, setOwner ? BinaryForm(Administrators) : null, DaclBytes(security), isProtected);
+                ApplySecurity(handle, path, trusted ? null : BinaryForm(Administrators), DaclBytes(security), isProtected);
                 say("folder " + path + " (" + plan.Holds + "): " + (plan.ShowUserWrites
                     ? (showUser.Length > 0 ? showUser : "any signed-in user") + " may write it"
                     : "only SYSTEM and administrators may write it"));
@@ -114,10 +128,23 @@ public static class MachineFolders
         }
     }
 
+    /// <summary>Makes the folder at <paramref name="path"/> in its parent, which is there: true when this call made it, false when a
+    /// name was there already (a folder, a link or a file, which <see cref="Hold"/> then takes or refuses). Windows answers which in
+    /// the one call, so no account can make the folder between a look and the make.</summary>
+    private static bool MakeFolder(string path)
+    {
+        if (Native.CreateDirectory(path, 0))
+            return true;
+        var error = Marshal.GetLastPInvokeError();
+        if (error == ErrorAlreadyExists)
+            return false;
+        throw new Win32Exception(error, path + " could not be made: " + new Win32Exception(error).Message);
+    }
+
     /// <summary>The folder at <paramref name="path"/>, held open by its own handle with the access to read and set its owner and DACL
-    /// and without leave to delete or rename it (and so without leave to replace it), never through a link: a folder that is one is
-    /// refused with words. The owner and the access are then set through this same handle, so the reparse point this checks and the
-    /// write are one handle on one folder.</summary>
+    /// and without leave to delete or rename it (and so without leave to replace it), never through a link: a folder that is one, or a
+    /// name that is no folder, is refused with words. The owner and the access are then set through this same handle, so the reparse
+    /// point this checks and the write are one handle on one folder.</summary>
     private static SafeFileHandle Hold(string path)
     {
         var handle = Native.CreateFile(path, Native.FileReadAttributes | Native.ReadControl | Native.WriteDac | Native.WriteOwner,
@@ -129,10 +156,16 @@ public static class MachineFolders
             handle.Dispose();
             throw new Win32Exception(error, path + " could not be held open: " + new Win32Exception(error).Message);
         }
-        if ((File.GetAttributes(handle) & FileAttributes.ReparsePoint) != 0)
+        var attributes = File.GetAttributes(handle);
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
         {
             handle.Dispose();
             throw new InvalidOperationException(path + " is a link (a junction or a symbolic link): the install makes and grants nothing through it — remove it, then run the installer again");
+        }
+        if ((attributes & FileAttributes.Directory) == 0)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException(path + " is a file, not a folder: the install makes the machine's folders there — remove it, then run the installer again");
         }
         return handle;
     }

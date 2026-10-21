@@ -361,12 +361,12 @@ show user's session (docs/INSTALL.md, docs/wire/install.md); proven elevated on 
   to the pinned package on both jobs.
 - **Machine-level actions, by the supervisor's commands.** Once the files are laid, `PlayMap.Supervisor.exe install` (elevated) makes
   `%ProgramData%\PlayMap` owned by administrators with its own access (SYSTEM and administrators change it, every account reads it),
-  the show user's write access on `dumps` and the engine's folder `supervisor\engine` alone (a folder that is a link refused), WER's
-  LocalDumps, the event source, the firewall rules by `netsh` (TCP 9940 and 9941, UDP 9928, 9942, 9943, 6454, 5568 and 5353, on the
-  private and domain profiles scoped to the local subnet, Public too with `/PUBLICFIREWALL=1`), `SeIncreaseBasePriorityPrivilege` for
-  the account `/SHOWUSER=` names, and the service with its recovery actions, and marks the machine supervised last, once the service
-  runs; the uninstall takes each back, the show user's write access among them, and leaves the folders. No URL reservation is made: a
-  standard account serves 9940.
+  the show user's write access on `dumps` and the engine's folder `supervisor\engine` alone (a folder that is a link, or one another
+  account made before the install, refused), WER's LocalDumps, the event source, the firewall rules by `netsh` (TCP 9940 and 9941,
+  UDP 9928, 9942, 9943, 6454, 5568 and 5353, on the private and domain profiles scoped to the local subnet, Public too with
+  `/PUBLICFIREWALL=1`), `SeIncreaseBasePriorityPrivilege` for the account `/SHOWUSER=` names, and the service with its recovery
+  actions, and marks the machine supervised last, once the service runs; the uninstall takes each back, the show user's write access
+  among them, and leaves the folders. No URL reservation is made: a standard account serves 9940.
 - **The armed check.** Before an install, before an upgrade replaces anything and before an uninstall, `preinstall-check` asks the
   engine and fails closed: an engine answering armed refuses with the node's words, and one that does not answer within 5 s, or
   answers with an error, refuses too; a program other than the supervised engine running from the folder refuses an upgrade or an
