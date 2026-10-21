@@ -1,13 +1,16 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using PlayMap.Net.Http;
 using PlayMap.Net.Media;
+using PlayMap.Tests;
 
 namespace PlayMap.Net.Tests;
 
 /// <summary>Content-addressed pulls between nodes through the real web port: the manifest, a pull interrupted
 /// mid-way that resumes from its chunk map and verifies, a file whose hash is not the one asked for kept nowhere,
-/// the token sent in a header, and the bandwidth bucket that can be lowered while a show plays.</summary>
+/// the token sent in a header, the bandwidth bucket that can be lowered while a show plays, a pull that says how far it
+/// is block by block, and a peer that falls silent — in its list or in a chunk — named within the quiet a try is given.</summary>
 public sealed class MediaTransferTests : IDisposable
 {
     private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("playmap-transfer-");
@@ -101,6 +104,68 @@ public sealed class MediaTransferTests : IDisposable
             .PullAsync(new Uri("http://127.0.0.1:" + host.Port), hash, bytes.Length, Path.Combine(_dir.FullName, "nope.bin"), CancellationToken.None);
         Assert.Equal(MediaPullOutcome.Failed, result.Outcome);
         Assert.Contains("resume", result.Words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APullSaysHowFarItIsAsItsBlocksLandAndThatItVerifiesOnceEveryByteIsIn()
+    {
+        // One chunk (under 8 MiB): its bytes are said as each 1 MiB block lands, not only when the chunk is whole.
+        var (source, bytes) = MakeFile("clip.bin", 3 * 1024 * 1024 + 17);
+        var store = new FakeMediaStore();
+        var hash = store.Add(source);
+        await using var host = await HttpHostTests.StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true), new HttpHostOptions { Media = store });
+        using var http = new HttpClient();
+        var transfer = new MediaTransfer(http, new TokenBucket(0), new MediaTransferOptions { ProgressEvery = TimeSpan.Zero });
+        var said = new ConcurrentQueue<MediaProgress>();
+        transfer.Progress += said.Enqueue;
+
+        var result = await transfer.PullAsync(new Uri("http://127.0.0.1:" + host.Port), hash, bytes.Length, Path.Combine(_dir.FullName, "out.bin"), CancellationToken.None);
+
+        Assert.Equal(MediaPullOutcome.Verified, result.Outcome);
+        const long MiB = MediaTransfer.BlockBytes;
+        long size = bytes.Length;
+        Assert.Equal(
+            [(MiB, 0, MediaPullStage.Receiving), (2 * MiB, 0, MediaPullStage.Receiving), (3 * MiB, 0, MediaPullStage.Receiving), (size, 0, MediaPullStage.Receiving),
+                (size, 1, MediaPullStage.Receiving), (size, 1, MediaPullStage.Verifying)],
+            said.Select(p => (p.BytesDone, p.ChunksDone, p.Stage)));
+    }
+
+    [Fact]
+    public async Task AChunkWhosePeerFallsSilentIsTriedAgainAndEachTryIsSaidWithItsWords()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(300_000);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        await using var peer = new FakeMediaPeer(hash, bytes, stallAfter: 64 * 1024);
+        using var http = new HttpClient();
+        var transfer = new MediaTransfer(http, new TokenBucket(0), new MediaTransferOptions { Quiet = TimeSpan.FromSeconds(1), ChunkAttempts = 2 });
+        var troubles = new ConcurrentQueue<MediaTrouble>();
+        transfer.Trouble += troubles.Enqueue;
+
+        // Its headers and 64 KiB come, then nothing: each try ends at the quiet, and the pull ends rather than waiting for ever.
+        var result = await transfer.PullAsync(new Uri("http://127.0.0.1:" + peer.Port), hash, bytes.Length, Path.Combine(_dir.FullName, "silent.bin"), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(MediaPullOutcome.Failed, result.Outcome);
+        Assert.Equal(2, peer.FileAsks);
+        var at = "127.0.0.1:" + peer.Port;
+        Assert.Equal([(1, 2), (2, 2)], troubles.Select(t => (t.Attempt, t.Attempts)));
+        Assert.All(troubles, t => Assert.StartsWith($"chunk 1 of 1 from {at}: sent nothing for 1 s, ", t.Words, StringComparison.Ordinal));
+        Assert.StartsWith($"chunk 1 of 1 from {at} could not be had: sent nothing for 1 s, ", result.Words, StringComparison.Ordinal);
+        Assert.EndsWith(" of 300000 bytes in — the finished chunks stay for the resume", result.Words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APeerThatNeverAnswersItsListIsGivenUpWithWordsThatSaySo()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(1000);
+        await using var peer = new FakeMediaPeer(Convert.ToHexStringLower(SHA256.HashData(bytes)), bytes, answersList: false);
+        using var http = new HttpClient();
+        var transfer = new MediaTransfer(http, new TokenBucket(0), new MediaTransferOptions { Quiet = TimeSpan.FromSeconds(1) });
+
+        var refused = await Assert.ThrowsAsync<TimeoutException>(() => transfer.ManifestAsync(new Uri("http://127.0.0.1:" + peer.Port), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30)));
+
+        Assert.Equal($"127.0.0.1:{peer.Port} did not answer its media list in 1 s", refused.Message);
+        Assert.Equal(1, peer.ListAsks);
     }
 
     [Fact]

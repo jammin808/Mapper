@@ -136,7 +136,12 @@ public sealed partial class CompanionModuleFixtureTests
     private sealed class OneTransfer : IMediaTransfers
     {
         public IReadOnlyList<MediaTransferView> Transfers() =>
-            [new("9f1c2ab07d3e4410", "md00000099", "intro.mov", "Stage left", 25_000_000, 100_000_000, "pulling")];
+            [new("9f1c2ab07d3e4410", "md00000099", "intro.mov", "Stage left", 25_000_000, 100_000_000, "pulling")
+            {
+                At = "10.0.0.11:9940",
+                Stage = "receiving",
+                SinceUnixMs = 1_760_000_000_000,
+            }];
     }
 
     /// <summary>A show entity's id: its two-letter kind and eight lowercase hex digits (playlists, items, generators, the project).</summary>

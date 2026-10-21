@@ -113,7 +113,8 @@ as raw substrings):
    "height":1080,"refreshHz":60,"enabled":true,"open":true,"fps":60.0,"dropped":0,"frameMsP95":4.1,"pattern":null,
    "projector":"pj…","light":"green"}],
  "media":{"items":12,"missing":0,"ready":true,"transfers":[{"media":"md…","name":"Intro","progress":0.42,
-   "from":"Stage right","state":"pulling","hash":"5e3f…","bytesDone":220200960,"size":524288000}]},
+   "from":"Stage right","at":"10.0.0.12:9940","state":"pulling","stage":"receiving","since":1760000000000,"note":"",
+   "hash":"5e3f…","bytesDone":220200960,"size":524288000}]},
  "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6,"pins":12}],"scans":1},
  "scan":{"id":"sc1a2b3c4d","state":"running","stage":"scanning","pattern":31,"patterns":60,"progress":0.44,"quality":0.97,
    "qualityWords":"","message":"Left: pattern 31 of 30 (rows bit 3)","projectors":[{"id":"pj…","name":"Left","progress":1,
@@ -164,7 +165,12 @@ These are the keys every node writes; the packages' keys follow at the end of th
 - `links.patterns.clip` is the desk's clip as this node counts it on ("VT 2:28"), or why there is none;
   `links.stagewatch.timer.text` is `?` whenever the time is not a fact (no frame, the link quiet, Stagewatch stuck).
 - `media.transfers` lists pulls on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the
-  next fetch of that file); a verified pull leaves the list and its item turns ready.
+  next fetch of that file); a verified pull leaves the list and its item turns ready. `at` is the peer's address the pull asks,
+  `stage` where a pull on its way stands (`asking` while a peer's list is read, `receiving` while the bytes come, `verifying` while
+  the whole file is hashed and put in place; `""` before a peer is asked and once failed), `since` when the state or the stage last
+  changed (Unix ms), and `note` the last failed try's words while the pull tries again. `bytesDone` moves as each 1 MiB block lands
+  (at most four times a second). A peer that sends nothing for 10 s fails that try; each failed try is a journal row while the pull
+  tries again (three tries a chunk), and the last try's words are the refused row's.
 - `faults` lists what the node is running without, each `{"part","words"}`: a door whose port was refused (`wire`,
   `web`, `hello`, `sync`), a control input or the announcement that could not open (`osc`, `artnet`, `sacn`, `midi`,
   `mdns`), no certificate (`tls`), the render host, the scanner, an extension, the node's settings (`settings`; `settings-flush`

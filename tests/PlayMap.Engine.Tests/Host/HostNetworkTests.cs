@@ -1,14 +1,19 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Time;
+using PlayMap.Net.Media;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Host;
 
 /// <summary>Two real nodes in one process finding each other on the hello: one leads a sync group and the other takes
-/// its clock; one holds a file and the other fetches it by its hash. And a node following a Patterns desk: its blackout
-/// reaches the air through the engine's own fact path, the follow switch decides, and the link is kept in the node's
-/// settings with its token — which never reaches STATE or the journal.</summary>
+/// its clock; one holds a file and the other fetches it by its hash. A fetch from a peer that falls silent says so at each
+/// try and ends with its words; one from a peer that lists the file twice still lands it. And a node following a Patterns
+/// desk: its blackout reaches the air through the engine's own fact path, the follow switch decides, and the link is kept
+/// in the node's settings with its token — which never reaches STATE or the journal.</summary>
 public sealed class HostNetworkTests
 {
     /// <summary>The follower's leader time agrees with the leader's own within this (loopback: a fraction of it).</summary>
@@ -69,11 +74,17 @@ public sealed class HostNetworkTests
 
         HostRig.Introduce(holder, fetcher);
         Assert.True(await Eventually.TrueAsync(() => fetcher.Network.Hello!.Peers.Find(holder.Id) is not null));
+        var asked = Stopwatch.StartNew();
         var reply = await fetcher.RunAsync($"MEDIA FETCH {id} FROM {holder.Id}");
         Assert.True(reply.Ok, reply.Payload);
         Assert.False(reply.Applied);   // accepted: the pull runs beside the engine
 
-        Assert.True(await Eventually.TrueAsync(() => fetcher.Host.Media.PathForHash("sha256:" + hex) is not null, 20000), fetcher.Journal());
+        // A file that does not land says where its pull stood: its row (state, stage and since, bytes, the peer and its address, the
+        // last try's words), how long after the fetch, the thread pool, and both nodes' journals and logs (their folders go with them).
+        string Saw() => string.Create(CultureInfo.InvariantCulture,
+            $"{asked.ElapsedMilliseconds} ms after MEDIA FETCH; transfers {Transfers(fetcher)}; pool {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} items queued\n"
+            + $"fetcher's journal:\n{fetcher.Journal()}\nfetcher's log:\n{fetcher.LogTail()}\nholder's log:\n{holder.LogTail(10)}");
+        Assert.True(await Eventually.TrueAsync(() => fetcher.Host.Media.PathForHash("sha256:" + hex) is not null, 20000), Saw());
         var landed = fetcher.Host.Media.PathForHash("sha256:" + hex)!;
         Assert.StartsWith(fetcher.Home.MediaStore, landed, StringComparison.Ordinal);
         Assert.Equal(hex, Convert.ToHexStringLower(SHA256.HashData(await File.ReadAllBytesAsync(landed))));
@@ -83,6 +94,64 @@ public sealed class HostNetworkTests
         Assert.True(await Eventually.TrueAsync(() => fetcher.Journal().Contains("pulled from Stage left and verified", StringComparison.Ordinal)));
         Assert.True(await Eventually.TrueAsync(() => fetcher.State().GetProperty("media").GetProperty("transfers").GetArrayLength() == 0));
     }
+
+    [Fact]
+    public async Task AFetchFromAPeerThatFallsSilentSaysSoAtEachTryAndEndsWithItsWords()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(3 * 1024 * 1024 + 17);
+        var hex = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        // The peer answers the list and each try's headers, sends 64 KiB, and then nothing while it holds the connection open.
+        await using var peer = new FakeMediaPeer(hex, bytes, stallAfter: 64 * 1024);
+        await using var fetcher = await HostRig.StartAsync("Stage right", network: true, pulls: new MediaTransferOptions { Quiet = TimeSpan.FromSeconds(1) });
+        var id = await fetcher.OkAsync("ADD media {\"name\":\"clip\",\"kind\":\"video\",\"location\":\"/elsewhere/clip.bin\",\"contentHash\":\"sha256:" + hex + "\",\"sizeBytes\":" + bytes.Length + "}");
+        Hear(fetcher, peer, "5113e7a0", "Silent peer");
+        Assert.True((await fetcher.RunAsync($"MEDIA FETCH {id} FROM 5113e7a0")).Ok);
+        var at = "127.0.0.1:" + peer.Port.ToString(CultureInfo.InvariantCulture);
+
+        // Each try that met the silence is said while the pull tries again, in the journal and on the transfer's row.
+        Assert.True(await Eventually.TrueAsync(() => fetcher.Journal().Contains("trying again (2 of 3)", StringComparison.Ordinal), 20000), fetcher.Journal());
+        var row = Transfer(fetcher);
+        Assert.Equal(("pulling", "receiving", "Silent peer", at), (Str(row, "state"), Str(row, "stage"), Str(row, "from"), Str(row, "at")));
+        Assert.StartsWith($"chunk 1 of 1 from {at}: sent nothing for 1 s, ", Str(row, "note"), StringComparison.Ordinal);
+        Assert.Contains($"media: clip from Silent peer: chunk 1 of 1 from {at}: sent nothing for 1 s, ", fetcher.Journal(), StringComparison.Ordinal);
+
+        // The last try's words end the pull: a refused row and a failed transfer, and the file can be asked for again.
+        Assert.True(await Eventually.TrueAsync(() => fetcher.Journal().Contains("clip could not be fetched", StringComparison.Ordinal), 20000), fetcher.Journal());
+        Assert.Contains("trying again (3 of 3)", fetcher.Journal(), StringComparison.Ordinal);
+        Assert.Contains($"refused: clip could not be fetched: Silent peer: chunk 1 of 1 from {at} could not be had: sent nothing for 1 s, ", fetcher.Journal(),
+            StringComparison.Ordinal);
+        Assert.Equal(3, peer.FileAsks);
+        Assert.StartsWith("failed: Silent peer: chunk 1 of 1 from ", Str(Transfer(fetcher), "state"), StringComparison.Ordinal);
+        var again = await fetcher.RunAsync($"MEDIA FETCH {id} FROM 5113e7a0");
+        Assert.True(again.Ok, again.Payload);
+    }
+
+    [Fact]
+    public async Task AFetchFromAPeerThatListsTheFileTwiceStillLandsIt()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(200_000);
+        var hex = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        await using var peer = new FakeMediaPeer(hex, bytes, listed: 2);
+        await using var fetcher = await HostRig.StartAsync("Stage right", network: true);
+        var id = await fetcher.OkAsync("ADD media {\"name\":\"clip\",\"kind\":\"video\",\"location\":\"/elsewhere/clip.bin\",\"contentHash\":\"sha256:" + hex + "\",\"sizeBytes\":" + bytes.Length + "}");
+        Hear(fetcher, peer, "d0b1e7a0", "Twice");
+        Assert.True((await fetcher.RunAsync($"MEDIA FETCH {id} FROM d0b1e7a0")).Ok);
+
+        Assert.True(await Eventually.TrueAsync(() => fetcher.Host.Media.PathForHash("sha256:" + hex) is not null, 20000),
+            $"transfers {Transfers(fetcher)}\n{fetcher.Journal()}");
+        Assert.True(await Eventually.TrueAsync(() => fetcher.Journal().Contains("clip pulled from Twice and verified", StringComparison.Ordinal)));
+    }
+
+    /// <summary>A fake PlayMap peer heard on the fetcher's hello at loopback, its web port the fake's.</summary>
+    private static void Hear(HostRig rig, FakeMediaPeer peer, string id, string name) =>
+        rig.Network.Hello!.Peers.Hear(new ShowBusHello(ShowBusConstants.KindPlayMap, 1, 1, id, name, "elsewhere", new Dictionary<string, int> { ["http"] = peer.Port },
+            ShowBusHello.PlayMapCaps, 0, null, null), "127.0.0.1");
+
+    private static string Transfers(HostRig rig) => rig.State().GetProperty("media").GetProperty("transfers").ToString();
+
+    private static JsonElement Transfer(HostRig rig) => Assert.Single(rig.State().GetProperty("media").GetProperty("transfers").EnumerateArray());
+
+    private static string Str(JsonElement e, string key) => e.GetProperty(key).GetString() ?? "";
 
     [Fact]
     public async Task ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine()

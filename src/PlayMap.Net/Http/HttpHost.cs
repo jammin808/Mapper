@@ -709,8 +709,8 @@ public sealed class HttpHost : IAsyncDisposable
         }));
     }
 
-    /// <summary>One file by its content hash, with HTTP ranges (a peer pulls it in chunks and resumes). Only a file
-    /// the store names is served: a hash is never a path.</summary>
+    /// <summary>One file by its content hash, with HTTP ranges (a peer pulls it in chunks and resumes), in blocks of
+    /// <see cref="MediaFileResponse.BlockBytes"/>. Only a file the store names is served: a hash is never a path.</summary>
     private async Task MediaFileAsync(HttpContext context)
     {
         var hash = (context.Request.RouteValues["hash"] as string ?? "").ToLowerInvariant();
@@ -727,7 +727,7 @@ public sealed class HttpHost : IAsyncDisposable
             return;
         }
         context.Response.Headers["X-Content-SHA256"] = hash;
-        await TypedResults.PhysicalFile(file.Path, "application/octet-stream", enableRangeProcessing: true).ExecuteAsync(context);
+        await MediaFileResponse.WriteAsync(context, file.Path, hash);
     }
 
     /// <summary>GET /api/thumb?ref=…&amp;w=96&amp;h=96&amp;fmt=jpeg: the picture's bytes with its ETag; If-None-Match with that ETag

@@ -83,7 +83,11 @@ public static class StateWriter
             w.WriteString("name", t.Name);
             w.WriteNumber("progress", Math.Round(t.Progress, 3));
             w.WriteString("from", t.From);
+            w.WriteString("at", t.At);
             w.WriteString("state", t.State);
+            w.WriteString("stage", t.Stage);
+            w.WriteNumber("since", t.SinceUnixMs);
+            w.WriteString("note", t.Note);
             w.WriteString("hash", t.Hash);
             w.WriteNumber("bytesDone", t.BytesDone);
             w.WriteNumber("size", t.Size);

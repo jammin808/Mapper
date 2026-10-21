@@ -63,6 +63,11 @@
     <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
   </ItemGroup>
 
+  <!-- A peer's media routes with the faults a real node does not make on purpose, shared by the Net and Engine suites. -->
+  <ItemGroup Label="fix-fanout-win">
+    <Compile Include="..\Shared\FakeMediaPeer.cs" Link="Shared\FakeMediaPeer.cs" />
+  </ItemGroup>
+
   <!-- Round 3's new projects, referenced so WindowsPlatformTests reads their types; nothing here calls them. -->
   <ItemGroup Label="wp3-spine">
     <ProjectReference Include="..\..\src\PlayMap.Render.D3D12\PlayMap.Render.D3D12.csproj" />

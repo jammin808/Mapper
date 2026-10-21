@@ -12,6 +12,7 @@ using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Net.Bus;
+using PlayMap.Net.Media;
 
 namespace PlayMap.Engine.Tests.Host;
 
@@ -50,7 +51,8 @@ internal sealed class HostRig : IAsyncDisposable
     /// <summary>A started node. <paramref name="network"/> binds every interface and says hello (two nodes find each
     /// other); otherwise it binds loopback only and stays quiet.</summary>
     public static async Task<HostRig> StartAsync(string name = "Stage left", bool network = false, IMonoClock? mono = null, EngineParts? parts = null,
-        Func<NodeSettings, NodeSettings>? settings = null, Func<string, EngineOptions>? options = null, DirectoryInfo? dir = null)
+        Func<NodeSettings, NodeSettings>? settings = null, Func<string, EngineOptions>? options = null, DirectoryInfo? dir = null,
+        MediaTransferOptions? pulls = null)
     {
         dir ??= Directory.CreateTempSubdirectory("playmap-host-");
         var home = new NodeHome(dir.FullName);
@@ -78,6 +80,7 @@ internal sealed class HostRig : IAsyncDisposable
             Mono = mono,
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             Logs = logs,
+            Pulls = pulls,
         });
         var rig = new HostRig(dir, home, host, logs, log);
         try
@@ -136,6 +139,22 @@ internal sealed class HostRig : IAsyncDisposable
 
     /// <summary>The journal's recent rows as text, for asserting what the node said.</summary>
     public string Journal() => string.Join("\n", Engine.Journal.Recent(200).Select(r => $"{r.Kind}: {r.Text}"));
+
+    /// <summary>The last lines the node's log holds now (its folder goes with the rig, so a failing wait carries them).</summary>
+    public string LogTail(int lines = 30)
+    {
+        try
+        {
+            using var file = new FileStream(Path.Combine(Home.Folder, NodeLogProvider.FileName), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(file);
+            var all = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            return string.Join("\n", all.TakeLast(lines));
+        }
+        catch (IOException ex)
+        {
+            return "the node's log could not be read: " + ex.Message;
+        }
+    }
 
     /// <summary>Stops the node but keeps its folder (a restart reads it again).</summary>
     public async ValueTask StopAsync()

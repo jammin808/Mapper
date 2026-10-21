@@ -15,6 +15,20 @@ public interface INodeFaults
 /// how far it is, and its state ("queued", "pulling", "failed: …").</summary>
 public sealed record MediaTransferView(string Hash, string MediaId, string Name, string From, long BytesDone, long Size, string State)
 {
+    /// <summary>The peer's address and port the pull asks ("" until a peer is asked).</summary>
+    public string At { get; init; } = "";
+
+    /// <summary>Where a pull on its way stands: "asking" while a peer's list of files is read (the row still "queued"), "receiving"
+    /// while the file's bytes come, "verifying" while the whole file is hashed and put in place; "" before a peer is asked and once
+    /// the pull failed.</summary>
+    public string Stage { get; init; } = "";
+
+    /// <summary>When the state or the stage last changed, in Unix ms of the node's wall clock.</summary>
+    public long SinceUnixMs { get; init; }
+
+    /// <summary>The last failed try's words while the pull goes on ("" when no try failed).</summary>
+    public string Note { get; init; } = "";
+
     /// <summary>The fraction pulled, 0 to 1.</summary>
     public double Progress => Size > 0 ? Math.Clamp(BytesDone / (double)Size, 0, 1) : 0;
 

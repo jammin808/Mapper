@@ -29,4 +29,9 @@
     <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
   </ItemGroup>
 
+  <!-- A peer's media routes with the faults a real node does not make on purpose, shared by the Net and Engine suites. -->
+  <ItemGroup Label="fix-fanout-win">
+    <Compile Include="..\Shared\FakeMediaPeer.cs" Link="Shared\FakeMediaPeer.cs" />
+  </ItemGroup>
+
 </Project>

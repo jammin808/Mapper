@@ -8,6 +8,7 @@ using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net;
 using PlayMap.Net.Bus;
+using PlayMap.Net.Media;
 using PlayMap.Net.Tls;
 
 namespace PlayMap.Engine.Host;
@@ -26,6 +27,9 @@ public sealed record EngineHostOptions
 
     /// <summary>The hello's ports and pace; null = the contract's (UDP 9928, every 2 s).</summary>
     public HelloOptions? Hello { get; init; }
+
+    /// <summary>How a media pull asks its peers (the quiet a try is given, the tries per chunk); null = the transfer's own.</summary>
+    public MediaTransferOptions? Pulls { get; init; }
 
     /// <summary>How often the recovery record is brought up to date when something it holds has moved.</summary>
     public TimeSpan RecoveryEvery { get; init; } = TimeSpan.FromSeconds(2);
@@ -126,6 +130,7 @@ public sealed class EngineHost : IAsyncDisposable
             Tls = _tls,
             Pins = pins,
             Hello = _host.Hello,
+            Pulls = _host.Pulls,
         });
         _faults.Network = _network;
 

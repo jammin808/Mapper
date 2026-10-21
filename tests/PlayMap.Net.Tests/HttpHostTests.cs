@@ -307,6 +307,69 @@ public class HttpHostTests
         }
     }
 
+    [Fact]
+    public async Task AMediaFileAnswersOneRangeItsHashAsItsTagAndTheWholeFileForAnythingElse()
+    {
+        var file = Path.Combine(Directory.CreateTempSubdirectory("playmap-media-").FullName, "clip.bin");
+        var bytes = RandomNumberGenerator.GetBytes(100_000);
+        await File.WriteAllBytesAsync(file, bytes);
+        var store = new FakeMediaStore();
+        var hash = store.Add(file);
+        try
+        {
+            await using var host = await StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true), new HttpHostOptions { Media = store });
+            using var c = Client(host);
+            async Task<(HttpStatusCode Status, string? Range, byte[] Body, HttpResponseMessage Answer)> AskAsync(string range, string? ifRange = null)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, "/api/media/" + hash);
+                request.Headers.TryAddWithoutValidation("Range", range);
+                if (ifRange is not null)
+                    request.Headers.TryAddWithoutValidation("If-Range", ifRange);
+                var response = await c.SendAsync(request);
+                return (response.StatusCode, response.Content.Headers.ContentRange?.ToString(), await response.Content.ReadAsByteArrayAsync(), response);
+            }
+
+            var (status, range, body, answer) = await AskAsync("bytes=99900-");
+            using (answer)
+            {
+                Assert.Equal((HttpStatusCode.PartialContent, "bytes 99900-99999/100000"), (status, range));
+                Assert.Equal(bytes[99_900..], body);
+                Assert.Equal("\"" + hash + "\"", answer.Headers.ETag?.ToString());
+                Assert.Equal("bytes", Assert.Single(answer.Headers.AcceptRanges));
+            }
+            (status, range, body, answer) = await AskAsync("bytes=-100");
+            using (answer)
+            {
+                Assert.Equal((HttpStatusCode.PartialContent, "bytes 99900-99999/100000"), (status, range));
+                Assert.Equal(bytes[99_900..], body);
+            }
+            (status, range, body, answer) = await AskAsync("bytes=0-9", "\"" + hash + "\"");
+            using (answer)
+            {
+                Assert.Equal((HttpStatusCode.PartialContent, "bytes 0-9/100000"), (status, range));
+                Assert.Equal(bytes[..10], body);
+            }
+            // Past the end: none of it, and the file's length.
+            (status, range, body, answer) = await AskAsync("bytes=100000-");
+            using (answer)
+                Assert.Equal((HttpStatusCode.RequestedRangeNotSatisfiable, "bytes */100000", 0), (status, range, body.Length));
+            // Several ranges, or a range for another copy than this one: the whole file.
+            foreach (var (several, condition) in new[] { ("bytes=0-9,20-29", (string?)null), ("bytes=0-9", "\"another\"") })
+            {
+                (status, range, body, answer) = await AskAsync(several, condition);
+                using (answer)
+                {
+                    Assert.Equal((HttpStatusCode.OK, (string?)null), (status, range));
+                    Assert.Equal(bytes, body);
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(file)!, recursive: true);
+        }
+    }
+
     internal static async Task<string> ReceiveAsync(ClientWebSocket ws, int timeoutMs = 5000)
     {
         using var cts = new CancellationTokenSource(timeoutMs);
