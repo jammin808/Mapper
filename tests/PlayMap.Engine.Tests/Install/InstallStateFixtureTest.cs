@@ -170,6 +170,11 @@ public sealed class InstallStateFixtureTest
             "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:supervisor");
         Assert.Equal((Light.Grey, "i"), (waiting.Light, waiting.Value));
         Assert.EndsWith("the freeze rule waits for them", waiting.Note, StringComparison.Ordinal);
+        // A node with no open output, whose GPU phase is not reported: the rule waits for the phase, said as information too.
+        var phase = InstallPreflight.Rows(Supervised with { Supervisor = Running with { FreezeRule = "the engine reports no GPU phase: the freeze rule waits for it" } },
+            "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:supervisor");
+        Assert.Equal((Light.Grey, "i"), (phase.Light, phase.Value));
+        Assert.EndsWith("the freeze rule waits for it", phase.Note, StringComparison.Ordinal);
 
         var held = InstallPreflight.Rows(Supervised with { Supervisor = Running with { State = "held" } }, "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:supervisor");
         Assert.Equal((Light.Amber, "held"), (held.Light, held.Value));

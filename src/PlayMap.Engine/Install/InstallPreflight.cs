@@ -7,10 +7,10 @@ namespace PlayMap.Engine.Install;
 
 /// <summary>Preflight's <c>install</c> section (docs/round3/PLAN.md §3.5): the install itself (a folder run is amber on a show node — one
 /// whose project drives an enabled output — and grey elsewhere), the supervisor's state (red once it stopped trying, with the line that
-/// resumes it in words; the freeze rule waiting for shown frames said as information), auto-logon on a supervised node and for whom,
-/// the show machine's policies (an information row: this build writes none; the edition is the machine platform's, and whether a
-/// policy holds updates back is the machine section's <c>updates</c> row, which this row names and never restates), and the build
-/// unsigned (an information row). Information rows are grey with the value "i". Read from published facts only.</summary>
+/// resumes it in words; the freeze rule waiting for shown frames or the GPU's phase said as information), auto-logon on a supervised
+/// node and for whom, the show machine's policies (an information row: this build writes none; the edition is the machine platform's,
+/// and whether a policy holds updates back is the machine section's <c>updates</c> row, which this row names and never restates), and
+/// the build unsigned (an information row). Information rows are grey with the value "i". Read from published facts only.</summary>
 public sealed class InstallPreflight(Func<EngineCore, InstallFacts>? facts = null) : IPreflightCheck
 {
     public string Section => "install";
@@ -71,6 +71,15 @@ public sealed class InstallPreflight(Func<EngineCore, InstallFacts>? facts = nul
         _ => "this build writes no Windows Update policy: machine preflight's updates row says whether one holds updates back on this node (docs/INSTALL.md)",
     };
 
+    /// <summary>Whether the freeze rule waits for a fact the engine does not report yet — its open outputs' shown frames, or, on a
+    /// node with no open output, its GPU's phase — rather than watching: said as information.</summary>
+    public static bool FreezeRuleWaits(string freezeRule)
+    {
+        ArgumentNullException.ThrowIfNull(freezeRule);
+        return freezeRule.StartsWith("the engine reports no shown frames", StringComparison.Ordinal)
+            || freezeRule.StartsWith("the engine reports no GPU phase", StringComparison.Ordinal);
+    }
+
     private static PreflightRow Supervisor(InstallFacts f, string node, string section)
     {
         if (!f.Supervised)
@@ -84,7 +93,7 @@ public sealed class InstallPreflight(Func<EngineCore, InstallFacts>? facts = nul
                 "the supervisor stopped after too many restarts (" + s.LastCause + ") — run PlayMap.Supervisor.exe resume", null),
             "held" => new PreflightRow("install:supervisor", node, section, "Supervisor", Light.Amber, "held",
                 "a person stopped the engine — run PlayMap.Supervisor.exe resume", null),
-            "running" or "starting" when s.FreezeRule.StartsWith("the engine reports no shown frames", StringComparison.Ordinal) =>
+            "running" or "starting" when FreezeRuleWaits(s.FreezeRule) =>
                 new PreflightRow("install:supervisor", node, section, "Supervisor", Light.Grey, "i",
                     string.Create(CultureInfo.InvariantCulture, $"supervised, {s.Restarts} restarts in ten minutes; {s.FreezeRule}"), null),
             "running" or "starting" => new PreflightRow("install:supervisor", node, section, "Supervisor", Light.Green, s.State,

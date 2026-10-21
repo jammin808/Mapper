@@ -210,6 +210,20 @@ public sealed class SupervisorTests
     }
 
     [Fact]
+    public void ANodeWithNoOpenOutputAndNoGpuPhaseSaysTheRuleWaitsForThePhase()
+    {
+        // HEALTH answers, no output is open (its shown frames read 0) and the GPU's phase is not reported: the rule waits, in the words
+        // the engine's preflight reads as information.
+        var core = new SupervisorCore(SupervisorPolicy.Default);
+        var clock = new ManualClock();
+        core.Step(clock.Now, Session(true));
+        for (var i = 0; i < 20; i++)
+            Assert.Equal(SupervisorAction.None, core.Step(clock.Advance(S / 2), new SupervisorFacts(true, true, true, 0, false, GpuPhase.Unknown, 0, -1)));
+        Assert.False(core.FreezeRuleActive);
+        Assert.Equal("the engine reports no GPU phase: the freeze rule waits for it", SupervisorStatusWords.Of(core, 7, 1).FreezeRule);
+    }
+
+    [Fact]
     public void ClosedOutputsNeverReadAsFrozen()
     {
         var core = new SupervisorCore(SupervisorPolicy.Default);
