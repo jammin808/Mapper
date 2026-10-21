@@ -17,9 +17,12 @@ undo step.
 back comes back armed (a panic in force comes back too, at its outcome at once).
 
 **The arm hooks.** Work a part of the node does as the show arms or disarms is an `IShowArmHook` the node is composed with
-(`EngineServices.ArmHooks`). No part registers one yet. Round 3 adds two: the render graph's plans compiled as the show arms, and
-its pipelines warmed (`docs/round3/PLAN.md` §3.8, §3.13). The collector's show mode, a stretch, stays off until a measured pause
-history gives it a cause (§3.3, §9 decision 12). `SHOW ARM` and `SHOW DISARM` change the mode first,
+(`EngineServices.ArmHooks`). Every node the exe composes carries the machine part's hook `gc` (`docs/PLATFORM.md`): under
+`GC DEFAULT`, the default, it changes nothing and says so ("the collector keeps its own mode (GC DEFAULT)"); under `GC SHOW` it holds
+the collector's `SustainedLowLatency` while the show is armed and puts back the mode it found at disarm. The collector's show mode
+stays off by default until a measured pause history gives it a cause (§3.3, §9 decision 12), its pauses counted in STATE meanwhile.
+Round 3 adds two more: the render graph's plans compiled as the show arms, and its pipelines warmed (`docs/round3/PLAN.md` §3.8,
+§3.13). `SHOW ARM` and `SHOW DISARM` change the mode first,
 then run every hook together, each until it answers or its own deadline passes (at most five minutes, which an infinite deadline
 means), and answer once each has: a hook past its deadline is cancelled and named ("pipelines: missed its 2000 ms deadline and was
 cancelled: the show is armed without it"), one that fails — in its work, its name or its deadline — is named with its words, and the
@@ -266,12 +269,16 @@ so the group cuts together.
 `SHOW SET MINGO <ms> [ARMED|REHEARSAL]` (300 ms armed, 0 in rehearsal by default): a `PLAYLIST GO|NEXT|PREV` or `VIDEO
 PLAY|RESTART` on a playlist within that window of its last accepted GO (the lane's leader time) is refused "double GO protection:
 0.20 s since the last GO on Show (0.30 s armed)". `EXPECT <item>|#<n>` on the same verbs refuses when the item that would play is
-not the one the caller's key showed: "the next item on Show is now 'C', not 'B' — the key was out of date".
+not the one the caller's key showed: "the next item on Show is now 'C', not 'B' — the key was out of date". `STATE.show.lastGo` names
+each playlist's last accepted GO — its leader time, its wall time and the session it came from — so every client sees a GO any
+other client made (the desk's GO guard draws it).
 
 ## Preflight
 
 `PREFLIGHT [QUICK]` answers its id at once (accepted; `PREFLIGHT QUICK WAIT` answers with the finished report) and runs every check side by side off the lane, each under its own budget on
-the node's monotonic clock — a check past its budget is a grey row "did not finish in 5 s" and the report is not complete. The
+the node's monotonic clock — a check past its budget is a grey row "did not finish in 5 s", one that throws a grey row "could not
+check: …" with its words, and the report is not complete. A check that returned within its budget is always its own rows, however
+its return meets the runner's look at it, so a member that checked itself has a green `fleet:<node>` row in its group's report. The
 report (`PREFLIGHT REPORT [<id>]`) has a row per thing checked, each with its light, value, note and, where a line fixes it, that
 line; the last twenty are kept, and written beside the journal as `preflight/<id>.json`.
 
@@ -292,14 +299,16 @@ Every package adds its own checks (`EngineServices.PreflightChecks`). Every row 
 calibration ledger's own check runs (its `calibration` rows, one per projector) the mapping check yields to it, so a projector
 never has two verdicts in one report; show-ready's mapping step reads either.
 
-Round 3 is to add the installed machine's rows; none is built yet (`docs/round3/PLAN.md` D4, §3.3, §3.5, §3.11 item 6;
-`docs/round3/design/platform.md` §6, `docs/round3/design/installer.md` §8). Among them, section `machine`: an OS build below 26100
-(red); Smart App Control evaluating while builds are unsigned, a projector output that is the primary display, the show adapter on
-the Public firewall profile with no rule, an OS past its end of servicing, a power plan below High Performance, a display or sleep
-timeout, a reboot pending and drift from the driver set `MACHINE LOCK` kept, each amber; and each layer the edition lacks, a grey
-information row with an **i**. Section `install`: not installed on a node that looks like a show node (amber), the supervisor
-stopped after too many restarts (red), auto-logon off on a supervised node (amber), and the build unsigned (grey, with an **i**).
-And in the `decode` section, show media held as an online-only cloud placeholder is red, the file named.
+The installed machine's own rows are section `machine` (`docs/PLATFORM.md`, Machine preflight; `docs/round3/PLAN.md` D4, §3.3): an
+OS build below 26100 (red); Smart App Control evaluating while builds are unsigned, a projector output that is the primary display,
+a network show traffic can cross on the Public firewall profile with no rule letting PlayMap in, an OS past its end of servicing, a
+power plan below High Performance (on a machine that offers only Balanced, its power mode instead, amber unless Best performance,
+never "not High Performance"), a display or sleep timeout, a reboot pending, a claim Windows refused, deadline waits over 1 ms late
+and drift from the driver set `MACHINE LOCK` kept, each amber; and each layer the edition lacks, a grey information row with an
+**i**. Round 3 adds the rest (§3.5, §3.11 item 6; `docs/round3/design/installer.md` §8): section `install` — not installed on a
+node that looks like a show node (amber), the supervisor stopped after too many restarts (red), auto-logon off on a supervised node
+(amber), and the build unsigned (grey, with an **i**) — and in the `decode` section, show media held as an online-only cloud
+placeholder is red, the file named.
 
 **The group.** `SHOW ARM ALL`, `SHOW DISARM ALL` and `PREFLIGHT ALL` go to every member of the group this node leads through the
 fleet's fan-out (`IFleetFanout`, wp2-sync): each member runs the line through its own gate as a peer. ARM and DISARM go out once,

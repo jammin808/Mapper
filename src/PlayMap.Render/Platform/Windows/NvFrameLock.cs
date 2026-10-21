@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.Versioning;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Render.Sync;

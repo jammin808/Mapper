@@ -345,7 +345,17 @@
     },
     "preflight": null,
     "sound": null,
-    "minGoMs": 0
+    "minGoMs": 0,
+    "lastGo": [
+      {
+        "playlist": "pl00000001",
+        "leaderNs": 5000000000,
+        "at": 1760000000000,
+        "session": "w1",
+        "transport": "companion",
+        "by": "Companion:FOH deck"
+      }
+    ]
   },
   "fleet": {
     "role": "solo",

@@ -17,7 +17,7 @@
   <Border Classes="card" Padding="10,8" Margin="0,0,0,6" ui:DeskMenu.Actions="{Binding Actions}" x:Name="Card">
     <StackPanel Spacing="4">
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-        <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="CardLight" />
+        <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="CardLight" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
         <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
         <TextBlock Grid.Column="2" Classes="faint" Text="{Binding Package}" />
       </Grid>

@@ -114,6 +114,24 @@ public sealed class MachineRecordTests
     }
 
     [Fact]
+    public void APlatformThatReadsNothingBackAnswersTheContractsReadBackAsSuch()
+    {
+        using IMachinePlatform platform = new NullMachinePlatform("the platform seam is Windows only");
+        // The settings handed to it change nothing it claims.
+        platform.Use(MachineSettings.Default with { Timer = "default", Awake = "off" });
+        Assert.Equal(new Claim("process", "", false, "", platform.Words), Assert.Single(platform.ClaimProcess(MachineSettings.Default)));
+        Assert.Throws<ArgumentNullException>(() => platform.Use(null!));
+
+        // It holds nothing, so keep-awake is no claim even while asked; its timer is the runtime's; it reads no power settings.
+        using (platform.KeepAwake())
+            Assert.Null(platform.AwakeClaim);
+        using var timer = platform.CreateTimer();
+        Assert.Equal("default", platform.TimerMode(timer));
+        Assert.Throws<ArgumentNullException>(() => platform.TimerMode(null!));
+        Assert.Equal(PowerReading.Unread, platform.Power);
+    }
+
+    [Fact]
     public void TheRuntimeTimerNeverAnswersBeforeItsInstantAndAnswersFalseOnCancel()
     {
         var clock = MonoClock.Instance;
@@ -219,6 +237,19 @@ public sealed class ThreadClaimsTests
         using var after = ThreadClaims.Claim(ThreadRole.Render);
         Assert.Equal("the platform seam is Windows only", Assert.Single(after.Claims).Words);
         Assert.Equal([ThreadRole.Capture], platform.Roles);
+    }
+
+    [Fact]
+    public void AThreadsDeadlineTimerOnAClockWaitsOnThatClock()
+    {
+        var clock = new ManualClock(1_000_000_000);
+        using var timer = ThreadClaims.CreateTimer(clock);
+        Assert.IsType<RuntimeDeadlineTimer>(timer);
+        // An instant the clock has reached answers at once; one it has not waits until the cancel, however long the machine runs.
+        Assert.True(timer.WaitUntil(1_000_000_000));
+        using var cancel = new ManualResetEvent(true);
+        Assert.False(timer.WaitUntil(2_000_000_000, cancel));
+        Assert.Throws<ArgumentNullException>(() => ThreadClaims.CreateTimer(null!));
     }
 }
 

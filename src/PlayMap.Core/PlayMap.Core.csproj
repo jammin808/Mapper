@@ -12,4 +12,10 @@
     <InternalsVisibleTo Include="PlayMap.Core.Tests" />
   </ItemGroup>
 
+  <!-- wp3-rhi: the program table, every product program's constants and textures (generated from the GLSL declarations by
+       ProgramLayoutTests), read by both backends and the HLSL build. -->
+  <ItemGroup Label="wp3-rhi">
+    <EmbeddedResource Include="Gpu\Programs\programs.layout.json" LogicalName="PlayMap.Core.Gpu.Programs.programs.layout.json" />
+  </ItemGroup>
+
 </Project>

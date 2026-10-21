@@ -375,6 +375,22 @@
       "rows": []
     },
     {
+      "section": "machine",
+      "hint": {
+        "title": "Machine: claims",
+        "rowKind": "claim",
+        "keys": [
+          {
+            "label": "$(label)",
+            "line": "MACHINE STATUS",
+            "feedback": "machine.platform.light",
+            "press": "instant"
+          }
+        ]
+      },
+      "rows": []
+    },
+    {
       "section": "present",
       "hint": {
         "title": "Outputs: present and lock",

@@ -6,6 +6,6 @@ public sealed partial record EngineParts
 {
     static partial void AddMachineParts(List<EngineExtensionFactory> extensions)
     {
-        // wp3-platform fills this.
+        extensions.Add(Machine.MachineParts.Factory);
     }
 }

@@ -12,12 +12,13 @@ its phase measured and said. *Where it is going*, at the end, says the rest.
 
 ## The platform and the presenters
 
-The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Platform`) from the node's settings
+The render host starts its **platform** (`IGpuPlatform`, made by `GpuPlatforms` in `src/PlayMap.Render/Platform`) from the node's settings
 (`NodeSettings.Present`: `path` auto|gl|dxgi, `dialect` auto|core330|es300, `frameLock` auto|off, `swapGroup`, `swapBarrier`):
 
 - **GL** (what `auto` is on every platform this round): a hidden GL context through GLFW, and one **presenter** per output window
   (`IOutputPresenter`; the GL window, `OutputWindow`, is the first). The renderer draws every pass offscreen in the primary
-  context; a presenter only shows the output's finished picture and swaps.
+  context; a presenter only takes the output's finished picture into the frame's list (`Record`) and, after the list's submit,
+  shows it and swaps (`Present`).
 - **DXGI** (Windows, experimental, only on an explicit `PRESENT PATH DXGI`): see *The DXGI flip path* below. Off Windows `dxgi`
   is refused by the verb and, asked through the settings file, runs GL with `machine.present.why` saying "the DXGI path is
   Windows only".
@@ -29,9 +30,11 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
   which compiles `#version 300 es`).
 - **The per-dialect format table** (`GlFormatTable`): BGRA uploads on ES go up as RGBA with the texture's red/blue swizzle (core
   ES 3.00, no copy); 16-bit unsigned textures fall back to 16-bit float without `EXT_texture_norm16`; float render targets need
-  `EXT_color_buffer_float` (else 8-bit, with words); GPU timers need `EXT_disjoint_timer_query` (else GPU times read 0); wireframe
-  needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need `EXT_read_format_bgra` (else a
-  synchronous read swaps on the CPU and the streamed read-back refuses with words).
+  `EXT_color_buffer_float` (else 8-bit, with words); GPU times need timestamps — core 3.3, or ES with `EXT_disjoint_timer_query`
+  whose counter has bits; where the extension's counter has none (ANGLE's Direct3D 11 back end) each output's time is an
+  elapsed-time query and the generators' and effects' inside it read 0, and without the extension every GPU time reads 0;
+  wireframe needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need `EXT_read_format_bgra` (else
+  a synchronous read swaps on the CPU and the streamed read-back refuses with words).
 - **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug, timer and
   polygon-mode calls by their extension names.
 - The platform hands decoders its **device share** (`IGpuShare`: OpenGL on the GL platform, Direct3D 11 with its LUID, its lock
@@ -48,7 +51,7 @@ The DXGI path is a bridge, not the direction. It retires with GL's other paths o
 flip presenter takes its place on the same flip model; it gets no hardware lock tier (*The frame lock*, below; `docs/round3/PLAN.md`
 §9 decision 21).
 
-`AnglePlatform` (`src/PlayMap.Render/Platform/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
+`AnglePlatform` (`src/PlayMap.Render/Gl/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
 stops names its stage (`adapter`, `device`, `angle`, `extensions`, `context`, `programs`) in `machine.present.why` while the node
 runs GL:
 
@@ -208,14 +211,22 @@ present there is amber, with `PRESENT PATH D3D12` or `GL` as the fix.
   targets, an output through the whole frame on ES; the presenter seam with the GL window and a scripted presenter; vblank and
   ledger arithmetic on synthetic sequences (Xvfb's swaps are no real display); the lock machine, the counter and the verbs against
   the scripted board on the real render host (headless and windowed).
+- **The backend fixture**: every GPU test of the Render suite but the GL backend's own runs on `BackendFixture`, whose legs are the
+  backends the job has, each a device on a thread of its own — GL today, its hidden context in the run's dialect; a later backend
+  adds its leg to `BackendLegs.Makers`. A scene draws through the device a leg hands it (`IGpuDevice`, its frame list) and reads
+  back through `Pixels.Read(IGpuDevice, RenderTarget)`, so it names no backend; only the GL backend's own tests, listed by name in
+  `RhiFenceTests`, name a GL type, reach the GL leg's context or open a GL context of their own, and they leave with GL. The
+  goldens are the GL leg's, unedited. L20, the GL backend behind the render hardware interface on NVIDIA, AMD and Intel Windows
+  drivers, is not run (no lab): the GL backend runs on llvmpipe here and, on the Windows job, Mesa WGL only.
 - **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here), and
   the Linux CI job runs it as its own step after the core suites, its results in `PlayMap.Render.Tests.es300.trx`. Every test
-  passes on it whole. A test that names a dialect reads the fixture's: the caps and every program in it
+  passes on it whole. A test that names a dialect reads the GL leg's: the caps and every program in it
   (`GlCapsTests.OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect`,
   `ShaderConventionTests.EveryProgramCompilesAndLinksInTheFixturesDialect`), the binding the context was made through (EGL for the
-  ES context), and an effect slot's GPU time, which comes from timestamp queries, core in desktop GL only, so an ES context reads
-  0. A target read back as floats (`GlDevice.ReadPixelsFloat`, the tests' reader) gives the same values in both dialects: ES reads
-  a fixed-point buffer only as its integer codes, so the device reads those and scales them (`FloatReadTests`).
+  ES context), and the GPU times of outputs, generators and effect slots, which come from timestamps: core in desktop GL, through
+  `EXT_disjoint_timer_query` on ES (Mesa's ES context has it, so both legs measure; a test reads `GpuFeatures.Timers`). A target read back as floats (`IGpuDevice.ReadNowFloat`, the tests' `Pixels.ReadFloat`) gives
+  the same values in both dialects: ES reads a fixed-point buffer only as its integer codes, so the device reads those and scales them
+  (`FloatReadTests`).
   On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).
 - **Here, for the DXGI path**: the stage faults with a fake platform (each stage's words, the GL fallback), the fuse and its words in
   STATE and preflight, the extension lists, QPC conversion, the one-wrapper cache, display-timed clocks on synthetic statistics, the

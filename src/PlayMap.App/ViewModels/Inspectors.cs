@@ -88,13 +88,18 @@ public sealed class InspectorHost : ObservableObject
 
     public bool IsEmpty => _current is null;
 
+    /// <summary>Shows an inspector: loaded from the mirror before its fields are bound (a control that coerces a field it is bound to
+    /// before the load — a slider at its minimum — would otherwise write its own value back as an edit), and the one it replaces retired
+    /// (it sends nothing from then on).</summary>
     public void Show(InspectorViewModel? inspector)
     {
+        if (!ReferenceEquals(_current, inspector))
+            _current?.Retire();
+        if (inspector is not null && _session.Project is { } p && !inspector.Refresh(p, _session.State))
+            inspector = null;
+        inspector?.BeginSettle();
         Current = inspector;
-        if (inspector is not null && _session.Project is { } p)
-            Refresh(p, _session.State);
-        else
-            RefreshExtras();
+        RefreshExtras();
     }
 
     public void Refresh(Project p, StateSnapshot s)
@@ -180,12 +185,46 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
     protected bool Loading { get; private set; }
 
     /// <summary>Loads the fields from the mirror; false when the object is gone.</summary>
+    private bool _loaded;
+    private bool _retired;
+
+    /// <summary>The inspector is no longer shown: its fields send nothing from now on (its controls may still write a coerced value back
+    /// while they are let go).</summary>
+    public virtual void Retire() => _retired = true;
+
+    /// <summary>False until the first load, while its view binds (<see cref="BeginSettle"/>) and once retired: a field's write then is a
+    /// control's, not the operator's, and sends nothing.</summary>
+    protected bool Live => _loaded && !_retired && !_settling;
+
+    private bool _settling;
+    private bool _resync;
+
+    /// <summary>The inspector is about to be bound to its view (a view a previous inspector of its kind used, whose controls hand it their
+    /// own selections as they take the new one): until the dispatcher's next turn its fields send nothing, and a field a control wrote
+    /// meanwhile is loaded again from the mirror.</summary>
+    public void BeginSettle()
+    {
+        if (_settling)
+            return;
+        _settling = true;
+        Session.OnUi(() =>
+        {
+            _settling = false;
+            if (_resync && !_retired && Session.Project is { } p)
+            {
+                _resync = false;
+                Refresh(p, Session.State);
+            }
+        });
+    }
+
     public bool Refresh(Project p, StateSnapshot s)
     {
         Loading = true;
         try
         {
             var ok = Load(p, s);
+            _loaded |= ok;
             if (ok)
             {
                 Actions.RefreshAll();
@@ -211,7 +250,8 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
 
     protected void EditOf(string id, string path, string json, bool throttle = false)
     {
-        if (Loading)
+        _resync |= _settling;
+        if (Loading || !Live)
             return;
         _edited[path] = Stopwatch.GetTimestamp();
         var line = VerbText.Set(id, path, json);
@@ -230,7 +270,8 @@ public abstract class InspectorViewModel : ObservableObject, IMenuTarget
     /// <summary>Sends a verb (never while loading).</summary>
     protected void Send(string line)
     {
-        if (!Loading)
+        _resync |= _settling;
+        if (!Loading && Live)
             Session.Fire(line);
     }
 

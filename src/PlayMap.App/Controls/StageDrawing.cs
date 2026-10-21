@@ -169,7 +169,8 @@ public static class StageDrawing
         }
     }
 
-    /// <summary>The pins as world markers (3D view): coloured by how far the solve lands them from their pixel.</summary>
+    /// <summary>The pins as world markers (3D view): coloured by how far the solve lands them from their pixel, each with its light's
+    /// shape beside it (✓ △ ✕), never the colour alone.</summary>
     public static void WorldPins(DrawingContext ctx, StageView v, Projector pj)
     {
         foreach (var pin in pj.Pins)
@@ -177,7 +178,8 @@ public static class StageDrawing
             if (v.Project(pin.World) is not { } p)
                 continue;
             var r = Link.PinResiduals.Of(pj, pin);
-            var brush = LightBrushConverter.Brushes.For(ViewModels.PinRow.LevelOf(r));
+            var level = ViewModels.PinRow.LevelOf(r);
+            var brush = LightBrushConverter.Brushes.For(level);
             var g = new StreamGeometry();
             using (var gc = g.Open())
             {
@@ -188,6 +190,7 @@ public static class StageDrawing
                 gc.EndFigure(true);
             }
             ctx.DrawGeometry(pin.Enabled ? brush : null, new Pen(brush, 1.2), g);
+            Label(ctx, Infrastructure.StatusShapes.Shape(level), new Point(p.X + 7, p.Y - 7), brush, 9.5);
         }
     }
 

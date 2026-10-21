@@ -466,7 +466,31 @@ public sealed partial class EngineCore : IShowDecisions
         w.WritePropertyName("sound");
         WriteSound(w);
         w.WriteNumber("minGoMs", mode.Armed ? rules.MinGoMsArmed : rules.MinGoMsRehearsal);
+        WriteLastGo(w, project);
         w.WriteEndObject();
+    }
+
+    /// <summary>STATE.show.lastGo (always written, empty before the first GO): the last accepted GO on each playlist the project holds,
+    /// newest first — its leader time (the one the GO fence counts from), its time on the node's wall clock (Unix ms, on the same clock
+    /// as STATE's <c>at</c>), and the session id, transport and client name of the line that made it. A GO the fence or the playback
+    /// refused writes nothing here.</summary>
+    private void WriteLastGo(Utf8JsonWriter w, Project project)
+    {
+        w.WriteStartArray("lastGo");
+        foreach (var (playlist, go) in _lastGo.OrderByDescending(p => p.Value.LeaderNs).ThenBy(p => p.Key, StringComparer.Ordinal))
+        {
+            if (project.Playlists.IndexOfId(playlist) < 0)
+                continue;
+            w.WriteStartObject();
+            w.WriteString("playlist", playlist);
+            w.WriteNumber("leaderNs", go.LeaderNs);
+            w.WriteNumber("at", go.AtUnixMs);
+            w.WriteString("session", go.Session);
+            w.WriteString("transport", go.Transport);
+            w.WriteString("by", go.By);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
     }
 
     /// <summary>The context's show item (always present, first), the preflight item, and the show's links: it controls every

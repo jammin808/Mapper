@@ -9,9 +9,9 @@ answers are here, in one place.
 
 ## The owner's calls, answered
 
-Calls 1–11 are answered, each in the owner's words of 18 October 2026; call 11's answer is a figure that follows round 3's reply
-to the owner's question (its §9 decision 18). The plan ([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a
-decision taken (its §1.2 and §9) and what it changes.
+Calls 1–11 are answered, each in the owner's words of 18 October 2026, call 4 also with their choice of 19 October 2026; call 11's
+answer is a figure that follows round 3's reply to the owner's question (its §9 decision 18). The plan
+([`docs/round3/PLAN.md`](../round3/PLAN.md)) records each answer as a decision taken (its §1.2 and §9) and what it changes.
 
 1. **The show nodes' Windows edition** (the plan's D4). *Answered:* "PlayMap also needs to run on Windows 11 Home as well." Every
    Windows 11 edition from build 26100 is supported — Home, Pro, Pro for Workstations, Enterprise, Education, IoT Enterprise — with IoT
@@ -23,12 +23,14 @@ decision taken (its §1.2 and §9) and what it changes.
    output is in the software lock: the same frame, its phase measured, never a locked state.
 3. **The signing identity** (§9 decision 2). *Answered:* "Leave unsigned for now." Builds and installers are unsigned and named so,
    each with a SHA-256 list; signing is next round's.
-4. **The WiX maintenance fee** (§9 decision 3). *Answered:* "Do not use WIX paid services." The WiX toolset is built from its source
-   in CI, so no official binary, package, fee or paid service is used; Inno Setup is the fallback if that build fails (its author asks
-   commercial users to buy a licence, a request the owner may meet). *Then:* "Use WIX if no cheaper alternative. Are there no other
-   free installer packages?" There are — Inno Setup and NSIS — and both build EXEs; none is cheaper than WiX built from its source,
-   which costs nothing, so WiX stays, and a self-built tool that asks for the fee's EULA gesture is never given it: a one-line patch to the
-   pinned source answers the check, and Inno Setup builds the installer only if none holds.
+4. **The WiX maintenance fee** (§9 decision 3). *Answered:* "Do not use WIX paid services." No official WiX binary, package, fee
+   or paid service is used. *Then:* "Use WIX if no cheaper alternative. Are there no other free installer packages?" There are —
+   Inno Setup and NSIS — and both build EXEs; none is cheaper than WiX built from its source, which costs nothing. M17 measured that
+   WiX's pinned source (v7.0.0) does not build on the Windows runner: it needs Visual Studio's v143 C++ tools, and the runner's
+   Visual Studio 2026 has v145 only. That source checks the fee's EULA gesture in three places; PlayMap never passes it, and no patch
+   to the source was made. *Then, on 19 October 2026:* "Keep Inno Setup (Recommended)." Inno Setup builds this round's installer, an
+   EXE with no automatic undo of service and registry changes, no repair and no `msiexec` for IT, and an MSI is revisited next
+   round. Inno Setup's author asks commercial users to buy a licence, a request the owner may meet.
 5. **The lab: its machines and who runs it** (§9 decision 11, §7). *Answered:* "Full physical hardware testing is not available yet."
    Every lab line keeps its script and pass mark and is reported not run; every question only the lab answers stands on its "if no"
    branch, said in STATE.
@@ -330,12 +332,25 @@ Round 2 W1 notes:
   the knobs last sent hold it too, and is journalled at the frame the worker held at; one that comes while knobs that let the job go
   are on their way, or a resume while knobs that hold are, waits for the worker's next held line; STATE shows a hold once the
   journal has its row (`OptimiseHoldTests`).
+- Done: a preflight check that returned is its own rows, however its return meets the runner's look. The runner read a running
+  check's task twice, once for "finished well" and once for "finished", so a check that returned between the two reads was a grey
+  "could not check: cancelled" row and its report incomplete; a member's incomplete report made its `fleet:<node>` row grey in the
+  group's report. That was `FanoutTests.PreflightAllListsOneSectionPerNodeAndASilentMemberIsRed`'s failure at line 165 (`fleet:nb`
+  not green), twice on the Windows job (wp3-shaders c8b993e3, wp3-desk-ux b3fea9c9). A loop of the test on four cores hit it 10
+  times in 17 000 runs on Linux, each time with a grey `<section>:check` row of the member's, and holding the runner between its
+  two reads hit it every time. The runner now reads how a check ended only once it has seen it end, and reads the clock before it
+  looks, so a check it cuts had not finished when its budget ran out.
+  `PreflightTests.ACheckThatReturnsIsItsOwnRowsHoweverItsReturnMeetsTheRunnersLook` failed all six of its runs against the old
+  runner (three in Debug, three in Release) and passes against the new;
+  `PreflightTests.ACheckThatReturnsIsItsOwnRowsAndOneThatThrowsOrCancelsItselfIsAGreyRowWithItsWords` holds the rows of a check
+  that throws or cancels itself. The fan-out test names a member's unfinished rows before it reads the member's fleet row.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
-  `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate run
-  (not reproduced; its fan-out is the test's stand-in, which waits on no clock); `FleetMonitorTests`' 10 s wait for the peer to read
-  live (the test now waits until the headline and the context match the record the monitor holds; the 10 s "peer not live" is not
-  reproduced); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` at line 100, its wait for the link's
-  first clip in STATE (one failure on the batch's baseline).
+  `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
+  run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
+  `FleetMonitorTests`' 10 s wait for the peer to read live (the test now waits until the headline and the context match the record
+  the monitor holds; the 10 s "peer not live" is not reproduced);
+  `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` at line 100, its wait for the link's first clip
+  in STATE (one failure on the batch's baseline).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

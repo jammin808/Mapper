@@ -235,7 +235,7 @@
     "revision": 1,
     "path": null,
     "dirty": false,
-    "index": "4781a564f175bc40"
+    "index": "875c339d896f1648"
   },
   "faults": [],
   "ai": {
@@ -272,7 +272,8 @@
     },
     "preflight": null,
     "sound": null,
-    "minGoMs": 0
+    "minGoMs": 0,
+    "lastGo": []
   },
   "fleet": {
     "role": "solo",

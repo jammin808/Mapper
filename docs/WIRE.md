@@ -420,3 +420,17 @@ with no package code. No node answers one until its package routes it. Until the
   [shaders](wire/shaders.md) · [gpu](wire/gpu.md) · [plan](wire/plan.md) · [observe](wire/observe.md) ·
   [present](wire/present.md) · [undo](wire/undo.md) · [preview](wire/preview.md) · [handles](wire/handles.md) ·
   [canvas](wire/canvas.md) · [guide](wire/guide.md) · [capture](wire/capture.md).
+- **Routed:** wp3-shaders' row. Every node answers `FX RELEASE` (a Setup line: refused while armed, never drafted) and counts its
+  quarantine in `fx.library.quarantined`; every node the exe composes writes `fx.compile.worker` and `fx.quarantine` in STATE and
+  carries the Direct3D 12 road's `stages` in `FX CHECK`'s and `FX IMPORT`'s reports ([shaders](wire/shaders.md)).
+- **Routed:** wp3-platform's rows. Every node answers `MACHINE [STATUS]`, `MACHINE SET` and `MACHINE LOCK [CLEAR]` (both changes
+  Setup lines, refused while armed and on a node with no node home to keep them in; `GPU-PRIORITY REALTIME` high risk); every node the
+  exe composes writes `machine.identity`, `machine.capabilities`, `machine.platform` and `machine.locked` in STATE, preflight's
+  `machine` section and INDEX's `machine` section, and a Windows node adds the context's `machine:platform` item. A node that is not
+  Windows answers through Core's null platform, which claims nothing and says "the platform seam is Windows only"
+  ([machine](wire/machine.md)).
+- **Routed:** wp3-desk-ux's rows. Every node answers `UNDO LIST [<n 1-100>]` (low risk: the undo steps of the store the line's edits
+  go to, newest first, in field words with who and when) and `UNDO TO <step>` (a step and every newer one taken back as one action,
+  gated as `UNDO`: drafted for the blind owner, the operator's while armed, a remote's refused while armed) ([undo](wire/undo.md)).
+  `STATE.show.lastGo` names each playlist's last accepted GO with its leader time, its wall time and its session, so every client
+  sees a GO another made ([show](wire/show.md)).

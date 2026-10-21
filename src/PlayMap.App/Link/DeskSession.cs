@@ -53,20 +53,21 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     /// <param name="post">Runs an action on the UI thread later (the dispatcher's Post); tests pass the
     /// headless dispatcher's.</param>
-    public DeskSession(Action<Action> post)
+    /// <param name="time">The clock the throttle's interval runs on (the machine's when null; tests pass a manual one).</param>
+    public DeskSession(Action<Action> post, TimeProvider? time = null)
     {
         _post = post;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
         // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said.
-        Throttle = new ThrottledSender((line, ct) =>
+        Throttle = new ThrottledSender(async (line, ct) =>
         {
             if (GateWords(line) is { } why)
             {
                 _post(() => Notify(ToastKind.Refused, why, line));
-                return Task.CompletedTask;
+                return false;
             }
-            return SendAsync(line, ct);
-        });
+            return (await SendAsync(line, ct)).Ok;
+        }, time: time);
     }
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
@@ -349,9 +350,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         var link = _link;
         if (link is null || link.Status is not (LinkStatus.Live or LinkStatus.Stale))
             return new WireReply(false, "not connected to an engine — nothing was sent");
+        WireReply reply;
         try
         {
-            return await link.SendAsync(line, ct);
+            reply = await link.SendAsync(line, ct);
         }
         catch (OperationCanceledException)
         {
@@ -361,7 +363,36 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         {
             return new WireReply(false, "the link failed: " + ex.Message);
         }
+        Replied?.Invoke(line, reply);
+        return reply;
     }
+
+    /// <summary>Raised when the node answered a line this session sent (on the thread the reply came back on): what the node accepted
+    /// or refused, for the parts of the desk that show the node's answer (the GO guard).</summary>
+    public event Action<string, WireReply>? Replied;
+
+    private bool _mapAnything;
+
+    /// <summary>Map anything: while on, every control whose line can be bound is highlighted, and touching one sends BIND LEARN for its
+    /// line instead of the line (once: the mode ends with it). A desk mode, nothing on the node.</summary>
+    public bool MapAnything
+    {
+        get => _mapAnything;
+        set
+        {
+            if (Set(ref _mapAnything, value))
+            {
+                GateMoved();
+                MapAnythingChanged?.Invoke();
+            }
+        }
+    }
+
+    /// <summary>Raised when <see cref="MapAnything"/> moved (every control re-reads whether it is highlighted).</summary>
+    public event Action? MapAnythingChanged;
+
+    /// <summary>The GO guard every GO control draws (null until the desk's look module sets it).</summary>
+    public ViewModels.Ux.GoGuard? GoGuard { get; set; }
 
     /// <summary>Runs an action on the UI thread later (for notes that arrive from a worker).</summary>
     public void OnUi(Action action) => _post(action);

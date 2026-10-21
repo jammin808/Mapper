@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Storage;
@@ -88,6 +90,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private HttpHost? _web;
     private volatile HelloService? _hello;
     private volatile ClockSyncResponder? _responder;
+    private volatile IPAddress? _wireAt;
+    private volatile IPAddress? _webAt;
+    private volatile IPAddress? _syncAt;
 #pragma warning disable CA2213 // Closed by StopPatternsAsync and StopStagewatchAsync, which a link change and DisposeAsync both call.
     private volatile PatternsLink? _patterns;
     private volatile StagewatchLink? _stagewatch;
@@ -130,6 +135,29 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
 
     public int HelloPort => _hello?.ListenPort ?? 0;
 
+    /// <summary>The show doors open now, each with the address it is bound to: the line wire and the web port (the phone page and MCP
+    /// ride it), and the clock sync while this node leads. A door binds the settings' bind address as it opens, exactly, or stays
+    /// closed, so an open door is bound to the address the settings named then, and to every interface (<see cref="IPAddress.Any"/>)
+    /// where they named none. The hello, which hears every interface to find its peers, is not a show door.</summary>
+    public ImmutableArray<ShowDoor> Doors
+    {
+        get
+        {
+            var doors = ImmutableArray.CreateBuilder<ShowDoor>(3);
+            if (_wire is not null && _wireAt is { } wire)
+                doors.Add(new ShowDoor("wire", wire));
+            if (_web is not null && _webAt is { } web)
+                doors.Add(new ShowDoor("web", web));
+            if (_responder is not null && _syncAt is { } sync)
+                doors.Add(new ShowDoor("sync", sync));
+            return doors.ToImmutable();
+        }
+    }
+
+    /// <summary>The address a door opened with <paramref name="settings"/> is bound to: their bind address, or every interface.</summary>
+    private static IPAddress BoundTo(NodeSettings settings) =>
+        IPAddress.TryParse(settings.Bind.Trim(), out var address) ? NetAddress.Normal(address) : IPAddress.Any;
+
     /// <summary>The hello, once started: its peer table, and its targets (which a test points at another node).</summary>
     public HelloService? Hello => _hello;
 
@@ -157,10 +185,12 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         var logs = _o.Logs;
-        var wire = new WireServer(_running, engine, _o.Wall, new WireServerOptions(), logs.CreateLogger("PlayMap.Net.Wire"));
+        var running = _running;
+        var wire = new WireServer(running, engine, _o.Wall, new WireServerOptions(), logs.CreateLogger("PlayMap.Net.Wire"));
         try
         {
             wire.Start();
+            _wireAt = BoundTo(running);
             _wire = wire;
         }
         catch (BindRefusedException ex)
@@ -169,7 +199,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             Fault("wire", "the line wire stays closed: " + ex.Message);
         }
 
-        var web = new HttpHost(_running, engine, _o.Wall, new HttpHostOptions
+        var web = new HttpHost(running, engine, _o.Wall, new HttpHostOptions
         {
             Tls = _o.Tls,
             Media = _o.Media,
@@ -181,6 +211,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         try
         {
             await web.StartAsync(ct);
+            _webAt = BoundTo(running);
             _web = web;
         }
         catch (BindRefusedException ex)
@@ -400,10 +431,12 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             await _sync.StopAsync();
             if (_responder is null)
             {
-                var responder = new ClockSyncResponder(_running, _sync.Clock, _running.SyncPort, _o.Logs.CreateLogger("PlayMap.Net.Sync"));
+                var running = _running;
+                var responder = new ClockSyncResponder(running, _sync.Clock, running.SyncPort, _o.Logs.CreateLogger("PlayMap.Net.Sync"));
                 try
                 {
                     responder.Start();
+                    _syncAt = BoundTo(running);
                 }
                 catch (BindRefusedException ex)
                 {

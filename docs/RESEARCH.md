@@ -86,9 +86,12 @@ separate same-coloured surfaces), vectorise to Bézier paths, lift to 3D with pl
   multi-output engine.
 - **GPU and presentation:** on Windows the lowest-latency path is engine-owned borderless windows with DXGI
   flip-model waitable swap chains (independent flip, one frame of latency), `GetFrameStatistics` to map vblanks.
-  PlayMap renders on OpenGL 3.3 core or ES 3.00 (testable headless on Mesa) behind a device seam, with an experimental
-  Direct3D 11 flip path through ANGLE; the direction is Direct3D 12 behind a rendering hardware interface (RHI) cut at
-  `GlDevice`, with OpenGL the reference backend until the pixel and timing evidence agrees (§8).
+  PlayMap draws through a rendering hardware interface (RHI) cut at `GlDevice`, with OpenGL 3.3 core or ES 3.00 behind it
+  (testable headless on Mesa) and an experimental Direct3D 11 flip path through ANGLE; the direction is Direct3D 12 behind that
+  interface, with OpenGL the reference backend until the pixel and timing evidence agrees (§8). PlayMap's programs are written in
+  HLSL for that backend too, compiled by DXC at build time, and a user's ISF effect reaches DXIL through SPIR-V (glslang,
+  SPIRV-Cross) in a worker process of its own, so none of that road's compilers (glslang, SPIRV-Tools, SPIRV-Cross, DXC) loads
+  into the engine; no device draws either yet.
 - **Sync:** Watchout 7 (NTP via w32time, "millisecond-level"; frame-exact needs NVIDIA sync boards), Pixera
   (sync cards + "RX Frame Sync"), disguise (genlock + QTP/VSync messages), Resolume/Millumin (OSC/LTC mirror —
   users report drift). PlayMap: own UDP exchange on the monotonic clock with min-RTT filtering and drift
@@ -135,15 +138,31 @@ decisions (`docs/round3/PLAN.md` §1.2). What they found, in short:
 - **The lock only where the hardware gives one.** Tearing between outputs is phase, and only sync hardware removes it (§6).
 - **Every edition of Windows 11, Home included.** Home runs every API the engine and the desk use and lacks only the management
   layers (Assigned Access, Shell Launcher, specialized displays, the update policies), so each has a fallback and a preflight row.
-- **A per-machine MSI.** It rolls back services and machine-level writes, and the WiX toolset built from its own source needs no
-  paid service. Session 0 cannot drive displays, so the engine is to run in the show user's session under a supervising
-  service.
+- **What a real-time engine claims from Windows.** Windows 11 lowers the quality of service of a process whose windows are hidden,
+  covered or minimised, or that has none, and stops honouring its timer requests; a high-resolution waitable timer wakes near its
+  due time; MMCSS serves time-critical multimedia threads; and CPU sets, never a hard affinity, place threads on hybrid processors.
+  So the engine claims HighQoS with its timer requests honoured, high process priority, MMCSS and CPU sets by thread role and that
+  timer for every deadline thread, each claim read back into STATE, and keeps off what has no documented cause (the GPU scheduling
+  class, the GC's show mode, one cache for the critical threads) until the lab measures it (docs/PLATFORM.md).
+- **A per-machine installer.** An MSI rolls back services and machine-level writes, and the WiX toolset built from its own source
+  needs no paid service, but WiX v7.0.0's pinned source does not build on the Windows runner (M17: it needs Visual Studio's v143
+  C++ tools, which the runner's Visual Studio 2026 lacks) and checks a licence gesture in three places that PlayMap never passes.
+  So this round's installer is built with Inno Setup, an EXE without an MSI's rollback, repair or `msiexec`, and an MSI is
+  revisited next round. The Agility SDK's licence lets its Direct3D 12 runtime ship inside the installer on its Distribution
+  Requirements, among them to "require distributors and external end users to agree to terms that protect it and Microsoft at
+  least as much as this agreement" and to indemnify Microsoft, with its Distribution Restrictions beside them. So the installer
+  shows a licence page that carries Microsoft's own licence for `D3D12Core.dll` verbatim, PlayMap's own terms being the owner's to
+  name, and the owner accepts Microsoft's distribution terms, the indemnity included (docs/round3/PLAN.md §9 decisions 3 and 23,
+  which quotes the terms whole). Session 0 cannot drive displays, so the engine is to run in the show user's session under a
+  supervising service.
 - **What games and medical devices teach.** Nothing compiled, allocated or waited on during the show; the render graph compiled
   when the show changes; an observer, independent of the engine, of what the audience saw; device loss rehearsed; every hazard
   traced to a fault test.
 - **The desk.** It keeps Avalonia; its previews are to move from CPU copies to shared textures, and it borrows the lighting
-  consoles' safety patterns. Every command is to be in the menu bar, by Microsoft's rule that no command lives only in a
-  context menu. Colour is to mark status, identity and stage, and never be the only cue (ISA-101 and IEC 60601-1-8 reserve
-  alarm colours).
+  consoles' safety patterns (built: the GO guard, blind in grey, the Oops history, the dark room look; docs/DESK.md). Every command
+  is to be in the menu bar, by Microsoft's rule that no command lives only in a context menu. Colour is to mark status, identity
+  and stage, and never be the only cue (ISA-101 and IEC 60601-1-8 reserve alarm colours): three status lights each 3:1 from a dark
+  panel cannot also be 3:1 from one another, so each light keeps 3:1 against every surface it is drawn on and carries a shape
+  beside its colour, and a word beside it in a row, a card or a chip (docs/round3/PLAN.md §3.6 item 4).
 - **Capture cards.** A pass-through's floor is one input frame plus the render, so the direction is one frame in flight and
   the fewest copies the card and the path allow.

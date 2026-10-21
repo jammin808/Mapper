@@ -1,7 +1,9 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Engine.Rendering;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Platform;
 using PlayMap.Tests;
 using Xunit.Abstractions;
@@ -62,7 +64,9 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
 
         public string Words => "";
 
-        public RenderContext Context => _gl.Context;
+        public string Dialect => _gl.Dialect;
+
+        public IGpuDevice Device => _gl.Device;
 
         public PresentPath Path => PresentPath.Offscreen;
 
@@ -179,7 +183,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         {
             Windows = false,
             Platform = new PlatformRequest("dxgi", Surfaceless: surfaceless),
-            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(o) : RenderContext.CreateHidden(o))),
+            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(GlDeviceOptions.From(o)) : RenderContext.CreateHidden(GlDeviceOptions.From(o)))),
         };
         await using var rig = HostRig.Start(HostRig.WithOutputs(HostRig.Screen("op_1", SourceRef.Solid("#336699"), 64, 36)), options: options);
         Assert.NotNull(made);
@@ -242,7 +246,7 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         {
             Windows = false,
             Platform = new PlatformRequest("dxgi", Surfaceless: surfaceless),
-            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(o) : RenderContext.CreateHidden(o))),
+            Dxgi = o => made = new SharedDevicePlatform(new GlPlatform(surfaceless ? RenderContext.CreateSurfaceless(GlDeviceOptions.From(o)) : RenderContext.CreateHidden(GlDeviceOptions.From(o)))),
         };
         var media = new DeviceMedia(() => made!.Share);
         var clip = new MediaItem("md_device", "Device clip", MediaKind.Video, "/clips/device.mp4", "", 0, MediaInfo.Unknown, []);

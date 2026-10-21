@@ -29,7 +29,12 @@ public interface ILedFrameSink
 }
 
 /// <summary>A pool of four frames between the render thread and the sender. When every frame is queued, renting one drops the oldest
-/// the sender has not taken (counted); the sender takes them in order and returns each.</summary>
+/// the sender has not taken (counted); the sender takes them in order and returns each.
+///
+/// Every frame is sized to the most rows a rent has asked for (the high water): a rent that asks for more raises it and grows every
+/// frame the pool holds (free or queued) there and then — a plan that grew is a cold frame — and a frame the sender held meanwhile is
+/// grown as it comes back (<see cref="Return"/>, the sender's thread). So once a plan's first frame is made, no rent allocates,
+/// whichever frames a burst of reads takes.</summary>
 public sealed class LedFramePool : ILedFrameSink
 {
     public const int Size = 4;
@@ -40,6 +45,7 @@ public sealed class LedFramePool : ILedFrameSink
     private readonly LedFrame?[] _queue = new LedFrame?[Size];
     private int _head;
     private int _count;
+    private int _highWater;
     private long _dropped;
     private long _skipped;
 
@@ -54,11 +60,14 @@ public sealed class LedFramePool : ILedFrameSink
 
     public LedFrame? Rent(int rows)
     {
+        var bytes = rows * LedPlan.SlotsPerRow;
         LedFrame? f = null;
         lock (_gate)
         {
             if (_closed)
                 return null;
+            if (bytes > _highWater)
+                Raise(bytes);
             for (var i = 0; i < Size && f is null; i++)
             {
                 if (!_free[i])
@@ -81,11 +90,31 @@ public sealed class LedFramePool : ILedFrameSink
             Interlocked.Increment(ref _skipped);
             return null;
         }
-        var bytes = rows * LedPlan.SlotsPerRow;
-        if (f.Slots.Length < bytes)
-            f.Slots = new byte[bytes];
         f.Rows = rows;
         return f;
+    }
+
+    /// <summary>Raises the high water to <paramref name="bytes"/> and grows every frame the pool holds to it: the free ones, and the
+    /// queued ones with their slots kept. Under the gate.</summary>
+    private void Raise(int bytes)
+    {
+        _highWater = bytes;
+        for (var i = 0; i < Size; i++)
+        {
+            if (_free[i])
+                Grow(_frames[i], bytes);
+        }
+        for (var k = 0; k < _count; k++)
+            Grow(_queue[(_head + k) % Size]!, bytes);
+    }
+
+    private static void Grow(LedFrame frame, int bytes)
+    {
+        if (frame.Slots.Length >= bytes)
+            return;
+        var slots = new byte[bytes];
+        frame.Slots.AsSpan().CopyTo(slots);
+        frame.Slots = slots;
     }
 
     public void Submit(LedFrame frame)
@@ -148,11 +177,21 @@ public sealed class LedFramePool : ILedFrameSink
         }
     }
 
+    /// <summary>Gives a taken frame back, grown first to the high water if the plan grew while the sender held it (the sender's
+    /// thread allocates, never the render thread's next rent).</summary>
     public void Return(LedFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
+        int highWater;
         lock (_gate)
+            highWater = _highWater;
+        Grow(frame, highWater);
+        lock (_gate)
+        {
+            // The high water may have risen between the two looks: grown under the gate then, before the frame is free.
+            Grow(frame, _highWater);
             Free(frame);
+        }
     }
 
     /// <summary>Queued frames waiting for the sender.</summary>

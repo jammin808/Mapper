@@ -296,5 +296,47 @@
       "MASTER 100",
       "PANIC CLEAR"
     ]
+  },
+  {
+    "title": "Last GO",
+    "path": "show.lastGo[]",
+    "label": "playlist",
+    "key": "playlist",
+    "light": [
+      {
+        "light": "info"
+      }
+    ],
+    "words": "GO by {by} ({transport})",
+    "fields": [
+      {
+        "label": "Playlist",
+        "path": "playlist"
+      },
+      {
+        "label": "By",
+        "path": "by"
+      },
+      {
+        "label": "Session",
+        "path": "session"
+      },
+      {
+        "label": "Transport",
+        "path": "transport"
+      },
+      {
+        "label": "At",
+        "path": "at"
+      },
+      {
+        "label": "Leader (ns)",
+        "path": "leaderNs"
+      }
+    ],
+    "actions": [
+      "PLAYLIST GET $(playlist)",
+      "SHOW SET MINGO 500"
+    ]
   }
 ]

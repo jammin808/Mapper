@@ -9,7 +9,7 @@
   <ScrollViewer Padding="12,6,12,12">
     <StackPanel Spacing="8">
       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" ui:DeskMenu.Actions="{Binding Actions}">
-        <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="FleetLight" VerticalAlignment="Top" Margin="0,5,0,0" />
+        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Top" Margin="0,5,0,0"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="FleetLight" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
         <TextBlock Grid.Column="1" Text="{Binding Headline}" FontWeight="SemiBold" TextWrapping="Wrap" x:Name="FleetHeadline" />
       </Grid>
       <WrapPanel Orientation="Horizontal">
@@ -23,7 +23,7 @@
                     BorderBrush="{Binding Light, Converter={StaticResource LightBrush}}" BorderThickness="1">
               <StackPanel Spacing="3">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                  <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="MachineLight" />
+                  <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="MachineLight" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
                   <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                   <Border Grid.Column="2" Classes="chip" IsVisible="{Binding IsQuiet}">
                     <TextBlock Text="{Binding Heard}" Foreground="{Binding Light, Converter={StaticResource LightBrush}}" x:Name="MachineHeard" />

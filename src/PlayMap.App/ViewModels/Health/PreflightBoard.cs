@@ -4,6 +4,7 @@ using PlayMap.App.Infrastructure;
 using PlayMap.App.Link;
 using PlayMap.App.State;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Preflight;
 
 namespace PlayMap.App.ViewModels.Health;
@@ -190,7 +191,7 @@ public sealed class PreflightBoardViewModel : ObservableObject
                 var rowKey = key + "/" + row.Id;
                 keep.Add(rowKey);
                 var status = section.Rows.FirstOrDefault(x => x.Id == rowKey) ?? new StatusRow(rowKey);
-                status.Update(ShowContext.LightWord(row.Light), row.Item, row.Value, row.Note, FixFor(rowKey, row.Fix));
+                status.Update(RowLight(row), row.Item, row.Value, row.Note, FixFor(rowKey, row.Fix));
                 rows.Add(status);
             }
             Sync(section.Rows, rows);
@@ -204,6 +205,14 @@ public sealed class PreflightBoardViewModel : ObservableObject
         LastRun = string.Create(CultureInfo.InvariantCulture,
             $"last run {ViewModels.Show.ShowStripViewModel.Clock(report.AtUnixMs, "HH:mm:ss")} · {report.DurationMs / 1000.0:0.0} s · {g} green, {a} amber, {r} red, {n} grey{(report.Complete ? "" : " · not every check finished")}");
         Light = ShowContext.LightWord(PreflightReports.Worst(report.Rows));
+    }
+
+    /// <summary>A row's light as its status row draws it: a grey row whose value is the information mark (<see cref="MachineRows.Information"/>,
+    /// a layer the edition lacks) is information, its mark "i info"; every other row its report's light word.</summary>
+    public static string RowLight(PreflightRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.Light == PlayMap.Core.Bus.Light.Grey && row.Value == MachineRows.Information ? "info" : ShowContext.LightWord(row.Light);
     }
 
     /// <summary>The Fix of a row: an action sending the row's fix line, or null when nothing on the wire fixes it.</summary>

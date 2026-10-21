@@ -17,6 +17,9 @@ the layout's slot names; fences are values on a queue's timeline. A user's effec
 from the start, so the graph's package adds no contract mid-wave. The GL backend implements all of it immediately, as it draws
 today. The cut's one acceptance is that every golden image stays byte for byte what it is.
 
+The contracts as built add to these shapes and differ from them in places; `../notes/rhi.md` §2 lists each, with its file and
+caller, and §3 where the code proves this design and its neighbours wrong.
+
 ---
 
 ## 1. The bar
@@ -250,7 +253,7 @@ public interface ICommandList
 }
 
 /// <summary>One draw being built: constants by name through the program's layout, textures by slot name, then the draw itself.
-/// A ref struct over the list's per-frame constant ring: nothing escapes the frame, nothing allocates.</summary>
+/// A ref struct over the list's constant-ring page: nothing escapes the frame, nothing allocates.</summary>
 public ref struct DrawBuilder
 {
     public DrawBuilder Set(string name, float x);

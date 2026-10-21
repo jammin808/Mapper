@@ -1,5 +1,6 @@
 using PlayMap.Core.Content;
-using PlayMap.Render.Gpu;
+using PlayMap.Core.Gpu;
+using PlayMap.Render.Engine;
 using SkiaSharp;
 
 namespace PlayMap.Render.Generators;
@@ -11,16 +12,28 @@ namespace PlayMap.Render.Generators;
 internal sealed class ParticleGenerator : GeneratorRenderer
 {
     internal const int Sprite = 128;
-    private static readonly VertexAttribute[] Layout =
+    internal static readonly VertexAttribute[] Layout =
     [
         new(0, 4, ParticleSim.InstanceFloats * 4, 0, Buffer: 1, Divisor: 1),
         new(1, 4, ParticleSim.InstanceFloats * 4, 16, Buffer: 1, Divisor: 1),
     ];
 
+    private static readonly DrawState Sprites = FrameLists.Quads(BlendMode.Premultiplied);
+    private static readonly DrawState GlowingSprites = FrameLists.Quads(BlendMode.AddPremultiplied);
+
+    /// <summary>The field's sprites, laid or glowing, into its half-float picture.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("sprite", Sprites, TargetShape.Rgba16F);
+        keys.Add("sprite", GlowingSprites, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
     private readonly GpuBuffer _instances;
-    private readonly VertexArray _vao;
+    private readonly GpuMesh _mesh;
     private readonly GpuTexture _atlas;
+    private readonly ProgramId _sprite;
     private readonly FlashGuard _guard = new();
     private readonly ParticleSim _sim = new();
     private float[] _data = [];
@@ -29,12 +42,13 @@ internal sealed class ParticleGenerator : GeneratorRenderer
     public ParticleGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
         : base(services, kind, width, height, context)
     {
-        _target = Device.CreateRenderTarget(width, height, TextureFormat.Rgba16F);
-        _instances = Device.CreateBuffer(BufferKind.Vertex);
+        _sprite = Device.Programs.Id("sprite");
+        _target = Device.CreateTarget(new TargetDesc(width, height, TextureFormat.Rgba16F));
+        _instances = Device.CreateBuffer(new BufferDesc(0, BufferUsage.Instance | BufferUsage.Dynamic));
         Device.SetBufferData<float>(_instances, new float[ParticleSim.InstanceFloats]);
-        _vao = Device.CreateVertexArray(Layout, null, null, _instances);
-        _atlas = Device.CreateTexture(Sprite * 5, Sprite, TextureFormat.Rgba8);
-        DrawAtlas(Device, _atlas);
+        _mesh = Device.CreateMesh(Layout, null, null, _instances);
+        _atlas = Device.CreateTexture(new TextureDesc(Sprite * 5, Sprite, TextureFormat.Rgba8, FrameLists.Uploaded));
+        DrawAtlas(List, _atlas);
     }
 
     public override GpuTexture Output => _target.Color;
@@ -59,21 +73,21 @@ internal sealed class ParticleGenerator : GeneratorRenderer
     {
         _sim.Advance(frame.Seconds, frame.Impulse);
         var n = _sim.WriteInstances(_data);
-        var d = Device;
-        d.BindTarget(_target);
-        d.Clear(_background.R, _background.G, _background.B, 1);
+        var list = List;
         if (n > 0)
+            Device.SetBufferData<float>(_instances, _data.AsSpan(0, n * ParticleSim.InstanceFloats));
+        using (list.Pass(_target, FrameLists.Clear(_background.R, _background.G, _background.B, 1)))
         {
-            d.SetBufferData<float>(_instances, _data.AsSpan(0, n * ParticleSim.InstanceFloats));
-            var p = d.Program("sprite");
-            p.Set("uTarget", Width, Height);
-            p.Set("uAtlas", ShapeIndex(_sim.Settings!.Shape) / 5f, 1f / 5f);
-            var (dx, dy) = _sim.Surge.ShakeOffset(Height);
-            p.Set("uOffset", dx, dy);
-            d.BindSampler(p, "uTex", 0, _atlas);
-            d.SetBlend(_sim.Additive ? BlendMode.AddPremultiplied : BlendMode.Premultiplied);
-            d.DrawInstanced(p, _vao, PrimitiveKind.TriangleStrip, 4, n);
-            d.SetBlend(BlendMode.Opaque);
+            if (n > 0)
+            {
+                var (dx, dy) = _sim.Surge.ShakeOffset(Height);
+                list.Draw(_sprite, _sim.Additive ? GlowingSprites : Sprites)
+                    .Set("uTarget", Width, Height)
+                    .Set("uAtlas", ShapeIndex(_sim.Settings!.Shape) / 5f, 1f / 5f)
+                    .Set("uOffset", dx, dy)
+                    .Texture("uTex", _atlas)
+                    .Instanced(_mesh, 4, n);
+            }
         }
         var flash = frame.FlashGuard ? _guard.Limit(_sim.Surge.Flash, frame.Seconds) : _sim.Surge.Flash;
         Services.DrawFlash(_target, flash);
@@ -89,7 +103,7 @@ internal sealed class ParticleGenerator : GeneratorRenderer
     };
 
     /// <summary>The five white sprites side by side, premultiplied: circle, square, star, streak, bokeh.</summary>
-    internal static void DrawAtlas(GlDevice device, GpuTexture atlas)
+    internal static void DrawAtlas(ICommandList list, GpuTexture atlas)
     {
         using var bitmap = new SKBitmap(new SKImageInfo(Sprite * 5, Sprite, SKColorType.Rgba8888, SKAlphaType.Premul));
         using (var c = new SKCanvas(bitmap))
@@ -130,14 +144,14 @@ internal sealed class ParticleGenerator : GeneratorRenderer
             }
             c.Flush();
         }
-        device.UploadPointer(atlas, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
+        RenderServices.Upload(list, atlas, bitmap);
     }
 
     protected override void Dispose(bool disposing)
     {
         if (!disposing)
             return;
-        _vao.Dispose();
+        _mesh.Dispose();
         _instances.Dispose();
         _atlas.Dispose();
         _target.Dispose();

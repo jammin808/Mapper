@@ -14,7 +14,10 @@
           <TextBlock Text="{Binding Grade}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" x:Name="ScoreGrade" />
         </Border>
         <StackPanel Grid.Column="1">
-          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          <DockPanel>
+            <ui:StatusMark DockPanel.Dock="Left" Margin="0,0,6,0" Light="{Binding Light}" x:Name="ScoreMark" />
+            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
           <TextBlock Classes="dim" Text="{Binding Words}" TextWrapping="Wrap" x:Name="ScoreWords" />
         </StackPanel>
         <TextBlock Grid.Column="2" Text="{Binding Score}" FontFeatures="+tnum" VerticalAlignment="Top" />

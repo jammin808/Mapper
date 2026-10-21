@@ -3,7 +3,8 @@ using System.Collections.Concurrent;
 namespace PlayMap.Render.Effects;
 
 /// <summary>Where a slot stands on the renderer: not drawn lately, waiting for its program, drawing, faulted (it shows its input
-/// until its slot changes), bypassed (bypass on or mix 0: the input passes untouched), or of a kind this node does not have.</summary>
+/// until its slot changes), bypassed (bypass on or mix 0: the input passes untouched), of a kind this node does not have, or held by
+/// the node's quarantine (its kind is quarantined: the input passes untouched until FX RELEASE lifts it).</summary>
 public enum FxSlotState
 {
     Idle,
@@ -12,6 +13,7 @@ public enum FxSlotState
     Faulted,
     Bypassed,
     Missing,
+    Quarantined,
 }
 
 /// <summary>One slot as the render thread last drew it, read from any thread: each field is written whole by the render thread

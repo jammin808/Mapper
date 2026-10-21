@@ -3,8 +3,9 @@
 What a person does in the first five minutes with a projector and a wall, and how PlayMap keeps, explains and returns to every
 calibration it makes. The verbs are in `docs/wire/wall.md`.
 
-Round 3 keeps a half-drawn quad when a person clicks away, moves every corner and pin by one pixel, and keeps a re-solve from
-overwriting a pose typed by hand; *Not yet*, at the end, says how.
+The desk keeps a half-drawn quad when a person clicks away, and drags, types and nudges a quad's corners and a pin by one pixel
+(round 3's desk-ux). Round 3 goes on to move every handle by one pixel and to keep a re-solve from overwriting a pose typed by hand;
+*Not yet*, at the end, says how.
 
 ## First light and a quad
 
@@ -164,13 +165,15 @@ the wall, the seam term from the check, the report, `OVERLAY GRID`, overlay name
 quads on the 3D view and warp handles on the wall.
 
 Round 3 adds the following (`docs/round3/PLAN.md` D12, §3.6 item 6, §3.18, §3.20 item 2; the design is
-`docs/round3/design/desk-workflows.md` §3, §6). None of it is built yet. Its new rows and forms are in the catalogue and answer "not
-available on this node yet".
+`docs/round3/design/desk-workflows.md` §3, §6). Of it, the quad that stays, a quad's corners and a pin's pixel are built (desk-ux;
+docs/DESK.md, MAP's quad tool); the rest is not built yet. Its new rows and forms are in the catalogue and answer "not available on
+this node yet".
 
-- **The quad that stays.** An unfinished quad is a draft on the desk for each projector, kept in `desk.json` until Enter or
-  Discard. A tool change, another projector, leaving MAP, a menu entry and a desk restart keep it. Its points drag and nudge before
-  Enter.
-- **Every handle by one pixel.** A quad's corners are dragged, typed in wall pixels and nudged; a pin's pixel is typed and nudged.
+- **The quad that stays** (built). An unfinished quad is a draft on the desk for each projector, kept in the user's `desk.json` by
+  node and projector until Enter or Discard. A tool change, another projector, leaving MAP, a menu entry, the first-light guide
+  closed, a desk restart and a reattach to the same node keep it. Its points drag and nudge before Enter.
+- **Every handle by one pixel.** A quad's corners are dragged (`SURFACE CORNER … TO … RASTER`), typed in wall pixels and nudged by
+  the arrows, and a pin's pixel is typed in its row and nudged by the arrows through the line its drag sends (built, desk-ux).
   `PIN MOVE` moves a pin, and `WARP CORNER` and `WARP NODE … PX` move an output's warp. `HANDLE SELECT` takes every kind of handle,
   so `HANDLE NUDGE` moves a pin as it moves a corner. A move that would change nothing is refused with the words.
 - **What the wall shows.** The overlay draws the selected handle of any kind with a one-pixel crosshair at its exact point, and the

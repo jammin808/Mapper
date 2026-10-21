@@ -39,8 +39,10 @@ click menus. Video capture cards should be ultra fast in their pass through sign
 professional and intuitive interfaces and UI. Keep in mind gaming and medical code architecture, for speed, ultra-low latency and any
 database or server use. UI panels should be draggable and collapsible. Consider subtle uses of colour in the UI/UX to enhance
 cognition and awareness of areas and workflow stages." And: "corners can also be dragged in the four click quad. All mapping can also
-be manual, from initial setup to adjusting the auto scan and setup. Remember - Ai integration throughout."* §8.2 maps each sentence
-to the section that answers it.
+be manual, from initial setup to adjusting the auto scan and setup. Remember - Ai integration throughout."* On 19 October 2026 the owner
+chose "Keep Inno Setup (Recommended)" for this round's installer and "Ship it, show the terms (Recommended)" for the Direct3D 12
+runtime's terms (§9 decisions 3 and 23), and on 20 October 2026 "Open-source DXC only" for DXC's terms (§9 decision 24). §8.2
+maps each sentence to the section that answers it.
 
 ---
 
@@ -80,9 +82,11 @@ with no rebuild path [map §3.1].
 
 ### 1.2 Decisions taken
 
-The owner answered the round's decisions on 18 October 2026 (§9 records each answer and what it changes). D4, D5 and D6 carry the
-answers on the edition, the lock, signing and the installer; D11–D16 are what the answers and the owner's new requirements add, D11
-and D13 with the owner's later answers on the console and the context's commands (§9 decisions 22 and 18).
+The owner answered the round's decisions on 18 October 2026, chose this round's installer and the Direct3D 12 runtime's terms on
+19 October 2026, and answered DXC's terms on 20 October 2026 (§9 records each answer and what it changes). D4, D5 and D6 carry the
+answers on the edition, the lock, signing and the installer, D6 with the choices of 19 October (§9 decisions 3 and 23), and D7 the
+answer on DXC (§9 decision 24); D11–D16 are what the answers and the owner's new requirements add, D11 and D13 with the owner's
+later answers on the console and the context's commands (§9 decisions 22 and 18).
 
 | # | Decision | What it means in the tree | Why | What would reopen it |
 |---|---|---|---|---|
@@ -91,8 +95,8 @@ and D13 with the owner's later answers on the console and the context's commands
 | D3 | **Vulkan is not carried.** | No Vulkan backend. The user-shader front end will go through SPIR-V (D7), so a Vulkan backend would stay cheap to add. | Vulkan's Windows presentation depends on each vendor; Spout, D3D12 Video and the desk's import need a DirectX bridge anyway; present timing is new and NVIDIA-first [dir §1]. | Linux render nodes as a goal again. |
 | D4 | **Windows 11 24H2 (build 26100) or later on every edition — Home, Pro, Pro for Workstations, Enterprise, Education and IoT Enterprise; IoT Enterprise LTSC 2024 recommended for permanent show nodes.** (The owner's answer 1.) | The installer will refuse an older build with words; S mode (Home only) runs no installer at all, so `docs/INSTALL.md` and the download page say "switch out of S mode first". Three published tiers in `docs/INSTALL.md` and `machine.identity`: **IoT Enterprise LTSC 2024** for permanent show nodes (Shell Launcher, specialized displays, update deferral; supported to 10 Oct 2034); **Pro or Enterprise 25H2+** for desks and for nodes run with update policies; **Home 25H2+**, supported and unmanaged. PlayMap depends on no edition-only feature: on Home a node runs the engine in an auto-logged-on local standard "show" account under the supervisor (D6) instead of Shell Launcher or Assigned Access, with Explorer as the shell; its outputs are desktop monitors (no specialized displays), so the desk's monitor stays the primary display; PlayMap writes no Windows Update policy on Home (pause and active hours are the person's, and `MACHINE LOCK` observes a driver that changed rather than claiming to stop it). Preflight names each layer an edition lacks as an information row (grey, with an **i**) and five facts as hard rows: Smart App Control in evaluation while builds are unsigned (amber: once it enforces, Windows itself blocks the unsigned installer, `PlayMap.exe` and the supervisor before any of PlayMap runs, so a person then meets only Windows' block and the words `docs/INSTALL.md` and the release page carry), a projector output that is the primary display, show media held as an online-only cloud placeholder (red, the file named: wp3-video's decode preflight), the show network on the Public firewall profile without a rule, and an OS version past its end of servicing (amber: Home and Pro 24H2 left servicing on 13 Oct 2026, so a 24H2 Home node installs, runs and says so; the tiers name 25H2 or later). Windows 10 will not be supported. Linux will keep the development loop and CI's GL suites, not shipped nodes. | 24H2 clears every feature floor the round uses (GPU upload heaps at 26080+, D3D12 AV1 encode) [dir §5]. Home runs every API the engine and desk use — Direct3D 12, DXGI flip and Independent Flip, MMCSS, QoS, high-resolution timers, services, Task Scheduler, the MSI, WER — and lacks the management layers: Assigned Access, Shell Launcher, specialized displays, the Update client policies, the policy editors [home §1]. Vendor features are gated by GPU class, not edition [home §11]. Home 24H2 left servicing on 13 Oct 2026, so a Home node runs 25H2 or 26H2 and moves on Microsoft's schedule [home §2]; the Agility SDK keeps D3D12 current on a frozen LTSC. | A shipped feature needing a later build or an edition-only feature. |
 | D5 | **Hardware lock where the hardware allows it; the honest software lock everywhere else.** (The owner's answer 2.) | Each present path has its hardware tier, on NVIDIA's professional GPUs (RTX PRO Blackwell, RTX Ada, RTX A-series, Quadro RTX) with an RTX PRO Sync board: on Direct3D 12 (`PRESENT PATH D3D12`) NVAPI's present barrier, wherever the outputs' adapter answers `NvAPI_D3D12_QueryPresentBarrierSupport`; on OpenGL — AUTO's path on every machine this round — the `WGL_NV_swap_group` swap group and swap barrier, wherever the output's context lists the extension. Every output joins as its own client or member at `SYNC APPLY` (refused while armed) and counts as locked only while its own evidence shows it in sync: on Direct3D 12 the barrier's statistics for its client, on OpenGL its group and barrier read back bound, the board's sync state for its display and the shared frame count advancing one per refresh. An output the driver does not take reaches no in-sync count, leaves within the governed time and runs free with its phase and words, so whether several swap chains join (M4) is each node's own measured answer, never a hope. The DXGI path (`PRESENT PATH DXGI`) has no hardware tier this round, as the owner accepted (§9 decision 21): a node with a board whose outputs present there — or on a GL context without the extension — is amber in preflight and in `SYNC APPLY`'s answer, with `PRESENT PATH D3D12` (or `GL`) as the fix. A capture input is never called locked: its arrival phase against the pacing output's vblank is measured and published (wp3-capture), and a capture card's reference status is a fact about that card's outputs, a genlocked SDI output being next round's. Every other output — AMD, GeForce, Intel, any node without a board — presents free with its measured phase: `lock.tier` "software" and the words "software lock: same frame, phase +6.2 ms ± 0.3 ms". STATE will never give an output a locked state (`framelocked`, `house-locked`, `grouped`) without its tier's own evidence, and the unused `soft-locked` state will be retired ("software" is a tier, not a state). With no lab this round both hardware tiers are proven against fakes (NVAPI, the WGL extension) and say "built, not proven on hardware". | AMD withdrew framelock in 23.Q1 and its S400 module is no longer sold; GeForce never had it; network time aligns which frame is drawn, not when it scans out [dir §2, cap §5.3]. The GL swap group has shipped on Quadro since 2003, and a wall that Vulkan's barrier would not take a second swap chain into worked through it [`research/vendor_features.md` §1]. | A vendor shipping a lock with a D3D12 entry point; the owner asking for the DXGI path's swap groups (§9 decision 21). |
-| D6 | **A per-machine MSI built by the WiX toolset compiled from its source in CI, unsigned this round; the engine runs in an auto-logged-on show user's session under a supervising service.** (The owner's answers 3 and 4.) | A cached CI job builds the WiX toolset (v7) from its MS-RL source at a pinned release tag into a local package feed; `nuget.config` maps `WixToolset.*` to that feed only, so no official WiX binary — release, NuGet package or .NET tool — is ever restored, and nothing of FireGiant's paid offerings (HeatWave, Developer Direct, the maintenance fee) is used; no WiX issue is filed. The MSI's Util and Firewall custom-action DLLs are named with MS-RL and their source tag in `THIRD-PARTY-NOTICES.md`. If the self-built tool still asks for the fee's EULA gesture, the gesture is never passed — PlayMap accepts no WiX agreement, and the EULA binds only WiX's binary releases — and a one-line patch to the pinned source answers the check, kept with the pin and published under MS-RL. If the toolset cannot be built on the runner within its one-day time-box (M17), or no such patch holds, Inno Setup 7.1 (an EXE installer whose licence allows any use, though its author asks commercial users above US$5 000 revenue to buy a licence — a request, not a condition, §9 decision 3) builds the installer, every machine-level action in the supervisor's own commands. Builds are unsigned and named `-unsigned`, each artifact and release with a `SHA256SUMS` file, which shows a download is intact and not who built it. A small LocalSystem service (`PlayMap.Supervisor`) will start `PlayMap.exe engine` in the show user's session, restart it, and stop one whose shown-frame heartbeat has stopped while HEALTH says it should move (never during a start or a device rebuild within its measured budget). The engine will never run as administrator and never in session 0; the installer will do every machine-level action once (firewall, dump settings, privileges). | The WiX maintenance fee's EULA binds only WiX's binary releases and says a user may compile binaries from the source without it; WiX v5, the last fee-free binary line, has had no security fixes since February 2026 [inst §2]. An MSI keeps transactional rollback, services, `MajorUpgrade` and `msiexec` for IT [inst §3]. Session 0 cannot drive displays; MSIX virtualises the machine-level writes the node needs; Velopack's MSI adds no services [dir §5]. | The toolset's spike failing, or the self-built tool asking for the gesture with no patch that holds (→ Inno Setup); the owner choosing to sign (§9 decision 2). |
-| D7 | **One HLSL source for the product shaders; user ISF out of process.** | The 40 product programs will be written once in HLSL and compiled by DXC at build time (the GLSL stays for the GL backend until it retires). User ISF will go ISF → GLSL 4.50 → glslang relaxed (`-R`) → SPIR-V → validated → SPIRV-Cross → HLSL → DXC → DXIL in a `PlayMap shader-worker` process, so no compiler loads into the engine, and will draw on the Direct3D 12 device through a root signature of its own (wp3-shaders-2); spirv_to_dxil will stay a measured alternative behind the same stage. A shader that crashed the GPU will be quarantined. | DXC's PDBs map a GPU crash to a source line in PIX and RGD; incorrectly written GLSL crashes explicit-API renderers [dir §1]. SPIRV-Cross and DXC ship as packages today; spirv_to_dxil has no package (to be built from Mesa). | spirv_to_dxil passing more of the ISF corpus than SPIRV-Cross (shaders' stretch measures it). |
+| D6 | **A per-machine installer built by Inno Setup 7.1 this round, unsigned, with the Direct3D 12 runtime inside it under a licence page; an MSI is revisited next round; the engine runs in an auto-logged-on show user's session under a supervising service.** (The owner's answers 3 and 4, and their choices of 19 October 2026: §9 decisions 3 and 23.) | Inno Setup 7.1 builds one 64-bit EXE installer, per machine, every machine-level action done by the supervisor's own commands, with §1.3's rules and the MSI's acceptance restated for an EXE; wherever this plan names the MSI as what the round ships, the Inno Setup installer stands in, and the MSI's design is kept for the next round (`design/installer.md`). Inno Setup's licence allows any use; its author asks commercial users above US$5 000 revenue to buy a licence, a request and not a condition, which the owner may meet (§9 decision 3). No WiX release, NuGet package, .NET tool or paid FireGiant offering (HeatWave, Developer Direct, the maintenance fee) is used, no WiX issue is filed, and PlayMap never passes WiX's EULA gesture. M17 measured WiX's MS-RL source at its pinned tag on the runner, and the probe that measured it is retired with its answer: there is no `wix-toolset` job, `nuget.config`, `installer/wix/` or `WixSourceTests`, and nothing of WiX is built or shipped. The installer carries the Agility SDK's `D3D12Core.dll` and shows a licence page that carries Microsoft's own licence for it verbatim, which answers the SDK's requirement that distributors and external end users "agree to terms that protect it and Microsoft at least as much as this agreement"; PlayMap's own terms are the owner's to name, and none are named yet. A quiet install shows no page and lays nothing down without `/ACCEPTTERMS=yes`. The owner accepts Microsoft's distribution terms, the indemnity included (§9 decision 23). Builds are unsigned and named `-unsigned`, each artifact and release with a `SHA256SUMS` file, which shows a download is intact and not who built it. A small LocalSystem service (`PlayMap.Supervisor`) will start `PlayMap.exe engine` in the show user's session, restart it, and stop one whose shown-frame heartbeat has stopped while HEALTH says it should move (never during a start or a device rebuild within its measured budget). The engine will never run as administrator and never in session 0; the installer will do every machine-level action once (firewall, dump settings, privileges). | M17 measured that WiX v7.0.0's pinned source does not build on `windows-2025`: it needs Visual Studio's v143 C++ tools, and the runner's Visual Studio 2026 has v145 only. The source checks its EULA gesture in three places (`wix.exe`'s command line, the SDK target's WIX7015, the `CheckLicenseAcceptance.targets` every extension package carries), and no patch to it was made (§9 decision 3). Of the other free installers, Inno Setup fits the node best: NSIS needs more script and has no automatic rollback at all; MSIX needs a signature and virtualises the machine-level writes the node needs; Velopack and Squirrel install no services [inst §3]. An EXE gives up an MSI's transactional rollback of service and registry changes, repair and `msiexec` for IT [inst §3], so the installer orders its own steps to stand in for the rollback, and an MSI is revisited next round. Session 0 cannot drive displays [dir §5]. | Next round's MSI (the owner's choice of 19 October 2026), with a toolset that builds on the runner and is used without a licence gesture; the owner choosing to sign (§9 decision 2). |
+| D7 | **One HLSL source for the product shaders; user ISF out of process.** | The 40 product programs will be written once in HLSL and compiled at build time by DXC's executable, `dxc.exe`, which the Windows build runs and never ships (the GLSL stays for the GL backend until it retires). What PlayMap ships and loads of DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator validates the DXIL and signs it with the retail hash, in the build's `dxc.exe` as in the worker; no `dxil.dll` or `libdxil.so` is used or shipped (§9 decision 24). User ISF will go ISF → GLSL 4.50 → glslang relaxed (`-R`) → SPIR-V → validated → SPIRV-Cross → HLSL → DXC → DXIL in a `PlayMap shader-worker` process, so no compiler loads into the engine, and will draw on the Direct3D 12 device through a root signature of its own (wp3-shaders-2); spirv_to_dxil will stay a measured alternative behind the same stage. A shader that crashed the GPU will be quarantined. | DXC's PDBs map a GPU crash to a source line in PIX and RGD; incorrectly written GLSL crashes explicit-API renderers [dir §1]. SPIRV-Cross and DXC ship as packages today; spirv_to_dxil has no package (to be built from Mesa). | spirv_to_dxil passing more of the ISF corpus than SPIRV-Cross (shaders' stretch measures it). |
 | D8 | **TerraFX for Direct3D 12 and DXGI.** | `TerraFX.Interop.Windows` (raw structs and function-pointer vtables, generated from the Windows SDK and Agility headers) in `PlayMap.Render.D3D12` only; its port of the D3D12 Memory Allocator for memory, or PlayMap's own placed-resource pools if that port lags the Agility SDK. NVAPI will stay hand-declared, as today: the board's facts in Render's existing tier, the present barrier's calls in `Render.D3D12/Sync`; `PlayMap.Platform.Windows` will carry its own few read-only DXGI and NVAPI probe declarations, each with a layout golden. | The hot path allocates nothing; raw bindings keep that true and match the house's vtable approach (`ComSlots`) without hand-writing the D3D12 surface, which is far larger than the 31 methods `ComSlots` declares [map §2.7]. A wrapper binding allocates managed objects per interface. | A binding gap that blocks a must; Vortice.Windows is the named alternative. |
 | D9 | **The desk keeps Avalonia,** with GPU shared-texture previews and the consoles' safety patterns. | Previews will move from four CPU copies to a shared texture and fence per view where the desk's compositor shares the engine's adapter; the CPU ring will stay for every other case. | Avalonia 12.1 is current and imports D3D11 NT-handle textures and D3D12 fence handles; WinUI 3 would rewrite every view for one asset [dir §9]. | Avalonia's backend not importing either at run time (§1.5, M2): the ring stays, and only the GPU path waits. |
 | D10 | **What the round refuses.** | DLSS frame generation (synthesised frames under their own pacing contradict content as a pure function of show time); adaptive resolution (it breaks blend seams); VRR on any output in a lock group or feeding genlocked processors; shipping changed TDR registry keys (long GPU work is split instead); `GC.Collect` at show arm (banned in `src/`; a case for it needs a measured cause and a test). | [dir §2, §4, §5, §7, §8] | A measured cause and a deterministic test. |
@@ -137,7 +141,8 @@ The rules the installer will add:
    same depth and needs a full-history checkout, while a run number is unique per run. The commit in the SemVer gives the same
    traceability the height would have.
 
-MSIX and Velopack are not used, so their version rules do not apply.
+MSIX and Velopack are not used, so their version rules do not apply. This round's installer is Inno Setup's (D6): its version is the
+same MAJOR.MINOR.BUILD and it keeps rules 1–5, which the MSI revisited next round inherits unchanged.
 
 ### 1.4 What CI proves, and where
 
@@ -158,7 +163,7 @@ asserts a time (§2.1).
 | The RHI's own tests: fences, layouts, draw states, the module fence | ✓ | ✓ | — |
 | The render graph compiler, the frame block ring, evidence maths, observer verdicts, platform policy, supervisor policy, the version maths | ✓ (pure) | ✓ | — |
 | Direct3D 12: device, debug layer and GPU-based validation with no message, every pixel scene within its row of the D3D12 tolerance table, aliasing on and off, zero warm-frame allocation | — | ✓ | real GPUs (L15) |
-| HLSL through DXC, reflection against the program layouts | to be measured (M6) | ✓ | — |
+| HLSL through DXC, reflection against the program layouts | ✓ (M6: every program compiled and reflected; the build embeds no DXIL) | ✓ | — |
 | User ISF to SPIR-V (glslang, spirv-val, SPIRV-Cross) | ✓ | ✓ (on to DXIL, drawn on WARP, the pinned public corpus counted) | — |
 | D3D12 flip presenters: bring-up, 120 presents, read-back, HDR swap chains | — | ✓ (statistics may be absent on WARP) | real vblank |
 | Independent Flip proven, PresentMon agreeing | — | — | ✓ |
@@ -167,8 +172,8 @@ asserts a time (§2.1).
 | Forced device removal; the time to the first good frame recorded | — | ✓ (if WARP honours a forced removal, M8; else a fault seam) | a real TDR |
 | Shared previews: handles duplicated into a second process and read there | — | ✓ (in a child process if M8 allows; else two devices in one process) | Avalonia's own compositor |
 | `PlayMap.Platform.Windows` | policy | every call answers; read back where the Server SKU answers (M14) | p99.9 frame time with and without each claim |
-| The WiX toolset built from its source at a pinned tag, the local feed the only source of `WixToolset.*` | — | ✓ (cached by the tag's commit; M17) | — |
-| MSI build, install, upgrade, downgrade refused, uninstall, service, firewall, dump settings | — | ✓ (the runner is elevated) | IoT Enterprise LTSC 2024, Home 26H2, auto-logon (L11, L23) |
+| M17: the WiX toolset's pinned source built on the runner | — | ✓ (measured: it does not build on `windows-2025`; the probe is retired with its answer, §1.5) | — |
+| The installer (Inno Setup's, D6): build, install, upgrade, downgrade refused, uninstall, service, firewall, dump settings | — | ✓ (the runner is elevated) | IoT Enterprise LTSC 2024, Home 26H2, auto-logon (L11, L23) |
 | Unsigned builds: the `-unsigned` name, `SHA256SUMS` beside each artifact | — | ✓ (a named notice in the summary) | SmartScreen and Smart App Control on clean Home and Pro (L18) |
 | Windows editions: the Home branches, the edition's rows, Smart App Control's launch condition | ✓ (fake editions) | ✓ (fake editions; the Server SKU's own answers) | a Home node (L23) |
 | The desk: panes and layouts, menus against the catalogue, the palette and console, the quad's draft, every handle typed and nudged, what each screen shows, colour tokens, the guides' rails | ✓ (headless Avalonia) | ✓ | three operators (L19), the real rigs (L24) |
@@ -195,7 +200,7 @@ M9's proof, M10, M11, M12, M13 and M20 — stands on its "if no" column all roun
 | M3 | **Does the Windows 11 composition swapchain take D3D12 buffers and present at a target time?** | `bench/r3-present` in W1 | wp3-present's stretch 7 | A timed-present tier for outputs whose cadence is not the display's | Not built; flip presenters with the predicted display time are the path |
 | M4 | **Does the present barrier join several swap chains in one process on a Sync wall?** | The lab's two-machine RTX PRO Sync wall, two outputs each: nvpro-samples' barrier sample (no PlayMap code), then the engine | W4's entry condition: the sample's run booked before W3 ends (§9 decision 13) | A client per output's swap chain, as designed, the record confirming it | Each node answers it for itself: every output's swap chain still joins as its own client at `SYNC APPLY` (disarmed only), and one the driver does not take reaches no in-sync count within 120 refreshes, leaves and runs free with its phase and words; the node keeps that driver's answer in its settings (`NodeSettings.Sync`, by driver version), so the next `SYNC APPLY` joins only what the driver took; Mosaic stays a stretch |
 | M5 | **Does Reflex work on RTX PRO drivers, and with the present barrier?** | The lab's RTX PRO node: `NvAPI_D3D_SetSleepMode` answers and its latency markers | after W3 | An optional low-latency tier on outputs that are not in a barrier | PlayMap's own just-in-time pacing (waitable, then sample, then record) is the only one; never both on one output until measured |
-| M6 | Does DXC on Linux emit validated, signed DXIL? | The shaders package's first day | wp3-shaders | HLSL compiles on both jobs | HLSL compiles on the Windows job only; the Linux build embeds none and a Linux test holds the HLSL program set to the library's names |
+| M6 | Does DXC on Linux emit validated, signed DXIL? | The shaders package's first day | wp3-shaders | HLSL compiles on both jobs. **Measured: yes.** The shader worker's DXC (`libdxcompiler.so` alone, from DXC v1.9.2609's Linux release, its built-in validator signing each container with the retail hash; §9 decision 24) compiles every program to validated, signed DXIL on the Linux job, and `HlslBuildTests` and `ShaderLayoutTests` compile and reflect every program on both jobs; the build embeds DXIL on the Windows job only, where DXC's executable is packaged, so the Linux build embeds none | HLSL compiles on the Windows job only; the Linux build embeds none and a Linux test holds the HLSL program set to the library's names |
 | M7 | Does a .NET apphost load the Agility SDK's runtime (no `D3D12SDKVersion` export) through `ID3D12SDKConfiguration1::CreateDeviceFactory`? | The spine's probe step, on the runner (its WARP test and the hard gate's debug layer rest on the answer) | the spine | The MSI places `D3D12Core.dll` beside the exe and STATE names the runtime loaded | The OS runtime, named in STATE, its debug layer from Windows' Graphics Tools optional feature installed in the job; features that need a newer runtime are probed and refused with words |
 | M8 | Does WARP honour `ID3D12Device5::RemoveDevice`, does it decode video, do the NuGet WARP (Direct3D 12) and the system WARP (Direct3D 11) share NT-handle textures and fences, and can a WARP allocation be duplicated into a child process? | wp3-d3d12-core's first day | wp3-stability-2, wp3-video, wp3-desk-gpu | Removal, D3D12VA open, Spout's cross-API bridge and the child-process preview run in CI | Removal through a fault seam in CI and a real one in the lab; D3D12VA's handoff tested with a fake decoder; CI shares Direct3D 12 to Direct3D 12 in one process, and the cross-API and cross-process cases move to L8 and L3 |
 | M9 | Can the supervisor start the engine into the logged-on session (`WTSQueryUserToken`, `CreateProcessAsUser`)? | wp3-installer, on a lab machine with auto-logon, and as a probe on the runner (its job runs in an interactive session) | wp3-installer | As designed | A scheduled task at the show user's logon starts the engine; the service only watches and stops |
@@ -206,7 +211,7 @@ M9's proof, M10, M11, M12, M13 and M20 — stands on its "if no" column all roun
 | M14 | What does the hosted Windows runner give: MMCSS, the power-throttling read-back and the GPU scheduling class on the Basic Render Driver; an HDR10 colour space on its virtual display; M9's session calls? | The spine's probe step, its answers in the job's summary | the spine | Each asserted on the job by its package | Each a Server-SKU or virtual-display limit: the package's Windows test asserts the refusal's named words there, and the lab line proves the call (L10, L11, L13) |
 | M15 | How many minutes does GPU-based validation add to the Direct3D 12 leg on WARP? | wp3-d3d12-core's first full run, the leg's minutes in the summary | wp3-d3d12-core | On in every run | On for the merge's changed scenes in every run and for all of them in a nightly run on `main`; the gate (§5.4) names which |
 | M16 | Does WARP accept `OpenExistingHeapFromAddress` over a `VirtualAlloc` ring, placed buffers on it, and a copy-queue copy and a compute unpack from it, byte-exact for UYVY and v210? | wp3-capture's first day (`WrappedHeapTests`) | wp3-capture | Rung 1 (card DMA into the wrapped heap) built, proven on WARP, waiting for a real card's DMA (M20) | Rung 2 (one upload copy) is the best rung on every card, the refusal's words recorded |
-| M17 | Does the WiX toolset build from its MS-RL source at a pinned tag on `windows-2025` within a one-day time-box, and does the self-built tool still ask for the maintenance fee's EULA gesture? | wp3-installer's first day: build the tag, then a test MSI with a service, a `MajorUpgrade` and a firewall rule installed, upgraded and uninstalled on the runner; build time and cache size recorded | wp3-installer | The self-built toolset in a cached job and a local feed (D6) | Inno Setup 7.1, every machine-level action in the supervisor's commands, §1.3's rules restated for an EXE; if the self-built tool asks for the gesture, it is never passed: a one-line patch to the pinned source answers the check, and Inno Setup builds the installer only if no patch holds (§9 decision 3) |
+| M17 | Does the WiX toolset build from its MS-RL source at a pinned tag on `windows-2025` within a one-day time-box, and does the self-built tool still ask for the maintenance fee's EULA gesture? | wp3-installer's first day: build the tag, then a test MSI with a service, a `MajorUpgrade` and a firewall rule installed, upgraded and uninstalled on the runner; build time and cache size recorded | wp3-installer | The self-built toolset in a cached job and a local feed | **Measured: no.** WiX v7.0.0's pinned source does not build on `windows-2025`: its native parts need Visual Studio's v143 C++ tools, the runner's Visual Studio 2026 has v145 only, and adding v143 through Visual Studio's installer failed, so the build stops at MSB8020 before any licence check runs. The source checks the EULA gesture in three places — `wix.exe`'s command line, the SDK target's WIX7015, and the `CheckLicenseAcceptance.targets` every extension package carries — and WiX's own build sets `AcceptEula` for itself. PlayMap never passes the gesture, and no patch to the source was made: a session's permission policy refused it. Inno Setup 7.1 builds this round's installer, every machine-level action in the supervisor's commands, §1.3's rules restated for an EXE (the owner's choice of 19 October 2026, §9 decision 3); an MSI is revisited next round. The probe is retired with this answer: no `wix-toolset` job, `nuget.config`, `installer/wix/` or `WixSourceTests` is in the tree |
 | M18 | Does Dock for Avalonia (its 12.1 line) run on the desk's Avalonia 12.1.4 headless, keep floating panes inside the window, and round-trip a layout through its source-generated serializer? | wp3-desk-shell's first day | wp3-desk-shell | Dock behind the desk's seam (D11) | The desk's own splitters, collapsible rails and drag-to-dock between the four edges and the rails behind the same seam; no floating panes, which the owner is told |
 | M19 | Does the hosted runner let a test create a Media Foundation virtual camera (`MFCreateVirtualCamera`) that the capture provider opens? | wp3-capture's first day | wp3-capture | `MfProviderTests` on a real MF source in CI | The MF provider against a fake source-reader seam; the real MF path is L25's |
 | M20 | Does a real capture card DMA into pages Direct3D 12 has wrapped, without fault or tearing, and how fast does the GPU read them? | L25 (lab) | after wp3-capture | Rung 1 on that card | Rung 2 on that card, said |
@@ -225,10 +230,9 @@ Round 3 is done when:
    difference and reason; packed video byte-exact), with the debug layer and GPU-based validation on (as M15 decided) and no
    message; aliasing on and off draw the same pixels; warm frames allocate nothing; every pipeline the armed show can reach is
    compiled before ARM answers, or ARM's answer names each one missing with preflight red; a forced device removal is rebuilt by
-   the start-up path to a good frame, its time recorded; the installer — the MSI from the WiX toolset built from its source, or
-   Inno Setup's if M17 found the toolset does not build in its day, or asks for the gesture and no
-   patch holds — builds, installs, upgrades from the previous build, refuses a downgrade and uninstalls; `main`'s
-   artifact is named with its version and `-unsigned`, with its `SHA256SUMS`.
+   the start-up path to a good frame, its time recorded; the installer — Inno Setup's this round (D6, M17) — builds, installs,
+   upgrades from the previous build, refuses a downgrade and uninstalls; `main`'s artifact is named with its version and
+   `-unsigned`, with its `SHA256SUMS`.
 3. On Windows with `PRESENT PATH D3D12`, a show runs end to end on the Direct3D 12 backend: outputs on flip presenters, decode by
    D3D12VA or the copy-queue arena, user ISF effects compiled by the worker, Spout through the side device, previews shared with
    the desk where its compositor allows, the observer reading an output back. AUTO is still GL until M1's record, and STATE says
@@ -316,7 +320,7 @@ named blocks).
 | `Gpu` | wp3-d3d12-core (wp3-d3d12-passes-2 adds `EngineCore.Pipelines.cs`, wp3-stability-2 `EngineCore.Rebuild.cs`) | `EngineCore.Gpu.cs` (its `StateGpu` writes STATE `render` and calls `WriteRenderExtras` last inside it), `RenderHost.Gpu.cs`, `NodeSettings.Gpu.cs` |
 | `Plan` | wp3-d3d12-passes (wp3-d3d12-passes-2 continues it, then wp3-stability-2 in W4) | `Rendering/RenderHost.Plan.cs`, `EngineCore.Plan.cs` (`RenderPlan`: STATE `render.graph`, inside `render`), `Host/EngineParts.Plan.cs` (its arm hook) |
 | `Observe` | wp3-stability | `EngineCore.Observe.cs` (with `OutputObserve`: `outputs[].observed`, after `measured`), `EngineServices.Observe.cs`, `Host/EngineParts.Observe.cs`, `Host/EngineEntry.Observer.cs`, `NodeSettings.Observe.cs` |
-| `Shaders` | wp3-shaders (wp3-shaders-2 continues it) | `Host/EngineEntry.ShaderWorker.cs`, `EngineServices.Shaders.cs`, `EngineCore.Shaders.cs` (`RouteShaders`: `FX RELEASE`; `FxCompileShaders`: `fx.compile.worker`; `FxShaders`: `fx.quarantine`, last in `fx`); FX CHECK's Direct3D 12 stages through `EngineServices.FxStages` (`IFxStageCheck`) |
+| `Shaders` | wp3-shaders (wp3-shaders-2 continues it) | `Host/EngineEntry.ShaderWorker.cs`, `EngineServices.Shaders.cs`, `EngineCore.Shaders.cs` (`RouteShaders`: `FX RELEASE`; `FxCompileShaders`: `fx.compile.worker`; `FxShaders`: `fx.quarantine`, last in `fx`), `Host/EngineParts.Shaders.cs` (its extension sets `EngineServices.Quarantine` and `ShaderWorker`); FX CHECK's Direct3D 12 stages through `EngineServices.FxStages` (`IFxStageCheck`) |
 | `Undo` | wp3-desk-ux | `EngineCore.Undo.cs` |
 | `Preview` | wp3-desk-gpu | `RenderHost.Preview.cs` (beside the existing `RenderHost.Previews.cs`), `EngineCore.Preview.cs` (`StatePreview`; `ViewShared` answers `VIEW … SHARED`), `Host/EngineParts.Preview.cs` (its extension sets `EngineServices.PreviewShare` and joins `GpuLifecycles`) |
 | `Handles` | wp3-desk-map | `EngineCore.Handles.cs`, `EngineCore.Showing.cs` |
@@ -350,7 +354,7 @@ Windows evidence comes from the pushed branch's Windows job either way). Hours a
 | 1 | `wp3-rhi` | — | W1 | spine | here | 26 | The RHI in Core with the presenter seams, the program table, user programs and the graph's transients; GL behind it with unchanged pixels; one test fixture for every backend |
 | 2 | `wp3-platform` | Machine | W1 | spine | cloud | 27.5 | `PlayMap.Platform.Windows`: QoS, timers, MMCSS, process and GPU priority, CPU sets, keep-awake; the node's identity, edition, support tier and capabilities; machine preflight with Home's rows and the OS's servicing |
 | 3 | `wp3-shaders` | Shaders | W1 | spine (rhi before merge) | cloud | 25 | The 40 programs in HLSL through DXC; the shader worker for user ISF; quarantine |
-| 4 | `wp3-installer` | — | W1 | spine | cloud | 26.5 | The MSI version rules, the LGPL FFmpeg in CI, the WiX toolset built from its source and the MSI with ReadyToRun, machine-level actions, the supervisor service, a fail-closed armed check, unsigned builds with their SHA-256 list, the editions' guidance |
+| 4 | `wp3-installer` | — | W1 | spine | cloud | 26.5 | The installer's version rules, the LGPL FFmpeg in CI, M17's measure of the WiX toolset and the Inno Setup installer with ReadyToRun and the Direct3D 12 runtime's licence page, machine-level actions, the supervisor service, a fail-closed armed check, unsigned builds with their SHA-256 list, the editions' guidance |
 | 5 | `wp3-desk-ux` | Undo | W1 | spine | cloud | 26 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status rules, preview age, the four-click quad that stays, its corners dragged, typed and nudged, a pin typed and nudged |
 | 6 | `wp3-d3d12-core` | Gpu | W2 | rhi, shaders | cloud | 26 | Device, queues, fences, memory, descriptors, transients and aliasing, the exporter, DRED and Aftermath, the pipeline cache; every product pixel scene on WARP |
 | 7 | `wp3-d3d12-passes` | Plan | W2 | rhi (d3d12-core before merge) | here | 24.5 | Every pass declares what it reads and writes; the render graph compiled on show change; both backends walk the plan; a live input's import marked late-latched |
@@ -425,19 +429,20 @@ lab, and its next round.
    load note. (3.5 h)
 5. The tree: `src/PlayMap.Render.D3D12` (references Core; TerraFX; every type `[SupportedOSPlatform("windows")]`; its folders as
    `design/d3d12.md` §0 lists them), `src/PlayMap.Platform.Windows` (references Core), `src/PlayMap.Supervisor` (references Core),
-   their test projects, the solution's entries (the WiX project stays outside `PlayMap.sln`: an MSI builds on Windows only, so the
-   Windows job's MSI step builds it); `ModuleRuleTests` (each new project references Core and its own native packages only;
-   Render.D3D12 does not reference Render; only App references Avalonia); the stubs of §2.3, each empty body holding `// wp3-<pkg>
-   fills this.`; the new STATE keys reserved in their place — `identity`, `capabilities`, `platform`, `locked` and `install` as
-   children of the existing `machine` block, after its present keys; `render`, `observe` and `previews` at the top level; for the
-   owner's requirements `guides` at the top level, `outputs[].observed` (stability's), `outputs[].showing`, `outputs[].hand`,
-   `outputs[].passThrough`, `media.shownOn` (STATE's `media` is one object with no per-item rows, so desk-map gives the key its shape),
-   `videoio.inputs[].capture` and `.latency` and `air.overlay.handleP95Ms` after their blocks' present keys, and the context's `guide`
-   item kind; in `ContextBuilder.cs` the output item's words joined with `ShowingWords(output)`, a partial in desk-map's
-   `EngineCore.Showing.cs` stub that answers nothing until desk-map fills it; empty fixtures `machine.json`, `install.json`,
-   `shaders.json`, `gpu.json`, `graph.json`, `observe.json`, `previews.json`, `showing.json`, `canvas.json`, `guides.json` and
-   `capture.json` (each package adds its `.cards.json` with its first block: `EveryCardTests` holds every descriptor file to describe a
-   card); `docs/wire/<pkg>.md` generated from the catalogue; one heading per package in `THIRD-PARTY-NOTICES.md`. (5 h)
+   their test projects, the solution's entries (no installer project is in `PlayMap.sln`: this round's installer is Inno Setup's
+   script, built with its Windows-only tests by the installer job); `ModuleRuleTests` (each new project references Core and its own
+   native packages only; Render.D3D12 does not reference Render; only App references Avalonia); the stubs of §2.3, each empty body
+   holding `// wp3-<pkg> fills this.`; the new STATE keys reserved in their place — `identity`, `capabilities`, `platform`, `locked`
+   and `install` as children of the existing `machine` block, after its present keys; `render`, `observe` and `previews` at the top
+   level; for the owner's requirements `guides` at the top level, `outputs[].observed` (stability's), `outputs[].showing`,
+   `outputs[].hand`, `outputs[].passThrough`, `media.shownOn` (STATE's `media` is one object with no per-item rows, so desk-map
+   gives the key its shape), `videoio.inputs[].capture` and `.latency` and `air.overlay.handleP95Ms` after their blocks' present
+   keys, and the context's `guide` item kind; in `ContextBuilder.cs` the output item's words joined with `ShowingWords(output)`, a
+   partial in desk-map's `EngineCore.Showing.cs` stub that answers nothing until desk-map fills it; empty fixtures `machine.json`,
+   `install.json`, `shaders.json`, `gpu.json`, `graph.json`, `observe.json`, `previews.json`, `showing.json`, `canvas.json`,
+   `guides.json` and `capture.json` (each package adds its `.cards.json` with its first block: `EveryCardTests` holds every
+   descriptor file to describe a card); `docs/wire/<pkg>.md` generated from the catalogue; one heading per package in
+   `THIRD-PARTY-NOTICES.md`. (5 h)
 6. CI: the Windows job pinned to `windows-2025` (Windows Server 2025, build 26100: the MSI's launch condition holds there);
    it restores `Microsoft.Direct3D.WARP` and `Microsoft.Direct3D.D3D12` (the Agility SDK, with its debug layer) and copies them
    beside the test hosts; a trait `Backend=D3D12` on Direct3D 12 tests so the job lists their results apart; a `workflow_dispatch`
@@ -717,7 +722,8 @@ no documented cause stay off.
    conventions (targets top row first, row-vector matrices, UV v down, geometry from `SV_VertexID`, exact reads with `Load`), one
    root signature for all (the program's constants in `b0`; a binding block in `b1` of sixteen texture and sixteen sampler
    indices into directly indexed heaps, Shader Model 6.6); compiled by DXC at build time to DXIL with PDBs and reflection,
-   embedded in the assembly (on the Windows job; on Linux too if M6 says yes). (12 h)
+   embedded in the assembly on the Windows job, where DXC's executable is packaged (M6 answered yes: the tests compile every
+   program on both jobs; the Linux build embeds none). (12 h)
 2. `ShaderLayoutTests`: each program's DXC reflection (constant names, types, offsets; texture slots) equals its
    `ProgramLayout` in rhi's program table; before rhi merges, against a parse of the GLSL declarations; the slot headers generated
    from the table's file by an MSBuild step, so `Render.D3D12` reads data and never references Render. The integer-exact
@@ -727,8 +733,9 @@ no documented cause stay off.
    JSON object a line): ISF → `IsfTranslator`'s new target (GLSL 4.50, explicit in/out, set/binding for images, ISF inputs as
    loose uniforms) → glslang relaxed (`-R`) → SPIR-V → `spirv-val` → SPIRV-Cross → HLSL (SM 6.0) → DXC → validated DXIL and its
    reflection; each failure in that stage's words, with the line mapped back through `#line` to the ISF source; natives pinned by
-   hash, loaded by the worker only — the engine never loads a compiler; a source that stops the worker three times fails with
-   words. (8 h)
+   hash, loaded by the worker only — the engine never loads a compiler; DXC is dxcompiler alone, whose built-in validator signs
+   each container with the retail hash, and no `dxil.dll` or `libdxil.so` is used or shipped (§9 decision 24); a source that stops
+   the worker three times fails with words. (8 h)
 4. Quarantine: `ShaderQuarantine` (Core: a kind's hash → reason, when, build; kept in the node's home, never in the project), a
    quarantined kind's slots drawn bypassed with words, STATE `fx.quarantine`, a red preflight row with `FX RELEASE <kind>` and
    `FX REMOVE <slot>`; `FX RELEASE` (High, class Setup: refused armed by the gate and never drafted blind; a kind not quarantined
@@ -754,26 +761,45 @@ compiler natives).
 **Depends on.** The spine; rhi before merge (the layouts).
 
 **Acceptance.**
-- `HlslBuildTests` (Windows): every program compiles to validated DXIL with a PDB; the set equals `ShaderLibrary.Names`.
-- `ShaderLayoutTests` (Windows; the GLSL side on both).
+- `HlslBuildTests` (both; the embedded set on Windows): every program compiles to validated DXIL with a PDB, each container's
+  digest the retail hash recomputed over it from the published algorithm (INF-0004); the set equals `ShaderLibrary.Names`; the
+  Linux job lays down the worker's pinned `libdxcompiler.so`, the release's one file, before it restores; the build starts `dxc.exe`
+  without `DXC_DXIL_DLL_PATH`, and the Windows job names a path with nothing there in that variable before its build; the Windows
+  job runs `DxcNativesTests` on its publish before it uploads the exe.
+- `ShaderLayoutTests` (both).
 - `IsfVulkanTargetTests` (both): the built-in ISF files and the test corpus translate, compile under glslang `-R` and pass
   `spirv-val`; a translator error keeps its ISF line.
-- `ShaderWorkerTests`: a good source → DXIL and a layout; a syntax error → the stage and the ISF line; a fake compiler that aborts
-  → the worker restarts with backoff, the third stop fails the kind with words; the engine's process holds no compiler module.
+- `ShaderWorkerTests`: a good source → DXIL and a layout, each container carrying the retail hash recomputed over it; the hello
+  and STATE name each native's file, `dxc`'s dxcompiler, and the worker's process holds no `dxil.dll` or `libdxil.so`; a syntax
+  error → the stage and the ISF line; a fake compiler that aborts → the worker restarts with backoff, the third stop fails the kind
+  with words; the engine's process holds no compiler module and no validator library.
+- `DxcNativesTests` (both; §9 decision 24): the pins name `dxcompiler.dll` and `libdxcompiler.so` at the decided builds and no
+  validator library; no output of the engine, the desk, the node or the suite, nor the desk's publish once one is made, holds
+  `dxil.dll`, `libdxil.so` or a file of Microsoft.Direct3D.DXC (its binaries by name, every other file of it by content) but its
+  x64 `dxcompiler.dll` (on Windows) and its `LICENSE-LLVM.txt` in `licenses/DXC/`; each holds the pinned dxcompiler, and wherever
+  one holds dxcompiler, `licenses/DXC/` beside it holds the package's `LICENSE-LLVM.txt` and DXC's `LICENSE.TXT` and
+  `ThirdPartyNotices.txt` at v1.9.2609; no package the desk restores holds a validator library, and no project, build, publish,
+  installer, workflow or script file names one or Vortice's DXC.
 - `QuarantineTests`: a quarantined kind's slot draws its input unchanged (± 0 codes on GL); STATE and preflight carry it; `FX
   RELEASE` armed → the gate's verdict a refusal by class and the quarantine unchanged; from the blind owner never drafted — armed
   refused, disarmed acting on the node's quarantine at once, the draft holding no quarantine either way; on a free kind, and `ALL`
   with none, refused with words; else the slot draws again.
 
-**Verified here.** Translator, glslang, spirv-val and SPIRV-Cross (their Linux natives), the worker's protocol and supervision,
-quarantine. **On CI (Windows).** DXC, reflection, the worker end to end to DXIL. **Manual.** None (pixel parity is
+**Verified here.** Translator, glslang, spirv-val, SPIRV-Cross and DXC (their Linux natives, DXC's `libdxcompiler.so` alone; M6
+answered yes), reflection, the worker's protocol and supervision, its road end to end to DXIL, quarantine. **On CI (both jobs).**
+The same; on Windows, the build's embedded DXIL and the outputs' `dxcompiler.dll` too. **Manual.** None (pixel parity is
 wp3-d3d12-core's).
 
 **Next round.** The GLSL library deleted with GL; Shader Model 7's SPIR-V intake when it ships; user HLSL.
 
-### 3.5 `wp3-installer` — the MSI, the supervisor and the version rules (W1)
+### 3.5 `wp3-installer` — the installer, the supervisor and the version rules (W1)
 
 *Design: `design/installer.md`.*
+
+*This round's installer is Inno Setup's (D6; the owner's choice of 19 October 2026, §9 decision 3): M17 measured that the WiX
+toolset's pinned source does not build on the runner. Items 3–4 and the acceptance below describe the MSI, and the Inno Setup
+installer meets them restated for an EXE; wherever this plan names the MSI as what the round ships, it is the Inno Setup installer.
+The MSI's design is kept for the next round, when an MSI is revisited.*
 
 **Slice.**
 1. The version rules (§1.3): `Version.props` refuses a major or minor above 255; `MsiVersion` = MAJOR.MINOR.BUILD from numbered
@@ -781,25 +807,27 @@ wp3-d3d12-core's).
    MSI version is greater than the last release's. Both CI jobs switch their FFmpeg to the hash-pinned `lgpl-shared` build of the
    same FFmpeg 9.0.2, so every decode test runs on the libraries the MSI will carry; the GPL command-line build stays on CI's path
    only to encode test media (libx264 and libx265), never beside a test host. (3 h)
-2. The WiX toolset from its source (D6, M17): a `wix-toolset` job in the installer's CI block checks out WiX's MS-RL source at a
-   pinned release tag (v7), builds the SDK and the Util and Firewall extensions, and caches them by the tag's commit with a version
-   suffix of PlayMap's own; `nuget.config` maps `WixToolset.*` to that local feed only, so a restore can never fetch an official
-   package; no WiX release, NuGet package, .NET tool, HeatWave or Developer Direct is used, no EULA property is set and no WiX
-   issue is filed. The first day's time-box is M17: the tag built, a test MSI with a service, a `MajorUpgrade` and a firewall rule
-   installed, upgraded and uninstalled on the runner, the build's minutes and the cache's size recorded, and whether the self-built tool still asks for the EULA gesture, which is never
-   passed (a one-line patch to the pinned source answers the check, kept with the pin, §9 decision 3); if the build fails, or no
-   patch holds, Inno Setup 7.1 (§1.5) takes items 3–4's place with the same acceptance, restated for an EXE. (3 h)
+2. The WiX toolset from its source, measured (D6, M17): M17 is WiX's MS-RL source at the pinned release tag (v7.0.0) built on the
+   runner — the SDK and the Util and Firewall extensions into a local feed, the only source of `WixToolset.*` — with no WiX release,
+   NuGet package, .NET tool, HeatWave or Developer Direct, no EULA property, no WiX issue and the EULA gesture never passed. Its
+   answer (§1.5): the source does not build on `windows-2025`, it checks the gesture in three places, and PlayMap patches none of
+   it. The probe is retired with that answer: there is no `wix-toolset` job, `nuget.config`, `installer/wix/` or `WixSourceTests`,
+   and nothing of WiX is built or shipped. Inno Setup 7.1 takes items 3–4's place with the same acceptance, restated for an EXE (the
+   owner's choice of 19 October 2026, §9 decision 3). (3 h)
 3. The MSI (the SDK project `installer/PlayMap.Installer.wixproj`, outside `PlayMap.sln` because an MSI builds on Windows only,
    built by the Windows job's MSI step against item 2's feed): per machine into Program Files\PlayMap; the self-contained publish
    with ReadyToRun (`PublishReadyToRun`: M13's default with the pre-roll, the first ten minutes recorded in L21) harvested; FFmpeg's
    LGPL shared libraries (item 1's pin) and libvmx beside the exe (today neither is in the folder [map §6.2]); the Agility SDK
-   runtime under `D3D12\` (its debug layer left out of releases); the shader worker's natives; a launch condition of Windows 11 build
-   26100 or later on x64 (a registry search, not `VersionNT`); no launch condition for Smart App Control, which, enforcing, blocks the
-   unsigned MSI itself before Windows Installer evaluates one — while it is in evaluation (`CI\Policy\VerifiedAndReputablePolicyState`
-   2) the MSI's UI shows one warning page ("Smart App Control is evaluating this PC: once it enforces, Windows blocks this unsigned
-   build and the node will not start — turn it off in Windows Security ▸ App & browser control before the show") and a quiet install
-   writes it to its log; `MajorUpgrade` with no same-version upgrade and a downgrade refused with words; the product's name carrying
-   the SemVer. (8 h)
+   runtime under `D3D12\` (its debug layer left out of releases), behind a licence page the person accepts before anything is laid
+   down, carrying Microsoft's own licence for `D3D12Core.dll` verbatim and PlayMap's own terms once the owner names them (a quiet
+   install, which shows no page, lays nothing down without `/ACCEPTTERMS=yes`; §9 decision 23); the shader worker's natives (DXC's
+   `dxcompiler.dll`, never `dxil.dll`; §9 decision 24); a launch condition of Windows 11 build 26100 or later on x64 (a registry
+   search, not `VersionNT`); no launch condition for Smart App Control, which, enforcing, blocks the unsigned MSI itself before
+   Windows Installer evaluates one — while it is in evaluation (`CI\Policy\VerifiedAndReputablePolicyState` 2) the MSI's UI shows
+   one warning page ("Smart App Control is evaluating this PC: once it enforces, Windows blocks this unsigned build and the node
+   will not start — turn it off in Windows Security ▸ App & browser control before the show") and a quiet install writes it to its
+   log; `MajorUpgrade` with no same-version upgrade and a downgrade refused with words; the product's name carrying the SemVer.
+   (8 h)
 4. Machine-level actions, once, so the engine never runs as administrator: firewall rules for `PlayMap.exe` (TCP 9940, 9941; UDP
    9928, 9942, 9943, 6454, 5568, 5353) on the private and domain profiles, the Public profile a property the person sets (a new
    network is Public by default [home §12]); no URL ACL (Kestrel binds its own sockets — asserted by a standard user binding 9940);
@@ -853,8 +881,8 @@ edition", an information row), the build unsigned (grey, **i**). **INDEX.** None
 registry key and the supervisor's status file), `tests/PlayMap.App.Tests/Install/**`, `tests/fixtures/state/install.json`,
 `docs/INSTALL.md` (the guidance: the three tiers, IoT Enterprise LTSC 2024 for permanent show nodes, Home's path, auto-logon with
 the LSA secret and never a plain-text registry password, Shell Launcher where the edition has it, BIOS power-on after loss, the
-update window, the unsigned prompts and `SHA256SUMS`, the published GPU support tiers and the two version numbers), `nuget.config`'s
-`WixToolset.*` mapping, its named CI block (§2.2) with the `wix-toolset` job.
+update window, the unsigned prompts and `SHA256SUMS`, the published GPU support tiers and the two version numbers), its named CI
+block (§2.2).
 
 **Hunks.** `Version.props` (the 255 rule); `src/PlayMap.Core/BuildInfo.cs` (`MsiVersion`); `src/PlayMap.App/Link/
 EngineSupervisor.cs` (attach to a supervised engine; after desk-ux); the FFmpeg steps of both CI jobs (item 1).
@@ -865,10 +893,12 @@ EngineSupervisor.cs` (attach to a supervised engine; after desk-ux); the FFmpeg 
 - `MsiVersionTests` (both): (0.2.0, build 17) → 0.2.17; (0.2.3, 18) → 0.2.18, greater than 0.2.17; a major or minor of 256
   refused; build 0 refused for an MSI; (0.2.0, 1) after a released 0.2.500 → refused "lower than the last release: raise MINOR".
 - `VersionPropsTests`: a build with `PlayMapVersion` 256.0.0 fails with the words.
-- `WixSourceTests` (Windows): the restored `WixToolset.Sdk` and extensions come from the local feed, their hashes the cached build's;
-  no package source but the feed serves `WixToolset.*`; no `AcceptEula` property, `-acceptEula` argument or `wix eula accept` step
-  appears in `installer/**`, the `Directory.Build.*` files, `nuget.config` or the installer's CI block, and the MSI builds with none
-  (no WIX7015 in its log).
+- M17's record (§1.5): the WiX toolset's pinned source measured on the runner, with no EULA gesture passed; the probe is retired
+  with its answer, and no WiX job, feed, `nuget.config` or `WixSourceTests` is in the tree.
+- `InstallerTermsTests` (both; the pinned package's half on Linux): `installer/licence.txt` holds Microsoft's licence for
+  `D3D12Core.dll` byte for byte from the pinned Agility SDK package, its SHA-256 the pin's, and a section for PlayMap's own terms
+  that states none; `PlayMap.iss` shows Inno Setup's own licence page, with nothing that skips it or answers it; and every package
+  whose files the publish carries is named in `THIRD-PARTY-NOTICES.md`.
 - `PreinstallCheckTests` (the decision pure on both; against fake engines on Windows): no engine process → go on; an engine
   answering armed → refused with its words; disarmed → go on; **an engine process alive but silent → refused**, naming its pid; a
   pid file whose process is gone → go on.
@@ -877,7 +907,9 @@ EngineSupervisor.cs` (attach to a supervised engine; after desk-ux); the FFmpeg 
   with a lower build number) upgrades to this one and keeps the node's settings; a downgrade is refused with words; an uninstall
   removes all but the node's data; with a fake engine on loopback answering armed, the install fails with the node's words; with
   a fake engine process that never answers, it fails with "does not answer"; with the Smart App Control state set to evaluating (a
-  test property standing in for the registry value), a quiet install completes and its log carries the warning's words.
+  test property standing in for the registry value), a quiet install completes and its log carries the warning's words; the
+  licence page holds the terms before anything is laid down and the install keeps them byte for byte; a quiet install without
+  `/ACCEPTTERMS=yes` is refused with words and lays nothing down; the notices and licence texts lie beside the files they cover.
 - `SupervisorTests` (pure, both): the backoff schedule, the heartbeat rule on a manual clock, the rule inactive while the count is
   −1, `starting` and `rebuilding` exempt within the budget and frozen past it, the five-in-ten-minutes stop; on Windows the service
   installs, starts and stops on the runner.
@@ -887,12 +919,12 @@ EngineSupervisor.cs` (attach to a supervised engine; after desk-ux); the FFmpeg 
 - `UnsignedArtifactTests` (Windows): the notice in the summary, the `-unsigned` name, and `SHA256SUMS` matching every file it
   lists.
 
-**Verified here.** Version maths, supervisor policy, the check's decision. **On CI (Windows).** The toolset built from its source,
-the MSI's life cycle, the service, the firewall and WER settings, the LGPL FFmpeg under every decode test, the unsigned artifact and
-its sums. **Manual (lab).** L11: IoT Enterprise LTSC 2024 with auto-logon; the supervisor starting the engine in session 1 (M9);
-Shell Launcher; an upgrade during a rehearsal; L18: the unsigned installer on clean Home and Pro; L21: the first ten minutes; L23: a
-Home node. With no lab (D15) each is reported not run: M9 stands on the runner's probe with the scheduled task kept as its fallback,
-the stale time's floor is "unmeasured on a real node", and ReadyToRun is the default without L21's record.
+**Verified here.** Version maths, supervisor policy, the check's decision, the terms against the pinned package. **On CI
+(Windows).** The installer's life cycle, the service, the firewall and WER settings, the LGPL FFmpeg under every decode test, the
+unsigned artifact and its sums. **Manual (lab).** L11: IoT Enterprise LTSC 2024 with auto-logon; the supervisor starting the engine
+in session 1 (M9); Shell Launcher; an upgrade during a rehearsal; L18: the unsigned installer on clean Home and Pro; L21: the first
+ten minutes; L23: a Home node. With no lab (D15) each is reported not run: M9 stands on the runner's probe with the scheduled task
+kept as its fallback, the stale time's floor is "unmeasured on a real node", and ReadyToRun is the default without L21's record.
 
 **Next round.** Signing (Azure Artifact Signing, or another identity the owner chooses: the exe, PlayMap's own DLLs, the shipped
 third-party natives and the installer, checked by `Get-AuthenticodeSignature`), `MACHINE HARDEN` (the supervisor applying a
@@ -905,25 +937,44 @@ The desk on `main` already has the show strip, the gate desk-wide, the armed red
 its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package adds only what it lacks.
 
 **Slice.**
-1. The GO guard made visible: while the node's min-GO window is open after a GO (STATE.show's last GO and MinGo), every GO control
-   draws a red border that closes with the window; a GO the node refuses flashes once — a single event, never twice in 333 ms —
-   with the node's words in its tooltip and the attention bar. (3 h)
+1. The GO guard made visible: while the node's min-GO window is open after a GO (`STATE.show.lastGo`, each playlist's last accepted
+   GO with its session, added through the amendment lane with this package's merge, §5.7, and MinGo), every GO control draws a red
+   border that closes with the window, for a GO from any client; a GO the node refuses flashes once — a single event, never twice in
+   333 ms — with the node's words in its tooltip and the attention bar. (3 h) *Amended to what the code proves:* a STATE's `at` is
+   when the node wrote it, and a quiet node writes none, so the first push a desk reads on a link may be far older than its arrival;
+   the GO rows of that push (on attach, on another node, after the link was down) are taken as seen and draw no border, so a GO made
+   within MinGo before the desk attached draws none, and the node still decides (`GoGuardTests`).
 2. Blind made unmistakable: while STATE.show.blind names this desk's session, the whole desk turns grey (a theme variant), every
    pane showing draft content carries the word BLIND, and the window's frame takes the blind colour (distinct from armed red);
    another desk's draft leaves this one's colours and says whose it is. (3 h)
 3. The Oops history: `UNDO LIST [<n>]` (the undo steps newest first, in field words, with who and when, from the store's undo
-   list — the spine's `ProjectStore` steps — and the journal; for the blind owner, the draft's own steps) and `UNDO TO <step>` (the
-   step and every newer one undone as one action, so `UNDO TO` the newest is one `UNDO`; refused with LockGuard's words across a
+   list — the spine's `ProjectStore` steps, each recording who made it and when as the edit applies; for the blind owner, the
+   draft's own steps) and `UNDO TO <step>` (the step and every newer one undone as one action, so `UNDO TO` the newest is one
+   `UNDO`; refused with LockGuard's words across a
    lock, with the range for an unknown step, and "nothing to undo" on an empty list; drafted for the blind owner and allowed for an
    operator while armed exactly as `UNDO` is, by the spine's gate hunk), engine side in `EngineCore.Undo.cs`; the desk's Oops
    panel, and "Undo to here" in each step's right-click menu. (6 h)
 4. The dark room and the status rules: a dim mode (unselected chrome dimmed, the selected and the critical at full contrast) with
    a desk brightness from 20 to 100 % apart from Windows', and a daylight theme; every light paired with a shape and a word (✓ ok,
-   △ warn, ✕ fault, ■ armed); ok, warn and fault at least 3:1 apart in luminance in every theme; saturated red only where the air is
-   affected; no alarm faster than 2 Hz; a confirmation before closing the desk while armed ("The show keeps playing on the node").
-   (6 h)
-5. Preview age: each preview's age from its ring slot's stamp; older than two frames of its own rate → a "stale" badge with the
-   age; frozen for 1 s → greyed with the reason (the engine quiet, the ring gone). wp3-desk-gpu reuses it on the GPU path. (3 h)
+   △ warn, ✕ fault, ■ armed); ok, warn and fault each at least 3:1 against every theme's panels; saturated red only for the air and a
+   fault; no alarm faster than 2 Hz; a confirmation before closing the desk while armed ("The show keeps playing on the node").
+   (6 h) *Amended to what the code proves:* ok, warn and fault 3:1 apart in luminance cannot be met by lights legible on the dark
+   panel. Three lights each 3:1 from the others cannot all be 3:1 from a panel as dark as `#191C20` (the brightest would need a
+   luminance of 1.6, past white's 1.0), and with the design's §11 tokens green `#3FB950` against amber `#D29922` is 1.01:1, amber
+   against red `#E5484D` 1.55:1 and green against red 1.54:1. So each light is 3:1 or more against every surface a light is drawn on
+   in every theme — the window, the panels and cards, toasts, chips and the attention bar's banners, a selected row or checked tool,
+   the danger tint — its shape and word carrying what its colour does not (`StatusRuleTests`): on `#191C20` green 6.73, amber 6.77 and
+   red 4.37:1; the least of any light on any surface, the blind greys included, 3.18:1 (red on the dark theme's selected row,
+   `#1B3555`, and on its blind grey); the daylight theme's darkened lights 3.83 to 5.36:1 on its surfaces. A light in a template
+   carries its shape and its word; a light a canvas draws (an output tile, a pin) carries its shape, the canvas's own words naming
+   what it is about. Red marks a fault's light as well as the air, as the design's §11 status channel does.
+5. Preview age: each preview's frame rate from its ring slots' stamps and its age on the desk's clock since the desk read the
+   picture; older than two frames of its own rate → a "stale" badge with the age; no new picture for 1 s → greyed with the reason
+   (the engine quiet, or the ring brings no new picture); a ring gone takes its picture away at once, the stand-in saying why.
+   wp3-desk-gpu reuses it on the GPU path, and may stamp slots on a clock the desk shares. (3 h) *Amended to what the code proves:*
+   the slots' stamps are on the node's clock, which the desk does not share, so the age is read on the desk's clock, and a ring that
+   delivers regularly but late is not called stale by this rule; a frozen picture's reasons are the engine quiet and no new picture,
+   since a ring gone takes its picture away (`PreviewAgeTests`).
 6. The four-click quad that stays, its corners and a pin by one pixel (the owner's requirements; `design/desk-workflows.md` §6.1):
    an unfinished quad kept per projector until Enter or a Discard — a tool change, another projector, leaving MAP, a menu entry
    chosen, the first-light guide closed, a push, a desk restart and a reattach to the same node keep it (the draft in the user's
@@ -938,26 +989,32 @@ its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package 
 
 ⟂ *(≈ 26 h)*
 
-7. *(stretch)* Map anything: every control whose line can be bound highlighted; touching one starts `BIND LEARN` for its line.
+7. *(stretch)* Map anything: every control whose line the node's `BIND LEARN` learns (Core's `TargetLine`) highlighted, but the
+   air's and a panic's, which always act (their Bind ▸ entry learns them); touching one starts `BIND LEARN` for its line; arming the
+   show and Esc end it.
 
 **Preflight.** None (desk). **INDEX.** None.
 
 **Owns.** `src/PlayMap.App/**` for W1, the `Undo` stub, `tests/PlayMap.App.Tests/**` for W1 (but `Install/**`, wp3-installer's
 area), `tests/PlayMap.Assistant.Tests/Quad/**` (new), `docs/DESK.md`.
 
-**Hunks.** None (the spine lands `ProjectStore.UndoTo`, its steps' list and the gate's `UNDO TO` rule).
+**Hunks.** None (the spine lands `ProjectStore.UndoTo`, its steps' list and the gate's `UNDO TO` rule; `STATE.show.lastGo` comes
+through the amendment lane, §5.7, as a spine commit of its own in this package's merge).
 
 **Depends on.** The spine.
 
 **Acceptance.**
-- `GoGuardTests` (headless Avalonia, manual clock): GO with MinGo 500 → the border on, off at 500 ms; a refused GO flashes once.
+- `GoGuardTests` (headless Avalonia, manual clock): GO with MinGo 500 → the border on, off at 500 ms; a refused GO flashes once; a
+  GO from another client in `STATE.show.lastGo`, 200 ms old → the border for the 300 ms left, the same row again → nothing more; a
+  GO the first push on a link already names → no border. `LastGoTests` (Engine): an accepted GO's row with its session, newest first,
+  for PLAYLIST GO, NEXT and PREV and VIDEO PLAY and RESTART; a GO the fence or the playback refuses leaves the rows as they were.
 - `BlindLookTests`: this desk's draft → the grey variant and BLIND on every draft pane; another desk's → neither, its owner named.
 - `UndoListTests` (Engine): five edits → five steps newest first in field words; `UNDO TO` the third → the root after the second,
   one journal row; across a lock → refused, nothing undone; an unknown step → refused with the range; an empty list → refused
   "nothing to undo"; armed, from an operator → allowed, as `UNDO`; from the blind owner disarmed → the draft's steps listed and
   undone, the live project's revision unchanged.
-- `StatusRuleTests`: every status template has a shape and a word per light; the 3:1 contrast computed from each theme's tokens;
-  the red token used only by air styles; no animation period under 500 ms.
+- `StatusRuleTests`: every status template has a shape and a word per light; each light's 3:1 against each surface a light is drawn
+  on in each theme, computed from its tokens; the red token used only by air styles; no animation period under 500 ms.
 - `PreviewAgeTests`: a frozen ring → stale after two frames, grey at 1 s with the reason.
 - `CloseArmedTests`; `DeskVerbRuleTests` pass with the new actions.
 - `QuadDraftTests`, `QuadSelectTests`, `QuadCornerDragTests`, `QuadCornerEditTests`, `PinNudgeTests` (`design/desk-workflows.md`
@@ -2131,14 +2188,13 @@ nothing in that wave edits it.
 | `tests/PlayMap.Render.Tests/Parity/D3D12Tolerances.cs` | d3d12-core (W2) → shaders-2 (W3) → stability-2 (W4) | d3d12-passes (its scenes' rows, W2) → d3d12-passes-2, present (their rows, W3) → capture, canvas (their rows, W4) |
 | `tests/PlayMap.Engine.Tests/Rendering/HostRig.cs` | rhi (W1) → d3d12-passes (W2: the plan) → present (W3: the D3D12 platform's leg) → stability-2 (W4) | none |
 | `tests/PlayMap.Engine.Tests/Fleet/BackupRenderTests.cs` | — (round 2's) | stability (a case with the watermark on, W2) |
-| `.github/workflows/build.yml` | spine | each package's own named block (§2.2), in merge order: shaders (pinned compiler natives, W1) → installer (the LGPL FFmpeg in both jobs; the WiX toolset built from its source; the MSI, install, upgrade, the unsigned name and `SHA256SUMS`, W1) → d3d12-core (the debug-layer settings, the D3D12 leg's summary, W2) → shaders-2 (the pinned ISF corpus, W3) |
-| `nuget.config` (new at the root) | installer (W1: nuget.org for every package but `WixToolset.*`, mapped to the local feed only) | none |
-| `THIRD-PARTY-NOTICES.md` | spine (headings) | each package its heading: d3d12-core (TerraFX, the D3D12 Memory Allocator, the Agility SDK; WARP for CI only; NVIDIA Aftermath, its declarations following NVIDIA's headers with their notice and the library never shipped, §9 decision 7), shaders (DXC, glslang, SPIRV-Tools, SPIRV-Cross), installer (WiX as a build tool, built from its MS-RL source at the pinned tag, and its Util and Firewall custom-action DLLs inside the MSI, MS-RL with a link to that tag; FFmpeg's LGPL libraries and libvmx now inside the MSI), framelock (ADLX loaded from the driver, never shipped), desk-shell (Dock for Avalonia), capture (the DeckLink SDK's Include IDL notice; AJA's MIT notice if its stretch lands; nothing of Magewell) |
+| `.github/workflows/build.yml` | spine | each package's own named block (§2.2), in merge order: shaders (pinned compiler natives, W1) → installer (the LGPL FFmpeg in both jobs; the Inno Setup installer, install, upgrade, the unsigned name, the notices beside the files and `SHA256SUMS`, W1) → d3d12-core (the debug-layer settings, the D3D12 leg's summary, W2) → shaders-2 (the pinned ISF corpus, W3) |
+| `THIRD-PARTY-NOTICES.md` | spine (headings) | each package its heading: d3d12-core (TerraFX, the D3D12 Memory Allocator, the Agility SDK; WARP for CI only; NVIDIA Aftermath, its declarations following NVIDIA's headers with their notice and the library never shipped, §9 decision 7), shaders (DXC's compiler alone, dxcompiler, under its LLVM licence, §9 decision 24; glslang, SPIRV-Tools, SPIRV-Cross), installer (nothing of WiX, which is neither built nor shipped this round, its Util and Firewall custom-action DLLs named with a link to their source tag once next round's MSI carries them; FFmpeg's LGPL libraries, libvmx and the Agility runtime, with the terms the installer's licence page carries (§9 decision 23), now inside the installer; the publish's packages, each with its licence and copyright and its own licence and notice files beside the files), framelock (ADLX loaded from the driver, never shipped), desk-shell (Dock for Avalonia), capture (the DeckLink SDK's Include IDL notice; AJA's MIT notice if its stretch lands; nothing of Magewell) |
 | `*.csproj` | the project's owner | one `<ItemGroup Label="wp3-<pkg>">` per package |
 | `tests/fixtures/state/{machine, install, shaders, gpu, graph, observe, previews, showing, canvas, guides, capture}.json` and their cards | platform, installer, shaders → shaders-2, d3d12-core → stability-2, d3d12-passes → d3d12-passes-2, stability → stability-2, desk-gpu, desk-map, canvas, workflows, capture — one writer each per wave | none |
 | `tests/fixtures/state/{main, output, decode, sync}.json` | the package whose keys change: present (`output`), video (`decode`), framelock (`sync`) | Linux keeps GL words; the Windows job writes `*.d3d12.json` twins (present's leg) and compares them there |
 | `integrations/companion-module-playmap/test/fixtures/*` | the integration pass | none |
-| `docs/ARCHITECTURE.md`, `README.md`, the agent brief, `docs/WIRE.md`, `docs/ROADMAP.md`, `docs/COMPETITIVE.md` | spine (W0: its own lines in README, ARCHITECTURE, WIRE and ROADMAP) → the integration pass (§5.6) | none during the waves; packages write papers notes |
+| `docs/ARCHITECTURE.md`, `README.md`, the agent brief, `docs/WIRE.md`, `docs/ROADMAP.md`, `docs/COMPETITIVE.md`, `docs/RESEARCH.md`, `docs/round3/README.md` | spine (W0: its own lines in README, ARCHITECTURE, WIRE and ROADMAP) → the integrator at each package's merge, from the package's papers note (§5.4 item 7) → the integration pass (§5.6) | none from a package; packages write papers notes |
 
 ---
 
@@ -2200,7 +2256,7 @@ implementations (d3d12-passes-2, desk-gpu, desk-map) and its reviews within the 
 On one integration worktree here, one build at a time:
 
 1. Rebase on `main`; build the whole solution in Release with the analyzers on, the desk, `tools/PlayMap.Node` and the new projects
-   included (the WiX project is outside the solution; the Windows job's MSI step builds it).
+   included (the installer's project is outside the solution; the Windows job's installer step builds it).
 2. Every test project on Linux to its end (GL on Xvfb in both dialects, FFmpeg 9.0's LGPL libraries, the Companion module's
    `npm test`); the package's
    fixtures regenerated and equal to the committed ones; `RoutesTests`, `StateOrderTests`, `CatalogueTests`, `ContextLinkTests`,
@@ -2214,11 +2270,14 @@ On one integration worktree here, one build at a time:
    with its measured maximum and mean difference and its reason. A red Direct3D 12 leg blocks the merge exactly as a red GL test
    does; a test that is red only sometimes is a defect for the package's review session, never a waiver — and a CI test that
    asserts a time is such a defect (§2.1).
-5. **From wp3-installer's merge on, the installer leg is a hard gate**: the toolset built from its source (or Inno Setup, M17)
-   makes the installer, which builds, installs, upgrades from the previous build, refuses a downgrade and uninstalls on the runner;
+5. **From wp3-installer's merge on, the installer leg is a hard gate**: Inno Setup (D6, M17) makes the installer, which builds,
+   installs, upgrades from the previous build, refuses a downgrade and uninstalls on the runner;
    the artifact carries the `-unsigned` name, the notice and its `SHA256SUMS`, which match its files.
 6. **From wp3-desk-shell's merge on, `MenuCoverageTests` is a hard gate**: a row the desk may send that is missing from the menu bar,
    or, where it names an object, from that object's right-click menu, fails the merge that adds it (§9 decision 22).
+7. **The papers ride the merge.** The integrator applies the package's papers note to the papers §4 gives the integration,
+   each sentence in present tense and checked against the merged code, so every push to `main` carries the papers of what it
+   merges; the integration pass (§5.6) reconciles them across the round.
 
 A red merge is fixed by that package's review session, never by editing another package's test.
 
@@ -2258,12 +2317,16 @@ They need two packages; the second package's review session writes them.
    reference); `docs/OUTPUT.md`, `DECODE.md`, `VIDEO.md`, `EFFECTS.md`, `SYNC.md`; `README.md`'s opening and its module table; the
    agent brief's description and loop (the Windows job, WARP); `docs/WIRE.md`'s round-3 section; `docs/ROADMAP.md`'s statuses —
    the items its round-3 table says the packages move (R0.7, R1.11, R2.1, R2.2, R2.5, R2.8, R2.9, R4.2, R4.5, R4.6 in part, M20,
-   M21); `docs/COMPETITIVE.md`; `THIRD-PARTY-NOTICES.md` against the MSI's contents.
-4. `LicenceTests` on the MSI's contents: no NDI binary; no Aftermath library (`GFSDK_Aftermath_Lib*`, §9 decision 7); FFmpeg's hash equals CI's LGPL pin and it reports no `--enable-gpl`; no
+   M21); `docs/COMPETITIVE.md`; `THIRD-PARTY-NOTICES.md` against the installer's contents.
+4. `LicenceTests` on the installer's contents: no NDI binary; no Aftermath library (`GFSDK_Aftermath_Lib*`, §9 decision 7); FFmpeg's hash equals CI's LGPL pin and it reports no `--enable-gpl`; no
    WARP; no AMD runtime (ADLX is the driver's); no DeckLink or Magewell binary, no AJA driver or SDK binary (the shim capture's stretch
-   compiles from AJA's MIT sources allowed, with its notice) and no FFmpeg built with DeckLink; WiX's Util and
-   Firewall custom-action DLLs named with their MS-RL notice and source tag; every notice present.
-5. Budgets recorded: the MSI's size, start-up to the first frame on WARP, the pipeline count of the reference show, the warm-frame
+   compiles from AJA's MIT sources allowed, with its notice) and no FFmpeg built with DeckLink; nothing of WiX (an MSI's Util and
+   Firewall custom-action DLLs, next round, named with their MS-RL notice and source tag); no `dxil.dll` or `libdxil.so` and no
+   other file of DXC's but `dxcompiler.dll`, its hash the worker's pin, with the text its LLVM Release License asks to travel with it
+   in `licenses\DXC\` beside it: the package's `LICENSE-LLVM.txt` (never `LICENSE-MS.txt`) and DXC's `LICENSE.TXT` and
+   `ThirdPartyNotices.txt` (§9 decision 24); no third party's terms on the licence page but the Agility runtime's, beside the
+   section for PlayMap's own (§9 decisions 23 and 24); every notice present.
+5. Budgets recorded: the installer's size, start-up to the first frame on WARP, the pipeline count of the reference show, the warm-frame
    allocation assertion with every pass registered on both backends.
 6. The Companion module's fixtures regenerated from the integrated catalogue and STATE.
 7. `ContextOrderTests` (Core): whatever rows the round adds, the context lists every panic, air, transport and Show Mode row before
@@ -2281,8 +2344,11 @@ They need two packages; the second package's review session writes them.
 
 ### 5.7 The spine amendment lane
 
-A seam found missing mid-wave is added by a short spine commit on `main` between merges, never by a package editing a spine file;
-until it lands, the package works behind its own interface in its own files.
+A seam found missing mid-wave is added by a short spine commit of its own (its subject starts "Spine: "), which may edit the spine's
+files (§2.2). A seam a package needs lands on that package's branch, its code before the fill that uses it (a spine file's words
+brought in line with what the package built may follow the fill), is reviewed with the package and reaches `main` with the
+package's merge, through the gate (§5.4); a seam no package's branch carries lands on `main` between merges. Until a seam lands, the
+package works behind its own interface in its own files.
 
 ---
 
@@ -2303,7 +2369,7 @@ until it lands, the package works behind its own interface in its own files.
 | R11 | Auto-logon and a LocalSystem supervisor widen the attack surface | Medium | High | A standard show account; its password as an LSA secret, never a plain registry value; the supervisor's pipe ACL'd to the show user and administrators; the MSI grants two named privileges to one named account; the engine never elevated; guidance in `docs/INSTALL.md` | installer |
 | R12 | Wire and fixture changes break peers (Patterns, Stagewatch, Companion) | Low | Medium | D3D12 flip outputs keep PMVB path 2; new STATE keys additive (`machine.present`'s keys and types, the lock's words and `reason` kept); Windows fixtures as twins; the module's fixtures regenerated at integration; mixed builds in a group named in preflight by their versions | spine, present, framelock, integrator |
 | R13 | Platform claims starve the desk or the system (a high-priority process with MMCSS threads) | Low | Medium | Each claim a setting with its read-back; realtime GPU priority off until measured; the lab's p99.9 with and without each | platform |
-| R14 | Licences: FFmpeg now inside the MSI; WARP not redistributable; AMD runtimes; Aftermath's terms | Medium | High | The LGPL FFmpeg build only, as replaceable files with notices, the same pin every CI decode test loads; WARP in CI only; AMD runtimes (ADLX among them) never bundled; Aftermath never shipped, loaded from wherever the user put it (§9 decision 7); `LicenceTests` on the MSI | installer, integrator |
+| R14 | Licences: FFmpeg now inside the installer; the Agility runtime's distribution terms; DXC's licences; WARP not redistributable; AMD runtimes; Aftermath's terms | Medium | High | The LGPL FFmpeg build only (LGPL version 3 or later), as replaceable files with notices, the same pin every CI decode test loads; the Agility runtime behind the installer's licence page, the owner accepting Microsoft's distribution terms and their indemnity (§9 decision 23); WARP in CI only; AMD runtimes (ADLX among them) never bundled; Aftermath never shipped, loaded from wherever the user put it (§9 decision 7); DXC as its LLVM-licensed compiler alone, `dxcompiler.dll` and `libdxcompiler.so`, with its licence and DXC's third-party notices in `licenses/DXC/` beside it, no `dxil.dll` or `libdxil.so` (§9 decision 24); every package the publish carries named in `THIRD-PARTY-NOTICES.md`, its own licence and notice files beside the files in the installer and the portable folder; `LicenceTests` on the installer | installer, integrator |
 | R15 | People read "Direct3D 12" as "the default" while AUTO is still GL | Medium | Medium | STATE says why AUTO is GL; the roadmap and papers say it in the present tense; the lab checklist says what remains | integrator |
 | R16 | Twenty-one packages (the sixteen and the five for the owner's requirements), about 518 hours; `main` moves meanwhile | Medium | Medium | Packages start as their dependencies merge; cloud sessions beside this machine's five; every package rebases before merge; each at its cut line with its stretch below it | orchestrator |
 | R17 | Add/Remove Programs shows `0.2.17` for 0.2.0 build 17 | High | Low | The product's name carries the SemVer; `docs/INSTALL.md` explains the two numbers | installer |
@@ -2314,7 +2380,7 @@ until it lands, the package works behind its own interface in its own files.
 | R22 | The lab is not there when its line falls due | Certain (the owner's answer 5) | High | Every line reported not run, never passed (D15); every M the lab alone answers on its "if no" branch, said in STATE; AUTO GL on every machine; nothing claims a hardware fact it has not measured; the scripts written, so a lab booked later runs them as they stand | owner |
 | R23 | Smart App Control blocks an unsigned PlayMap on a clean Windows 11 machine, Home or Pro, with no per-app exception — the MSI, `PlayMap.exe` and the supervisor before any of PlayMap runs — and blocks the shipped unsigned natives even once PlayMap's own files are signed | High | High | The release page and `docs/INSTALL.md` say so before the download, with the steps and the event that logs the block; in evaluation the MSI's warning page and preflight's amber row ask the person to turn it off before the show; a desk elsewhere shows the blocked node as not answering; signing next round covers the shipped natives too | installer, platform |
 | R24 | A Home node moves under the show: feature updates on Microsoft's schedule, drivers in the monthly update, no deferral | High | Medium | No Update policy written on Home (an attempt is not a fact); pause and active hours in the guide; `MACHINE LOCK` observes and names a changed driver; preflight's pending-reboot row | platform, installer |
-| R25 | The WiX toolset does not build from its source on the runner within its time-box, or still asks for the fee's EULA gesture | Medium | Medium | M17 on the installer's first day; Inno Setup 7.1 as the measured fallback with every machine-level action in the supervisor's commands, its author's request that commercial users buy a licence named to the owner; the gesture, if asked, never passed: a one-line patch to the pinned source answers the check, Inno Setup only if none holds (§9 decision 3) | installer |
+| R25 | The WiX toolset does not build from its source on the runner, and its source checks the fee's EULA gesture in three places | Certain (M17's answer) | Medium | Inno Setup 7.1 builds this round's installer (the owner's choice of 19 October 2026), every machine-level action in the supervisor's commands, its author's request that commercial users buy a licence named to the owner; the gesture never passed and no patch made; the installer's ordered steps standing in for an MSI's rollback; an MSI revisited next round (§9 decision 3) | installer |
 | R26 | Dock for Avalonia has essentially one maintainer and frequent releases | Medium | Medium | One exact release pinned, at least two weeks old; behind the desk's seam; M18 on the first day; the desk's own splitters, rails and drag-to-dock as the fallback, only floating lost | desk-shell |
 | R27 | Two layers (automatic under, hand over) confuse a person, or a re-run surprises them | Medium | High | `HAND` says both in words; every re-run's reply and staged card list the hand edits it kept; values typed by hand are never overwritten without `REPLACE` or an accept; `HandOverAutoTests` | canvas, workflows |
 | R28 | Rung 1 (a card's DMA into a wrapped D3D12 heap) does not hold on a real card; `OpenExistingHeapFromAddress` is what Microsoft calls a special-purpose diagnostic call | Medium | Low | M16 on WARP, M20 in the lab; rung 2 (one upload copy) is designed and tested as the fallback, the rung said in STATE; the copy is buffer to buffer, so no texture row-pitch rule bites 720p or 2K v210 | capture |
@@ -2328,7 +2394,7 @@ until it lands, the package works behind its own interface in its own files.
 
 What the Windows job cannot prove. Each line's script is written by the package named, inside its budget, in `docs/round3/lab/`
 before that package merges; a line's result is recorded with the machine, driver and build it ran on. The benches that answer
-M1–M3 are the spine's (`bench/r3-present`) and desk-ux's (`bench/r3-avalonia-import`).
+M1–M3 are the spine's (`bench/r3-present`) and desk-gpu's (`bench/r3-avalonia-import`).
 
 **The lab itself.** The owner's answer (§9 decision 11): "Full physical hardware testing is not available yet." No machine of this
 inventory exists this round, so every line below is reported not run, with its reason ("no lab: the owner's answer 5"), never as
@@ -2384,7 +2450,7 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 
 | The direction's line | Packages | Round 3 reaches | Proved by |
 |---|---|---|---|
-| "an installed Windows application" | installer, platform | A per-machine MSI on every Windows 11 edition, unsigned and named so this round with its SHA-256 list; the engine supervised in the show user's session; machine-level actions done once; the version rules an installer needs | `InstallerTests`, `SupervisorTests`, `MsiVersionTests`, `PreinstallCheckTests`, `UnsignedArtifactTests`; L11, L18, L23 |
+| "an installed Windows application" | installer, platform | A per-machine installer (Inno Setup's this round, D6) on every Windows 11 edition, unsigned and named so this round with its SHA-256 list; the engine supervised in the show user's session; machine-level actions done once; the version rules an installer needs | `InstallerTests`, `SupervisorTests`, `MsiVersionTests`, `PreinstallCheckTests`, `UnsignedArtifactTests`; L11, L18, L23 |
 | "direct deep Windows features" | platform, present, installer | QoS and timer claims, MMCSS, process and GPU priority, keep-awake, CPU sets, flip-model presenters with HDR10 and 10-bit, WER dumps, privileges; specialized displays as stretch | `PlatformCallsTests`, `CpuSetTests`, `D3D12WarpPresenterTests`, `HdrOutputTests`; L2, L10, L13 |
 | "processor features" | platform, installer | The CPU's vector widths and efficiency classes in the identity; CPU sets placing the critical pool on the highest efficiency class, EcoQoS for background pools, never a hard affinity; ReadyToRun in the MSI's publish. **Below bar this round**: hot kernels benchmarked on the show CPUs; NativeAOT against ReadyToRun (M13) | `CpuSetTests`, `PlatformPolicyTests`, `IdentityTests`; L10, L21 |
 | "graphics card features including RTX" | d3d12-core, framelock, video, platform | Aftermath, RTX PRO Sync through the present barrier on Direct3D 12 and the swap group on OpenGL, NVDEC and 4:2:2 profiles probed, the RTX PRO tier detected; the published support tiers (NVIDIA RTX and RTX PRO tier 1, AMD validated per driver, Intel Arc best effort) in `docs/INSTALL.md` and `machine.identity`. **Below bar this round**: RTX Video and TrueHDR, Optical Flow, scanout warp (stretch), Windows ML with TensorRT for RTX (no inference on the air path yet), DirectStorage (no GPU-native, chunk-compressed frame format yet), Intel VPL (D3D12 Video and FFmpeg decode first) | `PresentBarrierTierTests`, `SwapGroupTierTests`, `VideoCapsTests`, `IdentityTests`; L5, L6, L15 |
@@ -2398,14 +2464,14 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 | "medical code … for stability" | stability, stability-2, platform | A refresh index in the picture read by an independent observer; a heartbeat that is the shown-frame count; device loss rehearsed; driver sets locked like a SOUP list; the air hazard file as stretch | `ObserverVerdictTests`, `HeartbeatTests`, `IdentityTests` |
 | "UX design … user interface" | desk-ux, desk-gpu, desk-shell, desk-map, workflows | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status by shape and word, preview age, previews without a CPU copy; the guides, docked panes, generated menus, the palette and console, colour in three channels, every handle by one pixel | `GoGuardTests`, `BlindLookTests`, `StatusRuleTests`, `PreviewShareTests`, `MenuCoverageTests`, `AreaColourTests`; L3, L19, L24 |
 
-### 8.2 The owner's answers and requirements of 18 October 2026
+### 8.2 The owner's answers and requirements of 18, 19 and 20 October 2026
 
 | The owner's words | Where it is answered | Packages | Proved by |
 |---|---|---|---|
 | "PlayMap also needs to run on Windows 11 Home as well." | D4; §3.3 items 4 and 6; §3.5 items 3, 6, 7 and 8; §3.11 item 6; §6 R23, R24; §7 L23; `design/installer.md` §2, §6, §7, `design/platform.md` §5–§6 | platform, installer, video, spine | `IdentityTests`, `EditionRowTests`, `CloudPlaceholderRowTests`, `InstallerTests`; L23 |
 | "Use hardware lock where possible, fall back to software lock." | D5; §3.14 its entry condition and items 1–4; §9 decision 21; `design/present.md` §12, §12a, §13, §18; `design/capture.md` §6 | framelock, capture | `PresentBarrierTierTests`, `ClientPerOutputTests`, `SwapGroupTierTests`, `SoftwareLockWordsTests`, `InputPhaseTests`; L5, L25 |
 | "Leave unsigned for now" | D6; §1.6 item 2; §3.5 items 3 and 6; §5.4 item 5; §6 R23; §7 L18; §9 decision 2; `design/installer.md` §2, §6 | installer, platform | `UnsignedArtifactTests`, `InstallerTests`, `EditionRowTests`; L18 |
-| "Do not use WIX paid services." | D6; §1.5 M17; §3.5 item 2; §4 (`nuget.config`, the notices); §6 R25; §9 decision 3; `design/installer.md`'s decision and §1a | installer | `WixSourceTests`, `InstallerTests`, `LicenceTests` |
+| "Do not use WIX paid services." | D6; §1.5 M17; §3.5 item 2; §4 (the notices); §6 R25; §9 decision 3; `design/installer.md`'s decision and §1a | installer | M17's record (§1.5); `InstallerTests`, `LicenceTests` |
 | "Full physical hardware testing is not available yet." | D15; §1.5; §1.6 item 6; §2.1; §6 R22; §7; every package's "Manual (lab)" | every package | every line reported not run |
 | "All 16" | §3.0; §5.1; §9 decision 1 (the sixteen kept in their waves) | all | — |
 | The four-click quad "needs to stay for a user to come back to if clicked away from in the menu" | §3.6 item 6; `design/desk-workflows.md` §6.1 | desk-ux | `QuadDraftTests`, `QuadSelectTests` |
@@ -2427,21 +2493,26 @@ stands; until then each package's papers say what CI and WARP proved and what wa
 | "Remember - Ai integration throughout." | D13; §2.1 (AI reach); §3.6 item 6; §3.17 item 5; §3.20 items 1 and 5; every new package's `Assistant…Tests`; `design/desk-workflows.md` §4 | every new package, desk-ux | `AssistantGuideTests`, `McpGuideTests`, `AssistantPaneTests`, `AssistantQuadTests`, `AssistantHandleTests`, `AssistantSpanTests`, `AssistantCaptureTests` |
 | Calls 7–11 (round 2's) | §9 decisions 14–18; `docs/round2/CARRYOVER.md` | — | — |
 | "Yes" (the five packages) | §3.0; §5.1; §9 decision 1 | desk-shell, desk-map, canvas, workflows, capture | each package's acceptance |
-| "Use WIX if no cheaper alternative. Are there no other free installer packages?" | D6; §1.5 M17; §3.5 item 2; §6 R25; §9 decision 3; `design/installer.md` §1a, §10 | installer | `WixSourceTests`, `InstallerTests` |
+| "Use WIX if no cheaper alternative. Are there no other free installer packages?" | D6; §1.5 M17; §3.5 item 2; §6 R25; §9 decision 3; `design/installer.md` §1a, §10 | installer | M17's record (§1.5); `InstallerTests`, `UnsignedArtifactTests` |
 | "Load from wherever" (Aftermath) | §2.1 (native files); §3.7 item 1; §5.6 item 4; §6 R14; §9 decision 7; `design/d3d12.md` §9 | d3d12-core, stability-2 | `AftermathFindTests`, `LicenceTests` |
 | "Use at least 256, but only where necessary." | D13; §5.6 item 7; §9 decision 18; `design/desk-workflows.md` §4.2; `docs/round2/CARRYOVER.md` call 11 | integrator | `ShowContextTests`, `ContextOrderTests` |
 | "Yes" (a still of a view to a model off the machine) | §3.20 stretch 7; §4; §9 decision 19; `design/desk-workflows.md` §4.4 | workflows | `AssistantStillTests` (with the stretch) |
 | "Yes" (the DXGI path amber, with no hardware tier) | D5; §3.14 item 2; §9 decision 21; `design/present.md` §12a | framelock | `SwapGroupTierTests` |
 | "No. Keep typed command console, but all commands and features should be available through the UI or menu system" | D11; §1.6 item 7; §2.1 (the desk's doors); §3.17 items 2–3; §5.4 item 6; §6 R29; §9 decision 22; `design/desk-workflows.md` §2, §9.1–§9.4 | desk-shell, every package that adds a row | `MenuCoverageTests`, `ConsoleTests` |
+| "Keep Inno Setup (Recommended)" (19 October 2026) | D6; §1.3; §1.5 M17; §3.5 item 2; §6 R25; §9 decision 3; `design/installer.md`'s decision, §1a, §10; `docs/round2/CARRYOVER.md` call 4 | installer | `InstallerTests`, `UnsignedArtifactTests`; M17's record (§1.5) |
+| "Ship it, show the terms (Recommended)" (19 October 2026) | D6; §3.5 item 3; §6 R14; §9 decision 23; `design/installer.md`'s decision, §2, §10 | installer, integrator | `InstallerTermsTests`, `InstallerTests`, `LicenceTests` |
+| "Open-source DXC only" (20 October 2026) | D7; §1.5 M6; §3.4 item 3 and its acceptance; §3.5 item 3; §5.6 item 4; §6 R14; §9 decision 24; `design/shaders.md` §3, §5; `design/installer.md` §2 | shaders, installer, integrator | `DxcNativesTests`, `ShaderWorkerTests`, `HlslBuildTests`, `LicenceTests` |
 
 ---
 
 ## 9. Decisions: the owner's answers
 
-The owner answered every decision on 18 October 2026. Each decision below says the answer, in the owner's words where they gave them,
-and what it changes; the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, calls 7–11) are decisions 14–18. None stays
-open. Decisions 2 (the next round's signing identity), 3 (Inno Setup's licence request, if the fallback builds the installer), 5 (the
-sign-off on L1's record), 12 and 20 name choices the owner may still make, and the round runs as planned without them.
+The owner answered decisions 1 to 23 on 18 October 2026, on 19 October 2026 chose this round's installer (decision 3) and the
+Direct3D 12 runtime's terms (decision 23), and on 20 October 2026 answered decision 24, DXC's terms, put to them with wp3-shaders'
+merge. Every decision is answered. Each decision below says the answer, in the owner's words where they gave them, and what it
+changes; the calls round 2 left with the owner (`docs/round2/CARRYOVER.md`, calls 7–11) are decisions 14–18. Decisions 2 (the
+next round's signing identity), 3 (Inno Setup's licence request), 5 (the sign-off on L1's record), 12 and 20 name choices the owner
+may still make, and the round runs as planned without them.
 
 1. **The size of the round.** *Answered: "All 16."* The sixteen packages stay in their waves (§5.1) and none is deferred. For the
    owner's requirements of the same day the round carries five more packages (desk-shell, desk-map, canvas, workflows, capture;
@@ -2459,20 +2530,26 @@ sign-off on L1's record), 12 and 20 name choices the owner may still make, and t
    round: there is no updater, and the person checks the published hashes. When an identity exists it signs the shipped third-party
    natives too, or Smart App Control still blocks them; GitHub's build-provenance attestations, which would show which workflow built a
    file, are a next-round option once their terms for this repository's plan are checked.
-3. **WiX's Open Source Maintenance Fee.** *Answered: "Do not use WIX paid services."* No fee, no FireGiant service and no official WiX
-   binary: the toolset is built from its MS-RL source at a pinned tag in CI (D6, §3.5 item 2), which the fee's EULA does not bind
-   [inst §2]; no WiX issue is filed. *Answered: "Use WIX if no cheaper alternative. Are there no other free installer packages?"*
-   There are free ones, and none is cheaper than WiX built from its source, which costs nothing [inst §3]: Inno Setup 7.1 (any use
-   allowed; its author asks commercial users above US$5 000 revenue to buy a licence, a request and not a condition) and NSIS 3.13
-   (zlib licence, no request) build EXE installers, with no MSI rollback of service and registry changes, no repair and no `msiexec`
-   for IT, NSIS with more script and no automatic rollback at all; MSIX needs a signature and virtualises the machine-level writes the
-   node needs; Velopack and Squirrel install no services; WixSharp still runs WiX; Visual Studio's Installer Projects build only inside
-   the IDE; WiX v5's fee-free binaries have had no security fixes since February 2026. So the self-built WiX stays. If M17 finds the
-   self-built tool still asks for the EULA gesture, the gesture is never passed — PlayMap accepts no WiX agreement, and the fee's EULA does not bind a
-   tool built from its source [inst §2] — and a one-line patch to the pinned source answers the check, kept with the pin and published
-   under MS-RL [inst §2.1, §6], so WiX stays at no cost; only if no such patch holds within M17's day does Inno Setup build the
-   installer, as when the toolset does not build. Whether to meet Inno Setup's licence request then is the owner's own, and nothing in
-   the build depends on it.
+3. **WiX's Open Source Maintenance Fee, and this round's installer.** *Answered: "Do not use WIX paid services."* No fee, no FireGiant
+   service and no official WiX binary is used, and no WiX issue is filed; the fee's EULA binds only WiX's binary releases [inst §2].
+   *Answered: "Use WIX if no cheaper alternative. Are there no other free installer packages?"* There are free ones, and none is
+   cheaper than WiX built from its source, which costs nothing [inst §3]: Inno Setup 7.1 (any use allowed; its author asks
+   commercial users above US$5 000 revenue to buy a licence, a request and not a condition) and NSIS 3.13 (zlib licence, no request)
+   build EXE installers, with no MSI rollback of service and registry changes, no repair and no `msiexec` for IT, NSIS with more
+   script and no automatic rollback at all; MSIX needs a signature and virtualises the machine-level writes the node needs; Velopack
+   and Squirrel install no services; WixSharp still runs WiX; Visual Studio's Installer Projects build only inside the IDE; WiX v5's
+   fee-free binaries have had no security fixes since February 2026. M17 measured WiX built from its source on the runner (§1.5):
+   WiX v7.0.0's pinned source does not build on `windows-2025`, since its native parts need Visual Studio's v143 C++ tools, the
+   runner's Visual Studio 2026 has v145 only, and adding v143 through Visual Studio's installer failed. The source enforces its EULA
+   check in three places — `wix.exe`'s command line, the SDK target's WIX7015, and the `CheckLicenseAcceptance.targets` every
+   extension package carries — and WiX's own build sets `AcceptEula` for itself. PlayMap never passes the gesture, and the patch to
+   the pinned source that would have answered the check was refused by a session's permission policy, so none was made. *Answered on
+   19 October 2026, to "How should the installer go?": "Keep Inno Setup (Recommended)."* Inno Setup 7.1 builds this round's
+   installer; wp3-installer's is built and reviewed, its installer job green (17 of 17 installer tests when chosen; 19 of 19 with
+   the licence page and a quiet install's refusal without `/ACCEPTTERMS=yes`). It is an EXE, not an MSI — no automatic undo of
+   service and registry changes, no repair, no `msiexec` for IT — and every machine-level action is the supervisor's own command
+   (§3.5). An MSI is revisited next round. Whether to meet Inno Setup's licence request is the owner's own, and nothing in the build
+   depends on it.
 4. **FFmpeg inside the MSI.** The pinned Windows build is the LGPL variant; the installer package switches both CI jobs to it on its
    first day and confirms it. Unchanged.
 5. **AUTO's switch** per vendor tier needs the owner's sign-off on L1's record. With no lab (decision 11), AUTO stays OpenGL on every
@@ -2554,3 +2631,56 @@ sign-off on L1's record), 12 and 20 name choices the owner may still make, and t
     desk-shell's merge on). The advanced areas that get
     an area pane from their STATE cards and no editor of their own this round: timecode, LED, optimise, live inputs and sends, align's
     runs, the facade and sync.
+23. **The Direct3D 12 runtime's terms.** PlayMap's Direct3D 12 renderer uses the Agility SDK's runtime, which the installer carries
+    (`D3D12Core.dll` under `D3D12\`, its debug layer left out; §3.5 item 3). The SDK's own licence (`Microsoft.Direct3D.D3D12`
+    1.619.6, its "DISTRIBUTABLE CODE" section) lets `D3D12Core.dll`, `d3d12SDKLayers.dll` and `d3dconfig.exe` be distributed on its
+    Distribution Requirements, in Microsoft's words: "For any code you distribute, you must: add significant primary functionality
+    to it in your applications; i. require distributors and external end users to agree to terms that protect it and Microsoft at
+    least as much as this agreement; and ii. indemnify, defend, and hold harmless Microsoft from any claims, including attorneys’
+    fees, related to the distribution or use of your applications, except to the extent that any claim is based solely on the
+    unmodified distributable code." "It" is the distributable code. Its Distribution Restrictions bind too: no use of Microsoft's
+    trademarks or trade dress in a way that suggests PlayMap comes from or is endorsed by Microsoft, and no modifying or
+    distributing the distributable code's source so that any part of it becomes subject to a licence that requires it, any other
+    part of the SDK or any of Microsoft's other intellectual property to be disclosed or distributed in source code form, or that
+    others have the right to modify it. *Answered on 19 October 2026, to whether the installer should ship it: "Ship it, show the
+    terms (Recommended)."* The installer ships the runtime and shows a licence page, accepted before anything is laid down, that
+    carries Microsoft's licence for `D3D12Core.dll` verbatim as the terms a person agrees to for it, which answers requirement i;
+    PlayMap's own terms are the owner's to name, and none are named yet. A quiet install, which shows no page, lays nothing down
+    unless its command line carries `/ACCEPTTERMS=yes`. The owner accepts Microsoft's distribution terms, the indemnity included.
+    The installer package adds the page (§3.5 item 3), and `THIRD-PARTY-NOTICES.md` names the runtime and its terms under its
+    heading. FFmpeg asks for no such terms: its pinned build is configured `--enable-version3`, so what ships is LGPL version 3 or
+    later, as replaceable files with its licence text (decision 4).
+24. **DXC's terms.** DXC comes as its compiler, dxcompiler, under the LLVM Release License (University of Illinois/NCSA Open Source
+    License), and a separate validator library, `dxil.dll` / `libdxil.so`; Vortice.Dxc.Native 1.0.6, which packages both, declares
+    Microsoft's own licence for the DirectX Shader Compiler as its licence (`LICENSE-MS.txt`: use "solely for use on Windows", and
+    Distribution Requirements in decision 23's words, the indemnity among them) and asks its user to accept it. *Answered on 20
+    October 2026: "Open-source DXC only."* What PlayMap ships and loads of DXC is its LLVM-licensed compiler alone. From DXC
+    v1.8.2505 on, dxcompiler validates with its built-in validator, which validates the DXIL and writes the container's retail hash
+    itself, and searches for no external `dxil.dll` (that release's notes, "Potentially breaking changes"), so DXIL is signed with
+    no `dxil.dll` or `libdxil.so`, and none is referenced, loaded, copied, published or laid down by the installer. On Windows
+    `dxcompiler.dll` comes from the Microsoft.Direct3D.DXC NuGet package 1.9.2609.5, which declares `LICENSE-LLVM.txt` as its
+    licence and asks for no acceptance: the engine downloads the package at the version the Direct3D 12 backend's build-time
+    reference uses, never references it, and copies only its x64 `dxcompiler.dll` (SHA-256 `0689e2fe…bfc59`) beside its assemblies,
+    with its `LICENSE-LLVM.txt`, so the package's `dxil.dll`, `dxc.exe`, `dxv.exe` and `LICENSE-MS.txt` reach no output. The
+    backend's build runs that `dxc.exe`, LLVM-licensed by the same table, on Windows to compile the HLSL library, and starts it
+    without `DXC_DXIL_DLL_PATH`, the variable through which DXC's driver would load an external validator from the path it names, so
+    dxcompiler's built-in validator signs that DXIL too and the build loads no `dxil.dll`. On Linux `libdxcompiler.so` (SHA-256
+    `d40e4a7b…f9216`) comes from DXC v1.9.2609's GitHub release `linux_dxc_2026_09_28.x86_x64.tar.gz` (SHA-256 `96faadc7…a39a1`),
+    which the Linux job downloads before it restores, holding the archive and the file to their hashes; the engine's build copies
+    the file beside its assemblies from the folder `PLAYMAP_DXC_DIR` names. The release notes' licence table (`ReleaseNotes.md`, in
+    that archive and in the package) gives `LICENSE-LLVM.txt` to every file but `d3d12shader.h` (MIT); the archive and the package
+    also carry a `LICENSE-MS.txt` that the table assigns to no file. PlayMap takes nothing from Vortice.Dxc.Native. So the Linux
+    worker and the Linux job's tests load nothing under the Windows-only grant, and what the exe publishes takes `dxcompiler.dll`
+    alone of DXC's binaries, under its LLVM licence. That licence asks for no agreement, so the installer's licence page carries no
+    third party's terms but `D3D12Core.dll`'s (decision 23), beside the section for PlayMap's own; it asks that a binary carry its
+    copyright notice, its three conditions and its disclaimer, so wherever the engine's build copies dxcompiler, in every build and
+    publish, it lays down beside it in `licenses/DXC/` the package's `LICENSE-LLVM.txt` (the same file the archive carries) and
+    DXC's own `LICENSE.TXT` and `ThirdPartyNotices.txt` at tag v1.9.2609, which give the licences of the third-party code inside it,
+    and `THIRD-PARTY-NOTICES.md` reproduces the licence whole. `DxcNativesTests`, `ShaderWorkerTests` and `HlslBuildTests` hold it
+    (§3.4's acceptance): the worker's pins name dxcompiler and no validator library, no output of the engine, the desk, the node or
+    the suite, nor the Windows job's publish, holds one or another file of the package but `dxcompiler.dll` and `LICENSE-LLVM.txt`,
+    each carries the licence and notices beside its dxcompiler, the build starts `dxc.exe` without the variable, no process loads a
+    validator library, and each container's digest is the retail hash recomputed over it from the published algorithm (hlsl-specs
+    INF-0004). *The fallback, recorded and not built:* from Agility SDK 1.615 the Direct3D 12 runtime accepts in retail, without
+    developer mode, the BYPASS hash sentinel (sixteen bytes of 01) as a container's digest for a shader model that is not
+    experimental, and the debug layer validates such a shader by default; DXIL whose digest carries it needs no validator's hash.

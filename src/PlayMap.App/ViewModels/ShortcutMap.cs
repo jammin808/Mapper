@@ -68,20 +68,20 @@ public sealed class ShortcutMap
             new("T", "Test pattern menu", "MAP", Key.T, KeyModifiers.None, map.OpenPatternMenu, InMap),
             new("V", "3D view ↔ projector view", "MAP", Key.V, KeyModifiers.None, map.ToggleView, InMap),
             new("Enter", "Close the pen path", "MAP", Key.Enter, KeyModifiers.None, map.Pen.CloseCommand, () => InMap() && map.Pen.IsDrawing),
-            new("Enter", "Draw the quad from its four corners (SURFACE QUAD)", "MAP", Key.Enter, KeyModifiers.None, map.FinishQuad, () => InMap() && map.Quad.IsReady),
-            new("Tab", "The selected quad's next corner (HANDLE SELECT), while the view has the keyboard", "MAP", Key.Tab, KeyModifiers.None, map.NextCorner, () => InMap() && map.CanNudge) { CanvasOnly = true },
-            new("Shift+Tab", "The selected quad's previous corner (HANDLE SELECT), while the view has the keyboard", "MAP", Key.Tab, KeyModifiers.Shift, map.PrevCorner, () => InMap() && map.CanNudge) { CanvasOnly = true },
+            new("Enter", "Draw the quad from its four corners (SURFACE QUAD)", "MAP", Key.Enter, KeyModifiers.None, map.FinishQuad, () => InMap() && map.Quad.IsReady && map.IsDraftShown),
+            new("Tab", "The selected quad's next corner (HANDLE SELECT), or the unfinished quad's next point, while the view has the keyboard", "MAP", Key.Tab, KeyModifiers.None, map.NextCorner, () => InMap() && map.CanNudge) { CanvasOnly = true },
+            new("Shift+Tab", "The selected quad's previous corner (HANDLE SELECT), or the unfinished quad's previous point, while the view has the keyboard", "MAP", Key.Tab, KeyModifiers.Shift, map.PrevCorner, () => InMap() && map.CanNudge) { CanvasOnly = true },
             new("Delete", "Remove the selection (REMOVE)", "MAP", Key.Delete, KeyModifiers.None, map.RemoveSelection, InMap),
         ];
-        // The arrows move the selected quad's corner in wall pixels: 1 px, Shift ×10, Alt ×0.1 (SURFACE CORNER … BY … PX), while the
-        // view has the keyboard.
+        // The arrows move, while the view has the keyboard, the unfinished quad's selected point (on the desk), else a selected pin's
+        // pixel (SET <pin> pixel), else the selected quad's corner in wall pixels (SURFACE CORNER … BY … PX): 1 px, Shift ×10, Alt ×0.1.
         foreach (var (mods, step, words) in new[] { (KeyModifiers.None, 1.0, ""), (KeyModifiers.Shift, 10.0, "Shift+"), (KeyModifiers.Alt, 0.1, "Alt+") })
         {
             foreach (var (key, dx, dy, name) in new[] { (Key.Left, -1.0, 0.0, "Left"), (Key.Right, 1.0, 0.0, "Right"), (Key.Up, 0.0, -1.0, "Up"), (Key.Down, 0.0, 1.0, "Down") })
             {
                 var (x, y) = (dx * step, dy * step);
                 e.Add(new(words + name, string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                    $"Move the selected quad's corner {step:0.#} px {name.ToLowerInvariant()} on the wall (SURFACE CORNER … BY … PX)"),
+                    $"Move the unfinished quad's point, the selected pin or the selected quad's corner {step:0.#} px {name.ToLowerInvariant()} (SET <pin> pixel, SURFACE CORNER … BY … PX)"),
                     "MAP", key, mods, new Infrastructure.RelayCommand(() => map.Nudge(x, y)), () => InMap() && map.CanNudge) { CanvasOnly = true });
             }
         }

@@ -10,7 +10,7 @@ namespace PlayMap.App.Views;
 /// <summary>The desk's window. Keys go to the shortcut table before the focused control sees them (so Space
 /// is the transport, not a press of the last-clicked button), except bare keys while a text field types (Esc then reaches the
 /// field too). A 4 Hz tick moves the counters between STATE pushes and retires old toasts. A menu or flyout that closes starts the
-/// Esc ladder's guard.</summary>
+/// Esc ladder's guard. While Map anything is on, a press on an outlined control learns its line instead of running it.</summary>
 public partial class MainWindow : Window
 {
     private readonly DispatcherTimer _tick;
@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         AddHandler(KeyDownEvent, OnKeyDownTunnel, RoutingStrategies.Tunnel);
+        AddHandler(PointerPressedEvent, OnPointerPressedTunnel, RoutingStrategies.Tunnel);
         _tick = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) =>
         {
             if (DataContext is MainViewModel vm)
@@ -53,6 +54,59 @@ public partial class MainWindow : Window
         });
         Opened += (_, _) => _tick.Start();
         Closed += (_, _) => _tick.Stop();
+        DataContextChanged += (_, _) => Bind(DataContext as MainViewModel);
+    }
+
+    private MainViewModel? _bound;
+    private DispatcherTimer? _wake;
+
+    /// <summary>The desk's look follows its module (the window recolours the tokens at once), the GO guard wakes the desk when it is next
+    /// due, and closing while armed waits for the person's choice.</summary>
+    private void Bind(MainViewModel? vm)
+    {
+        if (ReferenceEquals(vm, _bound))
+            return;
+        if (_bound is { } old)
+        {
+            old.Ux.LookChanged -= ApplyLook;
+            old.Ux.GuardMoved -= WakeWhenDue;
+            old.Ux.CloseNow = null;
+        }
+        _bound = vm;
+        if (vm is null)
+            return;
+        vm.Ux.LookChanged += ApplyLook;
+        vm.Ux.GuardMoved += WakeWhenDue;
+        vm.Ux.CloseNow = Close;
+        ApplyLook(vm.Ux.Palette);
+    }
+
+    private static void ApplyLook(Infrastructure.DeskPalette palette)
+    {
+        if (Application.Current is { } app)
+            Controls.DeskLookApply.Apply(app, palette);
+    }
+
+    /// <summary>One wake at the GO guard's next change (a window closing, a flash ending), so its border goes when the node's window does.</summary>
+    private void WakeWhenDue()
+    {
+        _wake?.Stop();
+        if (_bound?.Ux.Guard.DueInMs is not { } ms)
+            return;
+        _wake = new DispatcherTimer(TimeSpan.FromMilliseconds(Math.Max(1, ms)), DispatcherPriority.Normal, (_, _) =>
+        {
+            _wake?.Stop();
+            _bound?.Ux.Guard.Tick();
+        });
+        _wake.Start();
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        if (_bound is { } vm && vm.Ux.HoldClose())
+            e.Cancel = true;
+        base.OnClosing(e);
     }
 
     /// <summary>The bar's width drives its compact forms (the panel itself decides one row or two).</summary>
@@ -60,6 +114,18 @@ public partial class MainWindow : Window
     {
         if (DataContext is MainViewModel vm)
             vm.BarWidth = e.NewSize.Width;
+    }
+
+    /// <summary>Map anything's touch: while the mode is on, a left press on an outlined control learns its line (BIND LEARN, the gate
+    /// asked first) instead of running it, and the press goes no further. Its shortcut, its menu entry and an Esc rung still run the
+    /// line itself; a right press still opens its menu.</summary>
+    private void OnPointerPressedTunnel(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is not MainViewModel { Session.MapAnything: true } || e.Source is not Visual source
+            || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+        if (Controls.MapAnythingTouch.At(source) is { } action && action.LearnByTouch())
+            e.Handled = true;
     }
 
     private void OnKeyDownTunnel(object? sender, KeyEventArgs e)

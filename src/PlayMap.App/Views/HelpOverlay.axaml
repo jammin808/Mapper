@@ -7,9 +7,16 @@
   <Border Background="#C0080A0C">
     <Border Classes="panel" Width="860" MaxHeight="760" Padding="22" HorizontalAlignment="Center" VerticalAlignment="Center">
       <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="10">
-        <Grid ColumnDefinitions="*,Auto">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
           <TextBlock Classes="h1" Text="Shortcuts" FontSize="20" />
-          <Button Grid.Column="1" Classes="tool" Command="{Binding ToggleHelp}" ToolTip.Tip="Close  (F1 or Esc)">
+          <Button Grid.Column="1" x:Name="HelpFirstLight" Classes="secondary" Command="{Binding OpenFirstLight}"
+                  ToolTip.Tip="The first-light guide again: light a wall, draw its quad, choose a clip (MAP)">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <PathIcon Data="{StaticResource Icon.guide}" Width="14" Height="14" />
+              <TextBlock Text="First light guide" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Grid.Column="2" Classes="tool" Command="{Binding ToggleHelp}" ToolTip.Tip="Close  (F1 or Esc)">
             <PathIcon Data="{StaticResource Icon.close}" />
           </Button>
         </Grid>

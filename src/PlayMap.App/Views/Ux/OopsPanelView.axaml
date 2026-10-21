@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ux="using:PlayMap.App.ViewModels.Ux"
+             xmlns:ui="using:PlayMap.App.Controls"
+             x:Class="PlayMap.App.Views.Ux.OopsPanelView"
+             x:DataType="ux:OopsPanelViewModel">
+  <!-- The Oops history: the undo steps newest first in the node's field words, with who and when; each step's Undo to here (UNDO TO
+       <step>: that step and every newer one as one action) is its button and its right-click. -->
+  <Border Classes="toast" Padding="12,8" Width="460" MaxHeight="520" x:Name="OopsPanel">
+    <DockPanel>
+      <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,0,0,6">
+        <PathIcon Data="{StaticResource Icon.undo}" Width="16" Height="16" Foreground="{StaticResource DeskAccentBrush}" />
+        <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold" x:Name="OopsTitle" />
+        <Button Grid.Column="2" Classes="tool small" Command="{Binding Close}" ToolTip.Tip="Close the history (Ctrl+Alt+Z)">
+          <PathIcon Data="{StaticResource Icon.close}" Width="12" Height="12" />
+        </Button>
+      </Grid>
+      <TextBlock DockPanel.Dock="Top" Classes="faint" Text="{Binding Words}" x:Name="OopsWords"
+                 IsVisible="{Binding Words, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" TextWrapping="Wrap" />
+      <ScrollViewer>
+        <ItemsControl ItemsSource="{Binding Steps}" x:Name="OopsSteps">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="ux:OopsStep">
+              <Border Classes="row" Padding="4,3" ui:DeskMenu.Actions="{Binding Actions}" Background="Transparent">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Classes="faint" Text="{Binding Meta}" />
+                  </StackPanel>
+                  <ContentControl Grid.Column="1" Content="{Binding UndoTo}" ContentTemplate="{StaticResource ActionText}" VerticalAlignment="Center" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </DockPanel>
+  </Border>
+</UserControl>

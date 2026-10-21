@@ -41,7 +41,8 @@ public interface IEngineProcess : IDisposable
 /// <summary>Starts this machine's engine ("PlayMap engine", the same exe in its own process) and restarts it
 /// when it stops, with <see cref="RestartBackoff"/>. Closing the desk stops the watching, never the engine:
 /// a desk that closes or faults never blanks a projector, and the next desk re-attaches on loopback. An
-/// engine that exits with 0 was asked to stop and is not restarted.</summary>
+/// engine that exits with 0 was asked to stop and is not restarted. On a supervised machine the desk starts no engine: the
+/// machine's supervisor keeps it.</summary>
 public sealed class EngineSupervisor : IAsyncDisposable
 {
     private readonly Func<IEngineProcess?> _start;
@@ -73,16 +74,27 @@ public sealed class EngineSupervisor : IAsyncDisposable
 
     public bool IsWatching => !_loop.IsCompleted;
 
-    public void Start()
+    /// <summary>The note a start makes, before the engine's first start of a watch.</summary>
+    public const string StartingWords = "Starting this machine's engine…";
+
+    /// <summary>The note a start makes on a supervised machine, whose engine is its supervisor's, never the desk's to start.</summary>
+    public const string SupervisedWords = "This machine's engine is kept by its supervisor — the desk attaches to it.";
+
+    /// <summary>Starts watching this machine's engine: true when this call began a watch (it notes <see cref="StartingWords"/>, then
+    /// starts the engine); false, with nothing started, when one already runs or when this machine's supervisor keeps its engine (it
+    /// notes <see cref="SupervisedWords"/>, and the desk attaches on loopback to the engine the supervisor runs).</summary>
+    public bool Start()
     {
         if (IsWatching)
-            return;
-        if (_supervised())   // a supervised machine's engine is its supervisor's: the desk attaches on loopback, never starts one
+            return false;
+        if (_supervised())
         {
-            Note?.Invoke("This machine's engine is kept by its supervisor — the desk attaches to it.");
-            return;
+            Note?.Invoke(SupervisedWords);
+            return false;
         }
+        Note?.Invoke(StartingWords);
         _loop = WatchAsync(_stop.Token);
+        return true;
     }
 
     private async Task WatchAsync(CancellationToken ct)

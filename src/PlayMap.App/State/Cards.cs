@@ -120,7 +120,12 @@ public sealed record CardAction(string Label, string? Line, string? Missing);
 
 /// <summary>A card as STATE fills it now: one per descriptor, or one per element for a per-element descriptor.</summary>
 public sealed record CardInstance(CardDescriptor Descriptor, string Key, string Title, string Light, string Words,
-    ImmutableArray<(string Label, string Value)> Fields, ImmutableArray<CardAction> Actions, string? EntityId);
+    ImmutableArray<(string Label, string Value)> Fields, ImmutableArray<CardAction> Actions, string? EntityId)
+{
+    /// <summary>The placeholders of the words' template, in the branch STATE takes, that name nothing in STATE (each reads "—" in
+    /// <see cref="Words"/>); empty when every one has a value.</summary>
+    public ImmutableArray<string> Unfilled { get; init; } = [];
+}
 
 /// <summary>Fills cards from STATE. A path is tried relative to the card's block, then from the root; <c>/a.b</c> is from the
 /// root; <c>a[]</c> walks every element (a light over it is the worst); <c>a.0</c> indexes; <c>a.length</c> counts. A block
@@ -154,7 +159,12 @@ public static partial class CardReader
                 .Select(f => (f.Label, Value: Text(Resolve(f.Path, scope)) is var v && v != "—" && f.Unit.Length > 0 ? v + " " + f.Unit : Text(Resolve(f.Path, scope))))
                 .ToImmutableArray();
             var actions = d.Actions.Select(a => ResolveLine(a, scope, d)).ToImmutableArray();
-            yield return new CardInstance(d, key, title, LightOf(d.Light, d.LightLists, scope), WordsOf(d.Words, scope), fields, actions, EntityOf(scope, d));
+            List<string>? unfilled = null;
+            var words = WordsOf(d.Words, scope, ref unfilled);
+            yield return new CardInstance(d, key, title, LightOf(d.Light, d.LightLists, scope), words, fields, actions, EntityOf(scope, d))
+            {
+                Unfilled = unfilled is null ? [] : [.. unfilled],
+            };
         }
     }
 
@@ -387,20 +397,21 @@ public static partial class CardReader
 
     // ---- words ----
 
-    private static string WordsOf(string words, Scope s)
+    private static string WordsOf(string words, Scope s, ref List<string>? unfilled)
     {
         if (words.Length == 0)
             return "";
         if (words.Contains('{', StringComparison.Ordinal))
-            return Render(words, s);
+            return Render(words, s, ref unfilled);
         var values = Resolve(words, s);
         if (values.Count > 0)
             return Text(values);
         return words.Contains(' ', StringComparison.Ordinal) ? words : "";
     }
 
-    /// <summary>A words template: {field}, {field?then:else} (either side may hold fields), {count}.</summary>
-    private static string Render(string template, Scope s)
+    /// <summary>A words template: {field}, {field?then:else} (either side may hold fields), {count} (a list block's length). A field
+    /// that names nothing in STATE reads "—" and is added to <paramref name="unfilled"/>.</summary>
+    private static string Render(string template, Scope s, ref List<string>? unfilled)
     {
         var sb = new StringBuilder();
         var i = 0;
@@ -422,14 +433,20 @@ public static partial class CardReader
             var inner = template[(i + 1)..end];
             var q = TopLevel(inner, '?');
             if (q < 0)
-                sb.Append(Text(Resolve(inner.Trim(), s)));
+            {
+                var field = inner.Trim();
+                var values = Resolve(field, s);
+                if (values.Count == 0)
+                    (unfilled ??= []).Add(field);
+                sb.Append(Text(values));
+            }
             else
             {
                 var rest = inner[(q + 1)..];
                 var colon = TopLevel(rest, ':');
                 var then = colon < 0 ? rest : rest[..colon];
                 var otherwise = colon < 0 ? "" : rest[(colon + 1)..];
-                sb.Append(Render(Truthy(Resolve(inner[..q].Trim(), s)) ? then : otherwise, s));
+                sb.Append(Render(Truthy(Resolve(inner[..q].Trim(), s)) ? then : otherwise, s, ref unfilled));
             }
             i = end + 1;
         }

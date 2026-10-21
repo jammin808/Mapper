@@ -9705,7 +9705,7 @@
   {
     "name": "FX CHECK",
     "syntax": "FX CHECK \u003Casset\u003E|\u003Ckind\u003E|\u003Cjson\u003E",
-    "words": "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node\u0027s context and reports its issues by line",
+    "words": "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node\u0027s context and reports its issues by line; on a node with a shader worker, each stage of the Direct3D 12 road too (translate, glslang, validate, cross, dxc)",
     "category": "effects",
     "risk": "low",
     "mutates": false,
@@ -14795,7 +14795,7 @@
   },
   {
     "name": "MACHINE SET",
-    "syntax": "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC SHOW|DEFAULT | AWAKE ON|OFF",
+    "syntax": "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF|ONE-CACHE | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC DEFAULT|SHOW | AWAKE ON|OFF",
     "words": "Changes one of this machine\u0027s claims (power throttling, the timer, MMCSS, the process priority, CPU sets, the GPU scheduling class, the GC\u0027s show mode, keep-awake), kept on the node and applied now where Windows allows, else at the next start, saying which; REALTIME needs the privilege the installer grants",
     "category": "fleet",
     "risk": "review",
@@ -14817,9 +14817,9 @@
       "MACHINE SET TIMER HIGH|DEFAULT",
       "MACHINE SET MMCSS ON|OFF",
       "MACHINE SET PROCESS HIGH|NORMAL",
-      "MACHINE SET CPUSETS AUTO|OFF",
+      "MACHINE SET CPUSETS AUTO|OFF|ONE-CACHE",
       "MACHINE SET GPU-PRIORITY NORMAL|HIGH|REALTIME",
-      "MACHINE SET GC SHOW|DEFAULT",
+      "MACHINE SET GC DEFAULT|SHOW",
       "MACHINE SET AWAKE ON|OFF"
     ],
     "available": false,
@@ -14922,7 +14922,8 @@
           "kind": "enum",
           "values": [
             "AUTO",
-            "OFF"
+            "OFF",
+            "ONE-CACHE"
           ]
         }
       ],
@@ -14956,8 +14957,8 @@
           "name": "choice",
           "kind": "enum",
           "values": [
-            "SHOW",
-            "DEFAULT"
+            "DEFAULT",
+            "SHOW"
           ]
         }
       ],

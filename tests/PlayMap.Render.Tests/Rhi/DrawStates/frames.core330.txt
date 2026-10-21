@@ -1,0 +1,242 @@
+frame 1
+blend False - depth none cull False - polygon 6914 program checker True viewport 160x90
+blend False - depth none cull False - polygon 6914 program fractal.julia True viewport 80x45
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program sprite True viewport 80x45
+blend False - depth none cull False - polygon 6914 program reactive.plasma True viewport 80x45
+blend False - depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/1/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 1/769/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 774/0/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend False - depth none cull False - polygon 6914 program output True viewport 160x90
+blend False - depth none cull False - polygon 6914 program motion True viewport 96x54
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 96x54
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 96x54
+blend False - depth none cull False - polygon 6914 program output True viewport 96x54
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend True 1/1/0/1/32774 depth none cull False - polygon 6914 program content.psprite True viewport 160x120
+blend False - depth none cull False - polygon 6914 program content.raymarch True viewport 80x60
+blend False - depth none cull False - polygon 6914 program quad True viewport 160x120
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 160x120
+blend False - depth False 0 write False cull False - polygon 6914 program pixelsurface True viewport 160x120
+blend False - depth none cull False - polygon 6914 program output True viewport 160x120
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program overlay.shapes True viewport 160x120
+blend False - depth none cull False - polygon 6914 program yuv True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program colorcycle True viewport 64x36
+blend False - depth none cull False - polygon 6914 program checker True viewport 64x36
+blend False - depth none cull False - polygon 6914 program mix True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program syncmarks True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program stage True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program blit True viewport 160x90
+preview output
+blend False - depth False 0 write False cull False - polygon 6914 program blit True viewport 32x18
+preview editor
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 64x36
+blend False - depth True 515 write True cull False - polygon 6913 program stage True viewport 64x36
+blend False - depth True 515 write False cull False - polygon 6914 program lines True viewport 64x36
+preview projector
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend True 1/1/0/1/32774 depth none cull False - polygon 6914 program content.psprite True viewport 40x30
+blend False - depth none cull False - polygon 6914 program content.raymarch True viewport 20x15
+blend False - depth none cull False - polygon 6914 program quad True viewport 40x30
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program pixelsurface True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program output True viewport 40x30
+frame 2
+blend False - depth none cull False - polygon 6914 program checker True viewport 160x90
+blend False - depth none cull False - polygon 6914 program fractal.julia True viewport 80x45
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program sprite True viewport 80x45
+blend False - depth none cull False - polygon 6914 program reactive.plasma True viewport 80x45
+blend False - depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/1/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 1/769/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 774/0/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend False - depth none cull False - polygon 6914 program output True viewport 160x90
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend False - depth none cull False - polygon 6914 program motion True viewport 96x54
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 96x54
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 96x54
+blend False - depth none cull False - polygon 6914 program output True viewport 96x54
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 96x54
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend True 1/1/0/1/32774 depth none cull False - polygon 6914 program content.psprite True viewport 160x120
+blend False - depth none cull False - polygon 6914 program content.raymarch True viewport 80x60
+blend False - depth none cull False - polygon 6914 program quad True viewport 160x120
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 160x120
+blend False - depth False 0 write False cull False - polygon 6914 program pixelsurface True viewport 160x120
+blend False - depth none cull False - polygon 6914 program output True viewport 160x120
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x120
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program overlay.shapes True viewport 160x120
+blend False - depth none cull False - polygon 6914 program yuv True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program colorcycle True viewport 64x36
+blend False - depth none cull False - polygon 6914 program checker True viewport 64x36
+blend False - depth none cull False - polygon 6914 program mix True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program syncmarks True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program stage True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program blit True viewport 160x90
+preview output
+blend False - depth False 0 write False cull False - polygon 6914 program blit True viewport 32x18
+preview editor
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 64x36
+blend False - depth True 515 write True cull False - polygon 6913 program stage True viewport 64x36
+blend False - depth True 515 write False cull False - polygon 6914 program lines True viewport 64x36
+preview projector
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend True 1/1/0/1/32774 depth none cull False - polygon 6914 program content.psprite True viewport 40x30
+blend False - depth none cull False - polygon 6914 program content.raymarch True viewport 20x15
+blend False - depth none cull False - polygon 6914 program quad True viewport 40x30
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program pixelsurface True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program output True viewport 40x30
+frame 3
+blend False - depth none cull False - polygon 6914 program checker True viewport 160x90
+blend False - depth none cull False - polygon 6914 program fractal.julia True viewport 80x45
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program sprite True viewport 80x45
+blend False - depth none cull False - polygon 6914 program reactive.plasma True viewport 80x45
+blend False - depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/1/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 1/769/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 774/0/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 160x90
+blend False - depth none cull False - polygon 6914 program output True viewport 160x90
+blend False - depth none cull False - polygon 6914 program motion True viewport 96x54
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 96x54
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 96x54
+blend False - depth none cull False - polygon 6914 program output True viewport 96x54
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend True 1/1/0/1/32774 depth none cull False - polygon 6914 program content.psprite True viewport 160x120
+blend False - depth none cull False - polygon 6914 program content.raymarch True viewport 80x60
+blend False - depth none cull False - polygon 6914 program quad True viewport 160x120
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 160x120
+blend False - depth False 0 write False cull False - polygon 6914 program pixelsurface True viewport 160x120
+blend False - depth none cull False - polygon 6914 program output True viewport 160x120
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program overlay.shapes True viewport 160x120
+blend False - depth none cull False - polygon 6914 program yuv True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program colorcycle True viewport 64x36
+blend False - depth none cull False - polygon 6914 program checker True viewport 64x36
+blend False - depth none cull False - polygon 6914 program mix True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend True 770/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program syncmarks True viewport 64x36
+blend True 1/771/0/1/32774 depth none cull False - polygon 6914 program quad True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program stage True viewport 64x36
+blend False - depth none cull False - polygon 6914 program output True viewport 64x36
+blend False - depth none cull False - polygon 6914 program blit True viewport 160x90
+preview output
+blend False - depth False 0 write False cull False - polygon 6914 program blit True viewport 32x18
+preview editor
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 64x36
+blend False - depth True 515 write True cull False - polygon 6913 program stage True viewport 64x36
+blend False - depth True 515 write False cull False - polygon 6914 program lines True viewport 64x36
+preview projector
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend True 1/1/0/1/32774 depth none cull False - polygon 6914 program content.psprite True viewport 40x30
+blend False - depth none cull False - polygon 6914 program content.raymarch True viewport 20x15
+blend False - depth none cull False - polygon 6914 program quad True viewport 40x30
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program pixelsurface True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program output True viewport 40x30
+frame 4
+blend False - depth none cull False - polygon 6914 program blit True viewport 160x90
+preview output
+blend False - depth False 0 write False cull False - polygon 6914 program blit True viewport 32x18
+preview editor
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 64x36
+blend False - depth True 515 write True cull False - polygon 6913 program stage True viewport 64x36
+blend False - depth True 515 write False cull False - polygon 6914 program lines True viewport 64x36
+preview projector
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend False - depth none cull False - polygon 6914 program content.pstep True viewport 64x64
+blend True 1/1/0/1/32774 depth none cull False - polygon 6914 program content.psprite True viewport 40x30
+blend False - depth none cull False - polygon 6914 program content.raymarch True viewport 20x15
+blend False - depth none cull False - polygon 6914 program quad True viewport 40x30
+blend False - depth True 515 write True cull False - polygon 6914 program stage True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program pixelsurface True viewport 40x30
+blend False - depth False 0 write False cull False - polygon 6914 program output True viewport 40x30

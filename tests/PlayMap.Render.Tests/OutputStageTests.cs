@@ -9,8 +9,8 @@ namespace PlayMap.Render.Tests;
 /// <summary>The output stage: an identity warp gives back the picture's own codes, a warp moves a marker
 /// where its geometry says, the blend map multiplies the signal and the pedestal adds to it, the trims change
 /// values as their formula says, masks and rotation land where they should, and blackout is exact black.</summary>
-[Collection("gl")]
-public class OutputStageTests(GlFixture gl)
+[Collection("gpu")]
+public class OutputStageTests(BackendFixture backends)
 {
     private const int W = 64;
     private const int H = 36;
@@ -47,14 +47,14 @@ public class OutputStageTests(GlFixture gl)
     private byte[] RenderOutput(Output output, ISourceProvider? sources = null, TestStage? stage = null, bool blackout = false)
     {
         var project = Scene.Project([], [output]);
-        return gl.Run(c =>
+        return backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var inputs = Scene.Inputs(project, 1, sources, stage) with { Blackout = blackout };
             engine.Render(inputs);
             var px = new byte[output.Width * output.Height * 4];
             Assert.True(engine.ReadOutput(output.Id, px));
-            Assert.Empty(c.Device.TakeErrors());
+            Assert.Empty(leg.TakeErrors());
             return px;
         });
     }

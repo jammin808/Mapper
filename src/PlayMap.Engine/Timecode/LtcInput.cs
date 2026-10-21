@@ -25,6 +25,7 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
     private readonly Queue<(long At, double Offset)> _offsets = new();
     private readonly List<LtcFrameEvent> _frames = [];
     private readonly IAudioInputs? _audio;
+    private readonly Core.Machine.DeliveryClaim _claim = new(Core.Machine.ThreadRole.Timecode);
     private IAudioCapture? _capture;
     private bool _closed;
     private LtcDecoder? _decoder;
@@ -98,6 +99,7 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
         {
             if (_closed || !_board.Holds(Source))
                 return;
+            _claim.Here();
             if (_decoder is null || _decoder.SampleRate != sampleRate)
                 _decoder = new LtcDecoder(sampleRate, Source.FloorDbfs);
             var count = interleaved.Length / channels;
@@ -200,5 +202,6 @@ public sealed class LtcInput : IAudioCaptureSink, IDisposable
             _capture = null;
         }
         capture?.Dispose();
+        _claim.Dispose();
     }
 }

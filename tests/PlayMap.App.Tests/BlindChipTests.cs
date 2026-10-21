@@ -118,7 +118,8 @@ public class BlindChipTests
         Assert.False(blind.CommitNext.IsEnabled);
         Assert.NotEqual("Blind wall", desk.Link.CurrentProject.Stage.Surfaces.Find(sf)!.Name);
 
-        // The next item lands it: the air has the draft's name, the chip and its panel go.
+        // The next item lands it: the air has the draft's name, the chip and its panel go (past the node's min-GO window after the GO).
+        desk.Clock.AdvanceMs(1000);
         Assert.True((await desk.Session.SendAsync("PLAYLIST NEXT pl_show", Ct)).Ok);
         DeskHarness.Pump();
         Assert.Equal("Blind wall", desk.Link.CurrentProject.Stage.Surfaces.Find(sf)!.Name);

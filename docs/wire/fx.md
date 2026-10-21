@@ -36,12 +36,17 @@ parameter its kind does not have.
 ```json
 {"ok": false, "role": "filter", "inputs": ["inputImage", "gain"], "passes": 1, "persistent": [],
  "issues": [{"line": 3, "col": 0, "words": "IMG_PIXEL takes 2 or 3 values, here 1"}],
- "dialects": {"glsl330": {"ok": false, "words": "…"}, "es300": {"ok": null, "words": "this node's context compiles the other dialect"}}}
+ "dialects": {"glsl330": {"ok": false, "words": "…"}, "es300": {"ok": null, "words": "this node's context compiles the other dialect"}},
+ "stages": [{"name": "translate", "ok": false, "words": "IMG_PIXEL takes 2 or 3 values, here 1", "line": 3},
+            {"name": "glslang", "ok": null, "words": "not run: the translate stage failed", "line": 0}, …]}
 ```
 
-`ok` is true when the file reads, translates without issues and did not fail to compile here; a dialect not compiled here is
-`null` with words: "this node's context compiles the other dialect", "not compiled: the file's issues come first", or, with no
-renderer, "no GL context on this node". The compile waits at most 10 s for the lane.
+`ok` is true when the file reads, translates without issues, did not fail to compile here and, on a node composed with the shader
+worker, no stage of its Direct3D 12 road failed; a dialect not compiled here is `null` with words: "this node's context compiles
+the other dialect", "not compiled: the file's issues come first", or, with no renderer, "no GL context on this node". The compile
+waits at most 10 s for the lane. On a node composed with the shader worker the report of a file that reads, `FX CHECK`'s and
+`FX IMPORT`'s `check` alike, carries `stages`: each stage in order with `name`, `ok` (true, false, or null when not run), `words`
+and the ISF `line` it points at (`docs/wire/shaders.md`); a node composed without it carries none.
 
 ## STATE
 
