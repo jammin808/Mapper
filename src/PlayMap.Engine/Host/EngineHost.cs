@@ -28,7 +28,7 @@ public sealed record EngineHostOptions
     /// <summary>The hello's ports and pace; null = the contract's (UDP 9928, every 2 s).</summary>
     public HelloOptions? Hello { get; init; }
 
-    /// <summary>How a media pull asks its peers (the quiet a try is given, the tries per chunk); null = the transfer's own.</summary>
+    /// <summary>How a media pull asks its peers (the quiet a chunk's body is given, the tries per chunk); null = the transfer's own.</summary>
     public MediaTransferOptions? Pulls { get; init; }
 
     /// <summary>How often the recovery record is brought up to date when something it holds has moved.</summary>

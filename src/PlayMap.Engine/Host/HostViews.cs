@@ -18,9 +18,10 @@ public sealed record MediaTransferView(string Hash, string MediaId, string Name,
     /// <summary>The peer's address and port the pull asks ("" until a peer is asked).</summary>
     public string At { get; init; } = "";
 
-    /// <summary>Where a pull on its way stands: "asking" while a peer's list of files is read (the row still "queued"), "receiving"
-    /// while the file's bytes come, "verifying" while the whole file is hashed and put in place; "" before a peer is asked and once
-    /// the pull failed.</summary>
+    /// <summary>Where a pull on its way stands: "asking" while a peer's list of files is read (the row "queued" at the first peer
+    /// asked, and still "pulling" with the peer before's bytes and last try's words when that peer failed it), "receiving" while the
+    /// file's bytes come, "verifying" while the whole file is hashed and put in place; "" before a peer is asked and once the pull
+    /// failed.</summary>
     public string Stage { get; init; } = "";
 
     /// <summary>When the state or the stage last changed, in Unix ms of the node's wall clock.</summary>
