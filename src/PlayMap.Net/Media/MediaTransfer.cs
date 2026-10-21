@@ -169,9 +169,11 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
 
     /// <summary>Raised once as a pull starts (the bytes of the chunks a resume keeps, 0 when it keeps none), as each block of
     /// <see cref="BlockBytes"/> or a chunk's last lands with bytes in place no try of its chunk had before, after each chunk, and once
-    /// every byte is in, before the whole file is hashed. A pull's bytes never step back from one to the next: each is raised under the
-    /// pull's own gate, in the order its blocks landed (on a worker, holding up the pull's other chunks while it runs; a handler keeps
-    /// it short).</summary>
+    /// every byte is in, before the whole file is hashed. The start's word and the verifying word are raised by the pull itself, outside
+    /// its gate, before its workers start and after every one has ended; each block's and each chunk's word is raised on a worker under
+    /// the pull's own gate, in the order its blocks landed, holding up the pull's other chunks while it runs. So a pull's bytes never
+    /// step back from one word to the next: no worker runs while the start's or the verifying word is raised, and the workers' words are
+    /// raised one at a time. A handler keeps it short.</summary>
     public event Action<MediaProgress>? Progress;
 
     /// <summary>Raised for each try at a chunk that failed, with what the peer did instead (on a worker; a handler keeps it short).</summary>
