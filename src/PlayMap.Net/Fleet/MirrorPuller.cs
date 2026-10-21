@@ -22,8 +22,10 @@ public sealed record MirrorSource(string NodeId, string Name, string Address, in
 /// <summary>A backup's pulls from its primary's <c>/mirror</c>: over HTTPS pinned by the hello's fingerprint (the fleet's pin file
 /// keeps it; a changed certificate is refused) when the primary offers TLS, each request signed with the pairing proof
 /// (<see cref="PullProof"/>), so no token crosses the network and no stranger reads the show. Files come content-addressed through
-/// <see cref="MediaTransfer"/> (ranged, resumed, verified by SHA-256 before they land) and the show's own files whole by their key, and
-/// each body's silence is counted on the node's clock under the pull options' quiet.</summary>
+/// <see cref="MediaTransfer"/> (ranged, resumed, verified by SHA-256 before they land) and the show's own files whole by their key; each
+/// file's body's silence is counted on the node's clock under the pull options' quiet, a show file's refusal is said by its status
+/// alone, its body never read, and the show itself, a size asked for and each answer's headers wait as long as the client's own
+/// timeout.</summary>
 public sealed class MirrorPuller : IDisposable
 {
     private readonly MirrorSource _source;
@@ -139,9 +141,10 @@ public sealed class MirrorPuller : IDisposable
 
     /// <summary>One file the show names beside its project folder, by its key, into <paramref name="destination"/> (written beside and
     /// moved over once its SHA-256 is the one the show names, <see cref="ShowFiles.Matches"/>); answers whether it landed and, when it
-    /// did not, why. The answer's headers wait as long as the client's own timeout; each read of the body waits as long as the quiet on
-    /// the node's clock (<see cref="BodySilence"/>), and a body that sends nothing for that long ends the pull ("sent nothing for 10 s,
-    /// 65536 of 300000 bytes in"), keeping nothing, for the watch to ask again.</summary>
+    /// did not, why. The answer's headers wait as long as the client's own timeout. An answer other than success ends the pull with its
+    /// status alone ("FOH-A answered 404"), its body never read, so a refusal whose body sends nothing holds nothing. Each read of a
+    /// file's body waits as long as the quiet on the node's clock (<see cref="BodySilence"/>), and a body that sends nothing for that
+    /// long ends the pull ("sent nothing for 10 s, 65536 of 300000 bytes in"), keeping nothing, for the watch to ask again.</summary>
     public async Task<(bool Landed, string Words)> ShowFileAsync(string key, string destination, string hash, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -153,7 +156,7 @@ public sealed class MirrorPuller : IDisposable
         Sign(request);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            return (false, $"{_source.Name} answered {(int)response.StatusCode}: {Short(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false))}");
+            return (false, string.Create(CultureInfo.InvariantCulture, $"{_source.Name} answered {(int)response.StatusCode}"));
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         var temp = destination + ".pulling";
         try

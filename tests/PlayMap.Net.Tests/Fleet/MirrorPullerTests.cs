@@ -9,8 +9,9 @@ using PlayMap.Tests;
 namespace PlayMap.Net.Tests.Fleet;
 
 /// <summary>Where a backup refuses to pull before anything is sent: another machine in clear (its hello offers no certificate), and a
-/// hello that drops the certificate a pin already holds; a pull from this machine may go plain; the source never prints its token; and a
-/// file's body that falls silent, a content-addressed file's or a show file's, is counted on the node's clock.</summary>
+/// hello that drops the certificate a pin already holds; a pull from this machine may go plain; the source never prints its token; a
+/// file's body that falls silent, a content-addressed file's or a show file's, is counted on the node's clock; and a show file's refusal
+/// is said by its status alone, its body never read.</summary>
 public sealed class MirrorPullerTests
 {
     [Fact]
@@ -79,6 +80,35 @@ public sealed class MirrorPullerTests
             Assert.Matches("^sent nothing for 600 s, [0-9]+ of 300000 bytes in$", words);
             Assert.Equal(1, peer.FileAsks);
             Assert.Empty(Directory.EnumerateFiles(Path.Combine(dir.FullName, "files")));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AShowFilesRefusalIsSaidByItsStatusAloneAndItsSilentBodyHoldsNothing()
+    {
+        // The primary answers a show file 503 with a head that says a body of 64 bytes and sends none of it, the connection held open,
+        // and the node's clock stands still, so no silence is ever counted: the pull ends at once on the status, its body never read,
+        // and keeps nothing.
+        var bytes = RandomNumberGenerator.GetBytes(1000);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        const string Kind = "align/";
+        await using var peer = new FakeMediaPeer(hash, bytes, fileStatus: 503, statusHolds: true, mediaPath: MirrorWebModule.FilePath + Kind);
+        using var puller = new MirrorPuller(new MirrorSource("0badc0de", "FOH-A", "127.0.0.1", peer.Port, "", ""), new PinStore(), () => 1_760_000_000_000,
+            new ManualClock(1_000_000_000_000));
+        var dir = Directory.CreateTempSubdirectory("playmap-mirror-");
+        try
+        {
+            var (landed, words) = await puller.ShowFileAsync(Kind + hash, Path.Combine(dir.FullName, "files", "scan.bin"), "sha256:" + hash, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.False(landed);
+            Assert.Equal("FOH-A answered 503", words);
+            Assert.Equal(1, peer.FileAsks);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(dir.FullName, "*", SearchOption.AllDirectories));
         }
         finally
         {

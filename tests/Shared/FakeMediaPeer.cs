@@ -16,7 +16,8 @@ namespace PlayMap.Tests;
 /// <c>answerAfter</c> each answer's head waits that long first; with <c>holdsAnswers</c> each answer waits until the test lets one go
 /// (<see cref="Answer"/>), <see cref="Holding"/> saying how many wait; with <c>answersList</c> false the list is asked for and never
 /// answered; <c>listStatus</c> and <c>fileStatus</c> other than 200 and 206 answer the list or the file with that status and nothing
-/// else.
+/// else, and with <c>statusHolds</c> such an answer for a file says a body of 64 bytes in its head and sends none of it, the connection
+/// held open.
 /// </summary>
 internal sealed class FakeMediaPeer : IAsyncDisposable
 {
@@ -36,6 +37,7 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
     private readonly int _listed;
     private readonly int _listStatus;
     private readonly int _fileStatus;
+    private readonly bool _statusHolds;
     private readonly Lock _gate = new();
     private readonly List<Task> _connections = [];
     private readonly Task _accepting;
@@ -45,14 +47,15 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
 
     public FakeMediaPeer(string hash, byte[] file, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200, int fileStatus = 206,
         TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default, long? stallFrom = null, long? endAfter = null,
-        string mediaPath = "/api/media/", bool holdsAnswers = false)
-        : this([(hash, file)], stallAfter, answersList, listed, listStatus, fileStatus, answerAfter, pauseAfter, pauseFor, stallFrom, endAfter, mediaPath, holdsAnswers)
+        string mediaPath = "/api/media/", bool holdsAnswers = false, bool statusHolds = false)
+        : this([(hash, file)], stallAfter, answersList, listed, listStatus, fileStatus, answerAfter, pauseAfter, pauseFor, stallFrom, endAfter, mediaPath, holdsAnswers,
+            statusHolds)
     {
     }
 
     public FakeMediaPeer(IReadOnlyList<(string Hash, byte[] File)> files, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200,
         int fileStatus = 206, TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default, long? stallFrom = null, long? endAfter = null,
-        string mediaPath = "/api/media/", bool holdsAnswers = false)
+        string mediaPath = "/api/media/", bool holdsAnswers = false, bool statusHolds = false)
     {
         _files = files;
         _stallAfter = stallAfter;
@@ -63,6 +66,7 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
         _listed = listed;
         _listStatus = listStatus;
         _fileStatus = fileStatus;
+        _statusHolds = statusHolds;
         _answerAfter = answerAfter;
         _holdsAnswers = holdsAnswers;
         _pauseAfter = pauseAfter;
@@ -152,6 +156,13 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
                 else if (file is not null)
                 {
                     Interlocked.Increment(ref _fileAsks);
+                    if (_fileStatus != 206 && _statusHolds)
+                    {
+                        await stream.WriteAsync(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture,
+                            $"HTTP/1.1 {_fileStatus} Refused\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 64\r\n\r\n")), ct);
+                        await HoldAsync(stream, ct);
+                        return;
+                    }
                     if (_fileStatus != 206)
                     {
                         await StatusAsync(stream, _fileStatus, ct);

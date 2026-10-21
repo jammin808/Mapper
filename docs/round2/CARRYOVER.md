@@ -425,10 +425,17 @@ Round 2 W1 notes:
   counted it on the process's own clock before) and takes the node's pull options, and its journal rows are bounded the same way;
   the rest is an open fix (below and docs/ROADMAP.md). A backup's pull of the show's own files beside its folder
   (`MirrorPuller.ShowFileAsync`) reads its body through the same quiet on the node's clock (`BodySilence`), and a file that falls
-  silent is refused with its words and asked for again by the watch. 74cf79f2's message said a mirror pull's silent body was
-  counted on the node's clock; that held for content-addressed files only: the show's own files were read with no bound, so a
-  primary that fell silent mid-file held that mirror run, and the show-files gate with it, with nothing in the read to end it but
-  the node's stop (`MirrorPullerTests.AShowFilesSilenceIsCountedOnTheNodesClock` still waited after 30 s against 36de2773 in Debug).
+  silent is refused with its words and asked for again by the watch; an answer other than success is said by its status alone
+  ("FOH-A answered 404"), its body never read. 74cf79f2's message said a mirror pull's silent body was counted on the node's clock;
+  that held for content-addressed files only: the show's own files were read with no bound, so a primary that fell silent mid-file
+  held that mirror run, and the show-files gate with it, with nothing in the read to end it but the node's stop
+  (`MirrorPullerTests.AShowFilesSilenceIsCountedOnTheNodesClock` still waited after 30 s against 36de2773 in Debug). When the watch
+  asked for the files again, that run was the watch's own turn, so it held the watch too, which a55c36a0's message and this entry
+  left out; and a55c36a0 still read a refusal's body with no bound, so a primary that answered a show file with an error's headers
+  and then sent nothing held the pull the same way
+  (`MirrorPullerTests.AShowFilesRefusalIsSaidByItsStatusAloneAndItsSilentBodyHoldsNothing`, with `tests/Shared/FakeMediaPeer.cs`
+  as committed beside it, waited its 30 s against 5a67a5b8's src in Debug, two runs of two). The watch still waits up to the quiet
+  for each missing show file (open, below).
   Tests: `tests/Shared/FakeMediaPeer.cs` is a peer's two media routes with the faults a real node does not make on purpose. A
   body's silence is counted on a hand-moved clock in
   `MediaTransferTests.AChunkWhosePeerFallsSilentIsTriedAgainAndEachTryIsSaidWithItsWords`,
