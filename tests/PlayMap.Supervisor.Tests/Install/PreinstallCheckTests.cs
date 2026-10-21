@@ -9,7 +9,8 @@ namespace PlayMap.Supervisor.Tests.Install;
 /// <summary>The installer's armed check fails closed: the decision is pure, and the look runs against fake engines on loopback (a pid
 /// record naming this test process, which the look is told is the engine, and a listener answering as the engine would): no engine
 /// process → go on; an engine answering armed → refused with its words; disarmed → go on; an engine process alive but silent →
-/// refused, naming its pid; a pid record whose process is gone, or whose process is not PlayMap's engine, → go on.</summary>
+/// refused, naming its pid; a pid record whose process is gone, or whose process is not PlayMap's engine, or a record file grown past
+/// a record's length, → go on.</summary>
 public sealed class PreinstallCheckTests
 {
     private static readonly TimeSpan Quick = TimeSpan.FromMilliseconds(400);
@@ -72,6 +73,18 @@ public sealed class PreinstallCheckTests
         var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, EngineIdentity.NamesRunningEngine, Quick);
         Assert.Equal(new PreinstallFacts(EngineFinding.NoEngine, 0, "", 0), facts);
         Assert.Equal(0, engine.Asked);
+    }
+
+    [Fact]
+    public async Task ARecordFileGrownPastARecordIsPassedOverUnread()
+    {
+        // The engine's folder is the show user's to write: a record file grown to a gigabyte is no record, refused by its length, and
+        // the look goes on to the engines it finds itself.
+        using var folder = new Folder();
+        using (var grown = new FileStream(System.IO.Path.Combine(folder.Path, EnginePidRecord.FileName), FileMode.Create, FileAccess.Write))
+            grown.SetLength(1L << 30);
+        var facts = await PreinstallCheck.LookAsync(folder.Path, () => null, Declared, Quick);
+        Assert.Equal(new PreinstallFacts(EngineFinding.NoEngine, 0, "", 0), facts);
     }
 
     [Fact]

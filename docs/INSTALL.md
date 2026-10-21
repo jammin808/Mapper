@@ -140,7 +140,10 @@ minutes)"), read from the supervisor's status file, which names that engine befo
 
 The engine's pid record (`%ProgramData%\PlayMap\supervisor\engine\engine.pid`) sits in the one folder there the show user may
 write, so it only says which process to look at, and the service only reads it: it writes, renames and deletes nothing in that
-folder, and writes its status file and log in `supervisor\`, which only SYSTEM and administrators may change. The service adopts an
+folder, and writes its status file and log in `supervisor\`, which only SYSTEM and administrators may change. Every reader of the
+record — the service at each step, the armed check, `stop` and the uninstall, the engine's own write — refuses a file longer than a
+record (4 KB) by its length before reading any of it, so a file the show user grows there, to any length, costs the service no more
+than a record does and keeps no step from starting the engine and writing the status. The service adopts an
 engine it did not start only when that process is the installed `PlayMap.exe` run as the engine, as the show user, in the console
 session, started when its record was stamped (a pid another process took after a power cut fails here); any other record stays
 where it is, its reason said once in `supervisor.log`, for the next engine's own write to replace. `stop` with no service ends only

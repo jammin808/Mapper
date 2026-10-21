@@ -160,7 +160,8 @@ supervisor's stop event with Synchronize alone and taking the normal stop when i
 (`SupervisorNames.StopEvent`, which `MachinePlan.StopEvent` names); the supervisor's status record in Core beside `EnginePidRecord`
 (`SupervisorStatus`; the supervisor keeps its policy's words in `SupervisorStatusWords`, and the engine reads the file through it);
 the identity rule in Core (`Core/Machine/EngineIdentity.cs`: `ProcessFacts`, `EngineExpectation`, `EngineIdentity`,
-`ProcessReader`), which every reader of `engine.pid` holds a process to, `EnginePidRecord.TryWrite` included: a record keeps its place
+`ProcessReader`), which every reader of `engine.pid` holds a process to, `EnginePidRecord.TryWrite` included (each reads the file through
+`EnginePidRecord.Named`, which refuses one longer than `MaxBytes` by its length before reading any of it): a record keeps its place
 only while it names a running PlayMap engine, so a stale record whose pid another process took is replaced, its window counted from
 the record's stamp, the host's start; the two folders in Core, the supervisor's (`SupervisorStatus.MachineFolder`, its status file
 and log) and the engine's inside it (`EnginePidRecord.MachineFolder`, the pid record alone), and `EngineEntry.StatusFolderFor`

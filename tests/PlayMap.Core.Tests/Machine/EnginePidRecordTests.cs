@@ -2,9 +2,10 @@ using PlayMap.Core.Machine;
 
 namespace PlayMap.Core.Tests.Machine;
 
-/// <summary>The engine's pid record: it reads back as written; a text that is not one reads null; it is written only into a folder that
-/// exists (never making one), never over a record that names another PlayMap engine still running by the identity rule, and removed
-/// only while it still names its own process.</summary>
+/// <summary>The engine's pid record: it reads back as written; a text that is not one reads null, and a file longer than a record is
+/// refused by its length before any of it is read; it is written only into a folder that exists (never making one), never over a
+/// record that names another PlayMap engine still running by the identity rule, and removed only while it still names its own
+/// process.</summary>
 public sealed class EnginePidRecordTests
 {
     [Fact]
@@ -156,6 +157,41 @@ public sealed class EnginePidRecordTests
         {
             File.WriteAllText(Path.Combine(root.FullName, EnginePidRecord.FileName), "not a record");
             var record = new EnginePidRecord(4121, 7901, Stamped);
+            Assert.True(record.TryWrite(root.FullName, _ => Engine(), out var holder));
+            Assert.Null(holder);
+            Assert.Equal(record, EnginePidRecord.Named(root.FullName));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AFileLongerThanARecordIsRefusedByItsLengthBeforeAnyOfItIsRead()
+    {
+        // The engine's folder is the show user's to write: a file there grown to a gigabyte (its length set, nothing written, as the
+        // show user may grow one at almost no cost on the disk) is refused by its length, its reader allocating no more than a record
+        // costs, and the engine's own write replaces it; a record padded past the limit is refused too, and one at the limit is read.
+        var root = Directory.CreateTempSubdirectory("playmap-pid-");
+        try
+        {
+            var path = Path.Combine(root.FullName, EnginePidRecord.FileName);
+            var record = new EnginePidRecord(4120, 7900, Stamped);
+            File.WriteAllText(path, record.ToJson() + new string(' ', EnginePidRecord.MaxBytes - record.ToJson().Length));
+            Assert.Equal(record, EnginePidRecord.Named(root.FullName));
+            File.WriteAllText(path, record.ToJson() + new string(' ', EnginePidRecord.MaxBytes - record.ToJson().Length + 1));
+            Assert.Null(EnginePidRecord.Named(root.FullName));
+
+            using (var grown = new FileStream(path, FileMode.Create, FileAccess.Write))
+                grown.SetLength(1L << 30);
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            Assert.Null(EnginePidRecord.Named(root.FullName));
+            Assert.False(record.TryRemove(root.FullName));
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.True(allocated < 1 << 20, $"reading a grown file allocated {allocated} bytes");
+            Assert.Equal(1L << 30, new FileInfo(path).Length);
+
             Assert.True(record.TryWrite(root.FullName, _ => Engine(), out var holder));
             Assert.Null(holder);
             Assert.Equal(record, EnginePidRecord.Named(root.FullName));

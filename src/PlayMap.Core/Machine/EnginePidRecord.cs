@@ -16,7 +16,8 @@ public sealed record EnginePidRecord(int Pid, int WirePort, long StartedUnixMs)
     /// <summary>The record's file name in the engine's folder.</summary>
     public const string FileName = "engine.pid";
 
-    /// <summary>The largest record read; anything longer is not one.</summary>
+    /// <summary>The largest record read; anything longer is not one. A file in the engine's folder is held to it by its length before
+    /// any of it is read, and no more than one byte past it is ever read (<see cref="Named"/>).</summary>
     public const int MaxBytes = 4096;
 
     /// <summary>The engine's folder on this machine, inside the supervisor's (<see cref="SupervisorStatus.MachineFolder"/>):
@@ -63,12 +64,43 @@ public sealed record EnginePidRecord(int Pid, int WirePort, long StartedUnixMs)
         }
     }
 
-    /// <summary>The record <paramref name="folder"/> holds now, or null when it holds none (no file, or a file that is not one).</summary>
+    /// <summary>The record <paramref name="folder"/> holds now, or null when it holds none (no file, or a file that is not one). The
+    /// folder is one the show user may write, and every reader of it reads through here — the supervisor at each step, the armed check,
+    /// the elevated stop, the engine's own write — so a file longer than <see cref="MaxBytes"/> is refused by its length, read through
+    /// the handle the read goes through, before any of it is read, and at most one byte past that is read of a file that grows
+    /// meanwhile: a file grown to any length costs a reader no more than a record does.</summary>
     public static EnginePidRecord? Named(string folder)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
-        var path = Path.Combine(folder, FileName);
-        return File.Exists(path) ? Parse(DurableFile.ReadAllText(path)) : null;
+        return Parse(ReadBounded(Path.Combine(folder, FileName)));
+    }
+
+    /// <summary>The text of the record's file (UTF-8, a byte-order mark skipped), or null when there is no file or it is longer than
+    /// <see cref="MaxBytes"/>.</summary>
+    private static string? ReadBounded(string path)
+    {
+        if (!File.Exists(path))
+            return null;
+        try
+        {
+            using var file = DurableFile.OpenRead(path, bufferSize: 1);
+            if (file.Length > MaxBytes)
+                return null;
+            var bytes = new byte[MaxBytes + 1];
+            var read = 0;
+            int n;
+            while (read < bytes.Length && (n = file.Read(bytes, read, bytes.Length - read)) > 0)
+                read += n;
+            if (read > MaxBytes)
+                return null;
+            var text = bytes.AsSpan(0, read);
+            return Encoding.UTF8.GetString(text.StartsWith(Encoding.UTF8.Preamble) ? text[Encoding.UTF8.Preamble.Length..] : text);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Taken away between the look and the open: no record.
+            return null;
+        }
     }
 
     /// <summary>Writes the record into <paramref name="folder"/> (replacing the file whole) when that folder exists and its record
@@ -104,7 +136,7 @@ public sealed record EnginePidRecord(int Pid, int WirePort, long StartedUnixMs)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
         var path = Path.Combine(folder, FileName);
-        if (!File.Exists(path) || Parse(DurableFile.ReadAllText(path)) is not { } there || there.Pid != Pid || there.StartedUnixMs != StartedUnixMs)
+        if (Parse(ReadBounded(path)) is not { } there || there.Pid != Pid || there.StartedUnixMs != StartedUnixMs)
             return false;
         File.Delete(path);
         return true;
