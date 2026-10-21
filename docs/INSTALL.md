@@ -19,7 +19,7 @@ machine-level action through the supervisor's own commands, so the engine itself
 
 | Where | What |
 |---|---|
-| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe; `licence.txt` (the terms the licence page shows), `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, `licenses\` (the licence and notice files of the packages the publish comes from, the .NET runtime's among them), and `SHA256SUMS` of every file laid down |
+| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe, and the shader worker's natives (shaderc, SPIRV-Tools, SPIRV-Cross, and of DXC its compiler alone, `dxcompiler.dll`); `licence.txt` (the terms the licence page shows), `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, `licenses\` (the licence and notice files of the packages the publish comes from, the .NET runtime's among them, and DXC's licence and notices in `licenses\DXC\`), and `SHA256SUMS` of every file laid down |
 | `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, replaceable files (the same hash-pinned build every decode test on CI loads), with the build's `LICENSE.txt` (the LGPL version 3) and `GPL-3.0.txt` |
 | `…\D3D12\` | the Agility SDK's `D3D12Core.dll`, under Microsoft's terms the licence page shows (its debug layer and `d3dconfig.exe` are left out) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the supervisor |
@@ -136,7 +136,10 @@ administrators), and take an answer only from the service itself: a process runn
 `Supervisor\PlayMap.Supervisor.exe`. The service keeps the pipe's name its own (another program that holds the name is never served
 on), answers each connection on its own within 2 s and a line of at most 64 bytes, and goes on answering whatever one client does.
 
-On a supervised machine the desk attaches to the engine on loopback and never starts its own.
+On a supervised machine the desk attaches to the engine on loopback and never starts its own: when the engine does not answer,
+Connect ▸ This machine says "This machine's engine is kept by its supervisor — the desk attaches to it." and "Waiting for this
+machine's engine…", and the desk is on the engine as soon as it answers (`PlayMap.Supervisor.exe status` says what the service
+holds).
 
 ## Unsigned builds
 
@@ -226,20 +229,21 @@ UTF-8 — before Inno Setup lays anything down, and the install keeps them byte 
 (`/VERYSILENT`, `/SILENT`, or another value) is refused with words and lays nothing down; the launch condition refuses build 22631;
 fake engines (run as `PlayMap.exe engine`) stop the install armed and silent, and the uninstall armed; the earlier build installs
 and lays the files, each matching its line in `SHA256SUMS`, with the notices and licence texts (the runtime's, SkiaSharp's and ONNX
-Runtime's third-party notices under `licenses\` among them), the service with its recovery actions, the firewall rules on the
-private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the show user's write access to `dumps\` and
-`supervisor\`, the show user's account right and the install's key; this build upgrades it with Smart App Control evaluating and
-keeps the node's data; the earlier build is refused as a downgrade; a folder other than Program Files, a show user Windows cannot
-find (exit 3, the machine left unsupervised), an upgrade while another program runs from the install, and an upgrade that cannot
-replace a file (the earlier service running again) each end as this guide says; `stop` holds the engine and `resume` starts it
-again, and the show user may only wait on the stop event; a standard account runs the installed engine and serves HTTP on 9940 with
-no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every machine-level action back,
-the account right read back with `rights`; a pid record naming a process that is not the engine ends nothing; the artifact's
-`SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned Agility SDK package,
-its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte; on both jobs it finds
-nothing in `PlayMap.iss` that skips the licence page or answers it (no `ShouldSkipPage`, no change to its choices, no licence file
-named but [Setup]'s), and every package the publish's restore carries named in `THIRD-PARTY-NOTICES.md`. The Windows job finds no
-Agility SDK file in the portable folder, and lays the notices into it. No lab ran this round: a real IoT Enterprise LTSC node with
-auto-logon, the supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the
-unsigned installer on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23; their scripts are in
-`docs/round3/lab/`) are not run.
+Runtime's third-party notices under `licenses\` among them), the shader worker's natives each at the worker's pin with DXC's licence
+and notices in `licenses\DXC\` and no `dxil.dll`, `libdxil.so` or `LICENSE-MS.txt` anywhere, the service with its recovery actions,
+the firewall rules on the private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the show user's write
+access to `dumps\` and `supervisor\`, the show user's account right and the install's key; this build upgrades it with Smart App
+Control evaluating and keeps the node's data; the earlier build is refused as a downgrade; a folder other than Program Files, a show
+user Windows cannot find (exit 3, the machine left unsupervised), an upgrade while another program runs from the install, and an
+upgrade that cannot replace a file (the earlier service running again) each end as this guide says; `stop` holds the engine and
+`resume` starts it again, and the show user may only wait on the stop event; a standard account runs the installed engine and serves
+HTTP on 9940 with no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every
+machine-level action back, the account right read back with `rights`; a pid record naming a process that is not the engine ends
+nothing; the artifact's `SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned
+Agility SDK package, its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte; on
+both jobs it finds nothing in `PlayMap.iss` that skips the licence page or answers it (no `ShouldSkipPage`, no change to its
+choices, no licence file named but [Setup]'s), and every package the publish's restore carries named in `THIRD-PARTY-NOTICES.md`.
+The Windows job finds no Agility SDK file in the portable folder, and lays the notices into it. No lab ran this round: a real IoT
+Enterprise LTSC node with auto-logon, the supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade
+during a rehearsal, the unsigned installer on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21,
+L23; their scripts are in `docs/round3/lab/`) are not run.

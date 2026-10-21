@@ -421,7 +421,10 @@ FFmpeg, the Agility SDK's runtime, libvmx and `licence.txt` are the installer's 
     `THIRD-PARTY-NOTICES.txt` names, each with its notice.
   - **Silk.NET** 2.23.0 (`Silk.NET.*`; MIT, © .NET Foundation and Contributors, its packages' authors), the OpenGL, OpenAL and
     windowing bindings, and **GLFW** 3.4 (`Ultz.Native.GLFW`, `glfw3.dll`), under the zlib licence below. OpenAL Soft
-    (`Silk.NET.OpenAL.Soft.Native`) is the entry above.
+    (`Silk.NET.OpenAL.Soft.Native`) is the entry above. The shader worker's natives that Silk.NET's packages carry, shaderc
+    (`Silk.NET.Shaderc.Native`, `shaderc_shared.dll`) and SPIRV-Cross (`Silk.NET.SPIRV.Cross.Native`, `spirv-cross.dll`), and its
+    SPIRV-Tools library (`SPIRV-Tools-shared.dll`) and DXC's compiler alone (`dxcompiler.dll`, with DXC's licence and notices in
+    `licenses\DXC\` beside it), which the publish lays beside the exe, are wp3-shaders' entries, above.
   - **FFmpeg.AutoGen** 9.0.1.1 (`FFmpeg.AutoGen`; MIT, Copyright (c) 2025 Ruslan Balanukhin (Rationale One)), the bindings the engine
     loads FFmpeg's libraries through.
   - **ONNX Runtime** 1.31.0 (`Microsoft.ML.OnnxRuntime`, `Microsoft.ML.OnnxRuntime.Managed`; MIT, Copyright (c) Microsoft
