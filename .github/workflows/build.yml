@@ -486,6 +486,14 @@ jobs:
           if ([int]$counters.executed -ne $expected -or [int]$counters.passed -ne $expected -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0) {
             throw "LicenceTests did not all run on the portable folder: $counts"
           }
+      - name: Upload the portable folder's licence results
+        # The LicenceTests results file is written after the job's other results are uploaded: it goes up on its own, pass or fail.
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-windows-licences
+          path: installer/tests/PlayMap.Installer.Tests/TestResults/*.trx
+          if-no-files-found: ignore
       - name: Upload the exe
         if: ${{ !inputs.d3d12 }}
         uses: actions/upload-artifact@v5
