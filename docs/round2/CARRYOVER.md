@@ -478,17 +478,34 @@ Round 2 W1 notes:
   `HostNetworkTests.AFetchFromAPeerThatListsTheFileTwiceStillLandsIt`, uses none of them and runs against that pull as kept. Run
   so (the test, its two helpers and `tests/Shared/FakeMediaPeer.cs` as at a55c36a0, against 529b7d94's src, in Debug), it failed
   two runs of two: after 20 s the transfer was `queued` at 0 bytes with no peer, and the journal ended at "media: fetching 1 file
-  from Twice". 5aaec503's message reports a variant of it failing there ("queued" for good); what that variant was is recorded
-  nowhere. The progress variant it names, written without the pace's option, met
-  5aaec503's default 250 ms pace against the new pull, which said a block only when it landed 250 ms or more after the last word,
-  so whether it could pass there hung on how far apart the blocks landed (the pace is gone now). The fetch test's wait fails with
-  the transfer's row, the time since the fetch, the thread pool's counts and both nodes' journals and log tails, so a recurrence
-  names its stage.
+  from Twice". 5aaec503's message reports it failing there, its transfer "queued" for good. The test 5aaec503 committed is the one
+  kept (lines 130 to 143 of its `HostNetworkTests.cs` are the same text), so what is unrecorded is 5aaec503's run, not the test, and
+  the run above, two of two failing with the transfer `queued` at 0 bytes, is consistent with its report. The progress variant it
+  names, written without the pace's option, met 5aaec503's default 250 ms pace against the new pull, which said a block only when
+  it landed 250 ms or more after the last word, so whether it could pass there hung on how far apart the blocks landed (the pace is
+  gone now). The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both
+  nodes' journals and log tails, so a recurrence names its stage.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
   while a show plays, and checks only that a file is not here, so a second `MEDIA FETCH` of a file pulls it beside the first. Running
   the fleet's pulls through the node's own pull's rows, try rule, bucket and on-its-way check closes it.
+- Open: a backup's own pulls journal with no bound. Each mirrored revision's pull of the show's media and their versions
+  (`BackupNode.PullFilesAsync`, run once per revision) journals a row per file it pulls, a refused one for each the primary cannot
+  serve. The pull of the files the show names beside its folder (`PullShowFilesAsync`) journals a refused row for each that does
+  not land, every time the watch asks for them again: about every 2 s for a file the primary refuses (a show that names a file the
+  primary does not hold, say), and, for files whose bodies fall silent, once a pass that waits the quiet for each such file and
+  then the watch's 2 s (about every 12 s when one file is silent). The context's window is the journal's 20 recent rows
+  (`ContextBuilder.RecentRows`), so at the watch's pace one refused show file fills it in about 40 s and pushes every other row
+  out; the journal coalesces no rows. No flood test covers these rows (a fetch's are bounded by `FetchJournal`, with flood tests
+  that read the context). A bound per pass, as a fetch's, with a flood test that reads the context, closes it.
+- Open: a backup pulls the files the show names beside its folder inline in its 100 ms watch (`WatchAsync` → `RepullAsync` →
+  `RepullShowFilesAsync` → `PullShowFilesAsync` → `MirrorPuller.ShowFileAsync`), and a repull of the show from the watch
+  (`MIRROR PROJECT`, which pulls those files before it applies the show) runs in the same turn. So a primary whose show file falls
+  silent holds the watch, and with it the fence of a node that took the show, the follow of a group's new leader and the mirror
+  state's publish, up to the quiet (10 s) for each missing show file every time it asks for them again, and an answer whose headers
+  never come for the client's 60 s. Pulling the show files off the watch's own turn, with a test of the watch's pace while a show
+  file is silent, closes it.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);

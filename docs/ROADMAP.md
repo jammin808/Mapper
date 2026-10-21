@@ -81,14 +81,27 @@ The lab checks still to do:
   try while it tries again; has a bandwidth bucket with no rate, so it is not throttled while a show plays; and lets a second
   `MEDIA FETCH` of a file pull it beside the first. The node's own pull has all four and runs only on a node without the fleet's
   part. Running the fleet's pulls through the same rows, journal rule, bucket and on-its-way check closes it.
+- A backup's own pulls journal with no bound: each mirrored revision's pull of the show's media (`BackupNode.PullFilesAsync`)
+  journals a refused row for each file the primary cannot serve, and the pull of the files the show names beside its folder
+  (`PullShowFilesAsync`) one for each that does not land, every time the watch asks for them again (about every 2 s; a file whose
+  body falls silent, about every 12 s when it is the only one), so they can fill the context's 20 recent rows; no flood test covers
+  them. A bound per pass, with a flood test that reads the context, closes it.
+- A backup pulls the files the show names beside its folder inline in its 100 ms watch (`WatchAsync` → `RepullAsync` →
+  `RepullShowFilesAsync` → `PullShowFilesAsync` → `MirrorPuller.ShowFileAsync`), so a primary whose show file falls silent holds
+  the watch (its fence, its follow of a group's new leader, the mirror state's publish) up to the quiet, 10 s, for each missing show
+  file every time it asks for them again. Pulling them off the watch's own turn, with a test of the watch's pace while a show file
+  is silent, closes it.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
   which is fixed, not proven; its wait now names what it saw), `HostNetworkTests`' one Windows wait for a fetched file (its
   cause is not shown: the journal it printed shows that the pull had not ended through its catches, each of which journals a
   refused row, within the wait; it shows neither the stage the pull stood at nor whether it faulted outside those catches, which
-  at 529b7d94 reached the node's log only; a busy thread pool stretching 64 KiB turns is one reading, reproduced on Linux under
-  one synthetic load only; a pull's blocks are now 1 MiB and its wait names the transfer's row, so a recurrence names its stage),
+  at 529b7d94 reached the node's log only; a busy thread pool stretching 64 KiB turns is one reading, unproven: on Linux, beside
+  one synthetic load (48 CPU-bound pool items on four cores), the unchanged test failed 3 runs of 4 and, with 1 MiB blocks, passed 4
+  of 4 (one-sided Fisher p about 0.07), while lighter loads, their runs not recorded, did not make it fail, and Windows completes
+  socket reads its own way, so the Linux counts of pool turns are not Windows'; a pull's blocks are now 1 MiB and its wait names the
+  transfer's row, so a recurrence names its stage),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
