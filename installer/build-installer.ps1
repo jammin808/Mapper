@@ -1,13 +1,14 @@
 #!/usr/bin/env pwsh
 # Builds PlayMap's installer from a numbered build (installer/PlayMap.iss; docs/round3/design/installer.md): the published exe's
-# folder, FFmpeg's LGPL shared libraries under ffmpeg\ with their licence texts (the build's LICENSE.txt, the LGPL version 3, and the
-# GPL version 3 it incorporates), the Agility SDK's D3D12Core.dll under D3D12\ (its debug layer left out), libvmx beside the exe with
-# its licence, the publish's notices (notices.ps1: THIRD-PARTY-NOTICES.md, OpenAL Soft's licence beside soft_oal.dll, and licenses\
-# with every package's own licence and notice files), licence.txt (the terms the licence page shows and the install keeps:
-# installer/licence.txt, byte for byte), and the supervisor under Supervisor\; then the
-# payload's SHA256SUMS of every file it lays down, shipped with it; compiled by Inno Setup's ISCC with the version Version.props gives
-# this run. -Ffmpeg is the LGPL build's extracted folder (bin\ and LICENSE.txt). A local build is refused with words: its installer
-# would read as MAJOR.MINOR.0 and could not be upgraded in order.
+# folder (the shader worker's natives among it: shaderc, SPIRV-Tools, SPIRV-Cross and DXC's compiler alone, with DXC's licence and
+# notices in licenses\DXC\), FFmpeg's LGPL shared libraries under ffmpeg\ with their licence texts (the build's LICENSE.txt, the
+# LGPL version 3, and the GPL version 3 it incorporates), the Agility SDK's D3D12Core.dll under D3D12\ (its debug layer left out),
+# libvmx beside the exe with its licence, the publish's notices (notices.ps1: THIRD-PARTY-NOTICES.md, OpenAL Soft's licence beside
+# soft_oal.dll, and licenses\ with every package's own licence and notice files), licence.txt (the terms the licence page shows and
+# the install keeps: installer/licence.txt, byte for byte), and the supervisor under Supervisor\; then the payload's SHA256SUMS of
+# every file it lays down, shipped with it; compiled by Inno Setup's ISCC with the version Version.props gives this run. -Ffmpeg is
+# the LGPL build's extracted folder (bin\ and LICENSE.txt). A local build is refused with words: its installer would read as
+# MAJOR.MINOR.0 and could not be upgraded in order.
 # -Version builds the same files under another product version (the build before this one, when this one is build 1 of a raised
 # MAJOR or MINOR: MsiVersionRule.Previous).
 #   installer/build-installer.ps1 -Run 412 -Commit <sha> -Publish publish/PlayMap -Supervisor publish/supervisor -Ffmpeg lgpl/ffmpeg-n9.0.2-…
@@ -54,6 +55,12 @@ Copy-Item (Join-Path $repo 'src/ThirdParty/libvmx/LICENSE.txt') (Join-Path $payl
 Copy-Item (Join-Path $PSScriptRoot 'licence.txt') (Join-Path $payload 'licence.txt')
 Copy-Item (Join-Path $Supervisor 'PlayMap.Supervisor.exe') (Join-Path $payload 'Supervisor')
 if (Get-ChildItem $payload -Recurse -Filter 'D3D12SDKLayers.dll') { throw 'the Agility SDK''s debug layer is in the payload: releases leave it out' }
+# The shader worker's natives, which the engine's publish lays beside the exe (SPIRV-Tools' from PLAYMAP_SPIRV_TOOLS_DIR), and of DXC
+# its compiler alone with the text its licence asks to travel with it in licenses\DXC\; DXC's package's other licence file never.
+$worker = 'shaderc_shared.dll', 'SPIRV-Tools-shared.dll', 'spirv-cross.dll', 'dxcompiler.dll', 'licenses\DXC\LICENSE-LLVM.txt', 'licenses\DXC\LICENSE.TXT', 'licenses\DXC\ThirdPartyNotices.txt'
+$lacking = @($worker | Where-Object { -not (Test-Path -LiteralPath (Join-Path $payload $_) -PathType Leaf) })
+if ($lacking.Count -gt 0) { throw "the payload lacks the shader worker's $($lacking -join ', '): the publish carries every native the worker loads, and DXC's licence and notices beside dxcompiler.dll" }
+if (Get-ChildItem $payload -Recurse -Filter 'LICENSE-MS.txt') { throw 'the payload carries LICENSE-MS.txt: of DXC''s package only dxcompiler.dll and its LICENSE-LLVM.txt are laid down' }
 # The sums of every file laid down, shipped with them ({app}\SHA256SUMS); any sums the publish carried are replaced.
 & (Join-Path $PSScriptRoot 'sums.ps1') -Folder $payload
 

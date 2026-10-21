@@ -540,6 +540,33 @@ jobs:
           $src = 'src/ThirdParty/libvmx'
           & $clang -O3 -std=c++17 -fdeclspec -mlzcnt -mavx2 -mbmi -shared "-Wl,/DEF:$src/exports.def" "$src/src/vmxcodec_x86.cpp" "$src/src/vmxcodec_avx2.cpp" "$src/src/vmxcodec.cpp" -o vmx/libvmx.dll
           if ($LASTEXITCODE -ne 0) { throw "libvmx did not build ($LASTEXITCODE)" }
+      # The shader worker's SPIR-V validator on Windows: the same pinned SPIRV-Tools build the windows job fetches (shaderc's Windows
+      # build exports no validator), cached by its hash and named to the publish through PLAYMAP_SPIRV_TOOLS_DIR, so the engine's
+      # publish lays SPIRV-Tools-shared.dll beside the exe with the worker's other natives (build-installer.ps1 refuses a payload
+      # without one of them).
+      - name: SPIRV-Tools for the shader worker (cached by its pin)
+        uses: actions/cache@v4
+        with:
+          path: .natives/spirv-tools
+          key: spirv-tools-c6be6878878df8b9cf799126824e19275f7751a62947b70c177a74bc65ddbc0a
+      - name: SPIRV-Tools for the shader worker (pinned)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE '.natives/spirv-tools'
+          $dll = Join-Path $dir 'SPIRV-Tools-shared.dll'
+          if (-not (Test-Path $dll)) {
+            Invoke-WebRequest -Uri 'https://storage.googleapis.com/spirv-tools/artifacts/prod/graphics_shader_compiler/spirv_tools/windows-vs2022-amd64-release/continuous/261/20261016-105527/install.zip' -OutFile spirv-tools.zip
+            $hash = (Get-FileHash spirv-tools.zip -Algorithm SHA256).Hash
+            if ($hash -ne 'C6BE6878878DF8B9CF799126824E19275F7751A62947B70C177A74BC65DDBC0A') { throw "spirv-tools.zip is not the pinned build ($hash)" }
+            Expand-Archive spirv-tools.zip -DestinationPath spirv-tools
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            Copy-Item spirv-tools/install/bin/SPIRV-Tools-shared.dll $dll
+          }
+          $pinned = '288DD59CBD1473B02927950B076016641B59E9E3AA7D5C029F7E0C896397C0BB'
+          $hash = (Get-FileHash $dll -Algorithm SHA256).Hash
+          if ($hash -ne $pinned) { throw "SPIRV-Tools-shared.dll is not the pinned build ($hash)" }
+          "PLAYMAP_SPIRV_TOOLS_DIR=$dir" >> $env:GITHUB_ENV
       - name: Publish (ReadyToRun) and the supervisor
         id: publish
         shell: pwsh

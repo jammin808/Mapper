@@ -44,16 +44,32 @@ public sealed class InstallerTests
     /// <summary>What the installer reads back from its licence page into its log (PlayMap.iss, LogLicencePage).</summary>
     private const string LicencePage = "the licence page: heading yes; Microsoft's distributable-code terms yes; read as UTF-8 yes";
 
-    /// <summary>The terms the licence page shows, as the repository holds them (installer/licence.txt).</summary>
-    private static string RepositoryTerms
+    /// <summary>The repository the tests are built from: the folder above them that holds PlayMap.sln.</summary>
+    private static string Repository
     {
         get
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
             while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))
                 dir = dir.Parent;
-            return Path.Combine(dir?.FullName ?? throw new InvalidOperationException("no PlayMap.sln above " + AppContext.BaseDirectory), "installer", "licence.txt");
+            return dir?.FullName ?? throw new InvalidOperationException("no PlayMap.sln above " + AppContext.BaseDirectory);
         }
+    }
+
+    /// <summary>The terms the licence page shows, as the repository holds them (installer/licence.txt).</summary>
+    private static string RepositoryTerms => Path.Combine(Repository, "installer", "licence.txt");
+
+    /// <summary>The shader worker's Windows natives, each with the SHA-256 the worker holds it to when it loads it, as the engine pins
+    /// them (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs, its win-x64 rows): shaderc, SPIRV-Tools, SPIRV-Cross and DXC's
+    /// compiler, dxcompiler.</summary>
+    private static List<(string File, string Sha256)> WorkerPins()
+    {
+        var source = File.ReadAllText(Path.Combine(Repository, "src", "PlayMap.Engine", "ShaderWorker", "CompilerNatives.cs"));
+        var pins = Regex.Matches(source, "new\\(\\w+, \"([^\"]+\\.dll)\", \"([0-9a-f]{64})\"", RegexOptions.None, TimeSpan.FromSeconds(1))
+            .Select(m => (m.Groups[1].Value, m.Groups[2].Value)).ToList();
+        Assert.Equal(["dxcompiler.dll", "shaderc_shared.dll", "spirv-cross.dll", "SPIRV-Tools-shared.dll"],
+            pins.Select(p => p.Item1).Order(StringComparer.OrdinalIgnoreCase));
+        return pins;
     }
 
     private static string Required(string name) =>
@@ -499,6 +515,7 @@ public sealed class InstallerTests
         Assert.Contains("GNU LESSER GENERAL PUBLIC LICENSE", File.ReadAllText(Path.Combine(InstallDir, "ffmpeg", "LICENSE.txt")), StringComparison.Ordinal);
         AssertEveryFileMatchesItsSum();
         Assert.Empty(Directory.GetFiles(InstallDir, "d3d12SDKLayers.dll", SearchOption.AllDirectories));
+        AssertTheShaderWorkersNatives();
         // FFmpeg is the LGPL build every decode test on CI loads: each library hashes to the pinned build's.
         var pinned = Required("PLAYMAP_FFMPEG_DIR");
         var libraries = Directory.GetFiles(pinned, "*.dll");
@@ -552,6 +569,29 @@ public sealed class InstallerTests
         Assert.Equal(2, wer.GetValue("DumpType"));
         Assert.Equal(5, wer.GetValue("DumpCount"));
         Assert.NotNull(Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\EventLog\Application\PlayMap"));
+    }
+
+    /// <summary>The shader worker's natives beside the exe, each the file the worker's pin names (round 3 §9 decision 24 for DXC's):
+    /// of DXC, its compiler alone, dxcompiler.dll, with the text its licence asks to travel with it in licenses\DXC\ beside it — the
+    /// package's LICENSE-LLVM.txt and DXC's own LICENSE.TXT and ThirdPartyNotices.txt as the engine carries them — and no validator
+    /// library (dxil.dll, libdxil.so) and no LICENSE-MS.txt anywhere in the install.</summary>
+    private static void AssertTheShaderWorkersNatives()
+    {
+        foreach (var (file, sha256) in WorkerPins())
+        {
+            var installed = Path.Combine(InstallDir, file);
+            Assert.True(File.Exists(installed), file + " is not installed beside the exe");
+            Assert.Equal(sha256, Sha256(installed).ToLowerInvariant());
+        }
+        var notices = Path.Combine(InstallDir, "licenses", "DXC");
+        Assert.Contains("LLVM Release License", File.ReadAllText(Path.Combine(notices, "LICENSE-LLVM.txt")), StringComparison.Ordinal);
+        foreach (var file in new[] { "LICENSE.TXT", "ThirdPartyNotices.txt" })
+            Assert.Equal(File.ReadAllBytes(Path.Combine(Repository, "src", "PlayMap.Engine", "ShaderWorker", "DxcNotices", file)),
+                File.ReadAllBytes(Path.Combine(notices, file)));
+        Assert.Equal(["LICENSE-LLVM.txt", "LICENSE.TXT", "ThirdPartyNotices.txt"],
+            Directory.GetFiles(notices).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        foreach (var never in new[] { "dxil.dll", "libdxil.so", "LICENSE-MS.txt" })
+            Assert.Empty(Directory.GetFiles(InstallDir, never, SearchOption.AllDirectories));
     }
 
     /// <summary>{app}\SHA256SUMS lists every file the install laid down, each with the hash it has, and no file is missing from it but
