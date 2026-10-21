@@ -263,8 +263,8 @@ public sealed class BackupTests
     public async Task AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows()
     {
         // Two hundred and fifty files FOH-A does not hold, each asked for by its size first and refused, and one verb's row to open
-        // them: one refused row a file would push every other row out of the journal's 200 recent ones. The fetch journals its first
-        // twenty and one that counts the rest.
+        // them: one refused row a file would push every other row out of the journal's recent ones. The fetch journals its first few
+        // and one that counts the rest.
         const int Files = 250;
         var clock = new ManualClock(1_000 * Second);
         var time = new ManualTime();
@@ -278,6 +278,7 @@ public sealed class BackupTests
         };
         await SyncRig.OpenShowAsync(b, show);
         await BackupRig.MeetAsync(a, b);
+        var before = b.Engine.Journal.Recent(1).Single();
 
         Assert.True((await b.RunAsync("MEDIA FETCH ALL FROM FOH-A")).Ok);
 
@@ -286,10 +287,18 @@ public sealed class BackupTests
         Assert.Equal(FetchJournal.Most, refused.Count);
         for (var k = 0; k < FetchJournal.Most; k++)
             Assert.StartsWith($"refused: {Name(k)}.mp4 could not be pulled from FOH-A: ", refused[k], StringComparison.Ordinal);
-        Assert.Equal(["refused: the fetch of 250 files from FOH-A ended: 0 pulled and verified, 250 could not be fetched; 230 of its rows are in the node's log only"],
-            Rows(b, "the fetch of"));
+        var ended = string.Create(CultureInfo.InvariantCulture,
+            $"refused: the fetch of 250 files from FOH-A ended: 0 pulled and verified, 250 could not be fetched; {Files - FetchJournal.Most} of its rows are in the node's log only");
+        Assert.Equal([ended], Rows(b, "the fetch of"));
         Assert.Single(Rows(b, "FOH-B is up"));
         Assert.Single(Rows(b, "verb: opened Sync test"));
+        // The context's recent rows, the window of the journal that MCP's get_context, Patterns and the assistant read, still hold the
+        // row written last before the fetch: the fetch's rows there are its verb's own, its pulls' first few and the one that counts the
+        // rest.
+        var context = ContextBuilder.Build(b.Engine).Recent.Select(r => r.Text).ToList();
+        Assert.Contains(before.Ok ? before.Text : "refused: " + before.Text, context);
+        Assert.Equal(FetchJournal.Most, context.Count(r => r.Contains("could not be pulled from FOH-A", StringComparison.Ordinal)));
+        Assert.Equal(ended, context[^1]);
     }
 
     /// <summary>The journal's recent rows that hold <paramref name="text"/>, oldest first.</summary>

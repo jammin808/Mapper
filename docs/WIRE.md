@@ -177,9 +177,9 @@ These are the keys every node writes; the packages' keys follow at the end of th
   row says 0. A chunk's body that sends nothing for 10 s on the node's clock (a chosen bound) fails that try; the peer's list and
   each answer's headers wait as long as the node's HTTP client allows (60 s). A chunk has three tries; a pull journals its first
   failed try at each peer and its end, the tries between are its `note` and the log's, and the last try's words are the refused
-  row's. A fetch journals at most 20 of its pulls' rows and, when it had more, one row at its end that counts how it ended; the
-  rest are in the node's log. A peer's list is asked once a fetch; when it could not be read, each file of the fetch that no other
-  peer gives ends with its words.
+  row's. A fetch journals at most 4 of its pulls' rows and, when it had more, one row at its end that counts how it ended (five
+  rows, a quarter of the 20 recent rows the context carries); the rest are in the node's log. A peer's list is asked once a
+  fetch; when it could not be read, each file of the fetch that no other peer gives ends with its words.
 - `faults` lists what the node is running without, each `{"part","words"}`: a door whose port was refused (`wire`,
   `web`, `hello`, `sync`), a control input or the announcement that could not open (`osc`, `artnet`, `sacn`, `midi`,
   `mdns`), no certificate (`tls`), the render host, the scanner, an extension, the node's settings (`settings`; `settings-flush`

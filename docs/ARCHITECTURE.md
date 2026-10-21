@@ -408,7 +408,8 @@ either; on every frame a slot whose kind the node's quarantine holds draws bypas
 - **Media sync**: library items are identified by content hash; a node missing a file pulls it in 8 MiB chunks
   from a peer that has it, resumable, each chunk served and written in 1 MiB blocks; a chunk's body silent for 10 s on
   the node's clock fails that try with words, while the peer's list and each answer wait the HTTP client's own timeout,
-  and a fetch journals at most 20 of its pulls' rows and one that counts the rest. `MEDIA FETCH` runs one of two pulls.
+  and a fetch journals at most 4 of its pulls' rows and one that counts the rest, a quarter of the context's 20 recent rows.
+  `MEDIA FETCH` runs one of two pulls.
   With the fleet's part, which the exe composes, it pulls with the peer's proof over `/mirror/media` (docs/FLEET.md),
   saying each file's end in the journal and writing no transfer row. Without it, the node's own pull reads each peer's
   `/api/media` list once a fetch, is throttled while a show runs, and says each pull's stage, bytes, peer and last

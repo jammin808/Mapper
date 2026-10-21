@@ -18,7 +18,8 @@ namespace PlayMap.Engine.Tests.Host;
 /// with its words; one from a peer that lists the file twice still lands it; one from a peer whose list fails ends each file
 /// with the list's words; one that moves on to another peer keeps the chunks it has and says them at once; and a fetch of many
 /// files from a peer that refuses every chunk or whose list fails journals each pull's first failed try and its end up to the
-/// fetch's bound and one row that counts the rest, so the node's own rows outlive it however many files it asks. And a node
+/// fetch's bound and one row that counts the rest, so the rows before it stay in the context's recent rows however many files it
+/// asks. And a node
 /// following a Patterns desk: its blackout reaches the air through the engine's own fact path, the follow switch decides, and the
 /// link is kept in the node's settings with its token — which never reaches STATE or the journal.</summary>
 public sealed class HostNetworkTests
@@ -161,8 +162,8 @@ public sealed class HostNetworkTests
     public async Task AFetchOfManyFilesFromAPeerThatRefusesEveryChunkJournalsEachPullsFirstFailedTryAndItsEndUpToItsBound()
     {
         // Each file is four chunks, three in flight, two tries each, and every try is refused. A pull's failed tries are its row's to
-        // carry and the log's, and the journal takes its first and its end; the files are pulled one after another, so the fetch's
-        // twenty rows are the first ten files' two each, and one more row counts the rest, which went to the node's log only.
+        // carry and the log's, and the journal takes its first and its end; the files are pulled one after another, so the fetch's rows
+        // are the first files' two each, and one more row counts the rest, which went to the node's log only.
         const int Files = 16;
         var files = Enumerable.Range(0, Files).Select(_ => RandomNumberGenerator.GetBytes(4 * 64 * 1024)).Select(b => (Hash: Convert.ToHexStringLower(SHA256.HashData(b)), File: b))
             .ToList();
@@ -173,7 +174,8 @@ public sealed class HostNetworkTests
         Hear(fetcher, peer, "dead0001", "Refuser");
         Assert.True((await fetcher.RunAsync("MEDIA FETCH ALL FROM dead0001")).Ok);
 
-        const string Ended = "refused: the fetch of 16 files from Refuser ended: 0 pulled and verified, 16 could not be fetched; 12 of its rows are in the node's log only";
+        var ended = string.Create(CultureInfo.InvariantCulture,
+            $"refused: the fetch of 16 files from Refuser ended: 0 pulled and verified, 16 could not be fetched; {2 * Files - FetchJournal.Most} of its rows are in the node's log only");
         Assert.True(await Eventually.TrueAsync(() => Rows(fetcher, "the fetch of").Count == 1, 60000), fetcher.Journal());
         // Whichever of the three chunks in flight is refused first is the one said.
         var at = "127.0.0.1:" + peer.Port.ToString(CultureInfo.InvariantCulture);
@@ -185,11 +187,13 @@ public sealed class HostNetworkTests
             Assert.Matches("^" + Regex.Escape($"media: {Clip(k)} from Refuser: chunk ") + "[123]" + Regex.Escape($" of 4 from {at}: answered 503 — trying again (2 of 2)") + "$", tried[k]);
             Assert.StartsWith($"refused: {Clip(k)} could not be fetched: Refuser: chunk ", refused[k], StringComparison.Ordinal);
         }
-        Assert.Equal([Ended], Rows(fetcher, "the fetch of"));
-        // Every file's row says how it ended, and the log holds the rows the journal does not.
+        Assert.Equal([ended], Rows(fetcher, "the fetch of"));
+        // Every file's row says how it ended, and the log holds the rows the journal does not: the node's log writes on a thread of its
+        // own, so the last file's line is waited for there.
         Assert.Equal(Files, fetcher.State().GetProperty("media").GetProperty("transfers").EnumerateArray()
             .Count(t => Str(t, "state").StartsWith("failed: Refuser: chunk ", StringComparison.Ordinal)));
-        Assert.Contains($"{Clip(Files - 1)} could not be fetched: Refuser: chunk ", fetcher.LogTail(200), StringComparison.Ordinal);
+        Assert.True(await Eventually.TrueAsync(() => fetcher.LogTail(200).Contains($"{Clip(Files - 1)} could not be fetched: Refuser: chunk ", StringComparison.Ordinal)),
+            fetcher.LogTail());
         Assert.Single(Rows(fetcher, "Stage right is up"));
     }
 
@@ -197,7 +201,7 @@ public sealed class HostNetworkTests
     public async Task AFetchOfMoreFilesThanTheJournalHoldsFromAPeerWhoseListFailsLeavesTheNodesOwnRows()
     {
         // Two hundred and fifty files, one verb's row to open them, and a peer whose list fails: one refused row a file would push
-        // every other row out of the journal's 200 recent ones. The fetch journals its first twenty and one that counts the rest.
+        // every other row out of the journal's recent ones. The fetch journals its first few and one that counts the rest.
         const int Files = 250;
         var hashes = Enumerable.Range(0, Files).Select(k => Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(k)))).ToList();
         await using var peer = new FakeMediaPeer([(hashes[0], new byte[16])], listStatus: 503);
@@ -214,10 +218,17 @@ public sealed class HostNetworkTests
         Assert.True(await Eventually.TrueAsync(() => Rows(fetcher, "the fetch of").Count == 1, 60000), fetcher.Journal());
         const string Words = "Dead list's media list could not be read: Response status code does not indicate success: 503 (Refused).";
         Assert.Equal([.. Enumerable.Range(0, FetchJournal.Most).Select(k => $"refused: {Clip(k)} could not be fetched: " + Words)], Rows(fetcher, " could not be fetched: "));
-        Assert.Equal(["refused: the fetch of 250 files from Dead list ended: 0 pulled and verified, 250 could not be fetched; 230 of its rows are in the node's log only"],
-            Rows(fetcher, "the fetch of"));
+        var ended = string.Create(CultureInfo.InvariantCulture,
+            $"refused: the fetch of 250 files from Dead list ended: 0 pulled and verified, 250 could not be fetched; {Files - FetchJournal.Most} of its rows are in the node's log only");
+        Assert.Equal([ended], Rows(fetcher, "the fetch of"));
         Assert.Single(Rows(fetcher, "Stage right is up"));
         Assert.Single(Rows(fetcher, "verb: opened Sync test"));
+        // The context's recent rows, the window of the journal that MCP's get_context, Patterns and the assistant read, still hold the
+        // verb that opened the show: the fetch's rows there are its verb's own, its pulls' first few and the one that counts the rest.
+        var context = ContextRows(fetcher);
+        Assert.Contains(context, r => r.StartsWith("opened Sync test", StringComparison.Ordinal));
+        Assert.Equal(FetchJournal.Most, context.Count(r => r.Contains(" could not be fetched: ", StringComparison.Ordinal)));
+        Assert.Equal(ended, context[^1]);
         Assert.Equal(Files, fetcher.State().GetProperty("media").GetProperty("transfers").EnumerateArray().Count(t => Str(t, "state") == "failed: " + Words));
         Assert.Equal(1, peer.ListAsks);
     }
@@ -270,6 +281,10 @@ public sealed class HostNetworkTests
     /// <summary>The journal's rows that hold <paramref name="text"/>, oldest first.</summary>
     private static List<string> Rows(HostRig rig, string text) =>
         [.. rig.Journal().Split('\n').Where(r => r.Contains(text, StringComparison.Ordinal))];
+
+    /// <summary>The context's recent rows as it says them, oldest first: the journal's window that MCP's get_context, Patterns and the
+    /// assistant read.</summary>
+    private static List<string> ContextRows(HostRig rig) => [.. ContextBuilder.Build(rig.Engine).Recent.Select(r => r.Text)];
 
     /// <summary>Moves the node's clock a quiet and a millisecond at a time, and looks for 200 ms after each step, until
     /// <paramref name="done"/> holds: each step ends the try then waiting on a silent peer, and a step taken while none waits counts

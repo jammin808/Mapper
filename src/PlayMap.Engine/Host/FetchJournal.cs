@@ -6,12 +6,13 @@ namespace PlayMap.Engine.Host;
 /// <summary>The journal rows of one MEDIA FETCH, bounded whatever its number of files: its pulls' rows (a failed try while a pull tries
 /// again, a file landed, a file that could not be had) are journaled as they come until <see cref="Most"/> are, and the rest go to the
 /// node's log only; once the fetch has ended, when any went to the log only, one more row counts how it ended and says so. A fetch
-/// therefore writes at most <see cref="Most"/> + 1 rows beside its verb's own, and leaves the journal's recent rows, the ones the context
-/// and the desk read (<see cref="Journal.RecentCapacity"/>, 200), to the node's other news.</summary>
+/// therefore writes at most <see cref="Most"/> + 1 rows beside its verb's own, a quarter of the context's recent rows
+/// (<see cref="ContextBuilder.RecentRows"/>, the journal's only window a reader outside the node takes), and leaves the rest of them to
+/// the node's other news.</summary>
 internal sealed class FetchJournal(Journal journal, ILogger log, string what)
 {
-    /// <summary>The most rows a fetch's pulls journal: a tenth of the journal's 200 recent rows.</summary>
-    public const int Most = 20;
+    /// <summary>The most rows a fetch's pulls journal: with the row that counts the rest, a quarter of the context's recent rows.</summary>
+    public const int Most = ContextBuilder.RecentRows / 4 - 1;
 
     private int _rows;
     private int _held;

@@ -64,9 +64,9 @@ edited on the primary; `BLIND ON` and `BLIND COMMIT` are refused (a draft would 
 - `MEDIA FETCH … VERSION` — `accepted` "fetching mv_1 of Clip (hap-q) from FOH-A by its hash, with proof"; the journal says
   "mv_1.hap-q pulled from FOH-A with proof over HTTPS and verified" or why not.
 - `MEDIA FETCH <media>|ALL` on a node with the fleet's part — `accepted` "fetching 250 files from FOH-A by hash, with proof"; the
-  journal says each file's end ("clip.mp4 pulled from FOH-A with proof over HTTPS and verified", or why not), at most 20 rows a
+  journal says each file's end ("clip.mp4 pulled from FOH-A with proof over HTTPS and verified", or why not), at most 4 rows a
   fetch, and when there were more, one at its end: "the fetch of 250 files from FOH-A ended: 0 pulled and verified, 250 could not
-  be fetched; 230 of its rows are in the node's log only". These pulls write no `media.transfers` row.
+  be fetched; 246 of its rows are in the node's log only". These pulls write no `media.transfers` row.
 
 ## The web port
 

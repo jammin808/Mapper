@@ -401,11 +401,15 @@ Round 2 W1 notes:
   measured cause and no test, and is gone. Its bytes step back only when it moves on to another peer, whose pull starts from the
   chunks the part file keeps whole. A chunk has three tries; a pull journals its first failed try at each peer ("clip from Stage
   left: chunk 1 of 1 from <addr>: … — trying again (2 of 3)") and its end, and the tries between are its row's `note` and the
-  log's. A fetch journals at most 20 of its pulls' rows (`FetchJournal`, a tenth of the journal's 200 recent rows) and, when it had
-  more, one row at its end that counts how it ended; the rest go to the node's log. f9758fa3 left about two rows a file (one a file
-  when the list failed), so a fetch of about 100 files from a peer that refuses every chunk, or about 200 whose list fails, still
-  pushed every other row out of the recent rows that the context and the desk read; its message presented that as fixed, and its
-  test was sized (48 files) under the 200. A peer's list is asked once a fetch, its rows taken first-wins, and when it could not
+  log's. A fetch journals at most 4 of its pulls' rows (`FetchJournal`) and, when it had more, one row at its end that counts how it
+  ended; the rest go to the node's log. Those five rows are a quarter of the context's recent rows (`ContextBuilder.RecentRows`,
+  20), the only window of the journal a reader outside the node takes (MCP's `get_context`, Patterns, Stagewatch and the
+  assistant; no desk code reads the journal's rows). f9758fa3 left about two rows a file (one a file when the list failed), so a
+  fetch of about ten files from a peer that refuses every chunk, or about twenty whose list fails, pushed every other row out of
+  the context's window; its message presented that as fixed, and its 48-file test read the journal's 200 rows kept in memory,
+  which no reader outside the node takes. 970fbe79's bound, 20 rows and one that counts the rest ("a tenth of the journal's 200
+  recent rows, the ones the context and the desk read"), still let one fetch fill the context's whole window, and its flood tests
+  read the 200 too. A peer's list is asked once a fetch, its rows taken first-wins, and when it could not
   be read each file no other peer gives ends with its words; a pull that fails any way but the stop's own cancelling ends "failed:
   <words>" with its refused row. STATE's transfer row carries `at`, `stage` (`asking`, `receiving`, `verifying`), `since` and `note`
   (docs/WIRE.md); the desk's Network drawer shows each row's stage and, beneath it, the last failed try's words; PLAY, the
