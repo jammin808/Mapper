@@ -1,5 +1,6 @@
 using System.Globalization;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Preflight;
 
 namespace PlayMap.Engine.Install;
@@ -7,8 +8,9 @@ namespace PlayMap.Engine.Install;
 /// <summary>Preflight's <c>install</c> section (docs/round3/PLAN.md §3.5): the install itself (a folder run is amber on a show node — one
 /// whose project drives an enabled output — and grey elsewhere), the supervisor's state (red once it stopped trying, with the line that
 /// resumes it in words; the freeze rule waiting for shown frames said as information), auto-logon on a supervised node and for whom,
-/// the show machine's policies (an information row: this build writes none, and Home honours none), and the build unsigned (an
-/// information row). Information rows are grey with the value "i". Read from published facts only.</summary>
+/// the show machine's policies (an information row: this build writes none; the edition is the machine platform's, and whether a
+/// policy holds updates back is the machine section's <c>updates</c> row, which this row names and never restates), and the build
+/// unsigned (an information row). Information rows are grey with the value "i". Read from published facts only.</summary>
 public sealed class InstallPreflight(Func<EngineCore, InstallFacts>? facts = null) : IPreflightCheck
 {
     public string Section => "install";
@@ -23,11 +25,12 @@ public sealed class InstallPreflight(Func<EngineCore, InstallFacts>? facts = nul
         var engine = context.Engine;
         var f = facts?.Invoke(engine) ?? engine.InstallNow();
         var showNode = engine.Store.Project.Outputs.Any(o => o.Enabled);
-        return Task.FromResult(Rows(f, engine.Services.Settings.NodeId, showNode));
+        return Task.FromResult(Rows(f, engine.Services.Settings.NodeId, showNode, engine.Services.MachinePlatform.Identity().Os.Family));
     }
 
-    /// <summary>Pure: the section's rows for these facts.</summary>
-    public static IReadOnlyList<PreflightRow> Rows(InstallFacts f, string node, bool showNode)
+    /// <summary>Pure: the section's rows for these facts, on a machine of the edition family <paramref name="edition"/> (the machine
+    /// platform's reading; unknown where it reads none).</summary>
+    public static IReadOnlyList<PreflightRow> Rows(InstallFacts f, string node, bool showNode, EditionFamily edition)
     {
         ArgumentNullException.ThrowIfNull(f);
         const string section = "install";
@@ -53,15 +56,20 @@ public sealed class InstallPreflight(Func<EngineCore, InstallFacts>? facts = nul
                         "auto-logon is off: after a power cut nobody signs in, so the supervisor has no session to start the engine in (docs/INSTALL.md)", null));
             }
         }
-        rows.Add(f.EditionHasUpdatePolicies
-            ? new PreflightRow("install:policies", node, section, "Show machine policies", Light.Grey, "i",
-                "this build writes no Windows Update policy: defer updates and set the maintenance window by hand (docs/INSTALL.md)", null)
-            : new PreflightRow("install:policies", node, section, "Show machine policies", Light.Grey, "i",
-                "not on this edition: Home honours no Update policy — pause updates past the show and set active hours by hand (docs/INSTALL.md)", null));
+        rows.Add(new PreflightRow("install:policies", node, section, "Show machine policies", Light.Grey, "i", PoliciesWords(edition), null));
         rows.Add(new PreflightRow("install:signed", node, section, "Signature", Light.Grey, "i",
             f.Signed ? "signed" : "this build is unsigned (the owner's decision): check it against its SHA256SUMS (docs/INSTALL.md)", null));
         return rows;
     }
+
+    /// <summary>The policies row's words: that this build writes no Windows Update policy, and where the machine section says what
+    /// the edition honours and what holds updates back — its words never stand in for that section's lights.</summary>
+    public static string PoliciesWords(EditionFamily edition) => edition switch
+    {
+        EditionFamily.Home => "not on this edition: Home honours no Update policy and this build writes none — machine preflight's edition.updates row says what to do (docs/INSTALL.md)",
+        EditionFamily.Unknown => "this build writes no Windows Update policy, and no Windows edition is read on this node (machine preflight says why)",
+        _ => "this build writes no Windows Update policy: machine preflight's updates row says whether one holds updates back on this node (docs/INSTALL.md)",
+    };
 
     private static PreflightRow Supervisor(InstallFacts f, string node, string section)
     {

@@ -12,14 +12,14 @@ namespace PlayMap.Engine.Tests.Install;
 /// <summary>STATE <c>machine.install</c> and preflight's <c>install</c> section. tests/fixtures/state/install.json is the block from a
 /// supervised install read through the engine (written with PLAYMAP_WRITE_FIXTURES=1, else compared), install.cards.json the cards the
 /// desk draws from it; the preflight rows are asserted by their fields with each fault injected: a folder run on a show node, a
-/// supervisor that stopped trying, auto-logon off, Home's edition, the freeze rule waiting.</summary>
+/// supervisor that stopped trying, auto-logon off, each edition family the machine platform reads, the freeze rule waiting.</summary>
 public sealed class InstallStateFixtureTest
 {
     private static readonly SupervisorStatus Running = new("running", 4120, 0, "",
         "active: open outputs' shown frames may stand still 3 s while the GPU runs", 1_760_000_000_000);
 
     private static readonly InstallFacts Supervised = new(true, "0.2.17", @"C:\Program Files\PlayMap", true, @"SHOWNODE\show", Running, true, "show",
-        "Professional", false);
+        false);
 
     private static string FixturePath(string name) => Path.Combine(NodeExe.RepoRoot(), "tests", "fixtures", "state", name);
 
@@ -32,7 +32,7 @@ public sealed class InstallStateFixtureTest
             ["light"] = "light",
             ["words"] = "{words}",
             ["fields"] = new JsonArray(Field("Installed", "installed"), Field("Version", "msi"), Field("Folder", "dir"), Field("Supervised", "supervised"),
-                Field("Show user", "showUser"), Field("Edition", "edition"), Field("Signed", "signed")),
+                Field("Show user", "showUser"), Field("Signed", "signed")),
             ["actions"] = new JsonArray("PREFLIGHT QUICK", "HEALTH"),
         },
         new JsonObject
@@ -147,34 +147,34 @@ public sealed class InstallStateFixtureTest
     [Fact]
     public void AFolderRunIsAmberOnAShowNodeAndGreyElsewhere()
     {
-        var show = Assert.Single(InstallPreflight.Rows(InstallFacts.NotInstalled, "n1", showNode: true), r => r.Id == "install:installed");
+        var show = Assert.Single(InstallPreflight.Rows(InstallFacts.NotInstalled, "n1", showNode: true, EditionFamily.Pro), r => r.Id == "install:installed");
         Assert.Equal((Light.Amber, "folder run"), (show.Light, show.Value));
         Assert.StartsWith("not installed: nothing restarts the engine if it stops", show.Note, StringComparison.Ordinal);
-        var desk = Assert.Single(InstallPreflight.Rows(InstallFacts.NotInstalled, "n1", showNode: false), r => r.Id == "install:installed");
+        var desk = Assert.Single(InstallPreflight.Rows(InstallFacts.NotInstalled, "n1", showNode: false, EditionFamily.Pro), r => r.Id == "install:installed");
         Assert.Equal(Light.Grey, desk.Light);
     }
 
     [Fact]
     public void ASupervisedInstallSaysItsSupervisorAndAutoLogon()
     {
-        var rows = InstallPreflight.Rows(Supervised, "n1", showNode: true);
+        var rows = InstallPreflight.Rows(Supervised, "n1", showNode: true, EditionFamily.Pro);
         Assert.Equal(["install:installed", "install:supervisor", "install:autologon", "install:policies", "install:signed"], rows.Select(r => r.Id));
         Assert.All(rows, r => Assert.Equal("install", r.Section));
         Assert.Equal((Light.Green, "running"), (rows[1].Light, rows[1].Value));
         Assert.Equal((Light.Green, "on", "auto-logon signs in show"), (rows[2].Light, rows[2].Value, rows[2].Note));
 
-        var off = InstallPreflight.Rows(Supervised with { AutoLogon = false, AutoLogonUser = "" }, "n1", true).Single(r => r.Id == "install:autologon");
+        var off = InstallPreflight.Rows(Supervised with { AutoLogon = false, AutoLogonUser = "" }, "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:autologon");
         Assert.Equal((Light.Amber, "off"), (off.Light, off.Value));
 
         var waiting = InstallPreflight.Rows(Supervised with { Supervisor = Running with { FreezeRule = "the engine reports no shown frames: the freeze rule waits for them" } },
-            "n1", true).Single(r => r.Id == "install:supervisor");
+            "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:supervisor");
         Assert.Equal((Light.Grey, "i"), (waiting.Light, waiting.Value));
         Assert.EndsWith("the freeze rule waits for them", waiting.Note, StringComparison.Ordinal);
 
-        var held = InstallPreflight.Rows(Supervised with { Supervisor = Running with { State = "held" } }, "n1", true).Single(r => r.Id == "install:supervisor");
+        var held = InstallPreflight.Rows(Supervised with { Supervisor = Running with { State = "held" } }, "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:supervisor");
         Assert.Equal((Light.Amber, "held"), (held.Light, held.Value));
 
-        var none = InstallPreflight.Rows(Supervised with { Supervisor = null }, "n1", true).Single(r => r.Id == "install:supervisor");
+        var none = InstallPreflight.Rows(Supervised with { Supervisor = null }, "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:supervisor");
         Assert.Equal((Light.Amber, "no status"), (none.Light, none.Value));
     }
 
@@ -192,19 +192,46 @@ public sealed class InstallStateFixtureTest
         {
             var facts = Supervised with { Supervisor = Running with { State = state } };
             Assert.True(card == facts.Light, $"{state}: the card is {card}, the block {facts.Light}");
-            var row = InstallPreflight.Rows(facts, "n1", true).Single(r => r.Id == "install:supervisor");
+            var row = InstallPreflight.Rows(facts, "n1", true, EditionFamily.Pro).Single(r => r.Id == "install:supervisor");
             Assert.True(card == row.Light.ToString().ToLowerInvariant(), $"{state}: the card is {card}, the preflight row {row.Light}");
         }
     }
 
     [Fact]
-    public void HomeIsToldItsEditionHonoursNoUpdatePolicy()
+    public void ThePoliciesRowTakesTheEditionTheMachinePlatformReadsAndNamesTheMachineSectionsUpdatesRow()
     {
-        var home = InstallPreflight.Rows(Supervised with { Edition = "Core" }, "n1", true).Single(r => r.Id == "install:policies");
-        Assert.Equal((Light.Grey, "i"), (home.Light, home.Value));
-        Assert.StartsWith("not on this edition: Home honours no Update policy", home.Note, StringComparison.Ordinal);
-        var pro = InstallPreflight.Rows(Supervised, "n1", true).Single(r => r.Id == "install:policies");
-        Assert.StartsWith("this build writes no Windows Update policy", pro.Note, StringComparison.Ordinal);
+        // The edition is the machine platform's reading, the same on a folder run as on an install: Home is told it honours no
+        // Update policy, as machine preflight's edition.updates row says; every other edition is pointed at the updates row, which
+        // says whether a policy holds updates back, and is never told to defer them by hand while that row may say they are held.
+        foreach (var facts in new[] { InstallFacts.NotInstalled, Supervised })
+        {
+            var home = InstallPreflight.Rows(facts, "n1", true, EditionFamily.Home).Single(r => r.Id == "install:policies");
+            Assert.Equal((Light.Grey, "i"), (home.Light, home.Value));
+            Assert.StartsWith("not on this edition: Home honours no Update policy", home.Note, StringComparison.Ordinal);
+            Assert.Contains("edition.updates", home.Note, StringComparison.Ordinal);
+            foreach (var managed in new[] { EditionFamily.Pro, EditionFamily.Workstation, EditionFamily.Enterprise, EditionFamily.Education, EditionFamily.Iot })
+            {
+                var row = InstallPreflight.Rows(facts, "n1", true, managed).Single(r => r.Id == "install:policies");
+                Assert.Equal((Light.Grey, "i"), (row.Light, row.Value));
+                Assert.StartsWith("this build writes no Windows Update policy", row.Note, StringComparison.Ordinal);
+                Assert.Contains("updates row", row.Note, StringComparison.Ordinal);
+                Assert.DoesNotContain("defer", row.Note, StringComparison.Ordinal);
+            }
+            var unread = InstallPreflight.Rows(facts, "n1", true, EditionFamily.Unknown).Single(r => r.Id == "install:policies");
+            Assert.Contains("no Windows edition is read on this node", unread.Note, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task TheSectionReadsTheEditionFromTheMachinePlatformAndTheBlockCarriesNone()
+    {
+        await using var rig = new OpsRig(services: s => s with { PreflightChecks = [.. s.PreflightChecks, new InstallPreflight(_ => InstallFacts.NotInstalled)] });
+        var report = PreflightReports.Read(await rig.Ok("PREFLIGHT QUICK WAIT"))!;
+        var policies = Assert.Single(report.Rows, r => r.Id == "install:policies");
+        Assert.Equal(InstallPreflight.PoliciesWords(rig.Engine.Services.MachinePlatform.Identity().Os.Family), policies.Note);
+        rig.Engine.InstallSource = () => Supervised;
+        rig.Engine.InstallReadAgain();
+        Assert.False(rig.State().GetProperty("machine").GetProperty("install").TryGetProperty("edition", out _));
     }
 
     [Fact]

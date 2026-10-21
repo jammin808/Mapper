@@ -8,7 +8,8 @@ namespace PlayMap.Engine.Install;
 
 /// <summary>What the machine says of this node's install (STATE <c>machine.install</c>): installed per machine or run from a folder,
 /// its installer's version and folder, whether a supervisor keeps it, the supervisor's status, auto-logon (on, and for whom — never
-/// its password), the Windows edition, and that the build is unsigned. Nothing in it is a secret.</summary>
+/// its password), and that the build is unsigned. The Windows edition is the machine platform's (<c>machine.identity.os</c>). Nothing
+/// in it is a secret.</summary>
 public sealed record InstallFacts(
     bool Installed,
     string Version,
@@ -18,14 +19,10 @@ public sealed record InstallFacts(
     SupervisorStatus? Supervisor,
     bool AutoLogon,
     string AutoLogonUser,
-    string Edition,
     bool Signed)
 {
     /// <summary>A run from a folder (or any machine without the install's key).</summary>
-    public static readonly InstallFacts NotInstalled = new(false, "", "", false, "", null, false, "", "", false);
-
-    /// <summary>Whether this edition honours Windows Update's client policies (Home does not).</summary>
-    public bool EditionHasUpdatePolicies => !Edition.StartsWith("Core", StringComparison.OrdinalIgnoreCase);
+    public static readonly InstallFacts NotInstalled = new(false, "", "", false, "", null, false, "", false);
 
     public void Write(Utf8JsonWriter w)
     {
@@ -45,7 +42,6 @@ public sealed record InstallFacts(
         w.WriteBoolean("on", AutoLogon);
         w.WriteString("user", AutoLogonUser);
         w.WriteEndObject();
-        w.WriteString("edition", Edition);
         w.WriteBoolean("signed", Signed);
         w.WriteString("light", Light);
         w.WriteString("words", Words);
@@ -111,10 +107,8 @@ public sealed record InstallFacts(
         if (key is null)
             return NotInstalled;
         using var logon = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon");
-        using var current = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
         var autoLogon = logon?.GetValue("AutoAdminLogon") as string == "1";
         var autoUser = autoLogon ? logon?.GetValue("DefaultUserName") as string ?? "" : "";
-        var edition = current?.GetValue("EditionID") as string ?? "";
         SupervisorStatus? report = null;
         try
         {
@@ -127,6 +121,6 @@ public sealed record InstallFacts(
         }
         return new InstallFacts(true, key.GetValue("Version") as string ?? "", key.GetValue("InstallDir") as string ?? "",
             key.GetValue("Supervised") is int supervised && supervised != 0, key.GetValue("ShowUser") as string ?? "", report, autoLogon, autoUser,
-            edition, key.GetValue("Signed") is int signed && signed != 0);
+            key.GetValue("Signed") is int signed && signed != 0);
     }
 }

@@ -26,10 +26,6 @@
         "path": "showUser"
       },
       {
-        "label": "Edition",
-        "path": "edition"
-      },
-      {
         "label": "Signed",
         "path": "signed"
       }
