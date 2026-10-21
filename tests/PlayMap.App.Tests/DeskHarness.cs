@@ -1,4 +1,8 @@
 using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PlayMap.App.Link;
@@ -43,29 +47,82 @@ public sealed class DeskHarness : IAsyncDisposable
     public IReadOnlyList<string> Verbs() =>
         Link.SentLines.Where(l => !l.StartsWith("VIEW ", StringComparison.Ordinal) && l is not ("MEDIA LIST" or "DISPLAYS")).ToList();
 
-    /// <summary>Clicks a control's centre with the headless mouse (the real input path, hit testing and all).</summary>
-    public static void Click(Avalonia.Controls.TopLevel window, Avalonia.Controls.Control control, Avalonia.Input.MouseButton button = Avalonia.Input.MouseButton.Left)
+    /// <summary>Clicks a control's centre with the headless mouse (the real input path, hit testing and all). The press is aimed at a
+    /// frame the window has just drawn (<see cref="Aim"/>) and is raised on the control or a part of it, or the click fails naming
+    /// what it landed on.</summary>
+    public static void Click(TopLevel window, Control control, MouseButton button = MouseButton.Left)
     {
-        var centre = control.TranslatePoint(new Avalonia.Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)
-            ?? throw new InvalidOperationException("the control is not in the window");
-        Avalonia.Headless.HeadlessWindowExtensions.MouseDown(window, centre, button, Avalonia.Input.RawInputModifiers.None);
-        Avalonia.Headless.HeadlessWindowExtensions.MouseUp(window, centre, button, Avalonia.Input.RawInputModifiers.None);
+        var centre = Aim(window, control);
+        Press(window, control, centre, () =>
+        {
+            HeadlessWindowExtensions.MouseDown(window, centre, button, RawInputModifiers.None);
+            HeadlessWindowExtensions.MouseUp(window, centre, button, RawInputModifiers.None);
+        });
         Pump();
     }
 
     /// <summary>Presses a held button with the headless mouse and keeps it down to the end of its ring (the hold completed at its own
-    /// time, as its timer completes it), then lets go.</summary>
-    public static void Hold(Avalonia.Controls.TopLevel window, PlayMap.App.Controls.HoldButton button)
+    /// time, as its timer completes it), then lets go. The press is aimed and checked as <see cref="Click"/>'s is.</summary>
+    public static void Hold(TopLevel window, PlayMap.App.Controls.HoldButton button)
     {
-        var centre = button.TranslatePoint(new Avalonia.Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)
-            ?? throw new InvalidOperationException("the button is not in the window");
-        Avalonia.Headless.HeadlessWindowExtensions.MouseDown(window, centre, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        var centre = Aim(window, button);
+        Press(window, button, centre, () => HeadlessWindowExtensions.MouseDown(window, centre, MouseButton.Left, RawInputModifiers.None));
         Pump();
         if (!button.Complete(button.HoldMs))
             throw new InvalidOperationException("the button is not held by the press");
-        Avalonia.Headless.HeadlessWindowExtensions.MouseUp(window, centre, Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.None);
+        HeadlessWindowExtensions.MouseUp(window, centre, MouseButton.Left, RawInputModifiers.None);
         Pump();
     }
+
+    /// <summary>The window point at a control's centre, once the window has drawn the frame its hit test reads: the hit test there
+    /// finds the control or a part of it, or this throws naming what covers it.</summary>
+    public static Point Aim(TopLevel window, Control control)
+    {
+        using (HeadlessWindowExtensions.CaptureRenderedFrame(window))
+            Pump();
+        if (!control.IsEffectivelyVisible)
+            throw new InvalidOperationException($"{Describe(control)} is not visible to press");
+        var centre = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)
+            ?? throw new InvalidOperationException($"{Describe(control)} is not in the window");
+        var hit = window.InputHitTest(centre, enabledElementsOnly: false) as Visual;
+        if (!Within(hit, control))
+            throw new InvalidOperationException($"a press at {centre} meant for {Describe(control)} ({BoundsIn(window, control)}) lands on {Chain(hit)}");
+        return centre;
+    }
+
+    /// <summary>Runs a press and checks the element it was raised on: the control or a part of it (the nearest enabled ancestor when
+    /// the control is disabled, which is where a disabled control's press goes), or this throws naming the element that took it, in
+    /// the window or out of it (an overlay that closes as it is pressed).</summary>
+    private static void Press(TopLevel window, Control control, Point at, Action press)
+    {
+        Visual? landed = null;
+        var seen = false;
+        using (InputElement.PointerPressedEvent.AddClassHandler<InputElement>((_, e) =>
+               {
+                   if (seen)
+                       return;
+                   seen = true;
+                   landed = e.Source as Visual;
+               }, RoutingStrategies.Direct | RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true))
+            press();
+        var passedOn = control.IsEffectivelyEnabled ? null : control.GetVisualAncestors().OfType<InputElement>().FirstOrDefault(a => a.IsEffectivelyEnabled);
+        if (!seen || !(Within(landed, control) || (passedOn is not null && ReferenceEquals(landed, passedOn))))
+            throw new InvalidOperationException($"a press at {at} meant for {Describe(control)} ({BoundsIn(window, control)}) went to {(seen ? Chain(landed) : "no element")}");
+    }
+
+    private static bool Within(Visual? hit, Control control) =>
+        hit is not null && (ReferenceEquals(hit, control) || control.IsVisualAncestorOf(hit));
+
+    private static string BoundsIn(TopLevel window, Control control) =>
+        control.TranslatePoint(default, window) is { } origin ? $"at {origin}, {control.Bounds.Size}" : "outside the window";
+
+    private static string Describe(Visual? v) => v is null
+        ? "nothing"
+        : v.GetType().Name + (v.Name is { } n ? "#" + n : "") + (v.Classes.Count > 0 ? "." + string.Join(".", v.Classes) : "")
+            + (v.DataContext is ViewModels.DeskAction a ? $" [{a.Verb}]" : "");
+
+    /// <summary>A visual and its ancestors, innermost first, to the window.</summary>
+    private static string Chain(Visual? v) => v is null ? "nothing" : string.Join(" in ", v.GetSelfAndVisualAncestors().Take(8).Select(Describe));
 
     /// <summary>Waits for every command a press started, then lets the pushes land.</summary>
     public static async Task Drain(IEnumerable<ViewModels.DeskAction> actions)
