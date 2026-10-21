@@ -25,6 +25,12 @@ public sealed class UxModule : DeskModule
     private readonly ImmutableArray<DeskAction> _noActions = [];
     /// <summary>The STATE.show.lastGo row last seen for each playlist (its leader time and wall time).</summary>
     private readonly Dictionary<string, (long LeaderNs, long At)> _goSeen = new(StringComparer.Ordinal);
+    /// <summary>The push whose lastGo rows were read last: the same push drawn again (the guard moved) reads nothing new.</summary>
+    private StateSnapshot? _goRead;
+    /// <summary>The link (<see cref="DeskSession.LinkEpoch"/>) whose rows <see cref="_goSeen"/> holds.</summary>
+    private long _goEpoch = -1;
+    /// <summary>True until the first push carrying STATE.show on this link and connection is read: its rows are taken as seen.</summary>
+    private bool _goFirst = true;
     private bool _armed;
     private bool _blindMine;
     private int _draftChanges = -1;
@@ -42,6 +48,12 @@ public sealed class UxModule : DeskModule
         _ownsDraft = ownsDraft;
         Guard = new GoGuard(nowMs);
         session.GoGuard = Guard;
+        // A link that went down comes back with the node's STATE as it last wrote it: its first push is read as the first of a link.
+        session.StatusUpdated += status =>
+        {
+            if (status is PlayMap.Core.Wire.LinkStatus.Down or PlayMap.Core.Wire.LinkStatus.Connecting)
+                _goFirst = true;
+        };
         session.Replied += (line, reply) => session.OnUi(() => Guard.Replied(line, reply.Ok, reply.Text, MinGoMs(session.State)));
         Guard.Changed += () => GuardMoved?.Invoke();
         Oops = new OopsPanelViewModel(session);
@@ -178,15 +190,29 @@ public sealed class UxModule : DeskModule
         }
         _draftChanges = changes;
         Oops.Moved(_session.ProjectRevision, _draftChanges);
-        if (show is { } published)
+        if (show is { } published && !ReferenceEquals(state, _goRead))
+        {
+            _goRead = state;
             OnLastGo(state.Root, published);
+        }
     }
 
     /// <summary>STATE.show.lastGo: each playlist's last GO from any client. A row this desk has not seen opens its playlist's window for
     /// what is left of the node's MinGo, the GO's age read on the node's clock alone (the row's <c>at</c> against the push's), after this
-    /// push is drawn; a row seen once (by its leader time and its wall time) opens nothing again, however many pushes carry it.</summary>
+    /// push is drawn; a row seen once (by its leader time and its wall time) opens nothing again, however many pushes carry it. The
+    /// rows of the first push carrying STATE.show on a link, and again after the link was down, are taken as seen and open nothing:
+    /// that push may be the STATE the node wrote last, long before it reached this desk (a quiet node writes none), so its <c>at</c>
+    /// does not date the rows; a GO made within MinGo before the desk attached draws no border, and the node still decides.</summary>
     private void OnLastGo(JsonElement root, JsonElement show)
     {
+        var epoch = _session.LinkEpoch;
+        var first = _goFirst || epoch != _goEpoch;
+        if (first)
+        {
+            _goSeen.Clear();
+            _goEpoch = epoch;
+            _goFirst = false;
+        }
         var pushedAt = root.Long("at");
         var minGoMs = (int)show.Long("minGoMs");
         foreach (var row in show.Arr("lastGo"))
@@ -196,6 +222,8 @@ public sealed class UxModule : DeskModule
             if (playlist.Length == 0 || (_goSeen.TryGetValue(playlist, out var had) && had == seen))
                 continue;
             _goSeen[playlist] = seen;
+            if (first)
+                continue;
             var agoMs = pushedAt - seen.At;
             _session.OnUi(() => Guard.Published(playlist, agoMs, minGoMs));
         }

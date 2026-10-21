@@ -139,6 +139,7 @@ public class GoGuardTests
         Assert.Contains("goGuard", NextButton(window, desk).Classes);
         Assert.Equal(300, desk.Main.Ux.Guard.DueInMs);
         Assert.Empty(desk.Verbs());
+
         Advance(desk, 299);
         Assert.True(next.IsGoGuarded);
         Advance(desk, 1);
@@ -161,6 +162,80 @@ public class GoGuardTests
         Assert.False(next.IsGoGuarded);
         Assert.True(desk.Main.Ux.Guard.IsOpen("PLAYLIST GO pl_elsewhere"));
         Assert.Empty(desk.Verbs());
+        window.Close();
+    }
+
+    /// <summary>STATE's <c>at</c> as the link holds it now (the push a desk attaching now reads first).</summary>
+    private static long LinkAt(FakeEngineLink link)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(link.State.Json);
+        return doc.RootElement.GetProperty("at").GetInt64();
+    }
+
+    /// <summary>A show block with the node's MinGo of 500 ms and one playlist's last GO, as the node writes them.</summary>
+    private static string ShowWithGo(string playlist, long leaderNs, long atUnixMs) =>
+        new System.Text.Json.Nodes.JsonObject
+        {
+            ["minGoMs"] = 500,
+            ["lastGo"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+            {
+                ["playlist"] = playlist, ["leaderNs"] = leaderNs, ["at"] = atUnixMs, ["session"] = "c1", ["transport"] = "companion",
+                ["by"] = "Companion: FOH deck",
+            }),
+        }.ToJsonString();
+
+    /// <summary>The first push a desk reads on a link may be the STATE the node wrote last, long before it reached the desk (a quiet node
+    /// writes none), so the GO rows it carries are taken as seen and draw no border, however young they look against that push: on
+    /// attach, on another node attached in its place, and on the first push after the link was down. A GO published after that first
+    /// push draws the border for what is left of the window. Nothing is sent.</summary>
+    [AvaloniaFact]
+    public async Task AGoTheNodeNamedBeforeTheDeskAttachedDrawsNoGuard()
+    {
+        var playlist = "";
+        await using var desk = new DeskHarness(setup: link =>
+        {
+            playlist = link.CurrentProject.Playlists[0].Id;
+            link.SetSection("show", ShowWithGo(playlist, 5_000_000_000, LinkAt(link)));
+        }, nowMs: () => _now);
+        var window = MainWindowTests.Open(desk);
+        var next = desk.Main.Master.Next;
+        Assert.Equal(playlist, desk.Session.State.FocusedPlaylist!.Id);
+        Assert.Equal(PushedAt(desk), desk.Session.State.Root.GetProperty("show").GetProperty("lastGo")[0].GetProperty("at").GetInt64());
+        Assert.False(next.IsGoGuarded);
+        Assert.Null(desk.Main.Ux.Guard.DueInMs);
+
+        // A GO the node publishes after that first push: the border for what is left of the 500 ms.
+        desk.Link.SetSection("show", ShowWithGo(playlist, 6_000_000_000, PushedAt(desk) - 100));
+        DeskHarness.Pump();
+        Assert.True(next.IsGoGuarded);
+        Assert.Equal(400, desk.Main.Ux.Guard.DueInMs);
+        Advance(desk, 400);
+        Assert.False(next.IsGoGuarded);
+
+        // Another node, whose first push names a GO on the same playlist at its own instant: seen, no border.
+        await using var other = new FakeEngineLink(desk.Link.CurrentProject, clock: desk.Clock) { NodeId = "demo0002" };
+        other.SetSection("show", ShowWithGo(playlist, 7_000_000_000, LinkAt(other)));
+        desk.Main.Attach(other, "Node B");
+        DeskHarness.Pump();
+        Assert.Equal("demo0002", desk.Session.NodeId);
+        Assert.False(next.IsGoGuarded);
+        Assert.Null(desk.Main.Ux.Guard.DueInMs);
+
+        // The link drops and comes back; the first push after it names a GO made while it was down: seen, no border. The next GO draws it.
+        other.SetStatus(PlayMap.Core.Wire.LinkStatus.Down);
+        DeskHarness.Pump();
+        other.SetStatus(PlayMap.Core.Wire.LinkStatus.Live);
+        DeskHarness.Pump();
+        other.SetSection("show", ShowWithGo(playlist, 8_000_000_000, LinkAt(other)));
+        DeskHarness.Pump();
+        Assert.False(next.IsGoGuarded);
+        Assert.Null(desk.Main.Ux.Guard.DueInMs);
+        other.SetSection("show", ShowWithGo(playlist, 9_000_000_000, LinkAt(other)));
+        DeskHarness.Pump();
+        Assert.True(next.IsGoGuarded);
+        Assert.Equal(500, desk.Main.Ux.Guard.DueInMs);
+        Assert.Empty(desk.Verbs());
+        Assert.DoesNotContain(other.SentLines, l => PlayMap.App.ViewModels.Ux.GoGuard.GoPlaylist(l) is not null);
         window.Close();
     }
 
