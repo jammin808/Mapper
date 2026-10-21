@@ -140,7 +140,18 @@ public class GoGuardTests
         Assert.Equal(300, desk.Main.Ux.Guard.DueInMs);
         Assert.Empty(desk.Verbs());
 
-        Advance(desk, 299);
+        // The same row again 100 ms later on the desk's clock, in a push the node wrote at the same instant (a late delivery, the node's
+        // clock not moved): a row seen once opens nothing again, so the window still closes 300 ms after it opened, not 300 ms from now.
+        var pushedAt = PushedAt(desk);
+        _now += 100;
+        desk.Main.Tick();
+        DeskHarness.Pump();
+        desk.Link.SetSection("show", "{\"words\":\"the same GO again\"}");
+        DeskHarness.Pump();
+        Assert.Equal(pushedAt, PushedAt(desk));
+        Assert.True(next.IsGoGuarded);
+        Assert.Equal(200, desk.Main.Ux.Guard.DueInMs);
+        Advance(desk, 199);
         Assert.True(next.IsGoGuarded);
         Advance(desk, 1);
         Assert.False(next.IsGoGuarded);
