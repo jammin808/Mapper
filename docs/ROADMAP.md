@@ -87,6 +87,11 @@ The lab checks still to do:
 - The desk keeps the last project revision it read when it attaches to another node (`DeskSession.Attach`), so a node whose project
   stands at that same revision number is not read until its project moves. Reading the new link's project whatever its revision
   closes it.
+- A desk tooltip opens 400 ms after the pointer rests on its control, 20 px under the pointer (the toolkit's default placement),
+  so it can stand over the control below: in the headless desk, a score card's Fix rested on that long has its tip over the next
+  row's Fix (47 px down), and the next press lands on the tip. On the desktop a tip is a window of its own, and whether it takes a
+  press there is not measured. Placing the desk's tips clear of the controls around them, with a test that rests on one Fix and
+  presses the next, closes it; the headless tests open no tooltip on hover.
 
 **Next:** round 3's packages (below). On the spine they build the Windows-native node of docs/round3/PLAN.md, the desk's
 guided workflows and capture-card pass-through. Every decision the plan put to the owner is answered (its §9), and the round
