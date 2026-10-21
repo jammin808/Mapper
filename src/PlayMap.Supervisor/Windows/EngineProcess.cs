@@ -23,17 +23,23 @@ public sealed class EngineProcess : IDisposable
     private const int ErrorInvalidParameter = 87;
 
     private readonly SafeProcessHandle _handle;
+    private Action? _resume;
 
-    private EngineProcess(SafeProcessHandle handle, int pid)
+    private EngineProcess(SafeProcessHandle handle, int pid, Action? resume = null)
     {
         _handle = handle;
         Pid = pid;
+        _resume = resume;
     }
 
     public int Pid { get; }
 
-    /// <summary>A process this supervisor started, held by the handle Windows gave it.</summary>
-    internal static EngineProcess Started(SafeProcessHandle handle, int pid) => new(handle, pid);
+    /// <summary>A process this supervisor started, held by the handle Windows gave it; one started suspended carries what lets it run
+    /// (<paramref name="resume"/>), which <see cref="Resume"/> does once.</summary>
+    internal static EngineProcess Started(SafeProcessHandle handle, int pid, Action? resume = null) => new(handle, pid, resume);
+
+    /// <summary>Lets a process started suspended run, once; a process started running, or one opened by its pid, already runs.</summary>
+    public void Resume() => Interlocked.Exchange(ref _resume, null)?.Invoke();
 
     /// <summary>The process of that id, opened to read, wait on and end it; null with Windows' words when it may not be opened (gone,
     /// or not this process's to end).</summary>
@@ -106,7 +112,12 @@ public sealed class EngineProcess : IDisposable
         return false;
     }
 
-    public void Dispose() => _handle.Dispose();
+    /// <summary>Lets a process still suspended run (its thread's handle is closed so), then lets go of the process's handle.</summary>
+    public void Dispose()
+    {
+        Resume();
+        _handle.Dispose();
+    }
 
     /// <summary>Core's facts of the process (<see cref="ProcessReader.FactsOf"/>: whether it runs, its image, start and command line), with
     /// the user, session and parent the supervisor reads through the same handle.</summary>

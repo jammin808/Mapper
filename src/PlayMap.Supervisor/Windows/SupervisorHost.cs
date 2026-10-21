@@ -16,7 +16,8 @@ namespace PlayMap.Supervisor.Windows;
 
 /// <summary>Where a supervisor keeps its files and names, and how it reads the console session and starts an engine: this machine's
 /// for the service, a test's own for a supervisor a test runs. <see cref="Folder"/> holds the supervisor's status file and log, which
-/// it writes; <see cref="EngineFolder"/> the engine's pid record, which it only reads.</summary>
+/// it writes; <see cref="EngineFolder"/> the engine's pid record, which it only reads. <see cref="Launch"/> starts an engine suspended
+/// where it can (the service's does), to run once <see cref="EngineProcess.Resume"/> is called.</summary>
 [SupportedOSPlatform("windows")]
 public sealed record SupervisorPlaces(
     string Folder,
@@ -168,7 +169,8 @@ public sealed class SupervisorHost : IDisposable
         }
     }
 
-    /// <summary>One step: read the facts, step the policy, act, write the status.</summary>
+    /// <summary>One step: read the facts, step the policy, act, write the status; an engine the step started runs once the status that
+    /// names it is written.</summary>
     public async Task StepAsync(CancellationToken ct)
     {
         var showUser = _places.ShowUser();
@@ -195,12 +197,22 @@ public sealed class SupervisorHost : IDisposable
             : null;
         var facts = Facts(sessionOk, engine is not null, health is { Ok: true } ? HealthJson.Parse(health.Payload) : null);
 
+        EngineProcess? started;
         lock (_gate)
         {
             var action = _core.Step(NowNs(), facts);
-            Act(action, session, sessionUser);
+            started = Act(action, session, sessionUser);
         }
-        WriteStatus();
+        // An engine is started suspended and runs only once the status that names its pid (and the cause before it) is written, so the
+        // engine reads that status as it starts.
+        try
+        {
+            WriteStatus();
+        }
+        finally
+        {
+            started?.Resume();
+        }
     }
 
     /// <summary>The record's engine when it is the installed engine, run as the show user in the console session; otherwise null, said
@@ -281,8 +293,10 @@ public sealed class SupervisorHost : IDisposable
     /// <summary>The monotonic clock in nanoseconds, exact at any timer frequency.</summary>
     internal static long NowNs() => (long)((Int128)Stopwatch.GetTimestamp() * 1_000_000_000 / Stopwatch.Frequency);
 
-    private void Act(SupervisorAction action, uint? session, string user)
+    /// <summary>Does what the policy answered; the engine it started, still suspended, or null.</summary>
+    private EngineProcess? Act(SupervisorAction action, uint? session, string user)
     {
+        EngineProcess? started = null;
         switch (action)
         {
             case SupervisorAction.Start when session is { } s:
@@ -290,7 +304,7 @@ public sealed class SupervisorHost : IDisposable
                 _stopEvent?.Reset();
                 try
                 {
-                    _engine = _places.Launch(s, InstalledExe(), "engine --supervised");
+                    _engine = started = _places.Launch(s, InstalledExe(), "engine --supervised");
                     Log(string.Create(CultureInfo.InvariantCulture, $"started the engine (pid {_engine.Pid}) in session {s} as {user}"));
                 }
                 catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
@@ -311,6 +325,7 @@ public sealed class SupervisorHost : IDisposable
         }
         if (action != SupervisorAction.Start && SupervisorCore.ShouldResetStopEvent(action, _core.State, _engine is { IsAlive: true }))
             _stopEvent?.Reset();
+        return started;
     }
 
     private void WriteStatus()

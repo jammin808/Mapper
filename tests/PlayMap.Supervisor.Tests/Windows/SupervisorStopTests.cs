@@ -79,6 +79,33 @@ public sealed class SupervisorStopTests
     }
 
     [WindowsFact]
+    public async Task AnEngineTheStepStartsRunsOnlyOnceTheStatusNamingItIsWritten()
+    {
+        // The launch hands back a process held by its handle with what lets it run; the step lets it run only after the status file
+        // names its pid, so the engine reads that status (and the cause before it) as it starts.
+        using var place = new EngineIdentityWindowsTests.Place();
+        var order = new List<string>();
+        using var helper = EngineIdentityWindowsTests.Helper.Start();
+        EngineProcess Launch(uint session, string exe, string arguments)
+        {
+            order.Add("launch");
+            var handle = Native.OpenProcessHandle(0x1000 | 0x00100000 | 0x0001, false, helper.Pid);
+            return EngineProcess.Started(handle, helper.Pid, () =>
+                order.Add(SupervisorStatus.Read(place.Folder) is { State: "starting" } status && status.Pid == helper.Pid
+                    ? "resume after the status names it"
+                    : "resume before the status names it"));
+        }
+        using var host = place.Host(Launch);
+        host.Prepare();
+        await host.StepAsync(CancellationToken.None);
+        Assert.Equal(["launch", "resume after the status names it"], order);
+        Assert.Equal(helper.Pid, host.EnginePid);
+        // Let go once: a later step resumes nothing again.
+        await host.StepAsync(CancellationToken.None);
+        Assert.Equal(2, order.Count);
+    }
+
+    [WindowsFact]
     public void TheShowUserMayOnlyWaitOnTheStopEventAndAdministratorsMaySetIt()
     {
         using var place = new EngineIdentityWindowsTests.Place();
