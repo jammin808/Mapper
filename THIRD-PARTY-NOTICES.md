@@ -347,8 +347,9 @@ What the installer lays down beside PlayMap's own files is listed here, and `{ap
 file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text sits beside the files it covers, the licence and notice files
 of the packages PlayMap's publish comes from sit under `{app}\licenses\`, and `{app}\licence.txt` holds the terms the installer's
 licence page shows. The portable folder carries the same publish with this file, `soft_oal-LICENSE.txt` and `licenses\` beside it
-(`installer/notices.ps1` lays them down for both, and stops the build when the publish carries a package this file does not name);
-FFmpeg, the Agility SDK's runtime, libvmx and `licence.txt` are the installer's alone.
+(`installer/notices.ps1` lays them down for both, and stops the build when the publish carries a package this file does not name, or
+a native library no package carries that this file does not name by its file name); FFmpeg, the Agility SDK's runtime, libvmx and
+`licence.txt` are the installer's alone.
 
 - **FFmpeg** (https://ffmpeg.org) `n9.0.2-17-g2a571b6068`, commit `2a571b6068` of its `release/9.0` branch, as FFmpeg-Builds'
   `lgpl-shared` build (https://github.com/BtbN/FFmpeg-Builds, release `autobuild-2026-09-30-13-08`, the win64 zip pinned by its
