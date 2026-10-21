@@ -99,6 +99,22 @@ public sealed class SupervisorStopTests
     }
 
     [WindowsFact]
+    public void WithNoShowUserNamedAnySignedInUserMayOnlyWaitOnTheStopEvent()
+    {
+        // The console's user the supervisor starts the engine as is signed in to a session, so INTERACTIVE is among its token's groups.
+        using var place = new EngineIdentityWindowsTests.Place();
+        using var host = place.Host(showUser: "");
+        host.Prepare();
+        using var stop = EventWaitHandleAcl.OpenExisting(place.StopEvent, EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions);
+        var rules = stop.GetAccessControl().GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<EventWaitHandleAccessRule>().ToList();
+        var interactive = Assert.Single(rules, r => r.IdentityReference.Equals(new SecurityIdentifier(MachinePlan.AnyInteractiveUserSid)));
+        Assert.Equal(AccessControlType.Allow, interactive.AccessControlType);
+        Assert.Equal(EventWaitHandleRights.Synchronize, interactive.EventWaitHandleRights);
+        Assert.DoesNotContain(rules, r => r.IdentityReference.Equals(WindowsIdentity.GetCurrent().User!));
+        Assert.Equal(3, rules.Count);
+    }
+
+    [WindowsFact]
     public void AStopEventThatExistsAlreadyIsKeptOnlyFromSystemOrAdministrators()
     {
         // The event exists already, made by this test's account (as an engine waiting on a supervisor's holds it open across a restart):

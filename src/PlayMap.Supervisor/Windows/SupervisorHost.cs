@@ -536,16 +536,20 @@ public sealed class SupervisorHost : IDisposable
     }
 
     /// <summary>The engine's stop event: SYSTEM sets and clears it, administrators may set it (an elevated <c>stop</c> or uninstall
-    /// with no service) and read its ACL, and the show user's engine may only wait on it. One that exists already is kept only when
-    /// SYSTEM or administrators made it (an engine waiting on it holds it open across a supervisor's restart); one another account
-    /// made could be set or cleared by that account, so the supervisor refuses to start beside it, with words.</summary>
+    /// with no service) and read its ACL, and the engine may only wait on it — the show user's, or, on an install that names no show
+    /// user, any signed-in user's (INTERACTIVE, <see cref="MachinePlan.AnyInteractiveUserSid"/>), the console's user the supervisor
+    /// starts the engine as among them. One that exists already is kept only when SYSTEM or administrators made it (an engine waiting
+    /// on it holds it open across a supervisor's restart); one another account made could be set or cleared by that account, so the
+    /// supervisor refuses to start beside it, with words.</summary>
     private EventWaitHandle StopEventFor(string name, string showUser)
     {
         var security = new EventWaitHandleSecurity();
         security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), EventWaitHandleRights.FullControl, AccessControlType.Allow));
         security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
             EventWaitHandleRights.Modify | EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions, AccessControlType.Allow));
-        if (showUser.Length > 0 && Sid(showUser) is { } user)
+        if (showUser.Length == 0)
+            security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(MachinePlan.AnyInteractiveUserSid), EventWaitHandleRights.Synchronize, AccessControlType.Allow));
+        else if (Sid(showUser) is { } user)
             security.AddAccessRule(new EventWaitHandleAccessRule(user, EventWaitHandleRights.Synchronize, AccessControlType.Allow));
         EventWaitHandle stop;
         try

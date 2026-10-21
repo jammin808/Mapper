@@ -185,13 +185,14 @@ public sealed class EngineIdentityWindowsTests
 
         public static string ThisUser => Environment.UserDomainName + "\\" + Environment.UserName;
 
-        /// <summary>A supervisor whose console session is this test's, whose show user is this test's user, and which starts no engine
-        /// (a start is refused with Windows' words).</summary>
-        public SupervisorHost Host(Func<uint, string, string, EngineProcess>? launch = null)
+        /// <summary>A supervisor whose console session is this test's, whose show user is this test's user (or <paramref name="showUser"/>,
+        /// "" for an install that names none), and which starts no engine (a start is refused with Windows' words).</summary>
+        public SupervisorHost Host(Func<uint, string, string, EngineProcess>? launch = null, string? showUser = null)
         {
             using var self = Process.GetCurrentProcess();
             var session = (uint)self.SessionId;
-            return new SupervisorHost(new SupervisorPlaces(Folder, EngineFolder, PipeName, StopEvent, () => InstallDir, () => ThisUser, () => session,
+            var shows = showUser ?? ThisUser;
+            return new SupervisorHost(new SupervisorPlaces(Folder, EngineFolder, PipeName, StopEvent, () => InstallDir, () => shows, () => session,
                 _ => Environment.UserName, launch ?? ((_, _, _) => throw new Win32Exception(5, "this test starts no engine"))));
         }
 
