@@ -367,12 +367,17 @@ Round 2 W1 notes:
   `FLEET BACKUP <primary>` only while no subscription stands; a quiet link's stands, the verb refuses it ("already a hot backup of
   FOH-A"), and the row offers no line then
   (`BackupMirrorLinkTests.AQuietMirrorIsOfferedNoLineInPreflightAndADroppedOneTheLineThatJoinsItAnew`). The link counted that
-  silence (stale at 6 s, dropped at 12 s) on the process's clock, while the rig counts the fleet monitor's, the sync part's and
-  the pulls' on hand-moved clocks; it counts it on the node's clock now (`WireClientOptions.Clock`, which `MirrorLink` takes from the node;
-  every other link keeps the process's clock).
+  silence (stale at 6 s, dropped at 12 s) on the process's clock, while the rig counts on hand-moved clocks the fleet monitor's,
+  the pulls' and the sync part's watch of its leader's clock; it counts it on the node's clock now (`WireClientOptions.Clock`,
+  which `MirrorLink` takes from the node). Every other link keeps the process's clock, the sync part's anchor follower among them
+  (`AnchorFollower`, on `WireClient`'s default options): it counts its leader's silence in real time, its feed reads `connecting`
+  while that link is stale, and an otherwise identical mirror reads `joining` then.
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows failure at its line 95
   (wp3-installer c92e3c2a, run 39653186869, the test 22 s: INDEX's `FAILOVER` red `lost` where it waited amber `different`, after
-  the backup's preflight had read the mirror `different`) is consistent with that, not proven: between the two reads the test runs
+  the backup's preflight had read the mirror `different`) is consistent with the mirror link's real-time silence, not proven: its
+  message gave only `("red", "lost")`, which fits the link still stale at INDEX's read (which only the count on the node's clock
+  covers), a subscription cleared by a stale spell that had ended (the latch, fixed), and a dropped connection not yet subscribed
+  again alike. Between the two reads the test runs
   two route reads to a closed loopback port, whose 2 s bound is on the rig's fleet clock, which does not move, so each ends only
   when the refused connect does, which on Linux takes under a millisecond here; that the Windows run stalled 6 s or more there is
   not shown. On Linux (Debug), the test process stopped by a signal for 8 s at that point failed the unchanged test at that line,
@@ -551,7 +556,8 @@ Round 2 W1 notes:
   the monitor holds; the 10 s "peer not live" is not reproduced); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows read of the mirror as lost
-  (consistent with the quiet spell's cleared subscription fixed above, not proven; its reads now name what the backup saw);
+  (consistent with the mirror link's real-time silence above — a stale spell, or its latch, both now on the node's clock or fixed
+  — not proven: its `("red", "lost")` fits a dropped connection too; its reads now name what the backup saw);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
   wait for the link's first clip in STATE (one failure on the batch's baseline).
