@@ -57,8 +57,8 @@ public sealed record NetworkHostOptions
     /// <summary>Media pulls while a show plays (bytes a second); unlimited while none does.</summary>
     public long PullRateDuringShow { get; init; } = 20L * 1024 * 1024;
 
-    /// <summary>How a media pull asks its peers (the quiet a chunk's body is given before its try is called stalled, the tries per
-    /// chunk); null = the transfer's own.</summary>
+    /// <summary>How the node's media pulls ask their peers (the quiet a chunk's body is given before its try is called stalled, the
+    /// tries per chunk), this host's and the fleet part's alike; null = the transfer's own.</summary>
     public MediaTransferOptions? Pulls { get; init; }
 }
 
@@ -80,9 +80,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private readonly ConcurrentDictionary<string, NodeFault> _faults = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, MediaTransferView> _transfers = new(StringComparer.Ordinal);
 
-    /// <summary>Each pull on its way to a peer, by its file's hash: whether a failed try of it at that peer has been journaled yet. A
-    /// pull journals its first failed try at each peer and its end; the tries between are its row's note and the log's.</summary>
-    private readonly ConcurrentDictionary<string, bool> _trySaid = new(StringComparer.Ordinal);
+    /// <summary>Each pull on its way to a peer, by its file's hash: its fetch's journal rows, and whether a failed try of it at that peer
+    /// has been said yet. A pull says its first failed try at each peer and its end; the tries between are its row's note and the
+    /// log's.</summary>
+    private readonly ConcurrentDictionary<string, PullWords> _pulling = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _changes = new(1, 1);
     private readonly Lock _settingsGate = new();
     private readonly Lock _backgroundGate = new();
@@ -126,6 +127,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         _transfer.Progress += OnPullProgress;
         _transfer.Trouble += OnPullTrouble;
     }
+
+    /// <summary>How the node's media pulls ask their peers (<see cref="NetworkHostOptions.Pulls"/>), for the fleet part's pulls.</summary>
+    internal MediaTransferOptions? PullOptions => _o.Pulls;
 
     /// <summary>The leader's clock as this node reads it — the engine's leader clock. It is the sync client's own: the
     /// client publishes each exchange's estimate into it, so a follower's offset reaches every reader of leader time
@@ -518,8 +522,11 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
 
     /// <summary>Queues a pull of each item from the heard PlayMap nodes (only <paramref name="fromNode"/>, by id or name,
     /// when given) and answers what was queued; the pulls run beside the engine — each verified against the item's
-    /// SHA-256 before it lands in the media store. STATE's row says where each stands (its stage, bytes and peer), the journal
-    /// says each failed try while the pull tries again, and each pull's outcome reaches both.</summary>
+    /// SHA-256 before it lands in the media store. STATE's row says where each stands (its stage, bytes and peer, its last failed
+    /// try's words) and how it ended when it failed; the journal holds each pull's first failed try at each peer and its end, at most
+    /// <see cref="FetchJournal.Most"/> rows a fetch, and one that counts the rest when there were more (<see cref="FetchJournal"/>).
+    /// This is the node's own pull, over a peer's <c>/api/media</c>; a node with the fleet's part pulls MEDIA FETCH's files with the
+    /// peer's proof instead (<c>BackupNode.FetchMedia</c>).</summary>
     public async Task<string> FetchAsync(IReadOnlyList<MediaItem> items, string? fromNode, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -533,6 +540,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             throw new InvalidOperationException(fromNode is null
                 ? "no other PlayMap node is heard on the show network to fetch from"
                 : $"no PlayMap node '{fromNode}' is heard on the show network — NODES lists the ones that are");
+        var engine = _engine ?? throw new InvalidOperationException("the engine is not running yet");
         var wanted = new List<(MediaItem Item, string Hex)>();
         foreach (var item in items)
         {
@@ -545,9 +553,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         if (wanted.Count == 0)
             throw new InvalidOperationException("nothing to fetch: every file asked for is unhashed or already on its way");
         Facts();
-        Background(PullAllAsync(wanted, peers, _stop.Token));
         var from = string.Join(", ", peers.Select(p => p.Name));
-        return string.Create(CultureInfo.InvariantCulture, $"fetching {wanted.Count} file{(wanted.Count == 1 ? "" : "s")} from {from}");
+        var what = string.Create(CultureInfo.InvariantCulture, $"{wanted.Count} file{(wanted.Count == 1 ? "" : "s")} from {from}");
+        Background(PullAllAsync(wanted, peers, new FetchJournal(engine.Journal, _log, "the fetch of " + what), _stop.Token));
+        return "fetching " + what;
     }
 
     /// <summary>PAIRING NEW: a new token written to the node's settings first (a token that could not be kept is not
@@ -810,8 +819,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
 
     /// <summary>Each file in turn from the peers that offer it, until one lands verified. Every pull ends in its fact or in a row
     /// that says why not: a pull that fails any other way than the stop's own cancelling still ends failed with its words, so its
-    /// transfer never stays on its way and a later fetch of the file is taken.</summary>
-    private async Task PullAllAsync(List<(MediaItem Item, string Hex)> wanted, List<ShowBusPeer> peers, CancellationToken ct)
+    /// transfer never stays on its way and a later fetch of the file is taken. The fetch's journal rows are bounded
+    /// (<see cref="FetchJournal"/>).</summary>
+    private async Task PullAllAsync(List<(MediaItem Item, string Hex)> wanted, List<ShowBusPeer> peers, FetchJournal rows, CancellationToken ct)
     {
         var offers = new Dictionary<string, PeerOffer>(StringComparer.Ordinal);
         foreach (var (item, hex) in wanted)
@@ -819,7 +829,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             string why;
             try
             {
-                why = await PullOneAsync(item, hex, peers, offers, ct);
+                why = await PullOneAsync(item, hex, peers, offers, rows, ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -830,18 +840,32 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             if (why.Length > 0)
             {
                 _transfers[hex] = new MediaTransferView(hex, item.Id, item.Name, "", 0, item.SizeBytes, "failed: " + why) { SinceUnixMs = _o.Wall.UnixMs };
-                Journal("refused", $"{item.Name} could not be fetched: {why}", ok: false);
+                rows.Failed($"{item.Name} could not be fetched: {why}");
             }
             Facts();
         }
+        rows.End();
+    }
+
+    /// <summary>A pull on its way to a peer: its fetch's journal rows, and whether its first failed try there has been said.</summary>
+    private sealed class PullWords(FetchJournal rows)
+    {
+        private int _trySaid;
+
+        public FetchJournal Rows => rows;
+
+        /// <summary>True for the first failed try at this peer only.</summary>
+        public bool FirstTry() => Interlocked.Exchange(ref _trySaid, 1) == 0;
     }
 
     /// <summary>What one peer's list offered a fetch: its files by hash, or the words why the list could not be read (asked once a
     /// fetch, so each later file of the fetch carries them).</summary>
     private sealed record PeerOffer(Dictionary<string, MediaManifestEntry> Files, string Why);
 
-    /// <summary>One file from the first peer that offers it and gives it whole: "" once it landed verified, else why not.</summary>
-    private async Task<string> PullOneAsync(MediaItem item, string hex, List<ShowBusPeer> peers, Dictionary<string, PeerOffer> offers, CancellationToken ct)
+    /// <summary>One file from the first peer that offers it and gives it whole: "" once it landed verified, else why not. A pull at a
+    /// later peer keeps the row's bytes until its own start says the chunks the part file keeps.</summary>
+    private async Task<string> PullOneAsync(MediaItem item, string hex, List<ShowBusPeer> peers, Dictionary<string, PeerOffer> offers, FetchJournal rows,
+        CancellationToken ct)
     {
         var why = "no heard node holds it";
         foreach (var peer in peers)
@@ -875,16 +899,17 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             }
             if (!offered.Files.TryGetValue(hex, out var offer))
                 continue;
-            _transfers[hex] = new MediaTransferView(hex, item.Id, item.Name, peer.Name, 0, offer.Size, "pulling")
+            var now = _o.Wall.UnixMs;
+            Update(hex, t => new MediaTransferView(hex, item.Id, item.Name, peer.Name, t.BytesDone, offer.Size, "pulling")
             {
                 At = uri.Authority,
                 Stage = "receiving",
-                SinceUnixMs = _o.Wall.UnixMs,
-            };
+                SinceUnixMs = now,
+            });
             Facts();
             var destination = _o.Media.StorePath(hex, item.Location.Length > 0 ? item.Location : item.Name);
             MediaPullResult result;
-            _trySaid[hex] = false;
+            _pulling[hex] = new PullWords(rows);
             try
             {
                 result = await _transfer.PullAsync(uri, hex, offer.Size, destination, ct);
@@ -896,13 +921,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             }
             finally
             {
-                _trySaid.TryRemove(hex, out _);
+                _pulling.TryRemove(hex, out _);
             }
             if (result.Outcome is MediaPullOutcome.Verified or MediaPullOutcome.AlreadyHere)
             {
                 _o.Media.AddVerified(hex, destination, Path.GetFileName(item.Location.Length > 0 ? item.Location : item.Name));
                 _transfers.TryRemove(hex, out _);
-                Journal("media", string.Create(CultureInfo.InvariantCulture,
+                rows.Landed(string.Create(CultureInfo.InvariantCulture,
                     $"{item.Name} pulled from {peer.Name} and verified ({result.BytesFetched / 1024 / 1024} MiB, {result.ChunksFetched} chunk{(result.ChunksFetched == 1 ? "" : "s")}{(result.ChunksResumed > 0 ? $", {result.ChunksResumed} resumed" : "")})"));
                 return "";
             }
@@ -933,16 +958,17 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         Facts();
     }
 
-    /// <summary>A try at a chunk failed: the row carries its words; the journal says the pull's first failed try at this peer while the
-    /// pull tries again, and the tries after it only the row and the log (the last try's words are the refused row's).</summary>
+    /// <summary>A try at a chunk failed: the row carries its words; the fetch's journal rows take the pull's first failed try at this
+    /// peer while the pull tries again, and the tries after it go to the row and the log only (the last try's words are the refused
+    /// row's).</summary>
     private void OnPullTrouble(MediaTrouble trouble)
     {
         if (!_transfers.TryGetValue(trouble.Hash, out var t))
             return;
         Update(trouble.Hash, v => v with { Note = trouble.Words });
-        if (trouble.Attempt < trouble.Attempts && _trySaid.TryUpdate(trouble.Hash, true, false))
-            Journal("media", string.Create(CultureInfo.InvariantCulture,
-                $"{t.Name} from {t.From}: {trouble.Words} — trying again ({trouble.Attempt + 1} of {trouble.Attempts})"), ok: false);
+        if (trouble.Attempt < trouble.Attempts && _pulling.TryGetValue(trouble.Hash, out var words) && words.FirstTry())
+            words.Rows.Try(string.Create(CultureInfo.InvariantCulture,
+                $"{t.Name} from {t.From}: {trouble.Words} — trying again ({trouble.Attempt + 1} of {trouble.Attempts})"));
         Facts();
     }
 

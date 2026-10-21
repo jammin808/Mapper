@@ -4,7 +4,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Model;
 using PlayMap.Core.Time;
+using PlayMap.Engine.Host;
+using PlayMap.Engine.Tests.Sync;
 using PlayMap.Net.Media;
 using PlayMap.Tests;
 
@@ -13,10 +16,11 @@ namespace PlayMap.Engine.Tests.Host;
 /// <summary>Two real nodes in one process finding each other on the hello: one leads a sync group and the other takes
 /// its clock; one holds a file and the other fetches it by its hash. A fetch from a peer that falls silent says so and ends
 /// with its words; one from a peer that lists the file twice still lands it; one from a peer whose list fails ends each file
-/// with the list's words; and one of many files from a peer that refuses every chunk journals each pull's first failed try
-/// and its end, no more. And a node following a Patterns
-/// desk: its blackout reaches the air through the engine's own fact path, the follow switch decides, and the link is kept
-/// in the node's settings with its token — which never reaches STATE or the journal.</summary>
+/// with the list's words; one that moves on to another peer keeps the chunks it has and says them at once; and a fetch of many
+/// files from a peer that refuses every chunk or whose list fails journals each pull's first failed try and its end up to the
+/// fetch's bound and one row that counts the rest, so the node's own rows outlive it however many files it asks. And a node
+/// following a Patterns desk: its blackout reaches the air through the engine's own fact path, the follow switch decides, and the
+/// link is kept in the node's settings with its token — which never reaches STATE or the journal.</summary>
 public sealed class HostNetworkTests
 {
     /// <summary>The follower's leader time agrees with the leader's own within this (loopback: a fraction of it).</summary>
@@ -83,10 +87,11 @@ public sealed class HostNetworkTests
         Assert.False(reply.Applied);   // accepted: the pull runs beside the engine
 
         // A file that does not land says where its pull stood: its row (state, stage and since, bytes, the peer and its address, the
-        // last try's words), how long after the fetch, the thread pool, and both nodes' journals and logs (their folders go with them).
+        // last try's words), how long after the fetch, the thread pool, and both nodes' journals and the tails of their logs (their
+        // folders go with them).
         string Saw() => string.Create(CultureInfo.InvariantCulture,
             $"{asked.ElapsedMilliseconds} ms after MEDIA FETCH; transfers {Transfers(fetcher)}; pool {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} items queued\n"
-            + $"fetcher's journal:\n{fetcher.Journal()}\nfetcher's log:\n{fetcher.LogTail()}\nholder's log:\n{holder.LogTail(10)}");
+            + $"fetcher's journal:\n{fetcher.Journal()}\nfetcher's log:\n{fetcher.LogTail()}\nholder's journal:\n{holder.Journal()}\nholder's log:\n{holder.LogTail(10)}");
         Assert.True(await Eventually.TrueAsync(() => fetcher.Host.Media.PathForHash("sha256:" + hex) is not null, 20000), Saw());
         var landed = fetcher.Host.Media.PathForHash("sha256:" + hex)!;
         Assert.StartsWith(fetcher.Home.MediaStore, landed, StringComparison.Ordinal);
@@ -153,11 +158,12 @@ public sealed class HostNetworkTests
     }
 
     [Fact]
-    public async Task AFetchOfManyFilesFromAPeerThatRefusesEveryChunkJournalsEachPullsFirstFailedTryAndItsEndOnly()
+    public async Task AFetchOfManyFilesFromAPeerThatRefusesEveryChunkJournalsEachPullsFirstFailedTryAndItsEndUpToItsBound()
     {
-        // Each file is four chunks, three in flight, two tries each, and every try is refused: a pull's failed tries are the row's to
-        // carry and the log's, and the journal holds its first and its end, so the node's own rows outlive the flood.
-        const int Files = 48;
+        // Each file is four chunks, three in flight, two tries each, and every try is refused. A pull's failed tries are its row's to
+        // carry and the log's, and the journal takes its first and its end; the files are pulled one after another, so the fetch's
+        // twenty rows are the first ten files' two each, and one more row counts the rest, which went to the node's log only.
+        const int Files = 16;
         var files = Enumerable.Range(0, Files).Select(_ => RandomNumberGenerator.GetBytes(4 * 64 * 1024)).Select(b => (Hash: Convert.ToHexStringLower(SHA256.HashData(b)), File: b))
             .ToList();
         await using var peer = new FakeMediaPeer(files, fileStatus: 503);
@@ -167,16 +173,86 @@ public sealed class HostNetworkTests
         Hear(fetcher, peer, "dead0001", "Refuser");
         Assert.True((await fetcher.RunAsync("MEDIA FETCH ALL FROM dead0001")).Ok);
 
-        Assert.True(await Eventually.TrueAsync(() => Rows(fetcher, Clip(Files - 1) + " could not be fetched").Count == 1, 60000), fetcher.Journal());
+        const string Ended = "refused: the fetch of 16 files from Refuser ended: 0 pulled and verified, 16 could not be fetched; 12 of its rows are in the node's log only";
+        Assert.True(await Eventually.TrueAsync(() => Rows(fetcher, "the fetch of").Count == 1, 60000), fetcher.Journal());
         // Whichever of the three chunks in flight is refused first is the one said.
         var at = "127.0.0.1:" + peer.Port.ToString(CultureInfo.InvariantCulture);
-        for (var k = 0; k < Files; k++)
+        var tried = Rows(fetcher, " from Refuser: chunk ");
+        var refused = Rows(fetcher, " could not be fetched: ");
+        Assert.Equal((FetchJournal.Most / 2, FetchJournal.Most / 2), (tried.Count, refused.Count));
+        for (var k = 0; k < FetchJournal.Most / 2; k++)
         {
-            var tried = Assert.Single(Rows(fetcher, Clip(k) + " from Refuser"));
-            Assert.Matches("^" + Regex.Escape($"media: {Clip(k)} from Refuser: chunk ") + "[123]" + Regex.Escape($" of 4 from {at}: answered 503 — trying again (2 of 2)") + "$", tried);
-            Assert.Single(Rows(fetcher, Clip(k) + " could not be fetched"));
+            Assert.Matches("^" + Regex.Escape($"media: {Clip(k)} from Refuser: chunk ") + "[123]" + Regex.Escape($" of 4 from {at}: answered 503 — trying again (2 of 2)") + "$", tried[k]);
+            Assert.StartsWith($"refused: {Clip(k)} could not be fetched: Refuser: chunk ", refused[k], StringComparison.Ordinal);
         }
+        Assert.Equal([Ended], Rows(fetcher, "the fetch of"));
+        // Every file's row says how it ended, and the log holds the rows the journal does not.
+        Assert.Equal(Files, fetcher.State().GetProperty("media").GetProperty("transfers").EnumerateArray()
+            .Count(t => Str(t, "state").StartsWith("failed: Refuser: chunk ", StringComparison.Ordinal)));
+        Assert.Contains($"{Clip(Files - 1)} could not be fetched: Refuser: chunk ", fetcher.LogTail(200), StringComparison.Ordinal);
         Assert.Single(Rows(fetcher, "Stage right is up"));
+    }
+
+    [Fact]
+    public async Task AFetchOfMoreFilesThanTheJournalHoldsFromAPeerWhoseListFailsLeavesTheNodesOwnRows()
+    {
+        // Two hundred and fifty files, one verb's row to open them, and a peer whose list fails: one refused row a file would push
+        // every other row out of the journal's 200 recent ones. The fetch journals its first twenty and one that counts the rest.
+        const int Files = 250;
+        var hashes = Enumerable.Range(0, Files).Select(k => Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(k)))).ToList();
+        await using var peer = new FakeMediaPeer([(hashes[0], new byte[16])], listStatus: 503);
+        await using var fetcher = await HostRig.StartAsync("Stage right", network: true);
+        var show = SyncRig.Show() with
+        {
+            Media = [.. Enumerable.Range(0, Files).Select(k => new MediaItem(string.Create(CultureInfo.InvariantCulture, $"md{k:000}"), Clip(k), MediaKind.Video,
+                $"/elsewhere/{Clip(k)}.bin", "sha256:" + hashes[k], 1000, MediaInfo.Unknown, []))],
+        };
+        await SyncRig.OpenShowAsync(fetcher, show);
+        Hear(fetcher, peer, "11571e55", "Dead list");
+        Assert.True((await fetcher.RunAsync("MEDIA FETCH ALL FROM 11571e55")).Ok);
+
+        Assert.True(await Eventually.TrueAsync(() => Rows(fetcher, "the fetch of").Count == 1, 60000), fetcher.Journal());
+        const string Words = "Dead list's media list could not be read: Response status code does not indicate success: 503 (Refused).";
+        Assert.Equal([.. Enumerable.Range(0, FetchJournal.Most).Select(k => $"refused: {Clip(k)} could not be fetched: " + Words)], Rows(fetcher, " could not be fetched: "));
+        Assert.Equal(["refused: the fetch of 250 files from Dead list ended: 0 pulled and verified, 250 could not be fetched; 230 of its rows are in the node's log only"],
+            Rows(fetcher, "the fetch of"));
+        Assert.Single(Rows(fetcher, "Stage right is up"));
+        Assert.Single(Rows(fetcher, "verb: opened Sync test"));
+        Assert.Equal(Files, fetcher.State().GetProperty("media").GetProperty("transfers").EnumerateArray().Count(t => Str(t, "state") == "failed: " + Words));
+        Assert.Equal(1, peer.ListAsks);
+    }
+
+    [Fact]
+    public async Task AFetchThatMovesOnToAnotherPeerKeepsTheChunksItHasAndSaysThemAtOnce()
+    {
+        // Three chunks of 64 KiB, one at a time, one try each. Keeper gives the first chunk and then falls silent; the next peer, Silent,
+        // falls silent at once. The node's clock is the test's, moved only while Keeper is asked and once its chunk is in, so the pull at
+        // Silent waits for good: its row says the chunk the part file keeps, not 0.
+        const int Chunk = 64 * 1024;
+        var bytes = RandomNumberGenerator.GetBytes(3 * Chunk);
+        var hex = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        await using var keeper = new FakeMediaPeer(hex, bytes, stallFrom: Chunk);
+        await using var silent = new FakeMediaPeer(hex, bytes, stallAfter: 0);
+        var clock = new ManualClock(Base);
+        await using var fetcher = await HostRig.StartAsync("Stage right", network: true, mono: clock,
+            pulls: new MediaTransferOptions { Quiet = Quiet, ChunkBytes = Chunk, Parallelism = 1, ChunkAttempts = 1 });
+        var id = await AddAsync(fetcher, "clip", hex, bytes.Length);
+        Hear(fetcher, keeper, "0ee9e700", "Keeper");
+        Hear(fetcher, silent, "5113e7a0", "Silent");
+        Assert.True((await fetcher.RunAsync("MEDIA FETCH " + id)).Ok);
+
+        var sw = Stopwatch.StartNew();
+        while (silent.FileAsks == 0 && sw.Elapsed < TimeSpan.FromSeconds(30))
+        {
+            if (Transfers(fetcher) is var seen && seen.Contains("\"from\":\"Keeper\"", StringComparison.Ordinal) && seen.Contains("\"bytesDone\":65536", StringComparison.Ordinal))
+                clock.Advance(Quiet.Ticks * TimeSpan.NanosecondsPerTick + 1_000_000);
+            await Task.Delay(50);
+        }
+
+        Assert.True(silent.FileAsks > 0, $"transfers {Transfers(fetcher)}\n{fetcher.Journal()}");
+        var row = Transfer(fetcher);
+        Assert.Equal(("pulling", "receiving", "Silent", (long)Chunk), (Str(row, "state"), Str(row, "stage"), Str(row, "from"), row.GetProperty("bytesDone").GetInt64()));
+        Assert.Equal((1, 2, 1, 1), (keeper.ListAsks, keeper.FileAsks, silent.ListAsks, silent.FileAsks));
     }
 
     /// <summary>The quiet the fault tests give a try.</summary>

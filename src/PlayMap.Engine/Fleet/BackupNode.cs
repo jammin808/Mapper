@@ -695,7 +695,7 @@ public sealed class BackupNode : IAsyncDisposable
             _engine?.FactsChanged();
         };
         var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, http, peer.Hello.TlsFingerprint ?? "", token), _pins(),
-            () => _setup.Wall.UnixMs, _setup.Mono, _log);
+            () => _setup.Wall.UnixMs, _setup.Mono, _log, _setup.Network.PullOptions);
         if (puller.Refusal.Length > 0)
         {
             puller.Dispose();
@@ -1047,7 +1047,9 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>MEDIA FETCH &lt;media&gt;|ALL [FROM &lt;node&gt;] on a node with the fleet's part: each missing file by its hash, from the node
-    /// named or else the first heard that holds it, with that peer's proof over its pinned HTTPS (never its token, never in clear).</summary>
+    /// named or else the first heard that holds it, with that peer's proof over its pinned HTTPS (never its token, never in clear). Each
+    /// file's end is a journal row, at most <see cref="FetchJournal.Most"/> a fetch and one that counts the rest when there were more;
+    /// these pulls write no <c>media.transfers</c> row.</summary>
     public CommandReply FetchMedia(IReadOnlyList<MediaItem> items, string? from)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -1081,6 +1083,8 @@ public sealed class BackupNode : IAsyncDisposable
             if (peers.Count == 0)
                 return CommandReply.Fail("no other PlayMap node is heard on the show network to fetch from");
         }
+        var source = peers.Count == 1 ? peers[0].Name : string.Join(", ", peers.Select(p => p.Name));
+        var rows = new FetchJournal(engine.Journal, _log, $"the fetch of {what} from {source}");
         Background(Task.Run(async () =>
         {
             foreach (var f in files)
@@ -1091,7 +1095,7 @@ public sealed class BackupNode : IAsyncDisposable
                 foreach (var peer in peers)
                 {
                     using var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, peer.Hello.Port("http"), peer.Hello.TlsFingerprint ?? "",
-                        Credential(peer.Id)), _pins(), () => _setup.Wall.UnixMs, _setup.Mono, _log);
+                        Credential(peer.Id)), _pins(), () => _setup.Wall.UnixMs, _setup.Mono, _log, _setup.Network.PullOptions);
                     try
                     {
                         var (ok, words) = await PullOneAsync(puller, peer.Name, store, f.Hash, f.Size, f.Name, _stop.Token).ConfigureAwait(false);
@@ -1105,12 +1109,14 @@ public sealed class BackupNode : IAsyncDisposable
                         said = $"{Path.GetFileName(f.Name)} could not be pulled from {peer.Name}: {ex.Message}";
                     }
                 }
-                var landed = store.PathForHash(f.Hash) is not null;
-                engine.Journal.Add(landed ? "media" : "refused", said, ok: landed);
+                if (store.PathForHash(f.Hash) is not null)
+                    rows.Landed(said);
+                else
+                    rows.Failed(said);
                 engine.FactsChanged();
             }
+            rows.End();
         }, CancellationToken.None));
-        var source = peers.Count == 1 ? peers[0].Name : string.Join(", ", peers.Select(p => p.Name));
         return CommandReply.Accepted($"fetching {what} from {source} by hash, with proof");
     }
 

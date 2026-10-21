@@ -259,6 +259,42 @@ public sealed class BackupTests
         Assert.True(await Eventually.TrueAsync(() => b.Journal().Contains("clip.mp4 pulled from FOH-A with proof over HTTPS and verified", StringComparison.Ordinal)), b.Journal());
     }
 
+    [Fact]
+    public async Task AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows()
+    {
+        // Two hundred and fifty files FOH-A does not hold, each asked for by its size first and refused, and one verb's row to open
+        // them: one refused row a file would push every other row out of the journal's 200 recent ones. The fetch journals its first
+        // twenty and one that counts the rest.
+        const int Files = 250;
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var a = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, clock, time);
+        await using var b = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        string Name(int k) => string.Create(CultureInfo.InvariantCulture, $"clip{k:000}");
+        var show = SyncRig.Show() with
+        {
+            Media = [.. Enumerable.Range(0, Files).Select(k => new MediaItem("md" + Name(k), Name(k), MediaKind.Video, $"/nowhere/{Name(k)}.mp4",
+                "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(BitConverter.GetBytes(k))), 0, MediaInfo.Unknown, []))],
+        };
+        await SyncRig.OpenShowAsync(b, show);
+        await BackupRig.MeetAsync(a, b);
+
+        Assert.True((await b.RunAsync("MEDIA FETCH ALL FROM FOH-A")).Ok);
+
+        Assert.True(await Eventually.TrueAsync(() => Rows(b, "the fetch of").Count == 1, 120000), b.Journal());
+        var refused = Rows(b, "could not be pulled from FOH-A");
+        Assert.Equal(FetchJournal.Most, refused.Count);
+        for (var k = 0; k < FetchJournal.Most; k++)
+            Assert.StartsWith($"refused: {Name(k)}.mp4 could not be pulled from FOH-A: ", refused[k], StringComparison.Ordinal);
+        Assert.Equal(["refused: the fetch of 250 files from FOH-A ended: 0 pulled and verified, 250 could not be fetched; 230 of its rows are in the node's log only"],
+            Rows(b, "the fetch of"));
+        Assert.Single(Rows(b, "FOH-B is up"));
+        Assert.Single(Rows(b, "verb: opened Sync test"));
+    }
+
+    /// <summary>The journal's recent rows that hold <paramref name="text"/>, oldest first.</summary>
+    private static List<string> Rows(HostRig rig, string text) => [.. rig.Journal().Split('\n').Where(r => r.Contains(text, StringComparison.Ordinal))];
+
     private static JsonElement Air(HostRig rig) => rig.State().GetProperty("air");
 
     private static MirrorWebModule Mirror(HostRig rig) => rig.Engine.Services.Backup!.Web!;

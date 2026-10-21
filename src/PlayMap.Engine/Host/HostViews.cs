@@ -12,19 +12,21 @@ public interface INodeFaults
 }
 
 /// <summary>One media pull between nodes as STATE shows it: the library item and its file by hash, who it comes from,
-/// how far it is, and its state ("queued", "pulling", "failed: …").</summary>
+/// how far it is, and its state ("queued", "pulling", "failed: …"). Its bytes are the file's in place: while the pull is on its way they
+/// step back only when it moves on to another peer, whose pull starts from the chunks the part file keeps whole; a failed row says
+/// 0.</summary>
 public sealed record MediaTransferView(string Hash, string MediaId, string Name, string From, long BytesDone, long Size, string State)
 {
     /// <summary>The peer's address and port the pull asks ("" until a peer is asked).</summary>
     public string At { get; init; } = "";
 
-    /// <summary>Where a pull on its way stands: "asking" while a peer's list of files is read (the row "queued" at the first peer
-    /// asked, and still "pulling" with the peer before's bytes and last try's words when that peer failed it), "receiving" while the
-    /// file's bytes come, "verifying" while the whole file is hashed and put in place; "" before a peer is asked and once the pull
+    /// <summary>Where a pull on its way stands: "asking" while a peer's list of files is read (the row still "queued" until a peer's
+    /// pull of the file has started, and "pulling" after one has, with that pull's bytes and its last try's words), "receiving" while
+    /// the file's bytes come, "verifying" while the whole file is hashed and put in place; "" before a peer is asked and once the pull
     /// failed.</summary>
     public string Stage { get; init; } = "";
 
-    /// <summary>When the state or the stage last changed, in Unix ms of the node's wall clock.</summary>
+    /// <summary>When the state, the stage or the peer asked last changed, in Unix ms of the node's wall clock.</summary>
     public long SinceUnixMs { get; init; }
 
     /// <summary>The last failed try's words while the pull goes on ("" when no try failed).</summary>
