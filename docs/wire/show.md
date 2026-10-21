@@ -90,18 +90,23 @@ Top-level `show` (after `cameras`):
 ```
 
 `lastGo` is the last accepted GO (`PLAYLIST GO|NEXT|PREV`, `VIDEO PLAY|RESTART`) on each playlist the project holds, newest first:
-its leader time (the one the GO fence counts from), its time on the node's wall clock (Unix ms, the clock of STATE's own `at`, so a
-client reads a GO's age from one push), and the session id, transport and client name of the line that made it. A GO the fence or
-the playback refuses changes nothing here; before the first GO it is `[]`.
+its leader time (the one the GO fence counts from), its time on the node's wall clock (Unix ms, the clock of STATE's own `at`), and
+the session id, transport and client name of the line that made it. A GO the fence or the playback refuses changes nothing here;
+before the first GO it is `[]`. STATE's `at` is when the node wrote that STATE, and a node that stands still writes none, so the
+first STATE a client reads on a link (its greeting) may be far older than its arrival: a row's age against its push's `at` holds for
+a row first seen after that first STATE, and the desk takes the rows of its first push on a link, and again after the link was
+down, as seen.
 
 `blind` stays `null` until blind editing lands. The fixture is `tests/fixtures/state/show.json`, written by `ShowStateFixtureTest`.
 
 ## Cards
 
 `tests/fixtures/state/show.cards.json`: Show, Panic, Master, Locks, Preflight, Blind, Sound and Last GO (one per playlist in
-`lastGo`). A card is `{"title","path","light","words","fields":[{"label","path"}],"actions":[line…]}`; `light` is a list of rules read
-in order — `{"if":<path>,"light":<word>}` (the path holds a value that is not null, false or 0), `{"from":<path>}` (the path holds a
-light word), `{"light":<word>}` (always); paths are relative to the card's path; `words` fills `{path}` holes.
+`lastGo`, lit `info`: a record of an accepted GO, marked "i"). A card is `{"title","path","light","words","fields":[{"label","path"}],
+"actions":[line…]}`; `light` is a list of rules read in order — `{"if":<path>,"light":<word>}` (the path holds a value that is not
+null, false or 0), `{"from":<path>}` (the path holds a light word), `{"light":<word>}` (always), an `if` or a bare rule's word being
+`green`, `amber`, `red`, `grey` or `info` (information, drawn grey with the mark i); paths are relative to the card's path; `words`
+fills `{path}` holes.
 
 ## Context
 

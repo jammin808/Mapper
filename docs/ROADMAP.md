@@ -23,7 +23,7 @@ only** note what waits for real hardware. Camera auto-align and the content pack
 
 **On the desk:** views of its own for this work — the readiness light (the worst of the show's preflight, the fleet and the sync group, the group's part the node's own `sync.light`), the blind chip and its panel (diff, commit now or at the next item, discard, the draft drawn in MAP through the views' own path), Health ▸ Fleet (machine cards with stale and gone colours, the backup's FAILOVER held to confirm), Health ▸ Preflight (a Fix per row), Health ▸ Calibration (score cards with a Fix per term, the history strip's Recall), MAP's quad tool with corner nudges in wall pixels and the overlay on the wall, and the first-light guide (docs/DESK.md). A line a Companion key holds to confirm is held on every desk button that sends it and pressed twice in any menu (3 s of the desk's clock), the transport's Stop, the panic banner's Clear and the master excepted (sent at every press); the views' and the overlay's leases are renewed on the desk's clock.
 
-**Not on the desk:** wire-only — the effects browser and inspector, modulation sockets, tempo, bindings and learn, timecode, LED fixture placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks and the content library: their STATE shows on the desk's cards, their verbs run from the cards, the generated right-click entries and over the wire, HTTP, MCP and bindings. The blind draft's ON GO and AT commits run over the wire. The desk has no console yet, so the facade's lines that take the operator's values (`SITE ORIGIN`, `SITE POINTS`, `SURVEY IMPORT`, a `PROJECTOR PRIOR` with a value, `STACK NEW`, `STACK ALIGN`, `STACK MATCH`) and `PLAN LIGHT`, which have no desk control, go over the wire, HTTP, MCP, Companion and bindings; a stack's card holds its list, its failover and its REMOVE. A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk (the owner's call). A Recall the node refuses because the target stands as that result already (just after it was recalled) is offered: CALIBRATION HISTORY does not say which result a target stands as. The desk has no PANIC pulse and no master level bar; Simple hides nothing; the PLAY bin is not a panel of its own; a drag the gate refuses still moves on screen while its steps are not sent. The direction is a typed console beside the menu bar and the right-click menus, with every command and feature reached from the menus and never only by typing (wp3-desk-shell, `MenuCoverageTests`).
+**Not on the desk:** wire-only — the effects browser and inspector, modulation sockets, tempo, bindings and learn, timecode, LED fixture placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks, the content library, the machine platform's claims, identity and driver lock (`MACHINE SET`, `MACHINE LOCK`) and the effect quarantine (`FX RELEASE`): their STATE shows on the desk's cards, their verbs run from the cards, the generated right-click entries and over the wire, HTTP, MCP and bindings. The blind draft's ON GO and AT commits run over the wire. The desk has no console yet, so the facade's lines that take the operator's values (`SITE ORIGIN`, `SITE POINTS`, `SURVEY IMPORT`, a `PROJECTOR PRIOR` with a value, `STACK NEW`, `STACK ALIGN`, `STACK MATCH`) and `PLAN LIGHT`, which have no desk control, go over the wire, HTTP, MCP, Companion and bindings; a stack's card holds its list, its failover and its REMOVE. A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk (the owner's call). A Recall the node refuses because the target stands as that result already (just after it was recalled) is offered: CALIBRATION HISTORY does not say which result a target stands as. The desk has no PANIC pulse and no master level bar; Simple hides nothing; the PLAY bin is not a panel of its own; a drag the gate refuses still moves on screen while its steps are not sent. The direction is a typed console beside the menu bar and the right-click menus, with every command and feature reached from the menus and never only by typing (wp3-desk-shell, `MenuCoverageTests`).
 
 **CI:** every push builds the whole solution in Release, the desk included, with the analyzers on and runs every test project to its end on Linux (Mesa llvmpipe under Xvfb, FFmpeg 9.0.2 from one build pinned by its hash, no libva and no system OpenAL, as on a bare machine) and on Windows (OpenGL 3.3 from a hash-pinned Mesa llvmpipe beside every test host, since the runner has no GPU; the same FFmpeg build; no audio endpoint; the Windows-only render and media code on WARP: the DXGI presenter, Spout's round trip, the D3D11VA device). The native test doubles — the fake NDI runtime and libvmx, which OMT loads — are compiled on both jobs (on Windows with the runner's LLVM clang), and a double that does not build fails its tests with the compiler's words instead of skipping them (`PLAYMAP_NATIVE_REQUIRED`). The tests' media are made at test time with LGPL-compatible encoders (R0.7). A test whose subject exists on one platform only carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Spout and D3D11VA on Windows). After the .NET suites the Linux job runs the Companion module's type check, lint and tests — its end-to-end test against the job's own engine — and Companion's module check. Each project's result is counted on its own, so one failure hides no other; the Windows job also publishes the portable exe, as the artifact `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64`. Every CI build is numbered from its run number, less `PlayMapRunBase`, and its commit (README, "Versions"); each job reads the stamp back from what it built straight after the build (and the Windows job again from the published exe's version resource), refuses one that is not this run's, and writes it to its summary (`tools/ci-stamp.ps1`).
 
@@ -148,9 +148,9 @@ the engine claims what a real-time process needs through its machine platform an
 reach the desk through four CPU copies. CI publishes a self-contained folder that nothing installs, signs or supervises; every build
 carries its version, build number and commit from one source (`Version.props`; README, Versions). On the desk a half-drawn quad
 stays as its projector's draft when the person looks away, and a quad's corners and a pin are dragged, typed and nudged by one
-pixel; no output says what it shows, Simple hides nothing, the panels are fixed columns and about a third of the catalogue's rows
-are sent by a desk control of their own; a capture card is read through FFmpeg, outside the video I/O hub, with three CPU copies
-(docs/round3/research/desk-today.md and video-today.md).
+pixel (docs/DESK.md, MAP's quad tool); no output says what it shows, Simple hides nothing, the panels are fixed columns and about a
+third of the catalogue's rows are sent by a desk control of their own; a capture card is read through FFmpeg, outside the video I/O
+hub, with three CPU copies (docs/round3/research/desk-today.md and video-today.md).
 
 **Built: the spine (W0, `wp3-spine`).** The spine holds the contracts every package of the round builds on. Every lab line
 still waits: nothing in it claims a hardware fact.
@@ -295,17 +295,18 @@ docs/wire/undo.md), each proven headless on both CI jobs; no operator has met th
 
 - **The GO guard.** While the node's min-GO window after an accepted GO is open on a playlist, every GO control of that playlist draws
   a red border that goes when the window closes. The window runs on the desk's clock, opened by the reply to a GO this desk sent and
-  by `STATE.show.lastGo` for a GO from any client, for what is left of it. A GO the node's fence refuses flashes once, its words in
-  the controls' tooltips and the attention bar, and no flash starts within 500 ms of the last one's start.
+  by `STATE.show.lastGo` for a GO from any client, for what is left of it; the GO rows of the first push on a link, which may be the
+  STATE the node wrote last, are taken as seen. A GO the node's fence refuses flashes once, its words in the controls' tooltips and
+  the attention bar, and no flash starts within 500 ms of the last one's start.
 - **Blind in grey.** While STATE.show.blind names this desk's session the whole desk is drawn in its theme's grey, every pane that
   edits the draft says BLIND, and the window's frame is violet; another desk's draft leaves this desk's colours and names its owner.
 - **The Oops history.** `UNDO LIST [<n>]` answers the undo steps newest first in field words, with who and when, and `UNDO TO <step>`
   takes a step and every newer one back as one action (one root, one revision, one journal row), drafted for the blind owner and
   allowed for an operator while armed, as `UNDO` is; the desk's Oops panel lists them, each with Undo to here.
 - **The look and the status rules.** Dark, the Dark room and Daylight, and a desk brightness from 20 to 100 %, kept in the user's
-  desk.json. Every light carries its shape and word (✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i information) in the templates and on
-  the canvases, each of ok, warn and fault 3:1 or more against every theme's panels; red marks the air and faults; nothing repeats
-  faster than 2 Hz.
+  desk.json. Every light carries its shape (✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i information) beside its colour, and in the
+  templates its word too, a preflight row of information and the Last GO card marked "i info"; each of ok, warn and fault 3:1 or more
+  against every surface a light is drawn on in every theme; red marks the air and faults; nothing repeats faster than 2 Hz.
 - **Preview age.** A picture's rate from its ring slots' stamps and its age on the desk's clock since the desk read it: past two
   frames of its rate a "stale" badge with the age, and greyed with the reason after a second with no new picture.
 - **Closing while armed** asks first ("The show keeps playing on the node") and sends nothing either way.
@@ -320,10 +321,11 @@ docs/wire/undo.md), each proven headless on both CI jobs; no operator has met th
 - **The spine's part.** `STATE.show.lastGo` names each playlist's last accepted GO, its leader time, its wall time and its session
   (docs/wire/show.md), added through the spine amendment lane (docs/round3/PLAN.md §5.7) for the GO guard.
 - **For the installer.** `ConnectionManager` takes the maker of its links, the maker of this machine's engine supervisor and the clock
-  its waits run on (`ConnectOwnTests`), so wp3-installer's supervised machine can hand it a supervisor that starts no engine.
+  its waits run on (`ConnectOwnTests`), and `EngineSupervisor.Start` answers whether it began a watch, Connect saying "Waiting for
+  this machine's engine…" when it did not, so wp3-installer's supervised machine can hand it a supervisor that starts no engine.
 - **As built, against the plan's words** (docs/round3/PLAN.md §3.6 items 4 and 5, amended to the code). Three lights each 3:1 from the
-  others cannot all be 3:1 from a panel as dark as `#191C20`, so each light is 3:1 or more against every theme's panels with a shape and
-  a word beside it; a picture's age is read on the desk's clock, since the slots' stamps are on the node's, so a ring that delivers
+  others cannot all be 3:1 from a panel as dark as `#191C20`, so each light is 3:1 or more against every surface it is drawn on in
+  every theme, with a shape beside it and, in the templates, a word; a picture's age is read on the desk's clock, since the slots' stamps are on the node's, so a ring that delivers
   regularly but late is not called stale.
 - **Not proven.** L19, the formative dark-room session with three operators (docs/round3/lab/L19.md), is not run.
 

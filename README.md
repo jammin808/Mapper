@@ -129,7 +129,7 @@ looks away; a quad's corners dragged, typed in wall pixels and nudged by the arr
 overlay on the wall (O); a first-light guide from LIGHT WALL to the first clip; and the lighting consoles' safety patterns — a red
 border on the GO controls while the node's min-GO window after a GO from any client is open, the whole desk in grey with BLIND
 while it edits its own blind draft, the Oops history (`UNDO LIST`, `UNDO TO`), the dark room and daylight looks with a desk
-brightness and every light's shape and word, each preview's age, a question before closing an armed desk, and Map anything, where
+brightness and every light's shape beside its colour, each preview's age, a question before closing an armed desk, and Map anything, where
 a touch on an outlined control learns its line (docs/DESK.md). The rest runs over the wire, HTTP, MCP, Companion and the bindings,
 and shows on the desk as generic cards and generated right-click entries: the effects browser, modulation, tempo, bindings and
 learn, timecode, LED placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the

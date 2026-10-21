@@ -30,7 +30,7 @@ claims from Windows, each claim read back into STATE, every deadline thread on t
 lock, and machine preflight (`docs/PLATFORM.md`), none of it measured on show hardware yet; its papers note is the last section of
 `docs/wire/machine.md`. So is `wp3-desk-ux`: the consoles' safety patterns the desk lacked — the GO guard, drawn for a GO from any
 client through `STATE.show.lastGo`; blind in grey; the Oops history with `UNDO LIST` and `UNDO TO`; the dark room and daylight looks
-with every light's shape and word; preview age; the question before closing an armed desk — the four-click quad that stays with its
+with every light's shape beside its colour; preview age; the question before closing an armed desk — the four-click quad that stays with its
 corners and a pin moved by one pixel, and Map anything (`docs/DESK.md`), proven headless and not yet tried by operators (L19 is not
 run); its papers note is the last section of `docs/wire/undo.md`. The other packages are not built yet: today PlayMap is the
 portable exe `docs/ARCHITECTURE.md` describes, drawing through that interface with OpenGL behind it.

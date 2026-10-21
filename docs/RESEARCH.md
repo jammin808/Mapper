@@ -162,7 +162,7 @@ decisions (`docs/round3/PLAN.md` §1.2). What they found, in short:
   consoles' safety patterns (built: the GO guard, blind in grey, the Oops history, the dark room look; docs/DESK.md). Every command
   is to be in the menu bar, by Microsoft's rule that no command lives only in a context menu. Colour is to mark status, identity
   and stage, and never be the only cue (ISA-101 and IEC 60601-1-8 reserve alarm colours): three status lights each 3:1 from a dark
-  panel cannot also be 3:1 from one another, so each light keeps 3:1 against every panel and carries a shape and a word beside its
-  colour (docs/round3/PLAN.md §3.6 item 4).
+  panel cannot also be 3:1 from one another, so each light keeps 3:1 against every surface it is drawn on and carries a shape
+  beside its colour, and a word beside it in a row, a card or a chip (docs/round3/PLAN.md §3.6 item 4).
 - **Capture cards.** A pass-through's floor is one input frame plus the render, so the direction is one frame in flight and
   the fewest copies the card and the path allow.

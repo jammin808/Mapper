@@ -940,13 +940,17 @@ its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package 
 1. The GO guard made visible: while the node's min-GO window is open after a GO (`STATE.show.lastGo`, each playlist's last accepted
    GO with its session, added through the amendment lane with this package's merge, §5.7, and MinGo), every GO control draws a red
    border that closes with the window, for a GO from any client; a GO the node refuses flashes once — a single event, never twice in
-   333 ms — with the node's words in its tooltip and the attention bar. (3 h)
+   333 ms — with the node's words in its tooltip and the attention bar. (3 h) *Amended to what the code proves:* a STATE's `at` is
+   when the node wrote it, and a quiet node writes none, so the first push a desk reads on a link may be far older than its arrival;
+   the GO rows of that push (on attach, on another node, after the link was down) are taken as seen and draw no border, so a GO made
+   within MinGo before the desk attached draws none, and the node still decides (`GoGuardTests`).
 2. Blind made unmistakable: while STATE.show.blind names this desk's session, the whole desk turns grey (a theme variant), every
    pane showing draft content carries the word BLIND, and the window's frame takes the blind colour (distinct from armed red);
    another desk's draft leaves this one's colours and says whose it is. (3 h)
 3. The Oops history: `UNDO LIST [<n>]` (the undo steps newest first, in field words, with who and when, from the store's undo
-   list — the spine's `ProjectStore` steps — and the journal; for the blind owner, the draft's own steps) and `UNDO TO <step>` (the
-   step and every newer one undone as one action, so `UNDO TO` the newest is one `UNDO`; refused with LockGuard's words across a
+   list — the spine's `ProjectStore` steps, each recording who made it and when as the edit applies; for the blind owner, the
+   draft's own steps) and `UNDO TO <step>` (the step and every newer one undone as one action, so `UNDO TO` the newest is one
+   `UNDO`; refused with LockGuard's words across a
    lock, with the range for an unknown step, and "nothing to undo" on an empty list; drafted for the blind owner and allowed for an
    operator while armed exactly as `UNDO` is, by the spine's gate hunk), engine side in `EngineCore.Undo.cs`; the desk's Oops
    panel, and "Undo to here" in each step's right-click menu. (6 h)
@@ -957,11 +961,13 @@ its guard, Edit blind and the min-GO rule [main's `docs/DESK.md`]. This package 
    (6 h) *Amended to what the code proves:* ok, warn and fault 3:1 apart in luminance cannot be met by lights legible on the dark
    panel. Three lights each 3:1 from the others cannot all be 3:1 from a panel as dark as `#191C20` (the brightest would need a
    luminance of 1.6, past white's 1.0), and with the design's §11 tokens green `#3FB950` against amber `#D29922` is 1.01:1, amber
-   against red `#E5484D` 1.55:1 and green against red 1.54:1. So each light is 3:1 or more against every theme's panels, its shape
-   and word carrying what its colour does not (`StatusRuleTests`): on `#191C20` green 6.73, amber 6.77 and red 4.37:1; the least of
-   any light on any theme's panel, the blind greys included, 3.87:1 (red on the dark theme's raised panel in its blind grey,
-   `#262626`); the daylight theme's darkened lights 4.08 to 5.36:1 on its light panels. Red marks a fault's light as well as the air,
-   as the design's §11 status channel does.
+   against red `#E5484D` 1.55:1 and green against red 1.54:1. So each light is 3:1 or more against every surface a light is drawn on
+   in every theme — the window, the panels and cards, toasts, chips and the attention bar's banners, a selected row or checked tool,
+   the danger tint — its shape and word carrying what its colour does not (`StatusRuleTests`): on `#191C20` green 6.73, amber 6.77 and
+   red 4.37:1; the least of any light on any surface, the blind greys included, 3.18:1 (red on the dark theme's selected row,
+   `#1B3555`, and on its blind grey); the daylight theme's darkened lights 3.83 to 5.36:1 on its surfaces. A light in a template
+   carries its shape and its word; a light a canvas draws (an output tile, a pin) carries its shape, the canvas's own words naming
+   what it is about. Red marks a fault's light as well as the air, as the design's §11 status channel does.
 5. Preview age: each preview's frame rate from its ring slots' stamps and its age on the desk's clock since the desk read the
    picture; older than two frames of its own rate → a "stale" badge with the age; no new picture for 1 s → greyed with the reason
    (the engine quiet, or the ring brings no new picture); a ring gone takes its picture away at once, the stand-in saying why.
@@ -999,15 +1005,16 @@ through the amendment lane, §5.7, as a spine commit of its own in this package'
 
 **Acceptance.**
 - `GoGuardTests` (headless Avalonia, manual clock): GO with MinGo 500 → the border on, off at 500 ms; a refused GO flashes once; a
-  GO from another client in `STATE.show.lastGo`, 200 ms old → the border for the 300 ms left. `LastGoTests` (Engine): an accepted
-  GO's row with its session, newest first; a GO the fence refuses leaves the rows as they were.
+  GO from another client in `STATE.show.lastGo`, 200 ms old → the border for the 300 ms left, the same row again → nothing more; a
+  GO the first push on a link already names → no border. `LastGoTests` (Engine): an accepted GO's row with its session, newest first,
+  for PLAYLIST GO, NEXT and PREV and VIDEO PLAY and RESTART; a GO the fence or the playback refuses leaves the rows as they were.
 - `BlindLookTests`: this desk's draft → the grey variant and BLIND on every draft pane; another desk's → neither, its owner named.
 - `UndoListTests` (Engine): five edits → five steps newest first in field words; `UNDO TO` the third → the root after the second,
   one journal row; across a lock → refused, nothing undone; an unknown step → refused with the range; an empty list → refused
   "nothing to undo"; armed, from an operator → allowed, as `UNDO`; from the blind owner disarmed → the draft's steps listed and
   undone, the live project's revision unchanged.
-- `StatusRuleTests`: every status template has a shape and a word per light; each light's 3:1 against each theme's panels computed
-  from its tokens; the red token used only by air styles; no animation period under 500 ms.
+- `StatusRuleTests`: every status template has a shape and a word per light; each light's 3:1 against each surface a light is drawn
+  on in each theme, computed from its tokens; the red token used only by air styles; no animation period under 500 ms.
 - `PreviewAgeTests`: a frozen ring → stale after two frames, grey at 1 s with the reason.
 - `CloseArmedTests`; `DeskVerbRuleTests` pass with the new actions.
 - `QuadDraftTests`, `QuadSelectTests`, `QuadCornerDragTests`, `QuadCornerEditTests`, `PinNudgeTests` (`design/desk-workflows.md`
@@ -2337,8 +2344,11 @@ They need two packages; the second package's review session writes them.
 
 ### 5.7 The spine amendment lane
 
-A seam found missing mid-wave is added by a short spine commit on `main` between merges, never by a package editing a spine file;
-until it lands, the package works behind its own interface in its own files.
+A seam found missing mid-wave is added by a short spine commit of its own (its subject starts "Spine: "), which may edit the spine's
+files (§2.2). A seam a package needs lands on that package's branch, its code before the fill that uses it (a spine file's words
+brought in line with what the package built may follow the fill), is reviewed with the package and reaches `main` with the
+package's merge, through the gate (§5.4); a seam no package's branch carries lands on `main` between merges. Until a seam lands, the
+package works behind its own interface in its own files.
 
 ---
 
