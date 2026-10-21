@@ -134,6 +134,11 @@ export function deviceOf(state: unknown, projectorId: string): unknown {
 	return projectorId ? list(state, P.devices).find((d) => field(d, P.dvProjector) === projectorId) : undefined
 }
 
+/** The media pulls still on their way (`queued` or `pulling`); a row that says how a pull failed (`failed: …`) runs no more. */
+export function movingTransfers(state: unknown): readonly unknown[] {
+	return list(state, P.transfers).filter((t) => ['queued', 'pulling'].includes(str(field(t, P.transferState))))
+}
+
 /** A scan runs while its state is not an end (done, failed, cancelled) — STATE keeps the last scan after it ends. */
 export function scanRunning(state: unknown): boolean {
 	if (at(state, P.scan) == null) return false
@@ -219,8 +224,8 @@ export function variablesOf(
 
 	v.media_ready = s ? bool(at(s, P.mediaReady)) : false
 	v.media_missing = num(at(s, P.mediaMissing))
-	v.transfers = list(s, P.transfers).length
-	const transfers = list(s, P.transfers)
+	const transfers = movingTransfers(s)
+	v.transfers = transfers.length
 	v.transfer_progress =
 		transfers.length > 0
 			? Math.round(

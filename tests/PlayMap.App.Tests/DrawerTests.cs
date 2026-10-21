@@ -15,7 +15,8 @@ namespace PlayMap.App.Tests;
 /// <summary>The drawers: dragging an output on the plan sets its plan rectangle; the blend-grid helper lays
 /// canvas outputs side by side with soft edges where they overlap; the Network drawer's links are the LINK
 /// verbs and the pairing token is read where it lives, never from a line, and each media transfer says where it stands and its
-/// last failed try's words; the preview surface shows the engine's picture from its ring.</summary>
+/// last failed try's words, while PLAY counts only the pulls on their way as copies; the preview surface shows the engine's picture
+/// from its ring.</summary>
 public class DrawerTests
 {
     [AvaloniaFact]
@@ -137,6 +138,34 @@ public class DrawerTests
         DeskHarness.Pump();
         Assert.Equal("Intro · failed: Stage left: chunk 3 of 63 from 10.0.0.12:9940 could not be had: answered 503", Assert.Single(net.Transfers).Text);
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.StartsWith("last try: ", StringComparison.Ordinal) == true && t.IsEffectivelyVisible);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task PlayCountsAPullOnItsWayAsACopyAndOneThatFailedAsNone()
+    {
+        await using var desk = new DeskHarness();
+        var window = MainWindowTests.Open(desk);
+        var play = desk.Main.Play;
+        var missing = desk.Link.CurrentProject.Media.First(m => desk.Link.Availability(m).State == "missing");
+        var item = play.Media.Single(m => m.Id == missing.Id);
+        string Row(string state, double progress) => $$"""
+            {"transfers":[{"media":"{{missing.Id}}","name":"{{missing.Name}}","progress":{{progress.ToString(System.Globalization.CultureInfo.InvariantCulture)}},
+              "from":"Stage left","at":"10.0.0.12:9940","state":"{{state}}","stage":"","since":1760000005000,"note":"","hash":"5e3f","bytesDone":0,"size":524288000}]}
+            """;
+
+        // On its way: its item is fetching and PLAY counts a copy.
+        desk.Link.SetSection("media", Row("pulling", 0.5));
+        DeskHarness.Pump();
+        Assert.Equal(("fetching", 0.5), (item.Availability, item.Progress));
+        Assert.Contains(" · 1 copying", play.MediaSummary, StringComparison.Ordinal);
+
+        // Failed: no copy runs; the item stands where MEDIA LIST says, and PLAY says one could not be copied.
+        desk.Link.SetSection("media", Row("failed: Stage left: chunk 3 of 63 from 10.0.0.12:9940 could not be had: answered 503", 0));
+        DeskHarness.Pump();
+        Assert.Equal("missing", item.Availability);
+        Assert.DoesNotContain("copying", play.MediaSummary, StringComparison.Ordinal);
+        Assert.EndsWith(" · 1 could not be copied", play.MediaSummary, StringComparison.Ordinal);
         window.Close();
     }
 

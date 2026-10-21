@@ -47,6 +47,9 @@ public sealed record TransferState(string MediaId, string Name, double Progress,
     public string Stage { get; init; } = "";
 
     public string Note { get; init; } = "";
+
+    /// <summary>Still on its way ("queued" or "pulling"); a row whose state says how it failed ("failed: …") runs no more.</summary>
+    public bool Moving => State is "queued" or "pulling";
 }
 
 public sealed record MediaState(int Items, int Missing, bool Ready, ImmutableArray<TransferState> Transfers);
