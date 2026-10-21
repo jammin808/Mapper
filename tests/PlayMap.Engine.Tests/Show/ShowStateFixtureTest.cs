@@ -95,7 +95,8 @@ public sealed class ShowStateFixtureTest
             ["path"] = "show.lastGo[]",
             ["label"] = "playlist",
             ["key"] = "playlist",
-            ["light"] = new JsonArray(new JsonObject { ["light"] = "grey" }),
+            // A record of an accepted GO is information, marked "i", never a light switched off.
+            ["light"] = new JsonArray(new JsonObject { ["light"] = "info" }),
             ["words"] = "GO by {by} ({transport})",
             ["fields"] = new JsonArray(Field("Playlist", "playlist"), Field("By", "by"), Field("Session", "session"), Field("Transport", "transport"),
                 Field("At", "at"), Field("Leader (ns)", "leaderNs")),

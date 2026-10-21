@@ -69,7 +69,8 @@ public class CardTests(ITestOutputHelper output)
     [Fact]
     public void EveryDescriptorRendersFromItsFixtureWithItsLightAndWordsAndEveryActionIsACatalogueLine()
     {
-        var lights = new HashSet<string>(StringComparer.Ordinal) { "green", "amber", "red", "grey" };
+        // The four light words, and "info" for a card that is information (marked "i", drawn in the grey token).
+        var lights = new HashSet<string>(StringComparer.Ordinal) { "green", "amber", "red", "grey", "info" };
         foreach (var package in CardDescriptor.BuiltInPackages)
         {
             var descriptors = CardDescriptor.BuiltIn.Where(d => d.Package == package).ToList();
@@ -419,6 +420,28 @@ public class CardTests(ITestOutputHelper output)
         }
         Assert.True(sent > 0);
         Screens.Save(window, "health-cards");
+        window.Close();
+    }
+
+    /// <summary>show.json's Last GO card (a GO from Companion) is information: its mark is "i info" in the grey brush, its tooltip and
+    /// its name for a screen reader "info", never "○ off", beside the GO's words.</summary>
+    [AvaloniaFact]
+    public async Task TheLastGoCardIsMarkedAsInformation()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.Load(desk.Link, "show");
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Drawers.Show("health", "cards");
+        DeskHarness.Pump();
+        var card = desk.Main.Cards.Shown.Single(c => c.Instance.Descriptor.Title == "Last GO");
+        Assert.Equal(("info", "GO by Companion: FOH deck (companion)"), (card.Light, card.Words));
+        var view = window.GetVisualDescendants().OfType<CardView>().Single(v => ReferenceEquals(v.DataContext, card));
+        var mark = view.GetVisualDescendants().OfType<StatusMark>().Single();
+        Assert.Equal("i info", mark.Text);
+        Assert.Equal("info", ToolTip.GetTip(mark));
+        Assert.Equal("info", Avalonia.Automation.AutomationProperties.GetName(mark));
+        Assert.Same(LightBrushConverter.Brushes.For("grey"), mark.Foreground);
+        Assert.Same(LightBrushConverter.Brushes.For("grey"), view.GetVisualDescendants().OfType<Ellipse>().First(e => e.Name == "CardLight").Fill);
         window.Close();
     }
 
