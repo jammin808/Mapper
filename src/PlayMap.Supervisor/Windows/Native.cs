@@ -5,9 +5,9 @@ using Microsoft.Win32.SafeHandles;
 namespace PlayMap.Supervisor.Windows;
 
 /// <summary>The few Windows calls the supervisor makes: the console session and its user's token, a process started in that session
-/// (suspended, then let run), the account rights of the show user, a folder held open by its own handle, and of a process its user,
-/// session and parent read through its handle (its image, start and command line are Core's ProcessReader's), waited on and ended.
-/// Thin: the logic around them is in their callers.</summary>
+/// (suspended, then let run), the account rights of the show user, a folder made, a folder or an entry held open by its own handle and
+/// an entry deleted through it, and of a process its user, session and parent read through its handle (its image, start and command
+/// line are Core's ProcessReader's), waited on and ended. Thin: the logic around them is in their callers.</summary>
 [SupportedOSPlatform("windows")]
 internal static partial class Native
 {
@@ -23,11 +23,13 @@ internal static partial class Native
     public const int ProcessBasicInformation = 0;
     public const uint CreateSuspended = 0x00000004;
     public const uint FileReadAttributes = 0x80;
+    public const uint Delete = 0x00010000;
     public const uint ReadControl = 0x00020000;
     public const uint WriteDac = 0x00040000;
     public const uint WriteOwner = 0x00080000;
     public const uint FileShareRead = 0x1;
     public const uint FileShareWrite = 0x2;
+    public const uint FileShareDelete = 0x4;
     public const uint OpenExisting = 3;
     public const uint FileFlagBackupSemantics = 0x02000000;
     public const uint FileFlagOpenReparsePoint = 0x00200000;
@@ -36,6 +38,11 @@ internal static partial class Native
     public const uint DaclSecurityInformation = 0x00000004;
     public const uint ProtectedDaclSecurityInformation = 0x80000000;
     public const uint UnprotectedDaclSecurityInformation = 0x20000000;
+    public const int FileDispositionInfo = 4;
+    public const int FileDispositionInfoEx = 21;
+    public const uint FileDispositionFlagDelete = 0x1;
+    public const uint FileDispositionFlagPosixSemantics = 0x2;
+    public const uint FileDispositionFlagIgnoreReadonlyAttribute = 0x10;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct StartupInfo
@@ -194,6 +201,18 @@ internal static partial class Native
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool CreateDirectory(string path, nint securityAttributes);
+
+    /// <summary>SetFileInformationByHandle with FILE_DISPOSITION_INFO (<see cref="FileDispositionInfo"/>, one byte, DeleteFile).</summary>
+    [LibraryImport("kernel32.dll", EntryPoint = "SetFileInformationByHandle", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetFileDisposition(SafeFileHandle handle, int infoClass, ref byte deleteFile, uint size);
+
+    /// <summary>SetFileInformationByHandle with FILE_DISPOSITION_INFO_EX (<see cref="FileDispositionInfoEx"/>, its flags).</summary>
+    [LibraryImport("kernel32.dll", EntryPoint = "SetFileInformationByHandle", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetFileDispositionEx(SafeFileHandle handle, int infoClass, ref uint flags, uint size);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

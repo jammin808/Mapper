@@ -102,8 +102,9 @@ which has no rule of its own, and the show user writes `dumps\` and the engine's
 record the supervisor only reads; the installer's script makes none of them (no `[Dirs]`), so the supervisor's install makes each,
 the PlayMap folder first, and refuses a folder that is a link, or one that was there before it and that neither SYSTEM nor
 administrators own, before it makes anything inside it; it removes from `supervisor\` what another account placed there (a link
-itself, a file, an empty folder) and refuses, deleting nothing inside it, a folder another account owns that holds anything, and the
-uninstall takes the show user's write access back, the folders left.
+itself, a file, an empty folder, each looked at, its owner read and removed through one handle on the entry itself) and refuses,
+deleting nothing inside it, a folder another account owns that holds anything, and the uninstall takes the show user's write access
+back, the folders left.
 
 The papers this merge carries (plan §5.4 item 7), each sentence checked against the merged code: `README.md`'s Next paragraph (the
 installer and the supervisor present, the package built and proven on the runner alone), the module table's `PlayMap.Supervisor`

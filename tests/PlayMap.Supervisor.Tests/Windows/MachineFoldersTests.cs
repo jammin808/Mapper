@@ -15,8 +15,8 @@ namespace PlayMap.Supervisor.Tests.Windows;
 /// leaving no rule of the show user's. A folder that is a link is refused with words and nothing is granted through it, and so is one
 /// that was there before the install and that another account owns, nothing made inside it; the owner and the access are set through
 /// the one handle the reparse point was checked on, so a conversion to a link while the install runs lands nothing on another folder,
-/// and what another layout placed in the supervisor's folder is removed — a folder another account owns only when it is empty, nothing
-/// inside one ever deleted. A caller that is not elevated is refused: the install runs elevated. A folder a test makes before the
+/// and what another layout placed in the supervisor's folder is removed — each entry looked at, its owner read and removed through one
+/// handle that no swap for a link gets past, a folder another account owns only when it is empty, nothing inside one ever deleted. A caller that is not elevated is refused: the install runs elevated. A folder a test makes before the
 /// install stands for one an earlier install left, so it is given to administrators, as an install leaves it.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class MachineFoldersTests
@@ -297,6 +297,61 @@ public sealed class MachineFoldersTests
         finally
         {
             Directory.Delete(Path.GetDirectoryName(root)!, true);
+        }
+    }
+
+    [WindowsFact]
+    public void AnEntryTheSweepHoldsIsNotSwappedForALinkBetweenItsLookAndItsOwnersRead()
+    {
+        // The sweep holds each entry of the supervisor's folder by its own handle on the entry itself, reads what it is, its owner and
+        // removes it through that handle, and lets no other process rename it while held: an entry another account placed, swapped for
+        // a link to a folder administrators own between the look at what it is and the read of its owner, stays the entry that was
+        // looked at — the swap fails, and that entry, another account's, is removed. (An owner read by the entry's name would be read
+        // through the link, administrators', and the link kept.)
+        if (!Elevated)
+            return;
+        var parent = Directory.CreateTempSubdirectory("playmap-machine-").FullName;
+        var root = Path.Combine(parent, "PlayMap");
+        var supervisor = Path.Combine(root, "supervisor");
+        var placed = Path.Combine(supervisor, "placed");
+        var aside = Path.Combine(parent, "aside");
+        var administrators = Directory.CreateDirectory(Path.Combine(parent, "administrators")).FullName;
+        var user = WindowsIdentity.GetCurrent().User!;
+        var said = new List<string>();
+        var tried = new List<string>();
+        void Swap(string entry)
+        {
+            if (!string.Equals(entry, placed, StringComparison.OrdinalIgnoreCase))
+                return;
+            try
+            {
+                Directory.Move(placed, aside);
+                Directory.CreateSymbolicLink(placed, administrators);
+                tried.Add("swapped");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                tried.Add("refused: " + ex.Message);
+            }
+        }
+        try
+        {
+            Directory.CreateDirectory(placed);
+            GiveTo(Administrators, root, supervisor, administrators);
+            GiveTo(user, placed);
+
+            MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, said.Add, Swap);
+
+            var attempt = Assert.Single(tried);
+            Assert.StartsWith("refused: ", attempt, StringComparison.Ordinal);
+            Assert.False(Directory.Exists(placed) || File.Exists(placed), placed + " stayed after the sweep");
+            Assert.False(Directory.Exists(aside), "the entry was moved aside while the sweep held it");
+            Assert.True(Directory.Exists(administrators));
+            Assert.Contains(said, s => s.Contains(placed, StringComparison.Ordinal) && s.Contains(user.Value + " placed there", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(parent, true);
         }
     }
 

@@ -20,14 +20,22 @@ namespace PlayMap.Supervisor.Windows;
 /// the owner and the access are made and granted through the checked folder itself and never through a link that replaced it: a folder
 /// that is a link (a junction or a symbolic link) is refused with words, and the check and the write are the same handle. In the
 /// supervisor's folder, what an earlier layout let another account place there — a link, a file or an empty folder another account
-/// owns, the pid record's earlier place — is removed, so SYSTEM writes only its own files; nothing inside a folder another account owns
-/// is ever deleted, and such a folder that holds anything refuses the install with words.</summary>
+/// owns, the pid record's earlier place — is removed, so SYSTEM writes only its own files: each entry is held by its own handle on the
+/// entry itself, and what it is, its owner and its removal are read and done through that handle; nothing inside a folder another
+/// account owns is ever deleted, and such a folder that holds anything refuses the install with words.</summary>
 [SupportedOSPlatform("windows")]
 public static class MachineFolders
 {
     private static readonly SecurityIdentifier System = new(WellKnownSidType.LocalSystemSid, null);
     private static readonly SecurityIdentifier Administrators = new(WellKnownSidType.BuiltinAdministratorsSid, null);
     private static readonly SecurityIdentifier Users = new(WellKnownSidType.BuiltinUsersSid, null);
+    private const int ErrorInvalidFunction = 1;
+    private const int ErrorFileNotFound = 2;
+    private const int ErrorPathNotFound = 3;
+    private const int ErrorAccessDenied = 5;
+    private const int ErrorSharingViolation = 32;
+    private const int ErrorNotSupported = 50;
+    private const int ErrorInvalidParameter = 87;
     private const int ErrorDirNotEmpty = 145;
     private const int ErrorAlreadyExists = 183;
     private const InheritanceFlags Inherited = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
@@ -46,7 +54,11 @@ public static class MachineFolders
     /// user's folders written by <see cref="WriterOf"/>; every explicit rule another install left is replaced. A folder that was there
     /// before this call and that neither SYSTEM nor administrators own is refused with words before anything is made inside it or set
     /// on it. Says what it did.</summary>
-    public static void Make(string root, string showUser, Action<string> say)
+    public static void Make(string root, string showUser, Action<string> say) => Make(root, showUser, say, looked: null);
+
+    /// <summary>As <see cref="Make(string, string, Action{string})"/>, with <paramref name="looked"/> called with each entry the sweep
+    /// of the supervisor's folder holds, once it has read what the entry is and before it reads its owner (<see cref="RemovePlaced"/>).</summary>
+    internal static void Make(string root, string showUser, Action<string> say, Action<string>? looked)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
         ArgumentNullException.ThrowIfNull(say);
@@ -99,7 +111,7 @@ public static class MachineFolders
                     ? (showUser.Length > 0 ? showUser : "any signed-in user") + " may write it"
                     : "only SYSTEM and administrators may write it"));
             }
-            RemovePlaced(root, say);
+            RemovePlaced(root, say, looked);
         }
         finally
         {
@@ -233,11 +245,14 @@ public static class MachineFolders
     }
 
     /// <summary>Removes from the supervisor's folder what SYSTEM would act on there but did not make: a link, a file or folder another
-    /// account owns (the planned folders aside), and the pid record's earlier place beside the status file. A folder another account
-    /// owns stays that account's to change while the install runs — its owner may swap anything inside it for a junction between a
-    /// delete's look at a name and its open of it, turning a delete that walks the folder by path onto the junction's target — so no
-    /// folder is walked: each is removed by RemoveDirectory alone (<see cref="RemoveFolder"/>).</summary>
-    private static void RemovePlaced(string root, Action<string> say)
+    /// account owns (the planned folders aside), and the pid record's earlier place beside the status file. An entry another account
+    /// owns stays that account's to change while the install runs — it may make its own folder a junction, or swap anything inside it
+    /// for one, between a look at a name and an act on it by that name — so each entry is held by its own handle, opened on the entry
+    /// itself and never through a link (<see cref="HoldEntry"/>), and what it is, its owner and its removal are all read and done through
+    /// that one handle, which, holding leave to delete the entry, lets no other process delete or rename it while it is held; and no
+    /// folder is walked: a folder is removed only when it is empty (<see cref="Remove"/>), nothing inside it ever deleted.
+    /// <paramref name="looked"/>, when given, is called with each entry held once what it is has been read and before its owner is.</summary>
+    private static void RemovePlaced(string root, Action<string> say, Action<string>? looked)
     {
         var supervisor = MachinePlan.Folders.Single(f => f.Under is ["supervisor"]).In(root);
         var planned = MachinePlan.Folders.Select(f => Path.GetFullPath(f.In(root))).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -245,52 +260,105 @@ public static class MachineFolders
         {
             if (planned.Contains(Path.GetFullPath(entry)))
                 continue;
-            var attributes = File.GetAttributes(entry);
+            using var held = HoldEntry(entry);
+            if (held is null)
+                continue;
+            var attributes = File.GetAttributes(held.Handle);
             var link = (attributes & FileAttributes.ReparsePoint) != 0;
             var directory = (attributes & FileAttributes.Directory) != 0;
             var earlier = !directory && string.Equals(Path.GetFileName(entry), EnginePidRecord.FileName, StringComparison.OrdinalIgnoreCase);
-            var owner = link ? "" : OwnerOf(entry, directory);
+            looked?.Invoke(entry);
+            // An owner administrators may not read is not one of theirs.
+            var owner = link || !held.OwnerReadable ? "" : OwnerThrough(held.Handle)?.Value ?? "";
             if (!link && !earlier && MachinePlan.OwnerTrusted(owner))
                 continue;
-            if (directory)
-                RemoveFolder(entry, owner);
-            else
-                File.Delete(entry);
+            Remove(held, entry, directory, owner);
             say("removed " + entry + (link ? ", a link" : earlier ? ", the pid record's earlier place" : ", which " + (owner.Length > 0 ? owner : "an account Windows does not name") + " placed there"));
         }
     }
 
-    /// <summary>Removes a link (a junction or a directory symbolic link) or an empty folder by RemoveDirectory, which removes a link
-    /// itself whatever its target holds and deletes nothing inside a folder: a folder that holds anything is refused with words
-    /// (ERROR_DIR_NOT_EMPTY), and the install deletes nothing of what it holds.</summary>
-    private static void RemoveFolder(string path, string owner)
+    /// <summary>An entry of the supervisor's folder held by its own handle: whether that handle may read its owner, and, when it may
+    /// not delete the entry, Windows' error for the leave to delete it (0 when it may).</summary>
+    private sealed class HeldEntry(SafeFileHandle handle, bool ownerReadable, int deleteRefused) : IDisposable
     {
-        try
-        {
-            Directory.Delete(path, recursive: false);
-        }
-        catch (IOException ex) when ((ex.HResult & 0xFFFF) == ErrorDirNotEmpty)
-        {
-            throw new InvalidOperationException(path + " is a folder " + (owner.Length > 0 ? owner : "an account Windows does not name")
-                + " placed in the supervisor's folder, and it holds what that account may change: the install deletes nothing inside a "
-                + "folder another account controls — remove it, then run the installer again", ex);
-        }
+        public SafeFileHandle Handle { get; } = handle;
+        public bool OwnerReadable { get; } = ownerReadable;
+        public int DeleteRefused { get; } = deleteRefused;
+
+        public void Dispose() => Handle.Dispose();
     }
 
-    /// <summary>The SID of what owns a file or folder ("" when its owner may not be read, which no trusted owner is).</summary>
-    private static string OwnerOf(string path, bool directory)
+    /// <summary>The entry at <paramref name="path"/> held open by its own handle on the entry itself (a link is held as the link, never
+    /// followed), with leave to read what it is, its owner and to delete it, sharing no leave to delete or rename it while it is held;
+    /// null when it is gone since the folder was listed. An entry whose owner administrators may not read is held without that leave
+    /// (its owner then is not one of theirs); one this install may not delete — its access refuses it, or another process holds it
+    /// open without leave to delete it — is held to be read alone, kept when its owner is SYSTEM or administrators and otherwise refused
+    /// with words by <see cref="Remove"/>. Any other failure to open it is refused with Windows' words.</summary>
+    private static HeldEntry? HoldEntry(string path)
     {
-        try
+        const uint flags = Native.FileFlagBackupSemantics | Native.FileFlagOpenReparsePoint;
+        const uint share = Native.FileShareRead | Native.FileShareWrite;
+        var handle = OpenEntry(path, Native.Delete | Native.ReadControl | Native.FileReadAttributes, share, flags, out var error);
+        if (handle is not null)
+            return new HeldEntry(handle, ownerReadable: true, deleteRefused: 0);
+        if (error is ErrorFileNotFound or ErrorPathNotFound)
+            return null;
+        if (error == ErrorAccessDenied)
         {
-            var security = directory
-                ? (FileSystemSecurity)new DirectoryInfo(path).GetAccessControl(AccessControlSections.Owner)
-                : new FileInfo(path).GetAccessControl(AccessControlSections.Owner);
-            return (security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier)?.Value ?? "";
+            handle = OpenEntry(path, Native.Delete | Native.FileReadAttributes, share, flags, out error);
+            if (handle is not null)
+                return new HeldEntry(handle, ownerReadable: false, deleteRefused: 0);
         }
-        catch (UnauthorizedAccessException)
+        if (error is ErrorAccessDenied or ErrorSharingViolation)
         {
-            // An owner administrators may not read is not one of theirs.
-            return "";
+            var refused = error;
+            handle = OpenEntry(path, Native.ReadControl | Native.FileReadAttributes, share | Native.FileShareDelete, flags, out error);
+            if (handle is not null)
+                return new HeldEntry(handle, ownerReadable: true, deleteRefused: refused);
         }
+        throw new Win32Exception(error, path + " could not be held open: " + new Win32Exception(error).Message);
+    }
+
+    /// <summary>The entry at <paramref name="path"/> opened as it is (OPEN_EXISTING), or null with Windows' error.</summary>
+    private static SafeFileHandle? OpenEntry(string path, uint access, uint share, uint flags, out int error)
+    {
+        var handle = Native.CreateFile(path, access, share, 0, Native.OpenExisting, flags, 0);
+        if (!handle.IsInvalid)
+        {
+            error = 0;
+            return handle;
+        }
+        error = Marshal.GetLastPInvokeError();
+        handle.Dispose();
+        return null;
+    }
+
+    /// <summary>Removes the entry <paramref name="held"/> holds through its handle (a delete disposition, POSIX-style where the file
+    /// system has it, so its name goes as the handle closes, and whether or not it is read-only): a link is removed itself, whatever
+    /// its target holds, and a folder only when it is empty — one that holds anything is refused with words (ERROR_DIR_NOT_EMPTY), and
+    /// the install deletes nothing of what it holds. An entry held without leave to delete it is refused with Windows' words.</summary>
+    private static void Remove(HeldEntry held, string path, bool directory, string owner)
+    {
+        var who = owner.Length > 0 ? owner : "an account Windows does not name";
+        if (held.DeleteRefused != 0)
+            throw new InvalidOperationException(path + ", which " + who + " placed in the supervisor's folder, may not be removed by the "
+                + "install (" + new Win32Exception(held.DeleteRefused).Message + ") — remove it, then run the installer again");
+        var flags = Native.FileDispositionFlagDelete | Native.FileDispositionFlagPosixSemantics | Native.FileDispositionFlagIgnoreReadonlyAttribute;
+        if (Native.SetFileDispositionEx(held.Handle, Native.FileDispositionInfoEx, ref flags, sizeof(uint)))
+            return;
+        var error = Marshal.GetLastPInvokeError();
+        if (error is ErrorInvalidParameter or ErrorNotSupported or ErrorInvalidFunction)
+        {
+            // A file system without the extended disposition: the entry goes as the last handle on it closes.
+            byte delete = 1;
+            if (Native.SetFileDisposition(held.Handle, Native.FileDispositionInfo, ref delete, 1))
+                return;
+            error = Marshal.GetLastPInvokeError();
+        }
+        if (directory && error == ErrorDirNotEmpty)
+            throw new InvalidOperationException(path + " is a folder " + who + " placed in the supervisor's folder, and it holds what that "
+                + "account may change: the install deletes nothing inside a folder another account controls — remove it, then run the "
+                + "installer again");
+        throw new Win32Exception(error, path + " could not be removed: " + new Win32Exception(error).Message);
     }
 }
