@@ -60,10 +60,9 @@ UninstallDisplayIcon={app}\PlayMap.exe
 Source: "{#Payload}\Supervisor\PlayMap.Supervisor.exe"; Flags: dontcopy
 Source: "{#Payload}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
-[Dirs]
-Name: "{commonappdata}\PlayMap"; Flags: uninsneveruninstall
-Name: "{commonappdata}\PlayMap\dumps"; Flags: uninsneveruninstall
-Name: "{commonappdata}\PlayMap\supervisor"; Flags: uninsneveruninstall
+; No [Dirs]: the machine's folders under %ProgramData%\PlayMap are the supervisor's install's to make (MachineFolders.Make), which
+; holds each through its own handle and refuses a link before it makes anything inside it. Made here, elevated and before that check,
+; a folder would be made through a junction a standard user put at %ProgramData%\PlayMap before a first install.
 
 [Registry]
 Root: HKLM; Subkey: "SOFTWARE\PlayMap"; Flags: uninsdeletekey

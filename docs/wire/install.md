@@ -92,7 +92,8 @@ the supervisor started stops on its stop event as any asked stop does, and journ
 folders keep SYSTEM's files out of the show user's reach: `%ProgramData%\PlayMap` is owned by administrators with its own access
 (SYSTEM and administrators change it, every account reads it), the supervisor writes its status file and log in `supervisor\`,
 which has no rule of its own, and the show user writes `dumps\` and the engine's folder `supervisor\engine\` alone, whose pid
-record the supervisor only reads; the install refuses a folder that is a link, removes from `supervisor\` what another account
+record the supervisor only reads; the installer's script makes none of them (no `[Dirs]`), so the supervisor's install makes each,
+the PlayMap folder first, and refuses a folder that is a link before it makes anything inside it; it removes from `supervisor\` what another account
 placed there (a link itself, a file, an empty folder) and refuses, deleting nothing inside it, a folder another account owns that
 holds anything, and the uninstall takes the show user's write access back, the folders left.
 

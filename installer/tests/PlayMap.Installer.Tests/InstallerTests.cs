@@ -406,6 +406,44 @@ public sealed class InstallerTests
     }
 
     [Fact]
+    public void AMachineFolderAStandardUserMadeAJunctionGetsNothingMadeThroughIt()
+    {
+        // %ProgramData% lets every account make a folder in it, and turning a folder of one's own into a junction needs no privilege:
+        // a standard user may put %ProgramData%\PlayMap as a junction before a first install. The installer makes nothing under
+        // %ProgramData% itself; the supervisor's install refuses the link before it makes anything inside it, so nothing appears at
+        // the junction's target and the machine is left unsupervised (exit 3, the words in the log).
+        EnsureUninstalled();
+        var target = Directory.CreateTempSubdirectory("playmap-junction-target-").FullName;
+        var aside = MachineFolder + "-aside-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        try
+        {
+            if (Directory.Exists(MachineFolder))
+                Directory.Move(MachineFolder, aside);
+            var junction = Tool("cmd.exe", "/c", "mklink", "/J", MachineFolder, target);
+            Assert.True(junction.Exit == 0, junction.Output);
+            Assert.True((File.GetAttributes(MachineFolder) & FileAttributes.ReparsePoint) != 0, MachineFolder + " is no junction");
+
+            var run = Install(This, "/SHOWUSER=" + ShowUser);
+            Assert.Equal(3, run.Exit);
+            Assert.Contains("is a link (a junction or a symbolic link): the install makes and grants nothing through it", run.Log, StringComparison.Ordinal);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(target));
+            using var key = InstallKey();
+            Assert.NotNull(key);
+            Assert.Null(key.GetValue("Supervised"));
+        }
+        finally
+        {
+            // The junction alone is removed (RemoveDirectory never follows it), then the earlier tests' folder is put back.
+            if (Directory.Exists(MachineFolder) && (File.GetAttributes(MachineFolder) & FileAttributes.ReparsePoint) != 0)
+                Directory.Delete(MachineFolder, recursive: false);
+            if (Directory.Exists(aside))
+                Directory.Move(aside, MachineFolder);
+            RemoveFolder(target);
+            EnsureUninstalled();
+        }
+    }
+
+    [Fact]
     public void AnUpgradeWhileAProgramRunsFromTheInstallIsRefusedAndTheEarlierServiceRunsOn()
     {
         EnsureUninstalled();

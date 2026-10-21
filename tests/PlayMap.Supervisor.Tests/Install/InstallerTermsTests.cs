@@ -20,7 +20,7 @@ public sealed partial class InstallerTermsTests
 
     private static readonly byte[] Rule = Encoding.ASCII.GetBytes(new string('-', 78) + "\r\n");
 
-    private static string Root()
+    internal static string Root()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))

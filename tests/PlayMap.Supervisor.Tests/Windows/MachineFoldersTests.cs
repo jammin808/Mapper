@@ -144,6 +144,29 @@ public sealed class MachineFoldersTests
     }
 
     [WindowsFact]
+    public void AMachineFolderThatIsALinkIsRefusedBeforeAnythingIsMadeInsideIt()
+    {
+        // The PlayMap folder itself a link, as a standard user may make it before a first install: refused first, so none of the
+        // folders below it is made through it (the installer's script makes none of them either: InstallerScriptTests).
+        var parent = Directory.CreateTempSubdirectory("playmap-machine-").FullName;
+        var root = Path.Combine(parent, "PlayMap");
+        var target = Directory.CreateDirectory(Path.Combine(parent, "elsewhere")).FullName;
+        try
+        {
+            if (!Elevated)
+                return;
+            Directory.CreateSymbolicLink(root, target);
+            var refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
+            Assert.Contains(root + " is a link (a junction or a symbolic link)", refused.Message, StringComparison.Ordinal);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(target));
+        }
+        finally
+        {
+            Directory.Delete(parent, true);
+        }
+    }
+
+    [WindowsFact]
     public void AShowUserFolderThatIsALinkIsRefusedAndNoWriteGrantReachesItsTarget()
     {
         // A leaf the show user writes (dumps) that is a link: the grant (its Modify) is set through the handle Hold checks, never by a
