@@ -274,7 +274,9 @@ not the one the caller's key showed: "the next item on Show is now 'C', not 'B' 
 ## Preflight
 
 `PREFLIGHT [QUICK]` answers its id at once (accepted; `PREFLIGHT QUICK WAIT` answers with the finished report) and runs every check side by side off the lane, each under its own budget on
-the node's monotonic clock — a check past its budget is a grey row "did not finish in 5 s" and the report is not complete. The
+the node's monotonic clock — a check past its budget is a grey row "did not finish in 5 s", one that throws a grey row "could not
+check: …" with its words, and the report is not complete. A check that returned is always its own rows, however its return meets
+the runner's look at it, so a member that checked itself is green in its group's report. The
 report (`PREFLIGHT REPORT [<id>]`) has a row per thing checked, each with its light, value, note and, where a line fixes it, that
 line; the last twenty are kept, and written beside the journal as `preflight/<id>.json`.
 
