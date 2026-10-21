@@ -9,6 +9,7 @@ using System.Security.Principal;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using PlayMap.Core.Machine;
+using PlayMap.Engine.ShaderWorker;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
@@ -60,15 +61,12 @@ public sealed class InstallerTests
     private static string RepositoryTerms => Path.Combine(Repository, "installer", "licence.txt");
 
     /// <summary>The shader worker's Windows natives, each with the SHA-256 the worker holds it to when it loads it, as the engine pins
-    /// them (src/PlayMap.Engine/ShaderWorker/CompilerNatives.cs, its win-x64 rows): shaderc, SPIRV-Tools, SPIRV-Cross and DXC's
-    /// compiler, dxcompiler.</summary>
+    /// them (CompilerNatives, its win-x64 rows): shaderc, SPIRV-Tools, SPIRV-Cross and DXC's compiler, dxcompiler.</summary>
     private static List<(string File, string Sha256)> WorkerPins()
     {
-        var source = File.ReadAllText(Path.Combine(Repository, "src", "PlayMap.Engine", "ShaderWorker", "CompilerNatives.cs"));
-        var pins = Regex.Matches(source, "new\\(\\w+, \"([^\"]+\\.dll)\", \"([0-9a-f]{64})\"", RegexOptions.None, TimeSpan.FromSeconds(1))
-            .Select(m => (m.Groups[1].Value, m.Groups[2].Value)).ToList();
+        var pins = CompilerNatives.PinsFor("win-x64").Select(p => (p.File, p.Sha256)).ToList();
         Assert.Equal(["dxcompiler.dll", "shaderc_shared.dll", "spirv-cross.dll", "SPIRV-Tools-shared.dll"],
-            pins.Select(p => p.Item1).Order(StringComparer.OrdinalIgnoreCase));
+            pins.Select(p => p.File).Order(StringComparer.OrdinalIgnoreCase));
         return pins;
     }
 

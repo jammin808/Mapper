@@ -461,6 +461,31 @@ jobs:
           '- the portable folder carries no file of the Agility SDK (D3D12Core.dll, d3d12SDKLayers.dll, d3dconfig.exe)' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           ./installer/notices.ps1 -Folder publish/PlayMap -Summary
           ./installer/sums.ps1 -Folder publish/PlayMap -Notice
+      - name: The portable folder's licences (LicenceTests)
+        # wp3-installer: the portable folder held to its licences as the installer job holds the installer's payload
+        # (docs/round3/PLAN.md §5.6 item 4, its lines on DXC and on the notices), once its notices are laid down: of DXC its compiler
+        # alone, at the worker's pin, with its licence and notices in licenses\DXC\ and no other file of DXC's package, and
+        # THIRD-PARTY-NOTICES.md naming every package and every native library the folder carries, each package's own licence and
+        # notice files beside it. Every fact of LicenceTests runs and passes, none left out.
+        if: ${{ !inputs.d3d12 }}
+        shell: pwsh
+        env:
+          PLAYMAP_SHIPPED_DIR: ${{ github.workspace }}\publish\PlayMap
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet test installer/tests/PlayMap.Installer.Tests -c Release --filter 'FullyQualifiedName~PlayMap.Installer.Tests.LicenceTests' --logger 'trx;LogFileName=PlayMap.Installer.LicenceTests.trx' -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          $code = $LASTEXITCODE
+          $trx = 'installer/tests/PlayMap.Installer.Tests/TestResults/PlayMap.Installer.LicenceTests.trx'
+          if (-not (Test-Path $trx)) { throw "LicenceTests left no results ($trx; dotnet test answered $code)" }
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          $counters = (Select-Xml -Path $trx -XPath '//t:ResultSummary/t:Counters' -Namespace $ns).Node
+          $expected = @(Select-String -Path installer/tests/PlayMap.Installer.Tests/LicenceTests.cs -Pattern '^\s*\[Fact\]').Count
+          $counts = "$($counters.executed) of $expected executed, $($counters.passed) passed, $($counters.failed) failed, $($counters.notExecuted) not executed"
+          "- LicenceTests on the portable folder: $counts" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          if ($code -ne 0) { throw "LicenceTests failed on the portable folder ($code): $counts" }
+          if ([int]$counters.executed -ne $expected -or [int]$counters.passed -ne $expected -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0) {
+            throw "LicenceTests did not all run on the portable folder: $counts"
+          }
       - name: Upload the exe
         if: ${{ !inputs.d3d12 }}
         uses: actions/upload-artifact@v5
@@ -470,7 +495,8 @@ jobs:
 
   # wp3-installer: the installer's block (docs/round3/PLAN.md §3.5). installer builds PlayMap's installer with Inno Setup (the owner's
   # choice for this round; an MSI is revisited next round), its licence page showing installer/licence.txt, proves its life cycle
-  # elevated on the runner, checks the release order, and publishes the unsigned installer with its SHA256SUMS.
+  # elevated on the runner, holds its payload to its licences, checks the release order, and publishes the unsigned installer with
+  # its SHA256SUMS.
   installer:
     if: ${{ !inputs.d3d12 }}
     runs-on: windows-2025
@@ -631,9 +657,11 @@ jobs:
           $words = (Get-Content order.txt -Raw).Trim()
           "#### The release order", '', "- $words", '' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           if ($code -ne 0) { throw $words }
-      - name: InstallerTests and UnsignedArtifactTests (elevated)
+      - name: InstallerTests, UnsignedArtifactTests and LicenceTests (elevated)
         shell: pwsh
         env:
+          # LicenceTests read the payload, every file the installer lays down.
+          PLAYMAP_SHIPPED_DIR: ${{ steps.build.outputs.payload }}
           PLAYMAP_INSTALLER: ${{ steps.build.outputs.installer }}
           PLAYMAP_INSTALLER_VERSION: ${{ steps.build.outputs.version }}
           PLAYMAP_INSTALLER_PREVIOUS: ${{ steps.build.outputs.previous }}
@@ -652,7 +680,7 @@ jobs:
           $counters = (Select-Xml -Path $trx -XPath '//t:ResultSummary/t:Counters' -Namespace $ns).Node
           $expected = @(Select-String -Path installer/tests/PlayMap.Installer.Tests/*.cs -Pattern '^\s*\[Fact\]').Count
           $counts = "$($counters.executed) of $expected executed, $($counters.passed) passed, $($counters.failed) failed, $($counters.notExecuted) not executed"
-          "- InstallerTests and UnsignedArtifactTests: $counts" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          "- InstallerTests, UnsignedArtifactTests and LicenceTests: $counts" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
           if ($code -ne 0) { throw "the installer's tests failed ($code): $counts" }
           if ([int]$counters.executed -ne $expected -or [int]$counters.passed -ne $expected -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0) {
             throw "the installer's tests did not all run: $counts"

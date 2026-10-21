@@ -4,9 +4,12 @@
 # SDK's) and Inter's SIL Open Font License under licenses\; and, under licenses\<package>\, the licence and notice files of every
 # package the publish's PlayMap.deps.json names with files in the folder (the .NET and ASP.NET Core runtime packs among them), copied
 # from the restore as the package holds them. A package the publish carries that THIRD-PARTY-NOTICES.md does not name in backticks
-# (its id, or a family as `Prefix.*`), or one the restore does not hold, stops it with words before anything is laid down. The
-# portable folder's step and build-installer.ps1 (for the installer's payload) run it before the sums; -Summary adds its line to the
-# job's summary.
+# (its id, or a family as `Prefix.*`), or one the restore does not hold, stops it with words before anything is laid down; so does a
+# native library in the folder that no library of PlayMap.deps.json lists and THIRD-PARTY-NOTICES.md does not name by its file name
+# in backticks (the shader worker's from the engine's build, DXC's compiler and SPIRV-Tools'; in the installer's payload FFmpeg's,
+# the Agility SDK's runtime and libvmx too), and a dxcompiler.dll without DXC's licence and notices in licenses\DXC\ beside it (the
+# engine's build lays them down; this script leaves them in place). The portable folder's step and build-installer.ps1 (for the
+# installer's payload) run it before the sums; -Summary adds its line to the job's summary.
 #   installer/notices.ps1 -Folder publish/PlayMap [-Summary]
 param(
     [Parameter(Mandatory)] [string] $Folder,
@@ -61,6 +64,30 @@ foreach ($library in $json.libraries.PSObject.Properties) {
 if ($unnamed.Count -gt 0) {
     throw "the publish carries $($unnamed -join ', '), which THIRD-PARTY-NOTICES.md does not name: name each under its package's heading with its licence and copyright"
 }
+# The native libraries no library of PlayMap.deps.json lists (its packages', its runtime packs' and PlayMap's own files, by name):
+# each is named in THIRD-PARTY-NOTICES.md by its file name in backticks, and DXC's compiler has its licence and notices beside it.
+$listed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($entry in $target.PSObject.Properties) {
+    foreach ($kind in @($entry.Value.PSObject.Properties | Where-Object { $_.Name -in 'runtime', 'native', 'resources' })) {
+        foreach ($asset in $kind.Value.PSObject.Properties) { [void]$listed.Add([System.IO.Path]::GetFileName($asset.Name)) }
+    }
+}
+$natives = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Extension -eq '.dll' -and -not $listed.Contains($_.Name) } |
+    ForEach-Object { [System.IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/') } |
+    Sort-Object -Culture ([System.Globalization.CultureInfo]::InvariantCulture))
+$bareNatives = @($natives | Where-Object { -not $named.Contains('`' + [System.IO.Path]::GetFileName($_) + '`') })
+if ($bareNatives.Count -gt 0) {
+    throw "the folder carries $($bareNatives -join ', '), which no package of PlayMap.deps.json carries and THIRD-PARTY-NOTICES.md does not name: name each file in backticks under the heading of what ships it, with its licence and copyright"
+}
+$dxcNotices = 'LICENSE-LLVM.txt', 'LICENSE.TXT', 'ThirdPartyNotices.txt'
+$compilers = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Name -eq 'dxcompiler.dll' })
+foreach ($dxc in $compilers) {
+    $beside = Join-Path $dxc.DirectoryName 'licenses/DXC'
+    $lacking = @($dxcNotices | Where-Object { -not (Test-Path -LiteralPath (Join-Path $beside $_) -PathType Leaf) })
+    if ($lacking.Count -gt 0) {
+        throw "$([System.IO.Path]::GetRelativePath($root, $dxc.FullName)) has no $($lacking -join ', ') in licenses/DXC/ beside it: the engine's build lays DXC's licence and notices down with its compiler"
+    }
+}
 
 Copy-Item -LiteralPath $notices (Join-Path $root 'THIRD-PARTY-NOTICES.md')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'licenses/LGPL-2.0.txt') (Join-Path $root 'soft_oal-LICENSE.txt')
@@ -82,6 +109,7 @@ foreach ($package in ($carried | Sort-Object Id -Culture ([System.Globalization.
 }
 $line = "- the notices beside the files: THIRD-PARTY-NOTICES.md, soft_oal-LICENSE.txt, licenses/Apache-2.0.txt, licenses/Inter-OFL.txt and " +
     "$($laid.Count) licence and notice files of $($carried.Count - $bare.Count) packages ($($laid -join ', ')); " +
-    "THIRD-PARTY-NOTICES.md alone carries the licences of $($bare.Count) packages that hold no such file ($($bare -join ', '))"
+    "THIRD-PARTY-NOTICES.md alone carries the licences of $($bare.Count) packages that hold no such file ($($bare -join ', ')); " +
+    "it names the $($natives.Count) native libraries no package carries ($($natives -join ', ')); DXC's licence and notices lie in licenses/DXC/ beside each dxcompiler.dll ($($compilers.Count))"
 Write-Host $line
 if ($Summary -and $env:GITHUB_STEP_SUMMARY) { $line | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM }

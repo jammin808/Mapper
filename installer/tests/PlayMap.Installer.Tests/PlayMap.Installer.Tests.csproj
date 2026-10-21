@@ -27,4 +27,15 @@
     <ProjectReference Include="..\PlayMap.FakeEngine\PlayMap.FakeEngine.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The shader worker's pins, from the one file the worker reads them from: the installed natives and the shipped folders are
+         held to the hashes the worker loads them by. -->
+    <Compile Include="..\..\..\src\PlayMap.Engine\ShaderWorker\CompilerNatives.cs" Link="Engine\CompilerNatives.cs" />
+    <!-- The restore's package folder, where LicenceTests read DXC's package and every shipped package's own licence files. -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NuGetPackageRoot</_Parameter1>
+      <_Parameter2>$(NuGetPackageRoot)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>
