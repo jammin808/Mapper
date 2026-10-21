@@ -34,6 +34,16 @@ public sealed class EnginePidRecordTests
     public void ATextThatIsNotARecordReadsNull(string? text) => Assert.Null(EnginePidRecord.Parse(text));
 
     [Fact]
+    public void TheEnginesFolderIsTheOneFolderInsideTheSupervisorsAndHoldsTheRecordApartFromTheStatus()
+    {
+        // The supervisor's folder holds its status and log (SYSTEM's to write); the record lies in the engine's folder inside it.
+        var supervisor = SupervisorStatus.MachineFolder();
+        Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PlayMap", "supervisor"), supervisor);
+        Assert.Equal(Path.Combine(supervisor, "engine"), EnginePidRecord.MachineFolder());
+        Assert.NotEqual(EnginePidRecord.FileName, SupervisorStatus.FileName);
+    }
+
+    [Fact]
     public void ATooLongTextReadsNull() =>
         Assert.Null(EnginePidRecord.Parse("{\"pid\":4120,\"port\":7900,\"started\":1,\"x\":\"" + new string('x', EnginePidRecord.MaxBytes) + "\"}"));
 

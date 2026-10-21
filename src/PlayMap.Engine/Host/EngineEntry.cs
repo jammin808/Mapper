@@ -190,10 +190,16 @@ public static partial class EngineEntry
         }
     }
 
-    /// <summary>The supervisor's folder a run writes its pid record into: the machine's for an engine the supervisor started, none for
-    /// any other run, so a second engine on a supervised machine never takes the supervised one's record.</summary>
+    /// <summary>The engine's folder a run writes its pid record into (<see cref="Core.Machine.EnginePidRecord.MachineFolder"/>): the
+    /// machine's for an engine the supervisor started, none for any other run, so a second engine on a supervised machine never takes
+    /// the supervised one's record.</summary>
     internal static string? SupervisorFolderFor(EngineOptions options) =>
         options.Supervised ? Core.Machine.EnginePidRecord.MachineFolder() : null;
+
+    /// <summary>The supervisor's folder a run reads the supervisor's status from (<see cref="Core.Machine.SupervisorStatus.MachineFolder"/>):
+    /// the machine's for an engine the supervisor started, none for any other run.</summary>
+    internal static string? StatusFolderFor(EngineOptions options) =>
+        options.Supervised ? Core.Machine.SupervisorStatus.MachineFolder() : null;
 
     /// <summary>This machine's stop event for the engine its supervisor started (<see cref="Core.Machine.SupervisorNames.StopEvent"/>);
     /// none off Windows, which has no supervisor.</summary>

@@ -5,14 +5,22 @@ using PlayMap.Core.Storage;
 
 namespace PlayMap.Core.Machine;
 
-/// <summary>The supervisor's status file (<c>%ProgramData%\PlayMap\supervisor\status.json</c>, beside <see cref="EnginePidRecord"/>),
-/// replaced whole at every change by PlayMap.Supervisor, its one writer: its state, the engine's pid (0 none), restarts within the
-/// window, the last cause, the freeze rule's words and when (Unix ms). The engine reads it into STATE's
-/// <c>machine.install.supervisor</c>, the desk shows it while the engine is being started. It holds no secret.</summary>
+/// <summary>The supervisor's status file (<c>%ProgramData%\PlayMap\supervisor\status.json</c>, in <see cref="MachineFolder"/>, above the
+/// engine's folder that holds <see cref="EnginePidRecord"/>), replaced whole at every change by PlayMap.Supervisor, its one writer: its
+/// state, the engine's pid (0 none), restarts within the window, the last cause, the freeze rule's words and when (Unix ms). The
+/// engine reads it into STATE's <c>machine.install.supervisor</c>, the desk shows it while the engine is being started. It holds no
+/// secret.</summary>
 public sealed record SupervisorStatus(string State, int Pid, int Restarts, string LastCause, string FreezeRule, long AtUnixMs)
 {
-    /// <summary>The file's name in the supervisor's folder (<see cref="EnginePidRecord.MachineFolder"/>).</summary>
+    /// <summary>The file's name in the supervisor's folder (<see cref="MachineFolder"/>).</summary>
     public const string FileName = "status.json";
+
+    /// <summary>The supervisor's folder on this machine: <c>%ProgramData%\PlayMap\supervisor</c> on Windows (the machine-wide application
+    /// data folder's elsewhere, where no installer makes it). It holds the status file and the supervisor's log, which SYSTEM and
+    /// administrators alone may write and every account may read, and the engine's folder (<see cref="EnginePidRecord.MachineFolder"/>),
+    /// the one folder inside it the show user may write.</summary>
+    public static string MachineFolder() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PlayMap", "supervisor");
 
     /// <summary>The largest file read.</summary>
     public const int MaxBytes = 16 * 1024;

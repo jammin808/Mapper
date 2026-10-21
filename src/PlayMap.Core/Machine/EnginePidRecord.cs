@@ -6,23 +6,24 @@ using PlayMap.Core.Storage;
 namespace PlayMap.Core.Machine;
 
 /// <summary>The engine's pid record: its process id, the line wire's port (0 while the wire is closed) and when it started (Unix ms).
-/// The engine the supervisor started writes it as it comes up into the supervisor's folder, where that folder exists (the installer
-/// makes it; the engine never does), never over a record that names another PlayMap engine still running by the identity rule every
-/// reader of the record holds (<see cref="EngineIdentity"/>), and removes it on a clean stop while it still names this process. The
-/// supervisor reads it to adopt a running engine, the installer's armed check to ask that engine on loopback. It holds no secret, as
-/// the hello holds none.</summary>
+/// The engine the supervisor started writes it as it comes up into the engine's folder (<see cref="MachineFolder"/>), where that
+/// folder exists (the installer makes it; the engine never does), never over a record that names another PlayMap engine still running
+/// by the identity rule every reader of the record holds (<see cref="EngineIdentity"/>), and removes it on a clean stop while it still
+/// names this process. The supervisor reads it to adopt a running engine, the installer's armed check to ask that engine on loopback;
+/// neither writes, renames or deletes a file in its folder. It holds no secret, as the hello holds none.</summary>
 public sealed record EnginePidRecord(int Pid, int WirePort, long StartedUnixMs)
 {
-    /// <summary>The record's file name in the supervisor's folder.</summary>
+    /// <summary>The record's file name in the engine's folder.</summary>
     public const string FileName = "engine.pid";
 
     /// <summary>The largest record read; anything longer is not one.</summary>
     public const int MaxBytes = 4096;
 
-    /// <summary>The supervisor's folder on this machine: <c>%ProgramData%\PlayMap\supervisor</c> on Windows (the machine-wide
-    /// application data folder elsewhere, where no installer makes it).</summary>
-    public static string MachineFolder() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PlayMap", "supervisor");
+    /// <summary>The engine's folder on this machine, inside the supervisor's (<see cref="SupervisorStatus.MachineFolder"/>):
+    /// <c>%ProgramData%\PlayMap\supervisor\engine</c> on Windows (under the machine-wide application data folder elsewhere, where no
+    /// installer makes it). It is the one folder there the show user may write, and it holds the record alone: the supervisor, which
+    /// runs as SYSTEM, only reads it, so no file operation of SYSTEM's acts on a path the show user controls.</summary>
+    public static string MachineFolder() => Path.Combine(SupervisorStatus.MachineFolder(), "engine");
 
     /// <summary>The record as its file holds it: <c>{"pid":…,"port":…,"started":…}</c>.</summary>
     public string ToJson()

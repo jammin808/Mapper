@@ -30,9 +30,9 @@ public sealed record EngineHostOptions
     /// <summary>How often the recovery record is brought up to date when something it holds has moved.</summary>
     public TimeSpan RecoveryEvery { get; init; } = TimeSpan.FromSeconds(2);
 
-    /// <summary>The supervisor's folder the node writes its pid record into, where that folder exists (null: none; the process's
-    /// entry passes the machine's, <see cref="Core.Machine.EnginePidRecord.MachineFolder"/>, only for an engine the supervisor
-    /// started).</summary>
+    /// <summary>The engine's folder the node writes its pid record into, where that folder exists (null: none; the process's entry
+    /// passes the machine's, <see cref="Core.Machine.EnginePidRecord.MachineFolder"/> inside the supervisor's, only for an engine the
+    /// supervisor started).</summary>
     public string? SupervisorFolder { get; init; }
 }
 
@@ -211,7 +211,7 @@ public sealed class EngineHost : IAsyncDisposable
 
     private static string Port(int port) => port > 0 ? port.ToString(System.Globalization.CultureInfo.InvariantCulture) : "closed";
 
-    /// <summary>The pid record, once the doors are open (its port is the wire's as it listens), into the supervisor's folder where it
+    /// <summary>The pid record, once the doors are open (its port is the wire's as it listens), into the engine's folder where it
     /// exists. A folder that exists but takes no record is a fault: the supervisor cannot adopt this engine, nor the installer ask it;
     /// a record that names another engine still running stays that engine's.</summary>
     private void WritePidRecord(long startedUnixMs)
