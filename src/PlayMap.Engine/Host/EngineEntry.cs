@@ -1,16 +1,18 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using Microsoft.Extensions.Logging;
 using PlayMap.Net;
 
 namespace PlayMap.Engine.Host;
 
 /// <summary>"PlayMap engine [headless] …": the node process. The exe's Main hands it the command line when the first
-/// word is "engine"; it runs the node until it is asked to stop (Ctrl+C, SIGTERM, the service manager) and answers the
-/// process's exit code. The node outlives its desk (docs/ARCHITECTURE.md §1: a desk that closes never blanks a
-/// projector) — a desk that leaves is noted in the journal and the show plays on. The engine has no console: what it
-/// says goes to playmap.engine.log in the node's folder (bad arguments included), and the show's record to its
-/// journal.</summary>
+/// word is "engine"; it runs the node until it is asked to stop (Ctrl+C, SIGTERM, the service manager, and for an engine
+/// the supervisor started, the supervisor's stop event) and answers the process's exit code. The node outlives its desk
+/// (docs/ARCHITECTURE.md §1: a desk that closes never blanks a projector) — a desk that leaves is noted in the journal and
+/// the show plays on. The engine has no console: what it says goes to playmap.engine.log in the node's folder (bad
+/// arguments included), and the show's record to its journal.</summary>
 public static partial class EngineEntry
 {
     /// <summary>Asked to stop, and stopped cleanly.</summary>
@@ -85,8 +87,16 @@ public static partial class EngineEntry
         return code;
     }
 
-    /// <summary>The node's life: parse, pick the home, log, start, run until <paramref name="stop"/>, stop.</summary>
-    internal static async Task<int> RunAsync(IReadOnlyList<string> args, EngineParts parts, CancellationToken stop, ILoggerProvider? extraLog = null)
+    /// <summary>Opens the event a supervisor sets to stop the engine it started: the handle to wait on, or null with why there is
+    /// none.</summary>
+    internal delegate WaitHandle? StopEventOpener(out string why);
+
+    /// <summary>The node's life: parse, pick the home, log, start, run until <paramref name="stop"/> or, for an engine the supervisor
+    /// started (<c>--supervised</c>), until its stop event is set — opened by <paramref name="supervisorStop"/>, this machine's
+    /// (<see cref="OpenThisMachinesStopEvent"/>) when none is given — then stop: either way the same stop, the doors closed in order,
+    /// the recovery record written and the journal flushed.</summary>
+    internal static async Task<int> RunAsync(IReadOnlyList<string> args, EngineParts parts, CancellationToken stop, ILoggerProvider? extraLog = null,
+        StopEventOpener? supervisorStop = null)
     {
         var options = EngineOptions.Parse(args, out var error);
         if (error is null && args.Contains("--home") && options.Home is null)
@@ -132,6 +142,9 @@ public static partial class EngineEntry
         {
             log.LogInformation("{Build}: the engine starts{Headless} in {Home} (process {Pid}).", build, options.Headless ? " headless" : "", home.Folder,
                 Environment.ProcessId);
+            using var supervisor = options.Supervised ? StopEvent.Open(supervisorStop ?? OpenThisMachinesStopEvent, log) : null;
+            using var asked = supervisor is null ? null : CancellationTokenSource.CreateLinkedTokenSource(stop, supervisor.Token);
+            var running = asked?.Token ?? stop;
             await using var host = new EngineHost(options, home, new EngineHostOptions
             {
                 Parts = parts,
@@ -140,21 +153,29 @@ public static partial class EngineEntry
             });
             try
             {
-                await host.StartAsync(stop);
+                await host.StartAsync(running);
             }
             catch (BindRefusedException ex)
             {
                 log.LogError(ex, "The engine did not start: {Why}", ex.Message);
                 return BindRefused;
             }
-            catch (OperationCanceledException ex) when (stop.IsCancellationRequested)
+            catch (OperationCanceledException ex) when (running.IsCancellationRequested)
             {
-                log.LogInformation(ex, "The engine was asked to stop while it started.");
+                log.LogInformation(ex, "The engine was asked to stop while it started{By}.", supervisor is { WasSet: true } ? " (by the supervisor)" : "");
                 return Stopped;
             }
-            var desk = options.DeskPid is { } pid ? WatchDeskAsync(pid, host.Engine, log, stop) : Task.CompletedTask;
-            await Waits.DelayAsync(Timeout.InfiniteTimeSpan, stop);
-            log.LogInformation("The engine was asked to stop.");
+            var desk = options.DeskPid is { } pid ? WatchDeskAsync(pid, host.Engine, log, running) : Task.CompletedTask;
+            await Waits.DelayAsync(Timeout.InfiniteTimeSpan, running);
+            if (supervisor is { WasSet: true })
+            {
+                host.Engine.Journal.Add("node", "the supervisor asked the engine to stop");
+                log.LogInformation("The engine was asked to stop by the supervisor.");
+            }
+            else
+            {
+                log.LogInformation("The engine was asked to stop.");
+            }
             await desk;
             return Stopped;
         }
@@ -173,6 +194,37 @@ public static partial class EngineEntry
     /// any other run, so a second engine on a supervised machine never takes the supervised one's record.</summary>
     internal static string? SupervisorFolderFor(EngineOptions options) =>
         options.Supervised ? Core.Machine.EnginePidRecord.MachineFolder() : null;
+
+    /// <summary>This machine's stop event for the engine its supervisor started (<see cref="Core.Machine.SupervisorNames.StopEvent"/>);
+    /// none off Windows, which has no supervisor.</summary>
+    internal static WaitHandle? OpenThisMachinesStopEvent(out string why)
+    {
+        if (OperatingSystem.IsWindows())
+            return OpenStopEvent(Core.Machine.SupervisorNames.StopEvent, out why);
+        why = "only Windows has a supervisor's stop event";
+        return null;
+    }
+
+    /// <summary>The named event <paramref name="name"/>, opened with Synchronize alone — the one right the supervisor's ACL gives the
+    /// show user, enough to wait on it and never to set or clear it — or null with why it could not be.</summary>
+    [SupportedOSPlatform("windows")]
+    internal static WaitHandle? OpenStopEvent(string name, out string why)
+    {
+        try
+        {
+            if (EventWaitHandleAcl.TryOpenExisting(name, EventWaitHandleRights.Synchronize, out var opened))
+            {
+                why = "";
+                return opened;
+            }
+            why = $"{name} does not exist";
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
+        {
+            why = $"{name} could not be opened: {ex.Message}";
+        }
+        return null;
+    }
 
     /// <summary>Notes when the desk that started this engine goes away. The engine keeps playing: a desk that closes or
     /// faults never blanks a projector, and a desk that comes back attaches again.</summary>
@@ -201,6 +253,59 @@ public static partial class EngineEntry
         }
         engine.Journal.Add("node", "the desk closed; the engine keeps playing and the desk attaches again when it is back");
         log.LogInformation("The desk (process {Pid}) closed; the engine keeps playing.", pid);
+    }
+
+    /// <summary>The supervisor's stop event, waited on for the engine's life: its token is cancelled once the event is set, and the wait
+    /// on it ends when it is disposed.</summary>
+    private sealed class StopEvent : IDisposable
+    {
+        private readonly WaitHandle _event;
+        private readonly CancellationTokenSource _set = new();
+        private readonly RegisteredWaitHandle _wait;
+
+        private StopEvent(WaitHandle stopEvent)
+        {
+            _event = stopEvent;
+            _wait = ThreadPool.RegisterWaitForSingleObject(stopEvent, Set, null, Timeout.Infinite, executeOnlyOnce: true);
+        }
+
+        /// <summary>Cancelled once the supervisor has set the event.</summary>
+        public CancellationToken Token => _set.Token;
+
+        /// <summary>Whether the supervisor has set the event.</summary>
+        public bool WasSet => _set.IsCancellationRequested;
+
+        /// <summary>The event <paramref name="open"/> gives, waited on; null, said in the log, when it gives none: the engine then stops
+        /// by its signals alone, and the supervisor's stop ends in termination after its grace.</summary>
+        public static StopEvent? Open(StopEventOpener open, ILogger log)
+        {
+            if (open(out var why) is not { } opened)
+            {
+                log.LogWarning("The supervisor's stop event is not waited on ({Why}): its stop ends this engine only by termination.", why);
+                return null;
+            }
+            log.LogInformation("The engine waits on the supervisor's stop event.");
+            return new StopEvent(opened);
+        }
+
+        private void Set(object? state, bool timedOut)
+        {
+            try
+            {
+                _set.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The engine had stopped already: there is nothing left to stop.
+            }
+        }
+
+        public void Dispose()
+        {
+            _wait.Unregister(null);
+            _set.Dispose();
+            _event.Dispose();
+        }
     }
 
     /// <summary>Ctrl+C, SIGTERM (a service manager's stop) and, on Unix, SIGQUIT ask the node to stop; the default

@@ -63,7 +63,9 @@ engine, on a shared second context (§5).
   folder exists — no installer makes it yet (round 3's installer is to, docs/round3/design/installer.md §2), and the engine never
   does — never over a record that names another engine still running (that is a fault in STATE, with the other engine's
   pid), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
-  installer's armed check needs to ask it on loopback, and no secret.
+  installer's armed check needs to ask it on loopback, and no secret. That engine also waits on the supervisor's stop event
+  (`Global\PlayMap-Engine-Stop`, opened with Synchronize alone, the one right the show user has on it): once it is set the engine
+  stops as any asked stop does, and journals that the supervisor asked.
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
