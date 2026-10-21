@@ -6,8 +6,8 @@ namespace PlayMap.Engine.Tests.Spine;
 
 /// <summary>STATE.show.lastGo is the last accepted GO on each playlist the project holds, newest first: its leader time (the one the GO
 /// fence counts from), its time on the node's wall clock, and the session, transport and name it came from. PLAYLIST GO, NEXT and PREV
-/// and VIDEO PLAY and RESTART each write their playlist's row; a GO the fence refuses writes nothing; SHOW's reply carries the same
-/// rows.</summary>
+/// and VIDEO PLAY and RESTART each write their playlist's row with the session that sent it; a GO the fence refuses, or the playback
+/// refuses (a NEXT at the last item, a PLAY on a clip already playing), writes nothing; SHOW's reply carries the same rows.</summary>
 public sealed class LastGoTests
 {
     /// <summary>ShowRig's screen with a second playlist, pl_two, of one item.</summary>
@@ -69,6 +69,26 @@ public sealed class LastGoTests
         Assert.Equal(["pl_two", "pl_show"], lastGo.EnumerateArray().Select(r => r.GetProperty("playlist").GetString()));
         Is(lastGo[0], first + 1_250_000_000, wall + 1_250, "d1", "desk", "Desk");
         Assert.Equal(lastGo.GetRawText(), JsonDocument.Parse(await rig.Ok("SHOW")).RootElement.GetProperty("lastGo").GetRawText());
+
+        // PREV from MCP's session, once the window after the RESTART has closed: the row is MCP's.
+        rig.Advance(250);
+        await rig.Ok("PLAYLIST PREV pl_show", ShowRig.Mcp);
+        Is(Row(rig.Show().GetProperty("lastGo"), "pl_show"), first + 1_500_000_000, wall + 1_500, "m1", "mcp", "MCP");
+
+        // A PAUSE is no GO and leaves the row; the PLAY after it is Companion's GO.
+        rig.Advance(500);
+        await rig.Ok("VIDEO PAUSE ON pl_show", ShowRig.Remote);
+        Is(Row(rig.Show().GetProperty("lastGo"), "pl_show"), first + 1_500_000_000, wall + 1_500, "m1", "mcp", "MCP");
+        await rig.Ok("VIDEO PLAY ON pl_show", ShowRig.Companion);
+        Is(Row(rig.Show().GetProperty("lastGo"), "pl_show"), first + 2_000_000_000, wall + 2_000, "c1", "companion", "Companion: FOH deck");
+
+        // GOs the fence lets through and the playback refuses write nothing: a PLAY on a clip already playing, a NEXT at the last item.
+        rig.Advance(500);
+        var before = rig.Show().GetProperty("lastGo").GetRawText();
+        Assert.Equal("already playing", await rig.Refused("VIDEO PLAY ON pl_show", ShowRig.Remote));
+        Assert.Equal(before, rig.Show().GetProperty("lastGo").GetRawText());
+        Assert.Equal("Two is at its last item", await rig.Refused("PLAYLIST NEXT pl_two", ShowRig.Remote));
+        Assert.Equal(before, rig.Show().GetProperty("lastGo").GetRawText());
 
         // A playlist the project no longer holds has no row.
         await rig.Ok("VIDEO STOP ON pl_two");
