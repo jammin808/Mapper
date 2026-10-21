@@ -91,8 +91,9 @@ public sealed record MediaTransferOptions
     /// set, the token itself is never sent.</summary>
     public Action<HttpRequestMessage>? Sign { get; init; }
 
-    /// <summary>The longest a peer may send nothing (no answer to a request, no byte of a body it is sending) before the try is given
-    /// up as stalled, with words that say so. The bandwidth bucket's waits and the disk's are not the peer's silence.</summary>
+    /// <summary>The longest a chunk's body may send nothing, counted on the transfer's clock while a read of it waits, before the try is
+    /// given up as stalled with words that say so. The bandwidth bucket's waits and the disk's are not the peer's silence; the list and
+    /// each answer's headers are bounded by the client's own timeout instead. 10 s is a chosen bound, not a measured one.</summary>
     public TimeSpan Quiet { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>How often a pull says how far it is while its blocks land; every chunk's end and the verifying are said whatever this.</summary>
@@ -131,10 +132,11 @@ public enum MediaPullOutcome
 public sealed record MediaPullResult(MediaPullOutcome Outcome, string Words, long BytesFetched, int ChunksFetched, int ChunksResumed);
 
 /// <summary>Content-addressed pulls between nodes (docs/ARCHITECTURE.md §7): a file is asked for by its SHA-256 from a
-/// peer's <c>/api/media/&lt;hash&gt;</c> in ranged chunks, 2–4 in flight, through a bandwidth bucket. Each chunk's body is read and
-/// written in blocks of <see cref="BlockBytes"/> (a pull's cost in thread-pool turns follows its blocks), and a peer that sends
-/// nothing for <see cref="MediaTransferOptions.Quiet"/> ends that try with words that say so (<see cref="Trouble"/>); a chunk is
-/// tried <see cref="MediaTransferOptions.ChunkAttempts"/> times. Chunks land in "&lt;file&gt;.part" at their offsets and a sidecar
+/// peer's <c>/api/media/&lt;hash&gt;</c> in ranged chunks, 2–4 in flight, through a bandwidth bucket. Each chunk's body is gathered
+/// into blocks of <see cref="BlockBytes"/>, each written to the part file at once, and a body that sends nothing for
+/// <see cref="MediaTransferOptions.Quiet"/> on the transfer's clock ends that try with words that say so (<see cref="Trouble"/>); a
+/// chunk is tried <see cref="MediaTransferOptions.ChunkAttempts"/> times. The list and each answer's headers wait as long as the
+/// client's own timeout. Chunks land in "&lt;file&gt;.part" at their offsets and a sidecar
 /// bitmap ("&lt;file&gt;.part.map", rewritten atomically after each chunk) says which are done, so an interrupted pull resumes where
 /// it stopped. The whole file is hashed at the end; only a match is renamed into place (atomically) — a mismatch keeps nothing.</summary>
 public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaTransferOptions? options = null, ILogger? log = null, IMonoClock? clock = null)
@@ -150,32 +152,30 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
     public TokenBucket Bandwidth => bandwidth;
 
     /// <summary>Raised as a pull's blocks land (at most every <see cref="MediaTransferOptions.ProgressEvery"/>), after each chunk, and
-    /// once every byte is in, before the whole file is hashed (on a worker; a handler keeps it short).</summary>
+    /// once every byte is in, before the whole file is hashed. A pull's bytes never step back from one to the next: each is raised
+    /// under the pull's own gate, in the order its blocks landed (on a worker, holding up the pull's other chunks while it runs; a
+    /// handler keeps it short).</summary>
     public event Action<MediaProgress>? Progress;
 
     /// <summary>Raised for each try at a chunk that failed, with what the peer did instead (on a worker; a handler keeps it short).</summary>
     public event Action<MediaTrouble>? Trouble;
 
-    /// <summary>The files a peer offers (<c>GET /api/media</c>); a peer that does not answer the whole list within
-    /// <see cref="MediaTransferOptions.Quiet"/> is a <see cref="TimeoutException"/> that says so.</summary>
+    /// <summary>The files a peer offers (<c>GET /api/media</c>); a peer that does not answer the whole list within the client's own
+    /// timeout is a <see cref="TimeoutException"/> that says so.</summary>
     public async Task<IReadOnlyList<MediaManifestEntry>> ManifestAsync(Uri peer, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(peer);
         string text;
-        using (var quiet = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        try
         {
-            quiet.CancelAfter(_o.Quiet);
-            try
-            {
-                using var request = Request(new Uri(peer, "/api/media"));
-                using var response = await http.SendAsync(request, quiet.Token);
-                response.EnsureSuccessStatusCode();
-                text = await response.Content.ReadAsStringAsync(quiet.Token);
-            }
-            catch (OperationCanceledException) when (quiet.IsCancellationRequested && !ct.IsCancellationRequested)
-            {
-                throw new TimeoutException($"{peer.Authority} did not answer its media list in {Seconds(_o.Quiet)}");
-            }
+            using var request = Request(new Uri(peer, "/api/media"));
+            using var response = await http.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+            text = await response.Content.ReadAsStringAsync(ct);
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException && !ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"{peer.Authority} did not answer its media list in {Seconds(http.Timeout)}", ex);
         }
         using var doc = JsonDocument.Parse(text);
         var list = new List<MediaManifestEntry>();
@@ -210,7 +210,8 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
         var chunks = (int)((size + chunkBytes - 1) / chunkBytes);
         var done = LoadMap(mapPath, part, hash, size, chunkBytes, chunks);
         var resumed = done.Count(d => d);
-        // The bytes in place of each chunk still coming (a whole chunk counts once it is marked done).
+        // The bytes in place of each chunk still coming: the most any try at it has written, since a try that starts the chunk again
+        // writes the same bytes over them (a whole chunk counts once it is marked done).
         var coming = new long[chunks];
         var fetched = 0;
         long bytes = 0;
@@ -225,22 +226,20 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                 landed += done[k] ? ChunkLength(k) : coming[k];
             return new MediaProgress(hash, landed, size, done.Count(d => d), chunks, resumed, stage);
         }
-        // A block of chunk i landed (or its try failed and it starts again from 0): said at most every ProgressEvery.
+        // A block of chunk i landed: said at most every ProgressEvery, under the gate, so what is said never steps back.
         void Landed(int i, long inPlace)
         {
-            MediaProgress? say = null;
             lock (mapGate)
             {
+                if (inPlace <= coming[i])
+                    return;
                 coming[i] = inPlace;
                 var now = _clock.NowNs;
-                if (inPlace > 0 && now >= sayAtNs)
-                {
-                    sayAtNs = now + _o.ProgressEvery.Ticks * 100;
-                    say = Now(MediaPullStage.Receiving);
-                }
+                if (now < sayAtNs)
+                    return;
+                sayAtNs = now + _o.ProgressEvery.Ticks * TimeSpan.NanosecondsPerTick;
+                Raise(Now(MediaPullStage.Receiving));
             }
-            if (say is not null)
-                Raise(say);
         }
         using (var handle = File.OpenHandle(part, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, FileOptions.Asynchronous))
         {
@@ -265,7 +264,6 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                         Interlocked.CompareExchange(ref failure, $"{chunk} could not be had: {why}", "");
                         return;
                     }
-                    MediaProgress progress;
                     lock (mapGate)
                     {
                         done[i] = true;
@@ -273,10 +271,9 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                         fetched++;
                         bytes += length;
                         SaveMap(mapPath, hash, size, chunkBytes, done);
-                        progress = Now(MediaPullStage.Receiving);
-                        sayAtNs = _clock.NowNs + _o.ProgressEvery.Ticks * 100;
+                        sayAtNs = _clock.NowNs + _o.ProgressEvery.Ticks * TimeSpan.NanosecondsPerTick;
+                        Raise(Now(MediaPullStage.Receiving));
                     }
-                    Raise(progress);
                 }
             }
             var workers = Enumerable.Range(0, Math.Clamp(Math.Min(_o.Parallelism, Math.Max(1, chunks)), 1, 4)).Select(_ => Task.Run(WorkerAsync, CancellationToken.None)).ToList();
@@ -300,8 +297,8 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
     }
 
     /// <summary>One chunk into its place, tried again on a transient failure: null once it is in place, else what the last try met.
-    /// Each failed try is said (<see cref="Trouble"/>, "chunk 1 of 3 from &lt;address&gt;: sent nothing for 10 s, …") and starts the
-    /// chunk again from its first byte.</summary>
+    /// Each failed try is said (<see cref="Trouble"/>, "chunk 1 of 3 from &lt;address&gt;: sent nothing for 10 s, …"), and the try after
+    /// it starts the chunk again from its first byte.</summary>
     private async Task<string?> ChunkAsync(Uri url, SafeFileHandle handle, string hash, string chunk, long start, int length, long size, Action<long> landed, CancellationToken ct)
     {
         var attempts = Math.Max(1, _o.ChunkAttempts);
@@ -318,7 +315,6 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
             {
                 why = ex.Message;
             }
-            landed(0);
             _log.LogInformation("A media chunk's try failed ({Chunk}, try {Attempt} of {Attempts}): {Why}", chunk, attempt, attempts, why);
             RaiseTrouble(new MediaTrouble(hash, $"{chunk}: {why}", attempt, attempts));
             if (attempt < attempts && !await Waits.DelayAsync(TimeSpan.FromMilliseconds(250 * attempt), ct))
@@ -329,25 +325,22 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
     }
 
     /// <summary>One try at one chunk: null when every byte of it is in place, else what the peer did instead ("sent nothing for
-    /// 10 s, …"). The peer's answer and each read of its body are given <see cref="MediaTransferOptions.Quiet"/>; the time the
-    /// bandwidth bucket and the disk take is not the peer's silence. The body is read and written in blocks of <see cref="BlockBytes"/>;
-    /// <paramref name="landed"/> hears the chunk's bytes in place after each block.</summary>
+    /// 10 s, …"). The answer's headers wait as long as the client's own timeout; each read of the body waits as long as
+    /// <see cref="MediaTransferOptions.Quiet"/> on the transfer's clock (<see cref="Silence"/>), and the time the bandwidth bucket and
+    /// the disk take between reads is not the peer's silence. The body is gathered into blocks of <see cref="BlockBytes"/>, each written
+    /// at once; <paramref name="landed"/> hears the chunk's bytes in place after each block.</summary>
     private async Task<string?> FetchAsync(Uri url, SafeFileHandle handle, long start, int length, long size, Action<long> landed, CancellationToken ct)
     {
         using var request = Request(url);
         request.Headers.Range = new RangeHeaderValue(start, start + length - 1);
         HttpResponseMessage response;
-        using (var answer = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        try
         {
-            answer.CancelAfter(_o.Quiet);
-            try
-            {
-                response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, answer.Token);
-            }
-            catch (OperationCanceledException) when (answer.IsCancellationRequested && !ct.IsCancellationRequested)
-            {
-                return $"did not answer in {Seconds(_o.Quiet)}";
-            }
+            response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException && !ct.IsCancellationRequested)
+        {
+            return $"did not answer in {Seconds(http.Timeout)}";
         }
         using (response)
         {
@@ -361,6 +354,7 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                     return "answered a range other than the one asked for";   // which is not this chunk
             }
             await using var body = await response.Content.ReadAsStreamAsync(ct);
+            await using var silence = new Silence(_clock, _o.Quiet, ct);
             var blockBytes = Math.Min(BlockBytes, length);
             var block = ArrayPool<byte>.Shared.Rent(blockBytes);
             try
@@ -370,19 +364,17 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                 while (written + held < length)
                 {
                     int n;
-                    using (var silence = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                    silence.Reading();
+                    try
                     {
-                        silence.CancelAfter(_o.Quiet);
-                        try
-                        {
-                            n = await body.ReadAsync(block.AsMemory(held, Math.Min(blockBytes - held, length - written - held)), silence.Token);
-                        }
-                        catch (OperationCanceledException) when (silence.IsCancellationRequested && !ct.IsCancellationRequested)
-                        {
-                            return string.Create(CultureInfo.InvariantCulture,
-                                $"sent nothing for {Seconds(_o.Quiet)}, {written + held} of {length} bytes in");
-                        }
+                        n = await body.ReadAsync(block.AsMemory(held, Math.Min(blockBytes - held, length - written - held)), silence.Token);
                     }
+                    catch (OperationCanceledException) when (silence.Met && !ct.IsCancellationRequested)
+                    {
+                        return string.Create(CultureInfo.InvariantCulture,
+                            $"sent nothing for {Seconds(_o.Quiet)}, {written + held} of {length} bytes in");
+                    }
+                    silence.Heard();
                     if (n == 0)
                         return string.Create(CultureInfo.InvariantCulture, $"ended the chunk at {written + held} of {length} bytes");
                     await bandwidth.TakeAsync(n, ct);
@@ -405,6 +397,65 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
     }
 
     private static string Seconds(TimeSpan t) => t.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) + " s";
+
+    /// <summary>The silence of one body as the transfer's clock counts it: each read is marked as it starts (<see cref="Reading"/>) and
+    /// as it returns (<see cref="Heard"/>), so only the time a read waits for the peer is counted. A watch steps on the runtime's timer
+    /// (<see cref="Step"/>) and cuts the read (<see cref="Token"/>) once one has waited <see cref="MediaTransferOptions.Quiet"/> on the
+    /// clock; on a clock a test moves by hand no silence is counted until the test moves it. Disposing it stops the watch.</summary>
+    private sealed class Silence : IAsyncDisposable
+    {
+        private const long NotReading = long.MinValue;
+        private readonly IMonoClock _clock;
+        private readonly long _quietNs;
+        private readonly CancellationTokenSource _cut;
+        private readonly CancellationTokenSource _done = new();
+        private readonly Task _watch;
+        private long _sinceNs = NotReading;
+        private int _met;
+
+        public Silence(IMonoClock clock, TimeSpan quiet, CancellationToken ct)
+        {
+            _clock = clock;
+            _quietNs = quiet.Ticks * TimeSpan.NanosecondsPerTick;
+            _cut = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _watch = WatchAsync(Step(quiet));
+        }
+
+        /// <summary>How often the silence is looked at: an eighth of the quiet, from 20 to 250 ms, so a stall is called at most a step
+        /// after the quiet has passed on the clock.</summary>
+        private static TimeSpan Step(TimeSpan quiet) => TimeSpan.FromMilliseconds(Math.Clamp(quiet.TotalMilliseconds / 8, 20, 250));
+
+        /// <summary>Cancelled when a read has waited the quiet, or with the pull.</summary>
+        public CancellationToken Token => _cut.Token;
+
+        /// <summary>The quiet was met: a read waited it out.</summary>
+        public bool Met => Volatile.Read(ref _met) != 0;
+
+        public void Reading() => Interlocked.Exchange(ref _sinceNs, _clock.NowNs);
+
+        public void Heard() => Interlocked.Exchange(ref _sinceNs, NotReading);
+
+        private async Task WatchAsync(TimeSpan step)
+        {
+            while (await Waits.DelayAsync(step, _done.Token))
+            {
+                var since = Interlocked.Read(ref _sinceNs);
+                if (since == NotReading || _clock.NowNs - since < _quietNs)
+                    continue;
+                Volatile.Write(ref _met, 1);
+                await _cut.CancelAsync();
+                return;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _done.CancelAsync();
+            await _watch;
+            _done.Dispose();
+            _cut.Dispose();
+        }
+    }
 
     private HttpRequestMessage Request(Uri url)
     {

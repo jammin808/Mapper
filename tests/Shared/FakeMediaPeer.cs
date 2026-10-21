@@ -7,32 +7,50 @@ namespace PlayMap.Tests;
 
 /// <summary>
 /// A peer's web port reduced to the two routes a media pull asks, over plain HTTP/1.1 on loopback, for the faults a real node does not
-/// make on purpose: its list of files (<c>GET /api/media</c>: the one file, listed <c>listed</c> times) and the file by its hash
-/// (<c>GET /api/media/&lt;hash&gt;</c>: one byte range, answered 206). With <c>stallAfter</c> each answer for the file falls silent after
-/// that many bytes of its body, the connection held open; with <c>answersList</c> false the list is asked for and never answered.
+/// make on purpose: its list of files (<c>GET /api/media</c>: each file, listed <c>listed</c> times) and a file by its hash
+/// (<c>GET /api/media/&lt;hash&gt;</c>: one byte range, answered 206). With <c>stallAfter</c> each answer for a file falls silent after
+/// that many bytes of its body, the connection held open; with <c>pauseAfter</c> it sends nothing for <c>pauseFor</c> of real time
+/// after that many bytes and then the rest; with <c>answerAfter</c> each answer's head waits that long first; with <c>answersList</c>
+/// false the list is asked for and never answered; <c>listStatus</c> and <c>fileStatus</c> other than 200 and 206 answer the list or
+/// the file with that status and nothing else.
 /// </summary>
 internal sealed class FakeMediaPeer : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly CancellationTokenSource _stop = new();
-    private readonly string _hash;
-    private readonly byte[] _file;
+    private readonly IReadOnlyList<(string Hash, byte[] File)> _files;
     private readonly long? _stallAfter;
+    private readonly long? _pauseAfter;
+    private readonly TimeSpan _pauseFor;
+    private readonly TimeSpan _answerAfter;
     private readonly bool _answersList;
     private readonly int _listed;
+    private readonly int _listStatus;
+    private readonly int _fileStatus;
     private readonly Lock _gate = new();
     private readonly List<Task> _connections = [];
     private readonly Task _accepting;
     private int _listAsks;
     private int _fileAsks;
 
-    public FakeMediaPeer(string hash, byte[] file, long? stallAfter = null, bool answersList = true, int listed = 1)
+    public FakeMediaPeer(string hash, byte[] file, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200, int fileStatus = 206,
+        TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default)
+        : this([(hash, file)], stallAfter, answersList, listed, listStatus, fileStatus, answerAfter, pauseAfter, pauseFor)
     {
-        _hash = hash;
-        _file = file;
+    }
+
+    public FakeMediaPeer(IReadOnlyList<(string Hash, byte[] File)> files, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200,
+        int fileStatus = 206, TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default)
+    {
+        _files = files;
         _stallAfter = stallAfter;
         _answersList = answersList;
         _listed = listed;
+        _listStatus = listStatus;
+        _fileStatus = fileStatus;
+        _answerAfter = answerAfter;
+        _pauseAfter = pauseAfter;
+        _pauseFor = pauseFor;
         _listener.Start();
         Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         _accepting = AcceptAsync();
@@ -43,7 +61,7 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
     /// <summary>Requests for the list of files heard.</summary>
     public int ListAsks => Volatile.Read(ref _listAsks);
 
-    /// <summary>Requests for the file heard (one per try at a chunk).</summary>
+    /// <summary>Requests for a file heard (one per try at a chunk).</summary>
     public int FileAsks => Volatile.Read(ref _fileAsks);
 
     private async Task AcceptAsync()
@@ -74,6 +92,9 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
             {
                 var lines = head.Split("\r\n");
                 var target = lines[0].Split(' ') is { Length: > 1 } parts ? parts[1] : "";
+                if (_answerAfter > TimeSpan.Zero)
+                    await Task.Delay(_answerAfter, ct);
+                var file = _files.FirstOrDefault(f => target == "/api/media/" + f.Hash).File;
                 if (target == "/api/media")
                 {
                     Interlocked.Increment(ref _listAsks);
@@ -82,21 +103,38 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
                         await HoldAsync(stream, ct);
                         return;
                     }
-                    var row = string.Create(CultureInfo.InvariantCulture, $"{{\"hash\":\"{_hash}\",\"size\":{_file.Length},\"name\":\"clip.bin\"}}");
-                    var body = Encoding.UTF8.GetBytes("[" + string.Join(",", Enumerable.Repeat(row, _listed)) + "]");
+                    if (_listStatus != 200)
+                    {
+                        await StatusAsync(stream, _listStatus, ct);
+                        continue;
+                    }
+                    var rows = _files.SelectMany(f => Enumerable.Repeat(
+                        string.Create(CultureInfo.InvariantCulture, $"{{\"hash\":\"{f.Hash}\",\"size\":{f.File.Length},\"name\":\"clip.bin\"}}"), _listed));
+                    var body = Encoding.UTF8.GetBytes("[" + string.Join(",", rows) + "]");
                     await stream.WriteAsync(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture,
                         $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\n\r\n")), ct);
                     await stream.WriteAsync(body, ct);
                 }
-                else if (target == "/api/media/" + _hash)
+                else if (file is not null)
                 {
                     Interlocked.Increment(ref _fileAsks);
-                    var (from, to) = RangeOf(lines) ?? (0, _file.Length - 1);
+                    if (_fileStatus != 206)
+                    {
+                        await StatusAsync(stream, _fileStatus, ct);
+                        continue;
+                    }
+                    var (from, to) = RangeOf(lines) ?? (0, file.Length - 1);
                     var length = to - from + 1;
                     await stream.WriteAsync(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture,
-                        $"HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nContent-Range: bytes {from}-{to}/{_file.Length}\r\nContent-Length: {length}\r\n\r\n")), ct);
+                        $"HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nContent-Range: bytes {from}-{to}/{file.Length}\r\nContent-Length: {length}\r\n\r\n")), ct);
                     var send = _stallAfter is { } some ? Math.Min(some, length) : length;
-                    await stream.WriteAsync(_file.AsMemory((int)from, (int)send), ct);
+                    var first = _pauseAfter is { } pause ? Math.Min(pause, send) : send;
+                    await stream.WriteAsync(file.AsMemory((int)from, (int)first), ct);
+                    if (first < send)
+                    {
+                        await Task.Delay(_pauseFor, ct);
+                        await stream.WriteAsync(file.AsMemory((int)(from + first), (int)(send - first)), ct);
+                    }
                     if (send < length)
                     {
                         await HoldAsync(stream, ct);
@@ -105,7 +143,7 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
                 }
                 else
                 {
-                    await stream.WriteAsync("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"u8.ToArray(), ct);
+                    await StatusAsync(stream, 404, ct);
                 }
             }
         }
@@ -114,6 +152,9 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
             // The client went away or the peer stopped: this connection is done.
         }
     }
+
+    private static Task StatusAsync(NetworkStream stream, int status, CancellationToken ct) =>
+        stream.WriteAsync(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture, $"HTTP/1.1 {status} Refused\r\nContent-Length: 0\r\n\r\n")), ct).AsTask();
 
     /// <summary>One request's head (a pull's requests carry no body), or null once the client has closed the connection.</summary>
     private static async Task<string?> ReadHeadAsync(NetworkStream stream, CancellationToken ct)

@@ -5,9 +5,8 @@ using Microsoft.AspNetCore.Http.Headers;
 
 namespace PlayMap.Net.Http;
 
-/// <summary>A file a node holds by its SHA-256, answered with one byte range (RFC 9110 §14) and written from the disk to the socket in
-/// blocks of <see cref="BlockBytes"/>: a pull's cost in thread-pool turns follows its blocks, so a megabyte costs a few turns on the
-/// holder, never one per 64 KiB. The strong ETag is the hash. One satisfiable <c>bytes</c> range answers 206 with its
+/// <summary>A file a node holds by its SHA-256, answered with one byte range (RFC 9110 §14) and written from the disk to the response in
+/// blocks of <see cref="BlockBytes"/>, one read and one write each. The strong ETag is the hash. One satisfiable <c>bytes</c> range answers 206 with its
 /// <c>Content-Range</c>; one that starts past the end answers 416 with the file's length; anything else (no range, several, another
 /// unit, an <c>If-Range</c> that is not the ETag) answers the whole file with 200, as a server may always ignore a range. HEAD answers
 /// the headers alone. A file shorter on the disk than when it was opened ends the connection, so a reader never takes a short body
