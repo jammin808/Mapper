@@ -7,12 +7,12 @@ using PlayMap.App.Infrastructure;
 
 namespace PlayMap.App.Tests.Ux;
 
-/// <summary>The status rules, from the desk's own files and each theme's tokens: every light in every template, every status drawn in a
-/// light's brush and every light a canvas draws is paired with a shape and a word (✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i
-/// information); ok, warn and fault each at least 3:1 against the panels of every theme (dark, the dark room, daylight, and each one's
-/// blind grey) — the plan's pairwise 3:1 cannot hold for lights legible on a dark panel; the dark palette is Theme/Tokens.axaml's; red
-/// marks the air and faults, and among the styles only the air's draw it; no animation repeats faster than 2 Hz; and the desk's
-/// brightness and theme are this desk's, kept in desk.json.</summary>
+/// <summary>The status rules, from the desk's own files and each theme's tokens: every light in every template and every status drawn
+/// in a light's brush is paired with a shape and a word (✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i information), and every light a
+/// canvas draws with its shape; ok, warn and fault each at least 3:1 against every surface a light is drawn on in every theme (dark,
+/// the dark room, daylight, and each one's blind grey) — the plan's pairwise 3:1 cannot hold for lights legible on a dark panel; the
+/// dark palette is Theme/Tokens.axaml's; red marks the air and faults, and among the styles only the air's draw it; no animation
+/// repeats faster than 2 Hz; and the desk's brightness and theme are this desk's, kept in desk.json.</summary>
 public partial class StatusRuleTests
 {
     private static readonly string AppDir = Path.Combine(FindRoot(), "src", "PlayMap.App");
@@ -119,16 +119,26 @@ public partial class StatusRuleTests
         Assert.Equal("✕", mark.Text);
     }
 
+    /// <summary>Every surface token a light is drawn on: the window, a panel, a card, a toast, a chip and a secondary button (raised 2,
+    /// the attention bar's banners among them), a selected row and a checked tool (the accent's tint), and the danger tint.</summary>
+    private static readonly string[] LightSurfaces = ["DeskBg", "DeskPanel", "DeskRaised", "DeskRaised2", "DeskAccentSoft", "DeskDangerSoft"];
+
     [Fact]
-    public void OkWarnAndFaultAreEachThreeToOneAgainstEveryThemesPanels()
+    public void OkWarnAndFaultAreEachThreeToOneAgainstEverySurfaceOfEveryTheme()
     {
+        // Every background the desk's styles and views give from a token is one of the light surfaces, or a surface no light sits on.
+        var drawn = Axaml().SelectMany(f => Regex.Matches(f.Text, @"Background"" Value=""\{StaticResource (Desk[A-Za-z0-9]+)Brush\}""|Background=""\{StaticResource (Desk[A-Za-z0-9]+)Brush\}""")
+            .Select(m => m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value)).ToHashSet(StringComparer.Ordinal);
+        Assert.Subset(LightSurfaces.Append("DeskAccent").Append("DeskDanger").Append("DeskBorderStrong").ToHashSet(StringComparer.Ordinal), drawn);
+        var least = double.MaxValue;
         foreach (var theme in Themes)
         {
             foreach (var light in new[] { "LightGreen", "LightAmber", "LightRed" })
             {
-                foreach (var surface in new[] { "DeskBg", "DeskPanel", "DeskRaised" })
+                foreach (var surface in LightSurfaces)
                 {
                     var ratio = DeskPalette.Contrast(theme.Tokens[light], theme.Tokens[surface]);
+                    least = Math.Min(least, ratio);
                     Assert.True(ratio >= 3.0, string.Create(CultureInfo.InvariantCulture, $"{theme.Name}: {light} on {surface} is {ratio:0.00}:1"));
                 }
             }
@@ -149,6 +159,8 @@ public partial class StatusRuleTests
             var isGrey = ((rgb >> 16) & 0xFF) == ((rgb >> 8) & 0xFF) && ((rgb >> 8) & 0xFF) == (rgb & 0xFF);
             Assert.True(kept ? rgb == DeskPalette.Dark.Tokens[token] : isGrey, token);
         }
+        // The least of any light on any surface (the papers name it): red on the dark theme's selected row, in its blind grey.
+        Assert.Equal(3.18, Math.Round(least, 2));
     }
 
     [Fact]

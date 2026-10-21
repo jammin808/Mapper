@@ -28,7 +28,7 @@ public sealed record DeskPalette(string Name, FrozenDictionary<string, uint> Tok
     {
         ["DeskBg"] = 0x121417, ["DeskPanel"] = 0x191C20, ["DeskRaised"] = 0x22262B, ["DeskRaised2"] = 0x2B3036,
         ["DeskBorder"] = 0x2D3339, ["DeskBorderStrong"] = 0x3C434B, ["DeskText"] = 0xE7E9EC, ["DeskTextDim"] = 0xA2A9B2,
-        ["DeskTextFaint"] = 0x6F7882, ["DeskAccent"] = 0x3D9BFF, ["DeskAccentSoft"] = 0x1D3A5C, ["DeskDanger"] = 0xE5484D,
+        ["DeskTextFaint"] = 0x6F7882, ["DeskAccent"] = 0x3D9BFF, ["DeskAccentSoft"] = 0x1B3555, ["DeskDanger"] = 0xE5484D,
         ["DeskDangerSoft"] = 0x3D1618, ["LightGreen"] = 0x3FB950, ["LightAmber"] = 0xD29922, ["LightRed"] = 0xE5484D,
         ["LightGrey"] = 0x6F7882,
     });

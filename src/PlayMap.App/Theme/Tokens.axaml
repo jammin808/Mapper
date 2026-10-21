@@ -12,7 +12,7 @@
   <Color x:Key="DeskTextDim">#A2A9B2</Color>
   <Color x:Key="DeskTextFaint">#6F7882</Color>
   <Color x:Key="DeskAccent">#3D9BFF</Color>
-  <Color x:Key="DeskAccentSoft">#1D3A5C</Color>
+  <Color x:Key="DeskAccentSoft">#1B3555</Color>
   <Color x:Key="DeskDanger">#E5484D</Color>
   <Color x:Key="DeskDangerSoft">#3D1618</Color>
   <Color x:Key="LightGreen">#3FB950</Color>
