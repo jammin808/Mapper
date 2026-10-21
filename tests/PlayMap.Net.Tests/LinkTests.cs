@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Links;
 using PlayMap.Net.Wire;
@@ -229,6 +230,46 @@ public class LinkTests
         desk.Cut();
         Assert.True(await Eventually.TrueAsync(() => desk.Accepted >= 3 && link.Status == LinkStatus.Live, 8000));
         Assert.True((await link.SendAsync("VIDEO PLAY")).Ok);
+    }
+
+    [Fact]
+    public async Task ALinkCountsItsPeersSilenceOnItsClockAndIsLiveAgainWithTheNextLineOnTheSameConnection()
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token);
+        var clock = new ManualClock(1_000_000_000);
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            Clock = clock,
+            StaleAfter = TimeSpan.FromMilliseconds(400),
+            DropAfter = TimeSpan.FromMilliseconds(900),
+        }, TestSettings.Wall());
+        var statuses = new ConcurrentQueue<LinkStatus>();
+        link.StatusChanged += statuses.Enqueue;
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live && link.Pairing == PairState.Paired));
+
+        // The peer falls silent for longer than the drop in real time while the link's clock stands still: nothing is counted.
+        desk.Silent = true;
+        await Task.Delay(TimeSpan.FromMilliseconds(1200));
+        Assert.Equal((LinkStatus.Live, 1L, TimeSpan.Zero), (link.Status, link.Connections, link.Silence));
+        Assert.DoesNotContain(LinkStatus.Stale, statuses);
+
+        // Past the stale mark on the clock it is stale, on the same connection; the peer's next line makes it live there again.
+        clock.AdvanceMs(500);
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Stale), link.Status.ToString());
+        Assert.Equal((1L, TimeSpan.FromMilliseconds(500)), (link.Connections, link.Silence));
+        await desk.PushAsync(desk.State);
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Status.ToString());
+        Assert.Equal((1L, TimeSpan.Zero, 1), (link.Connections, link.Silence, desk.Accepted));
+
+        // Past the drop mark on the clock it drops and dials again.
+        clock.AdvanceMs(1000);
+        Assert.True(await Eventually.TrueAsync(() => link.Connections == 2 && desk.Accepted == 2 && link.Status == LinkStatus.Live, 8000),
+            $"{link.Status} after {link.Connections} connections");
     }
 
     [Fact]

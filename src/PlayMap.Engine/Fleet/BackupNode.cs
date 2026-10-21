@@ -672,7 +672,7 @@ public sealed class BackupNode : IAsyncDisposable
         _subscribed = false;
         _mirrorWords = $"joining {peer.Name}";
         var answer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var link = new MirrorLink(peer.Address, wire, SelfName, token, SelfId, _setup.Wall, _log);
+        var link = new MirrorLink(peer.Address, wire, SelfName, token, SelfId, _setup.Wall, _setup.Mono, _log);
         var lines = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
         link.Line += l => lines.Writer.TryWrite(l);
         link.Subscribed += () =>
