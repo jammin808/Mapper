@@ -2,40 +2,9 @@ using System.Globalization;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using Microsoft.Win32;
-using PlayMap.Core.Storage;
+using PlayMap.Core.Machine;
 
 namespace PlayMap.Engine.Install;
-
-/// <summary>The supervisor's status as its file says it (<c>%ProgramData%\PlayMap\supervisor\status.json</c>, written by
-/// PlayMap.Supervisor): its state, the engine's pid, restarts within the window, the last cause, the freeze rule's words, when.</summary>
-public sealed record SupervisorReport(string State, int Pid, int Restarts, string LastCause, string FreezeRule, long AtUnixMs)
-{
-    /// <summary>A status file's text read back, or null when it is not one.</summary>
-    public static SupervisorReport? Parse(string? text)
-    {
-        if (string.IsNullOrEmpty(text) || text.Length > 16 * 1024)
-            return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 2 });
-            var r = doc.RootElement;
-            if (r.ValueKind != JsonValueKind.Object
-                || !r.TryGetProperty("state", out var state) || state.ValueKind != JsonValueKind.String
-                || !r.TryGetProperty("pid", out var pid) || !pid.TryGetInt32(out var p)
-                || !r.TryGetProperty("restarts", out var restarts) || !restarts.TryGetInt32(out var n)
-                || !r.TryGetProperty("at", out var at) || !at.TryGetInt64(out var t))
-                return null;
-            return new SupervisorReport(state.GetString() ?? "", p, n, Text(r, "lastCause"), Text(r, "freezeRule"), t);
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
-        {
-            return null;
-        }
-    }
-
-    private static string Text(JsonElement r, string name) =>
-        r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
-}
 
 /// <summary>What the machine says of this node's install (STATE <c>machine.install</c>): installed per machine or run from a folder,
 /// its installer's version and folder, whether a supervisor keeps it, the supervisor's status, auto-logon (on, and for whom — never
@@ -46,7 +15,7 @@ public sealed record InstallFacts(
     string Dir,
     bool Supervised,
     string ShowUser,
-    SupervisorReport? Supervisor,
+    SupervisorStatus? Supervisor,
     bool AutoLogon,
     string AutoLogonUser,
     string Edition,
@@ -67,21 +36,11 @@ public sealed record InstallFacts(
         w.WriteString("dir", Dir);
         w.WriteBoolean("supervised", Supervised);
         w.WriteString("showUser", ShowUser);
+        w.WritePropertyName("supervisor");
         if (Supervisor is { } s)
-        {
-            w.WriteStartObject("supervisor");
-            w.WriteString("state", s.State);
-            w.WriteNumber("pid", s.Pid);
-            w.WriteNumber("restarts", s.Restarts);
-            w.WriteString("lastCause", s.LastCause);
-            w.WriteString("freezeRule", s.FreezeRule);
-            w.WriteNumber("at", s.AtUnixMs);
-            w.WriteEndObject();
-        }
+            s.WriteTo(w);
         else
-        {
-            w.WriteNull("supervisor");
-        }
+            w.WriteNullValue();
         w.WriteStartObject("autoLogon");
         w.WriteBoolean("on", AutoLogon);
         w.WriteString("user", AutoLogonUser);
@@ -133,17 +92,13 @@ public sealed record InstallFacts(
         return key?.GetValue("Supervised") is int supervised && supervised != 0;
     }
 
-    /// <summary>The supervisor's folder on this machine.</summary>
-    public static string SupervisorFolder() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PlayMap", "supervisor");
-
     /// <summary>This machine's facts: the install's key, the supervisor's status file and auto-logon's user from Windows' registry; a
     /// folder run elsewhere. Auto-logon's password is never read.</summary>
     public static InstallFacts ReadThisMachine()
     {
         if (!OperatingSystem.IsWindows())
             return NotInstalled;
-        return ReadWindows(SupervisorFolder());
+        return ReadWindows(EnginePidRecord.MachineFolder());
     }
 
     [SupportedOSPlatform("windows")]
@@ -158,11 +113,10 @@ public sealed record InstallFacts(
         var autoLogon = logon?.GetValue("AutoAdminLogon") as string == "1";
         var autoUser = autoLogon ? logon?.GetValue("DefaultUserName") as string ?? "" : "";
         var edition = current?.GetValue("EditionID") as string ?? "";
-        var status = Path.Combine(supervisorFolder, "status.json");
-        SupervisorReport? report = null;
+        SupervisorStatus? report = null;
         try
         {
-            report = File.Exists(status) ? SupervisorReport.Parse(DurableFile.ReadAllText(status)) : null;
+            report = SupervisorStatus.Read(supervisorFolder);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

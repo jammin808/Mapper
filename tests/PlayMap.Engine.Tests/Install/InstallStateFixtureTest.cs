@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Preflight;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Install;
@@ -14,7 +15,7 @@ namespace PlayMap.Engine.Tests.Install;
 /// supervisor that stopped trying, auto-logon off, Home's edition, the freeze rule waiting.</summary>
 public sealed class InstallStateFixtureTest
 {
-    private static readonly SupervisorReport Running = new("running", 4120, 0, "",
+    private static readonly SupervisorStatus Running = new("running", 4120, 0, "",
         "active: open outputs' shown frames may stand still 3 s while the GPU runs", 1_760_000_000_000);
 
     private static readonly InstallFacts Supervised = new(true, "0.2.17", @"C:\Program Files\PlayMap", true, @"SHOWNODE\show", Running, true, "show",
@@ -80,6 +81,8 @@ public sealed class InstallStateFixtureTest
         Assert.True(install.GetProperty("installed").GetBoolean());
         Assert.Equal("0.2.17", install.GetProperty("msi").GetString());
         Assert.Equal("running", install.GetProperty("supervisor").GetProperty("state").GetString());
+        // The block's supervisor is the status file's record as the supervisor writes it.
+        Assert.Equal(Running, SupervisorStatus.Parse(install.GetProperty("supervisor").GetRawText()));
         Assert.Equal("green", install.GetProperty("light").GetString());
         Assert.False(install.GetProperty("signed").GetBoolean());
         // Auto-logon names its user and nothing else: no password key anywhere in the block.
@@ -189,10 +192,13 @@ public sealed class InstallStateFixtureTest
     public void TheStatusFileTheSupervisorWritesIsReadBackAndAnythingElseIsNot()
     {
         var text = "{\"state\":\"running\",\"pid\":4120,\"restarts\":2,\"lastCause\":\"the engine exited\",\"freezeRule\":\"active\",\"at\":1760000000000}";
-        Assert.Equal(new SupervisorReport("running", 4120, 2, "the engine exited", "active", 1_760_000_000_000), SupervisorReport.Parse(text));
-        Assert.Null(SupervisorReport.Parse("{\"state\":\"running\"}"));
-        Assert.Null(SupervisorReport.Parse("nonsense"));
-        Assert.Null(SupervisorReport.Parse(null));
+        Assert.Equal(new SupervisorStatus("running", 4120, 2, "the engine exited", "active", 1_760_000_000_000), SupervisorStatus.Parse(text));
+        Assert.Null(SupervisorStatus.Parse("{\"state\":\"running\"}"));
+        Assert.Null(SupervisorStatus.Parse("nonsense"));
+        Assert.Null(SupervisorStatus.Parse(null));
+        // The engine reads the file by the supervisor's own record, so it refuses what the supervisor would: a negative pid or count.
+        Assert.Null(SupervisorStatus.Parse(text.Replace("\"pid\":4120", "\"pid\":-4120", StringComparison.Ordinal)));
+        Assert.Null(SupervisorStatus.Parse(text.Replace("\"restarts\":2", "\"restarts\":-2", StringComparison.Ordinal)));
     }
 
     [Fact]
