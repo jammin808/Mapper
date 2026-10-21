@@ -242,14 +242,20 @@ public sealed class InstallerTests
         {
             var first = Install(This, "/SHOWUSER=" + ShowUser);
             Assert.True(first.Exit == 0, first.Log);
-            WaitForEngine();
-            // The engine's stop event, made by the service: the show user may wait on it and nothing more.
-            using (var stopEvent = EventWaitHandleAcl.OpenExisting(@"Global\PlayMap-Engine-Stop", EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions))
+            var engine = WaitForEngine();
+            // The engine's stop event, made by the service for this engine under a name drawn for it and named on its command line: the
+            // show user may wait on it and read its owner, SYSTEM, and nothing more.
+            var line = ProcessReader.Read(engine).CommandLine;
+            var name = SupervisorNames.StopEventIn(line, SupervisorNames.StopEventPrefix);
+            Assert.True(name is not null, "the engine's command line names no stop event: " + line);
+            using (var stopEvent = EventWaitHandleAcl.OpenExisting(name, EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions))
             {
-                var rules = stopEvent.GetAccessControl().GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<EventWaitHandleAccessRule>().ToList();
+                var security = stopEvent.GetAccessControl();
+                Assert.Equal("S-1-5-18", ((SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier))!).Value);
+                var rules = security.GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<EventWaitHandleAccessRule>().ToList();
                 var showUser = Assert.Single(rules, r => r.IdentityReference.Equals(WindowsIdentity.GetCurrent().User));
                 Assert.Equal(AccessControlType.Allow, showUser.AccessControlType);
-                Assert.Equal(EventWaitHandleRights.Synchronize, showUser.EventWaitHandleRights);
+                Assert.Equal(EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions, showUser.EventWaitHandleRights);
             }
             // stop answers held, and the status file says held with no engine; resume leaves held and the engine starts again.
             HoldTheEngine();

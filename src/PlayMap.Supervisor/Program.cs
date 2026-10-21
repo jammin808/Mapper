@@ -209,7 +209,7 @@ public static class Program
     /// <summary>Stops the engine this machine's pid record names, when it is the installed engine (<see cref="EngineStopper"/>).</summary>
     [SupportedOSPlatform("windows")]
     private static EngineStop StopEngine(Action<string> say) =>
-        EngineStopper.Stop(EnginePidRecord.MachineFolder(), SupervisorHost.InstallValue("InstallDir"), MachinePlan.StopEvent, say);
+        EngineStopper.Stop(EnginePidRecord.MachineFolder(), SupervisorHost.InstallValue("InstallDir"), MachinePlan.StopEventPrefix, say);
 
     /// <summary>The command line less its <c>--out &lt;file&gt;</c>, which every command takes.</summary>
     private static List<string> WithoutOut(IReadOnlyList<string> args)

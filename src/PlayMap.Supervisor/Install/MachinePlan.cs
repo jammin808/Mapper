@@ -56,14 +56,15 @@ public static class MachinePlan
     /// <summary>The install's registry key (under HKLM): InstallDir, Version, ShowUser, Supervised.</summary>
     public const string InstallKey = @"SOFTWARE\PlayMap";
 
-    /// <summary>The engine's stop event (<see cref="Core.Machine.SupervisorNames.StopEvent"/>): the supervisor sets it before the grace,
-    /// which ends in termination of an engine still running. The engine it started opens it with Synchronize, the one right its ACL
-    /// gives the show user, and stops as any asked stop does once it is set.</summary>
-    public const string StopEvent = Core.Machine.SupervisorNames.StopEvent;
+    /// <summary>The start of the engine's stop events' names (<see cref="Core.Machine.SupervisorNames.StopEventPrefix"/>): the supervisor
+    /// makes one for each engine it starts, under a name drawn for that start and given to the engine on its command line, and sets it
+    /// before the grace, which ends in termination of an engine still running. The engine opens it with Synchronize and ReadPermissions,
+    /// the rights its ACL gives the show user, and stops as any asked stop does once it is set.</summary>
+    public const string StopEventPrefix = Core.Machine.SupervisorNames.StopEventPrefix;
 
-    /// <summary>Whether a stop event that exists already when the supervisor starts was made by SYSTEM or administrators, the only
-    /// owners it is kept from: one another account made could be set or cleared by that account.</summary>
-    public static bool StopEventOwnerTrusted(string ownerSid) => OwnerTrusted(ownerSid);
+    /// <summary>Whether a stop event a command line names was made by SYSTEM or administrators, the only owners it is used from: one
+    /// another account made could be set or cleared by that account.</summary>
+    public static bool StopEventOwnerTrusted(string ownerSid) => Core.Machine.SupervisorNames.StopEventOwnerTrusted(ownerSid);
 
     /// <summary>Whether an object's owner is SYSTEM or administrators: an object any other account owns, that account may change.</summary>
     public static bool OwnerTrusted(string ownerSid) => ownerSid is "S-1-5-18" or "S-1-5-32-544";

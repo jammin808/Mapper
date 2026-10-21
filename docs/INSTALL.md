@@ -128,15 +128,22 @@ status
 the unsigned build). Stopping the service leaves the engine running; the next supervisor adopts it.
 
 **A stop is the engine's own; a termination comes only 5 s later.** To stop the engine — the freeze rule's stop,
-`PlayMap.Supervisor.exe stop`, an upgrade's or an uninstall's — the supervisor sets the engine's stop event
-(`Global\PlayMap-Engine-Stop`). The engine it started opens that event with Synchronize, the one right the show user has on it (on
-an install that names no show user, every signed-in user, INTERACTIVE), so it may wait on it and never set or clear it, and once it
-is set stops as any asked stop does: its doors close in order, the recovery record is written, its journal says "the supervisor
-asked the engine to stop" and is flushed, and its pid record is taken back. An engine still running 5 s after the event was set is
-terminated, with the cause in `supervisor.log`. The event stays set until the engine has gone, so an engine still starting when it
-is set stops during its start, with the same journal row and recovery record. The next engine the supervisor starts journals the
-cause of the stop before it ("the supervisor started this engine after: frozen: shown frames stood at … (2 restarts in ten
-minutes)"), read from the supervisor's status file, which names that engine before it runs.
+`PlayMap.Supervisor.exe stop`, an upgrade's or an uninstall's — the supervisor sets the engine's stop event. It makes one for each
+engine it starts, under a name drawn for that start (`Global\PlayMap-Engine-Stop-` and 32 random hex digits), which no account can
+make before it, and gives the name to the engine on its command line (`--stop-event`); a name that exists all the same is never
+used, so an event another account made — a standard user may make any name in the global namespace while no process holds it, during
+an upgrade or a service restart — never keeps the service from starting or the engine from being started. The engine opens its event
+with Synchronize and ReadPermissions, the rights the show user has on it (on an install that names no show user, every signed-in
+user, INTERACTIVE), so it may wait on it and read its owner and never set or clear it, and waits on it only when SYSTEM or
+administrators made it; once it is set the engine stops as any asked stop does: its doors close in order, the recovery record is
+written, its journal says "the supervisor asked the engine to stop" and is flushed, and its pid record is taken back. An engine
+still running 5 s after the event was set is terminated, with the cause in `supervisor.log`. A supervisor that adopts an engine
+(after a restart of the service), and the elevated `stop`, `uninstall` and upgrade with no service, set the event the engine's
+command line names only when it has that name's shape and SYSTEM or administrators made it; otherwise they say so, and the engine is
+terminated after the grace. The event stays set until the engine has gone, so an engine still starting when it is set stops during
+its start, with the same journal row and recovery record. The next engine the supervisor starts journals the cause of the stop
+before it ("the supervisor started this engine after: frozen: shown frames stood at … (2 restarts in ten minutes)"), read from the
+supervisor's status file, which names that engine before it runs.
 
 The engine's pid record (`%ProgramData%\PlayMap\supervisor\engine\engine.pid`) sits in the one folder there the show user may
 write, so it only says which process to look at, and the service only reads it: it writes, renames and deletes nothing in that
@@ -302,27 +309,29 @@ the firewall rules on the private and domain profiles (Public too with `/PUBLICF
 access to `dumps\` and `supervisor\engine\` and to nothing else of the machine's folders (the PlayMap folder's access its own, the
 supervisor's folder with no rule of its own), the notices of the packages inside the supervisor's exe, the show user's account right
 and the install's key; this build upgrades it with Smart App Control evaluating and keeps the node's data; the earlier build is
-refused as a downgrade; a folder other than Program Files, a show user Windows cannot find (exit 3, the machine left unsupervised), an
-upgrade while another program runs from the install, and an upgrade that cannot replace a file (the earlier service running again)
-each end as this guide says; a `%ProgramData%\PlayMap` made a junction before the install gets nothing made through it (exit 3, the
-machine left unsupervised); `stop` holds the engine and `resume` starts it again, and the show user may only wait on the stop event;
-a standard account runs the installed engine and serves HTTP on 9940 with no URL reservation; an uninstall straight after the service
-is stopped ends its engine and takes every machine-level action back, the account right read back with `rights` and the show user's
-write access to the folders read from their access rules; a pid record naming a process that is not the engine ends nothing; the
-artifact's `SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned Agility SDK
-package, its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte; on both jobs it
-finds nothing in `PlayMap.iss` that skips the licence page or answers it (no `ShouldSkipPage`, no change to its choices, no licence
-file named but [Setup]'s), and every package the publish's restore carries named in `THIRD-PARTY-NOTICES.md`. The Windows job finds no
-Agility SDK file in the portable folder, and lays the notices into it; `installer/notices.ps1` stops a build whose folder carries a
-package, or a native library no package carries, that `THIRD-PARTY-NOTICES.md` does not name (`LicenceTests` run it on a folder
-shaped as a self-contained publish that carries the supervisor, which it passes, and on that folder with a native the notices do not
-name, which it refuses by that native alone). `LicenceTests` hold the installer's
-payload (the installer job) and the portable folder (the Windows job) to DXC's compiler alone — no `dxil.dll` or `libdxil.so` and no
-other file of DXC's package, `dxcompiler.dll` at the worker's pin with `licenses\DXC\` holding its licence and notices and nothing
-else — and to `THIRD-PARTY-NOTICES.md` naming every package and native library each carries, with each package's own licence and
-notice files beside it, the supervisor's packages' among them in the payload. On the Windows job `MachineFoldersTests` read the access
-the install gives the machine's folders, and a folder that is a link refused, and the supervisor's own tests hold its start order (the
-engine runs once the status naming it is written) and its stop event's one right for the show user or, with none named, for every
-signed-in user. No lab ran this round: a real IoT Enterprise LTSC node with auto-logon, the supervisor starting the engine in session
-1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the unsigned installer on clean Home and Pro, ReadyToRun's first
-ten minutes and a Home node (L11, L18, L21, L23; their scripts are in `docs/round3/lab/`) are not run.
+refused as a downgrade; a folder other than Program Files, a show user Windows cannot find (exit 3, the machine left unsupervised),
+an upgrade while another program runs from the install, and an upgrade that cannot replace a file (the earlier service running
+again) each end as this guide says; a `%ProgramData%\PlayMap` made a junction before the install gets nothing made through it (exit
+3, the machine left unsupervised); `stop` holds the engine and `resume` starts it again, and the show user may only wait on the stop
+event the engine's command line names, which SYSTEM made, and read its owner; a standard account runs the installed engine and
+serves HTTP on 9940 with no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every
+machine-level action back, the account right read back with `rights` and the show user's write access to the folders read from their
+access rules; a pid record naming a process that is not the engine ends nothing; the artifact's `SHA256SUMS` matches every file. On
+Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned Agility SDK package, its SHA-256 the pin's: Microsoft's
+`LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte; on both jobs it finds nothing in `PlayMap.iss` that skips the
+licence page or answers it (no `ShouldSkipPage`, no change to its choices, no licence file named but [Setup]'s), and every package
+the publish's restore carries named in `THIRD-PARTY-NOTICES.md`. The Windows job finds no Agility SDK file in the portable folder,
+and lays the notices into it; `installer/notices.ps1` stops a build whose folder carries a package, or a native library no package
+carries, that `THIRD-PARTY-NOTICES.md` does not name (`LicenceTests` run it on a folder shaped as a self-contained publish that
+carries the supervisor, which it passes, and on that folder with a native the notices do not name, which it refuses by that native
+alone). `LicenceTests` hold the installer's payload (the installer job) and the portable folder (the Windows job) to DXC's compiler
+alone — no `dxil.dll` or `libdxil.so` and no other file of DXC's package, `dxcompiler.dll` at the worker's pin with `licenses\DXC\`
+holding its licence and notices and nothing else — and to `THIRD-PARTY-NOTICES.md` naming every package and native library each
+carries, with each package's own licence and notice files beside it, the supervisor's packages' among them in the payload. On the
+Windows job `MachineFoldersTests` read the access the install gives the machine's folders, and a folder that is a link refused, and
+the supervisor's own tests hold its start order (the engine runs once the status naming it is written), its stop event's rights for
+the show user or, with none named, for every signed-in user, an event of its own for each start whatever another account made
+beforehand, and an adopted engine's event, and an elevated stop's, set only when SYSTEM or administrators made it. No lab ran this
+round: a real IoT Enterprise LTSC node with auto-logon, the supervisor starting the engine in session 1 on real hardware, Shell
+Launcher, an upgrade during a rehearsal, the unsigned installer on clean Home and Pro, ReadyToRun's first ten minutes and a Home
+node (L11, L18, L21, L23; their scripts are in `docs/round3/lab/`) are not run.

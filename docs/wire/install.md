@@ -43,19 +43,26 @@ on the node reports the section (`InstallPartsTests`).
 
 ## Stopping the engine
 
-The supervisor sets `Global\PlayMap-Engine-Stop` (Core's `SupervisorNames.StopEvent`) for every stop — the freeze rule's, `stop`,
-an upgrade's, an uninstall's — and terminates the engine 5 s later only when it still runs. An engine started with `--supervised`
-opens the event as it starts with Synchronize alone, the one right the event's ACL gives the show user (on an install that names no
-show user, INTERACTIVE: every signed-in user), and waits on it for its life (`EngineEntry`); once it is set the engine takes the same
-stop as Ctrl+C or SIGTERM — during its start, which it then ends, or once it is up: its doors close in order, the recovery record is
-written, the journal says "the supervisor asked the engine to stop" and is flushed, its pid record is taken back, and it exits 0. A
-supervised engine that finds no event (off Windows, or none made yet) runs, says so in its log, and stops by its signals alone
-(`SupervisorStopTests`; the named event and its one right on the Windows job). The next supervised engine journals the cause of the
-stop before it as it starts — "the supervisor started this engine after: <lastCause> (<n> restarts in ten minutes)", a row that is not
-ok — when the status file names its pid and holds a cause (`Install/InstallParts.cs`, `InstallPartsTests`). The supervisor starts the
-engine suspended and lets it run once the status naming it is written, so the status the engine reads as it starts is that one, or
-once that write has failed, which `supervisor.log` records — a write that could not be made (a full disk, a locked file) leaves the
-engine neither suspended for good nor without a trace.
+The supervisor sets the engine's stop event for every stop — the freeze rule's, `stop`, an upgrade's, an uninstall's — and
+terminates the engine 5 s later only when it still runs. It makes the event for each engine it starts, under a name drawn for that
+start (Core's `SupervisorNames.NewStopEvent`: `Global\PlayMap-Engine-Stop-` and 32 lower-case hex digits from a cryptographic
+generator), made new or another name drawn, and starts the engine with `--supervised --stop-event <name>`, so no object another
+account made in the global namespace beforehand keeps it from starting or is ever the event it sets. An engine started with
+`--supervised` opens the event its `--stop-event` names, only a name of that shape, with Synchronize and ReadPermissions, the rights
+the event's ACL gives the show user (on an install that names no show user, INTERACTIVE: every signed-in user), keeps it only when
+SYSTEM or administrators own it (`SupervisorNames.StopEventOwnerTrusted`), and waits on it for its life (`EngineEntry`); once it is
+set the engine takes the same stop as Ctrl+C or SIGTERM — during its start, which it then ends, or once it is up: its doors close in
+order, the recovery record is written, the journal says "the supervisor asked the engine to stop" and is flushed, its pid record is
+taken back, and it exits 0. A supervised engine that finds no event (off Windows, none named, a name of another shape, or one
+another account made) runs, says so in its log, and stops by its signals alone (`SupervisorStopTests`; the named event, its rights
+and its owner on the Windows job). A supervisor that adopts a running engine, and the elevated stop with no service (`stop`,
+`uninstall`, `upgrade-stop`), read the event's name from the engine's command line (`SupervisorNames.StopEventIn`) and set it only
+when SYSTEM or administrators made it. The next supervised engine journals the cause of the stop before it as it starts — "the
+supervisor started this engine after: <lastCause> (<n> restarts in ten minutes)", a row that is not ok — when the status file names
+its pid and holds a cause (`Install/InstallParts.cs`, `InstallPartsTests`). The supervisor starts the engine suspended and lets it
+run once the status naming it is written, so the status the engine reads as it starts is that one, or once that write has failed,
+which `supervisor.log` records — a write that could not be made (a full disk, a locked file) leaves the engine neither suspended for
+good nor without a trace.
 
 ## Papers note
 
@@ -158,8 +165,9 @@ started, and a Connect that gets no answer fails with the supervisor's words.
 Nothing waits on the spine. The seams this package asked for (§5.7) are on this branch as commits of their own, each before the fill
 that uses it, and reach `main` with the merge: the `Install` hook in the engine's composition (`Host/EngineParts`, PLAN §2.3's
 `Install` row), which `InstallParts` fills to register `InstallPreflight`; `EngineEntry` waiting under `--supervised` on the
-supervisor's stop event with Synchronize alone and taking the normal stop when it is set, the name in Core
-(`SupervisorNames.StopEvent`, which `MachinePlan.StopEvent` names); the supervisor's status record in Core beside `EnginePidRecord`
+stop event its `--stop-event` names, with Synchronize and ReadPermissions, and taking the normal stop when it is set, the names'
+rules in Core (`SupervisorNames`: the prefix `MachinePlan.StopEventPrefix` names, a name drawn for each start, a name read from a
+command line, the owners an event is used from); the supervisor's status record in Core beside `EnginePidRecord`
 (`SupervisorStatus`; the supervisor keeps its policy's words in `SupervisorStatusWords`, and the engine reads the file through it);
 the identity rule in Core (`Core/Machine/EngineIdentity.cs`: `ProcessFacts`, `EngineExpectation`, `EngineIdentity`,
 `ProcessReader`), which every reader of `engine.pid` holds a process to, `EnginePidRecord.TryWrite` included (each reads the file through

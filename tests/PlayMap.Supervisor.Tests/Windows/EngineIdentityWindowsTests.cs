@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
 using PlayMap.Core.Machine;
@@ -140,7 +141,7 @@ public sealed class EngineIdentityWindowsTests
         using var helper = Helper.Start();
         Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(place.EngineFolder));
         var said = new List<string>();
-        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.EngineFolder, place.InstallDir, place.StopEvent, said.Add));
+        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.EngineFolder, place.InstallDir, place.StopEventPrefix, said.Add));
         Assert.True(helper.Running);
         Assert.Equal([$"the pid record names pid {helper.Pid}, which is not the installed engine (pid {helper.Pid} is PING, not PlayMap.exe): not stopped"],
             said);
@@ -154,7 +155,7 @@ public sealed class EngineIdentityWindowsTests
         using var helper = Helper.Start();
         Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds()).TryWrite(place.EngineFolder));
         var said = new List<string>();
-        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.EngineFolder, place.InstallDir, place.StopEvent, said.Add));
+        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.EngineFolder, place.InstallDir, place.StopEventPrefix, said.Add));
         Assert.True(helper.Running);
         Assert.Contains("not stopped", Assert.Single(said), StringComparison.Ordinal);
     }
@@ -182,10 +183,12 @@ public sealed class EngineIdentityWindowsTests
         {
             Folder = Directory.CreateTempSubdirectory("playmap-supervisor-").FullName;
             EngineFolder = Directory.CreateDirectory(Path.Combine(Folder, "engine")).FullName;
-            InstallDir = Directory.CreateTempSubdirectory("playmap-install-").FullName;
+            // Its long form: the temporary folder may be named by 8.3 names (C:\Users\RUNNER~1\…), and the identity rule compares the
+            // installed exe's path with the path Windows gives for an engine's image.
+            InstallDir = LongPath(Directory.CreateTempSubdirectory("playmap-install-").FullName);
             var id = Guid.NewGuid().ToString("N");
             PipeName = "PlayMap.Supervisor.Test." + id;
-            StopEvent = @"Local\PlayMap-Engine-Stop-Test-" + id;
+            StopEventPrefix = @"Local\PlayMap-Engine-Stop-Test-" + id + "-";
         }
 
         public string Folder { get; }
@@ -196,7 +199,8 @@ public sealed class EngineIdentityWindowsTests
 
         public string PipeName { get; }
 
-        public string StopEvent { get; }
+        /// <summary>The start of this supervisor's stop events' names, each engine's drawn under it.</summary>
+        public string StopEventPrefix { get; }
 
         public static string ThisUser => Environment.UserDomainName + "\\" + Environment.UserName;
 
@@ -207,8 +211,21 @@ public sealed class EngineIdentityWindowsTests
             using var self = Process.GetCurrentProcess();
             var session = (uint)self.SessionId;
             var shows = showUser ?? ThisUser;
-            return new SupervisorHost(new SupervisorPlaces(Folder, EngineFolder, PipeName, StopEvent, () => InstallDir, () => shows, () => session,
+            return new SupervisorHost(new SupervisorPlaces(Folder, EngineFolder, PipeName, StopEventPrefix, () => InstallDir, () => shows, () => session,
                 _ => Environment.UserName, launch ?? ((_, _, _) => throw new Win32Exception(5, "this test starts no engine"))));
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "GetLongPathNameW", SetLastError = true, CharSet = CharSet.Unicode)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern int GetLongPathName(string shortPath, char[] longPath, int length);
+
+        private static string LongPath(string path)
+        {
+            var buffer = new char[32768];
+            var length = GetLongPathName(path, buffer, buffer.Length);
+            if (length <= 0 || length >= buffer.Length)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "GetLongPathName refused " + path);
+            return new string(buffer, 0, length);
         }
 
         public string Log()

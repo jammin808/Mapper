@@ -321,7 +321,7 @@ public sealed class SupervisorTests
     [InlineData("S-1-5-21-1000-2000-3000-1001", false)]
     [InlineData("S-1-1-0", false)]
     [InlineData("", false)]
-    public void AStopEventThatExistsAlreadyIsKeptOnlyFromSystemOrAdministrators(string owner, bool kept) =>
+    public void AStopEventIsUsedOnlyWhenSystemOrAdministratorsMadeIt(string owner, bool kept) =>
         Assert.Equal(kept, PlayMap.Supervisor.Install.MachinePlan.StopEventOwnerTrusted(owner));
 
     [Fact]

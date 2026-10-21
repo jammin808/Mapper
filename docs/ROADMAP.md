@@ -389,7 +389,8 @@ show user's session (docs/INSTALL.md, docs/wire/install.md); proven elevated on 
   them.
 - **The spine's part.** Through the amendment lane (docs/round3/PLAN.md §5.7), each a "Spine: " commit before the fill that uses it:
   the `Install` hook in the exe's composition, which carries preflight's `install` section; a supervised engine's wait on the stop
-  event (`SupervisorNames.StopEvent`, opened with Synchronize alone), journalled when it ends a start too; the supervisor's status
+  event its `--stop-event` names (`SupervisorNames`: a name drawn for each start, opened with Synchronize and ReadPermissions and kept
+  only when SYSTEM or administrators made it), journalled when it ends a start too; the supervisor's status
   record in Core (`SupervisorStatus`) in the supervisor's folder, and the engine's pid record in the engine's folder inside it; the
   identity rule in Core, which every reader of the engine's pid record and `EnginePidRecord.TryWrite` hold a record to; and the
   connection manager's seams for a supervised machine and the supervisor's status, with Connect's supervised sentence.

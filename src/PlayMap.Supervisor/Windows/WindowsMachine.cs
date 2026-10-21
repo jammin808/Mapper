@@ -21,8 +21,8 @@ public sealed class WindowsMachine : IMachineActions
     /// before it was stopped): the heavier outcome.</summary>
     public EngineStop StopEngine(Action<string> say)
     {
-        var recorded = EngineStopper.Stop(EnginePidRecord.MachineFolder(), InstallDir, MachinePlan.StopEvent, say);
-        var unrecorded = EngineStopper.StopUnrecorded(InstallDir, MachinePlan.StopEvent, say);
+        var recorded = EngineStopper.Stop(EnginePidRecord.MachineFolder(), InstallDir, MachinePlan.StopEventPrefix, say);
+        var unrecorded = EngineStopper.StopUnrecorded(InstallDir, MachinePlan.StopEventPrefix, say);
         return unrecorded > recorded ? unrecorded : recorded;
     }
 

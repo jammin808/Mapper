@@ -16,14 +16,15 @@ namespace PlayMap.Supervisor.Windows;
 
 /// <summary>Where a supervisor keeps its files and names, and how it reads the console session and starts an engine: this machine's
 /// for the service, a test's own for a supervisor a test runs. <see cref="Folder"/> holds the supervisor's status file and log, which
-/// it writes; <see cref="EngineFolder"/> the engine's pid record, which it only reads. <see cref="Launch"/> starts an engine suspended
-/// where it can (the service's does), to run once <see cref="EngineProcess.Resume"/> is called.</summary>
+/// it writes; <see cref="EngineFolder"/> the engine's pid record, which it only reads; <see cref="StopEventPrefix"/> starts the name of
+/// each engine's stop event (<see cref="SupervisorNames.NewStopEvent"/>). <see cref="Launch"/> starts an engine suspended where it can
+/// (the service's does), to run once <see cref="EngineProcess.Resume"/> is called.</summary>
 [SupportedOSPlatform("windows")]
 public sealed record SupervisorPlaces(
     string Folder,
     string EngineFolder,
     string PipeName,
-    string StopEventName,
+    string StopEventPrefix,
     Func<string> InstallDir,
     Func<string> ShowUser,
     Func<uint?> ConsoleSession,
@@ -32,17 +33,18 @@ public sealed record SupervisorPlaces(
 {
     /// <summary>This machine's: <c>%ProgramData%\PlayMap\supervisor</c> and the engine's folder inside it, the service's pipe and stop
     /// event, the install's key, the active console session, and an engine started there as its user.</summary>
-    public static SupervisorPlaces ThisMachine() => new(SupervisorStatus.MachineFolder(), EnginePidRecord.MachineFolder(), MachinePlan.PipeName, MachinePlan.StopEvent,
+    public static SupervisorPlaces ThisMachine() => new(SupervisorStatus.MachineFolder(), EnginePidRecord.MachineFolder(), MachinePlan.PipeName, MachinePlan.StopEventPrefix,
         () => SupervisorHost.InstallValue("InstallDir"), () => SupervisorHost.InstallValue("ShowUser"), SessionLauncher.ConsoleSession,
         SessionLauncher.UserOf, SessionLauncher.Start);
 }
 
 /// <summary>The supervisor: every half second it reads the facts — the console session and its user, the engine's process (held by its
 /// handle), HEALTH over loopback — steps <see cref="SupervisorCore"/> and does what it answers: starts <c>PlayMap.exe engine
-/// --supervised</c> in the show user's session, sets the engine's stop event, ends it after the grace. An engine it did not start is
-/// adopted only when the pid record names the installed engine, run as the show user in the console session; any other record is
-/// said once and left where it is, for the next engine's own write to replace by the identity rule, and nothing is ever ended on a
-/// record's word alone. It reads the record and writes, renames or deletes nothing in the engine's folder, which the show user may
+/// --supervised --stop-event &lt;name&gt;</c> in the show user's session with a stop event made for it under a name drawn for that
+/// start, sets that event, ends the engine after the grace. An engine it did not start is adopted only when the pid record names the
+/// installed engine, run as the show user in the console session, its stop event the one its command line names when SYSTEM or
+/// administrators made it; any other record is said once and left where it is, for the next engine's own write to replace by the
+/// identity rule, and nothing is ever ended on a record's word alone. It reads the record and writes, renames or deletes nothing in the engine's folder, which the show user may
 /// change; it writes the status file at every change, and its log, in its own folder, and answers <c>status</c>, <c>resume</c> and
 /// <c>stop</c> on its pipe.</summary>
 [SupportedOSPlatform("windows")]
@@ -104,12 +106,10 @@ public sealed class SupervisorHost : IDisposable
         }
     }
 
-    /// <summary>The folder and the stop event, made before anything runs.</summary>
-    public void Prepare()
-    {
-        Directory.CreateDirectory(_places.Folder);
-        _stopEvent ??= StopEventFor(_places.StopEventName, _places.ShowUser());
-    }
+    /// <summary>The folder, made before anything runs. No stop event is made or opened here: each engine's is made as it starts
+    /// (<see cref="NewStopEvent"/>) or, for one adopted, opened by the name its command line gives (<see cref="StopEventOf"/>), so no
+    /// object another account made beforehand keeps the supervisor from starting.</summary>
+    public void Prepare() => Directory.CreateDirectory(_places.Folder);
 
     /// <summary>Prepares, then runs the step loop and the pipe until <see cref="Halt"/>.</summary>
     public void Start()
@@ -187,9 +187,13 @@ public sealed class SupervisorHost : IDisposable
             {
                 gone.Dispose();
                 _engine = null;
+                HoldStopEvent(null);
             }
-            if (_engine is null && record is not null && session is { } console)
-                _engine = Adopt(record, (int)console, showUser);
+            if (_engine is null && record is not null && session is { } console && Adopt(record, (int)console, showUser) is { } adopted)
+            {
+                _engine = adopted;
+                HoldStopEvent(StopEventOf(adopted));
+            }
             engine = _engine;
         }
         var health = engine is not null && record is { WirePort: > 0 } r && r.Pid == engine.Pid
@@ -301,22 +305,32 @@ public sealed class SupervisorHost : IDisposable
         switch (action)
         {
             case SupervisorAction.Start when session is { } s:
-                // Cleared before a start, so a new engine never sees an old stop.
-                _stopEvent?.Reset();
+                // A new event for each start, never set before, so a new engine never sees an old stop.
+                var made = NewStopEvent(_places.ShowUser());
+                var held = false;
                 try
                 {
-                    _engine = started = _places.Launch(s, InstalledExe(), "engine --supervised");
+                    var arguments = "engine --supervised" + (made is { } m ? " " + SupervisorNames.StopEventOption + " " + m.Name : "");
+                    _engine = started = _places.Launch(s, InstalledExe(), arguments);
+                    HoldStopEvent(made?.Event);
+                    held = true;
                     Log(string.Create(CultureInfo.InvariantCulture, $"started the engine (pid {_engine.Pid}) in session {s} as {user}"));
                 }
                 catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
                 {
                     _engine = null;
+                    HoldStopEvent(null);
                     Log("the engine did not start: " + ex.Message);
+                }
+                finally
+                {
+                    // An event no engine was started with is let go of at once.
+                    if (!held)
+                        made?.Event.Dispose();
                 }
                 break;
             case SupervisorAction.RequestStop:
-                _stopEvent?.Set();
-                Log(string.Create(CultureInfo.InvariantCulture, $"asked the engine (pid {_engine?.Pid ?? 0}) to stop: {_core.LastCause}"));
+                AskToStop();
                 break;
             case SupervisorAction.Terminate when _engine is { } engine:
                 Log(engine.End(out var why)
@@ -510,12 +524,18 @@ public sealed class SupervisorHost : IDisposable
     {
         var action = _core.Hold(NowNs(), "stopped by a person (PlayMap.Supervisor.exe stop)");
         if (action == SupervisorAction.RequestStop)
-        {
-            _stopEvent?.Set();
-            Log(string.Create(CultureInfo.InvariantCulture, $"asked the engine (pid {_engine?.Pid ?? 0}) to stop: {_core.LastCause}"));
-        }
+            AskToStop();
         Log("held: " + _core.LastCause);
         return "OK held: the engine is asked to stop and is not started again until resume";
+    }
+
+    /// <summary>Sets the engine's stop event, or says that the engine has none this supervisor may set (it then ends by termination
+    /// after the grace).</summary>
+    private void AskToStop()
+    {
+        _stopEvent?.Set();
+        Log(string.Create(CultureInfo.InvariantCulture, $"asked the engine (pid {_engine?.Pid ?? 0}) to stop: {_core.LastCause}")
+            + (_stopEvent is null ? " (it has no stop event this supervisor may set: it is terminated after the grace)" : ""));
     }
 
     /// <summary>The pipe's ACL: SYSTEM, administrators and the show user, and the account serving it, which makes its further
@@ -551,57 +571,101 @@ public sealed class SupervisorHost : IDisposable
         }
     }
 
-    /// <summary>The engine's stop event: SYSTEM sets and clears it, administrators may set it (an elevated <c>stop</c> or uninstall
-    /// with no service) and read its ACL, and the engine may only wait on it — the show user's, or, on an install that names no show
-    /// user, any signed-in user's (INTERACTIVE, <see cref="MachinePlan.AnyInteractiveUserSid"/>), the console's user the supervisor
-    /// starts the engine as among them. One that exists already is kept only when SYSTEM or administrators made it (an engine waiting
-    /// on it holds it open across a supervisor's restart); one another account made could be set or cleared by that account, so the
-    /// supervisor refuses to start beside it, with words.</summary>
-    private EventWaitHandle StopEventFor(string name, string showUser)
+    /// <summary>The stop event's ACL: SYSTEM sets and clears it, administrators may set it (an elevated <c>stop</c>, uninstall or upgrade
+    /// with no service) and read its ACL, and the engine may only wait on it and read its owner — the show user's, or, on an install
+    /// that names no show user, any signed-in user's (INTERACTIVE, <see cref="MachinePlan.AnyInteractiveUserSid"/>), the console's user
+    /// the supervisor starts the engine as among them.</summary>
+    private EventWaitHandleSecurity StopEventSecurity(string showUser)
     {
         var security = new EventWaitHandleSecurity();
         security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), EventWaitHandleRights.FullControl, AccessControlType.Allow));
         security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
             EventWaitHandleRights.Modify | EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions, AccessControlType.Allow));
+        const EventWaitHandleRights engine = EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions;
         if (showUser.Length == 0)
-            security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(MachinePlan.AnyInteractiveUserSid), EventWaitHandleRights.Synchronize, AccessControlType.Allow));
+            security.AddAccessRule(new EventWaitHandleAccessRule(new SecurityIdentifier(MachinePlan.AnyInteractiveUserSid), engine, AccessControlType.Allow));
         else if (Sid(showUser) is { } user)
-            security.AddAccessRule(new EventWaitHandleAccessRule(user, EventWaitHandleRights.Synchronize, AccessControlType.Allow));
-        EventWaitHandle stop;
-        try
-        {
-            // One that exists already is opened with the rights the supervisor uses (set, clear, wait, read its owner); otherwise it
-            // is made with the ACL above.
-            if (EventWaitHandleAcl.TryOpenExisting(name, EventWaitHandleRights.Modify | EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions,
-                    out var existing))
-            {
-                stop = existing;
-            }
-            else
-            {
-                stop = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, name, out var createdNew, security);
-                if (createdNew)
-                    return stop;
-            }
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            Log("the engine's stop event " + name + " exists already and is not the supervisor's to open (" + ex.Message + "): the supervisor does not start beside it");
-            throw;
-        }
-        var owner = (stop.GetAccessControl().GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier)?.Value ?? "";
-        if (!MachinePlan.StopEventOwnerTrusted(owner))
-        {
-            stop.Dispose();
-            var words = "the engine's stop event " + name + " exists already, made by " + (owner.Length > 0 ? owner : "an owner Windows does not name")
-                + ", which could set or clear it: the supervisor does not start beside it";
-            Log(words);
-            throw new InvalidOperationException(words);
-        }
-        Log("the engine's stop event " + name + " is held open already (by an engine waiting on it): kept");
-        return stop;
+            security.AddAccessRule(new EventWaitHandleAccessRule(user, engine, AccessControlType.Allow));
+        return security;
     }
 
+    /// <summary>A stop event for the engine about to start, made with <see cref="StopEventSecurity"/> under a name drawn for this start
+    /// (<see cref="SupervisorNames.NewStopEvent"/>), which no account could have made before; a name that exists all the same is never
+    /// used — another is drawn — so the event is always the one this supervisor made. Null, said in the log, when Windows makes none
+    /// in three tries: the engine is then started without one and a stop ends it by termination after the grace.</summary>
+    private (EventWaitHandle Event, string Name)? NewStopEvent(string showUser)
+    {
+        var security = StopEventSecurity(showUser);
+        for (var tries = 0; tries < 3; tries++)
+        {
+            var name = SupervisorNames.NewStopEvent(_places.StopEventPrefix);
+            try
+            {
+                var made = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, name, out var createdNew, security);
+                if (createdNew)
+                    return (made, name);
+                made.Dispose();
+                Log("the stop event name " + name + " exists already: another is drawn");
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
+            {
+                Log("the stop event " + name + " could not be made (" + ex.Message + "): another is drawn");
+            }
+        }
+        Log("no stop event could be made: the engine starts without one, and a stop ends it by termination after the grace");
+        return null;
+    }
+
+    /// <summary>The stop event of an engine this supervisor adopted: the one its command line names (<see cref="SupervisorNames.StopEventIn"/>,
+    /// a name of a stop event's shape under this supervisor's prefix), opened with the rights the supervisor uses (set, clear, wait,
+    /// read its owner) and kept only when SYSTEM or administrators made it. Null, said, otherwise: a stop of that engine ends it by
+    /// termination after the grace.</summary>
+    private EventWaitHandle? StopEventOf(EngineProcess engine)
+    {
+        var name = SupervisorNames.StopEventIn(engine.Facts().CommandLine, _places.StopEventPrefix);
+        string why;
+        if (name is null)
+        {
+            why = "its command line names no stop event of a supervisor's";
+        }
+        else
+        {
+            try
+            {
+                if (!EventWaitHandleAcl.TryOpenExisting(name, EventWaitHandleRights.Modify | EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions,
+                        out var opened))
+                {
+                    why = name + " does not exist";
+                }
+                else
+                {
+                    var owner = (opened.GetAccessControl().GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier)?.Value ?? "";
+                    if (SupervisorNames.StopEventOwnerTrusted(owner))
+                    {
+                        Log(string.Create(CultureInfo.InvariantCulture, $"kept the adopted engine's (pid {engine.Pid}) stop event {name}, which SYSTEM or administrators made"));
+                        return opened;
+                    }
+                    opened.Dispose();
+                    why = name + " was made by " + (owner.Length > 0 ? owner : "an owner Windows does not name") + ", not by SYSTEM or administrators";
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
+            {
+                why = name + " could not be opened: " + ex.Message;
+            }
+        }
+        Log(string.Create(CultureInfo.InvariantCulture, $"the adopted engine (pid {engine.Pid}) has no stop event this supervisor may set ({why}): a stop ends it by termination after the grace"));
+        return null;
+    }
+
+    /// <summary>Holds <paramref name="stopEvent"/> as the stop event of the engine held now, letting go of the one before.</summary>
+    private void HoldStopEvent(EventWaitHandle? stopEvent)
+    {
+        if (ReferenceEquals(stopEvent, _stopEvent))
+            return;
+        _stopEvent?.Dispose();
+        _stopEvent = stopEvent;
+    }
 
     /// <summary>A value of the install's registry key ("" when there is none).</summary>
     internal static string InstallValue(string name)

@@ -3,16 +3,19 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Host;
 
 namespace PlayMap.Engine.Tests.Spine;
 
-/// <summary>The supervisor's stop event as the engine's entry waits on it. An engine started with --supervised opens it as it starts
-/// and, once it is set — while the engine starts, which then stops during its start, or once it is up — stops as any asked stop does:
-/// exit 0, the recovery record written, its journal saying the supervisor asked. An engine started without --supervised opens none; a supervised engine that finds none runs,
-/// says so, and stops by its other signals. On Windows the event is a named one the engine opens with Synchronize alone, so it waits
-/// on it and can neither set nor clear it.</summary>
+/// <summary>The supervisor's stop event as the engine's entry waits on it. An engine started with --supervised opens the one its
+/// --stop-event names as it starts and, once it is set — while the engine starts, which then stops during its start, or once it is up —
+/// stops as any asked stop does: exit 0, the recovery record written, its journal saying the supervisor asked. An engine started without
+/// --supervised opens none; a supervised engine that finds none, or is given a name that is not a supervisor's stop event's, runs, says
+/// so, and stops by its other signals. On Windows the event is a named one the engine opens with Synchronize and ReadPermissions alone,
+/// so it waits on it and reads its owner and can neither set nor clear it, and waits on it only when SYSTEM or administrators made
+/// it.</summary>
 public sealed class SupervisorStopTests
 {
     private static DirectoryInfo Home(string name)
@@ -146,13 +149,13 @@ public sealed class SupervisorStopTests
         var home = Home("No event");
         try
         {
-            var opener = new Opener(null, @"Global\PlayMap-Engine-Stop does not exist");
+            var opener = new Opener(null, @"Global\PlayMap-Engine-Stop-0123456789abcdef0123456789abcdef does not exist");
             var log = new KeptLog();
             using var stop = new CancellationTokenSource();
             var run = EngineEntry.RunAsync(Args(home, supervised: true), EngineParts.Bare, stop.Token, log, opener.Open);
             Assert.True(await UpAsync(log));
             Assert.Equal(1, opener.Calls);
-            Assert.Contains("The supervisor's stop event is not waited on (Global\\PlayMap-Engine-Stop does not exist): its stop ends this engine only by termination.",
+            Assert.Contains("The supervisor's stop event is not waited on (Global\\PlayMap-Engine-Stop-0123456789abcdef0123456789abcdef does not exist): its stop ends this engine only by termination.",
                 log.Lines);
 
             await stop.CancelAsync();
@@ -165,26 +168,80 @@ public sealed class SupervisorStopTests
         }
     }
 
-    /// <summary>A named event as the supervisor makes it for the show user: this test's user may only wait on it.</summary>
+    [Fact]
+    public void TheEngineTakesTheStopEventItsSupervisorNamesAndOnlyASupervisorsName()
+    {
+        var name = SupervisorNames.NewStopEvent(SupervisorNames.StopEventPrefix);
+        var options = EngineOptions.Parse(["engine", "--supervised", "--stop-event", name], out var error);
+        Assert.Null(error);
+        Assert.True(options.Supervised);
+        Assert.Equal(name, options.StopEvent);
+        EngineOptions.Parse(["engine", "--supervised", "--stop-event"], out error);
+        Assert.Equal("--stop-event takes a name", error);
+        Assert.Contains("[--stop-event <name>]", EngineEntry.Usage, StringComparison.Ordinal);
+
+        Assert.Null(EngineEntry.OpenThisMachinesStopEvent(null, out var why));
+        Assert.Equal("no stop event is named (--stop-event)", why);
+        // Another program's event, a fixed name, or a supervisor's prefix with anything but its drawn digits: never opened.
+        foreach (var other in new[] { @"Global\SomeService-Shutdown", @"Global\PlayMap-Engine-Stop", SupervisorNames.StopEventPrefix, name.ToUpperInvariant(), name + "0" })
+        {
+            Assert.Null(EngineEntry.OpenThisMachinesStopEvent(other, out why));
+            Assert.Equal(other + " is not the name of a supervisor's stop event", why);
+        }
+    }
+
+    [Fact]
+    public async Task ASupervisedEngineGivenANameThatIsNoSupervisorsWaitsOnNothingAndSaysWhy()
+    {
+        var home = Home("Not a supervisor's");
+        try
+        {
+            var log = new KeptLog();
+            using var stop = new CancellationTokenSource();
+            var run = EngineEntry.RunAsync([.. Args(home, supervised: true), "--stop-event", @"Global\SomeService-Shutdown"], EngineParts.Bare, stop.Token, log);
+            Assert.True(await UpAsync(log));
+            Assert.Contains("The supervisor's stop event is not waited on (Global\\SomeService-Shutdown is not the name of a supervisor's stop event): its stop ends this engine only by termination.",
+                log.Lines);
+            await stop.CancelAsync();
+            Assert.Equal(EngineEntry.Stopped, await run.WaitAsync(TimeSpan.FromSeconds(30)));
+        }
+        finally
+        {
+            home.Delete(recursive: true);
+        }
+    }
+
+    private static bool Elevated => OperatingSystem.IsWindows() && new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
+
+    /// <summary>A named event as the supervisor makes it for the show user — this test's user may only wait on it and read its owner —
+    /// owned by <paramref name="owner"/>.</summary>
     [SupportedOSPlatform("windows")]
-    private static EventWaitHandle MadeToBeWaitedOn(string name)
+    private static EventWaitHandle MadeToBeWaitedOn(string name, SecurityIdentifier owner)
     {
         var security = new EventWaitHandleSecurity();
-        security.AddAccessRule(new EventWaitHandleAccessRule(WindowsIdentity.GetCurrent().User!, EventWaitHandleRights.Synchronize, AccessControlType.Allow));
+        security.SetOwner(owner);
+        security.AddAccessRule(new EventWaitHandleAccessRule(WindowsIdentity.GetCurrent().User!, EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions,
+            AccessControlType.Allow));
         var made = EventWaitHandleAcl.Create(false, EventResetMode.ManualReset, name, out var created, security);
         Assert.True(created);
         return made;
     }
 
+    [SupportedOSPlatform("windows")]
+    private static SecurityIdentifier Administrators => new(WellKnownSidType.BuiltinAdministratorsSid, null);
+
     private static string TestEventName() => @"Local\PlayMap-Engine-Stop-Test-" + Guid.NewGuid().ToString("N");
 
     [WindowsFact]
     [SupportedOSPlatform("windows")]
-    public void TheEngineOpensTheNamedEventWithSynchronizeAloneAndCanNeitherSetNorClearIt()
+    public void TheEngineOpensTheNamedEventWithSynchronizeAndReadPermissionsAloneAndCanNeitherSetNorClearIt()
     {
+        // Only an elevated caller may make an event administrators own, as the supervisor's are SYSTEM's.
+        if (!Elevated)
+            return;
         var name = TestEventName();
-        using var made = MadeToBeWaitedOn(name);
-        // The event's ACL gives this user Synchronize alone: an open that asks for more is refused.
+        using var made = MadeToBeWaitedOn(name, Administrators);
+        // The event's ACL gives this user Synchronize and ReadPermissions alone: an open that asks for more is refused.
         Assert.Throws<UnauthorizedAccessException>(() => EventWaitHandle.OpenExisting(name));
 
         using var opened = EngineEntry.OpenStopEvent(name, out var why);
@@ -205,13 +262,43 @@ public sealed class SupervisorStopTests
 
     [WindowsFact]
     [SupportedOSPlatform("windows")]
+    public void AnEventAnotherAccountMadeIsNotWaitedOn()
+    {
+        // An event of the stop event's name and rights that an account other than SYSTEM or administrators owns (as a standard user's
+        // would be): that account could set or clear it, so the engine leaves it and stops by its signals and termination alone.
+        var name = TestEventName();
+        var user = WindowsIdentity.GetCurrent().User!;
+        using var made = MadeToBeWaitedOn(name, user);
+        Assert.Null(EngineEntry.OpenStopEvent(name, out var why));
+        Assert.Equal($"{name} was made by {user.Value}, not by SYSTEM or administrators", why);
+    }
+
+    [WindowsFact]
+    [SupportedOSPlatform("windows")]
+    public void ThisMachinesStopEventIsTheOneItsSupervisorNamedUnderTheGlobalPrefix()
+    {
+        if (!Elevated)
+            return;
+        var name = SupervisorNames.NewStopEvent(SupervisorNames.StopEventPrefix);
+        using var made = MadeToBeWaitedOn(name, Administrators);
+        using var opened = EngineEntry.OpenThisMachinesStopEvent(name, out var why);
+        Assert.Equal("", why);
+        Assert.NotNull(opened);
+        made.Set();
+        Assert.True(opened.WaitOne(0));
+    }
+
+    [WindowsFact]
+    [SupportedOSPlatform("windows")]
     public async Task ASupervisedEngineStopsInOrderWhenItsNamedEventIsSet()
     {
+        if (!Elevated)
+            return;
         var name = TestEventName();
         var home = Home("Named");
         try
         {
-            using var made = MadeToBeWaitedOn(name);
+            using var made = MadeToBeWaitedOn(name, Administrators);
             var log = new KeptLog();
             var run = EngineEntry.RunAsync(Args(home, supervised: true), EngineParts.Bare, CancellationToken.None, log,
                 (out string why) => EngineEntry.OpenStopEvent(name, out why));

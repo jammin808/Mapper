@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
+using System.Security.Principal;
 using Microsoft.Extensions.Logging;
 using PlayMap.Net;
 
@@ -29,7 +30,7 @@ public static partial class EngineEntry
     public const int BindRefused = 3;
 
     public const string Usage =
-        "PlayMap engine [headless] [--home <folder>] [--project <file>] [--name <node name>] [--http <port>] [--wire <port>] [--no-recover] [--desk-pid <pid>] [--supervised]";
+        "PlayMap engine [headless] [--home <folder>] [--project <file>] [--name <node name>] [--http <port>] [--wire <port>] [--no-recover] [--desk-pid <pid>] [--supervised] [--stop-event <name>]";
 
     /// <summary>Runs the node with the exe's standard parts (<see cref="EngineParts.Standard"/>) until it is asked to
     /// stop, and answers the exit code. Blocks the calling thread for the node's life.</summary>
@@ -92,9 +93,9 @@ public static partial class EngineEntry
     internal delegate WaitHandle? StopEventOpener(out string why);
 
     /// <summary>The node's life: parse, pick the home, log, start, run until <paramref name="stop"/> or, for an engine the supervisor
-    /// started (<c>--supervised</c>), until its stop event is set — opened by <paramref name="supervisorStop"/>, this machine's
-    /// (<see cref="OpenThisMachinesStopEvent"/>) when none is given — then stop: either way the same stop, the doors closed in order,
-    /// the recovery record written and the journal flushed.</summary>
+    /// started (<c>--supervised</c>), until its stop event is set — opened by <paramref name="supervisorStop"/>, or, when none is given,
+    /// the one <c>--stop-event</c> names on this machine (<see cref="OpenThisMachinesStopEvent"/>) — then stop: either way the same stop,
+    /// the doors closed in order, the recovery record written and the journal flushed.</summary>
     internal static async Task<int> RunAsync(IReadOnlyList<string> args, EngineParts parts, CancellationToken stop, ILoggerProvider? extraLog = null,
         StopEventOpener? supervisorStop = null)
     {
@@ -142,7 +143,7 @@ public static partial class EngineEntry
         {
             log.LogInformation("{Build}: the engine starts{Headless} in {Home} (process {Pid}).", build, options.Headless ? " headless" : "", home.Folder,
                 Environment.ProcessId);
-            using var supervisor = options.Supervised ? StopEvent.Open(supervisorStop ?? OpenThisMachinesStopEvent, log) : null;
+            using var supervisor = options.Supervised ? StopEvent.Open(supervisorStop ?? ThisMachinesStopEvent(options.StopEvent), log) : null;
             using var asked = supervisor is null ? null : CancellationTokenSource.CreateLinkedTokenSource(stop, supervisor.Token);
             var running = asked?.Token ?? stop;
             await using var host = new EngineHost(options, home, new EngineHostOptions
@@ -204,29 +205,52 @@ public static partial class EngineEntry
     internal static string? StatusFolderFor(EngineOptions options) =>
         options.Supervised ? Core.Machine.SupervisorStatus.MachineFolder() : null;
 
-    /// <summary>This machine's stop event for the engine its supervisor started (<see cref="Core.Machine.SupervisorNames.StopEvent"/>);
-    /// none off Windows, which has no supervisor.</summary>
-    internal static WaitHandle? OpenThisMachinesStopEvent(out string why)
+    /// <summary>The opener of the stop event <paramref name="name"/> (the engine's <c>--stop-event</c>) on this machine.</summary>
+    internal static StopEventOpener ThisMachinesStopEvent(string? name) => (out string why) => OpenThisMachinesStopEvent(name, out why);
+
+    /// <summary>The stop event the supervisor made for this engine and named on its command line: only a name of a supervisor's stop
+    /// event's shape (<see cref="Core.Machine.SupervisorNames.IsStopEvent"/> under <see cref="Core.Machine.SupervisorNames.StopEventPrefix"/>),
+    /// opened by <see cref="OpenStopEvent"/>; none off Windows, which has no supervisor, and none when the name is missing or of
+    /// another shape.</summary>
+    internal static WaitHandle? OpenThisMachinesStopEvent(string? name, out string why)
     {
+        if (name is null)
+        {
+            why = "no stop event is named (--stop-event)";
+            return null;
+        }
+        if (!Core.Machine.SupervisorNames.IsStopEvent(name, Core.Machine.SupervisorNames.StopEventPrefix))
+        {
+            why = $"{name} is not the name of a supervisor's stop event";
+            return null;
+        }
         if (OperatingSystem.IsWindows())
-            return OpenStopEvent(Core.Machine.SupervisorNames.StopEvent, out why);
+            return OpenStopEvent(name, out why);
         why = "only Windows has a supervisor's stop event";
         return null;
     }
 
-    /// <summary>The named event <paramref name="name"/>, opened with Synchronize alone — the one right the supervisor's ACL gives the
-    /// show user, enough to wait on it and never to set or clear it — or null with why it could not be.</summary>
+    /// <summary>The named event <paramref name="name"/>, opened with Synchronize and ReadPermissions — the rights the supervisor's ACL
+    /// gives the show user, enough to wait on it and read its owner and never to set or clear it — and kept only when SYSTEM or
+    /// administrators made it (one any other account made, that account could set or clear); or null with why.</summary>
     [SupportedOSPlatform("windows")]
     internal static WaitHandle? OpenStopEvent(string name, out string why)
     {
         try
         {
-            if (EventWaitHandleAcl.TryOpenExisting(name, EventWaitHandleRights.Synchronize, out var opened))
+            if (!EventWaitHandleAcl.TryOpenExisting(name, EventWaitHandleRights.Synchronize | EventWaitHandleRights.ReadPermissions, out var opened))
+            {
+                why = $"{name} does not exist";
+                return null;
+            }
+            var owner = (opened.GetAccessControl().GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier)?.Value ?? "";
+            if (Core.Machine.SupervisorNames.StopEventOwnerTrusted(owner))
             {
                 why = "";
                 return opened;
             }
-            why = $"{name} does not exist";
+            opened.Dispose();
+            why = $"{name} was made by {(owner.Length > 0 ? owner : "an owner Windows does not name")}, not by SYSTEM or administrators";
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
         {

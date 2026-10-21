@@ -75,9 +75,11 @@ user effects the frame draws compile inside the engine, on a shared second conte
   PlayMap.exe run as the engine, started when its record was written, so a pid another process took after a power cut keeps no record
   in place), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a
   test) writes none. It holds what a supervisor needs to adopt a running engine and an installer's armed check needs to ask it on
-  loopback, and no secret. That engine also waits on the supervisor's stop event (`Global\PlayMap-Engine-Stop`, opened with
-  Synchronize alone, the one right the show user — or, on an install that names none, every signed-in user — has on it): once it is
-  set the engine stops as any asked stop does, during its start or once up, and journals that the supervisor asked.
+  loopback, and no secret. That engine also waits on the stop event the supervisor made for it and named on its command
+  line (`--stop-event Global\PlayMap-Engine-Stop-<32 hex digits drawn for that start>`, opened with Synchronize and ReadPermissions,
+  the rights the show user — or, on an install that names none, every signed-in user — has on it, and kept only when SYSTEM or
+  administrators made it): once it is set the engine stops as any asked stop does, during its start or once up, and journals that
+  the supervisor asked.
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
