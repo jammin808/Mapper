@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.Link;
+using PlayMap.Core.Control;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.App.ViewModels;
@@ -190,11 +191,12 @@ public sealed class DeskAction : ObservableObject
     /// <summary>The line a touch on this control sends while Map anything is on.</summary>
     public static string LearnLine(string line) => "BIND LEARN " + line;
 
-    /// <summary>A line a binding may carry: a catalogue row's, neither node-to-node nor the connection's own, carrying no secret and no
-    /// line of its own (BIND LEARN of a BIND).</summary>
+    /// <summary>A line a binding may carry: a target the node's BIND LEARN takes (<see cref="TargetLine"/>, the node's own rule: a
+    /// catalogue line that changes something, never a reading, a session's, a secret's, an approval's or a binding's own line), neither
+    /// node-to-node nor the connection's own, and carrying no line of its own.</summary>
     public static bool Bindable(string? line) =>
-        !string.IsNullOrWhiteSpace(line) && WireGrammar.TryParse(line, out var parsed, out _) && VerbCatalog.Match(parsed) is { } m
-        && !m.Spec.Internal && !m.Spec.EmbedsLine && m.Spec.SecretFrom is null && m.Spec.Category != VerbCategory.Session;
+        !string.IsNullOrWhiteSpace(line) && TargetLine.Parse(line, out _) is { } target
+        && !target.Spec.Internal && !target.Spec.EmbedsLine && target.Spec.SecretFrom is null && target.Spec.Category != VerbCategory.Session;
 
     /// <summary>A line a touch in Map anything may learn: a bindable line that is not the air's or a panic's (PANIC, PANIC CLEAR,
     /// BLACKOUT, MASTER), so a touch on those always acts — their Bind ▸ entry learns them.</summary>

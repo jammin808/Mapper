@@ -98,6 +98,51 @@ public class MapAnythingTests
     }
 
     [AvaloniaFact]
+    public async Task OnlyALineTheNodeLearnsIsOutlinedAndAReadingOrABindingsOwnLineIsRefusedWithTheNodesWords()
+    {
+        await using var desk = new DeskHarness();
+        StateFixtures.Load(desk.Link, "machine");
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Drawers.Show("health", "cards");
+        desk.Session.MapAnything = true;
+        DeskHarness.Pump();
+
+        // The machine card: its reading (MACHINE STATUS) is not outlined and a touch on it sends the reading itself, the mode staying on;
+        // its claim (MACHINE SET QOS HIGH) changes something, so it is outlined.
+        var card = desk.Main.Cards.Shown.First(c => c.Actions.Any(a => a.Verb == "MACHINE STATUS"));
+        var reading = card.Actions.First(a => a.Verb == "MACHINE STATUS");
+        var claim = card.Actions.First(a => a.Verb == "MACHINE SET QOS HIGH");
+        Assert.False(reading.IsBindable);
+        Assert.True(claim.IsBindable);
+        Assert.DoesNotContain("bindable", ButtonOf(window, reading).Classes);
+        Assert.Contains("bindable", ButtonOf(window, claim).Classes);
+        desk.Link.ClearSent();
+        DeskHarness.Click(window, ButtonOf(window, reading));
+        await DeskHarness.Drain([reading]);
+        Assert.Equal(["MACHINE STATUS"], desk.Verbs());
+        Assert.True(desk.Session.MapAnything);
+        Assert.False(DeskAction.Bindable("FX KINDS"));
+        Assert.False(DeskAction.Bindable("BIND ENABLE ct00000001 OFF"));
+        Assert.True(DeskAction.Bindable("FX RELEASE ALL"));
+
+        // The fake and a real node refuse to learn a reading or a binding's own line with the same words, and both learn a claim.
+        var d1 = new PlayMap.Core.Wire.SessionInfo("d1", "desk", "127.0.0.1", true, "PlayMapDesk", true);
+        await using var engine = new PlayMap.Engine.EngineCore(PlayMap.Engine.EngineServices.ForTests(new PlayMap.Core.Time.ManualClock(5_000_000_000)));
+        foreach (var target in new[] { "MACHINE STATUS", "FX KINDS", "BIND ENABLE ct00000001 OFF", "MACHINE SET QOS HIGH" })
+        {
+            var learn = DeskAction.LearnLine(target);
+            Assert.True(PlayMap.Core.Wire.WireGrammar.TryParse(learn, out var parsed, out _));
+            var real = await engine.HandleAsync(parsed, d1, Ct);
+            var fake = await desk.Link.SendAsync(learn, Ct);
+            Assert.Equal(DeskAction.Bindable(target), real.Ok);
+            Assert.Equal(real.Ok, fake.Ok);
+            if (!real.Ok)
+                Assert.Equal(real.Payload, fake.Text);
+        }
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task PanicAndTheAirActWithTheModeOnAndArmedTheModeEndsGreyedWithTheNodesWords()
     {
         await using var desk = await ShowDesk();

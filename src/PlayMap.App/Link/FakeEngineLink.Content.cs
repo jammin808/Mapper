@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlayMap.Core.Content;
+using PlayMap.Core.Control;
 using PlayMap.Core.Modulation;
 using PlayMap.Core.Wire;
 
@@ -10,7 +11,8 @@ namespace PlayMap.App.Link;
 /// <summary>Effects, modulation and learn in the demo, with the engine's meaning and STATE shapes (fx.json, audio.json,
 /// control.json): FX KINDS answers the built-in kinds, FX ADD puts a slot in STATE.fx.slots; MOD SOURCES answers the beat
 /// clock and LFO names, MOD BIND/UNBIND/BYPASS keep STATE.modulation; BIND LEARN puts a learn in STATE.control.learning
-/// and BIND LEARN OFF ends it. A line that would change nothing is refused with the reason.</summary>
+/// for a target the node's own rule takes (<see cref="TargetLine"/>, refused with its words otherwise) and BIND
+/// LEARN OFF ends it. A line that would change nothing is refused with the reason.</summary>
 public sealed partial class FakeEngineLink
 {
     /// <summary>The engine's built-in effect kinds (PlayMap.Render's FxCatalog), as FX KINDS names them.</summary>
@@ -124,8 +126,8 @@ public sealed partial class FakeEngineLink
         if (line.Count < 3)
             return Err("BIND LEARN [FROM <surface>] <target line> | BIND LEARN OFF");
         var target = line.RestAfter(2);
-        if (!WireGrammar.TryParse(target, out var inner, out _) || VerbCatalog.Match(inner) is null)
-            return Err($"'{target}' is not a line this node runs");
+        if (TargetLine.Parse(target, out var why) is null)
+            return Err(why);
         control["learning"] = new JsonObject { ["target"] = target, ["untilUnixMs"] = UnixMs + 30_000, ["words"] = "Move a control for " + target + " — Esc cancels" };
         Moved();
         return Ok("learning");

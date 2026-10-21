@@ -5,6 +5,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using PlayMap.App.Controls;
 using PlayMap.App.ViewModels;
+using PlayMap.Core.Control;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.App.Tests;
@@ -206,7 +207,8 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
             all.AddRange(desk.Main.ExtrasFor(t).SelectMany(x => x.Children.Prepend(x)));
 
         // Once more with Map anything on (the show disarmed: armed, a learn is refused and the mode ends): every line a touch would learn
-        // is BIND LEARN of a catalogue line, itself a catalogue line.
+        // is BIND LEARN of a catalogue line, itself a catalogue line, and a target the node's BIND LEARN takes (Core's TargetLine: a line
+        // that changes something), so no outlined control is one the node refuses to learn.
         if (armed)
         {
             Assert.True((await desk.Session.SendAsync("SHOW DISARM", Ct)).Ok);
@@ -218,6 +220,9 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
         var learnt = all.Distinct().Where(a => a.IsBindable).Select(a => DeskAction.LearnLine(a.Verb)).Distinct().ToList();
         Assert.NotEmpty(learnt);
         Assert.All(learnt, line => Assert.True(Fault(line) is null, line + ": " + Fault(line)));
+        var refused = all.Distinct().Where(a => a.IsBindable).Select(a => (a.Verb, Target: TargetLine.Parse(a.Verb, out var why), why))
+            .Where(x => x.Target is null).Select(x => x.Verb + ": " + x.why).Distinct().ToList();
+        Assert.True(refused.Count == 0, "outlined, but the node refuses to learn: " + string.Join("; ", refused));
         desk.Session.MapAnything = false;
         if (armed)
             Assert.True((await desk.Session.SendAsync("SHOW ARM", Ct)).Ok);
