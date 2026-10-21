@@ -221,7 +221,7 @@
         "fixed": "green"
       }
     ],
-    "words": "{drift?{count} moved since the lock \u2014 MACHINE LOCK takes the new set:the drivers are the locked set}",
+    "words": "{drift?{drift.length} moved since the lock \u2014 MACHINE LOCK takes the new set:the drivers are the locked set}",
     "fields": [
       {
         "label": "Windows",
