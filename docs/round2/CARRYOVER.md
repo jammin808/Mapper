@@ -363,9 +363,12 @@ Round 2 W1 notes:
   is live again and does not dial), so the mirror read `lost` ("FOH-A's mirror is not subscribed") for as long as that connection
   lasted, and the watch's follow and repulls stopped with it, while the primary's lines kept landing. Now a subscription lives as
   long as its connection: a link that goes down or dials again takes it, a stale one keeps it, and the mirror reads `lost` while
-  its link is quiet ("FOH-A's mirror has said nothing for over 6 s"), down or unsubscribed. The link counted that silence (stale
-  at 6 s, dropped at 12 s) on the process's clock, while the rig counts the fleet monitor's, the sync part's and the pulls' on
-  hand-moved clocks; it counts it on the node's clock now (`WireClientOptions.Clock`, which `MirrorLink` takes from the node;
+  its link is quiet ("FOH-A has said nothing on its mirror for over 6 s"), down or unsubscribed. Preflight's mirror row offers
+  `FLEET BACKUP <primary>` only while no subscription stands; a quiet link's stands, the verb refuses it ("already a hot backup of
+  FOH-A"), and the row offers no line then
+  (`BackupMirrorLinkTests.AQuietMirrorIsOfferedNoLineInPreflightAndADroppedOneTheLineThatJoinsItAnew`). The link counted that
+  silence (stale at 6 s, dropped at 12 s) on the process's clock, while the rig counts the fleet monitor's, the sync part's and
+  the pulls' on hand-moved clocks; it counts it on the node's clock now (`WireClientOptions.Clock`, which `MirrorLink` takes from the node;
   every other link keeps the process's clock).
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows failure at its line 95
   (wp3-installer c92e3c2a, run 39653186869, the test 22 s: INDEX's `FAILOVER` red `lost` where it waited amber `different`, after

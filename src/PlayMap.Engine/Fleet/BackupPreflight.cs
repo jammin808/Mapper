@@ -36,9 +36,11 @@ internal sealed class BackupPreflight : IPreflightCheck
             case FleetRoles.Backup:
                 var mirror = backup.Mirror();
                 var state = mirror?.State ?? "joining";
+                // A lost mirror is offered the line that joins it anew only while no subscription stands: a quiet link keeps its
+                // subscription, which FLEET BACKUP refuses, and is followed again with the primary's next line or dialled again.
                 rows.Add(new PreflightRow("backup:mirror", node, Section, "Mirror of " + (mirror?.Name is { Length: > 0 } n ? n : role.Of),
                     state switch { "identical" => Light.Green, "lost" => Light.Red, _ => Light.Amber }, state, mirror?.Words ?? "",
-                    state == "lost" ? $"FLEET BACKUP {role.Of}" : null));
+                    state == "lost" ? backup.RejoinLine : null));
                 var missing = Missing(engine, project, backup.MissingShowFiles);
                 rows.Add(missing.Count == 0
                     ? new PreflightRow("backup:files", node, Section, "Files and versions", Light.Green, "all here", "every file and optimised version the show names is here, verified by its hash", null)

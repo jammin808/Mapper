@@ -695,7 +695,7 @@ public sealed class BackupNode : IAsyncDisposable
             if (status is LinkStatus.Connecting or LinkStatus.Down)
                 _subscribed = false;
             else if (status == LinkStatus.Stale)
-                _log.LogInformation("{Primary}'s mirror has said nothing for over {Seconds} s: lost while it is quiet.", peer.Name, ShowBusConstants.StaleMs / 1000);
+                _log.LogInformation("{Primary} has said nothing on its mirror for over {Seconds} s: lost while it is quiet, still subscribed.", peer.Name, ShowBusConstants.StaleMs / 1000);
             _engine?.FactsChanged();
         };
         var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, http, peer.Hello.TlsFingerprint ?? "", token), _pins(),
@@ -1587,14 +1587,20 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>Why the mirror is lost, by where its link stands: quiet (the primary has said nothing on it past the stale mark, on this
-    /// node's clock), down (no connection), or connected with no subscription standing.</summary>
+    /// node's clock, and its subscription stands), down (no connection), or connected with no subscription standing.</summary>
     private string LostWords(LinkStatus status) => status switch
     {
         LinkStatus.Stale => string.Create(CultureInfo.InvariantCulture,
-            $"{_primaryName}'s mirror has said nothing for over {ShowBusConstants.StaleMs / 1000} s — the last show and air hold here"),
+            $"{_primaryName} has said nothing on its mirror for over {ShowBusConstants.StaleMs / 1000} s — the last show and air hold here"),
         LinkStatus.Live => $"{_primaryName}'s mirror is not subscribed — the last show and air hold here",
         _ => $"{_primaryName}'s mirror is down — the last show and air hold here",
     };
+
+    /// <summary>The line that joins the primary's mirror anew (<c>FLEET BACKUP &lt;primary&gt;</c>) while no subscription stands on
+    /// this backup: its connection ended, a new one is not subscribed yet, or the primary refused it. Null while one stands, a quiet
+    /// link's included, which the verb refuses ("already a hot backup"): the primary's next line on that connection follows the mirror
+    /// again, and a link quiet past the drop mark dials again and subscribes anew. Null on a node that backs up none.</summary>
+    internal string? RejoinLine => _settings is { Role: FleetRoles.Backup } s && !(_link is not null && _subscribed) ? "FLEET BACKUP " + s.Of : null;
 
     /// <summary>The files the show names beside its folder (meshes, measured maps, survey clouds) that could not be pulled from the
     /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror's subscription stands

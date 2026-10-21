@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Fleet;
 using PlayMap.Core.Model;
+using PlayMap.Core.Preflight;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Fleet;
 using PlayMap.Engine.Host;
@@ -61,6 +62,13 @@ internal static class BackupRig
     }
 
     public static string ShowJson(HostRig rig) => ProjectJson.Serialize(rig.Engine.Store.Project);
+
+    /// <summary>Preflight's backup section on a node now, run at its quick depth.</summary>
+    public static async Task<IReadOnlyList<PreflightRow>> PreflightAsync(HostRig rig)
+    {
+        var check = rig.Engine.Services.PreflightChecks.Single(c => c.Section == "backup");
+        return await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
+    }
 
     /// <summary>Introduces the nodes to each other and waits until each hears the others' hellos and health.</summary>
     public static async Task MeetAsync(params HostRig[] rigs)
