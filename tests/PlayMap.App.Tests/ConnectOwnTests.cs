@@ -48,10 +48,13 @@ public sealed class ConnectOwnTests
                     {
                         Started.TrySetResult();
                         return new RunningEngine();
-                    });
+                    }, supervisedMachine: () => false);
                     return Supervisor;
                 },
-                time: Time);
+                time: Time,
+                // An unsupervised machine whatever the test machine holds: no install key of the host's is read.
+                supervisedMachine: () => false,
+                supervisorStatus: () => null);
             Connections.Note += Notes.Add;
         }
 

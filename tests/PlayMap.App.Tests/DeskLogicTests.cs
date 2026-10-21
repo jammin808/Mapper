@@ -194,7 +194,7 @@ public class DeskLogicTests
             var p = new FakeProcess(100 + made.Count, exits.Dequeue());
             made.Add(p);
             return p;
-        }, backoff: new RestartBackoff(TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(4)));
+        }, backoff: new RestartBackoff(TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(4)), supervisedMachine: () => false);
         supervisor.Note += notes.Add;
         Assert.True(supervisor.Start());
         await supervisor.Watching.WaitAsync(TimeSpan.FromSeconds(10), Ct);

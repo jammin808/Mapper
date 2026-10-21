@@ -68,6 +68,9 @@ internal sealed class OpsRig : IAsyncDisposable
         };
         parts = services?.Invoke(parts) ?? parts;
         Engine = new EngineCore(parts with { Devices = Devices, Assistant = Assistant, Proposals = Assistant }, project);
+        // A folder run whatever the test machine holds: STATE's machine.install never reads the host's install key.
+        Engine.InstallSource = () => PlayMap.Engine.Install.InstallFacts.NotInstalled;
+        Engine.InstallReadAgain();
         _ops = OpsServices.Attach(Engine);
     }
 
