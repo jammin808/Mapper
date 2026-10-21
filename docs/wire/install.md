@@ -92,8 +92,9 @@ the supervisor started stops on its stop event as any asked stop does, and journ
 folders keep SYSTEM's files out of the show user's reach: `%ProgramData%\PlayMap` is owned by administrators with its own access
 (SYSTEM and administrators change it, every account reads it), the supervisor writes its status file and log in `supervisor\`,
 which has no rule of its own, and the show user writes `dumps\` and the engine's folder `supervisor\engine\` alone, whose pid
-record the supervisor only reads; the install refuses a folder that is a link, and the uninstall takes the show user's write access
-back, the folders left.
+record the supervisor only reads; the install refuses a folder that is a link, removes from `supervisor\` what another account
+placed there (a link itself, a file, an empty folder) and refuses, deleting nothing inside it, a folder another account owns that
+holds anything, and the uninstall takes the show user's write access back, the folders left.
 
 The papers this merge carries (plan §5.4 item 7), each sentence checked against the merged code: `README.md`'s Next paragraph (the
 installer and the supervisor present, the package built and proven on the runner alone), the module table's `PlayMap.Supervisor`

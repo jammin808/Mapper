@@ -14,8 +14,8 @@ namespace PlayMap.Supervisor.Tests.Windows;
 /// delete the folder itself (no Delete right on the folder); an earlier show user's rule replaced; and the uninstall's take-back
 /// leaving no rule of the show user's. A folder that is a link is refused with words and nothing is granted through it; the owner and
 /// the access are set through the one handle the reparse point was checked on, so a conversion to a link while the install runs lands
-/// nothing on another folder, and what another layout placed in the supervisor's folder is removed. A caller that is not elevated is
-/// refused: the install runs elevated.</summary>
+/// nothing on another folder, and what another layout placed in the supervisor's folder is removed — a folder another account owns only
+/// when it is empty, nothing inside one ever deleted. A caller that is not elevated is refused: the install runs elevated.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class MachineFoldersTests
 {
@@ -216,6 +216,56 @@ public sealed class MachineFoldersTests
         finally
         {
             Directory.Delete(Path.GetDirectoryName(root)!, true);
+        }
+    }
+
+    [WindowsFact]
+    public void AFolderAnotherAccountPlacedInTheSupervisorsFolderIsRemovedOnlyEmptyAndNothingInsideOneIsDeleted()
+    {
+        // A folder whose owner is not SYSTEM or administrators stays its owner's to change while the install runs, so the sweep never
+        // walks it: an empty one is removed, and one that holds anything — here a file, a folder and a link to a folder elsewhere —
+        // refuses the install with words, every entry inside it and the link's target left as they were.
+        if (!Elevated)
+            return;
+        var parent = Directory.CreateTempSubdirectory("playmap-machine-").FullName;
+        var root = Path.Combine(parent, "PlayMap");
+        var supervisor = Path.Combine(root, "supervisor");
+        var elsewhere = Directory.CreateDirectory(Path.Combine(parent, "elsewhere")).FullName;
+        File.WriteAllText(Path.Combine(elsewhere, "keep.txt"), "a file the link's target holds");
+        var user = WindowsIdentity.GetCurrent().User!;
+        void OwnedByThisUser(string folder)
+        {
+            var security = new DirectoryInfo(folder).GetAccessControl();
+            security.SetOwner(user);
+            new DirectoryInfo(folder).SetAccessControl(security);
+            Assert.False(MachinePlan.OwnerTrusted(((SecurityIdentifier)new DirectoryInfo(folder).GetAccessControl().GetOwner(typeof(SecurityIdentifier))!).Value));
+        }
+        var said = new List<string>();
+        try
+        {
+            var empty = Directory.CreateDirectory(Path.Combine(supervisor, "placed-empty")).FullName;
+            OwnedByThisUser(empty);
+            MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, said.Add);
+            Assert.False(Directory.Exists(empty), "the empty folder another account placed stayed");
+            Assert.Contains(said, s => s.Contains("placed-empty", StringComparison.Ordinal) && s.Contains("placed there", StringComparison.Ordinal));
+
+            var held = Directory.CreateDirectory(Path.Combine(supervisor, "placed-holding")).FullName;
+            File.WriteAllText(Path.Combine(held, "note.txt"), "a file inside it");
+            Directory.CreateDirectory(Path.Combine(held, "sub"));
+            File.WriteAllText(Path.Combine(held, "sub", "deep.txt"), "a file a level down");
+            Directory.CreateSymbolicLink(Path.Combine(held, "link"), elsewhere);
+            OwnedByThisUser(held);
+            var refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, said.Add));
+            Assert.Contains("placed-holding", refused.Message, StringComparison.Ordinal);
+            Assert.Contains("the install deletes nothing inside a folder another account controls", refused.Message, StringComparison.Ordinal);
+            Assert.True(File.Exists(Path.Combine(held, "note.txt")));
+            Assert.True(File.Exists(Path.Combine(held, "sub", "deep.txt")));
+            Assert.True((File.GetAttributes(Path.Combine(held, "link")) & FileAttributes.ReparsePoint) != 0, "the link inside it was removed");
+            Assert.True(File.Exists(Path.Combine(elsewhere, "keep.txt")));
+        }
+        finally
+        {
+            Directory.Delete(parent, true);
         }
     }
 }

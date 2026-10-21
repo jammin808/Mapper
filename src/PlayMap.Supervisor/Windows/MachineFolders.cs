@@ -17,14 +17,16 @@ namespace PlayMap.Supervisor.Windows;
 /// access are set through the one handle its reparse point was checked on, and that handle is held open until the install is done, so
 /// the owner and the access are made and granted through the checked folder itself and never through a link that replaced it: a folder
 /// that is a link (a junction or a symbolic link) is refused with words, and the check and the write are the same handle. In the
-/// supervisor's folder, what an earlier layout let another account place there — a link, a file another account owns, the pid record's
-/// earlier place — is removed, so SYSTEM writes only its own files.</summary>
+/// supervisor's folder, what an earlier layout let another account place there — a link, a file or an empty folder another account
+/// owns, the pid record's earlier place — is removed, so SYSTEM writes only its own files; nothing inside a folder another account owns
+/// is ever deleted, and such a folder that holds anything refuses the install with words.</summary>
 [SupportedOSPlatform("windows")]
 public static class MachineFolders
 {
     private static readonly SecurityIdentifier System = new(WellKnownSidType.LocalSystemSid, null);
     private static readonly SecurityIdentifier Administrators = new(WellKnownSidType.BuiltinAdministratorsSid, null);
     private static readonly SecurityIdentifier Users = new(WellKnownSidType.BuiltinUsersSid, null);
+    private const int ErrorDirNotEmpty = 145;
     private const InheritanceFlags Inherited = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
 
     /// <summary>The account that writes the show user's folders: the show user, or, when the install names none, INTERACTIVE
@@ -198,7 +200,10 @@ public static class MachineFolders
     }
 
     /// <summary>Removes from the supervisor's folder what SYSTEM would act on there but did not make: a link, a file or folder another
-    /// account owns (the planned folders aside), and the pid record's earlier place beside the status file.</summary>
+    /// account owns (the planned folders aside), and the pid record's earlier place beside the status file. A folder another account
+    /// owns stays that account's to change while the install runs — its owner may swap anything inside it for a junction between a
+    /// delete's look at a name and its open of it, turning a delete that walks the folder by path onto the junction's target — so no
+    /// folder is walked: each is removed by RemoveDirectory alone (<see cref="RemoveFolder"/>).</summary>
     private static void RemovePlaced(string root, Action<string> say)
     {
         var supervisor = MachinePlan.Folders.Single(f => f.Under is ["supervisor"]).In(root);
@@ -215,10 +220,27 @@ public static class MachineFolders
             if (!link && !earlier && MachinePlan.OwnerTrusted(owner))
                 continue;
             if (directory)
-                Directory.Delete(entry, recursive: !link);
+                RemoveFolder(entry, owner);
             else
                 File.Delete(entry);
             say("removed " + entry + (link ? ", a link" : earlier ? ", the pid record's earlier place" : ", which " + (owner.Length > 0 ? owner : "an account Windows does not name") + " placed there"));
+        }
+    }
+
+    /// <summary>Removes a link (a junction or a directory symbolic link) or an empty folder by RemoveDirectory, which removes a link
+    /// itself whatever its target holds and deletes nothing inside a folder: a folder that holds anything is refused with words
+    /// (ERROR_DIR_NOT_EMPTY), and the install deletes nothing of what it holds.</summary>
+    private static void RemoveFolder(string path, string owner)
+    {
+        try
+        {
+            Directory.Delete(path, recursive: false);
+        }
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) == ErrorDirNotEmpty)
+        {
+            throw new InvalidOperationException(path + " is a folder " + (owner.Length > 0 ? owner : "an account Windows does not name")
+                + " placed in the supervisor's folder, and it holds what that account may change: the install deletes nothing inside a "
+                + "folder another account controls — remove it, then run the installer again", ex);
         }
     }
 
