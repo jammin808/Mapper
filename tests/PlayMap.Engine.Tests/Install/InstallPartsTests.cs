@@ -55,7 +55,8 @@ public sealed class InstallPartsTests
             string[] words = supervised ? ["engine", "headless", "--no-recover", "--supervised"] : ["engine", "headless", "--no-recover"];
             await using var rig = await HostRig.StartAsync("Install", parts: parts, options: home => HostRig.Parse([.. words, "--home", home]));
             Assert.NotNull(made);
-            Assert.Equal(supervised ? EnginePidRecord.MachineFolder() : null, made.SupervisorFolder);
+            // The status lies in the supervisor's folder, above the engine's folder that holds the pid record.
+            Assert.Equal(supervised ? SupervisorStatus.MachineFolder() : null, made.SupervisorFolder);
         }
     }
 

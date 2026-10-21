@@ -25,7 +25,7 @@ public sealed class InstallParts : IEngineExtension
     internal string? SupervisorFolder => _supervisorFolder;
 
     /// <summary>The exe's install part.</summary>
-    public static readonly EngineExtensionFactory Factory = s => new InstallParts(EngineEntry.SupervisorFolderFor(s.Options), Environment.ProcessId);
+    public static readonly EngineExtensionFactory Factory = s => new InstallParts(EngineEntry.StatusFolderFor(s.Options), Environment.ProcessId);
 
     public string Name => "install";
 

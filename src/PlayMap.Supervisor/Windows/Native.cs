@@ -4,9 +4,10 @@ using Microsoft.Win32.SafeHandles;
 
 namespace PlayMap.Supervisor.Windows;
 
-/// <summary>The few Windows calls the supervisor makes: the console session and its user's token, a process started in that session,
-/// the account rights of the show user, and of a process its user, session and parent read through its handle (its image, start and
-/// command line are Core's ProcessReader's), waited on and ended. Thin: the logic around them is in their callers.</summary>
+/// <summary>The few Windows calls the supervisor makes: the console session and its user's token, a process started in that session
+/// (suspended, then let run), the account rights of the show user, a folder held open by its own handle, and of a process its user,
+/// session and parent read through its handle (its image, start and command line are Core's ProcessReader's), waited on and ended.
+/// Thin: the logic around them is in their callers.</summary>
 [SupportedOSPlatform("windows")]
 internal static partial class Native
 {
@@ -20,6 +21,13 @@ internal static partial class Native
     public const int TokenUser = 1;
     public const int TokenSessionId = 12;
     public const int ProcessBasicInformation = 0;
+    public const uint CreateSuspended = 0x00000004;
+    public const uint FileReadAttributes = 0x80;
+    public const uint FileShareRead = 0x1;
+    public const uint FileShareWrite = 0x2;
+    public const uint OpenExisting = 3;
+    public const uint FileFlagBackupSemantics = 0x02000000;
+    public const uint FileFlagOpenReparsePoint = 0x00200000;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct StartupInfo
@@ -169,4 +177,12 @@ internal static partial class Native
     [LibraryImport("ntdll.dll")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial int NtQueryInformationProcess(SafeProcessHandle process, int infoClass, nint buffer, int length, out int returned);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial SafeFileHandle CreateFile(string path, uint access, uint share, nint security, uint disposition, uint flags, nint template);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial uint ResumeThread(nint thread);
 }

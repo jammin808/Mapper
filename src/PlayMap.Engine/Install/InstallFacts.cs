@@ -98,7 +98,7 @@ public sealed record InstallFacts(
     {
         if (!OperatingSystem.IsWindows())
             return NotInstalled;
-        return ReadWindows(EnginePidRecord.MachineFolder());
+        return ReadWindows(SupervisorStatus.MachineFolder());
     }
 
     [SupportedOSPlatform("windows")]

@@ -56,7 +56,7 @@ public sealed class EngineIdentityWindowsTests
             CreateNoWindow = true,
             WorkingDirectory = place.InstallDir,
         };
-        foreach (var a in new[] { "engine", "--record", place.Folder, "--port-file", portFile })
+        foreach (var a in new[] { "engine", "--record", place.EngineFolder, "--port-file", portFile })
             start.ArgumentList.Add(a);
         using var engine = Process.Start(start)!;
         try
@@ -65,7 +65,7 @@ public sealed class EngineIdentityWindowsTests
             while (!File.Exists(portFile) && DateTime.UtcNow < deadline)
                 await Task.Delay(100);
             Assert.True(File.Exists(portFile), "the fake engine did not come up");
-            var record = EnginePidRecord.Named(place.Folder);
+            var record = EnginePidRecord.Named(place.EngineFolder);
             Assert.NotNull(record);
             Assert.Equal(engine.Id, record.Pid);
             var facts = ProcessReader.Read(engine.Id);
@@ -74,15 +74,15 @@ public sealed class EngineIdentityWindowsTests
             Assert.True(EngineIdentity.NamesRunningEngine(record));
 
             var other = new EnginePidRecord(Environment.ProcessId, 9942, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            Assert.False(other.TryWrite(place.Folder, out var holder));
+            Assert.False(other.TryWrite(place.EngineFolder, out var holder));
             Assert.Equal(record, holder);
-            Assert.Equal(record, EnginePidRecord.Named(place.Folder));
+            Assert.Equal(record, EnginePidRecord.Named(place.EngineFolder));
 
             engine.Kill();
             Assert.True(engine.WaitForExit(TimeSpan.FromSeconds(30)));
-            Assert.True(other.TryWrite(place.Folder, out holder));
+            Assert.True(other.TryWrite(place.EngineFolder, out holder));
             Assert.Null(holder);
-            Assert.Equal(other, EnginePidRecord.Named(place.Folder));
+            Assert.Equal(other, EnginePidRecord.Named(place.EngineFolder));
         }
         finally
         {
@@ -96,31 +96,41 @@ public sealed class EngineIdentityWindowsTests
     {
         using var place = new Place();
         using var helper = Helper.Start();
-        Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(place.Folder));
+        Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(place.EngineFolder));
         var engine = new EnginePidRecord(Environment.ProcessId, 9942, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        Assert.True(engine.TryWrite(place.Folder, out var holder));
+        Assert.True(engine.TryWrite(place.EngineFolder, out var holder));
         Assert.Null(holder);
-        Assert.Equal(engine, EnginePidRecord.Named(place.Folder));
+        Assert.Equal(engine, EnginePidRecord.Named(place.EngineFolder));
         Assert.True(helper.Running);
     }
 
     [WindowsFact]
-    public async Task ARecordNamingAHelperIsNotAdoptedByTheSupervisorsStepAndIsRemoved()
+    public async Task ARecordNamingAHelperIsNotAdoptedByTheSupervisorsStepAndIsLeftForTheEnginesOwnWrite()
     {
         using var place = new Place();
         using var helper = Helper.Start();
         var record = new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        Assert.True(record.TryWrite(place.Folder));
+        Assert.True(record.TryWrite(place.EngineFolder));
+        var before = File.GetLastWriteTimeUtc(Path.Combine(place.EngineFolder, EnginePidRecord.FileName));
         using var host = place.Host();
         host.Prepare();
         await host.StepAsync(CancellationToken.None);
+        await host.StepAsync(CancellationToken.None);
         Assert.Equal(0, host.EnginePid);
         Assert.True(helper.Running);
-        Assert.Null(EnginePidRecord.Named(place.Folder));
+        // The supervisor writes nothing in the engine's folder: the record stays as it was, for the next engine's write to replace.
+        Assert.Equal(record, EnginePidRecord.Named(place.EngineFolder));
+        Assert.Equal(before, File.GetLastWriteTimeUtc(Path.Combine(place.EngineFolder, EnginePidRecord.FileName)));
+        Assert.Equal([EnginePidRecord.FileName], Directory.GetFiles(place.EngineFolder).Select(Path.GetFileName));
         var log = place.Log();
-        Assert.Contains($"the pid record names pid {helper.Pid}, which is not the installed engine (pid {helper.Pid} is PING, not PlayMap.exe): not adopted, and the record is removed",
-            log, StringComparison.OrdinalIgnoreCase);
+        var said = $"the pid record names pid {helper.Pid}, which is not the installed engine (pid {helper.Pid} is PING, not PlayMap.exe): not adopted, and the next engine's record replaces it";
+        Assert.Contains(said, log, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, log.Split('\n').Count(l => l.Contains(said, StringComparison.OrdinalIgnoreCase)));
         Assert.DoesNotContain("terminated", log, StringComparison.Ordinal);
+
+        var engine = new EnginePidRecord(Environment.ProcessId, 9942, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        Assert.True(engine.TryWrite(place.EngineFolder));
+        Assert.Equal(engine, EnginePidRecord.Named(place.EngineFolder));
     }
 
     [WindowsFact]
@@ -128,9 +138,9 @@ public sealed class EngineIdentityWindowsTests
     {
         using var place = new Place();
         using var helper = Helper.Start();
-        Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(place.Folder));
+        Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(place.EngineFolder));
         var said = new List<string>();
-        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.Folder, place.InstallDir, place.StopEvent, said.Add));
+        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.EngineFolder, place.InstallDir, place.StopEvent, said.Add));
         Assert.True(helper.Running);
         Assert.Equal([$"the pid record names pid {helper.Pid}, which is not the installed engine (pid {helper.Pid} is PING, not PlayMap.exe): not stopped"],
             said);
@@ -142,19 +152,21 @@ public sealed class EngineIdentityWindowsTests
         // The record is older than the helper: its pid now names a process that started after the record was written.
         using var place = new Place();
         using var helper = Helper.Start();
-        Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds()).TryWrite(place.Folder));
+        Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds()).TryWrite(place.EngineFolder));
         var said = new List<string>();
-        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.Folder, place.InstallDir, place.StopEvent, said.Add));
+        Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.EngineFolder, place.InstallDir, place.StopEvent, said.Add));
         Assert.True(helper.Running);
         Assert.Contains("not stopped", Assert.Single(said), StringComparison.Ordinal);
     }
 
-    /// <summary>A supervisor's places in a folder of the test's own, with names no other supervisor uses.</summary>
+    /// <summary>A supervisor's places in a folder of the test's own, with names no other supervisor uses: its folder, and the engine's
+    /// folder inside it.</summary>
     internal sealed class Place : IDisposable
     {
         public Place()
         {
             Folder = Directory.CreateTempSubdirectory("playmap-supervisor-").FullName;
+            EngineFolder = Directory.CreateDirectory(Path.Combine(Folder, "engine")).FullName;
             InstallDir = Directory.CreateTempSubdirectory("playmap-install-").FullName;
             var id = Guid.NewGuid().ToString("N");
             PipeName = "PlayMap.Supervisor.Test." + id;
@@ -162,6 +174,8 @@ public sealed class EngineIdentityWindowsTests
         }
 
         public string Folder { get; }
+
+        public string EngineFolder { get; }
 
         public string InstallDir { get; }
 
@@ -177,7 +191,7 @@ public sealed class EngineIdentityWindowsTests
         {
             using var self = Process.GetCurrentProcess();
             var session = (uint)self.SessionId;
-            return new SupervisorHost(new SupervisorPlaces(Folder, PipeName, StopEvent, () => InstallDir, () => ThisUser, () => session,
+            return new SupervisorHost(new SupervisorPlaces(Folder, EngineFolder, PipeName, StopEvent, () => InstallDir, () => ThisUser, () => session,
                 _ => Environment.UserName, launch ?? ((_, _, _) => throw new Win32Exception(5, "this test starts no engine"))));
         }
 

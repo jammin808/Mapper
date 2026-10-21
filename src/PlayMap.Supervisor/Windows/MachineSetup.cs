@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Security.AccessControl;
 using System.Security.Principal;
 using System.ServiceProcess;
 using Microsoft.Win32;
@@ -12,9 +11,10 @@ using PlayMap.Supervisor.Install;
 namespace PlayMap.Supervisor.Windows;
 
 /// <summary>The machine-level actions of the install, done once by an elevated installer through the supervisor's own commands, so
-/// the engine never runs as administrator: the machine's folders with the show user's write access, WER's dump settings, the Event
-/// Log source, the firewall rules, the show user's account right and the service with its recovery actions; and each taken back on
-/// uninstall. Every step says what it did in <paramref name="say"/>; a step Windows refuses throws with Windows' words.</summary>
+/// the engine never needs to run as administrator: the machine's folders (<see cref="MachineFolders"/>) with the show user's write
+/// access to the dumps and the engine's folder alone, WER's dump settings, the Event Log source, the firewall rules, the show user's
+/// account right and the service with its recovery actions; and each taken back on uninstall, the folders themselves and what they
+/// hold left. Every step says what it did in <paramref name="say"/>; a step Windows refuses throws with Windows' words.</summary>
 [SupportedOSPlatform("windows")]
 public static class MachineSetup
 {
@@ -25,10 +25,11 @@ public static class MachineSetup
     /// <summary>The value that says a supervisor keeps this machine's engine (the desk then attaches to it and starts none).</summary>
     public const string SupervisedValue = "Supervised";
 
-    /// <summary>Sets every machine-level action: the folders with the show user's write access, WER, the event source, the firewall
-    /// rules, the show user's right (taken back from <paramref name="previousShowUser"/> when an upgrade names another account) and the
-    /// service, started. The machine is marked supervised only as the last step, once its service runs: an install that stops on the
-    /// way leaves it unsupervised, so its desk starts its own engine.</summary>
+    /// <summary>Sets every machine-level action: the folders, the show user (or, with none named, any signed-in user) writing the
+    /// dumps and the engine's folder alone; WER, the event source, the firewall rules, the show user's right (taken back from
+    /// <paramref name="previousShowUser"/> when an upgrade names another account) and the service, started. The machine is marked
+    /// supervised only as the last step, once its service runs: an install that stops on the way leaves it unsupervised, so its desk
+    /// starts its own engine.</summary>
     public static void Install(string installDir, string showUser, string previousShowUser, bool publicProfile, Action<string> say)
     {
         ArgumentException.ThrowIfNullOrEmpty(installDir);
@@ -38,13 +39,7 @@ public static class MachineSetup
         MarkSupervised(false);
         say("this machine is not supervised until its service runs");
 
-        foreach (var folder in new[] { Path.Combine(MachineFolder, "dumps"), Path.Combine(MachineFolder, "supervisor") })
-        {
-            Directory.CreateDirectory(folder);
-            if (showUser.Length > 0)
-                GrantFolder(folder, showUser);
-            say("folder " + folder + (showUser.Length > 0 ? " (" + showUser + " may write)" : ""));
-        }
+        MachineFolders.Make(MachineFolder, showUser, say);
 
         using (var wer = Registry.LocalMachine.CreateSubKey(MachinePlan.WerKey, true))
         {
@@ -105,22 +100,14 @@ public static class MachineSetup
         }
     }
 
-    /// <summary>An upgrade that names another show user takes the right and the folders' write access back from the earlier one.</summary>
+    /// <summary>An upgrade that names another show user takes the right back from the earlier one (the folders' write access is the
+    /// new show user's alone already: <see cref="MachineFolders.Make"/> replaces every explicit rule on them).</summary>
     private static void TakeBackFrom(string previous, Action<string> say)
     {
         try
         {
             Revoke(previous);
-            foreach (var folder in new[] { Path.Combine(MachineFolder, "dumps"), Path.Combine(MachineFolder, "supervisor") })
-            {
-                if (!Directory.Exists(folder))
-                    continue;
-                var info = new DirectoryInfo(folder);
-                var security = info.GetAccessControl();
-                security.PurgeAccessRules(new NTAccount(previous).Translate(typeof(SecurityIdentifier)));
-                info.SetAccessControl(security);
-            }
-            say(MachinePlan.ShowUserRight + " and the folders' write access taken back from the earlier show user " + previous);
+            say(MachinePlan.ShowUserRight + " taken back from the earlier show user " + previous);
         }
         catch (IdentityNotMappedException)
         {
@@ -174,8 +161,9 @@ public static class MachineSetup
         }
     }
 
-    /// <summary>Takes back what <see cref="Install"/> did, leaving the dumps and the node's own data. Every step is tried whatever
-    /// the others did, and each that Windows refused is named in the answer (empty when all were taken back).</summary>
+    /// <summary>Takes back what <see cref="Install"/> did, the show user's write access to the machine's folders among it, leaving the
+    /// folders, the dumps and the node's own data. Every step is tried whatever the others did, and each that Windows refused is named
+    /// in the answer (empty when all were taken back).</summary>
     public static IReadOnlyList<string> Uninstall(string showUser, Action<string> say)
     {
         ArgumentNullException.ThrowIfNull(say);
@@ -222,6 +210,7 @@ public static class MachineSetup
             Registry.LocalMachine.DeleteSubKeyTree(EventSourceKey, false);
             say("Event Log source removed");
         });
+        Step("the show user's write access to the machine's folders", () => MachineFolders.TakeBack(MachineFolder, say));
         if (showUser.Length > 0)
         {
             Step(MachinePlan.ShowUserRight + " of " + showUser, () =>
@@ -316,15 +305,6 @@ public static class MachineSetup
             Marshal.FreeHGlobal(name);
             _ = Native.LsaClose(policy);
         }
-    }
-
-    private static void GrantFolder(string folder, string account)
-    {
-        var info = new DirectoryInfo(folder);
-        var security = info.GetAccessControl();
-        security.AddAccessRule(new FileSystemAccessRule(new NTAccount(account), FileSystemRights.Modify,
-            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
-        info.SetAccessControl(security);
     }
 
     /// <summary>Runs a System32 tool; its exit code, or throws with its words when the code is not one of <paramref name="okExits"/>.</summary>

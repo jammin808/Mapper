@@ -47,8 +47,8 @@ public interface IMachineActions
     IReadOnlyList<RunningProgram> RunningFromInstall(bool exceptTheEngine);
 }
 
-/// <summary>Where the armed check looks: the supervisor's folder, how it finds an engine without a record, which record it trusts, and
-/// how long an engine has to answer.</summary>
+/// <summary>Where the armed check looks: the engine's folder that holds its pid record, how it finds an engine without a record, which
+/// record it trusts, and how long an engine has to answer.</summary>
 public sealed record ArmedLook(string Folder, Func<(int Pid, int Port)?> FindEngine, Func<EnginePidRecord, bool> IsEngine, TimeSpan AnswerTime);
 
 /// <summary>The installer's machine-level commands, in their order and with their refusals; what each step does is the machine's

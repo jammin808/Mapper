@@ -92,10 +92,10 @@ public static class PreinstallCheck
         }
     }
 
-    /// <summary>Looks on this machine: the pid record in <paramref name="supervisorFolder"/> when <paramref name="isEngine"/> holds
-    /// that it names a running engine (<see cref="EngineIdentity.NamesRunningEngine"/>: a record the show user wrote naming another
-    /// process is passed over), then any engine process <paramref name="findEngine"/> names (PlayMap.exe run as an engine); a live
-    /// one is asked SHOW on loopback.</summary>
+    /// <summary>Looks on this machine: the pid record in the engine's folder <paramref name="supervisorFolder"/> when
+    /// <paramref name="isEngine"/> holds that it names a running engine (<see cref="EngineIdentity.NamesRunningEngine"/>: a record the
+    /// show user wrote naming another process is passed over), then any engine process <paramref name="findEngine"/> names (PlayMap.exe
+    /// run as an engine); a live one is asked SHOW on loopback.</summary>
     public static async Task<PreinstallFacts> LookAsync(string supervisorFolder, Func<(int Pid, int Port)?> findEngine,
         Func<EnginePidRecord, bool> isEngine, TimeSpan answerTime, CancellationToken ct = default)
     {

@@ -3,6 +3,18 @@ namespace PlayMap.Supervisor.Install;
 /// <summary>One inbound firewall rule for the installed <c>PlayMap.exe</c>.</summary>
 public sealed record FirewallRule(string Name, string Protocol, string Ports);
 
+/// <summary>One of the machine's folders: its path below <c>%ProgramData%\PlayMap</c> (<see cref="Under"/>, empty for that folder itself),
+/// whether the show user may change what it holds, and what it holds.</summary>
+public sealed record MachineFolderPlan(IReadOnlyList<string> Under, bool ShowUserWrites, string Holds)
+{
+    /// <summary>The folder's path under <paramref name="root"/> (the machine's PlayMap folder).</summary>
+    public string In(string root)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(root);
+        return Under.Count == 0 ? root : Path.Combine([root, .. Under]);
+    }
+}
+
 /// <summary>What the installer does on the machine, once, so the engine never runs as administrator
 /// (docs/round3/design/installer.md §3): pure data, which <c>install</c> applies and <c>uninstall</c> takes back.</summary>
 public static class MachinePlan
@@ -51,7 +63,28 @@ public static class MachinePlan
 
     /// <summary>Whether a stop event that exists already when the supervisor starts was made by SYSTEM or administrators, the only
     /// owners it is kept from: one another account made could be set or cleared by that account.</summary>
-    public static bool StopEventOwnerTrusted(string ownerSid) => ownerSid is "S-1-5-18" or "S-1-5-32-544";
+    public static bool StopEventOwnerTrusted(string ownerSid) => OwnerTrusted(ownerSid);
+
+    /// <summary>Whether an object's owner is SYSTEM or administrators: an object any other account owns, that account may change.</summary>
+    public static bool OwnerTrusted(string ownerSid) => ownerSid is "S-1-5-18" or "S-1-5-32-544";
+
+    /// <summary>The machine's folders under <c>%ProgramData%\PlayMap</c>, each after the folder it lies in, all owned by administrators:
+    /// the PlayMap folder itself, whose access is its own (SYSTEM and administrators full control, every account read) and which every
+    /// folder below inherits; WER's dumps; the supervisor's folder, whose status file and log SYSTEM writes by path, so only SYSTEM and
+    /// administrators may change what it holds; and the engine's folder inside it, which holds the pid record alone and which the
+    /// supervisor only reads. The show user may change what the dumps and the engine's folder hold, and nothing SYSTEM acts on by
+    /// path.</summary>
+    public static readonly IReadOnlyList<MachineFolderPlan> Folders =
+    [
+        new([], false, "the machine's PlayMap folder"),
+        new(["dumps"], true, "WER's dumps of the engine"),
+        new(["supervisor"], false, "the supervisor's status file and log"),
+        new(["supervisor", "engine"], true, "the engine's pid record"),
+    ];
+
+    /// <summary>INTERACTIVE: who writes the show user's folders and may wait on the engine's stop event when an install names no show
+    /// user — every account signed in to a session, the console's user the supervisor then starts the engine as among them.</summary>
+    public const string AnyInteractiveUserSid = "S-1-5-4";
 
     /// <summary>The supervisor's pipe.</summary>
     public const string PipeName = "PlayMap.Supervisor";

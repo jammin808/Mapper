@@ -136,7 +136,7 @@ public sealed class InstallerTests
         EnsureUninstalled();
         var since = DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds();
         using var engine = FakeEngineProcess.Start("--answer", $"{{\"armed\":true,\"by\":\"Desk\",\"since\":{since},\"words\":\"armed\"}}",
-            "--record", SupervisorFolder());
+            "--record", EngineFolder());
         var run = Install(This);
         Assert.NotEqual(0, run.Exit);
         var at = TimeZoneInfo.ConvertTimeFromUtc(DateTimeOffset.FromUnixTimeMilliseconds(since).UtcDateTime, TimeZoneInfo.Local)
@@ -150,7 +150,7 @@ public sealed class InstallerTests
     public void AnEngineProcessThatNeverAnswersStopsTheInstallWithDoesNotAnswer()
     {
         EnsureUninstalled();
-        using var engine = FakeEngineProcess.Start("--silent", "--record", SupervisorFolder());
+        using var engine = FakeEngineProcess.Start("--silent", "--record", EngineFolder());
         var run = Install(This);
         Assert.NotEqual(0, run.Exit);
         Assert.Contains($"an engine is running here (pid {engine.Pid}) but does not answer", run.Log, StringComparison.Ordinal);
@@ -198,10 +198,10 @@ public sealed class InstallerTests
             File.Copy(SupervisorExe, supervisor, overwrite: true);
 
             // The uninstall removes all but the node's data. A pid record naming a process that is not the engine (Windows' ping,
-            // written where a show user may write) ends nothing: the uninstall goes on and the process runs on.
+            // written in the engine's folder, which a show user may write) ends nothing: the uninstall goes on and the process runs on.
             HoldTheEngine();
             using var helper = Holder.Ping();
-            Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(SupervisorFolder()));
+            Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(EngineFolder()));
             var gone = Uninstall();
             Assert.True(gone.Exit == 0, gone.Log);
             Assert.True(helper.Running, "the uninstall ended the process a pid record named");
@@ -471,7 +471,7 @@ public sealed class InstallerTests
             Tool("sc.exe", "stop", "PlayMapSupervisor");
             Assert.Equal("STOPPED", WaitForService("STOPPED"));
             using (var engine = FakeEngineProcess.Start("--answer", "{\"armed\":true,\"by\":\"Desk\",\"since\":0,\"words\":\"armed\"}",
-                       "--record", SupervisorFolder()))
+                       "--record", EngineFolder()))
             {
                 var refused = Uninstall();
                 Assert.Contains("the show is armed on this node by Desk: disarm first", refused.Log, StringComparison.Ordinal);
@@ -547,15 +547,19 @@ public sealed class InstallerTests
         Assert.Equal(profiles, ProfilesOf(tcp));
         Assert.Equal(profiles, ProfilesOf(udp));
 
-        // The show user may write the dumps and the supervisor's folder (an allow rule of its own, Modify), and holds its right.
+        // The show user may write the dumps and the engine's folder (an allow rule of its own, Modify) and nothing else of the machine's
+        // folders: the PlayMap folder's access is its own (SYSTEM and administrators full control, every account read), and the
+        // supervisor's folder, whose files SYSTEM writes, has no rule of its own. The show user holds its right.
         var user = WindowsIdentity.GetCurrent().User!;
-        foreach (var folder in new[] { "dumps", "supervisor" })
+        foreach (var folder in new[] { "dumps", @"supervisor\engine" })
         {
-            var rules = new DirectoryInfo(Path.Combine(MachineFolder, folder)).GetAccessControl()
-                .GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>();
+            var rules = ExplicitRules(Path.Combine(MachineFolder, folder));
             Assert.Contains(rules, r => r.IdentityReference.Equals(user) && r.AccessControlType == AccessControlType.Allow
                 && (r.FileSystemRights & FileSystemRights.Modify) == FileSystemRights.Modify);
         }
+        Assert.Empty(ExplicitRules(Path.Combine(MachineFolder, "supervisor")));
+        Assert.True(new DirectoryInfo(MachineFolder).GetAccessControl().AreAccessRulesProtected);
+        Assert.DoesNotContain(ExplicitRules(MachineFolder), r => r.IdentityReference.Equals(user));
         var rights = Tool(SupervisorExe, "rights", ShowUser);
         Assert.True(rights.Exit == 0, rights.Output);
         Assert.Contains("SeIncreaseBasePriorityPrivilege", rights.Output, StringComparison.Ordinal);
@@ -616,10 +620,21 @@ public sealed class InstallerTests
         Assert.All(laid, f => Assert.True(listed.ContainsKey(f), f + " is installed and not in SHA256SUMS"));
     }
 
+    /// <summary>A folder's own access rules (none inherited).</summary>
+    private static List<FileSystemAccessRule> ExplicitRules(string folder) => new DirectoryInfo(folder).GetAccessControl()
+        .GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>().ToList();
+
     /// <summary>What an uninstall takes back, read from Windows: the install's key, the service, both firewall rules, WER's values,
-    /// the event source and the show user's right (read by <paramref name="supervisor"/>, a copy outside the removed install).</summary>
+    /// the event source, the show user's right (read by <paramref name="supervisor"/>, a copy outside the removed install) and the show
+    /// user's write access to the dumps and the engine's folder, which stay.</summary>
     private static void AssertTakenBack(string supervisor)
     {
+        foreach (var folder in new[] { "dumps", @"supervisor\engine" })
+        {
+            var path = Path.Combine(MachineFolder, folder);
+            Assert.True(Directory.Exists(path), path + " was removed");
+            Assert.Empty(ExplicitRules(path));
+        }
         Assert.Null(InstallKey());
         Assert.True(Left().Count == 0, "the uninstall left in the install's folder: " + string.Join(", ", Left()));
         Assert.False(ServiceExists());
@@ -913,11 +928,11 @@ public sealed class InstallerTests
         }
     }
 
-    /// <summary>The machine's supervisor folder, where a supervised engine writes its pid record (made when it is missing, as the
-    /// installer makes it).</summary>
-    private static string SupervisorFolder()
+    /// <summary>The machine's engine folder inside the supervisor's, where a supervised engine writes its pid record (made when it is
+    /// missing, as the installer makes it).</summary>
+    private static string EngineFolder()
     {
-        var folder = Path.Combine(MachineFolder, "supervisor");
+        var folder = Path.Combine(MachineFolder, "supervisor", "engine");
         Directory.CreateDirectory(folder);
         return folder;
     }

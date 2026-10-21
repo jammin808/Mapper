@@ -28,7 +28,7 @@ public sealed class SupervisorStopTests
         EngineProcess Launch(uint session, string exe, string arguments)
         {
             var start = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = place.InstallDir };
-            foreach (var a in new[] { "engine", "--supervised", "--record", place.Folder, "--stop-event", place.StopEvent, "--port-file", portFile })
+            foreach (var a in new[] { "engine", "--supervised", "--record", place.EngineFolder, "--stop-event", place.StopEvent, "--port-file", portFile })
                 start.ArgumentList.Add(a);
             started = Process.Start(start)!;
             return EngineProcess.Open(started.Id, out _)!;
@@ -46,7 +46,7 @@ public sealed class SupervisorStopTests
             while (!File.Exists(portFile) && DateTime.UtcNow < deadline)
                 await Task.Delay(100);
             Assert.True(File.Exists(portFile), "the fake engine did not come up");
-            Assert.Equal(started.Id, EnginePidRecord.Named(place.Folder)?.Pid);
+            Assert.Equal(started.Id, EnginePidRecord.Named(place.EngineFolder)?.Pid);
             await host.StepAsync(CancellationToken.None);
 
             var answer = SupervisorPipe.Ask(place.PipeName, "stop", (pid, _) => pid == Environment.ProcessId ? null : "not this test");
@@ -66,7 +66,7 @@ public sealed class SupervisorStopTests
             Assert.Contains($"asked the engine (pid {started.Id}) to stop: stopped by a person (PlayMap.Supervisor.exe stop)", log, StringComparison.Ordinal);
             Assert.DoesNotContain("terminated", log, StringComparison.Ordinal);
             // The engine took its record back as it stopped.
-            Assert.Null(EnginePidRecord.Named(place.Folder));
+            Assert.Null(EnginePidRecord.Named(place.EngineFolder));
         }
         finally
         {

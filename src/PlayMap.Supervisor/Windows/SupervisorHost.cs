@@ -15,10 +15,12 @@ using PlayMap.Supervisor.Status;
 namespace PlayMap.Supervisor.Windows;
 
 /// <summary>Where a supervisor keeps its files and names, and how it reads the console session and starts an engine: this machine's
-/// for the service, a test's own for a supervisor a test runs.</summary>
+/// for the service, a test's own for a supervisor a test runs. <see cref="Folder"/> holds the supervisor's status file and log, which
+/// it writes; <see cref="EngineFolder"/> the engine's pid record, which it only reads.</summary>
 [SupportedOSPlatform("windows")]
 public sealed record SupervisorPlaces(
     string Folder,
+    string EngineFolder,
     string PipeName,
     string StopEventName,
     Func<string> InstallDir,
@@ -27,9 +29,9 @@ public sealed record SupervisorPlaces(
     Func<uint, string> UserOf,
     Func<uint, string, string, EngineProcess> Launch)
 {
-    /// <summary>This machine's: <c>%ProgramData%\PlayMap\supervisor</c>, the service's pipe and stop event, the install's key, the
-    /// active console session, and an engine started there as its user.</summary>
-    public static SupervisorPlaces ThisMachine() => new(EnginePidRecord.MachineFolder(), MachinePlan.PipeName, MachinePlan.StopEvent,
+    /// <summary>This machine's: <c>%ProgramData%\PlayMap\supervisor</c> and the engine's folder inside it, the service's pipe and stop
+    /// event, the install's key, the active console session, and an engine started there as its user.</summary>
+    public static SupervisorPlaces ThisMachine() => new(SupervisorStatus.MachineFolder(), EnginePidRecord.MachineFolder(), MachinePlan.PipeName, MachinePlan.StopEvent,
         () => SupervisorHost.InstallValue("InstallDir"), () => SupervisorHost.InstallValue("ShowUser"), SessionLauncher.ConsoleSession,
         SessionLauncher.UserOf, SessionLauncher.Start);
 }
@@ -38,8 +40,10 @@ public sealed record SupervisorPlaces(
 /// handle), HEALTH over loopback — steps <see cref="SupervisorCore"/> and does what it answers: starts <c>PlayMap.exe engine
 /// --supervised</c> in the show user's session, sets the engine's stop event, ends it after the grace. An engine it did not start is
 /// adopted only when the pid record names the installed engine, run as the show user in the console session; any other record is
-/// removed with words, and nothing is ever ended on a record's word alone. It writes the status file at every change and answers
-/// <c>status</c>, <c>resume</c> and <c>stop</c> on its pipe.</summary>
+/// said once and left where it is, for the next engine's own write to replace by the identity rule, and nothing is ever ended on a
+/// record's word alone. It reads the record and writes, renames or deletes nothing in the engine's folder, which the show user may
+/// change; it writes the status file at every change, and its log, in its own folder, and answers <c>status</c>, <c>resume</c> and
+/// <c>stop</c> on its pipe.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class SupervisorHost : IDisposable
 {
@@ -183,7 +187,7 @@ public sealed class SupervisorHost : IDisposable
                 _engine = null;
             }
             if (_engine is null && record is not null && session is { } console)
-                _engine = AdoptOrRemove(record, (int)console, showUser);
+                _engine = Adopt(record, (int)console, showUser);
             engine = _engine;
         }
         var health = engine is not null && record is { WirePort: > 0 } r && r.Pid == engine.Pid
@@ -199,21 +203,19 @@ public sealed class SupervisorHost : IDisposable
         WriteStatus();
     }
 
-    /// <summary>The record's engine when it is the installed engine, run as the show user in the console session; otherwise the
-    /// record is removed (said once), since a record that names another process would keep the started engine from writing its own.
-    /// </summary>
-    private EngineProcess? AdoptOrRemove(EnginePidRecord record, int consoleSession, string showUser)
+    /// <summary>The record's engine when it is the installed engine, run as the show user in the console session; otherwise null, said
+    /// once for each record. A refused record stays: it names no running engine the identity rule takes, so the next engine's own write
+    /// replaces it, and the supervisor writes nothing in the engine's folder.</summary>
+    private EngineProcess? Adopt(EnginePidRecord record, int consoleSession, string showUser)
     {
         var key = record.ToJson();
+        if (key == _refusedRecord)
+            return null;
         if (!EngineProcess.ReadFacts(record.Pid).Exists)
         {
             // An engine that ended without taking its record back (a crash, a termination): nothing to adopt.
-            if (key != _refusedRecord)
-            {
-                _refusedRecord = key;
-                Log(string.Create(CultureInfo.InvariantCulture, $"the pid record names pid {record.Pid}, which no longer runs: the record is removed"));
-            }
-            RemoveRecord(key);
+            _refusedRecord = key;
+            Log(string.Create(CultureInfo.InvariantCulture, $"the pid record names pid {record.Pid}, which no longer runs: nothing is adopted, and the next engine's record replaces it"));
             return null;
         }
         var expect = new EngineExpectation(InstalledExe(), SidOf(showUser), consoleSession);
@@ -223,35 +225,16 @@ public sealed class SupervisorHost : IDisposable
             Log(string.Create(CultureInfo.InvariantCulture, $"adopted the running engine (pid {adopted.Pid}) its record names"));
             return adopted;
         }
-        if (key != _refusedRecord)
-        {
-            _refusedRecord = key;
-            Log(string.Create(CultureInfo.InvariantCulture, $"the pid record names pid {record.Pid}, which is not the installed engine ({why}): not adopted, and the record is removed"));
-        }
-        RemoveRecord(key);
+        _refusedRecord = key;
+        Log(string.Create(CultureInfo.InvariantCulture, $"the pid record names pid {record.Pid}, which is not the installed engine ({why}): not adopted, and the next engine's record replaces it"));
         return null;
-    }
-
-    private void RemoveRecord(string key)
-    {
-        var path = Path.Combine(_places.Folder, EnginePidRecord.FileName);
-        try
-        {
-            // Only the record that was refused: one an engine wrote since stays.
-            if (File.Exists(path) && EnginePidRecord.Named(_places.Folder)?.ToJson() == key)
-                File.Delete(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log("the refused pid record could not be removed: " + ex.Message);
-        }
     }
 
     private EnginePidRecord? ReadRecord()
     {
         try
         {
-            return Directory.Exists(_places.Folder) ? EnginePidRecord.Named(_places.Folder) : null;
+            return Directory.Exists(_places.EngineFolder) ? EnginePidRecord.Named(_places.EngineFolder) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
