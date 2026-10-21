@@ -57,9 +57,9 @@ read (docs/INSTALL.md). Its rule that stops an engine whose shown frames have st
 HEALTH's shown-frame count, which no engine fills yet (wp3-stability). Every stop it makes sets the engine's stop event, on which
 the engine stops as any asked stop does (below), and terminates the engine 5 s later only if it still runs. It starts the engine
 suspended and lets it run once its status file names it. The engine never runs in session 0 and never needs to run as
-administrator: it runs as the user of the show user's console session, the standard show account the install names with
-`/SHOWUSER=` (docs/INSTALL.md), and so with an administrator's rights only where that account is an administrator whose token Windows
-does not filter. The supervisor itself writes only in a folder the show user cannot change. User ISF effects compile for the Direct3D
+administrator: it runs as the user of the show user's console session — the account the install names with `/SHOWUSER=` (meant to be
+a standard account), or, on an install that names none, whoever is signed in at the console (docs/INSTALL.md) — and so with an
+administrator's rights only where that account is an administrator whose token Windows does not filter. The supervisor itself writes only in a folder the show user cannot change. User ISF effects compile for the Direct3D
 12 road in `PlayMap.exe shader-worker`, so no compiler loads into the engine; no device draws that DXIL yet (wp3-shaders-2). Today the
 user effects the frame draws compile inside the engine, on a shared second context (§5).
 

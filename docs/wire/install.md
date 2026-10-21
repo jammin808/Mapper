@@ -21,7 +21,9 @@ None.
 `lastCause`, `freezeRule`, `at`; null when no status file is read), `autoLogon` (`on`, `user`; never a password), `signed`, `light`
 (red once the supervisor stopped trying; amber on a supervised node whose auto-logon is off, whose supervisor wrote no status, or
 whose supervisor waits — for the session, a person's resume or the backoff — or is stopping the engine; grey for a folder run; else
-green: each supervisor state lit as the Supervisor card and `install:supervisor` light it), `words`. The Windows edition is
+green: each supervisor state lit as the Supervisor card lights it, and as `install:supervisor` lights it too but for one case —
+running or starting while the freeze rule waits for shown frames, which STATE and the card light green and preflight reports as a grey
+information row, the usual state until an engine fills HEALTH's shown frames), `words`. The Windows edition is
 `machine.identity.os`'s, the machine platform's, and not repeated here. Read from `HKLM\SOFTWARE\PlayMap`, Winlogon's
 `AutoAdminLogon` and `DefaultUserName`, and the supervisor's `status.json` in `%ProgramData%\PlayMap\supervisor` (Core's
 `Machine/SupervisorStatus.cs`, the record the supervisor writes it with, so `supervisor` is the file's object key for key), at most
@@ -51,7 +53,9 @@ supervised engine that finds no event (off Windows, or none made yet) runs, says
 (`SupervisorStopTests`; the named event and its one right on the Windows job). The next supervised engine journals the cause of the
 stop before it as it starts — "the supervisor started this engine after: <lastCause> (<n> restarts in ten minutes)", a row that is not
 ok — when the status file names its pid and holds a cause (`Install/InstallParts.cs`, `InstallPartsTests`). The supervisor starts the
-engine suspended and lets it run only once the status naming it is written, so the status the engine reads as it starts is that one.
+engine suspended and lets it run once the status naming it is written, so the status the engine reads as it starts is that one, or
+once that write has failed, which `supervisor.log` records — a write that could not be made (a full disk, a locked file) leaves the
+engine neither suspended for good nor without a trace.
 
 ## Papers note
 

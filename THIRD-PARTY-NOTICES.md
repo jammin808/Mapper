@@ -90,7 +90,7 @@ nothing they make is committed.
 Nothing shipped: OSC, MIDI, Art-Net, LTC and MTC are PlayMap's own code, written from the published specifications.
 
 - Art-Net™ Designed by and Copyright Artistic Licence Holdings Ltd.
-- The ALSA sequencer library (`libasound.so.2`, LGPL-2.1-or-later) is loaded at run time from the user's Linux system and linked
+- The ALSA sequencer library (libasound.so.2, LGPL-2.1-or-later) is loaded at run time from the user's Linux system and linked
   dynamically; it is never shipped. WinMM (winmm.dll) is the system's own.
 - Test only (never in the exe): the `osc` package for Node 2.4.5 (osc.js, dual MIT / GPL-2.0, used under MIT; © Colin Clark)
   writes and reads the OSC interop fixtures under `tests/interop/osc/` — https://github.com/colinbdclark/osc.js.
@@ -215,7 +215,7 @@ worker process only, never by the engine:
   licence, and its x64 `dxcompiler.dll` and that `LICENSE-LLVM.txt` are the files of it the engine's build copies) on Windows, and
   `libdxcompiler.so` from DXC v1.9.2609's GitHub release `linux_dxc_2026_09_28.x86_x64.tar.gz`
   (https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz) on Linux,
-  for the worker and the HLSL library's tests. The same package's `dxc.exe`, under the same licence, runs only in the Windows build,
+  for the worker and the HLSL library's tests. The same package's dxc.exe, under the same licence, runs only in the Windows build,
   to compile the HLSL library, and is never shipped; the build starts it without `DXC_DXIL_DLL_PATH`, so dxcompiler's built-in
   validator signs that DXIL too. DXC's release notes (`ReleaseNotes.md`, in the package and in the archive) give `LICENSE-LLVM.txt`
   to every file but `d3d12shader.h` (MIT); the package and the archive also carry a `LICENSE-MS.txt` that the notes' table assigns

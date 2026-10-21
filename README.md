@@ -151,7 +151,9 @@ included (`docs/round3/PLAN.md`). It installs per machine from an installer buil
 revisited next round); builds stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer shows a
 licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising service
 starts the engine in the show user's session, never in session 0 and never needing administrator rights: the engine runs as the
-standard show account the install names (docs/INSTALL.md). The engine will render
+user of the console session — the account `/SHOWUSER=` names (meant to be a standard account), or, on an install that names none,
+whoever is signed in at the console — with an administrator's rights only where that account's token is one Windows does not filter
+(docs/INSTALL.md). The engine will render
 on Direct3D 12 behind the rendering hardware interface it draws through today, and OpenGL stays the reference backend until the
 pixel and timing evidence says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present
 barrier on Direct3D 12, its swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured.

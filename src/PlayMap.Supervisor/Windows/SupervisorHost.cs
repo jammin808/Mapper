@@ -203,8 +203,9 @@ public sealed class SupervisorHost : IDisposable
             var action = _core.Step(NowNs(), facts);
             started = Act(action, session, sessionUser);
         }
-        // An engine is started suspended and runs only once the status that names its pid (and the cause before it) is written, so the
-        // engine reads that status as it starts.
+        // An engine is started suspended and runs once the status that names its pid (and the cause before it) is written — so the
+        // engine reads that status as it starts — or once that write has failed, which supervisor.log records (WriteStatus swallows an
+        // IO or access failure): a write that could not be made leaves the engine neither suspended for good nor without a trace.
         try
         {
             WriteStatus();

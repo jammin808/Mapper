@@ -82,9 +82,10 @@ refuses while another program runs from the folder, stops the service and its en
 the supervised mark first, then the service, the firewall rules, WER's values, the event source, the account right and the show
 user's write access to `dumps\` and `supervisor\engine\`, each tried whatever the others did. Any refusal, or anything it could not
 take back, stops the uninstall with every file still in place, its words in the uninstall's log. The machine's folders
-(`%ProgramData%\PlayMap`, with the dumps and what the supervisor wrote), which then only SYSTEM and administrators may change, and the
-node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The order above stands in for the automatic undo of
-service and registry changes an MSI would give.
+(`%ProgramData%\PlayMap`), whose own access then lets only SYSTEM and administrators change them — though the show user still owns
+whatever it wrote in the dumps and the engine's folder (the dumps WER made in its context, the pid record it wrote) and may reach
+those files of its own again — and the node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The order above
+stands in for the automatic undo of service and registry changes an MSI would give.
 
 **What the owner decides.** The Agility SDK's DISTRIBUTABLE CODE section lets `D3D12Core.dll` ship inside PlayMap's installer on the
 requirements it lists, among them to "require distributors and external end users to agree to terms that protect it and Microsoft at
@@ -110,8 +111,9 @@ MINOR, the first build of the line below.
 `PlayMapSupervisor` starts `PlayMap.exe engine --supervised` in the auto-logged-on show user's console session (never session 0,
 which cannot drive displays; an install that names no show user starts it in the session of whoever is signed in at the console —
 a fresh install names one only with `/SHOWUSER=`, since the wizard has no page for it, and an upgrade keeps the account the earlier
-install recorded), starts it suspended and lets it run once its status file names the new engine's pid, so the engine reads that
-status as it starts, restarts it after an exit with backoff (1 s doubling to 30 s), stops trying after five restarts in ten minutes
+install recorded), starts it suspended and lets it run once its status file names the new engine's pid — so the engine reads that
+status as it starts — or once that write has failed (a full disk, a locked file), which `supervisor.log` records, so the engine is
+never left suspended by a write that could not be made, restarts it after an exit with backoff (1 s doubling to 30 s), stops trying after five restarts in ten minutes
 and says so, and
 stops an engine whose open outputs' shown frames have stood still for the stale time (3 s, or four of the rebuild's first good
 frames) while HEALTH says the GPU runs — never while the engine reports no shown frames, never during a start or a device rebuild
@@ -201,7 +203,9 @@ nothing verifies an update automatically.
 exe's publish with its `SHA256SUMS`. Beside the files it carries the notices they ask for, as the installer lays them down:
 `THIRD-PARTY-NOTICES.md`, `soft_oal-LICENSE.txt` beside OpenAL Soft's `soft_oal.dll`, and `licenses\` with the licence and notice
 files of the packages the publish comes from (ANGLE's among them); the job stops when the publish carries a package
-`THIRD-PARTY-NOTICES.md` does not name. It carries no file of the Agility SDK (no `D3D12Core.dll`, `d3d12SDKLayers.dll` or
+`THIRD-PARTY-NOTICES.md` does not name. The one exception the notices file states holds here too: glslang, linked inside shaderc's
+`shaderc_shared.dll`, is named there by its licence, its own copyright lines and licence text not yet laid down (the integration pass
+lays them down: `docs/round3/PLAN.md` §5.6 item 4). It carries no file of the Agility SDK (no `D3D12Core.dll`, `d3d12SDKLayers.dll` or
 `d3dconfig.exe`), so no licence page and no Microsoft terms come with it; the job lists those files on every build, says in its
 summary that there are none, and stops if one appears. It carries no FFmpeg either: its engine loads the shared libraries a person
 puts in place.

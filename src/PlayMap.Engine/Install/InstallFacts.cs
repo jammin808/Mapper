@@ -48,10 +48,12 @@ public sealed record InstallFacts(
         w.WriteEndObject();
     }
 
-    /// <summary>The block's light, as the Supervisor card and preflight's <c>install:supervisor</c> row light the same state: red when
-    /// the supervisor stopped trying; amber when a supervised node has no auto-logon, or its supervisor waits (for the session, a
-    /// person's resume or the backoff) or is stopping the engine (a person's stop or the freeze rule's); grey for a folder run
-    /// (preflight says whether that matters on this node); else green.</summary>
+    /// <summary>The block's light, as the Supervisor card lights the same state (and as preflight's <c>install:supervisor</c> row does
+    /// too, but for one case): red when the supervisor stopped trying; amber when a supervised node has no auto-logon, or its
+    /// supervisor waits (for the session, a person's resume or the backoff) or is stopping the engine (a person's stop or the freeze
+    /// rule's); grey for a folder run (preflight says whether that matters on this node); else green — including running or starting
+    /// while the freeze rule waits for shown frames, which preflight reports instead as a grey information row (the usual state until
+    /// an engine fills HEALTH's shown frames).</summary>
     public string Light => !Installed ? "grey"
         : Supervisor is { State: "stopped-too-many-restarts" } ? "red"
         : Supervised && (!AutoLogon || Supervisor is null || Supervisor.State is "waiting-for-session" or "held" or "backoff" or "stopping") ? "amber"
