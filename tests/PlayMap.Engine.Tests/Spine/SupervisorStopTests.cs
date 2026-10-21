@@ -9,8 +9,8 @@ using PlayMap.Engine.Tests.Host;
 namespace PlayMap.Engine.Tests.Spine;
 
 /// <summary>The supervisor's stop event as the engine's entry waits on it. An engine started with --supervised opens it as it starts
-/// and, once it is set — before the engine is up or after — stops as any asked stop does: exit 0, the recovery record written, its
-/// journal saying the supervisor asked. An engine started without --supervised opens none; a supervised engine that finds none runs,
+/// and, once it is set — while the engine starts, which then stops during its start, or once it is up — stops as any asked stop does:
+/// exit 0, the recovery record written, its journal saying the supervisor asked. An engine started without --supervised opens none; a supervised engine that finds none runs,
 /// says so, and stops by its other signals. On Windows the event is a named one the engine opens with Synchronize alone, so it waits
 /// on it and can neither set nor clear it.</summary>
 public sealed class SupervisorStopTests
@@ -98,6 +98,13 @@ public sealed class SupervisorStopTests
             var run = EngineEntry.RunAsync(Args(home, supervised: true), EngineParts.Bare, CancellationToken.None, log, new Opener(stopEvent).Open);
             Assert.Equal(EngineEntry.Stopped, await run.WaitAsync(TimeSpan.FromSeconds(30)));
             Assert.Contains(log.Lines, l => l.Contains("asked to stop", StringComparison.Ordinal) && l.Contains("supervisor", StringComparison.Ordinal));
+            // Stopped during its start or once up, the show's record says why: the recovery record is written and the journal says
+            // the supervisor asked, before the row that says the engine stopped.
+            Assert.True(File.Exists(Path.Combine(home.FullName, "playmap.recovery.json")));
+            var journal = Journal(home);
+            var asked = journal.IndexOf("the supervisor asked the engine to stop");
+            Assert.True(asked >= 0, string.Join("\n", journal));
+            Assert.Contains(journal.Skip(asked), t => t.EndsWith(" stopped; the recovery record holds the show", StringComparison.Ordinal));
         }
         finally
         {

@@ -77,6 +77,10 @@ public sealed class EngineHost : IAsyncDisposable
     /// <summary>The running engine (after <see cref="StartAsync"/>).</summary>
     public EngineCore Engine => _engine ?? throw new InvalidOperationException("the host has not started");
 
+    /// <summary>The engine once <see cref="StartAsync"/> has made it, before its parts are all up; null until then: what a stop asked
+    /// during the start writes its journal row through.</summary>
+    internal EngineCore? Made => _engine;
+
     public NetworkHost Network => _network ?? throw new InvalidOperationException("the host has not started");
 
     public MediaBackend Media => _media ?? throw new InvalidOperationException("the host has not started");

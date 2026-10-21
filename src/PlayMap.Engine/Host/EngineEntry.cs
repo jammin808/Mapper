@@ -162,6 +162,9 @@ public static partial class EngineEntry
             }
             catch (OperationCanceledException ex) when (running.IsCancellationRequested)
             {
+                // The engine stops during its start: the journal says why before the host's stop writes the recovery record.
+                if (supervisor is { WasSet: true } && host.Made is { } made)
+                    made.Journal.Add("node", "the supervisor asked the engine to stop");
                 log.LogInformation(ex, "The engine was asked to stop while it started{By}.", supervisor is { WasSet: true } ? " (by the supervisor)" : "");
                 return Stopped;
             }
