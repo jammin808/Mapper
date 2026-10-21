@@ -134,12 +134,15 @@ public sealed partial class LicenceTests
             Assert.True(problems.Count == 0, Describe(clean.Path, problems));
         }
 
-        // Each change to a folder laid down as the engine's build lays DXC down, and the words the rule finds it by.
+        // Each change to a folder laid down as the engine's build lays DXC down, and the words the rule finds it by. The validator's
+        // names are proven on text stand-ins that only carry the name; no byte of the validator library is copied anywhere. A binary
+        // of the package renamed (its arm64 compiler, which the engine never takes) is found by its content.
+        var arm64 = Path.Combine(package, "build", "native", "bin", "arm64");
         var changes = new (string Words, Action<string> Change)[]
         {
-            ("carries sub/DXIL.dll, DXC's validator library", f => Write(f, "sub/DXIL.dll", "a library")),
-            ("carries libdxil.so, DXC's validator library", f => Write(f, "libdxil.so", "a library")),
-            ("carries tools/compiler.bin, a file of Microsoft.Direct3D.DXC", f => CopyInto(f, "tools/compiler.bin", Path.Combine(x64, "dxil.dll"))),
+            ("carries sub/DXIL.dll, DXC's validator library", f => Write(f, "sub/DXIL.dll", "a text stand-in, named as the validator is")),
+            ("carries libdxil.so, DXC's validator library", f => Write(f, "libdxil.so", "a text stand-in, named as the validator is")),
+            ("carries tools/compiler.bin, a file of Microsoft.Direct3D.DXC", f => CopyInto(f, "tools/compiler.bin", Path.Combine(arm64, "dxcompiler.dll"))),
             ("carries dxc.exe, a file of Microsoft.Direct3D.DXC", f => Write(f, "dxc.exe", "a program")),
             ("carries LICENSE-MS.txt, a file of Microsoft.Direct3D.DXC", f => Write(f, "LICENSE-MS.txt", "a licence")),
             ("carries notes/ReleaseNotes.md, a file of Microsoft.Direct3D.DXC", f => CopyInto(f, "notes/ReleaseNotes.md", Path.Combine(package, "ReleaseNotes.md"))),
