@@ -6,7 +6,6 @@ using System.Runtime.Versioning;
 using System.Security.Principal;
 using Microsoft.Win32.SafeHandles;
 using PlayMap.Core.Machine;
-using PlayMap.Supervisor.Install;
 
 namespace PlayMap.Supervisor.Windows;
 
@@ -109,33 +108,15 @@ public sealed class EngineProcess : IDisposable
 
     public void Dispose() => _handle.Dispose();
 
+    /// <summary>Core's facts of the process (<see cref="ProcessReader.FactsOf"/>: whether it runs, its image, start and command line), with
+    /// the user, session and parent the supervisor reads through the same handle.</summary>
     private static ProcessFacts FactsOf(SafeProcessHandle handle, int pid)
     {
-        var alive = Native.WaitForSingleObject(handle, 0) == WaitTimeout;
-        if (!alive)
-            return ProcessFacts.Gone;
-        var image = ImageOf(handle);
-        var started = Native.GetProcessTimes(handle, out var creation, out _, out _, out _)
-            ? new DateTimeOffset(DateTime.FromFileTimeUtc(creation)).ToUnixTimeMilliseconds()
-            : -1;
+        var facts = ProcessReader.FactsOf(handle);
+        if (!facts.Exists)
+            return facts;
         var (sid, session) = UserOf(handle, pid);
-        return new ProcessFacts(true, image.Length > 0 ? Path.GetFileNameWithoutExtension(image) : "", image, started,
-            SessionLauncher.CommandLineOf(handle), sid, session, ParentOf(handle));
-    }
-
-    private static string ImageOf(SafeProcessHandle handle)
-    {
-        const int chars = 32 * 1024;
-        var buffer = Marshal.AllocHGlobal(chars * 2);
-        try
-        {
-            var size = chars;
-            return Native.QueryFullProcessImageName(handle, 0, buffer, ref size) ? Marshal.PtrToStringUni(buffer, size) : "";
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
+        return facts with { UserSid = sid, Session = session, ParentPid = ParentOf(handle) };
     }
 
     /// <summary>The SID of the user the process runs as and its session, from its token ("" and −1 when the token may not be read).</summary>

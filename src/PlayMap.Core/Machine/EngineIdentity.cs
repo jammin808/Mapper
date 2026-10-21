@@ -1,12 +1,12 @@
 using System.Diagnostics;
 using System.Globalization;
-using PlayMap.Core.Machine;
 
-namespace PlayMap.Supervisor.Install;
+namespace PlayMap.Core.Machine;
 
 /// <summary>What this OS says of a process: whether it runs, its image's name and full path, when it started (Unix ms), its command
-/// line, the SID of the user it runs as, its session and its parent's pid. An empty string or −1 is a fact the OS would not give.
-/// </summary>
+/// line, the SID of the user it runs as, its session and its parent's pid. An empty string, −1, or a parent of 0 is a fact the OS
+/// would not give or the reader did not ask for (<see cref="ProcessReader"/> reads neither the user, the session nor the parent; the
+/// supervisor reads them through the process's handle).</summary>
 public readonly record struct ProcessFacts(bool Exists, string Name, string ImagePath, long StartedUnixMs, string CommandLine,
     string UserSid, int Session, int ParentPid)
 {
@@ -22,11 +22,13 @@ public sealed record EngineExpectation(string InstalledExe, string ShowUserSid, 
     public static readonly EngineExpectation AnyEngine = new("", "", -1);
 }
 
-/// <summary>The rule every reader of <c>engine.pid</c> holds a process to before it acts on the record's word. The record's folder is
-/// one the show user may write, so the record says only which process to look at: that process must be PlayMap.exe run as the engine,
-/// started no later than its record was written and not long before it (the host stamps the record as the engine comes up; a pid
-/// that another process took after an unclean stop fails here), and, for a caller that would end it or adopt it with high rights, the
-/// installed exe, run as the show user in the show user's session.</summary>
+/// <summary>The rule every reader of <c>engine.pid</c> holds a process to before it acts on the record's word — the supervisor that
+/// adopts or ends it, the installer's armed check that asks it, and the engine that would write its own record over it
+/// (<see cref="EnginePidRecord.TryWrite(string, out EnginePidRecord?)"/>). The record's folder is one the show user may write, so the
+/// record says only which process to look at: that process must be PlayMap.exe run as the engine, started no later than its record
+/// was written and not long before it (the host stamps the record as the engine comes up; a pid that another process took after an
+/// unclean stop fails here), and, for a caller that would end it or adopt it with high rights, the installed exe, run as the show
+/// user in the show user's session.</summary>
 public static class EngineIdentity
 {
     /// <summary>The engine's image name.</summary>
@@ -70,11 +72,15 @@ public static class EngineIdentity
     }
 
     /// <summary>Whether the record names a running PlayMap engine (<see cref="EngineExpectation.AnyEngine"/>), by what this OS says
-    /// of its process now: the armed check's rule.</summary>
-    public static bool NamesRunningEngine(EnginePidRecord record)
+    /// of its process now: the armed check's rule, and the engine's before it writes its own record.</summary>
+    public static bool NamesRunningEngine(EnginePidRecord record) => NamesRunningEngine(record, ProcessReader.Read);
+
+    /// <summary>As <see cref="NamesRunningEngine(EnginePidRecord)"/>, with a process's facts read by <paramref name="read"/>.</summary>
+    public static bool NamesRunningEngine(EnginePidRecord record, Func<int, ProcessFacts> read)
     {
         ArgumentNullException.ThrowIfNull(record);
-        return Refusal(record, ProcessReader.Read(record.Pid), EngineExpectation.AnyEngine) is null;
+        ArgumentNullException.ThrowIfNull(read);
+        return Refusal(record, read(record.Pid), EngineExpectation.AnyEngine) is null;
     }
 
     /// <summary>Whether a command line runs its exe as the engine: the first word after the exe (quoted or not) is <c>engine</c>,
@@ -123,11 +129,12 @@ public static class EngineIdentity
     private static string Say(FormattableString words) => words.ToString(CultureInfo.InvariantCulture);
 }
 
-/// <summary>The facts of a process by its id on this OS: Windows' own through the process's handle, elsewhere what
-/// System.Diagnostics and <c>/proc</c> give.</summary>
-public static class ProcessReader
+/// <summary>The facts of a process by its id on this OS that the identity rule reads — whether it runs, its image, its start and its
+/// command line: Windows' own through the process's handle (ProcessReader.Windows.cs), elsewhere what System.Diagnostics and
+/// <c>/proc</c> give. Its user, session and parent are left unread.</summary>
+public static partial class ProcessReader
 {
-    public static ProcessFacts Read(int pid) => OperatingSystem.IsWindows() ? Windows.EngineProcess.ReadFacts(pid) : Portable(pid);
+    public static ProcessFacts Read(int pid) => OperatingSystem.IsWindows() ? ReadWindows(pid) : Portable(pid);
 
     private static ProcessFacts Portable(int pid)
     {

@@ -63,31 +63,4 @@ public static class SessionLauncher
             Native.CloseHandle(token);
         }
     }
-
-    /// <summary>A process's command line ("" when it cannot be read: gone, or not this process's to read).</summary>
-    public static string CommandLineOf(int pid)
-    {
-        using var process = Native.OpenProcessHandle(Native.ProcessQueryLimitedInformation, false, pid);
-        return process.IsInvalid ? "" : CommandLineOf(process);
-    }
-
-    /// <summary>The command line of the process <paramref name="process"/> holds ("" when it cannot be read).</summary>
-    public static string CommandLineOf(SafeProcessHandle process)
-    {
-        ArgumentNullException.ThrowIfNull(process);
-        var buffer = Marshal.AllocHGlobal(64 * 1024);
-        try
-        {
-            if (Native.NtQueryInformationProcess(process, Native.ProcessCommandLineInformation, buffer, 64 * 1024, out _) != 0)
-                return "";
-            // A UNICODE_STRING: its length in bytes, then a pointer to the characters (inside the same buffer).
-            var bytes = (ushort)Marshal.ReadInt16(buffer);
-            var chars = Marshal.ReadIntPtr(buffer, nint.Size);
-            return chars == 0 ? "" : Marshal.PtrToStringUni(chars, bytes / 2);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
-    }
 }

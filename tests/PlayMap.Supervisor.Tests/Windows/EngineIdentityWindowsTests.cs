@@ -8,10 +8,13 @@ using PlayMap.Supervisor.Windows;
 
 namespace PlayMap.Supervisor.Tests.Windows;
 
-/// <summary>On Windows: the facts a process's handle gives (its image, start, command line, user, session and parent), and a pid record
-/// that names a process other than PlayMap's engine — a helper this test starts — is neither adopted by the supervisor's step nor ended
-/// by a stop: the helper still runs, and the words say why. The engine.pid file is one the show user may write, so this is the rule
-/// that keeps a standard account from having SYSTEM or an administrator end a process it chose.</summary>
+/// <summary>On Windows: the facts a process's handle gives (its image, start, command line, user, session and parent), Core's reader
+/// giving the same bar the user, session and parent, and a pid record that names a process other than PlayMap's engine — a helper this
+/// test starts — is neither adopted by the supervisor's step nor ended by a stop: the helper still runs, and the words say why. The
+/// engine.pid file is one the show user may write, so this is the rule that keeps a standard account from having SYSTEM or an
+/// administrator end a process it chose. The engine's own write holds the record to the same rule: a running engine's record (the
+/// installer's fake, copied as PlayMap.exe and run as the engine) is kept from another engine until it has gone, and a record whose
+/// pid a helper holds is replaced.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class EngineIdentityWindowsTests
 {
@@ -30,6 +33,75 @@ public sealed class EngineIdentityWindowsTests
         Assert.Equal(self.SessionId, facts.Session);
         Assert.True(facts.ParentPid > 0);
         Assert.Equal(ProcessFacts.Gone, EngineProcess.ReadFacts(2_147_480_000));
+    }
+
+    [WindowsFact]
+    public void CoresReaderGivesWhatTheHandleGivesButTheUserSessionAndParent()
+    {
+        var full = EngineProcess.ReadFacts(Environment.ProcessId);
+        Assert.True(full.Exists);
+        Assert.Equal(full with { UserSid = "", Session = -1, ParentPid = 0 }, ProcessReader.Read(Environment.ProcessId));
+        Assert.Equal(ProcessFacts.Gone, ProcessReader.Read(2_147_480_000));
+    }
+
+    [WindowsFact]
+    public async Task ARunningEnginesRecordIsKeptFromAnotherEngineUntilItHasGone()
+    {
+        using var place = new Place();
+        SupervisorStopTests.CopyFakeEngine(place.InstallDir);
+        var portFile = Path.Combine(place.Folder, "fake-port.txt");
+        var start = new ProcessStartInfo(Path.Combine(place.InstallDir, "PlayMap.exe"))
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = place.InstallDir,
+        };
+        foreach (var a in new[] { "engine", "--record", place.Folder, "--port-file", portFile })
+            start.ArgumentList.Add(a);
+        using var engine = Process.Start(start)!;
+        try
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+            while (!File.Exists(portFile) && DateTime.UtcNow < deadline)
+                await Task.Delay(100);
+            Assert.True(File.Exists(portFile), "the fake engine did not come up");
+            var record = EnginePidRecord.Named(place.Folder);
+            Assert.NotNull(record);
+            Assert.Equal(engine.Id, record.Pid);
+            var facts = ProcessReader.Read(engine.Id);
+            Assert.Equal(EngineIdentity.ImageName, facts.Name, ignoreCase: true);
+            Assert.True(EngineIdentity.IsEngineLine(facts.CommandLine), facts.CommandLine);
+            Assert.True(EngineIdentity.NamesRunningEngine(record));
+
+            var other = new EnginePidRecord(Environment.ProcessId, 9942, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            Assert.False(other.TryWrite(place.Folder, out var holder));
+            Assert.Equal(record, holder);
+            Assert.Equal(record, EnginePidRecord.Named(place.Folder));
+
+            engine.Kill();
+            Assert.True(engine.WaitForExit(TimeSpan.FromSeconds(30)));
+            Assert.True(other.TryWrite(place.Folder, out holder));
+            Assert.Null(holder);
+            Assert.Equal(other, EnginePidRecord.Named(place.Folder));
+        }
+        finally
+        {
+            if (!engine.HasExited)
+                engine.Kill();
+        }
+    }
+
+    [WindowsFact]
+    public void ARecordWhosePidAHelperHoldsIsReplacedByAnEngine()
+    {
+        using var place = new Place();
+        using var helper = Helper.Start();
+        Assert.True(new EnginePidRecord(helper.Pid, 9941, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).TryWrite(place.Folder));
+        var engine = new EnginePidRecord(Environment.ProcessId, 9942, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        Assert.True(engine.TryWrite(place.Folder, out var holder));
+        Assert.Null(holder);
+        Assert.Equal(engine, EnginePidRecord.Named(place.Folder));
+        Assert.True(helper.Running);
     }
 
     [WindowsFact]

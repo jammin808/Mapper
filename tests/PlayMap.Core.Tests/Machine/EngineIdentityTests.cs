@@ -1,7 +1,6 @@
 using PlayMap.Core.Machine;
-using PlayMap.Supervisor.Install;
 
-namespace PlayMap.Supervisor.Tests.Install;
+namespace PlayMap.Core.Tests.Machine;
 
 /// <summary>The rule every reader of <c>engine.pid</c> holds the process it names to before it acts on it: PlayMap.exe run as the
 /// engine, started no later than its record and not long before it (a pid reused after an unclean stop fails here), and, where the

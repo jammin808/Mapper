@@ -5,16 +5,14 @@ using Microsoft.Win32.SafeHandles;
 namespace PlayMap.Supervisor.Windows;
 
 /// <summary>The few Windows calls the supervisor makes: the console session and its user's token, a process started in that session,
-/// the account rights of the show user, and what a process is (its image, start, command line, user, session and parent) read, waited
-/// on and ended through its handle. Thin: the logic around them is in their callers.</summary>
+/// the account rights of the show user, and of a process its user, session and parent read through its handle (its image, start and
+/// command line are Core's ProcessReader's), waited on and ended. Thin: the logic around them is in their callers.</summary>
 [SupportedOSPlatform("windows")]
 internal static partial class Native
 {
     public const uint NoSession = 0xFFFFFFFF;
     public const uint CreateUnicodeEnvironment = 0x00000400;
     public const uint CreateNoWindow = 0x08000000;
-    public const uint ProcessQueryLimitedInformation = 0x1000;
-    public const int ProcessCommandLineInformation = 60;
     public const int WtsUserName = 5;
     public const uint PolicyCreateAccount = 0x10;
     public const uint PolicyLookupNames = 0x800;
@@ -73,16 +71,6 @@ internal static partial class Native
     [LibraryImport("kernel32.dll", EntryPoint = "OpenProcess", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial SafeProcessHandle OpenProcessHandle(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, int pid);
-
-    [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool QueryFullProcessImageName(SafeProcessHandle process, uint flags, nint name, ref int size);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static partial bool GetProcessTimes(SafeProcessHandle process, out long creation, out long exit, out long kernel, out long user);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

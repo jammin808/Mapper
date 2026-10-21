@@ -1,4 +1,5 @@
 using System.Globalization;
+using PlayMap.Core.Machine;
 
 namespace PlayMap.Supervisor.Install;
 

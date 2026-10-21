@@ -1,6 +1,4 @@
 using System.Buffers;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Storage;
@@ -9,9 +7,10 @@ namespace PlayMap.Core.Machine;
 
 /// <summary>The engine's pid record: its process id, the line wire's port (0 while the wire is closed) and when it started (Unix ms).
 /// The engine the supervisor started writes it as it comes up into the supervisor's folder, where that folder exists (the installer
-/// makes it; the engine never does), never over a record that names another engine still running, and removes it on a clean stop
-/// while it still names this process. The supervisor reads it to adopt a running engine, the installer's armed check to ask that
-/// engine on loopback. It holds no secret, as the hello holds none.</summary>
+/// makes it; the engine never does), never over a record that names another PlayMap engine still running by the identity rule every
+/// reader of the record holds (<see cref="EngineIdentity"/>), and removes it on a clean stop while it still names this process. The
+/// supervisor reads it to adopt a running engine, the installer's armed check to ask that engine on loopback. It holds no secret, as
+/// the hello holds none.</summary>
 public sealed record EnginePidRecord(int Pid, int WirePort, long StartedUnixMs)
 {
     /// <summary>The record's file name in the supervisor's folder.</summary>
@@ -72,50 +71,31 @@ public sealed record EnginePidRecord(int Pid, int WirePort, long StartedUnixMs)
     }
 
     /// <summary>Writes the record into <paramref name="folder"/> (replacing the file whole) when that folder exists and its record
-    /// names no other process still running; false, with nothing written and no folder made, otherwise.</summary>
+    /// names no other PlayMap engine still running; false, with nothing written and no folder made, otherwise.</summary>
     public bool TryWrite(string folder) => TryWrite(folder, out _);
 
     /// <summary>As <see cref="TryWrite(string)"/>, with the record that kept its place: <paramref name="holder"/> is the record of
     /// another engine still running (its file is left as it is), null when the folder does not exist or the record was written.
-    /// A record whose process is gone, or a file that is not a record, is replaced.</summary>
-    public bool TryWrite(string folder, out EnginePidRecord? holder)
+    /// The record's process is held to <see cref="EngineIdentity"/> by what this OS says of it now (<see cref="ProcessReader"/>): a
+    /// record whose process is gone, whose pid another process now holds, or whose process cannot be read as PlayMap's engine, and a
+    /// file that is not a record, are replaced.</summary>
+    public bool TryWrite(string folder, out EnginePidRecord? holder) => TryWrite(folder, ProcessReader.Read, out holder);
+
+    /// <summary>As <see cref="TryWrite(string, out EnginePidRecord?)"/>, with a process's facts read by <paramref name="read"/>.</summary>
+    internal bool TryWrite(string folder, Func<int, ProcessFacts> read, out EnginePidRecord? holder)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
+        ArgumentNullException.ThrowIfNull(read);
         holder = null;
         if (!Directory.Exists(folder))
             return false;
-        if (Named(folder) is { } there && there.Pid != Pid && IsRunning(there.Pid))
+        if (Named(folder) is { } there && there.Pid != Pid && EngineIdentity.NamesRunningEngine(there, read))
         {
             holder = there;
             return false;
         }
         DurableFile.WriteAllText(Path.Combine(folder, FileName), ToJson());
         return true;
-    }
-
-    /// <summary>Whether a process of that id runs now. One this process may not look at (another user's, an elevated one) is read as
-    /// running: a record is never taken from an engine that might be live.</summary>
-    private static bool IsRunning(int pid)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(pid);
-            return !process.HasExited;
-        }
-        catch (ArgumentException)
-        {
-            // No process has that id.
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            // It ended while it was read.
-            return false;
-        }
-        catch (Win32Exception)
-        {
-            return true;
-        }
     }
 
     /// <summary>Removes the record in <paramref name="folder"/> when it still names this record's process; true when it did.</summary>

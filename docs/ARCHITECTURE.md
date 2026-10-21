@@ -61,8 +61,10 @@ engine, on a shared second context (§5).
 - Once its doors are open the engine the supervisor started (`engine --supervised`) writes its pid record (`engine.pid`: its
   process, the line wire's port, when it started) into the supervisor's folder, `%ProgramData%\PlayMap\supervisor`, where that
   folder exists — no installer makes it yet (round 3's installer is to, docs/round3/design/installer.md §2), and the engine never
-  does — never over a record that names another engine still running (that is a fault in STATE, with the other engine's
-  pid), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
+  does — never over a record that names another PlayMap engine still running (that is a fault in STATE, with the other engine's
+  pid), by the identity rule every reader of the record holds (`Core/Machine/EngineIdentity.cs`: PlayMap.exe run as the engine,
+  started when its record was written, so a pid another process took after a power cut keeps no record in place), and takes it
+  back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
   installer's armed check needs to ask it on loopback, and no secret. That engine also waits on the supervisor's stop event
   (`Global\PlayMap-Engine-Stop`, opened with Synchronize alone, the one right the show user has on it): once it is set the engine
   stops as any asked stop does, and journals that the supervisor asked.

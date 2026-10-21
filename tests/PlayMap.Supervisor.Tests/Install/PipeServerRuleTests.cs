@@ -1,3 +1,4 @@
+using PlayMap.Core.Machine;
 using PlayMap.Supervisor.Install;
 
 namespace PlayMap.Supervisor.Tests.Install;

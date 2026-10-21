@@ -125,7 +125,7 @@ public sealed class SupervisorStopTests
     /// <summary>The installer's fake engine copied into <paramref name="folder"/> as PlayMap.exe (its apphost finds its assembly by the
     /// name built into it). It is built as this project's reference: in this test's configuration, or, when the solution built it (a
     /// project outside the solution builds in its own default configuration), in the newest of its configurations' folders.</summary>
-    private static void CopyFakeEngine(string folder)
+    internal static void CopyFakeEngine(string folder)
     {
         var configuration = typeof(SupervisorStopTests).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration ?? "Release";
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
