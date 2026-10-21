@@ -186,6 +186,30 @@ public sealed class MachineFoldersTests
     }
 
     [WindowsFact]
+    public void AMachineFolderThatIsALinkToNothingIsRefusedAndNoFolderIsMadeAtItsTarget()
+    {
+        // The PlayMap folder a link to a folder that is not there, as a standard user may leave it before a first install: the install
+        // asks Windows to make no folder at a name that is there, so nothing is made at the link's target, and the link is refused.
+        var parent = Directory.CreateTempSubdirectory("playmap-machine-").FullName;
+        var root = Path.Combine(parent, "PlayMap");
+        var target = Path.Combine(parent, "nowhere");
+        try
+        {
+            if (!Elevated)
+                return;
+            Directory.CreateSymbolicLink(root, target);
+            Assert.False(Directory.Exists(target));
+            var refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
+            Assert.Contains(root + " is a link (a junction or a symbolic link)", refused.Message, StringComparison.Ordinal);
+            Assert.False(Directory.Exists(target) || File.Exists(target), "a folder was made at the link's target " + target);
+        }
+        finally
+        {
+            Directory.Delete(parent, true);
+        }
+    }
+
+    [WindowsFact]
     public void AShowUserFolderThatIsALinkIsRefusedAndNoWriteGrantReachesItsTarget()
     {
         // A leaf the show user writes (dumps) that is a link: the grant (its Modify) is set through the handle Hold checks, never by a

@@ -141,10 +141,14 @@ public static class MachineFolders
     }
 
     /// <summary>Makes the folder at <paramref name="path"/> in its parent, which is there: true when this call made it, false when a
-    /// name was there already (a folder, a link or a file, which <see cref="Hold"/> then takes or refuses). Windows answers which in
-    /// the one call, so no account can make the folder between a look and the make.</summary>
+    /// name was there already (a folder, a link or a file, which <see cref="Hold"/> then takes or refuses). A name that is there is
+    /// never made over (the look at it follows no link, a dangling one among them), and whether a folder this call asked Windows for
+    /// was made by it is Windows' answer to that call, so a folder another account makes after the look is never taken for one this
+    /// call made.</summary>
     private static bool MakeFolder(string path)
     {
+        if (File.Exists(path) || Directory.Exists(path))
+            return false;
         if (Native.CreateDirectory(path, 0))
             return true;
         var error = Marshal.GetLastPInvokeError();
