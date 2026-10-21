@@ -332,4 +332,20 @@ public sealed class SupervisorTests
         Assert.Equal(SupervisorState.Held, core.State);
         Assert.True(SupervisorCore.ShouldResetStopEvent(after, core.State, false));
     }
+
+    [Fact]
+    public void TheSupervisorCardListsEveryStateTheStatusFileSays()
+    {
+        // The desk's Supervisor card (tests/fixtures/state/install.cards.json, written by the engine's fixture test) lights each state the
+        // supervisor writes, and no other: the block's light and the preflight row are held to the card's for each of them.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        using var cards = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(dir.FullName, "tests", "fixtures", "state", "install.cards.json")));
+        var light = cards.RootElement.EnumerateArray().Single(c => c.GetProperty("title").GetString() == "Supervisor").GetProperty("light");
+        var listed = new[] { "red", "amber", "green" }.SelectMany(w => light.GetProperty(w).EnumerateArray().Select(e => e.GetString()!)).Order(StringComparer.Ordinal);
+        var written = Enum.GetValues<SupervisorState>().Select(SupervisorStatusWords.Word).Order(StringComparer.Ordinal);
+        Assert.Equal(written, listed);
+    }
 }

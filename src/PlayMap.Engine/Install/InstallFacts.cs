@@ -52,11 +52,13 @@ public sealed record InstallFacts(
         w.WriteEndObject();
     }
 
-    /// <summary>The block's light: red when the supervisor stopped trying, amber when a supervised node has no auto-logon or its
-    /// supervisor waits, grey for a folder run (preflight says whether that matters on this node), else green.</summary>
+    /// <summary>The block's light, as the Supervisor card and preflight's <c>install:supervisor</c> row light the same state: red when
+    /// the supervisor stopped trying; amber when a supervised node has no auto-logon, or its supervisor waits (for the session, a
+    /// person's resume or the backoff) or is stopping the engine (a person's stop or the freeze rule's); grey for a folder run
+    /// (preflight says whether that matters on this node); else green.</summary>
     public string Light => !Installed ? "grey"
         : Supervisor is { State: "stopped-too-many-restarts" } ? "red"
-        : Supervised && (!AutoLogon || Supervisor is null || Supervisor.State is "waiting-for-session" or "held" or "backoff") ? "amber"
+        : Supervised && (!AutoLogon || Supervisor is null || Supervisor.State is "waiting-for-session" or "held" or "backoff" or "stopping") ? "amber"
         : "green";
 
     /// <summary>The block's words.</summary>

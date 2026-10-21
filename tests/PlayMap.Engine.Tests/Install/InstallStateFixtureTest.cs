@@ -179,6 +179,25 @@ public sealed class InstallStateFixtureTest
     }
 
     [Fact]
+    public void TheBlocksLightTheSupervisorCardsLightAndThePreflightRowAgreeInEveryState()
+    {
+        // The Supervisor card's descriptor lists every state the supervisor writes under its light; the block's own light and the
+        // install:supervisor row light each state the same (a supervised node with auto-logon on, the freeze rule active).
+        var light = Cards().Single(c => c!["title"]!.GetValue<string>() == "Supervisor")!["light"]!.AsObject();
+        var states = new List<(string State, string Light)>();
+        foreach (var word in new[] { "red", "amber", "green" })
+            states.AddRange(light[word]!.AsArray().Select(s => (s!.GetValue<string>(), word)));
+        Assert.Equal(7, states.Count);
+        foreach (var (state, card) in states)
+        {
+            var facts = Supervised with { Supervisor = Running with { State = state } };
+            Assert.True(card == facts.Light, $"{state}: the card is {card}, the block {facts.Light}");
+            var row = InstallPreflight.Rows(facts, "n1", true).Single(r => r.Id == "install:supervisor");
+            Assert.True(card == row.Light.ToString().ToLowerInvariant(), $"{state}: the card is {card}, the preflight row {row.Light}");
+        }
+    }
+
+    [Fact]
     public void HomeIsToldItsEditionHonoursNoUpdatePolicy()
     {
         var home = InstallPreflight.Rows(Supervised with { Edition = "Core" }, "n1", true).Single(r => r.Id == "install:policies");
