@@ -357,24 +357,32 @@ Round 2 W1 notes:
   the pace holds at the jump) failed all six of its runs against the old order (three in Debug, three in Release) and passes
   against the new; a wait on the senders fails with STATE's counts, the service's own senders and when each was last heard, the
   node's clocks and the loop's ticks.
-- Done: a media pull is served and written in 1 MiB blocks, a chunk's body that falls silent is named, and a pull says where it
-  stands. What was seen: the Windows failure (build 400 at fix-fanout-win 529b7d94, run 39578502602, job 119149948163) is
-  `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt` waiting 20 s for the pulled file (line 76 at 529b7d94) in a 45
-  s test of a 10 min 10 s Engine suite. Its message was the fetcher's journal alone, "media: fetching 1 file from Stage left" and
-  nothing after it; that row is the `MEDIA FETCH` reply, written as the pull starts and before the peer's list is answered, so it
-  reads the same whether the list hung, the body was slow or stalled, or the hashing and landing were slow, and the cause is not
-  shown. In the same job the other suites ran no slower than in the Windows job at wp3-desk-ux b1ac137 that morning (build 2 min
-  35 s against 2 min 52 s, Core 58 s against 1 min 7 s, App 1 min 40 s against 1 min 50 s, Render 1 min 29 s against 1 min 27 s);
-  only the Engine suite was longer (10 min 10 s against 8 min 10 s), and where its two minutes went is not known.
+- Done: a media pull is served and written in 1 MiB blocks, a chunk's body that falls silent is named, a pull says where it
+  stands, and a fetch's journal rows are bounded. What was seen: the Windows failure (build 400 at fix-fanout-win 529b7d94, run
+  39578502602, job 119149948163) is `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt` waiting 20 s for the pulled
+  file (line 76 at 529b7d94) in a 45 s test of a 10 min 10 s Engine suite. Its message was the fetcher's journal, four rows: the
+  node up, the item added, the `MEDIA FETCH` reply ("verb: fetching 1 file") and "media: fetching 1 file from Stage left", which is
+  `NetworkHost.FetchAsync`'s answer, journaled by the verb's continuation as the pull starts, before the peer's list is answered.
+  At 529b7d94 every end the pull's catches give (a list that could not be read, which there ended "no heard node holds it"; a
+  chunk's tries run out; a request refused) journals a refused row, so the rows show that the pull had not ended that way within
+  the 20 s. They do not show where it stood (the list, the body, the hashing and landing) or whether it had faulted outside its
+  catches; the cause is not shown. Against the Windows job at wp3-desk-ux b1ac137 that morning (job 119007771945), suite by suite:
+  build 2 min 35 s against 2 min 52 s, App 1 min 40 s against 1 min 50 s (241 tests against 235), Core 58 s against 1 min 7 s,
+  Engine 10 min 10 s against 8 min 10 s (1 167 tests against 1 164), Net 14 s against 10 s (the same 194 tests), Render 1 min 29 s
+  against 1 min 27 s, and Assistant, Devices, Media, Platform.Windows, Render.D3D12, Supervisor and Vision the same to the second.
+  So the Engine suite was longer by two minutes, Net by 4 s (40 %) and Render by 2 s, while the build, App and Core were shorter;
+  one pair of runs says nothing of the runners' spread, and where the Engine suite's two minutes went is not known.
   What was measured, on Linux only: the holder wrote a file to the socket 64 KiB at a time (the framework's file copy) and the
   fetcher read and wrote 64 KiB at a time, and across that test's 3 MiB body, in an otherwise idle process, the thread pool's
-  completed count rose by about 450 (about 70 with 1 MiB blocks). A socket read returns what has arrived and Windows completes
-  socket reads its own way, so these counts are not Windows', and nothing here shows that the pool's queue is where the Windows
-  run's time went. Beside one synthetic load in the test process (48 CPU-bound pool items of 50 ms each, each queued again as it
-  ended, on four cores) the unchanged test failed at that wait in 3 of 4 runs and, with 1 MiB blocks, passed 4 of 4 (8 runs in
-  all; one-sided Fisher p about 0.07), and one probe of each timed the body at 19.7 s and 3.6 s; the lighter loads tried (CPU hogs
-  pinned to the cores, 8 to 24 spinning threads, 16 blocked pool threads, beside the preflight flood test) did not make it fail.
-  The blocks are kept as a cheaper pull; that they answer the Windows failure is not shown.
+  completed count rose by 454, 461 and 488 in three probe runs (not kept in the tree). 5aaec503's message gives about 70 with 1 MiB
+  blocks; no record of that run was kept. A socket read returns what has arrived and Windows completes socket reads its own way,
+  so these counts are not Windows', and nothing here shows that the pool's queue is where the Windows run's time went. Beside one
+  synthetic load in the test process (48 CPU-bound pool items of 50 ms each, each queued again as it ended, on four cores) the
+  unchanged test failed at that wait in 3 of 4 runs and, with 1 MiB blocks, passed 4 of 4 (8 runs in all; one-sided Fisher p about
+  0.07), and one probe of each timed the body at 19.7 s and 3.6 s. Lighter loads are reported tried before 5aaec503 (CPU hogs
+  pinned to the cores, 8 to 24 spinning threads, 16 blocked pool threads, beside the preflight flood test) without making it
+  fail; how many runs each had was not recorded, and they were not run again. The blocks are kept, as fewer pool turns for a body
+  on Linux; that they answer the Windows failure is not shown.
   The holder answers `/api/media/<hash>` and the backup's `/mirror/media/<hash>` through `MediaFileResponse` (one byte range, the
   hash its strong ETag, 416 past the end, the whole file for anything else), and the fetcher gathers each chunk's body into 1 MiB
   blocks, each written at once (`MediaFileResponseTests`,
@@ -385,36 +393,73 @@ Round 2 W1 notes:
   Debug only; a list that named a file twice faulted the pull outside its catches, leaving it `queued`; and a list that could not
   be read made its peer offer nothing, so its files ended "no heard node holds it". Now a chunk's body that sends nothing for
   `MediaTransferOptions.Quiet` (10 s, a chosen bound, not a measured one) on the node's clock fails that try with words ("sent
-  nothing for 10 s, 65536 of 3145745 bytes in"), counting only the time a read waits, never the bandwidth bucket's or the disk's;
-  the list and each answer's headers wait the HTTP client's own 60 s, as before, and a list that never comes is a
-  `TimeoutException` that says so. A chunk has three tries; a pull journals its first failed try at each peer ("clip from Stage
+  nothing for 10 s, 65536 of 3145745 bytes in"). Only the time a read of the body waits is counted: the bandwidth bucket's waits
+  and the disk's writes come between reads (a test moves the clock while the bucket holds the pull; none moves it while the disk
+  writes). The list and each answer's headers wait the HTTP client's own 60 s, as before, and a list that never comes is a
+  `TimeoutException` that says so. A pull says its bytes as it starts (the chunks a resume keeps), as each block lands with bytes
+  no try of its chunk had, at each chunk's end and once every byte is in, with no pace: the 250 ms pace 6729107e kept had no
+  measured cause and no test, and is gone. Its bytes step back only when it moves on to another peer, whose pull starts from the
+  chunks the part file keeps whole. A chunk has three tries; a pull journals its first failed try at each peer ("clip from Stage
   left: chunk 1 of 1 from <addr>: … — trying again (2 of 3)") and its end, and the tries between are its row's `note` and the
-  log's, so a fetch of many files from a peer that refuses every chunk writes two rows a file. A peer's list is asked once a
-  fetch, its rows taken first-wins, and when it could not be read each file no other peer gives ends with its words; a pull that
-  fails any way but the stop's own cancelling ends "failed: <words>" with its refused row. STATE's transfer row carries `at`,
-  `stage` (`asking`, `receiving`, `verifying`), `since` and `note`, and its `bytesDone` never steps back while one peer is asked
-  (docs/WIRE.md); the desk's Network drawer shows each row's stage and, beneath it, the last failed try's words; the Companion
-  module's STATE fixtures carry the keys, and it reads a transfer's count and progress as before.
+  log's. A fetch journals at most 20 of its pulls' rows (`FetchJournal`, a tenth of the journal's 200 recent rows) and, when it had
+  more, one row at its end that counts how it ended; the rest go to the node's log. f9758fa3 left about two rows a file (one a file
+  when the list failed), so a fetch of about 100 files from a peer that refuses every chunk, or about 200 whose list fails, still
+  pushed every other row out of the recent rows that the context and the desk read; its message presented that as fixed, and its
+  test was sized (48 files) under the 200. A peer's list is asked once a fetch, its rows taken first-wins, and when it could not
+  be read each file no other peer gives ends with its words; a pull that fails any way but the stop's own cancelling ends "failed:
+  <words>" with its refused row. STATE's transfer row carries `at`, `stage` (`asking`, `receiving`, `verifying`), `since` and `note`
+  (docs/WIRE.md); the desk's Network drawer shows each row's stage and, beneath it, the last failed try's words; PLAY, the
+  assistant's account of STATE and the Companion module count only the rows on their way as running copies (each counted a failed
+  row as running, and PLAY marked its item fetching), and PLAY says how many could not be copied.
+  All of this is the node's own pull, which `MEDIA FETCH` runs only on a node without the fleet's part, such as the bare node
+  `HostRig` starts unless told otherwise. The exe composes the fleet's part, and there `MEDIA FETCH` runs `BackupNode.FetchMedia`
+  (the peer's proof, `/mirror/media`), which writes no transfer row, says no failed try, has a bucket with no rate (no throttle
+  while a show plays) and lets a second fetch of a file pull it beside the first; the papers had said the node's own pull's rules as
+  the product's. Now they say which pull each rule is, the fleet's pull counts a body's silence on the node's clock (its transfer
+  counted it on the process's own clock before) and takes the node's pull options, and its journal rows are bounded the same way;
+  the rest is an open fix (below and docs/ROADMAP.md).
   Tests: `tests/Shared/FakeMediaPeer.cs` is a peer's two media routes with the faults a real node does not make on purpose. A
   body's silence is counted on a hand-moved clock in
-  `MediaTransferTests.AChunkWhosePeerFallsSilentIsTriedAgainAndEachTryIsSaidWithItsWords` and
-  `HostNetworkTests.AFetchFromAPeerThatFallsSilentSaysSoAndEndsWithItsWords`, so their outcomes do not hang on the machine's
-  speed. These failed against the pull as 5aaec503 left it and pass against the new: `MediaTransferTests`'
-  `APeersSilenceIsCountedOnTheTransfersClockAndOnlyWhileABodyIsRead` (a list and answers 1.2 s late and a body paused 1.5 s, the
-  clock standing still, land the file; before, the list ended at the 1 s quiet),
-  `APeerThatNeverAnswersItsListIsGivenUpOnTheClientsTimeoutWithWordsThatSaySo`,
-  `APullsBytesNeverStepBackWhenATryStartsItsChunkAgain` and
+  `MediaTransferTests.AChunkWhosePeerFallsSilentIsTriedAgainAndEachTryIsSaidWithItsWords`,
+  `HostNetworkTests.AFetchFromAPeerThatFallsSilentSaysSoAndEndsWithItsWords` and
+  `MirrorPullerTests.AFilesSilenceIsCountedOnTheNodesClock`, so their outcomes do not hang on the machine's speed;
+  `MediaTransferTests.APeersSilenceIsCountedOnTheTransfersClockAndOnlyWhileABodyIsRead` never moves the clock, and shows that real
+  time is not counted and that the list and the answers are not bounded by the quiet;
+  `APullHeldByTheBandwidthBucketIsNotCountedSilentHoweverFarTheClockMoves` moves the clock ten quiets while the bucket holds the
+  pull, and a variant that counts the bucket's wait fails it. `APullsBytesNeverStepBackWhenATryStartsItsChunkAgain` ends each
+  body in order after 1 MiB and a byte, with no clock, so each try lands its block whatever the load (its clock-driven form
+  could cut a try before its block landed); a variant that starts a chunk's bytes again at each try fails it. Their commits report
+  these failing against the tree before them and they pass now: `MediaTransferTests`'
+  `APeersSilenceIsCountedOnTheTransfersClockAndOnlyWhileABodyIsRead`,
+  `APeerThatNeverAnswersItsListIsGivenUpOnTheClientsTimeoutWithWordsThatSaySo` and
   `APullsBytesReachItsListenerInTheOrderTheyLandedHoweverLongTheListenerTakes`; `HostNetworkTests`'
-  `AFetchFromAPeerThatFallsSilentSaysSoAndEndsWithItsWords` (two try rows before),
-  `AFetchOfSeveralFilesFromAPeerWhoseListFailsEndsEachWithTheListsWords` (the second file "no heard node holds it" before) and
-  `AFetchOfManyFilesFromAPeerThatRefusesEveryChunkJournalsEachPullsFirstFailedTryAndItsEndOnly` (48 files, two rows each and the
-  node's first row kept; three try rows a file before); and
-  `DrawerTests.TheNetworkDrawerSaysWhereEachTransferStandsAndItsLastTrysWords`. The fault tests 5aaec503 added use members the
-  pull before it lacks (`Quiet`, `Trouble`, `BlockBytes`, the stage, the rig's pulls), so as committed they never ran against that
-  pull: what its message reports failing against that pull were variants written against its API, which are not kept, and the
-  progress variant it names, under the default 250 ms pace, cannot pass against the new pull, which says at most one block in 250
-  ms. The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both nodes'
-  journal and log, so a recurrence names its stage.
+  `AFetchFromAPeerThatFallsSilentSaysSoAndEndsWithItsWords` (two try rows before) and
+  `AFetchOfSeveralFilesFromAPeerWhoseListFailsEndsEachWithTheListsWords`; and
+  `DrawerTests.TheNetworkDrawerSaysWhereEachTransferStandsAndItsLastTrysWords`. Failed against 1e1567e9 and pass now:
+  `MediaTransferTests.APullSaysHowFarItIsAsItsBlocksLandAndThatItVerifiesOnceEveryByteIsIn` (only its first block said there)
+  and `AnInterruptedPullResumesFromItsChunkMapAndVerifies` (its first word came once a chunk's bytes had landed);
+  `MirrorPullerTests.AFilesSilenceIsCountedOnTheNodesClock` (still waiting after 30 s); `HostNetworkTests`'
+  `AFetchOfManyFilesFromAPeerThatRefusesEveryChunkJournalsEachPullsFirstFailedTryAndItsEndUpToItsBound` (16 files, no row counting
+  the rest), `AFetchOfMoreFilesThanTheJournalHoldsFromAPeerWhoseListFailsLeavesTheNodesOwnRows` (250 files, the recent rows
+  starting at the 51st file's) and `AFetchThatMovesOnToAnotherPeerKeepsTheChunksItHasAndSaysThemAtOnce` (0 bytes at the second
+  peer); `BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows`;
+  `DrawerTests.PlayCountsAPullOnItsWayAsACopyAndOneThatFailedAsNone`;
+  `ExplainAndRecipeTests.ExplainCountsOnlyTheTransfersOnTheirWayAndSaysOnesThatFailed`; and the Companion module's variables test of
+  a failed row (3 transfers and 0.17 there). Of the five fault tests 5aaec503 named as failing against the pull before it, four use
+  members that pull lacks (`Quiet`, `Trouble`, `BlockBytes`, the stage, the rig's pulls), so as committed they could not run
+  against it, and the variants its message reports are not kept; the fifth,
+  `HostNetworkTests.AFetchFromAPeerThatListsTheFileTwiceStillLandsIt`, uses none of them and can run against that pull as kept.
+  The variant that message reports failing there ("queued" for good) took the same steps and the same wait; its run is recorded
+  only in that message, and it was not made again. The progress variant it names, written without the pace's option, met
+  5aaec503's default 250 ms pace against the new pull, which said a block only when it landed 250 ms or more after the last word,
+  so whether it could pass there hung on how far apart the blocks landed (the pace is gone now). The fetch test's wait fails with
+  the transfer's row, the time since the fetch, the thread pool's counts and both nodes' journals and log tails, so a recurrence
+  names its stage.
+- Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
+  row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
+  journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
+  while a show plays, and checks only that a file is not here, so a second `MEDIA FETCH` of a file pulls it beside the first. Running
+  the fleet's pulls through the node's own pull's rows, try rule, bucket and on-its-way check closes it.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);

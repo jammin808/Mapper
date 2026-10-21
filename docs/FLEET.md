@@ -140,6 +140,10 @@ proof made for HTTPS is refused over plain HTTP, and a request with a proof that
 carries. From another machine a pull goes over HTTPS only (the backup refuses to send one in clear,
 and refuses a hello that drops a certificate it has pinned), checked against the fingerprint the primary's hello advertises and pinned
 in the fleet's pin file after the first proved answer; a changed certificate is refused. `MEDIA FETCH <media> VERSION <version> [FROM <node>]` pulls one version the same way on any node.
+With the fleet's part, which the exe composes, `MEDIA FETCH <media>|ALL [FROM <node>]` pulls each missing file the same way, by its
+hash, from the node named or else the first heard that holds it (the primary this node backs up first). These pulls say each file's
+end in the journal, at most 20 rows a fetch and one that counts the rest, and write no `media.transfers` row (docs/WIRE.md); a body
+that falls silent for 10 s on the node's clock fails that try.
 
 The backup is **identical** when the primary's show is here at its revision, every file it names is here, the backup's clock reads
 the primary's time line and the group's feed is live; `joining`, `resyncing` (a pull under way), `different` (a file could not be

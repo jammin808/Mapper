@@ -76,14 +76,20 @@ The lab checks still to do:
 - Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - `PANIC REWIND` publishes its lane as Cued before it writes the panic's journal row, so a reader that sees Cued can read the
   journal without it; `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads it at once and failed one gate run on that.
+- With the fleet's part, which the exe composes, `MEDIA FETCH` pulls through the fleet's path (`BackupNode.FetchMedia`, with the
+  peer's proof), which writes no `media.transfers` row, so the desk's Network drawer and PLAY show none of its pulls; says no failed
+  try while it tries again; has a bandwidth bucket with no rate, so it is not throttled while a show plays; and lets a second
+  `MEDIA FETCH` of a file pull it beside the first. The node's own pull has all four and runs only on a node without the fleet's
+  part. Running the fleet's pulls through the same rows, journal rule, bucket and on-its-way check closes it.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
   which is fixed, not proven; its wait now names what it saw), `HostNetworkTests`' one Windows wait for a fetched file (its
-  cause is not shown: the journal it printed reads the same at every stage of the pull; a busy thread pool stretching 64 KiB
-  turns is one reading, reproduced on Linux under one synthetic load only; a pull's blocks are now 1 MiB and its wait names the
-  transfer's row, so a recurrence names its stage), `FleetMonitorTests`' 10 s wait for the peer to read live,
-  `HostNetworkTests`' wait for the Patterns link's first clip, and `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
+  cause is not shown: the journal it printed says only that the pull had not ended within the wait, not at which stage it stood;
+  a busy thread pool stretching 64 KiB turns is one reading, reproduced on Linux under one synthetic load only; a pull's blocks
+  are now 1 MiB and its wait names the transfer's row, so a recurrence names its stage), `FleetMonitorTests`' 10 s wait for the
+  peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
+  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

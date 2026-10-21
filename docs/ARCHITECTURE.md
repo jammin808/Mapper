@@ -406,10 +406,15 @@ either; on every frame a slot whose kind the node's quarantine holds draws bypas
   as a screen (`cid`, `page=/playmap`), renders its timer as a source, handles `beat.live:false`, posts its
   context, collects approved proposals (§11).
 - **Media sync**: library items are identified by content hash; a node missing a file pulls it in 8 MiB chunks
-  from any peer that has it, resumable, throttled while a show runs, each chunk served and written in 1 MiB blocks; a
-  chunk's body silent for 10 s on the node's clock fails that try with words, while the peer's list and each answer wait
-  the HTTP client's own timeout; STATE's transfer row says each pull's stage, bytes, peer and last failed try, and the
-  desk's Network drawer shows them; each node publishes readiness (present, verified, decodable, first frame ready).
+  from a peer that has it, resumable, each chunk served and written in 1 MiB blocks; a chunk's body silent for 10 s on
+  the node's clock fails that try with words, while the peer's list and each answer wait the HTTP client's own timeout,
+  and a fetch journals at most 20 of its pulls' rows and one that counts the rest. `MEDIA FETCH` runs one of two pulls.
+  With the fleet's part, which the exe composes, it pulls with the peer's proof over `/mirror/media` (docs/FLEET.md),
+  saying each file's end in the journal and writing no transfer row. Without it, the node's own pull reads each peer's
+  `/api/media` list once a fetch, is throttled while a show runs, and says each pull's stage, bytes, peer and last
+  failed try in STATE's transfer row, which the desk's Network drawer and PLAY show. Carrying the fleet's pulls to that
+  row and to the show's throttle is an open fix (docs/ROADMAP.md). Each node publishes readiness (present, verified,
+  decodable, first frame ready).
 - **Media versions**: an item may carry versions (`MediaVersion`, `mv…`): HAP files the optimise worker made from its
   source, each hashed into this node's media store and recorded on the item as one edit. At each open the media backend
   asks `VersionChoice` which file to play — under `use: auto` a version this GPU samples whose file is here, the best
