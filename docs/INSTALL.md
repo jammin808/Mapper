@@ -63,7 +63,8 @@ found elsewhere, is refused with words before anything changes.
 **Upgrades.** Just before anything is replaced the installer asks the armed check again (the wizard may have waited on its pages);
 refuses while any program other than the supervised engine runs from the folder — a desk left open, an engine run by hand ("a
 program runs from C:\Program Files\PlayMap (pid 4120, PlayMap.exe): close it (the desk, or an engine run by hand), then install
-again"); then stops the earlier service and its engine (a termination after 5 s: see the supervisor, below). The earlier install's machine-level actions
+again"); then stops the earlier service and its engine (on its stop event, a termination 5 s later only of an engine that still
+runs: see the supervisor, below). The earlier install's machine-level actions
 stay as they are, and the new build's supervisor sets each again once the files are in place, the machine marked supervised last,
 once the service runs; an upgrade that names another show user takes the right and the folders' write access back from the earlier
 one. An upgrade that does not reach its end — refused, cancelled, a file it could not replace — has its files rolled back by Inno
@@ -104,28 +105,33 @@ which cannot drive displays), restarts it after an exit with backoff (1 s doubli
 minutes and says so, and stops an engine whose open outputs' shown frames have stood still for the stale time (3 s, or four of the
 rebuild's first good frames) while HEALTH says the GPU runs — never while the engine reports no shown frames, never during a start or
 a device rebuild within its budget (30 s while the first good frame is unmeasured on a real node), never for a slow HEALTH while
-frames move. Its status (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install`. Preflight's `install`
-section reads it too, but the exe does not show that section yet: its registration waits on the round's spine (an install hook in
-the engine's composition), so today STATE alone carries the supervisor's status. Stopping the service leaves the engine running; the next supervisor adopts it.
+frames move. Its status (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install`, and preflight's `install`
+section reads it too (`PREFLIGHT QUICK` on the node: the install or a folder run, the supervisor's state, auto-logon, the show
+machine's policies and the unsigned build). Stopping the service leaves the engine running; the next supervisor adopts it.
 
-**Every stop is a termination after 5 s.** To stop the engine — the freeze rule's stop, `PlayMap.Supervisor.exe stop`, an upgrade's
-or an uninstall's — the supervisor sets the engine's stop event (`Global\PlayMap-Engine-Stop`, which the show user may only wait on)
-and terminates the engine when it has not ended 5 s later. No engine waits on that event yet (the engine's side of it is a seam of
-the round's spine), so the engine is always terminated: no normal stop closes its doors in order, no recovery record is written,
-and the cause is in `supervisor.log` only, not in the next engine's journal. The event stays set until the engine has gone, so an
-engine that looks at it between frames will see it once it does.
+**A stop is the engine's own; a termination comes only 5 s later.** To stop the engine — the freeze rule's stop,
+`PlayMap.Supervisor.exe stop`, an upgrade's or an uninstall's — the supervisor sets the engine's stop event
+(`Global\PlayMap-Engine-Stop`). The engine it started opens that event with Synchronize, the one right the show user has on it, so
+it may wait on it and never set or clear it, and once it is set stops as any asked stop does: its doors close in order, the recovery
+record is written, its journal says "the supervisor asked the engine to stop" and is flushed, and its pid record is taken back. An
+engine still running 5 s after the event was set is terminated, with the cause in `supervisor.log`. The event stays set until the
+engine has gone, so an engine still starting when it is set stops as soon as it is up. The next engine the supervisor starts journals
+the cause of the stop before it ("the supervisor started this engine after: frozen: shown frames stood at … (2 restarts in ten
+minutes)"), read from the supervisor's status file.
 
 The engine's pid record (`%ProgramData%\PlayMap\supervisor\engine.pid`) sits in a folder the show user may write, so it only says
 which process to look at. The service adopts an engine it did not start only when that process is the installed `PlayMap.exe` run as
 the engine, as the show user, in the console session, started when its record was written (a pid another process took after a power
 cut fails here); any other record is removed, with the reason in `supervisor.log`. The elevated commands (`stop` with no service,
 `uninstall`, an upgrade) end only the installed engine the record names, through the handle opened when it was checked, and say so
-when the record names anything else. The armed check asks the engine a record names only when it is PlayMap's engine.
+when the record names anything else. The armed check asks the engine a record names only when it is PlayMap's engine, and the
+engine writes its own record over one only when that one names no running PlayMap engine by the same rule, so a record whose pid
+another process took never keeps the supervised engine's record out.
 
 | Command (elevated where it changes the machine) | Does |
 |---|---|
 | `PlayMap.Supervisor.exe status` | the supervisor's state, restarts and last cause |
-| `PlayMap.Supervisor.exe stop` | stops the engine (a termination after 5 s) and holds it until `resume` |
+| `PlayMap.Supervisor.exe stop` | stops the engine (its own stop on the stop event; a termination after 5 s only if it still runs) and holds it until `resume` |
 | `PlayMap.Supervisor.exe resume` | ends a hold or the too-many-restarts stop |
 | `PlayMap.Supervisor.exe preinstall-check` | the installer's armed check |
 | `PlayMap.Supervisor.exe grant <account>` / `revoke <account>` | the show account's right |
