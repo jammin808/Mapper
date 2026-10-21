@@ -421,7 +421,12 @@ Round 2 W1 notes:
   while a show plays) and lets a second fetch of a file pull it beside the first; the papers had said the node's own pull's rules as
   the product's. Now they say which pull each rule is, the fleet's pull counts a body's silence on the node's clock (its transfer
   counted it on the process's own clock before) and takes the node's pull options, and its journal rows are bounded the same way;
-  the rest is an open fix (below and docs/ROADMAP.md).
+  the rest is an open fix (below and docs/ROADMAP.md). A backup's pull of the show's own files beside its folder
+  (`MirrorPuller.ShowFileAsync`) reads its body through the same quiet on the node's clock (`BodySilence`), and a file that falls
+  silent is refused with its words and asked for again by the watch. 74cf79f2's message said a mirror pull's silent body was
+  counted on the node's clock; that held for content-addressed files only: the show's own files were read with no bound, so a
+  primary that fell silent mid-file held that mirror run, and the show-files gate with it, with nothing in the read to end it but
+  the node's stop (`MirrorPullerTests.AShowFilesSilenceIsCountedOnTheNodesClock` still waited after 30 s against 36de2773 in Debug).
   Tests: `tests/Shared/FakeMediaPeer.cs` is a peer's two media routes with the faults a real node does not make on purpose. A
   body's silence is counted on a hand-moved clock in
   `MediaTransferTests.AChunkWhosePeerFallsSilentIsTriedAgainAndEachTryIsSaidWithItsWords`,

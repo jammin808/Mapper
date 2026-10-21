@@ -22,13 +22,16 @@ public sealed record MirrorSource(string NodeId, string Name, string Address, in
 /// <summary>A backup's pulls from its primary's <c>/mirror</c>: over HTTPS pinned by the hello's fingerprint (the fleet's pin file
 /// keeps it; a changed certificate is refused) when the primary offers TLS, each request signed with the pairing proof
 /// (<see cref="PullProof"/>), so no token crosses the network and no stranger reads the show. Files come content-addressed through
-/// <see cref="MediaTransfer"/> (ranged, resumed, verified by SHA-256 before they land), a body's silence counted on the node's clock.</summary>
+/// <see cref="MediaTransfer"/> (ranged, resumed, verified by SHA-256 before they land) and the show's own files whole by their key, and
+/// each body's silence is counted on the node's clock under the pull options' quiet.</summary>
 public sealed class MirrorPuller : IDisposable
 {
     private readonly MirrorSource _source;
     private readonly Func<long> _unixMs;
     private readonly HttpClient _http;
     private readonly MediaTransfer _transfer;
+    private readonly IMonoClock _clock;
+    private readonly TimeSpan _quiet;
     private readonly ILogger _log;
     private readonly PinStore _pins;
     private readonly string _pinKey;
@@ -37,7 +40,7 @@ public sealed class MirrorPuller : IDisposable
 
     /// <param name="mono">The node's clock: the bandwidth bucket's, and the one a body's silence is counted on.</param>
     /// <param name="pulls">How a file's pull asks (the quiet, the tries per chunk; null = the transfer's own); its path and the proof are
-    /// the mirror's whatever it says.</param>
+    /// the mirror's whatever it says, and a show file's body is bounded by the same quiet.</param>
     public MirrorPuller(MirrorSource source, PinStore pins, Func<long> unixMs, IMonoClock? mono = null, ILogger? log = null, MediaTransferOptions? pulls = null)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
@@ -45,6 +48,8 @@ public sealed class MirrorPuller : IDisposable
         _pinKey = PinStore.NodeKey(source.NodeId);
         _unixMs = unixMs ?? throw new ArgumentNullException(nameof(unixMs));
         _log = log ?? NullLogger.Instance;
+        _clock = mono ?? MonoClock.Instance;
+        _quiet = (pulls ?? new MediaTransferOptions()).Quiet;
         var handler = new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(5) };
         if (Tls)
         {
@@ -134,7 +139,9 @@ public sealed class MirrorPuller : IDisposable
 
     /// <summary>One file the show names beside its project folder, by its key, into <paramref name="destination"/> (written beside and
     /// moved over once its SHA-256 is the one the show names, <see cref="ShowFiles.Matches"/>); answers whether it landed and, when it
-    /// did not, why.</summary>
+    /// did not, why. The answer's headers wait as long as the client's own timeout; each read of the body waits as long as the quiet on
+    /// the node's clock (<see cref="BodySilence"/>), and a body that sends nothing for that long ends the pull ("sent nothing for 10 s,
+    /// 65536 of 300000 bytes in"), keeping nothing, for the watch to ask again.</summary>
     public async Task<(bool Landed, string Words)> ShowFileAsync(string key, string destination, string hash, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -160,12 +167,30 @@ public sealed class MirrorPuller : IDisposable
                     var body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
                     await using (body.ConfigureAwait(false))
                     {
-                        var buffer = new byte[1 << 20];
-                        int n;
-                        while ((n = await body.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                        var silence = new BodySilence(_clock, _quiet, ct);
+                        await using (silence.ConfigureAwait(false))
                         {
-                            sha.AppendData(buffer, 0, n);
-                            await file.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
+                            var buffer = new byte[1 << 20];
+                            long got = 0;
+                            while (true)
+                            {
+                                int n;
+                                silence.Reading();
+                                try
+                                {
+                                    n = await body.ReadAsync(buffer, silence.Token).ConfigureAwait(false);
+                                }
+                                catch (OperationCanceledException) when (silence.Met && !ct.IsCancellationRequested)
+                                {
+                                    return (false, silence.Words(got, response.Content.Headers.ContentLength));
+                                }
+                                silence.Heard();
+                                if (n == 0)
+                                    break;
+                                got += n;
+                                sha.AppendData(buffer, 0, n);
+                                await file.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
+                            }
                         }
                     }
                 }

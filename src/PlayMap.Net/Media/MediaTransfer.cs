@@ -340,7 +340,7 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
 
     /// <summary>One try at one chunk: null when every byte of it is in place, else what the peer did instead ("sent nothing for
     /// 10 s, …"). The answer's headers wait as long as the client's own timeout; each read of the body waits as long as
-    /// <see cref="MediaTransferOptions.Quiet"/> on the transfer's clock (<see cref="Silence"/>), and the time the bandwidth bucket and
+    /// <see cref="MediaTransferOptions.Quiet"/> on the transfer's clock (<see cref="BodySilence"/>), and the time the bandwidth bucket and
     /// the disk take between reads is not the peer's silence. The body is gathered into blocks of <see cref="BlockBytes"/>, each written
     /// at once; <paramref name="landed"/> hears the chunk's bytes in place after each block.</summary>
     private async Task<string?> FetchAsync(Uri url, SafeFileHandle handle, long start, int length, long size, Action<long> landed, CancellationToken ct)
@@ -368,7 +368,7 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                     return "answered a range other than the one asked for";   // which is not this chunk
             }
             await using var body = await response.Content.ReadAsStreamAsync(ct);
-            await using var silence = new Silence(_clock, _o.Quiet, ct);
+            await using var silence = new BodySilence(_clock, _o.Quiet, ct);
             var blockBytes = Math.Min(BlockBytes, length);
             var block = ArrayPool<byte>.Shared.Rent(blockBytes);
             try
@@ -385,8 +385,7 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                     }
                     catch (OperationCanceledException) when (silence.Met && !ct.IsCancellationRequested)
                     {
-                        return string.Create(CultureInfo.InvariantCulture,
-                            $"sent nothing for {Seconds(_o.Quiet)}, {written + held} of {length} bytes in");
+                        return silence.Words(written + held, length);
                     }
                     silence.Heard();
                     if (n == 0)
@@ -411,65 +410,6 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
     }
 
     private static string Seconds(TimeSpan t) => t.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) + " s";
-
-    /// <summary>The silence of one body as the transfer's clock counts it: each read is marked as it starts (<see cref="Reading"/>) and
-    /// as it returns (<see cref="Heard"/>), so only the time a read waits for the peer is counted. A watch steps on the runtime's timer
-    /// (<see cref="Step"/>) and cuts the read (<see cref="Token"/>) once one has waited <see cref="MediaTransferOptions.Quiet"/> on the
-    /// clock; on a clock a test moves by hand no silence is counted until the test moves it. Disposing it stops the watch.</summary>
-    private sealed class Silence : IAsyncDisposable
-    {
-        private const long NotReading = long.MinValue;
-        private readonly IMonoClock _clock;
-        private readonly long _quietNs;
-        private readonly CancellationTokenSource _cut;
-        private readonly CancellationTokenSource _done = new();
-        private readonly Task _watch;
-        private long _sinceNs = NotReading;
-        private int _met;
-
-        public Silence(IMonoClock clock, TimeSpan quiet, CancellationToken ct)
-        {
-            _clock = clock;
-            _quietNs = quiet.Ticks * TimeSpan.NanosecondsPerTick;
-            _cut = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            _watch = WatchAsync(Step(quiet));
-        }
-
-        /// <summary>How often the silence is looked at: an eighth of the quiet, from 20 to 250 ms, so a stall is called at most a step
-        /// after the quiet has passed on the clock.</summary>
-        private static TimeSpan Step(TimeSpan quiet) => TimeSpan.FromMilliseconds(Math.Clamp(quiet.TotalMilliseconds / 8, 20, 250));
-
-        /// <summary>Cancelled when a read has waited the quiet, or with the pull.</summary>
-        public CancellationToken Token => _cut.Token;
-
-        /// <summary>The quiet was met: a read waited it out.</summary>
-        public bool Met => Volatile.Read(ref _met) != 0;
-
-        public void Reading() => Interlocked.Exchange(ref _sinceNs, _clock.NowNs);
-
-        public void Heard() => Interlocked.Exchange(ref _sinceNs, NotReading);
-
-        private async Task WatchAsync(TimeSpan step)
-        {
-            while (await Waits.DelayAsync(step, _done.Token))
-            {
-                var since = Interlocked.Read(ref _sinceNs);
-                if (since == NotReading || _clock.NowNs - since < _quietNs)
-                    continue;
-                Volatile.Write(ref _met, 1);
-                await _cut.CancelAsync();
-                return;
-            }
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await _done.CancelAsync();
-            await _watch;
-            _done.Dispose();
-            _cut.Dispose();
-        }
-    }
 
     private HttpRequestMessage Request(Uri url)
     {

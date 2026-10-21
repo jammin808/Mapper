@@ -124,7 +124,8 @@ primary's **mirror** (`SUBSCRIBE MIRROR <node>`, paired only):
   blend map, a survey's thinned cloud — pulled by key from `/mirror/file/<kind>/<id>` into the backup's folder for them (its own
   project's, else `mirror/<primary id>` in the node's home), each checked against the hash the show names, before the show that
   names them is applied: the backup's stage loads the primary's mesh from its first frame, and a file that lands later is read at
-  once;
+  once. A file whose body sends nothing for 10 s on the node's clock (the pulls' quiet) is not kept, its refused row says so ("sent
+  nothing for 10 s, 65536 of 300000 bytes in"), and the watch asks for it again;
 - the clock, the group's anchors and the group's air: the backup follows the primary's sync group (`SYNC FOLLOW`, docs/SYNC.md);
 - every other playlist's anchor, and the air lines the group's feed does not carry (`FREEZE`, `PATTERN`, a panic or blackout `ON`
   outputs or `HERE`), through the backup's own `MIRROR` verb (session "fleet"), each at the primary's leader instant.
