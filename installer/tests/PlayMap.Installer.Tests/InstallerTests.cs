@@ -507,6 +507,8 @@ public sealed class InstallerTests
                      @"licenses\Apache-2.0.txt", @"licenses\Inter-OFL.txt", @"licenses\Microsoft.NETCore.App.Runtime.win-x64\THIRD-PARTY-NOTICES.TXT",
                      @"licenses\Microsoft.AspNetCore.App.Runtime.win-x64\THIRD-PARTY-NOTICES.TXT", @"licenses\SkiaSharp.NativeAssets.Win32\THIRD-PARTY-NOTICES.txt",
                      @"licenses\Microsoft.ML.OnnxRuntime\ThirdPartyNotices.txt",
+                     // The packages inside the supervisor's single-file exe, read from its restore.
+                     @"licenses\System.ServiceProcess.ServiceController\THIRD-PARTY-NOTICES.TXT", @"licenses\System.Diagnostics.EventLog\THIRD-PARTY-NOTICES.TXT",
                  })
             Assert.True(File.Exists(Path.Combine(InstallDir, file)), file + " is not installed");
         Assert.Equal(File.ReadAllBytes(RepositoryTerms), File.ReadAllBytes(Path.Combine(InstallDir, "licence.txt")));

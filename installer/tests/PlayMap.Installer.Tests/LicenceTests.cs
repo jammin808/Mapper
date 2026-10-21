@@ -17,8 +17,9 @@ namespace PlayMap.Installer.Tests;
 /// every package of the folder's PlayMap.deps.json with files in it (by its id, or a family as <c>Prefix.*</c>) and, by its file
 /// name, every native library no library of PlayMap.deps.json lists, the shader worker's among them, each worker native beside the
 /// assemblies at its pin; and each such package's own licence and notice files lie under licenses\&lt;package id&gt;\ as the restore
-/// holds them, the rule installer/notices.ps1 lays them down by. Both rules are proven on folders made for the purpose, on any
-/// platform.</summary>
+/// holds them, the rule installer/notices.ps1 lays them down by, as do those of each package the supervisor's single-file exe carries
+/// where the folder carries it (the installer's payload), read from its restore. Both rules are proven on folders made for the
+/// purpose, on any platform.</summary>
 public sealed partial class LicenceTests
 {
     private const string DxcPackage = "Microsoft.Direct3D.DXC";
@@ -89,11 +90,14 @@ public sealed partial class LicenceTests
         Assert.True(problems.Count == 0, Describe(folder, problems));
     }
 
+    /// <summary>The supervisor's restore, which lists the packages its single-file exe carries (its deps.json is inside the exe).</summary>
+    private static string SupervisorAssets => Path.Combine(Repository, "src", "PlayMap.Supervisor", "obj", "project.assets.json");
+
     [Fact]
     public void TheShippedFolderCarriesTheNoticesNamingEveryPackageAndEveryOtherNativeInIt()
     {
         var folder = Shipped;
-        var found = NoticeProblems(folder, File.ReadAllBytes(Path.Combine(Repository, "THIRD-PARTY-NOTICES.md")), Restored);
+        var found = NoticeProblems(folder, File.ReadAllBytes(Path.Combine(Repository, "THIRD-PARTY-NOTICES.md")), Restored, SupervisorAssets);
         Assert.True(found.Problems.Count == 0, Describe(folder, found.Problems));
         // The rule saw the natives that come from the engine's build and from no package: DXC's compiler and SPIRV-Tools'. Each native
         // the worker loads lies beside the assemblies at its pin.
@@ -208,6 +212,66 @@ public sealed partial class LicenceTests
         Assert.Equal(["sub/extra.dll"], laid.Natives);
     }
 
+    [Fact]
+    public void TheNoticeRuleHoldsThePackagesOfTheSupervisorTheFolderCarriesToTheirNoticesToo()
+    {
+        // The restore holds a package of the supervisor's with a notice; its project.assets.json lists it with a runtime file, an
+        // analyzer with build files alone and a package whose only file is a placeholder, neither of which lays a file down.
+        using var restore = new Folder();
+        Write(restore.Path, "cache/contoso.service/3.0.0/THIRD-PARTY-NOTICES.TXT", "Contoso's notices");
+        string? Restore(string id, string version) =>
+            new[] { Path.Combine(restore.Path, "cache", id.ToLowerInvariant(), version) }.FirstOrDefault(Directory.Exists);
+        Write(restore.Path, "project.assets.json", SupervisorRestore);
+        var assets = Path.Combine(restore.Path, "project.assets.json");
+
+        using var folder = new Folder();
+        Write(folder.Path, "PlayMap.deps.json", BareDeps);
+        Write(folder.Path, "PlayMap.dll", "PlayMap");
+        Write(folder.Path, "Supervisor/PlayMap.Supervisor.exe", "the supervisor");
+        var none = Encoding.UTF8.GetBytes("# Third-party notices\n");
+        File.WriteAllBytes(Path.Combine(folder.Path, "THIRD-PARTY-NOTICES.md"), none);
+        AssertFound(NoticeProblems(folder.Path, none, Restore, Path.Combine(restore.Path, "none.json")).Problems,
+            "carries the supervisor, whose restore (project.assets.json) is not there");
+        AssertFound(NoticeProblems(folder.Path, none, Restore, assets).Problems,
+            "carries Contoso.Service 3.0.0, which THIRD-PARTY-NOTICES.md does not name");
+
+        var named = Encoding.UTF8.GetBytes("The supervisor's service controller (`Contoso.Service`).\n");
+        File.WriteAllBytes(Path.Combine(folder.Path, "THIRD-PARTY-NOTICES.md"), named);
+        AssertFound(NoticeProblems(folder.Path, named, Restore, assets).Problems,
+            "carries Contoso.Service 3.0.0 with no licenses/Contoso.Service/THIRD-PARTY-NOTICES.TXT");
+        CopyInto(folder.Path, "licenses/Contoso.Service/THIRD-PARTY-NOTICES.TXT", Path.Combine(restore.Path, "cache", "contoso.service", "3.0.0", "THIRD-PARTY-NOTICES.TXT"));
+        var laid = NoticeProblems(folder.Path, named, Restore, assets);
+        Assert.True(laid.Problems.Count == 0, Describe(folder.Path, laid.Problems));
+    }
+
+    /// <summary>A publish's PlayMap.deps.json with PlayMap's own files alone.</summary>
+    private const string BareDeps = """
+        {
+          "runtimeTarget": { "name": ".NETCoreApp,Version=v10.0/win-x64", "signature": "" },
+          "targets": { ".NETCoreApp,Version=v10.0/win-x64": { "PlayMap/1.0.0": { "runtime": { "PlayMap.dll": {} } } } },
+          "libraries": { "PlayMap/1.0.0": { "type": "project", "serviceable": false, "sha512": "" } }
+        }
+        """;
+
+    /// <summary>A program's project.assets.json as a win-x64 restore writes it: a package with a runtime file, a project, an analyzer
+    /// with build files alone, and a package whose only runtime file is NuGet's placeholder.</summary>
+    private const string SupervisorRestore = """
+        {
+          "version": 3,
+          "targets": {
+            "net10.0": {
+              "Contoso.Service/3.0.0": { "type": "package", "runtime": { "lib/net10.0/Contoso.Service.dll": {} } },
+              "PlayMap.Core/1.0.0": { "type": "project", "runtime": { "bin/placeholder/PlayMap.Core.dll": {} } },
+              "Analyzer.Only/1.0.0": { "type": "package", "build": { "build/Analyzer.Only.props": {} } },
+              "Placeholder.Pkg/1.0.0": { "type": "package", "runtime": { "lib/net10.0/_._": {} } }
+            },
+            "net10.0/win-x64": {
+              "Contoso.Service/3.0.0": { "type": "package", "runtimeTargets": { "runtimes/win/lib/net10.0/Contoso.Service.dll": { "assetType": "runtime", "rid": "win" } } }
+            }
+          }
+        }
+        """;
+
     /// <summary>A publish's PlayMap.deps.json as a self-contained win-x64 publish writes it, with one of each kind of library.</summary>
     private const string Deps = """
         {
@@ -295,10 +359,11 @@ public sealed partial class LicenceTests
     private sealed record NoticeFindings(List<string> Problems, List<string> Natives);
 
     /// <summary>A folder's notices against <paramref name="notices"/> (THIRD-PARTY-NOTICES.md as the repository holds it): the folder's
-    /// copy is the same bytes; every package and runtime pack of its PlayMap.deps.json with files in it is named, the restore holds
+    /// copy is the same bytes; every package and runtime pack of its PlayMap.deps.json with files in it, and, where the folder carries
+    /// the supervisor, every package with files its restore (<paramref name="supervisorAssets"/>) lists, is named, the restore holds
     /// it, and its own licence and notice files lie under licenses\&lt;package id&gt;\ byte for byte; and every native library in the
     /// folder that no library of PlayMap.deps.json lists is named by its file name.</summary>
-    private static NoticeFindings NoticeProblems(string folder, byte[] notices, Func<string, string, string?> restored)
+    private static NoticeFindings NoticeProblems(string folder, byte[] notices, Func<string, string, string?> restored, string? supervisorAssets = null)
     {
         var problems = new List<string>();
         var text = Encoding.UTF8.GetString(notices);
@@ -327,25 +392,20 @@ public sealed partial class LicenceTests
                     listed.Add(Path.GetFileName(asset.Name));
             }
         }
-        foreach (var library in root.GetProperty("libraries").EnumerateObject())
+        var held = new HashSet<string>(StringComparer.Ordinal);
+        void Hold(string id, string version)
         {
-            if (library.Value.GetProperty("type").GetString() is not ("package" or "runtimepack") || !target.TryGetProperty(library.Name, out var entry)
-                || !Kinds.Any(k => entry.TryGetProperty(k, out var files) && files.EnumerateObject().Any()))
-                continue;
-            var slash = library.Name.IndexOf('/', StringComparison.Ordinal);
-            var id = library.Name[..slash];
-            if (id.StartsWith("runtimepack.", StringComparison.Ordinal))
-                id = id["runtimepack.".Length..];
-            var version = library.Name[(slash + 1)..];
+            if (!held.Add(id))
+                return;
             if (!Named(text, id))
             {
                 problems.Add($"carries {id} {version}, which THIRD-PARTY-NOTICES.md does not name");
-                continue;
+                return;
             }
             if (restored(id, version) is not { } dir)
             {
                 problems.Add($"carries {id} {version}, which the restore does not hold: its licence and notices cannot be compared");
-                continue;
+                return;
             }
             foreach (var own in Directory.EnumerateFiles(dir).Where(f => OwnNotice().IsMatch(Path.GetFileName(f))))
             {
@@ -356,6 +416,26 @@ public sealed partial class LicenceTests
                 else if (!File.ReadAllBytes(laid).AsSpan().SequenceEqual(File.ReadAllBytes(own)))
                     problems.Add($"carries licenses/{id}/{name}, which is not {id} {version}'s");
             }
+        }
+        foreach (var library in root.GetProperty("libraries").EnumerateObject())
+        {
+            if (library.Value.GetProperty("type").GetString() is not ("package" or "runtimepack") || !target.TryGetProperty(library.Name, out var entry)
+                || !Kinds.Any(k => entry.TryGetProperty(k, out var files) && files.EnumerateObject().Any()))
+                continue;
+            var slash = library.Name.IndexOf('/', StringComparison.Ordinal);
+            var id = library.Name[..slash];
+            if (id.StartsWith("runtimepack.", StringComparison.Ordinal))
+                id = id["runtimepack.".Length..];
+            Hold(id, library.Name[(slash + 1)..]);
+        }
+        // The supervisor is a single-file exe whose deps.json is inside it: its restore lists the packages it carries.
+        if (File.Exists(Path.Combine(folder, "Supervisor", "PlayMap.Supervisor.exe")))
+        {
+            if (supervisorAssets is null || !File.Exists(supervisorAssets))
+                problems.Add($"carries the supervisor, whose restore (project.assets.json) is not there to list its packages: {supervisorAssets}");
+            else
+                foreach (var (id, version) in RestoredPackages(supervisorAssets))
+                    Hold(id, version);
         }
         var natives = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
             .Where(f => string.Equals(Path.GetExtension(f), ".dll", StringComparison.OrdinalIgnoreCase) && !listed.Contains(Path.GetFileName(f)))
@@ -368,6 +448,33 @@ public sealed partial class LicenceTests
                 problems.Add($"carries {native}, which no library of PlayMap.deps.json lists and THIRD-PARTY-NOTICES.md does not name");
         }
         return new(problems, natives);
+    }
+
+    /// <summary>The packages a restore's project.assets.json lists with a runtime or native file in any target (NuGet's placeholder
+    /// <c>_._</c> is none), each once, as installer/notices.ps1 reads them for a program the folder carries.</summary>
+    private static List<(string Id, string Version)> RestoredPackages(string assets)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(assets));
+        var found = new List<(string Id, string Version)>();
+        foreach (var target in doc.RootElement.GetProperty("targets").EnumerateObject())
+        {
+            foreach (var entry in target.Value.EnumerateObject())
+            {
+                if (!entry.Value.TryGetProperty("type", out var type) || type.GetString() != "package")
+                    continue;
+                var files = new[] { "runtime", "native", "runtimeTargets" }
+                    .Where(k => entry.Value.TryGetProperty(k, out _))
+                    .SelectMany(k => entry.Value.GetProperty(k).EnumerateObject().Select(f => f.Name))
+                    .Where(f => !f.EndsWith("/_._", StringComparison.Ordinal));
+                if (!files.Any())
+                    continue;
+                var slash = entry.Name.IndexOf('/', StringComparison.Ordinal);
+                var package = (entry.Name[..slash], entry.Name[(slash + 1)..]);
+                if (!found.Contains(package))
+                    found.Add(package);
+            }
+        }
+        return found;
     }
 
     /// <summary>THIRD-PARTY-NOTICES.md names a package by its id in backticks, or by a family of ids in backticks as <c>Prefix.*</c>:

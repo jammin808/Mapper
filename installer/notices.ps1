@@ -2,17 +2,20 @@
 # Lays down, beside a publish of PlayMap, the notices its third-party files ask for (THIRD-PARTY-NOTICES.md's wp3-installer heading
 # says what each covers): THIRD-PARTY-NOTICES.md itself; OpenAL Soft's licence beside soft_oal.dll; the Apache License 2.0 (the MCP
 # SDK's) and Inter's SIL Open Font License under licenses\; and, under licenses\<package>\, the licence and notice files of every
-# package the publish's PlayMap.deps.json names with files in the folder (the .NET and ASP.NET Core runtime packs among them), copied
-# from the restore as the package holds them. A package the publish carries that THIRD-PARTY-NOTICES.md does not name in backticks
+# package the publish's PlayMap.deps.json names with files in the folder (the .NET and ASP.NET Core runtime packs among them), and of
+# every package with files that the restore's project.assets.json of another program the folder will carry lists (-Assets: the
+# supervisor's, a single-file exe whose deps.json is inside it), copied from the restore as the package holds them. A package the
+# publish or such a program carries that THIRD-PARTY-NOTICES.md does not name in backticks
 # (its id, or a family as `Prefix.*`), or one the restore does not hold, stops it with words before anything is laid down; so does a
 # native library in the folder that no library of PlayMap.deps.json lists and THIRD-PARTY-NOTICES.md does not name by its file name
 # in backticks (the shader worker's from the engine's build, DXC's compiler and SPIRV-Tools'; in the installer's payload FFmpeg's,
 # the Agility SDK's runtime and libvmx too), and a dxcompiler.dll without DXC's licence and notices in licenses\DXC\ beside it (the
 # engine's build lays them down; this script leaves them in place). The portable folder's step and build-installer.ps1 (for the
 # installer's payload) run it before the sums; -Summary adds its line to the job's summary.
-#   installer/notices.ps1 -Folder publish/PlayMap [-Summary]
+#   installer/notices.ps1 -Folder publish/PlayMap [-Assets src/PlayMap.Supervisor/obj/project.assets.json] [-Summary]
 param(
     [Parameter(Mandatory)] [string] $Folder,
+    [string[]] $Assets = @(),
     [switch] $Summary
 )
 $ErrorActionPreference = 'Stop'
@@ -60,6 +63,26 @@ foreach ($library in $json.libraries.PSObject.Properties) {
         Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $dir) { throw "the restore holds no $id $version (looked in $packages and $packs): its licence and notices cannot be laid down" }
     $carried.Add([pscustomobject]@{ Id = $id; Dir = $dir })
+}
+# The packages of each other program the folder carries, from its restore's project.assets.json: each with runtime or native files
+# (a placeholder _._ is none) is held to the same rule as the publish's.
+foreach ($file in $Assets) {
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "$file is not there: the restore of the program it lists writes it" }
+    $restore = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+    foreach ($target in $restore.targets.PSObject.Properties) {
+        foreach ($entry in $target.Value.PSObject.Properties) {
+            if ($entry.Value.type -ne 'package') { continue }
+            $files = @($entry.Value.PSObject.Properties | Where-Object { $_.Name -in 'runtime', 'native', 'runtimeTargets' } |
+                ForEach-Object { @($_.Value.PSObject.Properties | ForEach-Object { $_.Name }) } | Where-Object { -not $_.EndsWith('/_._') })
+            if ($files.Count -eq 0) { continue }
+            $id, $version = $entry.Name.Split('/')
+            if (@($carried | Where-Object { $_.Id -eq $id }).Count -gt 0 -or $unnamed.Contains("$id $version")) { continue }
+            if (-not (Test-Named $id)) { $unnamed.Add("$id $version"); continue }
+            $dir = Join-Path $packages "$($id.ToLowerInvariant())/$version"
+            if (-not (Test-Path -LiteralPath $dir)) { throw "the restore holds no $id $version (looked in $packages): its licence and notices cannot be laid down" }
+            $carried.Add([pscustomobject]@{ Id = $id; Dir = $dir })
+        }
+    }
 }
 if ($unnamed.Count -gt 0) {
     throw "the publish carries $($unnamed -join ', '), which THIRD-PARTY-NOTICES.md does not name: name each under its package's heading with its licence and copyright"

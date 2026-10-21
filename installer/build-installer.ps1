@@ -4,7 +4,8 @@
 # notices in licenses\DXC\), FFmpeg's LGPL shared libraries under ffmpeg\ with their licence texts (the build's LICENSE.txt, the
 # LGPL version 3, and the GPL version 3 it incorporates), the Agility SDK's D3D12Core.dll under D3D12\ (its debug layer left out),
 # libvmx beside the exe with its licence, the publish's notices (notices.ps1: THIRD-PARTY-NOTICES.md, OpenAL Soft's licence beside
-# soft_oal.dll, and licenses\ with every package's own licence and notice files), licence.txt (the terms the licence page shows and
+# soft_oal.dll, and licenses\ with the own licence and notice files of every package the publish carries and of every package the
+# supervisor's single-file exe carries, read from its restore), licence.txt (the terms the licence page shows and
 # the install keeps: installer/licence.txt, byte for byte), and the supervisor under Supervisor\; then the payload's SHA256SUMS of
 # every file it lays down, shipped with it; compiled by Inno Setup's ISCC with the version Version.props gives this run. -Ffmpeg is
 # the LGPL build's extracted folder (bin\ and LICENSE.txt). A local build is refused with words: its installer would read as
@@ -51,7 +52,7 @@ Copy-Item (Join-Path $licences 'GPL-3.0.txt') (Join-Path $payload 'ffmpeg\GPL-3.
 Copy-Item (Join-Path $D3D12 'D3D12Core.dll') (Join-Path $payload 'D3D12')
 Copy-Item $Vmx (Join-Path $payload 'libvmx.dll')
 Copy-Item (Join-Path $repo 'src/ThirdParty/libvmx/LICENSE.txt') (Join-Path $payload 'libvmx-LICENSE.txt')
-& (Join-Path $PSScriptRoot 'notices.ps1') -Folder $payload
+& (Join-Path $PSScriptRoot 'notices.ps1') -Folder $payload -Assets (Join-Path $repo 'src/PlayMap.Supervisor/obj/project.assets.json')
 Copy-Item (Join-Path $PSScriptRoot 'licence.txt') (Join-Path $payload 'licence.txt')
 Copy-Item (Join-Path $Supervisor 'PlayMap.Supervisor.exe') (Join-Path $payload 'Supervisor')
 if (Get-ChildItem $payload -Recurse -Filter 'D3D12SDKLayers.dll') { throw 'the Agility SDK''s debug layer is in the payload: releases leave it out' }
