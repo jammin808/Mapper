@@ -44,7 +44,8 @@ public sealed record EngineHostOptions
 /// command line's name and ports for this run), its TLS identity and pins, then builds — in this order — the media
 /// backend, the network host, the render host (or none), the scan backend, the extensions, the engine's services and
 /// the engine; puts the project back (the command line's, else the recovery record's); then starts the render host,
-/// the extensions, the line wire, the web port, the hello, the clock sync and the links. A part that fails leaves the
+/// the extensions, the line wire, the web port, the hello, the clock sync and the links, writes STATE and CONTEXT once, and only
+/// then says the node is up (its journal's row, its log's line). A part that fails leaves the
 /// node up without it and says so in STATE's faults; only a node with no door at all (neither the wire nor the web
 /// port could listen) refuses to start, with <see cref="BindRefusedException"/>. <see cref="DisposeAsync"/> first stops
 /// the engine taking lines, then undoes the start in reverse — every part closed even when one before it throws — and
@@ -208,6 +209,7 @@ public sealed class EngineHost : IAsyncDisposable
         _recovery = Task.Run(() => KeepRecoveryAsync(engine, _stop.Token), CancellationToken.None);
         // A show that came back armed has its arming hooks run now its parts are up (a hook may need the render host).
         _armedAgain = engine.ArmAgainAsync(_stop.Token);
+        WriteFactsOnce(engine);
         engine.Journal.Add("node", $"{running.Name} is up: wire {Port(_network.WirePort)}, web {Port(_network.HttpPort)}, renderer {outputs.RendererName} · {engine.Services.Build.Display}");
         _log.LogInformation("{Name} ({Id}) is up: wire {Wire}, web {Web}, renderer {Renderer}.", running.Name, running.NodeId,
             Port(_network.WirePort), Port(_network.HttpPort), outputs.RendererName);
@@ -215,6 +217,22 @@ public sealed class EngineHost : IAsyncDisposable
     }
 
     private static string Port(int port) => port > 0 ? port.ToString(System.Globalization.CultureInfo.InvariantCulture) : "closed";
+
+    /// <summary>Up means the node answers what it is asked: STATE and CONTEXT are each written once on the start's own thread before
+    /// the node says it is up, so their first build (every package's writer run for the first time) is never paid on a reader's line.
+    /// A writer that faults leaves the node up with the words, as a reader's STATE would fault.</summary>
+    private void WriteFactsOnce(EngineCore engine)
+    {
+        try
+        {
+            _ = engine.State();
+            _ = engine.Context();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Fault("state", $"STATE could not be written as the node started ({ex.GetType().Name}: {ex.Message}); a reader's STATE faults the same way", ex);
+        }
+    }
 
     /// <summary>The pid record, once the doors are open (its port is the wire's as it listens), into the supervisor's folder where it
     /// exists. A folder that exists but takes no record is a fault: the supervisor cannot adopt this engine, nor the installer ask it;

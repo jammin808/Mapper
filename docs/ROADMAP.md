@@ -102,8 +102,10 @@ The lab checks still to do:
   of 4 (one-sided Fisher p about 0.07), while lighter loads, their runs not recorded, did not make it fail, and Windows completes
   socket reads its own way, so the Linux counts of pool turns are not Windows'; a pull's blocks are now 1 MiB and its wait names the
   transfer's row, so a recurrence names its stage),
-  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
-  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
+  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
+  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, and `NodeHostTests`' one Windows wait for a fresh node's first STATE
+  (its PING answered; consistent with STATE's first build paid on the reader's line, which is fixed: the host writes STATE and
+  CONTEXT before it says the node is up; not proven, the job's log showing nothing of the node; its asks now name the node's log).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

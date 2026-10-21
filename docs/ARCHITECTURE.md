@@ -64,6 +64,10 @@ engine, on a shared second context (§5).
   does — never over a record that names another engine still running (that is a fault in STATE, with the other engine's
   pid), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
   installer's armed check needs to ask it on loopback, and no secret.
+- A node says it is up (its journal's row, its log's "is up: wire …" line) once its doors are open and it has written STATE and
+  CONTEXT once, on its start's own thread: no reader's line pays their first build, which runs every package's writer for the
+  first time (a client's first STATE took 250 to 920 ms on a Debug build on Linux; asked as the node says it is up it takes 5 to
+  10 ms there). A writer that faults then leaves the node up, with the words in its journal before the row that says so.
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with

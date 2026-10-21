@@ -40,8 +40,24 @@ public sealed partial class NodeHostTests
                 }, timeoutMs: 60_000), $"the node did not come up (exited: {node.HasExited})");
 
                 await using var c = await LineClient.ConnectAsync(port);
-                Assert.StartsWith("OK @p PONG 1760101234567 ", await c.AskAsync("@p PING 1760101234567"), StringComparison.Ordinal);
-                Assert.StartsWith("OK @s {\"v\":1,", await c.AskAsync("@s STATE"), StringComparison.Ordinal);
+                Assert.StartsWith("OK @p PONG 1760101234567 ", await AskAsync(c, "@p PING 1760101234567"), StringComparison.Ordinal);
+                Assert.StartsWith("OK @s {\"v\":1,", await AskAsync(c, "@s STATE"), StringComparison.Ordinal);
+
+                // A line not answered names the node's process and the end of its log.
+                async Task<string?> AskAsync(LineClient client, string line)
+                {
+                    try
+                    {
+                        return await client.AskAsync(line);
+                    }
+                    catch (TimeoutException ex)
+                    {
+                        using var read = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        using var text = new StreamReader(read);
+                        var tail = string.Join("\n", text.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries).TakeLast(12));
+                        throw new TimeoutException($"{line}: {ex.Message}; the node {(node.HasExited ? "has exited" : "runs")}, its log ends:\n{tail}", ex);
+                    }
+                }
             }
             finally
             {

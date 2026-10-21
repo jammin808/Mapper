@@ -494,6 +494,36 @@ Round 2 W1 notes:
   it landed 250 ms or more after the last word, so whether it could pass there hung on how far apart the blocks landed (the pace is
   gone now). The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both
   nodes' journals and log tails, so a recurrence names its stage.
+- Done: a node says it is up once it has written STATE and CONTEXT. The host said "is up" (its journal's row, its log's line) as
+  soon as its doors listened, before anything had written STATE, so a client's first `STATE` paid STATE's first build on that
+  line: every package's writer run for the first time, on the session's own turn. `PING`, which the session answers itself, paid
+  none of it. `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing`' one Windows failure (fix-backup-preflight 5ae2c481, run
+  39676825957, job 119488748563; the test 16 s, 91 s into an 8 min 22 s Engine suite of 1 175 tests) is at its line 44, the
+  `@s STATE` ask, not the `PING` at line 43: "no line within 10000 ms" from `LineClient.ReadAsync` (`HostRig.cs` 216, through 228
+  and 243). So the node answered `PING` and wrote no STATE line within 10 s. That is consistent with the first build not ending
+  within the client's 10 s on that runner, not proven: the job's log shows the timeout and its stack and nothing of the node (its
+  log is not printed, and the job's test results were not fetched), so how long the build took there is not shown. On that runner
+  the node also draws its default project's output (1920 × 1080 at 60 Hz, offscreen, on Mesa's llvmpipe beside `dotnet.exe`) in a
+  process the machine part claims HIGH, so its own rasterizer threads share the cores with the session's turn; the runner's load at
+  that moment is not shown either.
+  What was measured, on Linux (Debug, four cores): a fresh node's first STATE took 264 to 428 ms with no render host and 250 to 919
+  ms with llvmpipe's up, against 0 to 17 ms for the second, and its `PING` 15 to 45 ms. The first build stalled 12 s (a hook kept
+  out of the tree) failed the unchanged test at line 44 with those words and that stack, its `PING` answered; with the host's write
+  the same stall holds the "is up" line instead, and the unchanged test passed three runs of three (14 to 15 s), and unstalled five
+  of five, its first STATE answered in about 5 to 10 ms. Off the path, each forced the same way: the control lane stalled 20 s at its
+  first item holds the node's start, "is up" comes after it and STATE then answers in 324 ms; the render thread's first frame
+  stalled 20 s leaves STATE at 250 ms; every machine reading stalled 60 s under the reader's lock (as the Windows reader holds its
+  lock around PDH's collect), across a start held 8 s and beside four spinning processes, held `PING` to 1.8 s and STATE to 1.7 s,
+  never 10 s. STATE is written on the session's own task from published state: no lane, no render thread and no Windows reading
+  (the machine part reads the identity and capabilities as it composes). The branch's changes (`WireClient`'s clock, `MirrorLink`,
+  `BackupNode`'s mirror) are not on this path: a solo node dials no link and `BackupNode.Mirror` answers null off a backup.
+  The host now writes STATE and CONTEXT on its start's own thread after the doors open and before it says the node is up
+  (`EngineHost.WriteFactsOnce`); a writer that faults there leaves the node up, the words journaled before the row that says it is
+  up, as a reader's STATE would fault. `HostLifecycleTests.TheHostSaysItIsUpOnlyOnceItsStateHasBeenWritten` (a part's proposal
+  count, which STATE's writer alone reads, notes whether the journal had said up at STATE's first write) failed against the old
+  host ("STATE was not written while the host started") and passes; `ANodeWhoseStateFaultsAsItStartsIsUpAndSaysWhy` failed
+  against the write without its guard (the start threw the writer's fault) and passes. The node host test's asks name the node's
+  process and the end of its log when a line is not answered.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -523,7 +553,9 @@ Round 2 W1 notes:
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
-  wait for the link's first clip in STATE (one failure on the batch's baseline).
+  wait for the link's first clip in STATE (one failure on the batch's baseline); `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing`'
+  one Windows wait for its first STATE (consistent with the first build on the reader's line fixed above, not proven; its asks now
+  name the node's log).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

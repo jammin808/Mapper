@@ -195,6 +195,40 @@ public sealed class HostLifecycleTests
         Assert.NotNull(made);
     }
 
+    /// <summary>Up means the node answers what it is asked: the host writes STATE before its journal says the node is up, so the first
+    /// reader is never the one that pays STATE's first build (every package's writer run for the first time).</summary>
+    [Fact]
+    public async Task TheHostSaysItIsUpOnlyOnceItsStateHasBeenWritten()
+    {
+        var witness = new StateWitness();
+        var parts = EngineParts.Bare with { Extensions = [_ => witness] };
+        await using var rig = await HostRig.StartAsync("Warm node", parts: parts);
+
+        var up = rig.Engine.Journal.Recent(200).Single(r => r.Text.StartsWith("Warm node is up:", StringComparison.Ordinal));
+        var upSaid = witness.UpSaidAtFirstWrite;
+        Assert.True(upSaid.HasValue, $"STATE was not written while the host started; its journal: {rig.Journal()}");
+        Assert.False(upSaid.Value, $"STATE was first written after the journal said \"{up.Text}\"");
+        Assert.Equal(3, rig.State().GetProperty("ai").GetProperty("proposals").GetInt32());
+    }
+
+    /// <summary>A STATE writer that faults as the node starts leaves it up, with the words in its journal before it says it is up; the
+    /// wire answers PING, and STATE with the fault's refusal.</summary>
+    [Fact]
+    public async Task ANodeWhoseStateFaultsAsItStartsIsUpAndSaysWhy()
+    {
+        var parts = EngineParts.Bare with { Extensions = [_ => new FaultingCount()] };
+        await using var rig = await HostRig.StartAsync("Faulting node", parts: parts);
+
+        var rows = rig.Engine.Journal.Recent(200).ToList();
+        var fault = rows.FindIndex(r => r.Kind == "fault" && r.Text.StartsWith("STATE could not be written as the node started", StringComparison.Ordinal));
+        var up = rows.FindIndex(r => r.Kind == "node" && r.Text.StartsWith("Faulting node is up:", StringComparison.Ordinal));
+        Assert.True(fault >= 0 && up > fault, $"the journal: {rig.Journal()}");
+        Assert.Contains(nameof(InvalidOperationException), rows[fault].Text, StringComparison.Ordinal);
+        await using var c = await rig.WireAsync();
+        Assert.StartsWith("OK @p PONG 1760101234567 ", await c.AskAsync("@p PING 1760101234567"), StringComparison.Ordinal);
+        Assert.StartsWith("ERR @s ", await c.AskAsync("@s STATE"), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task TheEntryAnswersItsExitCodes()
     {
@@ -308,6 +342,64 @@ public sealed class HostLifecycleTests
             Lines.Enqueue(line);
             return ValueTask.FromResult<string?>("p" + Lines.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
+    }
+
+    /// <summary>A part whose proposal count (read by STATE's writer alone, for STATE.ai.proposals) keeps, at STATE's first write,
+    /// whether the engine's journal had said the node is up by then.</summary>
+    private sealed class StateWitness : IEngineExtension, IProposalCount
+    {
+        private readonly Lock _gate = new();
+        private EngineCore? _engine;
+        private bool? _upSaid;
+
+        public string Name => "state witness";
+
+        /// <summary>At STATE's first write, whether the journal held the host's "is up" row (null before STATE is written).</summary>
+        public bool? UpSaidAtFirstWrite
+        {
+            get
+            {
+                lock (_gate)
+                    return _upSaid;
+            }
+        }
+
+        public int Waiting
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    _upSaid ??= _engine?.Journal.Recent(200).Any(r => r.Kind == "node" && r.Text.Contains(" is up: ", StringComparison.Ordinal)) ?? false;
+                }
+                return 3;
+            }
+        }
+
+        public EngineServices Configure(EngineServices services) => services with { Proposals = this };
+
+        public Task StartAsync(EngineCore engine, CancellationToken ct)
+        {
+            lock (_gate)
+                _engine = engine;
+            return Task.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>A part whose proposal count faults whenever STATE's writer reads it.</summary>
+    private sealed class FaultingCount : IEngineExtension, IProposalCount
+    {
+        public string Name => "faulting count";
+
+        public int Waiting => throw new InvalidOperationException("the proposal count faults");
+
+        public EngineServices Configure(EngineServices services) => services with { Proposals = this };
+
+        public Task StartAsync(EngineCore engine, CancellationToken ct) => Task.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     /// <summary>An extension that says what it saw at each step of its life.</summary>
