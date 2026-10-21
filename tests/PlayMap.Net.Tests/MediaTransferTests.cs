@@ -163,11 +163,12 @@ public sealed class MediaTransferTests : IDisposable
     }
 
     [Fact]
-    public async Task APeersSilenceIsCountedOnTheTransfersClockAndOnlyWhileABodyIsRead()
+    public async Task APeerSilentLongerThanTheQuietInRealTimeIsNotCutWhileTheTransfersClockStandsStill()
     {
         // The list and each answer come 1.2 s late and the body stops for 1.5 s after 64 KiB, each longer than the quiet in real time,
-        // while the transfer's clock stands still: the list and the answers are the client's own timeout's to bound, and a body's
-        // silence is what the transfer's clock counts between its reads.
+        // while the transfer's clock stands still: real time is not what the quiet is counted on, so the list comes and the file lands
+        // with no try cut. (That the list's and an answer's headers' waits are not counted on the transfer's clock either is
+        // AListAndAnAnswersHeadersAreNotCountedSilentHoweverFarTheTransfersClockMoves's to show; this clock never moves.)
         var bytes = RandomNumberGenerator.GetBytes(300_000);
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
         await using var peer = new FakeMediaPeer(hash, bytes, answerAfter: TimeSpan.FromMilliseconds(1200), pauseAfter: 64 * 1024, pauseFor: TimeSpan.FromMilliseconds(1500));
