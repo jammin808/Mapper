@@ -8,11 +8,14 @@ namespace PlayMap.Tests;
 /// <summary>
 /// A peer's web port reduced to the two routes a media pull asks, over plain HTTP/1.1 on loopback, for the faults a real node does not
 /// make on purpose: its list of files (<c>GET /api/media</c>: each file, listed <c>listed</c> times) and a file by its hash
-/// (<c>GET /api/media/&lt;hash&gt;</c>: one byte range, answered 206). With <c>stallAfter</c> each answer for a file falls silent after
-/// that many bytes of its body, the connection held open; with <c>pauseAfter</c> it sends nothing for <c>pauseFor</c> of real time
-/// after that many bytes and then the rest; with <c>answerAfter</c> each answer's head waits that long first; with <c>answersList</c>
-/// false the list is asked for and never answered; <c>listStatus</c> and <c>fileStatus</c> other than 200 and 206 answer the list or
-/// the file with that status and nothing else.
+/// (<c>GET &lt;mediaPath&gt;&lt;hash&gt;</c>, <c>/api/media/</c> unless another path is given: one byte range, answered 206). With
+/// <c>stallAfter</c> each answer for a file falls silent after that many bytes of its body, the connection held open, and with
+/// <c>stallFrom</c> so does an answer for a range starting at or past that offset, before any byte of its body; with <c>endAfter</c>
+/// each answer ends after that many bytes of its body (the connection closed in order, every byte sent before it delivered); with
+/// <c>pauseAfter</c> it sends nothing for <c>pauseFor</c> of real time after that many bytes and then the rest; with
+/// <c>answerAfter</c> each answer's head waits that long first; with <c>answersList</c> false the list is asked for and never
+/// answered; <c>listStatus</c> and <c>fileStatus</c> other than 200 and 206 answer the list or the file with that status and nothing
+/// else.
 /// </summary>
 internal sealed class FakeMediaPeer : IAsyncDisposable
 {
@@ -20,6 +23,9 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly IReadOnlyList<(string Hash, byte[] File)> _files;
     private readonly long? _stallAfter;
+    private readonly long? _stallFrom;
+    private readonly long? _endAfter;
+    private readonly string _mediaPath;
     private readonly long? _pauseAfter;
     private readonly TimeSpan _pauseFor;
     private readonly TimeSpan _answerAfter;
@@ -34,16 +40,21 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
     private int _fileAsks;
 
     public FakeMediaPeer(string hash, byte[] file, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200, int fileStatus = 206,
-        TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default)
-        : this([(hash, file)], stallAfter, answersList, listed, listStatus, fileStatus, answerAfter, pauseAfter, pauseFor)
+        TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default, long? stallFrom = null, long? endAfter = null,
+        string mediaPath = "/api/media/")
+        : this([(hash, file)], stallAfter, answersList, listed, listStatus, fileStatus, answerAfter, pauseAfter, pauseFor, stallFrom, endAfter, mediaPath)
     {
     }
 
     public FakeMediaPeer(IReadOnlyList<(string Hash, byte[] File)> files, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200,
-        int fileStatus = 206, TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default)
+        int fileStatus = 206, TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default, long? stallFrom = null, long? endAfter = null,
+        string mediaPath = "/api/media/")
     {
         _files = files;
         _stallAfter = stallAfter;
+        _stallFrom = stallFrom;
+        _endAfter = endAfter;
+        _mediaPath = mediaPath;
         _answersList = answersList;
         _listed = listed;
         _listStatus = listStatus;
@@ -94,7 +105,7 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
                 var target = lines[0].Split(' ') is { Length: > 1 } parts ? parts[1] : "";
                 if (_answerAfter > TimeSpan.Zero)
                     await Task.Delay(_answerAfter, ct);
-                var file = _files.FirstOrDefault(f => target == "/api/media/" + f.Hash).File;
+                var file = _files.FirstOrDefault(f => target == _mediaPath + f.Hash).File;
                 if (target == "/api/media")
                 {
                     Interlocked.Increment(ref _listAsks);
@@ -127,13 +138,22 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
                     var length = to - from + 1;
                     await stream.WriteAsync(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture,
                         $"HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nContent-Range: bytes {from}-{to}/{file.Length}\r\nContent-Length: {length}\r\n\r\n")), ct);
-                    var send = _stallAfter is { } some ? Math.Min(some, length) : length;
+                    var send = _stallFrom is { } at && from >= at ? 0 : _stallAfter is { } some ? Math.Min(some, length) : length;
+                    if (_endAfter is { } end)
+                        send = Math.Min(send, end);
                     var first = _pauseAfter is { } pause ? Math.Min(pause, send) : send;
                     await stream.WriteAsync(file.AsMemory((int)from, (int)first), ct);
                     if (first < send)
                     {
                         await Task.Delay(_pauseFor, ct);
                         await stream.WriteAsync(file.AsMemory((int)(from + first), (int)(send - first)), ct);
+                    }
+                    if (send < length && _endAfter is not null)
+                    {
+                        // Ended in order: what was sent arrives, then the end, and the connection closes once the client has let it go.
+                        client.Client.Shutdown(SocketShutdown.Send);
+                        await HoldAsync(stream, ct);
+                        return;
                     }
                     if (send < length)
                     {

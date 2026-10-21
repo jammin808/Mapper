@@ -4,8 +4,8 @@ using PlayMap.Net.Http;
 
 namespace PlayMap.Net.Tests;
 
-/// <summary>A held file answered by its hash: written to the response in blocks of 1 MiB (what a pull's cost in thread-pool turns
-/// follows on the holder), the one range asked for or the whole file, and the headers a pull and a HEAD read.</summary>
+/// <summary>A held file answered by its hash: written to the response in blocks of 1 MiB, one read of the disk and one write each, the
+/// one range asked for or the whole file, and the headers a pull and a HEAD read.</summary>
 public sealed class MediaFileResponseTests : IDisposable
 {
     private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("playmap-media-answer-");

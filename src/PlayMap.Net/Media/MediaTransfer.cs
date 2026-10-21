@@ -23,8 +23,12 @@ public sealed class TokenBucket(long bytesPerSecond, IMonoClock? clock = null)
     private long _rate = Math.Max(0, bytesPerSecond);
     private double _tokens;
     private long _lastNs = (clock ?? MonoClock.Instance).NowNs;
+    private int _waiting;
 
     public long BytesPerSecond => Interlocked.Read(ref _rate);
+
+    /// <summary>The takes waiting for tokens now: a pull the bucket holds between two reads of a body.</summary>
+    internal int Waiting => Volatile.Read(ref _waiting);
 
     /// <summary>A new rate, at once (a show starting lowers it; its end raises it).</summary>
     public void SetRate(long bytesPerSecond)
@@ -49,22 +53,36 @@ public sealed class TokenBucket(long bytesPerSecond, IMonoClock? clock = null)
 
     public async ValueTask TakeAsync(int bytes, CancellationToken ct)
     {
-        while (true)
+        var waiting = false;
+        try
         {
-            TimeSpan wait;
-            lock (_gate)
+            while (true)
             {
-                if (_rate == 0)
-                    return;
-                Refill();
-                if (_tokens > 0)
+                TimeSpan wait;
+                lock (_gate)
                 {
-                    _tokens -= bytes;
-                    return;
+                    if (_rate == 0)
+                        return;
+                    Refill();
+                    if (_tokens > 0)
+                    {
+                        _tokens -= bytes;
+                        return;
+                    }
+                    wait = TimeSpan.FromSeconds(Math.Max(0.001, -_tokens / _rate + 0.001));
                 }
-                wait = TimeSpan.FromSeconds(Math.Max(0.001, -_tokens / _rate + 0.001));
+                if (!waiting)
+                {
+                    waiting = true;
+                    Interlocked.Increment(ref _waiting);
+                }
+                await Task.Delay(wait < TimeSpan.FromSeconds(1) ? wait : TimeSpan.FromSeconds(1), ct);
             }
-            await Task.Delay(wait < TimeSpan.FromSeconds(1) ? wait : TimeSpan.FromSeconds(1), ct);
+        }
+        finally
+        {
+            if (waiting)
+                Interlocked.Decrement(ref _waiting);
         }
     }
 }
@@ -92,12 +110,10 @@ public sealed record MediaTransferOptions
     public Action<HttpRequestMessage>? Sign { get; init; }
 
     /// <summary>The longest a chunk's body may send nothing, counted on the transfer's clock while a read of it waits, before the try is
-    /// given up as stalled with words that say so. The bandwidth bucket's waits and the disk's are not the peer's silence; the list and
-    /// each answer's headers are bounded by the client's own timeout instead. 10 s is a chosen bound, not a measured one.</summary>
+    /// given up as stalled with words that say so. Only a read's wait is counted: the bandwidth bucket's waits and the disk's writes
+    /// come between reads; the list and each answer's headers are bounded by the client's own timeout instead. 10 s is a chosen bound,
+    /// not a measured one.</summary>
     public TimeSpan Quiet { get; init; } = TimeSpan.FromSeconds(10);
-
-    /// <summary>How often a pull says how far it is while its blocks land; every chunk's end and the verifying are said whatever this.</summary>
-    public TimeSpan ProgressEvery { get; init; } = TimeSpan.FromMilliseconds(250);
 }
 
 /// <summary>One file a peer offers: <c>GET /api/media</c>'s rows.</summary>
@@ -151,10 +167,11 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
 
     public TokenBucket Bandwidth => bandwidth;
 
-    /// <summary>Raised as a pull's blocks land (at most every <see cref="MediaTransferOptions.ProgressEvery"/>), after each chunk, and
-    /// once every byte is in, before the whole file is hashed. A pull's bytes never step back from one to the next: each is raised
-    /// under the pull's own gate, in the order its blocks landed (on a worker, holding up the pull's other chunks while it runs; a
-    /// handler keeps it short).</summary>
+    /// <summary>Raised once as a pull starts (the bytes of the chunks a resume keeps, 0 when it keeps none), as each block of
+    /// <see cref="BlockBytes"/> or a chunk's last lands with bytes in place no try of its chunk had before, after each chunk, and once
+    /// every byte is in, before the whole file is hashed. A pull's bytes never step back from one to the next: each is raised under the
+    /// pull's own gate, in the order its blocks landed (on a worker, holding up the pull's other chunks while it runs; a handler keeps
+    /// it short).</summary>
     public event Action<MediaProgress>? Progress;
 
     /// <summary>Raised for each try at a chunk that failed, with what the peer did instead (on a worker; a handler keeps it short).</summary>
@@ -217,30 +234,26 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
         long bytes = 0;
         var failure = "";
         var mapGate = new object();
-        var sayAtNs = long.MinValue;
         long ChunkLength(int k) => Math.Min(chunkBytes, size - (long)k * chunkBytes);
-        MediaProgress Now(MediaPullStage stage)
-        {
-            long landed = 0;
-            for (var k = 0; k < chunks; k++)
-                landed += done[k] ? ChunkLength(k) : coming[k];
-            return new MediaProgress(hash, landed, size, done.Count(d => d), chunks, resumed, stage);
-        }
-        // A block of chunk i landed: said at most every ProgressEvery, under the gate, so what is said never steps back.
+        // Under the gate: the bytes in place (whole chunks, and the most each chunk still coming has had written) and the whole chunks,
+        // kept as they move so a raise costs the same however many chunks the file has.
+        var landed = Enumerable.Range(0, chunks).Where(k => done[k]).Sum(ChunkLength);
+        var whole = resumed;
+        MediaProgress Now(MediaPullStage stage) => new(hash, landed, size, whole, chunks, resumed, stage);
+        // A block of chunk i landed: said under the gate when it put bytes in place no try of the chunk had, so what is said never
+        // steps back.
         void Landed(int i, long inPlace)
         {
             lock (mapGate)
             {
                 if (inPlace <= coming[i])
                     return;
+                landed += inPlace - coming[i];
                 coming[i] = inPlace;
-                var now = _clock.NowNs;
-                if (now < sayAtNs)
-                    return;
-                sayAtNs = now + _o.ProgressEvery.Ticks * TimeSpan.NanosecondsPerTick;
                 Raise(Now(MediaPullStage.Receiving));
             }
         }
+        Raise(Now(MediaPullStage.Receiving));
         using (var handle = File.OpenHandle(part, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, FileOptions.Asynchronous))
         {
             if (RandomAccess.GetLength(handle) != size)
@@ -267,11 +280,12 @@ public sealed class MediaTransfer(HttpClient http, TokenBucket bandwidth, MediaT
                     lock (mapGate)
                     {
                         done[i] = true;
+                        landed += length - coming[i];
                         coming[i] = 0;
+                        whole++;
                         fetched++;
                         bytes += length;
                         SaveMap(mapPath, hash, size, chunkBytes, done);
-                        sayAtNs = _clock.NowNs + _o.ProgressEvery.Ticks * TimeSpan.NanosecondsPerTick;
                         Raise(Now(MediaPullStage.Receiving));
                     }
                 }

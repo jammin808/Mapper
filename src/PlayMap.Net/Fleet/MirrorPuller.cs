@@ -22,7 +22,7 @@ public sealed record MirrorSource(string NodeId, string Name, string Address, in
 /// <summary>A backup's pulls from its primary's <c>/mirror</c>: over HTTPS pinned by the hello's fingerprint (the fleet's pin file
 /// keeps it; a changed certificate is refused) when the primary offers TLS, each request signed with the pairing proof
 /// (<see cref="PullProof"/>), so no token crosses the network and no stranger reads the show. Files come content-addressed through
-/// <see cref="MediaTransfer"/> (ranged, resumed, verified by SHA-256 before they land).</summary>
+/// <see cref="MediaTransfer"/> (ranged, resumed, verified by SHA-256 before they land), a body's silence counted on the node's clock.</summary>
 public sealed class MirrorPuller : IDisposable
 {
     private readonly MirrorSource _source;
@@ -35,7 +35,10 @@ public sealed class MirrorPuller : IDisposable
     private volatile string _pin = "";
     private volatile string _firstSeen = "";
 
-    public MirrorPuller(MirrorSource source, PinStore pins, Func<long> unixMs, IMonoClock? mono = null, ILogger? log = null)
+    /// <param name="mono">The node's clock: the bandwidth bucket's, and the one a body's silence is counted on.</param>
+    /// <param name="pulls">How a file's pull asks (the quiet, the tries per chunk; null = the transfer's own); its path and the proof are
+    /// the mirror's whatever it says.</param>
+    public MirrorPuller(MirrorSource source, PinStore pins, Func<long> unixMs, IMonoClock? mono = null, ILogger? log = null, MediaTransferOptions? pulls = null)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _pins = pins ?? throw new ArgumentNullException(nameof(pins));
@@ -58,7 +61,8 @@ public sealed class MirrorPuller : IDisposable
         if (!Tls && pins.Get(_pinKey) is not null)
             Refusal = $"{source.Name}'s hello offers no certificate, yet one is pinned for it — refused (an answer in clear could be anyone's)";
         _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
-        _transfer = new MediaTransfer(_http, new TokenBucket(0, mono), new MediaTransferOptions { MediaPath = MirrorWebModule.MediaPath, Sign = Sign }, _log);
+        _transfer = new MediaTransfer(_http, new TokenBucket(0, mono), (pulls ?? new MediaTransferOptions()) with { MediaPath = MirrorWebModule.MediaPath, Sign = Sign },
+            _log, mono);
     }
 
     /// <summary>True when the pulls go over HTTPS (the primary's hello offers a certificate).</summary>
