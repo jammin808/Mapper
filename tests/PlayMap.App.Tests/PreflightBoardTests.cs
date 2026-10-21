@@ -5,6 +5,7 @@ using Avalonia.VisualTree;
 using PlayMap.App.Controls;
 using PlayMap.App.ViewModels;
 using PlayMap.App.ViewModels.Health;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Preflight;
 using PlayMap.Core.Wire;
 using PlayMap.Engine;
@@ -56,7 +57,8 @@ public class PreflightBoardTests(ITestOutputHelper output)
         for (var i = 0; i < rows.Count; i++)
         {
             var r = ordered[i];
-            Assert.Equal((PlayMap.Core.Bus.ShowContext.LightWord(r.Light), r.Item, r.Value, r.Note), (rows[i].Light, rows[i].Title, rows[i].Value, rows[i].Words));
+            var light = r.Light == PlayMap.Core.Bus.Light.Grey && r.Value == MachineRows.Information ? "info" : PlayMap.Core.Bus.ShowContext.LightWord(r.Light);
+            Assert.Equal((light, r.Item, r.Value, r.Note), (rows[i].Light, rows[i].Title, rows[i].Value, rows[i].Words));
             Assert.Equal(r.Fix is not null, rows[i].HasFix);
         }
 
@@ -80,6 +82,43 @@ public class PreflightBoardTests(ITestOutputHelper output)
         }
         Assert.Equal(fixes.Count, pressed);
         Screens.Save(window, "health-preflight");
+        window.Close();
+    }
+
+    /// <summary>The machine section of a Windows 11 Home node, as the platform writes it: each layer the edition lacks is a grey row with
+    /// the information mark (MachineRows.Information), and the board marks it "i info" in the grey brush, its tooltip and its name for a
+    /// screen reader "info", never "○ off"; the section's amber row (the screen saver on) is "△ warn", and its other grey rows (the
+    /// edition, the readings Windows did not answer) "○ off".</summary>
+    [AvaloniaFact]
+    public async Task ALayerTheEditionLacksIsMarkedAsInformationOnTheBoard()
+    {
+        await using var desk = new DeskHarness();
+        var home = new MachineReadings { Os = EditionTable.Classify("Core", 0x65, "26H2", 26300, 7019), ScreenSaver = 1 };
+        var rows = MachineRows.Build(home, new DateOnly(2026, 10, 19))
+            .Select(f => new PreflightRow("machine." + f.Item, desk.Link.NodeId, "machine", MachineRows.Label(f.Item), f.Light, f.Value, f.Words, f.Fix))
+            .ToList();
+        var information = rows.Where(r => r.Value == MachineRows.Information).Select(r => r.Item).ToList();
+        Assert.Equal(4, information.Count);
+        desk.Link.PutPreflightReport(new PreflightReport("pf_home", 1_760_000_000_000, PreflightDepth.Quick, 40, rows, PreflightReports.Ready(rows), true));
+        var window = MainWindowTests.Open(desk);
+        desk.Main.Drawers.Show("health", "preflight");
+        DeskHarness.Pump();
+        await desk.Main.Health.Preflight.Fetching;
+        DeskHarness.Pump();
+
+        var view = window.GetVisualDescendants().OfType<Views.Health.PreflightBoardView>().Single();
+        StatusMark Mark(string title) => view.GetVisualDescendants().OfType<StatusMark>()
+            .Single(m => m.DataContext is StatusRow row && row.Title == title);
+        foreach (var item in information)
+        {
+            var mark = Mark(item);
+            Assert.Equal("i info", mark.Text);
+            Assert.Equal("info", ToolTip.GetTip(mark));
+            Assert.Equal("info", Avalonia.Automation.AutomationProperties.GetName(mark));
+            Assert.Same(LightBrushConverter.Brushes.For("grey"), mark.Foreground);
+        }
+        Assert.Equal("△ warn", Mark(MachineRows.Label("screensaver")).Text);
+        Assert.Equal("○ off", Mark(MachineRows.Label("os.edition")).Text);
         window.Close();
     }
 
