@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using PlayMap.Core.Machine;
 using PlayMap.Supervisor.Install;
 using PlayMap.Supervisor.Windows;
 
@@ -9,9 +10,12 @@ namespace PlayMap.Supervisor.Tests.Windows;
 /// <summary>The machine's folders as the elevated install makes them, under a root of the test's own: each owned by SYSTEM or
 /// administrators; the PlayMap folder's access its own (SYSTEM and administrators full control, every account read, nothing
 /// inherited); the supervisor's folder with no rule of its own, so only SYSTEM and administrators may change what it holds; the dumps
-/// and the engine's folder each with the show user's Modify and nothing else of their own; an earlier show user's rule replaced; and
-/// the uninstall's take-back leaving no rule of the show user's. A folder that is a link is refused with words and nothing is granted
-/// through it. A caller that is not elevated is refused: the install runs elevated.</summary>
+/// and the engine's folder each letting the show user make and replace what they hold (Modify on their contents) but neither move nor
+/// delete the folder itself (no Delete right on the folder); an earlier show user's rule replaced; and the uninstall's take-back
+/// leaving no rule of the show user's. A folder that is a link is refused with words and nothing is granted through it; the owner and
+/// the access are set through the one handle the reparse point was checked on, so a conversion to a link while the install runs lands
+/// nothing on another folder, and what another layout placed in the supervisor's folder is removed. A caller that is not elevated is
+/// refused: the install runs elevated.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class MachineFoldersTests
 {
@@ -30,6 +34,9 @@ public sealed class MachineFoldersTests
     private static bool Writes(FileSystemAccessRule r) => r.AccessControlType == AccessControlType.Allow
         && (r.FileSystemRights & (FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles
             | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership)) != 0;
+
+    // A rule that applies to the folder object itself (not inherit-only), so it governs the folder, not only its children.
+    private static bool OnTheFolder(FileSystemAccessRule r) => (r.PropagationFlags & PropagationFlags.InheritOnly) == 0;
 
     [WindowsFact]
     public void TheFoldersAreAdministratorsAndOnlyTheDumpsAndTheEnginesFolderAreTheShowUsersToWrite()
@@ -83,9 +90,16 @@ public sealed class MachineFoldersTests
             Assert.False(new DirectoryInfo(Path.Combine(root, "supervisor")).GetAccessControl().AreAccessRulesProtected);
             foreach (var shown in new[] { Path.Combine(root, "dumps"), Path.Combine(root, "supervisor", "engine") })
             {
-                var own = Assert.Single(Explicit(shown));
-                Assert.Equal(user, own.IdentityReference);
-                Assert.Equal(FileSystemRights.Modify, own.FileSystemRights & FileSystemRights.Modify);
+                // Every explicit rule on these folders is the show user's, and together they let it make and replace what the folder
+                // holds (Modify reaches the contents) …
+                var own = Explicit(shown);
+                Assert.NotEmpty(own);
+                Assert.All(own, r => Assert.Equal(user, r.IdentityReference));
+                Assert.Contains(own, r => (r.InheritanceFlags & (InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit)) != 0
+                    && (r.FileSystemRights & FileSystemRights.Modify) == FileSystemRights.Modify);
+                // … but no rule that governs the folder itself gives it Delete, so it may neither move nor delete the folder out of the
+                // supervisor's own. (Delete on the folder, or FILE_DELETE_CHILD from its parent, would let it do either.)
+                Assert.DoesNotContain(own, r => OnTheFolder(r) && (r.FileSystemRights & FileSystemRights.Delete) != 0);
             }
             Assert.Contains(said, s => s.Contains("only SYSTEM and administrators may write it", StringComparison.Ordinal));
 
@@ -126,6 +140,82 @@ public sealed class MachineFoldersTests
         finally
         {
             Directory.Delete(parent, true);
+        }
+    }
+
+    [WindowsFact]
+    public void AShowUserFolderThatIsALinkIsRefusedAndNoWriteGrantReachesItsTarget()
+    {
+        // A leaf the show user writes (dumps) that is a link: the grant (its Modify) is set through the handle Hold checks, never by a
+        // name that follows the link, so the link is refused before any grant and the target keeps its own access.
+        var parent = Directory.CreateTempSubdirectory("playmap-machine-").FullName;
+        var root = Path.Combine(parent, "PlayMap");
+        var target = Directory.CreateDirectory(Path.Combine(parent, "elsewhere")).FullName;
+        var user = WindowsIdentity.GetCurrent().User!;
+        try
+        {
+            if (!Elevated)
+            {
+                Assert.ThrowsAny<Exception>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
+                return;
+            }
+            Directory.CreateDirectory(root);
+            Directory.CreateSymbolicLink(Path.Combine(root, "dumps"), target);
+            var refused = Assert.Throws<InvalidOperationException>(() => MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, _ => { }));
+            Assert.Contains("is a link (a junction or a symbolic link)", refused.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(Explicit(target), r => r.IdentityReference.Equals(user) && r.AccessControlType == AccessControlType.Allow);
+        }
+        finally
+        {
+            Directory.Delete(parent, true);
+        }
+    }
+
+    [WindowsFact]
+    public void TheSupervisorsFolderIsSweptOfALinkAForeignFileAndThePidRecordsEarlierPlace()
+    {
+        if (!Elevated)
+            return;
+        var root = Path.Combine(Directory.CreateTempSubdirectory("playmap-machine-").FullName, "PlayMap");
+        var elsewhere = Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(root)!, "elsewhere")).FullName;
+        File.WriteAllText(Path.Combine(elsewhere, "keep.txt"), "a file the link's target holds");
+        var said = new List<string>();
+        try
+        {
+            var supervisor = Path.Combine(root, "supervisor");
+            Directory.CreateDirectory(supervisor);
+            // A link, the pid record's earlier place beside the status file, and a file whose owner is not SYSTEM or administrators.
+            var link = Path.Combine(supervisor, "stale-link");
+            Directory.CreateSymbolicLink(link, elsewhere);
+            var pid = Path.Combine(supervisor, EnginePidRecord.FileName);
+            File.WriteAllText(pid, "an earlier layout's pid record");
+            var foreign = Path.Combine(supervisor, "foreign.txt");
+            File.WriteAllText(foreign, "a file another account owns");
+            var owned = new FileInfo(foreign).GetAccessControl();
+            owned.SetOwner(WindowsIdentity.GetCurrent().User!);
+            new FileInfo(foreign).SetAccessControl(owned);
+            // The status file SYSTEM would write, owned by administrators, stays.
+            var status = Path.Combine(supervisor, "status.json");
+            File.WriteAllText(status, "{}");
+            var kept = new FileInfo(status).GetAccessControl();
+            kept.SetOwner(Administrators);
+            new FileInfo(status).SetAccessControl(kept);
+
+            MachineFolders.Make(root, EngineIdentityWindowsTests.Place.ThisUser, said.Add);
+
+            Assert.False(Directory.Exists(link), "the link stayed");
+            Assert.False(File.Exists(pid), "the pid record's earlier place stayed");
+            Assert.False(File.Exists(foreign), "the foreign-owned file stayed");
+            Assert.True(File.Exists(status), "the status file an administrator owns was removed");
+            // The link was removed, its target and the target's file left alone.
+            Assert.True(File.Exists(Path.Combine(elsewhere, "keep.txt")));
+            Assert.Contains(said, s => s.Contains("stale-link", StringComparison.Ordinal) && s.Contains("a link", StringComparison.Ordinal));
+            Assert.Contains(said, s => s.Contains(EnginePidRecord.FileName, StringComparison.Ordinal) && s.Contains("the pid record's earlier place", StringComparison.Ordinal));
+            Assert.Contains(said, s => s.Contains("foreign.txt", StringComparison.Ordinal) && s.Contains("placed there", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(root)!, true);
         }
     }
 }

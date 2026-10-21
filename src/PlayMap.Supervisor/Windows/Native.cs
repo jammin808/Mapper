@@ -23,11 +23,19 @@ internal static partial class Native
     public const int ProcessBasicInformation = 0;
     public const uint CreateSuspended = 0x00000004;
     public const uint FileReadAttributes = 0x80;
+    public const uint ReadControl = 0x00020000;
+    public const uint WriteDac = 0x00040000;
+    public const uint WriteOwner = 0x00080000;
     public const uint FileShareRead = 0x1;
     public const uint FileShareWrite = 0x2;
     public const uint OpenExisting = 3;
     public const uint FileFlagBackupSemantics = 0x02000000;
     public const uint FileFlagOpenReparsePoint = 0x00200000;
+    public const uint SeFileObject = 1;
+    public const uint OwnerSecurityInformation = 0x00000001;
+    public const uint DaclSecurityInformation = 0x00000004;
+    public const uint ProtectedDaclSecurityInformation = 0x80000000;
+    public const uint UnprotectedDaclSecurityInformation = 0x20000000;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct StartupInfo
@@ -185,4 +193,18 @@ internal static partial class Native
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static partial uint ResumeThread(nint thread);
+
+    [LibraryImport("advapi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial uint GetSecurityInfo(SafeFileHandle handle, uint objectType, uint securityInfo,
+        out nint owner, out nint group, out nint dacl, out nint sacl, out nint securityDescriptor);
+
+    [LibraryImport("advapi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial uint SetSecurityInfo(SafeFileHandle handle, uint objectType, uint securityInfo,
+        byte[]? owner, byte[]? group, byte[]? dacl, byte[]? sacl);
+
+    [LibraryImport("kernel32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    public static partial nint LocalFree(nint memory);
 }
