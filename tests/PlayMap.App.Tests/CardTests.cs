@@ -92,9 +92,11 @@ public class CardTests(ITestOutputHelper output)
                         Assert.Contains(c.Light, lights);
                         // Every field the descriptor names is on the card (six on its face, the rest under "more").
                         Assert.Equal(d.Fields.Length, c.Fields.Length);
-                        // Words a descriptor gives render whole: no template left unfilled.
+                        // Words a descriptor gives render whole: no template left unfilled, and no placeholder in the branch STATE takes
+                        // that names nothing in STATE (it would read "—").
                         if (d.Words.Length > 0)
                             Assert.DoesNotContain("{", c.Words, StringComparison.Ordinal);
+                        Assert.True(c.Unfilled.IsEmpty, $"{package}/{scenario} {d.Title}: {string.Join(", ", c.Unfilled)} names nothing in STATE: \"{c.Words}\"");
                         // An action resolves to a catalogue line; one that names an element's field of a list block left empty here
                         // ("FLEET FOCUS $(node)" with no backups) stays greyed with the words why.
                         var emptyList = ListAt(root, d.Path) is { ValueKind: JsonValueKind.Array } block && block.GetArrayLength() == 0;
