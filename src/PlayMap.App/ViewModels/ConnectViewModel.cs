@@ -278,6 +278,16 @@ public sealed class ConnectViewModel : ObservableObject
     /// <summary>What Connect ▸ This machine does where this machine's supervisor keeps the engine.</summary>
     public const string SupervisedOwnSentence = "Attach to the engine this machine's supervisor keeps, on loopback: the desk starts none, and says what the supervisor says when it does not answer.";
 
+    /// <summary>The This machine tile's caption where no supervisor keeps the engine.</summary>
+    public const string OwnCaptionWords = "Start and watch this machine's engine.";
+
+    /// <summary>The This machine tile's caption where this machine's supervisor keeps the engine (the desk starts none).</summary>
+    public const string SupervisedOwnCaptionWords = "Attach to the engine this machine's supervisor keeps.";
+
+    /// <summary>The caption on the This machine tile: it follows whether this machine's supervisor keeps the engine, so the tile and the
+    /// sentence under it say the same thing (the desk starts none on a supervised machine).</summary>
+    public string OwnCaption => _connections.MachineSupervised ? SupervisedOwnCaptionWords : OwnCaptionWords;
+
     /// <summary>What pressing Connect is about to do, in one sentence.</summary>
     public string Sentence => _choice switch
     {

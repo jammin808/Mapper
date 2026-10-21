@@ -177,9 +177,12 @@ public sealed class DeskAttachTests
         var held = new SupervisorStatus("held", 0, 1, "stopped by a person (PlayMap.Supervisor.exe stop)", "", 1_760_000_000_000);
         await using var rig = new SupervisedRig(LinkStatus.Down, held);
         var connect = new ConnectViewModel(rig.Connections) { Choice = ConnectChoice.OwnEngine };
-        // What Connect is about to do on a supervised machine: attach to the engine its supervisor keeps, starting none.
+        // What Connect is about to do on a supervised machine: attach to the engine its supervisor keeps, starting none. The tile's
+        // caption says the same, so the tile and the sentence under it do not contradict each other.
         Assert.Equal(ConnectViewModel.SupervisedOwnSentence, connect.Sentence);
         Assert.DoesNotContain("starting it", connect.Sentence, StringComparison.Ordinal);
+        Assert.Equal(ConnectViewModel.SupervisedOwnCaptionWords, connect.OwnCaption);
+        Assert.DoesNotContain("Start and watch", connect.OwnCaption, StringComparison.Ordinal);
 
         connect.ConnectCommand.Execute(null);
         await Waits(rig.Time, 1);
@@ -224,6 +227,7 @@ public sealed class DeskAttachTests
         var connect = new ConnectViewModel(connections) { Choice = ConnectChoice.OwnEngine };
         Assert.Equal(ConnectViewModel.OwnSentence, connect.Sentence);
         Assert.Contains("starting it", connect.Sentence, StringComparison.Ordinal);
+        Assert.Equal(ConnectViewModel.OwnCaptionWords, connect.OwnCaption);
     }
 
     [Fact]
