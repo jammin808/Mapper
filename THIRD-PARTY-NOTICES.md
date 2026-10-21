@@ -25,7 +25,7 @@ files under `licenses\` (wp3-installer, below).
 
 - NVIDIA NVAPI (`nvapi.h`, `nvapi_interface.h`; MIT, © 2019–2026 NVIDIA Corporation & affiliates): the sync-board structure
   layouts, their version words and the interface ids in `src/PlayMap.Render/Sync/NvApiLayout.cs` follow the header. No header or
-  library is shipped: `nvapi64.dll` loads at run time from the user's NVIDIA driver.
+  library is shipped: nvapi64.dll loads at run time from the user's NVIDIA driver.
 
 ### wp2-d3d11
 
@@ -91,7 +91,7 @@ Nothing shipped: OSC, MIDI, Art-Net, LTC and MTC are PlayMap's own code, written
 
 - Art-Net™ Designed by and Copyright Artistic Licence Holdings Ltd.
 - The ALSA sequencer library (`libasound.so.2`, LGPL-2.1-or-later) is loaded at run time from the user's Linux system and linked
-  dynamically; it is never shipped. WinMM (`winmm.dll`) is the system's own.
+  dynamically; it is never shipped. WinMM (winmm.dll) is the system's own.
 - Test only (never in the exe): the `osc` package for Node 2.4.5 (osc.js, dual MIT / GPL-2.0, used under MIT; © Colin Clark)
   writes and reads the OSC interop fixtures under `tests/interop/osc/` — https://github.com/colinbdclark/osc.js.
 
@@ -173,7 +173,7 @@ Nothing shipped: Art-Net, sACN (E1.31) and DDP output are PlayMap's own code, wr
 - **NVIDIA's NVAPI SDK headers** (https://github.com/NVIDIA/nvapi, `nvapi.h` and `nvapi_interface.h`, MIT): the machine platform's
   NVAPI probe (`src/PlayMap.Platform.Windows/Interop/Structs.cs` and `AdapterProbe.cs`) declares its own few identifiers, the
   `NvAPI_ShortString` layout and the interface ids of the calls it makes, following those headers; no header is copied or shipped.
-  `nvapi64.dll` is the NVIDIA driver's, loaded from the system directory by its absolute path, and never shipped. The headers'
+  nvapi64.dll is the NVIDIA driver's, loaded from the system directory by its absolute path, and never shipped. The headers'
   notice:
 
   > SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -220,7 +220,7 @@ worker process only, never by the engine:
   validator signs that DXIL too. DXC's release notes (`ReleaseNotes.md`, in the package and in the archive) give `LICENSE-LLVM.txt`
   to every file but `d3d12shader.h` (MIT); the package and the archive also carry a `LICENSE-MS.txt` that the notes' table assigns
   to no file, and no output carries it. dxcompiler's built-in validator validates the DXIL and writes its hash, so DXC's separate
-  validator library (`dxil.dll`, `libdxil.so`) is neither used nor shipped, and dxcompiler is the one binary of DXC's that is
+  validator library (dxil.dll, libdxil.so) is neither used nor shipped, and dxcompiler is the one binary of DXC's that is
   shipped (`docs/round3/PLAN.md` §9 decision 24). Wherever the engine's build copies dxcompiler, in every build and publish, it lays
   down beside it, in `licenses/DXC/`, the text the licence asks to travel with the binary: the package's `LICENSE-LLVM.txt` (the
   same file the archive carries), and DXC's own `LICENSE.TXT` and `ThirdPartyNotices.txt` at tag v1.9.2609
@@ -382,7 +382,7 @@ a native library no package carries that this file does not name by its file nam
 - **The DirectX Agility SDK's `D3D12Core.dll`** (Microsoft, the `Microsoft.Direct3D.D3D12` package 1.619.6 from nuget.org,
   `tools/ci-d3d12.ps1`'s pin), under the MICROSOFT DIRECTX licence terms that ship in that package, whose DISTRIBUTABLE CODE section
   lets it be shipped: `D3D12Core.dll` is on the package's list of distributable files and is laid down in `D3D12\`; its debug layer
-  (`d3d12SDKLayers.dll`) and `d3dconfig.exe`, distributable too, are left out. The installer's licence page shows those terms,
+  (d3d12SDKLayers.dll) and d3dconfig.exe, distributable too, are left out. The installer's licence page shows those terms,
   copied verbatim from the package's `LICENSE.txt`, as the terms a person agrees to for `D3D12Core.dll` before anything is laid
   down; they are laid down with it in `{app}\licence.txt`. A quiet install, which shows no page, lays nothing down unless its command
   line carries `/ACCEPTTERMS=yes`. The portable folder carries no file of the Agility SDK.

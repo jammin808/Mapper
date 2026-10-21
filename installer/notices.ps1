@@ -9,7 +9,8 @@
 # (its id, or a family as `Prefix.*`), or one the restore does not hold, stops it with words before anything is laid down; so does a
 # native library in the folder that no library of PlayMap.deps.json lists and THIRD-PARTY-NOTICES.md does not name by its file name
 # in backticks (the shader worker's from the engine's build, DXC's compiler and SPIRV-Tools'; in the installer's payload FFmpeg's,
-# the Agility SDK's runtime and libvmx too), and a dxcompiler.dll without DXC's licence and notices in licenses\DXC\ beside it (the
+# the Agility SDK's runtime and libvmx too; a file the notices name only to say it is not shipped is written there without backticks,
+# so it is never counted as named), and a dxcompiler.dll without DXC's licence and notices in licenses\DXC\ beside it (the
 # engine's build lays them down; this script leaves them in place). The portable folder's step and build-installer.ps1 (for the
 # installer's payload) run it before the sums; -Summary adds its line to the job's summary.
 #   installer/notices.ps1 -Folder publish/PlayMap [-Assets src/PlayMap.Supervisor/obj/project.assets.json] [-Summary]

@@ -244,6 +244,29 @@ public sealed partial class LicenceTests
         Assert.True(laid.Problems.Count == 0, Describe(folder.Path, laid.Problems));
     }
 
+    /// <summary>The natives THIRD-PARTY-NOTICES.md names only to say they are not shipped: the NVIDIA driver's, the system's, and the
+    /// Agility SDK's debug layer, which is left out. The notices write each without backticks, so the rule never counts it as named.</summary>
+    private static readonly string[] NeverShipped = ["nvapi64.dll", "winmm.dll", "d3d12SDKLayers.dll"];
+
+    [Fact]
+    public void ANativeTheNoticesNameOnlyAsNeverShippedIsRefusedInAFolder()
+    {
+        var notices = File.ReadAllBytes(Path.Combine(Repository, "THIRD-PARTY-NOTICES.md"));
+        var text = Encoding.UTF8.GetString(notices);
+        foreach (var native in NeverShipped)
+        {
+            // The notices do say it, as what is not shipped; a folder that carries it all the same is refused.
+            Assert.Contains(native, text, StringComparison.Ordinal);
+            using var folder = new Folder();
+            Write(folder.Path, "PlayMap.deps.json", BareDeps);
+            Write(folder.Path, "PlayMap.dll", "PlayMap");
+            Write(folder.Path, "sub/" + native, "a library");
+            File.WriteAllBytes(Path.Combine(folder.Path, "THIRD-PARTY-NOTICES.md"), notices);
+            AssertFound(NoticeProblems(folder.Path, notices, (_, _) => null).Problems,
+                $"carries sub/{native}, which no library of PlayMap.deps.json lists and THIRD-PARTY-NOTICES.md does not name");
+        }
+    }
+
     /// <summary>A publish's PlayMap.deps.json with PlayMap's own files alone.</summary>
     private const string BareDeps = """
         {
@@ -362,7 +385,8 @@ public sealed partial class LicenceTests
     /// copy is the same bytes; every package and runtime pack of its PlayMap.deps.json with files in it, and, where the folder carries
     /// the supervisor, every package with files its restore (<paramref name="supervisorAssets"/>) lists, is named, the restore holds
     /// it, and its own licence and notice files lie under licenses\&lt;package id&gt;\ byte for byte; and every native library in the
-    /// folder that no library of PlayMap.deps.json lists is named by its file name.</summary>
+    /// folder that no library of PlayMap.deps.json lists is named by its file name in backticks (a name the notices give only to say it
+    /// is not shipped is written there without them).</summary>
     private static NoticeFindings NoticeProblems(string folder, byte[] notices, Func<string, string, string?> restored, string? supervisorAssets = null)
     {
         var problems = new List<string>();
