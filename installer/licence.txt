@@ -185,7 +185,6 @@ Each other component's notice and licence text is laid down with it in the insta
 
 - THIRD-PARTY-NOTICES.md: the third-party components PlayMap ships, each with its copyright and licence, and the notice its licence asks for or where in the install that notice is.
 - licenses\: the licence and notice files of the packages PlayMap's files come from, the .NET runtime's among them, each in a folder named for its package, with the Apache License 2.0 and Inter's SIL Open Font License.
-- licenses\DXC\: DXC's compiler (dxcompiler.dll), the shader worker's, under the LLVM Release License (University of Illinois/NCSA Open Source License), with DXC's own LICENSE.TXT and ThirdPartyNotices.txt, which give the licences of the third-party code inside it.
 - ffmpeg\LICENSE.txt and ffmpeg\GPL-3.0.txt: FFmpeg's shared libraries in ffmpeg\, under the GNU Lesser General Public License version 3 or later. THIRD-PARTY-NOTICES.md says where their source is and how to replace them.
 - soft_oal-LICENSE.txt: OpenAL Soft (soft_oal.dll), under the GNU Library General Public License version 2 or later.
 - libvmx-LICENSE.txt: libvmx (libvmx.dll), under the MIT License.
