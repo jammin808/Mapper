@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -19,7 +21,9 @@ namespace PlayMap.Installer.Tests;
 /// assemblies at its pin; and each such package's own licence and notice files lie under licenses\&lt;package id&gt;\ as the restore
 /// holds them, the rule installer/notices.ps1 lays them down by, as do those of each package the supervisor's single-file exe carries
 /// where the folder carries it (the installer's payload), read from its restore. Both rules are proven on folders made for the
-/// purpose, on any platform.</summary>
+/// purpose, on any platform; on one shaped as a self-contained publish that carries the supervisor, installer/notices.ps1 itself, run
+/// by PowerShell 7 (pwsh on PATH), lays down what the notices rule holds the folder to, and refuses a native the notices do not name
+/// by that native alone.</summary>
 public sealed partial class LicenceTests
 {
     private const string DxcPackage = "Microsoft.Direct3D.DXC";
@@ -269,6 +273,117 @@ public sealed partial class LicenceTests
                 $"carries sub/{native}, which no library of PlayMap.deps.json lists and THIRD-PARTY-NOTICES.md does not name");
         }
     }
+
+    [Fact]
+    public async Task TheNoticesScriptAgreesWithTheRuleOnASelfContainedPublishCarryingTheSupervisor()
+    {
+        // The restore, a NuGet cache the script is pointed at: the own licence or notice of each library the folder carries, the
+        // supervisor's package among them, and the supervisor's project.assets.json.
+        using var restore = new Folder();
+        Write(restore.Path, "cache/tmds.dbus.protocol/0.90.0/LICENSE", "Tmds.DBus.Protocol's licence");
+        Write(restore.Path, "cache/microsoft.netcore.app.runtime.win-x64/10.0.0/THIRD-PARTY-NOTICES.TXT", "the .NET runtime's notices");
+        Write(restore.Path, "cache/microsoft.aspnetcore.app.runtime.win-x64/10.0.0/LICENSE.txt", "ASP.NET Core's licence");
+        Write(restore.Path, "cache/system.serviceprocess.servicecontroller/10.0.0/LICENSE.TXT", "the service controller's licence");
+        Write(restore.Path, "project.assets.json", NamedSupervisorRestore);
+        var cache = Path.Combine(restore.Path, "cache");
+        var assets = Path.Combine(restore.Path, "project.assets.json");
+        string? Restore(string id, string version) =>
+            new[] { Path.Combine(cache, id.ToLowerInvariant(), version) }.FirstOrDefault(Directory.Exists);
+
+        // The publish, self-contained, with the supervisor: PlayMap's own file, a package's, the runtime packs' managed and native
+        // files, and the natives no library lists, each of which the repository's notices name.
+        using var folder = new Folder();
+        Write(folder.Path, "PlayMap.deps.json", PublishDeps);
+        foreach (var file in new[] { "PlayMap.dll", "Tmds.DBus.Protocol.dll", "System.Private.CoreLib.dll", "coreclr.dll", "Microsoft.AspNetCore.dll", "soft_oal.dll", "SPIRV-Tools-shared.dll", "Supervisor/PlayMap.Supervisor.exe" })
+            Write(folder.Path, file, file);
+
+        // The script passes it and lays down what the rule holds it to; the rule sees the two natives alone.
+        var laid = await RunNotices(folder.Path, cache, assets);
+        Assert.True(laid.Exit == 0, $"installer/notices.ps1 refused the folder ({laid.Exit}): {laid.Output}");
+        var notices = await File.ReadAllBytesAsync(Path.Combine(Repository, "THIRD-PARTY-NOTICES.md"));
+        var found = NoticeProblems(folder.Path, notices, Restore, assets);
+        Assert.True(found.Problems.Count == 0, Describe(folder.Path, found.Problems));
+        Assert.Equal(["SPIRV-Tools-shared.dll", "soft_oal.dll"], found.Natives);
+
+        // A native the notices name only as never shipped stops the script, which names it and no other file of the folder.
+        Write(folder.Path, "sub/nvapi64.dll", "a library");
+        var refused = await RunNotices(folder.Path, cache, assets);
+        Assert.True(refused.Exit != 0, $"installer/notices.ps1 passed a folder that carries sub/nvapi64.dll: {refused.Output}");
+        var named = Directory.EnumerateFiles(folder.Path, "*.dll", SearchOption.AllDirectories).Select(f => Relative(folder.Path, f))
+            .Where(f => refused.Output.Contains(f, StringComparison.Ordinal)).ToList();
+        Assert.True(named.SequenceEqual(["sub/nvapi64.dll"]), $"installer/notices.ps1 refused {string.Join(", ", named)}: {refused.Output}");
+    }
+
+    /// <summary>installer/notices.ps1 run by PowerShell 7 on a folder, with a program's restore and a NuGet cache of the caller's: its
+    /// exit code, and what it wrote.</summary>
+    private static async Task<(int Exit, string Output)> RunNotices(string folder, string cache, string assets)
+    {
+        var start = new ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "-NoProfile", "-NonInteractive", "-File", Path.Combine(Repository, "installer", "notices.ps1"), "-Folder", folder, "-Assets", assets })
+            start.ArgumentList.Add(a);
+        start.Environment["NUGET_PACKAGES"] = cache;
+        start.Environment["NO_COLOR"] = "1";
+        Process process;
+        try
+        {
+            process = Process.Start(start) ?? throw new InvalidOperationException("pwsh did not start");
+        }
+        catch (Win32Exception e)
+        {
+            throw new InvalidOperationException("PowerShell 7 (pwsh) is not on PATH: it runs installer/notices.ps1", e);
+        }
+        using (process)
+        {
+            using var limit = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            var output = process.StandardOutput.ReadToEndAsync(limit.Token);
+            var error = process.StandardError.ReadToEndAsync(limit.Token);
+            await process.WaitForExitAsync(limit.Token);
+            return (process.ExitCode, await output + await error);
+        }
+    }
+
+    /// <summary>A self-contained win-x64 publish's PlayMap.deps.json with libraries the repository's notices name: PlayMap's own file,
+    /// a package's managed file, and the .NET and ASP.NET Core runtime packs' managed and native files.</summary>
+    private const string PublishDeps = """
+        {
+          "runtimeTarget": { "name": ".NETCoreApp,Version=v10.0/win-x64", "signature": "" },
+          "targets": {
+            ".NETCoreApp,Version=v10.0": {},
+            ".NETCoreApp,Version=v10.0/win-x64": {
+              "PlayMap/1.0.0": { "dependencies": { "Tmds.DBus.Protocol": "0.90.0" }, "runtime": { "PlayMap.dll": {} } },
+              "runtimepack.Microsoft.NETCore.App.Runtime.win-x64/10.0.0": {
+                "runtime": { "System.Private.CoreLib.dll": { "assemblyVersion": "10.0.0.0", "fileVersion": "10.0.0.0" } },
+                "native": { "coreclr.dll": { "fileVersion": "10.0.0.0" } }
+              },
+              "runtimepack.Microsoft.AspNetCore.App.Runtime.win-x64/10.0.0": {
+                "runtime": { "Microsoft.AspNetCore.dll": { "assemblyVersion": "10.0.0.0", "fileVersion": "10.0.0.0" } }
+              },
+              "Tmds.DBus.Protocol/0.90.0": { "runtime": { "lib/net8.0/Tmds.DBus.Protocol.dll": { "assemblyVersion": "0.90.0.0", "fileVersion": "0.90.0.0" } } }
+            }
+          },
+          "libraries": {
+            "PlayMap/1.0.0": { "type": "project", "serviceable": false, "sha512": "" },
+            "runtimepack.Microsoft.NETCore.App.Runtime.win-x64/10.0.0": { "type": "runtimepack", "serviceable": false, "sha512": "" },
+            "runtimepack.Microsoft.AspNetCore.App.Runtime.win-x64/10.0.0": { "type": "runtimepack", "serviceable": false, "sha512": "" },
+            "Tmds.DBus.Protocol/0.90.0": { "type": "package", "serviceable": true, "sha512": "", "path": "tmds.dbus.protocol/0.90.0" }
+          }
+        }
+        """;
+
+    /// <summary>The supervisor's project.assets.json as a win-x64 restore writes it, with a package the repository's notices name.</summary>
+    private const string NamedSupervisorRestore = """
+        {
+          "version": 3,
+          "targets": {
+            "net10.0": {
+              "System.ServiceProcess.ServiceController/10.0.0": { "type": "package", "runtime": { "lib/net10.0/System.ServiceProcess.ServiceController.dll": {} } }
+            },
+            "net10.0/win-x64": {
+              "System.ServiceProcess.ServiceController/10.0.0": { "type": "package", "runtimeTargets": { "runtimes/win/lib/net10.0/System.ServiceProcess.ServiceController.dll": { "assetType": "runtime", "rid": "win" } } }
+            }
+          }
+        }
+        """;
 
     /// <summary>A publish's PlayMap.deps.json with PlayMap's own files alone.</summary>
     private const string BareDeps = """

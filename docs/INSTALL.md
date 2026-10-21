@@ -310,7 +310,9 @@ package, its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIB
 finds nothing in `PlayMap.iss` that skips the licence page or answers it (no `ShouldSkipPage`, no change to its choices, no licence
 file named but [Setup]'s), and every package the publish's restore carries named in `THIRD-PARTY-NOTICES.md`. The Windows job finds no
 Agility SDK file in the portable folder, and lays the notices into it; `installer/notices.ps1` stops a build whose folder carries a
-package, or a native library no package carries, that `THIRD-PARTY-NOTICES.md` does not name. `LicenceTests` hold the installer's
+package, or a native library no package carries, that `THIRD-PARTY-NOTICES.md` does not name (`LicenceTests` run it on a folder
+shaped as a self-contained publish that carries the supervisor, which it passes, and on that folder with a native the notices do not
+name, which it refuses by that native alone). `LicenceTests` hold the installer's
 payload (the installer job) and the portable folder (the Windows job) to DXC's compiler alone — no `dxil.dll` or `libdxil.so` and no
 other file of DXC's package, `dxcompiler.dll` at the worker's pin with `licenses\DXC\` holding its licence and notices and nothing
 else — and to `THIRD-PARTY-NOTICES.md` naming every package and native library each carries, with each package's own licence and

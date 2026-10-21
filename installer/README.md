@@ -22,6 +22,8 @@ PlayMap's per-machine installer (`docs/INSTALL.md` for a person; `docs/round3/de
 - `sums.ps1` — the `SHA256SUMS` of an unsigned build, and the job summary's notice.
 - `tests/PlayMap.Installer.Tests` — the life cycle on the Windows runner, elevated (outside `PlayMap.sln`; the installer job runs it),
   and `LicenceTests`, which hold the folder `PLAYMAP_SHIPPED_DIR` names to its licences: the payload in the installer job, the
-  portable folder in the Windows job.
+  portable folder in the Windows job. They also run `notices.ps1` itself with PowerShell 7 (`pwsh` on `PATH`) on a folder shaped as
+  a self-contained publish that carries the supervisor: it lays down what their rule holds the folder to, and refuses a native the
+  notices do not name by that native alone.
 - `tests/PlayMap.FakeEngine` — a stand-in engine, run as `PlayMap.exe engine`, that answers the armed check as told, writes its pid
   record and waits on the stop event: the installer's and the supervisor's Windows tests start it.

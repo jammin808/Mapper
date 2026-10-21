@@ -47,12 +47,20 @@ function Test-Named([string] $id) {
 }
 
 $json = Get-Content -LiteralPath $deps -Raw | ConvertFrom-Json
-$target = $json.targets.PSObject.Properties[$json.runtimeTarget.name].Value
+$publishTarget = $json.targets.PSObject.Properties[$json.runtimeTarget.name].Value
+# The files every library of PlayMap.deps.json lists in the folder (its packages', its runtime packs' and PlayMap's own: managed,
+# native and satellite assemblies), by name, from the publish's runtime target.
+$listed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($entry in $publishTarget.PSObject.Properties) {
+    foreach ($kind in @($entry.Value.PSObject.Properties | Where-Object { $_.Name -in 'runtime', 'native', 'resources' })) {
+        foreach ($asset in $kind.Value.PSObject.Properties) { [void]$listed.Add([System.IO.Path]::GetFileName($asset.Name)) }
+    }
+}
 $carried = [System.Collections.Generic.List[object]]::new()
 $unnamed = [System.Collections.Generic.List[string]]::new()
 foreach ($library in $json.libraries.PSObject.Properties) {
     if ($library.Value.type -ne 'package' -and $library.Value.type -ne 'runtimepack') { continue }
-    $entry = $target.PSObject.Properties[$library.Name]
+    $entry = $publishTarget.PSObject.Properties[$library.Name]
     if ($null -eq $entry) { continue }
     # Only a package with files in the folder: its managed assemblies, its native libraries or its satellite assemblies.
     $files = @($entry.Value.PSObject.Properties | Where-Object { $_.Name -in 'runtime', 'native', 'resources' -and @($_.Value.PSObject.Properties).Count -gt 0 })
@@ -66,12 +74,13 @@ foreach ($library in $json.libraries.PSObject.Properties) {
     $carried.Add([pscustomobject]@{ Id = $id; Dir = $dir })
 }
 # The packages of each other program the folder carries, from its restore's project.assets.json: each with runtime or native files
-# (a placeholder _._ is none) is held to the same rule as the publish's.
+# (a placeholder _._ is none) is held to the same rule as the publish's. A PowerShell loop's variable lives in the script's scope:
+# the restore's targets are walked under a name of their own and never take the place of the publish's runtime target.
 foreach ($file in $Assets) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "$file is not there: the restore of the program it lists writes it" }
     $restore = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-    foreach ($target in $restore.targets.PSObject.Properties) {
-        foreach ($entry in $target.Value.PSObject.Properties) {
+    foreach ($restoreTarget in $restore.targets.PSObject.Properties) {
+        foreach ($entry in $restoreTarget.Value.PSObject.Properties) {
             if ($entry.Value.type -ne 'package') { continue }
             $files = @($entry.Value.PSObject.Properties | Where-Object { $_.Name -in 'runtime', 'native', 'runtimeTargets' } |
                 ForEach-Object { @($_.Value.PSObject.Properties | ForEach-Object { $_.Name }) } | Where-Object { -not $_.EndsWith('/_._') })
@@ -88,14 +97,8 @@ foreach ($file in $Assets) {
 if ($unnamed.Count -gt 0) {
     throw "the publish carries $($unnamed -join ', '), which THIRD-PARTY-NOTICES.md does not name: name each under its package's heading with its licence and copyright"
 }
-# The native libraries no library of PlayMap.deps.json lists (its packages', its runtime packs' and PlayMap's own files, by name):
-# each is named in THIRD-PARTY-NOTICES.md by its file name in backticks, and DXC's compiler has its licence and notices beside it.
-$listed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-foreach ($entry in $target.PSObject.Properties) {
-    foreach ($kind in @($entry.Value.PSObject.Properties | Where-Object { $_.Name -in 'runtime', 'native', 'resources' })) {
-        foreach ($asset in $kind.Value.PSObject.Properties) { [void]$listed.Add([System.IO.Path]::GetFileName($asset.Name)) }
-    }
-}
+# The native libraries no library of PlayMap.deps.json lists ($listed): each is named in THIRD-PARTY-NOTICES.md by its file name in
+# backticks, and DXC's compiler has its licence and notices beside it.
 $natives = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { $_.Extension -eq '.dll' -and -not $listed.Contains($_.Name) } |
     ForEach-Object { [System.IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/') } |
     Sort-Object -Culture ([System.Globalization.CultureInfo]::InvariantCulture))
