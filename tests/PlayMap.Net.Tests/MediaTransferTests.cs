@@ -13,7 +13,7 @@ namespace PlayMap.Net.Tests;
 /// for kept nowhere, the token sent in a header, the bandwidth bucket that can be lowered while a show plays, a pull that says how far
 /// it is at every block and whose bytes never step back, a peer whose body falls silent for the quiet on the transfer's clock named at
 /// each try while the bucket's waits are not counted, and a list or an answer that comes late or never left to the client's own
-/// timeout.</summary>
+/// timeout however far the transfer's clock moves while it waits.</summary>
 public sealed class MediaTransferTests : IDisposable
 {
     private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("playmap-transfer-");
@@ -269,14 +269,17 @@ public sealed class MediaTransferTests : IDisposable
         var transfer = new MediaTransfer(http, new TokenBucket(0), new MediaTransferOptions { ChunkBytes = 1024 * 1024, Parallelism = 3 });
         var said = new ConcurrentQueue<long>();
         using var another = new SemaphoreSlim(0);
-        var first = 0;
-        // The first word is taken once another has been said, or after 2 s: a listener that takes its time while the other chunks land.
+        var held = 0;
+        // The first block's word is taken once another word has been said, or after 2 s: a listener that takes its time while the other
+        // chunks land. The pull's first word, said as it starts before any chunk is asked for, has no other beside it, so the word held
+        // is the first that carries bytes.
         transfer.Progress += p =>
         {
-            if (Interlocked.Exchange(ref first, 1) == 0)
+            if (p.BytesDone > 0 && Interlocked.CompareExchange(ref held, 1, 0) == 0)
                 _ = another.Wait(TimeSpan.FromSeconds(2));
             said.Enqueue(p.BytesDone);
-            another.Release();
+            if (Volatile.Read(ref held) == 1)
+                another.Release();
         };
 
         var result = await transfer.PullAsync(new Uri("http://127.0.0.1:" + host.Port), hash, bytes.Length, Path.Combine(_dir.FullName, "ordered.bin"), CancellationToken.None);
@@ -284,6 +287,46 @@ public sealed class MediaTransferTests : IDisposable
         Assert.Equal(MediaPullOutcome.Verified, result.Outcome);
         Assert.Equal(said.Order(), said);
         Assert.Equal(bytes.Length, said.Last());
+    }
+
+    [Fact]
+    public async Task AListAndAnAnswersHeadersAreNotCountedSilentHoweverFarTheTransfersClockMoves()
+    {
+        // The peer holds its list's answer, and then the file's, until the test lets each go; while each is held the transfer's clock is
+        // moved ten quiets and the watch is given half a second, four of its steps. The list and an answer's headers are the client's
+        // own timeout's to bound, not the quiet's: the list comes, and the file lands with no try cut.
+        var bytes = RandomNumberGenerator.GetBytes(100_000);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        await using var peer = new FakeMediaPeer(hash, bytes, holdsAnswers: true);
+        var clock = new ManualClock(Base);
+        using var http = new HttpClient();
+        var transfer = new MediaTransfer(http, new TokenBucket(0), new MediaTransferOptions { Quiet = Quiet, ChunkAttempts = 1 }, clock: clock);
+        var troubles = new ConcurrentQueue<MediaTrouble>();
+        transfer.Trouble += troubles.Enqueue;
+        var uri = new Uri("http://127.0.0.1:" + peer.Port);
+
+        var list = transfer.ManifestAsync(uri, CancellationToken.None);
+        await HeldWhileTheClockMovesAsync(peer, clock, list);
+        var listed = await list.WaitAsync(TimeSpan.FromSeconds(30));
+        var pull = transfer.PullAsync(uri, hash, bytes.Length, Path.Combine(_dir.FullName, "held.bin"), CancellationToken.None);
+        await HeldWhileTheClockMovesAsync(peer, clock, pull);
+        var result = await pull.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(hash, Assert.Single(listed).Hash);
+        Assert.Equal(MediaPullOutcome.Verified, result.Outcome);
+        Assert.Empty(troubles);
+        Assert.Equal((1, 1), (peer.ListAsks, peer.FileAsks));
+    }
+
+    /// <summary>Waits until the peer holds an answer to <paramref name="asked"/>, moves the transfer's clock ten quiets, gives the watch half
+    /// a second of real time, says the ask is still waiting, and lets the answer go.</summary>
+    private static async Task HeldWhileTheClockMovesAsync(FakeMediaPeer peer, ManualClock clock, Task asked)
+    {
+        Assert.True(await Eventually.TrueAsync(() => peer.Holding == 1 || asked.IsCompleted, 20000), "the peer never held the answer");
+        clock.Advance(10 * Quiet.Ticks * TimeSpan.NanosecondsPerTick);
+        await Task.WhenAny(asked, Task.Delay(500));
+        Assert.False(asked.IsCompleted, "the ask ended while the peer held its answer");
+        peer.Answer();
     }
 
     /// <summary>The quiet the fault tests give a try.</summary>

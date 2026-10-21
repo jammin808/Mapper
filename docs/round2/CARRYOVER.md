@@ -427,12 +427,19 @@ Round 2 W1 notes:
   `MediaTransferTests.AChunkWhosePeerFallsSilentIsTriedAgainAndEachTryIsSaidWithItsWords`,
   `HostNetworkTests.AFetchFromAPeerThatFallsSilentSaysSoAndEndsWithItsWords` and
   `MirrorPullerTests.AFilesSilenceIsCountedOnTheNodesClock`, so their outcomes do not hang on the machine's speed;
-  `MediaTransferTests.APeersSilenceIsCountedOnTheTransfersClockAndOnlyWhileABodyIsRead` never moves the clock, and shows that real
-  time is not counted and that the list and the answers are not bounded by the quiet;
+  `MediaTransferTests.APeersSilenceIsCountedOnTheTransfersClockAndOnlyWhileABodyIsRead` never moves the clock, so it shows only
+  that real time is not counted; `AListAndAnAnswersHeadersAreNotCountedSilentHoweverFarTheTransfersClockMoves` moves the clock ten
+  quiets while the peer holds the list's answer and then the file's, and the list comes and the file lands with no try cut (a
+  variant that counts the list's wait on the transfer's clock under the quiet fails it, two runs of two, as does one that counts an
+  answer's headers' wait, two of two, and the never-moving test passes both);
   `APullHeldByTheBandwidthBucketIsNotCountedSilentHoweverFarTheClockMoves` moves the clock ten quiets while the bucket holds the
   pull, and a variant that counts the bucket's wait fails it. `APullsBytesNeverStepBackWhenATryStartsItsChunkAgain` ends each
   body in order after 1 MiB and a byte, with no clock, so each try lands its block whatever the load (its clock-driven form
-  could cut a try before its block landed); a variant that starts a chunk's bytes again at each try fails it. Their commits report
+  could cut a try before its block landed); a variant that starts a chunk's bytes again at each try fails it.
+  `APullsBytesReachItsListenerInTheOrderTheyLandedHoweverLongTheListenerTakes` holds the listener on the first word that carries
+  bytes until another word comes or 2 s pass. From 74cf79f2 it held the pull's first word, which the pull now says as it starts,
+  before any chunk is asked for, so its wait always ran out with no word beside it and a variant that raises a block's word outside
+  the pull's gate passed it (three runs of three); that variant fails it now (three of three). Their commits report
   these failing against the tree before them and they pass now: `MediaTransferTests`'
   `APeersSilenceIsCountedOnTheTransfersClockAndOnlyWhileABodyIsRead`,
   `APeerThatNeverAnswersItsListIsGivenUpOnTheClientsTimeoutWithWordsThatSaySo` and

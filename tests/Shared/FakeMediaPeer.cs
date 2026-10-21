@@ -13,7 +13,8 @@ namespace PlayMap.Tests;
 /// <c>stallFrom</c> so does an answer for a range starting at or past that offset, before any byte of its body; with <c>endAfter</c>
 /// each answer ends after that many bytes of its body (the connection closed in order, every byte sent before it delivered); with
 /// <c>pauseAfter</c> it sends nothing for <c>pauseFor</c> of real time after that many bytes and then the rest; with
-/// <c>answerAfter</c> each answer's head waits that long first; with <c>answersList</c> false the list is asked for and never
+/// <c>answerAfter</c> each answer's head waits that long first; with <c>holdsAnswers</c> each answer waits until the test lets one go
+/// (<see cref="Answer"/>), <see cref="Holding"/> saying how many wait; with <c>answersList</c> false the list is asked for and never
 /// answered; <c>listStatus</c> and <c>fileStatus</c> other than 200 and 206 answer the list or the file with that status and nothing
 /// else.
 /// </summary>
@@ -29,6 +30,8 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
     private readonly long? _pauseAfter;
     private readonly TimeSpan _pauseFor;
     private readonly TimeSpan _answerAfter;
+    private readonly bool _holdsAnswers;
+    private readonly SemaphoreSlim _answer = new(0);
     private readonly bool _answersList;
     private readonly int _listed;
     private readonly int _listStatus;
@@ -38,17 +41,18 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
     private readonly Task _accepting;
     private int _listAsks;
     private int _fileAsks;
+    private int _holding;
 
     public FakeMediaPeer(string hash, byte[] file, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200, int fileStatus = 206,
         TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default, long? stallFrom = null, long? endAfter = null,
-        string mediaPath = "/api/media/")
-        : this([(hash, file)], stallAfter, answersList, listed, listStatus, fileStatus, answerAfter, pauseAfter, pauseFor, stallFrom, endAfter, mediaPath)
+        string mediaPath = "/api/media/", bool holdsAnswers = false)
+        : this([(hash, file)], stallAfter, answersList, listed, listStatus, fileStatus, answerAfter, pauseAfter, pauseFor, stallFrom, endAfter, mediaPath, holdsAnswers)
     {
     }
 
     public FakeMediaPeer(IReadOnlyList<(string Hash, byte[] File)> files, long? stallAfter = null, bool answersList = true, int listed = 1, int listStatus = 200,
         int fileStatus = 206, TimeSpan answerAfter = default, long? pauseAfter = null, TimeSpan pauseFor = default, long? stallFrom = null, long? endAfter = null,
-        string mediaPath = "/api/media/")
+        string mediaPath = "/api/media/", bool holdsAnswers = false)
     {
         _files = files;
         _stallAfter = stallAfter;
@@ -60,6 +64,7 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
         _listStatus = listStatus;
         _fileStatus = fileStatus;
         _answerAfter = answerAfter;
+        _holdsAnswers = holdsAnswers;
         _pauseAfter = pauseAfter;
         _pauseFor = pauseFor;
         _listener.Start();
@@ -74,6 +79,12 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
 
     /// <summary>Requests for a file heard (one per try at a chunk).</summary>
     public int FileAsks => Volatile.Read(ref _fileAsks);
+
+    /// <summary>Answers held now, waiting for <see cref="Answer"/> (with <c>holdsAnswers</c>).</summary>
+    public int Holding => Volatile.Read(ref _holding);
+
+    /// <summary>Lets one held answer go.</summary>
+    public void Answer() => _answer.Release();
 
     private async Task AcceptAsync()
     {
@@ -103,6 +114,18 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
             {
                 var lines = head.Split("\r\n");
                 var target = lines[0].Split(' ') is { Length: > 1 } parts ? parts[1] : "";
+                if (_holdsAnswers)
+                {
+                    Interlocked.Increment(ref _holding);
+                    try
+                    {
+                        await _answer.WaitAsync(ct);
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _holding);
+                    }
+                }
                 if (_answerAfter > TimeSpan.Zero)
                     await Task.Delay(_answerAfter, ct);
                 var file = _files.FirstOrDefault(f => target == _mediaPath + f.Hash).File;
@@ -222,6 +245,7 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
             open = [.. _connections];
         await Task.WhenAll(open);
         _listener.Dispose();
+        _answer.Dispose();
         _stop.Dispose();
     }
 }
