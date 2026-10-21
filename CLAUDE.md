@@ -144,6 +144,7 @@ Windows-only acceptance is read from the two Windows jobs.
 | The render hardware interface | `src/PlayMap.Core/Gpu`, `docs/round3/design/rhi.md`, the contracts as built in `docs/round3/notes/rhi.md` §2 |
 | The HLSL library, the shader worker, the effect quarantine | `src/PlayMap.Render.D3D12/Shaders`, `src/PlayMap.Engine/ShaderWorker`, `src/PlayMap.Core/Effects/ShaderQuarantine.cs`, `docs/round3/design/shaders.md`, `docs/wire/shaders.md` |
 | The machine platform: what a node claims from Windows, its identity, the driver lock, machine preflight | `src/PlayMap.Core/Machine`, `src/PlayMap.Platform.Windows`, `src/PlayMap.Engine/Machine`, `docs/PLATFORM.md`, `docs/wire/machine.md` |
+| The installer, the supervisor, STATE `machine.install` and preflight's `install` section | `installer/`, `src/PlayMap.Supervisor`, `src/PlayMap.Engine/Install`, `docs/INSTALL.md`, `docs/wire/install.md` |
 | The wire, STATE, the verbs | `docs/WIRE.md`, `src/PlayMap.Core/Wire/VerbCatalog.cs` (the one table) |
 | The Show Bus node (Patterns/Stagewatch interop) | `docs/SHOWBUS-NODE.md` |
 | Mapping and scanning | `docs/MAPPING.md` |

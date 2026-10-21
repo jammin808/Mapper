@@ -13,7 +13,8 @@ off, and the media volume encrypted and not, each with its frame times.
 
 1. Before installing: Smart App Control's state (Windows Security ▸ App & browser control) — it should read evaluating.
 2. Install the build with its installer, by the installer's paper, `docs/INSTALL.md`, as steps 2–5 of `docs/round3/lab/L23.md`
-   (wp3-installer's part of this line) do, with Smart App Control still evaluating: the installer shows its warning page and installs.
+   (wp3-installer's part of this line) do, with Smart App Control still evaluating: the quiet install installs and writes its warning
+   to its log ("warning: Smart App Control is evaluating this PC: …"), which a quiet install shows as no page.
    Start the show account's session. Turn Smart App Control off (that script's step 1) only once step 3 below is recorded: its amber
    row needs it evaluating, and it cannot be turned back on.
 3. `PREFLIGHT QUICK`, section machine. Expect, and record each against the screen:

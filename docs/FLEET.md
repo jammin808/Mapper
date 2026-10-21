@@ -19,7 +19,8 @@ off the air by an independent reader, and for the GPU device's epoch and phase (
 (the phase `unknown`) until round 3's stability work fills it (docs/round3/PLAN.md §3.9). The direction (docs/round3/PLAN.md D6):
 a supervising service, `PlayMap.Supervisor`, starts the engine in the show user's session and restarts it, and stops an engine whose
 shown frames stop while its GPU phase is `running` — never during a start or a device rebuild, and never while the count is −1. The
-engine never runs as administrator or in session 0.
+engine never runs in session 0 and never needs administrator rights: it runs as the standard show account the install names
+(docs/INSTALL.md).
 
 Eleven categories, always present, in this order — outputs, render, cpu, memory, disk, gpu, network, sync, devices, media, watchdog
 — each with a light and words. The light table (`HealthLights`):

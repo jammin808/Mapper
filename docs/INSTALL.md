@@ -15,15 +15,18 @@ having added none), and the build stops at MSB8020, the v143 build tools not fou
 runs. The source checks its licence in three places — `wix.exe`'s command line, the SDK target's WIX7015, and the
 `CheckLicenseAcceptance.targets` every extension package carries — and WiX's own build sets `AcceptEula` for itself. PlayMap never
 passes that gesture and patches none of it. The installer shows a licence page (below), runs elevated once and does every
-machine-level action through the supervisor's own commands, so the engine itself never runs as administrator:
+machine-level action through the supervisor's own commands, so the engine itself never needs to run as administrator: the
+supervisor starts it with the token of the show user's console session, which carries administrator rights only for an administrator
+account whose token Windows does not filter (UAC off, or the built-in Administrator), so the show account is a standard user named
+with `/SHOWUSER=` (the show machine, below):
 
 | Where | What |
 |---|---|
-| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe, and the shader worker's natives (shaderc, SPIRV-Tools, SPIRV-Cross, and of DXC its compiler alone, `dxcompiler.dll`); `licence.txt` (the terms the licence page shows), `THIRD-PARTY-NOTICES.md`, the licence texts its files ask for beside them, `licenses\` (the licence and notice files of the packages the publish comes from, the .NET runtime's among them, and DXC's licence and notices in `licenses\DXC\`), and `SHA256SUMS` of every file laid down |
+| `C:\Program Files\PlayMap\` | the exe and the desk (a self-contained publish, ReadyToRun), libvmx beside the exe, and the shader worker's natives (shaderc, SPIRV-Tools, SPIRV-Cross, and of DXC its compiler alone, `dxcompiler.dll`); `licence.txt` (the terms the licence page shows), `THIRD-PARTY-NOTICES.md`, the licence texts it names beside the files (the libraries FFmpeg's build links into its DLLs, and glslang inside shaderc, are named there by their licences, their own copyright lines and licence texts not yet laid down: `docs/wire/install.md`), `licenses\` (the licence and notice files of the packages the publish comes from, the .NET runtime's among them, of the packages inside the supervisor's exe, and DXC's licence and notices in `licenses\DXC\`), and `SHA256SUMS` of every file laid down |
 | `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, replaceable files (the same hash-pinned build every decode test on CI loads), with the build's `LICENSE.txt` (the LGPL version 3) and `GPL-3.0.txt` |
 | `…\D3D12\` | the Agility SDK's `D3D12Core.dll`, under Microsoft's terms the licence page shows (its debug layer and `d3dconfig.exe` are left out) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the supervisor |
-| `%ProgramData%\PlayMap\` | `dumps\` (WER's dumps) and `supervisor\` (its status file, log and the engine's pid record); the show user may write both |
+| `%ProgramData%\PlayMap\` | owned by administrators, its access its own: SYSTEM and administrators change it, every account reads it. `dumps\` (WER's dumps) and `supervisor\engine\` (the engine's pid record) are the show user's to write too (with no show user named, any signed-in user's); `supervisor\` itself (the supervisor's status file and log, which SYSTEM writes) is not |
 | `HKLM\SOFTWARE\PlayMap` | `InstallDir`, `Version`, `SemVer`, `ShowUser`, `Supervised`, `Signed` |
 
 and on the machine: the `PlayMapSupervisor` service (LocalSystem, automatic, restarted after 5 s and 30 s, the count reset after a
@@ -69,15 +72,19 @@ stay as they are, and the new build's supervisor sets each again once the files 
 once the service runs; an upgrade that names another show user takes the right and the folders' write access back from the earlier
 one. An upgrade that does not reach its end — refused, cancelled, a file it could not replace — has its files rolled back by Inno
 Setup and the earlier service started again, which starts the earlier engine: the machine is as it was. An install whose
-machine-level setup fails (exit 3, its words in the log) leaves the files in place and the machine not supervised, so the desk
-starts its own engine until the installer is run again.
+machine-level setup fails (exit 3, its words in the log) leaves the files in place and the machine not supervised: a desk whose
+engine does not answer on loopback starts its own. The `PlayMapSupervisor` service an earlier install registered, or one the
+failed setup registered before it stopped, stays registered and automatic, so it starts at the next boot and starts the engine in
+the show user's session; the desk attaches to that engine when it answers. Run the installer again to finish the setup.
 
 **Uninstall.** After the person confirms it and before any file is removed, the supervisor's uninstall asks the armed check again,
 refuses while another program runs from the folder, stops the service and its engine, and takes back every machine-level action —
-the supervised mark first, then the service, the firewall rules, WER's values, the event source and the account right, each tried
-whatever the others did. Any refusal, or anything it could not take back, stops the uninstall with every file still in place, its
-words in the uninstall's log. The dumps and the node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The
-order above stands in for the automatic undo of service and registry changes an MSI would give.
+the supervised mark first, then the service, the firewall rules, WER's values, the event source, the account right and the show
+user's write access to `dumps\` and `supervisor\engine\`, each tried whatever the others did. Any refusal, or anything it could not
+take back, stops the uninstall with every file still in place, its words in the uninstall's log. The machine's folders
+(`%ProgramData%\PlayMap`, with the dumps and what the supervisor wrote), which then only SYSTEM and administrators may change, and the
+node's own data (`%LOCALAPPDATA%\PlayMap` in the show user's profile) stay. The order above stands in for the automatic undo of
+service and registry changes an MSI would give.
 
 **What the owner decides.** The Agility SDK's DISTRIBUTABLE CODE section lets `D3D12Core.dll` ship inside PlayMap's installer on the
 requirements it lists, among them to "require distributors and external end users to agree to terms that protect it and Microsoft at
@@ -101,55 +108,69 @@ MINOR, the first build of the line below.
 ## The supervisor
 
 `PlayMapSupervisor` starts `PlayMap.exe engine --supervised` in the auto-logged-on show user's console session (never session 0,
-which cannot drive displays; an install that names no show user starts it in the session of whoever is signed in at the console),
-restarts it after an exit with backoff (1 s doubling to 30 s), stops trying after five restarts in ten minutes and says so, and
+which cannot drive displays; an install that names no show user starts it in the session of whoever is signed in at the console —
+a fresh install names one only with `/SHOWUSER=`, since the wizard has no page for it, and an upgrade keeps the account the earlier
+install recorded), starts it suspended and lets it run once its status file names the new engine's pid, so the engine reads that
+status as it starts, restarts it after an exit with backoff (1 s doubling to 30 s), stops trying after five restarts in ten minutes
+and says so, and
 stops an engine whose open outputs' shown frames have stood still for the stale time (3 s, or four of the rebuild's first good
 frames) while HEALTH says the GPU runs — never while the engine reports no shown frames, never during a start or a device rebuild
 within its budget (30 s while the first good frame is unmeasured on a real node), never for a slow HEALTH while frames move. No
-engine reports shown frames yet (HEALTH's `shownFrames` is −1 on every node until wp3-stability fills it), so on every node the
-rule waits — the status's `freezeRule` and preflight's `install:supervisor` row say "the engine reports no shown frames: the
-freeze rule waits for them" — and the supervisor restarts the engine after an exit alone. Its status
+engine reports shown frames yet (HEALTH's `shownFrames` is −1 on every node until wp3-stability fills it, and no engine reports
+the GPU's phase), so on every node the rule waits — the status's `freezeRule` and preflight's `install:supervisor` row, a grey
+information row, say "the engine reports no shown frames: the freeze rule waits for them", or, on a node with no open output,
+"the engine reports no GPU phase: the freeze rule waits for it" — and the supervisor restarts the engine after an exit alone. Its
+status
 (`%ProgramData%\PlayMap\supervisor\status.json`) is in STATE's `machine.install`, and preflight's `install` section reads it too
 (`PREFLIGHT QUICK` on the node: the install or a folder run, the supervisor's state, auto-logon, the show machine's policies and
 the unsigned build). Stopping the service leaves the engine running; the next supervisor adopts it.
 
 **A stop is the engine's own; a termination comes only 5 s later.** To stop the engine — the freeze rule's stop,
 `PlayMap.Supervisor.exe stop`, an upgrade's or an uninstall's — the supervisor sets the engine's stop event
-(`Global\PlayMap-Engine-Stop`). The engine it started opens that event with Synchronize, the one right the show user has on it, so
-it may wait on it and never set or clear it, and once it is set stops as any asked stop does: its doors close in order, the recovery
-record is written, its journal says "the supervisor asked the engine to stop" and is flushed, and its pid record is taken back. An
-engine still running 5 s after the event was set is terminated, with the cause in `supervisor.log`. The event stays set until the
-engine has gone, so an engine still starting when it is set stops as soon as it is up. The next engine the supervisor starts journals
-the cause of the stop before it ("the supervisor started this engine after: frozen: shown frames stood at … (2 restarts in ten
-minutes)"), read from the supervisor's status file.
+(`Global\PlayMap-Engine-Stop`). The engine it started opens that event with Synchronize, the one right the show user has on it (on
+an install that names no show user, every signed-in user, INTERACTIVE), so it may wait on it and never set or clear it, and once it
+is set stops as any asked stop does: its doors close in order, the recovery record is written, its journal says "the supervisor
+asked the engine to stop" and is flushed, and its pid record is taken back. An engine still running 5 s after the event was set is
+terminated, with the cause in `supervisor.log`. The event stays set until the engine has gone, so an engine still starting when it
+is set stops during its start, with the same journal row and recovery record. The next engine the supervisor starts journals the
+cause of the stop before it ("the supervisor started this engine after: frozen: shown frames stood at … (2 restarts in ten
+minutes)"), read from the supervisor's status file, which names that engine before it runs.
 
-The engine's pid record (`%ProgramData%\PlayMap\supervisor\engine.pid`) sits in a folder the show user may write, so it only says
-which process to look at. The service adopts an engine it did not start only when that process is the installed `PlayMap.exe` run as
-the engine, as the show user, in the console session, started when its record was written (a pid another process took after a power
-cut fails here); any other record is removed, with the reason in `supervisor.log`. The elevated commands (`stop` with no service,
-`uninstall`, an upgrade) end only the installed engine the record names, through the handle opened when it was checked, and say so
-when the record names anything else. The armed check asks the engine a record names only when it is PlayMap's engine, and the
-engine writes its own record over one only when that one names no running PlayMap engine by the same rule, so a record whose pid
-another process took never keeps the supervised engine's record out.
+The engine's pid record (`%ProgramData%\PlayMap\supervisor\engine\engine.pid`) sits in the one folder there the show user may
+write, so it only says which process to look at, and the service only reads it: it writes, renames and deletes nothing in that
+folder, and writes its status file and log in `supervisor\`, which only SYSTEM and administrators may change. The service adopts an
+engine it did not start only when that process is the installed `PlayMap.exe` run as the engine, as the show user, in the console
+session, started when its record was stamped (a pid another process took after a power cut fails here); any other record stays
+where it is, its reason said once in `supervisor.log`, for the next engine's own write to replace. `stop` with no service ends only
+the installed engine the record names, through the handle opened when it was checked, and says so when the record names anything
+else; `uninstall` and an upgrade end that engine and also any supervised engine no record names yet (the installed `PlayMap.exe` run
+as the engine with `--supervised`, checked through its handle). The armed check asks the engine a record names only when it is
+PlayMap's engine, and the engine writes its own record over one only when that one names no running PlayMap engine by the same rule,
+so a record whose pid another process took never keeps the supervised engine's record out.
 
 | Command (elevated where it changes the machine) | Does |
 |---|---|
 | `PlayMap.Supervisor.exe status` | the supervisor's state, restarts and last cause |
-| `PlayMap.Supervisor.exe stop` | stops the engine (its own stop on the stop event; a termination after 5 s only if it still runs) and holds it until `resume` |
+| `PlayMap.Supervisor.exe stop` | stops the engine (its own stop on the stop event; a termination after 5 s only if it still runs) and, when the service answers, holds it until `resume`; with no service it stops the engine and holds nothing, so the service starts it again when it next starts |
 | `PlayMap.Supervisor.exe resume` | ends a hold or the too-many-restarts stop |
 | `PlayMap.Supervisor.exe preinstall-check` | the installer's armed check |
 | `PlayMap.Supervisor.exe grant <account>` / `revoke <account>` | the show account's right |
 | `PlayMap.Supervisor.exe rights <account>` | the account rights an account holds, as the local security policy says |
 
-`status`, `stop` and `resume` ask the service on its pipe (`\\.\pipe\PlayMap.Supervisor`, open to the show user and
-administrators), and take an answer only from the service itself: a process running as SYSTEM or from the installed
-`Supervisor\PlayMap.Supervisor.exe`. The service keeps the pipe's name its own (another program that holds the name is never served
-on), answers each connection on its own within 2 s and a line of at most 64 bytes, and goes on answering whatever one client does.
+`status`, `stop` and `resume` ask the service on its pipe (`\\.\pipe\PlayMap.Supervisor`, open to administrators and, when the
+install names one, the show user; on an install that names none, from an elevated prompt), and take an answer only from the service
+itself: a process running as SYSTEM, one running the installed `Supervisor\PlayMap.Supervisor.exe`, or a process this account may
+not read at all in session 0, where services run (as a standard account reads a SYSTEM service). The service keeps the pipe's name its
+own (another program that holds the name is never served on), answers each connection on its own within 2 s and a line of at most 64
+bytes, and goes on answering whatever one client does.
 
-On a supervised machine the desk attaches to the engine on loopback and never starts its own: when the engine does not answer,
-Connect ▸ This machine says "This machine's engine is kept by its supervisor — the desk attaches to it." and "Waiting for this
-machine's engine…", and the desk is on the engine as soon as it answers (`PlayMap.Supervisor.exe status` says what the service
-holds).
+On a supervised machine the desk attaches to the engine on loopback and never starts its own, and Connect ▸ This machine says so
+before it is pressed ("Attach to the engine this machine's supervisor keeps, on loopback: the desk starts none, …"). When the engine
+does not answer, Connect says "This machine's engine is kept by its supervisor — the desk attaches to it.", what the supervisor's
+status file says — its state and last cause, `PlayMap.Supervisor.exe resume` where the supervisor holds the engine or has stopped
+after too many restarts, and when the file was written — and "Waiting for this machine's engine…"; a Connect that gets no answer
+fails with the supervisor's words, and the desk is on the engine as soon as it answers (`PlayMap.Supervisor.exe status` asks the
+service itself).
 
 ## Unsigned builds
 
@@ -212,7 +233,8 @@ This round no lab has measured any of them, so no tier is validated yet and no d
 nothing: STATE's word is the only place a node says it.
 
 **The show account.** A local standard user, "show". Auto-logon through Sysinternals Autologon, which keeps the password as an LSA
-secret — never `DefaultPassword` in plain text in the registry. Give the account to the installer (`/SHOWUSER=`). On Home, whose
+secret — never `DefaultPassword` in plain text in the registry. Give the account to the installer on its command line
+(`/SHOWUSER=<computer>\show`, from an elevated prompt or the shortcut's command line): the wizard has no page for it. On Home, whose
 setup asks for a Microsoft account (and a new one has no password), make the local "show" account after setup, with a password, and
 set auto-logon to it.
 
@@ -234,15 +256,19 @@ realtime; the class stays NORMAL by default until L10 measures it, and REALTIME'
 reads the engine's token on an installed node, so the sign-in rule is Windows' documented one, unproven here.
 
 **Shell Launcher** where the edition has it (IoT Enterprise, Enterprise, Education:
-`Dism /online /Enable-Feature /all /FeatureName:Client-EmbeddedShellLauncher`), with the engine as the show account's shell on a
-node with no desk; the supervisor still watches it. On Home and Pro the supervisor starts the engine in the show account's session
-with Explorer underneath, and the desk's monitor (or a small admin display) stays the primary display, where notifications, UAC
-and setup screens open.
+`Dism /online /Enable-Feature /all /FeatureName:Client-EmbeddedShellLauncher`), with a shell other than the engine for the show
+account (Explorer, or a small program of the person's that shows nothing over the outputs): the supervisor starts the engine in that
+session as on every edition. The engine itself as the show account's shell is not supported this round — the supervisor starts its
+own engine as the session comes up, beside the shell's — and L11 records what such a node does (`docs/round3/lab/L11.md`, step 7).
+On Home and Pro the supervisor starts the engine in the show account's session with Explorer underneath, and the desk's monitor (or a
+small admin display) stays the primary display, where notifications, UAC and setup screens open.
 
 **Updates.** On the editions with Update client policies: feature updates deferred 365 days, quality updates 30, no automatic
 restart with a user logged on, a maintenance window. On Home, which honours none of them: pause updates past the show (35 days at a
 time), set active hours, restart without updating from the power menu, choose the maintenance window by hand. This build writes no
-update policy; preflight's `install` section has an information row that says so (`install:policies`).
+update policy; preflight's `install` section has an information row that says so (`install:policies`) and names the row of machine
+preflight that says the rest: on Home its `edition.updates` row, on every other edition its `updates` row, amber when no policy
+holds updates back.
 
 **Security defaults.** Smart App Control off for an unsigned build; Memory Integrity left as it is (a capture or sync driver that
 does not load under it says so); the device-encryption recovery key kept where it can be found; show media outside OneDrive
@@ -266,23 +292,27 @@ and lays the files, each matching its line in `SHA256SUMS`, with the notices and
 Runtime's third-party notices under `licenses\` among them), the shader worker's natives each at the worker's pin with DXC's licence
 and notices in `licenses\DXC\` and no `dxil.dll`, `libdxil.so` or `LICENSE-MS.txt` anywhere, the service with its recovery actions,
 the firewall rules on the private and domain profiles (Public too with `/PUBLICFIREWALL=1`), WER's values, the show user's write
-access to `dumps\` and `supervisor\`, the show user's account right and the install's key; this build upgrades it with Smart App
-Control evaluating and keeps the node's data; the earlier build is refused as a downgrade; a folder other than Program Files, a show
-user Windows cannot find (exit 3, the machine left unsupervised), an upgrade while another program runs from the install, and an
-upgrade that cannot replace a file (the earlier service running again) each end as this guide says; `stop` holds the engine and
-`resume` starts it again, and the show user may only wait on the stop event; a standard account runs the installed engine and serves
-HTTP on 9940 with no URL reservation; an uninstall straight after the service is stopped ends its engine and takes every
-machine-level action back, the account right read back with `rights`; a pid record naming a process that is not the engine ends
-nothing; the artifact's `SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned
-Agility SDK package, its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte; on
-both jobs it finds nothing in `PlayMap.iss` that skips the licence page or answers it (no `ShouldSkipPage`, no change to its
-choices, no licence file named but [Setup]'s), and every package the publish's restore carries named in `THIRD-PARTY-NOTICES.md`.
-The Windows job finds no Agility SDK file in the portable folder, and lays the notices into it; `installer/notices.ps1` stops a
-build whose folder carries a package, or a native library no package carries, that `THIRD-PARTY-NOTICES.md` does not name.
-`LicenceTests` hold the installer's payload (the installer job) and the portable folder (the Windows job) to DXC's compiler alone —
-no `dxil.dll` or `libdxil.so` and no other file of DXC's package, `dxcompiler.dll` at the worker's pin with `licenses\DXC\` holding
-its licence and notices and nothing else — and to `THIRD-PARTY-NOTICES.md` naming every package and native library each carries,
-with each package's own licence and notice files beside it. No lab ran this round: a real IoT Enterprise LTSC node with auto-logon,
-the supervisor starting the engine in session 1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the unsigned
-installer on clean Home and Pro, ReadyToRun's first ten minutes and a Home node (L11, L18, L21, L23; their scripts are in
-`docs/round3/lab/`) are not run.
+access to `dumps\` and `supervisor\engine\` and to nothing else of the machine's folders (the PlayMap folder's access its own, the
+supervisor's folder with no rule of its own), the notices of the packages inside the supervisor's exe, the show user's account right
+and the install's key; this build upgrades it with Smart App Control evaluating and keeps the node's data; the earlier build is
+refused as a downgrade; a folder other than Program Files, a show user Windows cannot find (exit 3, the machine left unsupervised), an
+upgrade while another program runs from the install, and an upgrade that cannot replace a file (the earlier service running again)
+each end as this guide says; `stop` holds the engine and `resume` starts it again, and the show user may only wait on the stop event;
+a standard account runs the installed engine and serves HTTP on 9940 with no URL reservation; an uninstall straight after the service
+is stopped ends its engine and takes every machine-level action back, the account right read back with `rights` and the show user's
+write access to the folders read from their access rules; a pid record naming a process that is not the engine ends nothing; the
+artifact's `SHA256SUMS` matches every file. On Linux, `InstallerTermsTests` holds `installer/licence.txt` to the pinned Agility SDK
+package, its SHA-256 the pin's: Microsoft's `LICENSE.txt` whole, and its DISTRIBUTABLE CODE section byte for byte; on both jobs it
+finds nothing in `PlayMap.iss` that skips the licence page or answers it (no `ShouldSkipPage`, no change to its choices, no licence
+file named but [Setup]'s), and every package the publish's restore carries named in `THIRD-PARTY-NOTICES.md`. The Windows job finds no
+Agility SDK file in the portable folder, and lays the notices into it; `installer/notices.ps1` stops a build whose folder carries a
+package, or a native library no package carries, that `THIRD-PARTY-NOTICES.md` does not name. `LicenceTests` hold the installer's
+payload (the installer job) and the portable folder (the Windows job) to DXC's compiler alone — no `dxil.dll` or `libdxil.so` and no
+other file of DXC's package, `dxcompiler.dll` at the worker's pin with `licenses\DXC\` holding its licence and notices and nothing
+else — and to `THIRD-PARTY-NOTICES.md` naming every package and native library each carries, with each package's own licence and
+notice files beside it, the supervisor's packages' among them in the payload. On the Windows job `MachineFoldersTests` read the access
+the install gives the machine's folders, and a folder that is a link refused, and the supervisor's own tests hold its start order (the
+engine runs once the status naming it is written) and its stop event's one right for the show user or, with none named, for every
+signed-in user. No lab ran this round: a real IoT Enterprise LTSC node with auto-logon, the supervisor starting the engine in session
+1 on real hardware, Shell Launcher, an upgrade during a rehearsal, the unsigned installer on clean Home and Pro, ReadyToRun's first
+ten minutes and a Home node (L11, L18, L21, L23; their scripts are in `docs/round3/lab/`) are not run.

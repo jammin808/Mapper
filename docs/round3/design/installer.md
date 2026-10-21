@@ -110,7 +110,7 @@ MSI this file designs is built by the WiX toolset compiled from its source, and 
 | `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, as replaceable files (today the folder carries none and the node looks for them beside the exe [map §6.2]) — the same hash-pinned `lgpl-shared` build both CI jobs load for every decode test from this package's first item on; the GPL command-line build stays in CI only to encode test media, on the path and never beside a test host |
 | `…\D3D12\` | the Agility SDK's `D3D12Core.dll` (its debug layer is left out of releases) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the service |
-| `%ProgramData%\PlayMap\` | `dumps\` (WER), `supervisor\` (its status file and log); the show account may write both |
+| `%ProgramData%\PlayMap\` | owned by administrators with its own access: `dumps\` (WER) and `supervisor\engine\` (the engine's pid record), which the show account may write; `supervisor\` itself (the supervisor's status file and log), which only SYSTEM and administrators may change |
 | `HKLM\SOFTWARE\PlayMap` | `InstallDir`, `Version`, `ShowUser`, `Supervised` (read by the desk and by `machine.install`) |
 
 Per user, as today: the node's home (`%LOCALAPPDATA%\PlayMap`: settings, journal, caches, the pipeline cache) in the show user's
@@ -162,9 +162,9 @@ The installer neither creates the show account nor stores its password; `docs/IN
 Before `InstallValidate` (immediate, so nothing is replaced yet), the MSI runs `PlayMap.Supervisor.exe preinstall-check`. It fails
 closed:
 
-1. It looks for a live engine: the supervisor's pid file (`%ProgramData%\PlayMap\supervisor\engine.pid`, with the port the engine
-   listens on, written by the engine at start) and any running process whose image is the installed `PlayMap.exe` with the
-   `engine` argument.
+1. It looks for a live engine: the engine's pid file (`%ProgramData%\PlayMap\supervisor\engine\engine.pid`, with the port the engine
+   listens on, written by the engine at start) and any running process whose image is the installed `PlayMap.exe` with the `engine`
+   argument.
 2. **No engine process** → the install goes on.
 3. An engine that answers on loopback (`SHOW` on its line wire, at the port the pid file names) → armed: the check sets
    `PLAYMAP_ARMED_WORDS` and a conditional error action stops the install or the uninstall with the node's words ("the show is armed
@@ -261,9 +261,10 @@ decision 2"), on `main` as on a branch.
   account (and a new one has no password), a local standard "show" account is made after setup, with a password, and auto-logon is
   set to it.
 - **Shell Launcher** where the edition has it (IoT Enterprise, Enterprise, Education: `Dism /online /Enable-Feature /all
-  /FeatureName:Client-EmbeddedShellLauncher`) with the engine as the show account's shell, for a node with no desk; the supervisor
-  still watches it. On Home and Pro the supervisor starts the engine in the show account's session with Explorer underneath, and the
-  desk's monitor (or a small admin display) stays the primary display, since notifications, UAC and setup screens open there.
+  /FeatureName:Client-EmbeddedShellLauncher`) with a shell other than the engine for the show account, for a node with no desk; the
+  supervisor starts the engine in that session as on every edition (the engine itself as the shell would race the supervisor's own
+  engine: L11 records it). On Home and Pro the supervisor starts the engine in the show account's session with Explorer underneath,
+  and the desk's monitor (or a small admin display) stays the primary display, since notifications, UAC and setup screens open there.
 - **Updates.** On the editions with Update client policies: feature updates deferred 365 days, quality updates 30, no automatic
   restart with a user logged on, a maintenance window. On Home, which honours none of those policies: pause updates past the show
   (35 days at a time, extendable), set active hours, restart without updating from the power menu, and choose the maintenance window

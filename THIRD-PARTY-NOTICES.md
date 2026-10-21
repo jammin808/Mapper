@@ -344,12 +344,16 @@ worker process only, never by the engine:
 ### wp3-installer
 
 What the installer lays down beside PlayMap's own files is listed here, and `{app}\SHA256SUMS` names every file with its hash. This
-file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text sits beside the files it covers, the licence and notice files
-of the packages PlayMap's publish comes from sit under `{app}\licenses\`, and `{app}\licence.txt` holds the terms the installer's
-licence page shows. The portable folder carries the same publish with this file, `soft_oal-LICENSE.txt` and `licenses\` beside it
-(`installer/notices.ps1` lays them down for both, and stops the build when the publish carries a package this file does not name, or
-a native library no package carries that this file does not name by its file name); FFmpeg, the Agility SDK's runtime, libvmx and
-`licence.txt` are the installer's alone.
+file is laid down as `{app}\THIRD-PARTY-NOTICES.md`; each licence text this file names sits beside the files it covers, the licence
+and notice files of the packages PlayMap's publish and the supervisor's exe come from sit under `{app}\licenses\`, and
+`{app}\licence.txt` holds the terms the installer's licence page shows. The portable folder carries the same publish with this file,
+`soft_oal-LICENSE.txt` and `licenses\` beside it (`installer/notices.ps1` lays them down for both, and stops the build when the
+publish or the supervisor carries a package this file does not name, or a native library no package carries that this file does not
+name by its file name in backticks; a file this file names only to say it is not shipped is written without them); FFmpeg, the
+Agility SDK's runtime, libvmx, the supervisor and `licence.txt` are the installer's alone. The notices of the libraries linked into
+FFmpeg's DLLs (below) and of glslang inside shaderc's library (wp3-shaders, above) are named here by their licences; their own
+copyright lines and licence texts are not laid down yet, and round 3's integration pass lays them down (`docs/round3/PLAN.md` §5.6
+items 3 and 4).
 
 - **FFmpeg** (https://ffmpeg.org) `n9.0.2-17-g2a571b6068`, commit `2a571b6068` of its `release/9.0` branch, as FFmpeg-Builds'
   `lgpl-shared` build (https://github.com/BtbN/FFmpeg-Builds, release `autobuild-2026-09-30-13-08`, the win64 zip pinned by its
@@ -377,8 +381,10 @@ a native library no package carries that this file does not name by its file nam
   (Apache-2.0), OpenH264 (BSD-2-Clause), OpenJPEG (BSD-2-Clause), libopenmpt (BSD-3-Clause), SDL2 (Zlib), Snappy (BSD-3-Clause),
   libsoxr (LGPL-2.1-or-later), SRT (MPL-2.0), SVT-AV1 (BSD-3-Clause-Clear), TwoLAME (LGPL-2.1-or-later), uavs3d (BSD-3-Clause),
   libva (MIT), VVenC (BSD-3-Clause-Clear), zimg (WTFPL), ZVBI (LGPL-2.1-or-later), and the MinGW-w64 runtime with winpthreads
-  (ZPL-2.1 and MIT) and GCC's libgomp (GPL-3.0-or-later with the GCC Runtime Library Exception). The GPL command-line build of the
-  same release is used on CI only, to encode test media, and is never shipped.
+  (ZPL-2.1 and MIT) and GCC's libgomp (GPL-3.0-or-later with the GCC Runtime Library Exception). Each of these libraries' copyright
+  lines and licence text — the BSD conditions and disclaimer, the MIT and ISC notices among them — are named here by licence alone
+  and not yet laid down beside the DLLs: the integration pass lays them down from the pinned release's sources. The GPL command-line
+  build of the same release is used on CI only, to encode test media, and is never shipped.
 - **The DirectX Agility SDK's `D3D12Core.dll`** (Microsoft, the `Microsoft.Direct3D.D3D12` package 1.619.6 from nuget.org,
   `tools/ci-d3d12.ps1`'s pin), under the MICROSOFT DIRECTX licence terms that ship in that package, whose DISTRIBUTABLE CODE section
   lets it be shipped: `D3D12Core.dll` is on the package's list of distributable files and is laid down in `D3D12\`; its debug layer
@@ -403,8 +409,9 @@ a native library no package carries that this file does not name by its file nam
 - **PlayMap's publish**: the self-contained .NET runtime and the packages PlayMap's own files come from, which the installer lays
   down in `{app}` and the portable folder carries. Each is named here with the copyright its package states and its licence; the
   licence and notice files a package carries are laid down under `licenses\<package id>\` as the package holds them, copied from the
-  build's restore, so a notice that names the projects a package's native library incorporates (the .NET runtime's, SkiaSharp's,
-  HarfBuzzSharp's, ONNX Runtime's) is there whole.
+  build's restore (the supervisor's packages read from its restore's `project.assets.json`, since its single-file exe carries its
+  deps file inside it), so a notice that names the projects a package's native library incorporates (the .NET runtime's,
+  SkiaSharp's, HarfBuzzSharp's, ONNX Runtime's) is there whole.
   - **.NET** 10 (`Microsoft.NETCore.App.Runtime.win-x64` and `Microsoft.AspNetCore.App.Runtime.win-x64`, the runtime and ASP.NET
     Core the publish carries; MIT, Copyright (c) .NET Foundation and Contributors), each with its `LICENSE` and its
     `THIRD-PARTY-NOTICES` laid down; and the packages of the same projects, MIT under the same copyright, their packages stating
@@ -434,8 +441,9 @@ a native library no package carries that this file does not name by its file nam
   - **The Model Context Protocol C# SDK** 2.2.0 (`ModelContextProtocol.*`; Apache License 2.0, © Model Context Protocol a Series of
     LF Projects, LLC.), the MCP server, the licence laid down as `licenses\Apache-2.0.txt`; its packages carry no NOTICE file.
   - **NAudio** 3.1.0 (`NAudio.*`; MIT, © Mark Heath), wp2-audio's entry, above; libomtnet and libvmx, wp2-videoio's.
-- **The MIT License.** Each component this file names under the MIT License is under these terms, with the copyright line named for
-  it: "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
+- **The MIT License.** Each component this file names under the MIT License is under these terms, with the copyright line this file
+  names for it, or, for a library linked into FFmpeg's DLLs, its own, which the integration pass lays down (FFmpeg, above):
+  "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
   files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
   modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
   furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included

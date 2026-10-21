@@ -34,7 +34,8 @@ exe on OpenGL this paper describes, run from a folder or installed per machine u
 
 ```
 PlayMap.exe                 the desk (Avalonia). Starts and watches its engine (on a supervised machine it starts
-                            none and attaches to the engine the supervisor keeps); or attaches to any node's engine
+                            none, attaches to the engine the supervisor keeps, and says the supervisor's status when that
+                            engine does not answer); or attaches to any node's engine
                             on the network (operate a rack render node from a laptop).
 PlayMap.exe engine          the node: project, playback, decode, render, outputs, network, scan. Owns its main
                             thread (output windows + GL context live there). Headless: `engine headless`.
@@ -54,24 +55,29 @@ docs/round3/design/shaders.md). On an installed node `PlayMap.Supervisor`, a Loc
 after five restarts in ten minutes, saying so in its status file, which STATE's `machine.install` and preflight's `install` section
 read (docs/INSTALL.md). Its rule that stops an engine whose shown frames have stopped while HEALTH says they should move waits for
 HEALTH's shown-frame count, which no engine fills yet (wp3-stability). Every stop it makes sets the engine's stop event, on which
-the engine stops as any asked stop does (below), and terminates the engine 5 s later only if it still runs. The engine never runs
-as administrator and never in session 0. User ISF effects compile for the Direct3D 12 road in `PlayMap.exe shader-worker`, so no
-compiler loads into the engine; no device draws that DXIL yet (wp3-shaders-2). Today the user effects the frame draws compile
-inside the engine, on a shared second context (§5).
+the engine stops as any asked stop does (below), and terminates the engine 5 s later only if it still runs. It starts the engine
+suspended and lets it run once its status file names it. The engine never runs in session 0 and never needs to run as
+administrator: it runs as the user of the show user's console session, the standard show account the install names with
+`/SHOWUSER=` (docs/INSTALL.md), and so with an administrator's rights only where that account is an administrator whose token Windows
+does not filter. The supervisor itself writes only in a folder the show user cannot change. User ISF effects compile for the Direct3D
+12 road in `PlayMap.exe shader-worker`, so no compiler loads into the engine; no device draws that DXIL yet (wp3-shaders-2). Today the
+user effects the frame draws compile inside the engine, on a shared second context (§5).
 
 - A desk that faults or closes never blanks a projector: the engine keeps playing. The desk restarts and
   re-attaches; the engine restarts (watchdog) and puts back the recovery record (project, playlists' transports,
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - Once its doors are open the engine the supervisor started (`engine --supervised`) writes its pid record (`engine.pid`: its
-  process, the line wire's port, when it started) into the supervisor's folder, `%ProgramData%\PlayMap\supervisor`, where that
-  folder exists — the installer makes it, the show user able to write it (docs/INSTALL.md), and the engine never
-  does — never over a record that names another PlayMap engine still running (that is a fault in STATE, with the other engine's
-  pid), by the identity rule every reader of the record holds (`Core/Machine/EngineIdentity.cs`: PlayMap.exe run as the engine,
-  started when its record was written, so a pid another process took after a power cut keeps no record in place), and takes it
-  back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
-  installer's armed check needs to ask it on loopback, and no secret. That engine also waits on the supervisor's stop event
-  (`Global\PlayMap-Engine-Stop`, opened with Synchronize alone, the one right the show user has on it): once it is set the engine
-  stops as any asked stop does, and journals that the supervisor asked.
+  process, the line wire's port, the host's start) into the engine's folder, `%ProgramData%\PlayMap\supervisor\engine`, where
+  that folder exists — the installer makes it, the one folder there the show user may write (docs/INSTALL.md), which the
+  supervisor only reads, and the engine never makes it; the supervisor's status file and log lie in `supervisor\` itself, which
+  only SYSTEM and administrators may change — never over a record that names another PlayMap engine still running (that is a fault in
+  STATE, with the other engine's pid), by the identity rule every reader of the record holds (`Core/Machine/EngineIdentity.cs`:
+  PlayMap.exe run as the engine, started when its record was written, so a pid another process took after a power cut keeps no record
+  in place), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a
+  test) writes none. It holds what a supervisor needs to adopt a running engine and an installer's armed check needs to ask it on
+  loopback, and no secret. That engine also waits on the supervisor's stop event (`Global\PlayMap-Engine-Stop`, opened with
+  Synchronize alone, the one right the show user — or, on an install that names none, every signed-in user — has on it): once it is
+  set the engine stops as any asked stop does, during its start or once up, and journals that the supervisor asked.
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with

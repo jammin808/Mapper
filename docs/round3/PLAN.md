@@ -458,12 +458,12 @@ lab, and its next round.
    (drafted for the blind owner, allowed for an operator while armed); `HealthOutput.ShownFrames` and `ObservedFrames` (−1 meaning
    unknown) and HEALTH's `gpu` record (the device epoch, the phase — `starting`, `running`, `rebuilding` — and since when), read
    from a round-2 HEALTH line as unknown; the engine's pid record (pid, line-wire port, start time), written at start into
-   `%ProgramData%\PlayMap\supervisor\engine.pid` where that folder exists, by an engine started with `--supervised` (the supervisor's
-   command line) only and never over a record naming another engine still running, which the supervisor and the MSI's armed check
-   read; `IShowArmHook` (asynchronous, cancellable, with a deadline held to five minutes: `SHOW ARM` runs the hooks registered before it
-   answers, names in its answer what each did, cancels one that misses its deadline with words, and arms either way; `ALL` sends the
-   group the line before this node's hooks end; a member answers its leader before its hooks end, journalling each; a node that comes
-   back armed runs its arming hooks once it is up). (3 h)
+   `%ProgramData%\PlayMap\supervisor\engine\engine.pid` where that folder exists, by an engine started with `--supervised` (the
+   supervisor's command line) only and never over a record naming another engine still running, which the supervisor and the MSI's
+   armed check read; `IShowArmHook` (asynchronous, cancellable, with a deadline held to five minutes: `SHOW ARM` runs the hooks
+   registered before it answers, names in its answer what each did, cancels one that misses its deadline with words, and arms either
+   way; `ALL` sends the group the line before this node's hooks end; a member answers its leader before its hooks end, journalling
+   each; a node that comes back armed runs its arming hooks once it is up). (3 h)
 8. The W1 bench for M1 and M3: `bench/r3-present` — a flashing quad through a raw Direct3D 12 flip swap chain, the existing GL
    window and the D3D11 path on one display, and the composition swapchain asked to take Direct3D 12 buffers — built on the
    Windows job, run in the lab (L1, L4). (2 h)

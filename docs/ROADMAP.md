@@ -358,22 +358,26 @@ show user's session (docs/INSTALL.md, docs/wire/install.md); proven elevated on 
   notices are. A quiet install shows no page and lays nothing down without `/ACCEPTTERMS=yes`. `InstallerTermsTests` hold the page
   to the pinned package on both jobs.
 - **Machine-level actions, by the supervisor's commands.** Once the files are laid, `PlayMap.Supervisor.exe install` (elevated) makes
-  `%ProgramData%\PlayMap\dumps` and `supervisor` with the show user's write access, WER's LocalDumps, the event source, the firewall
-  rules by `netsh` (TCP 9940 and 9941, UDP 9928, 9942, 9943, 6454, 5568 and 5353, on the private and domain profiles scoped to the
-  local subnet, Public too with `/PUBLICFIREWALL=1`), `SeIncreaseBasePriorityPrivilege` for the account `/SHOWUSER=` names, and the
-  service with its recovery actions, and marks the machine supervised last, once the service runs; the uninstall takes each back.
-  No URL reservation is made: a standard account serves 9940.
+  `%ProgramData%\PlayMap` owned by administrators with its own access (SYSTEM and administrators change it, every account reads it),
+  the show user's write access on `dumps` and the engine's folder `supervisor\engine` alone (a folder that is a link refused), WER's
+  LocalDumps, the event source, the firewall rules by `netsh` (TCP 9940 and 9941, UDP 9928, 9942, 9943, 6454, 5568 and 5353, on the
+  private and domain profiles scoped to the local subnet, Public too with `/PUBLICFIREWALL=1`), `SeIncreaseBasePriorityPrivilege` for
+  the account `/SHOWUSER=` names, and the service with its recovery actions, and marks the machine supervised last, once the service
+  runs; the uninstall takes each back, the show user's write access among them, and leaves the folders. No URL reservation is made: a
+  standard account serves 9940.
 - **The armed check.** Before an install, before an upgrade replaces anything and before an uninstall, `preinstall-check` asks the
   engine and fails closed: an engine answering armed refuses with the node's words, and one that does not answer within 5 s, or
   answers with an error, refuses too; a program other than the supervised engine running from the folder refuses an upgrade or an
   uninstall.
 - **The supervisor.** The `PlayMapSupervisor` service (LocalSystem) starts `PlayMap.exe engine --supervised` in the show user's
-  console session, never session 0, restarts it with backoff (1 s doubling to 30 s), stops trying after five restarts in ten
-  minutes, adopts a running engine only by the identity rule (`Core/Machine/EngineIdentity.cs`), and writes its status file, which
-  STATE's `machine.install` and preflight's `install` section read; `status`, `stop` and `resume` ask it on its pipe. Every stop sets
-  the engine's stop event, on which a supervised engine stops as any asked stop does, journalling that the supervisor asked; the
-  next engine journals the cause of the stop before it; an engine still running 5 s after the event is terminated. On a supervised
-  machine the desk attaches to that engine and starts none.
+  console session, never session 0, suspended until its status file names it, restarts it with backoff (1 s doubling to 30 s),
+  stops trying after five restarts in ten minutes, adopts a running engine only by the identity rule
+  (`Core/Machine/EngineIdentity.cs`) and only reads the engine's pid record, and writes its status file and log in a folder the show
+  user cannot change, which STATE's `machine.install`, preflight's `install` section and the desk's Connect read; `status`, `stop`
+  and `resume` ask it on its pipe. Every stop sets the engine's stop event, on which a supervised engine stops as any asked stop
+  does, during its start or once up, journalling that the supervisor asked; the next engine journals the cause of the stop before
+  it; an engine still running 5 s after the event is terminated. On a supervised machine the desk attaches to that engine and starts
+  none, and says the supervisor's state, cause and resume line when that engine does not answer.
 - **The version rules.** `Version.props` refuses a MAJOR or MINOR above 255; the installer's version is MAJOR.MINOR.BUILD
   (`BuildInfo.MsiVersion`), from numbered builds only; the installer job's release order refuses a version not above the last
   release's ("raise MINOR").
@@ -382,20 +386,23 @@ show user's session (docs/INSTALL.md, docs/wire/install.md); proven elevated on 
   them.
 - **The spine's part.** Through the amendment lane (docs/round3/PLAN.md §5.7), each a "Spine: " commit before the fill that uses it:
   the `Install` hook in the exe's composition, which carries preflight's `install` section; a supervised engine's wait on the stop
-  event (`SupervisorNames.StopEvent`, opened with Synchronize alone); the supervisor's status record in Core (`SupervisorStatus`);
-  and the identity rule in Core, which every reader of the engine's pid record and `EnginePidRecord.TryWrite` hold a record to.
+  event (`SupervisorNames.StopEvent`, opened with Synchronize alone), journalled when it ends a start too; the supervisor's status
+  record in Core (`SupervisorStatus`) in the supervisor's folder, and the engine's pid record in the engine's folder inside it; the
+  identity rule in Core, which every reader of the engine's pid record and `EnginePidRecord.TryWrite` hold a record to; and the
+  connection manager's seams for a supervised machine and the supervisor's status, with Connect's supervised sentence.
 - **As built, against the plan's words.** An EXE, not the MSI of docs/round3/PLAN.md §3.5 items 3 and 4 (M17; §9 decision 3): it
   gives up the automatic undo of service and registry changes, repair and `msiexec`, the order docs/INSTALL.md gives an upgrade and
   an uninstall standing in for the undo; the account right is granted by `PlayMap.Supervisor.exe install --show-user` once the
   files are laid, not by a deferred custom action, and only to an account the install names; the installer goes into Program Files
-  only, a `/DIR=` elsewhere refused; STATE's `machine.install` carries no `policies` block (the design's STATE example has one), and
-  preflight's `install:policies` row says this build writes no update policy.
+  only, a `/DIR=` elsewhere refused; STATE's `machine.install` carries no `policies` block (the design's STATE example has one) and
+  no edition of its own (the machine platform's `machine.identity.os` has it), and preflight's `install:policies` row says this build
+  writes no update policy and names machine preflight's row that says what the edition honours and what holds updates back.
 - **Not built.** The freeze rule's stop: it waits for HEALTH's shown frames, which no engine reports until wp3-stability fills them,
   so the supervisor restarts the engine after an exit alone (`SupervisorHeartbeatTests` and `SupervisorRebuildTests` come with
   wp3-stability's and wp3-stability-2's merges, docs/round3/PLAN.md §5.5); the stretches — the show machine's update and
   notification policies, a manifest beside each dump, `DnsServiceRegister`, an SBOM; the rest of docs/round3/PLAN.md §5.6 item 4's
-  `LicenceTests` (no NDI, Aftermath, WARP, AMD or capture-card binary, FFmpeg reporting no `--enable-gpl`, nothing of WiX), at the
-  integration pass.
+  `LicenceTests` (no NDI, Aftermath, WARP, AMD or capture-card binary, FFmpeg reporting no `--enable-gpl`, nothing of WiX, and every
+  notice present: the notices of the libraries linked into the FFmpeg DLLs and of glslang inside shaderc), at the integration pass.
 - **Not proven.** L11 (the installed node on IoT Enterprise LTSC: auto-logon, M9 after a cold boot, Shell Launcher, an upgrade
   refused while armed), L18 (the unsigned installer on clean Home and Pro), L21 (ReadyToRun's first ten minutes) and L23's install
   part (the show account and the supervisor on a clean Home node) are not run; that the show account's right reaches the engine's

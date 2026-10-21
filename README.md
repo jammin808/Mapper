@@ -150,7 +150,8 @@ run, never passed, and nothing claims a hardware fact it has not measured.
 included (`docs/round3/PLAN.md`). It installs per machine from an installer built with Inno Setup this round (an MSI is
 revisited next round); builds stay unsigned for now, named as unsigned, each with a SHA-256 list, and the installer shows a
 licence page for the Direct3D 12 runtime it carries, as Microsoft's terms for shipping that runtime ask. A supervising service
-starts the engine in the show user's session, never as administrator and never in session 0. The engine will render
+starts the engine in the show user's session, never in session 0 and never needing administrator rights: the engine runs as the
+standard show account the install names (docs/INSTALL.md). The engine will render
 on Direct3D 12 behind the rendering hardware interface it draws through today, and OpenGL stays the reference backend until the
 pixel and timing evidence says the two agree. Outputs will lock in hardware where the hardware allows it (NVIDIA's present
 barrier on Direct3D 12, its swap group on OpenGL) and run the software lock everywhere else: the same frame, its phase measured.
@@ -311,10 +312,11 @@ retail hash. Then:
   `hlsl-symbols` (failing when there is none). It builds the lab's present bench (`bench/r3-present`) without running it, and
   publishes the portable exe, which `DxcNativesTests` read again before it is named with its version and `-unsigned` (Versions,
   below); the folder carries its notices (`installer/notices.ps1`) and its `SHA256SUMS` and no file of the Agility SDK,
-  `LicenceTests` hold it to DXC's compiler alone and to notices naming every package and native library it carries, and it is
-  uploaded.
+  `LicenceTests` hold it to DXC's compiler alone and to notices naming every package and native library it carries (their results
+  uploaded on their own, pass or fail), and it is uploaded.
 - **The installer job** (`windows-2025`, elevated) publishes the exe with ReadyToRun and the supervisor, fetches the same pinned LGPL
-  FFmpeg, the Agility SDK's runtime, libvmx and SPIRV-Tools, and builds this build's installer and the one numbered before it with
+  FFmpeg, the Agility SDK's runtime and SPIRV-Tools, builds libvmx from its vendored source with its upstream Windows command, and
+  builds this build's installer and the one numbered before it with
   Inno Setup 7.1.0 (pinned by its hash, the release's digest and its publisher's signature checked). It checks the release order
   (`PlayMap.Supervisor.exe version-check`), runs `InstallerTests`, `UnsignedArtifactTests` and `LicenceTests` on the installer and its
   payload (the licence page, a quiet install's `/ACCEPTTERMS=yes`, install, upgrade from the build before, a downgrade refused, the
