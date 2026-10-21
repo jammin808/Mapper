@@ -80,6 +80,7 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     private long _lastRescanNs;
     private (long, long, long, long, long, long, int, long, long, int, (long, long, long, int)) _counts;
     private long _countsAtNs = long.MinValue;
+    private long _ticks;
     private Project? _seen;
     private long _oscRefused;
     private long _oscMalformed;
@@ -274,25 +275,35 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
             l.Tick(now);
         if (_osc.IsOpen)
             _feedback.Pass(engine, engine.ControlInput.Settings, _surfaces, _surfaceOfSender, _sendFeedback, now);
-        // Counters move STATE at most four times a second.
+        var rescan = now - _lastRescanNs > 2_000_000_000;
+        if (rescan)
+            _lastRescanNs = now;
+        var forgot = rescan && ForgetQuietSenders(engine.Services.Wall.UnixMs);
+        // Counters move STATE at most four times a second, read after this tick's forgetting. A tick that forgets a sender (at most once
+        // in 2 s) moves STATE whatever the pace or the counts last published: a STATE written since the sender was heard may count it.
         var counts = (_artIn.Frames, _artIn.Dropped, _artIn.Polls, _artIn.Malformed, Interlocked.Read(ref _oscRefused), Interlocked.Read(ref _oscMalformed), _oscSenders.Count,
             _feedback.Sent, _feedback.Echoes, _feedback.ClientCount, (_sacnIn.Frames, _sacnIn.Dropped, _sacnIn.Previews, _sacnIn.Sources.Count));
-        if (counts != _counts && (_countsAtNs == long.MinValue || now - _countsAtNs >= 250_000_000))
+        if (forgot || counts != _counts && (_countsAtNs == long.MinValue || now - _countsAtNs >= 250_000_000))
         {
             _counts = counts;
             _countsAtNs = now;
             engine.FactsChanged();
         }
-        if (now - _lastRescanNs > 2_000_000_000)
-        {
-            _lastRescanNs = now;
+        if (rescan)
             ReconcileMidi(project, engine.ControlInput.Settings);
-            // STATE's OSC senders are the ones heard in the last 10 minutes (as feedback leases its clients), not every one ever.
-            var wall = engine.Services.Wall.UnixMs;
-            foreach (var sender in _oscSenders)
-                if (wall - sender.Value > OscSenderIdleMs)
-                    _oscSenders.TryRemove(sender);
-        }
+        Interlocked.Increment(ref _ticks);
+    }
+
+    /// <summary>Forgets the OSC senders not heard for 10 minutes on the node's wall clock (STATE's senders are the ones heard in the
+    /// last 10 minutes, as feedback leases its clients, not every one ever); true when one was forgotten. A sender heard again
+    /// meanwhile is kept.</summary>
+    private bool ForgetQuietSenders(long wallMs)
+    {
+        var forgot = false;
+        foreach (var sender in _oscSenders)
+            if (wallMs - sender.Value > OscSenderIdleMs && _oscSenders.TryRemove(sender))
+                forgot = true;
+        return forgot;
     }
 
     /// <summary>Opens and closes what the settings and the show ask for: MIDI inputs, the Art-Net consumer and its wanted channels,
@@ -312,6 +323,12 @@ public sealed class ControlService : IAsyncDisposable, INodeFaults
     // ---- OSC ----
 
     public bool OscOpen => _osc.IsOpen;
+
+    /// <summary>The OSC senders STATE counts, each with when it was last heard on the node's wall clock (ms).</summary>
+    internal KeyValuePair<string, long>[] OscSendersHeard() => _oscSenders.ToArray();
+
+    /// <summary>The ticks the control loop has finished.</summary>
+    internal long Ticks => Interlocked.Read(ref _ticks);
 
     /// <summary>Feedback messages sent, echoes dropped, and the clients fed because they were heard.</summary>
     public (long Sent, long Echoes, int Clients) Feedback => (_feedback.Sent, _feedback.Echoes, _feedback.ClientCount);

@@ -344,11 +344,25 @@ Round 2 W1 notes:
   runner (three in Debug, three in Release) and passes against the new;
   `PreflightTests.ACheckThatReturnsIsItsOwnRowsAndOneThatThrowsOrCancelsItselfIsAGreyRowWithItsWords` holds the rows of a check
   that throws or cancels itself. The fan-out test names a member's unfinished rows before it reads the member's fleet row.
+- Done: the control loop's tick that forgets an OSC sender not heard for 10 minutes moves STATE once it has. The tick published
+  its counts first and forgot the sender after, and the counts' pace (four times a second of the node's clock) held the drop back
+  until that clock moved; STATE reads the count when it is written, so a STATE written between the two counted the sender under
+  the key that held it. On a manual clock frozen after one jump, nothing moved the key again.
+  `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one Windows failure at its line 94 ("the sender forgotten", at
+  wp3-desk-ux b083d74e) is consistent with that order: its poll landing while the loop thread was off the processor between the
+  publish and the forgetting. A 20 ms stall of the loop there failed the test at that line in two of three warm runs on Linux, and
+  a STATE written there failed it in every warm run; no run of the old order failed it unforced, so that failure stays watched
+  (below). The tick now forgets quiet senders before it reads the counts, and a tick that forgot one publishes whatever the pace.
+  `OscServerTests.TheTickThatForgetsASenderMovesStateAfterForgettingIt` (a reader writing STATE the moment it moves, and a count
+  the pace holds at the jump) failed all six of its runs against the old order (three in Debug, three in Release) and passes
+  against the new; a wait on the senders fails with STATE's counts, the service's own senders and when each was last heard, the
+  node's clocks and the loop's ticks.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
   `FleetMonitorTests`' 10 s wait for the peer to read live (the test now waits until the headline and the context match the record
-  the monitor holds; the 10 s "peer not live" is not reproduced);
+  the monitor holds; the 10 s "peer not live" is not reproduced); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
+  Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` at line 100, its wait for the link's first clip
   in STATE (one failure on the batch's baseline).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but

@@ -127,9 +127,12 @@ speed channels, unbound, so the sheet never shifts.
 `STATE.control` holds the OSC socket (with its feedback clients and counts), the MIDI backend and its ports, the Art-Net socket and the
 sACN receiver (its groups and sources) with their counts, each surface with its
 port and light, the bindings' counts (live, waiting, unplugged), learn and the last input (moving STATE at most five times a
-second; `CONTROL MONITOR` shows the last 64 inputs). The context has an item per surface linked `controls` to what its bindings
-act on, and items while learning or with input off. Preflight's `control` section checks every bound source can be heard, with
-the line that fixes it. Fixture `tests/fixtures/state/control.json`, cards `control.cards.json`.
+second; `CONTROL MONITOR` shows the last 64 inputs). The OSC socket's `senders` are the addresses heard in the last 10 minutes of
+the node's wall clock. The OSC, Art-Net and sACN counts move STATE at most four times a second of the node's clock, and the tick
+that forgets a sender moves STATE once it has, so a STATE written after that tick never counts the sender. The context has an
+item per surface linked `controls` to what its bindings act on, and items while learning or with input off. Preflight's `control`
+section checks every bound source can be heard, with the line that fixes it. Fixture `tests/fixtures/state/control.json`, cards
+`control.cards.json`.
 
 ## Not in this build
 
