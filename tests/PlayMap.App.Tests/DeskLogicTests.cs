@@ -196,7 +196,7 @@ public class DeskLogicTests
             return p;
         }, backoff: new RestartBackoff(TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(4)));
         supervisor.Note += notes.Add;
-        supervisor.Start();
+        Assert.True(supervisor.Start());
         await supervisor.Watching.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         Assert.Equal(3, supervisor.Starts);
         Assert.All(made, p => Assert.True(p.Disposed));

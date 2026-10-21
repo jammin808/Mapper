@@ -55,7 +55,8 @@ public sealed class ConnectOwnTests
             Connections.Note += Notes.Add;
         }
 
-        public FakeEngineLink Link { get; }
+        /// <summary>The link the manager is handed for the next endpoint it asks for (it disposes the one it lets go).</summary>
+        public FakeEngineLink Link { get; set; }
 
         public DeskSession Session { get; }
 
@@ -117,6 +118,46 @@ public sealed class ConnectOwnTests
         Assert.Equal(1, rig.Supervisor.Starts);
         Assert.Contains("Starting this machine's engine…", rig.Notes);
         Assert.Equal([EngineEndpoint.Loopback], rig.Endpoints);
+    }
+
+    /// <summary>Until the manager's clock holds this many waits (the connect runs on another thread up to its next wait).</summary>
+    private static async Task Waits(ManualTime time, int count)
+    {
+        while (time.Waiting < count)
+            await Task.Delay(1, TestCt.Ct);
+    }
+
+    /// <summary>This machine's engine stops answering after the desk started it: Connect ▸ This machine again finds its supervisor still
+    /// watching, starts no second engine and notes that the desk waits for it, never that it starts one; the engine answers and the desk
+    /// is on it.</summary>
+    [Fact]
+    public async Task ASecondConnectWhileTheSupervisorWatchesStartsNothingAndSaysItWaits()
+    {
+        await using var rig = new Rig(LinkStatus.Down);
+        var first = rig.Connections.ConnectOwnAsync(TestCt.Ct);
+        rig.Time.Advance(TimeSpan.FromMilliseconds(1_500));
+        await rig.Started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestCt.Ct);
+        rig.Link.SetStatus(LinkStatus.Live);
+        Assert.True(await first.WaitAsync(TimeSpan.FromSeconds(30), TestCt.Ct));
+        Assert.Equal([EngineSupervisor.StartingWords], rig.Notes);
+
+        // The engine goes quiet; the desk connects to it again on a new link.
+        rig.Link = new FakeEngineLink(clock: new PlayMap.Core.Time.ManualClock());
+        rig.Link.SetStatus(LinkStatus.Down);
+        var second = rig.Connections.ConnectOwnAsync(TestCt.Ct);
+        await Waits(rig.Time, 1);
+        rig.Time.Advance(TimeSpan.FromMilliseconds(1_500));
+        await Waits(rig.Time, 1);
+        Assert.Equal([EngineSupervisor.StartingWords, ConnectionManager.WaitingWords], rig.Notes);
+        Assert.Equal(1, rig.Supervisors);
+        Assert.Equal(1, rig.Supervisor!.Starts);
+        Assert.True(rig.Supervisor.IsWatching);
+
+        rig.Link.SetStatus(LinkStatus.Live);
+        Assert.True(await second.WaitAsync(TimeSpan.FromSeconds(30), TestCt.Ct));
+        Assert.Same(rig.Link, rig.Session.Link);
+        Assert.Equal(1, rig.Supervisor.Starts);
+        Assert.Equal([EngineEndpoint.Loopback, EngineEndpoint.Loopback], rig.Endpoints);
     }
 
     [Fact]

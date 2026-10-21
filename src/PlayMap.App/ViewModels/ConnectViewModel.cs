@@ -34,6 +34,9 @@ public sealed class ConnectionManager : IAsyncDisposable
 
     public event Action<string>? Note;
 
+    /// <summary>The note when this machine's engine does not answer and its supervisor started none: it waits for the engine.</summary>
+    public const string WaitingWords = "Waiting for this machine's engine…";
+
     /// <summary>What the desk takes back from the node before it lets go of it (another node, the desk closing): awaited, within
     /// <see cref="MainViewModel.LeaveWithin"/>.</summary>
     public Func<CancellationToken, Task>? Leaving { get; set; }
@@ -44,8 +47,8 @@ public sealed class ConnectionManager : IAsyncDisposable
         await AttachAsync(link, link, "Demo node");
     }
 
-    /// <summary>This machine's engine: attach on loopback if one runs; otherwise start it, watch it, and
-    /// attach when it answers.</summary>
+    /// <summary>This machine's engine: attach on loopback if one runs; otherwise start it, watch it, and attach when it answers. A
+    /// supervisor already watching starts nothing, and the note says the desk waits for the engine.</summary>
     public async Task<bool> ConnectOwnAsync(CancellationToken ct)
     {
         var link = _links(EngineEndpoint.Loopback);
@@ -63,8 +66,8 @@ public sealed class ConnectionManager : IAsyncDisposable
             _supervisor = _makeSupervisor();
             _supervisor.Note += text => Note?.Invoke(text);
         }
-        _supervisor.Start();
-        Note?.Invoke("Starting this machine's engine…");
+        if (!_supervisor.Start())
+            Note?.Invoke(WaitingWords);
         return await WaitLiveAsync(link, TimeSpan.FromSeconds(15), ct);
     }
 
