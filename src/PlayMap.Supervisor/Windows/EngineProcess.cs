@@ -100,15 +100,22 @@ public sealed class EngineProcess : IDisposable
     public bool WaitForExit(TimeSpan within) =>
         Native.WaitForSingleObject(_handle, (uint)Math.Clamp(within.TotalMilliseconds, 0, uint.MaxValue - 1)) == WaitObject0;
 
-    /// <summary>Ends the process (exit code 1); false with Windows' words when it may not be ended.</summary>
+    /// <summary>Ends the process (exit code 1); false with Windows' words when it may not be ended. The words are the refused
+    /// termination's own: its error is read before the wait that asks whether the process still runs, which replaces it.</summary>
     public bool End(out string why)
     {
-        if (Native.TerminateProcess(_handle, 1) || !IsAlive)
+        if (Native.TerminateProcess(_handle, 1))
         {
             why = "";
             return true;
         }
-        why = new Win32Exception(Marshal.GetLastPInvokeError()).Message;
+        var error = Marshal.GetLastPInvokeError();
+        if (!IsAlive)
+        {
+            why = "";
+            return true;
+        }
+        why = new Win32Exception(error).Message;
         return false;
     }
 

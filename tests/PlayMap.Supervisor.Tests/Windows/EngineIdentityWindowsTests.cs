@@ -14,7 +14,7 @@ namespace PlayMap.Supervisor.Tests.Windows;
 /// engine.pid file is one the show user may write, so this is the rule that keeps a standard account from having SYSTEM or an
 /// administrator end a process it chose. The engine's own write holds the record to the same rule: a running engine's record (the
 /// installer's fake, copied as PlayMap.exe and run as the engine) is kept from another engine until it has gone, and a record whose
-/// pid a helper holds is replaced.</summary>
+/// pid a helper holds is replaced. An end Windows refuses is said in the refusal's own words.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class EngineIdentityWindowsTests
 {
@@ -157,6 +157,21 @@ public sealed class EngineIdentityWindowsTests
         Assert.Equal(EngineStop.NotTheEngine, EngineStopper.Stop(place.EngineFolder, place.InstallDir, place.StopEvent, said.Add));
         Assert.True(helper.Running);
         Assert.Contains("not stopped", Assert.Single(said), StringComparison.Ordinal);
+    }
+
+    [WindowsFact]
+    public void AnEndWindowsRefusesIsSaidInTheRefusalsOwnWords()
+    {
+        // A handle that may read and wait on the helper but not end it: Windows refuses the termination (access denied) while the
+        // helper runs, and End says that refusal — not the words of the wait that then finds the helper still running.
+        const int accessDenied = 5;
+        using var helper = Helper.Start();
+        var handle = Native.OpenProcessHandle(0x1000 | 0x00100000, false, helper.Pid);
+        Assert.False(handle.IsInvalid);
+        using var process = EngineProcess.Started(handle, helper.Pid);
+        Assert.False(process.End(out var why));
+        Assert.True(helper.Running);
+        Assert.Equal(new Win32Exception(accessDenied).Message, why);
     }
 
     /// <summary>A supervisor's places in a folder of the test's own, with names no other supervisor uses: its folder, and the engine's
