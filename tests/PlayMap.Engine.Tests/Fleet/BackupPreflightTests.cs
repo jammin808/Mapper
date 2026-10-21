@@ -27,6 +27,12 @@ public sealed class BackupPreflightTests
             .Single(s => s.GetProperty("section").GetString() == "fleet").GetProperty("rows").EnumerateArray().Select(r => r.Clone()).ToList();
     }
 
+    /// <summary>What the backup saw, read as a read of its mirror fails (after that read, not at it): its mirror's state and words, the
+    /// mirror link's status, connection and the primary's silence on it on the node's clock, and when the fleet monitor last heard the
+    /// primary on the fleet's clock.</summary>
+    private static string Saw(HostRig backup) =>
+        "the backup's mirror, its link and the fleet monitor's record of the primary, read after that read as this fails: " + BackupRig.Saw(backup);
+
     private static int ClosedPort()
     {
         using var l = new TcpListener(IPAddress.Loopback, 0);
@@ -72,7 +78,9 @@ public sealed class BackupPreflightTests
         Assert.Equal("MEDIA FETCH md_clip VERSION mv_1 FROM 0badc0de", files.Fix);
         Assert.Contains("meshes/ms00000009-gone.ply", files.Note, StringComparison.Ordinal);
         var mirror = rows.Single(r => r.Id == "backup:mirror");
-        Assert.True(("different", Light.Amber) == (mirror.Value, mirror.Light), $"backup:mirror read {mirror.Value} {mirror.Light}: {BackupRig.Saw(backup)}");
+        // What the backup saw is read only when a read misses, so a passing run reads nothing more between the two reads under watch.
+        if (("different", Light.Amber) != (mirror.Value, mirror.Light))
+            Assert.Fail($"backup:mirror read {mirror.Value} {mirror.Light}, not different Amber; {Saw(backup)}");
         Assert.Contains("could not be pulled from FOH-A", mirror.Note, StringComparison.Ordinal);
         var route = rows.Single(r => r.Id == "route:op_1");
         Assert.Equal((Light.Red, "unreachable", "FLEET ROUTE TEST"), (route.Light, route.Value, route.Fix));
@@ -86,7 +94,8 @@ public sealed class BackupPreflightTests
         // INDEX: the backup's FAILOVER key, lit by its mirror; the primary's key per backup.
         var failover = (await Index(backup)).Single(r => r.GetProperty("id").GetString() == "FAILOVER");
         var lit = (failover.GetProperty("light").GetString(), failover.GetProperty("state").GetString());
-        Assert.True(("amber", "different") == lit, $"FAILOVER read {lit}: {BackupRig.Saw(backup)}");
+        if (("amber", "different") != lit)
+            Assert.Fail($"INDEX's FAILOVER read {lit}, not (amber, different); {Saw(backup)}");
         await deck.Heard("\"id\":\"FAILOVER\",\"kind\":\"takeover\",\"label\":\"FAILOVER\",\"parent\":\"fleet\",\"light\":\"amber\",\"state\":\"different\"");
         Assert.Contains(await Index(primary), r => r.GetProperty("label").GetString() == "FOH-B" && r.GetProperty("kind").GetString() == "backup");
     }
