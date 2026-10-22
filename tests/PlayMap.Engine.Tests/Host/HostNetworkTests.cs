@@ -330,12 +330,14 @@ public sealed class HostNetworkTests
 
     private static string Str(JsonElement e, string key) => e.GetProperty(key).GetString() ?? "";
 
+    /// <summary>The node's clock is the test's: the desk sends its STATE once, at connect, and a running clip with no fresh STATE is
+    /// trusted for 3 s of that clock, so the clip the link counts on stands while the test reads it, however late it reads.</summary>
     [Fact]
     public async Task ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine()
     {
         const string deskToken = "AAAA-BBBB-CCCC";
         await using var desk = new FakePatternsDesk(deskToken);
-        await using var rig = await HostRig.StartAsync();
+        await using var rig = await HostRig.StartAsync(mono: new ManualClock(Base));
         await using var c = await rig.WireAsync();
         var link = await c.AskAsync($"@l LINK PATTERNS 127.0.0.1:{desk.Port} {deskToken}");
         Assert.StartsWith("OK @l {\"stage\":\"accepted\"", link, StringComparison.Ordinal);

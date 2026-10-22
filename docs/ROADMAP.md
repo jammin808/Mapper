@@ -121,7 +121,8 @@ The lab checks still to do:
   which holds the thread xunit starts for that check, made the unchanged test fail so; the poll's limit now runs on a clock the
   test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
-  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
+  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip (consistent with the clip's 3 s of trust on the node's real clock
+  running out before the test read it, not proven; the node now runs on a clock the test holds),
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `StageResourcesTests`' one Windows read of a solved blend just after
   the stage settled (consistent with the test's next step, or the stage builder between its signal to the blender and its tables,
   running later than the blend's 150 ms real-time quiet time, not proven; the quiet time now runs on a clock the test moves),

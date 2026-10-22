@@ -769,6 +769,12 @@ Round 2 W1 notes:
   it once the follower holds eight samples: the responder counts an answer once its send has returned, which can be after the
   follower has taken that answer in. With the count landing 300 ms after each send (a scratch copy of the responder) the unchanged
   tests failed 3 of 3 at its line 36; waiting, they passed 3 of 3 under it and 3 of 3 without it. No failure of them has been seen.
+- Done: `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` runs its node on a clock the test holds
+  (`HostRig`'s mono a `ManualClock`). The link trusts a running clip for 3 s of the node's clock after the desk's last STATE
+  (`PatternsLinkOptions.VideoStaleAfter`, counted on the node's own clock) and the fake desk sends its STATE once, at connect, so a
+  test that read STATE more than 3 s after that read no clip. With the test's read held 3.5 s once the link was live and paired (a
+  delay in a scratch copy) the unchanged test failed 3 of 3 at its line 346; on the held clock it passed 3 of 3 under the same delay
+  and 3 of 3 without it.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -819,7 +825,8 @@ Round 2 W1 notes:
   member's answer after the send, not proven; its deadlines now run on a manual clock moved once the receipts are in, above);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
-  wait for the link's first clip in STATE (one failure on the batch's baseline);
+  wait for the link's first clip in STATE (one failure on the batch's baseline; consistent with the clip's 3 s of trust on the
+  node's real clock running out before the test read it, not proven; the node now runs on a clock the test holds, above);
   `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
   (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
   runs on a clock the test moves); `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
