@@ -130,8 +130,81 @@ public sealed class BackupMirrorLinkTests
         }
     }
 
+    [Fact]
+    public async Task AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew()
+    {
+        // The gate the backup's greeting is held on: it outlives the nodes and is set on every way out before they stop.
+        using var release = new ManualResetEventSlim();
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        try
+        {
+            await SyncRig.OpenShowAsync(primary);
+            await primary.OkAsync("SYNC LEAD show");
+            await BackupRig.MeetAsync(primary, backup);
+            await BackupRig.BackUpAsync(primary, backup);
+            var node = backup.Engine.Services.Backup!;
+            var link = node.Link!;
+            // What the mirror says at each of the link's moves, and the line preflight's row offers with it, read as the link moves.
+            var seen = new ConcurrentQueue<(LinkStatus Status, string Mirror, string Words, string? Line)>();
+            link.StatusChanged += s =>
+            {
+                var m = node.Mirror()!;
+                seen.Enqueue((s, m.State, m.Words, m.Rejoin));
+            };
+            var greeting = HoldNextSubscribe(link, release);
+
+            // The connection ends; the next one is live with its greeting held before it subscribes, and the backup's clock moves past
+            // the stale mark with no subscription standing: the mirror is lost and not subscribed, and offered the line that joins it
+            // anew. An answer the primary gave before the clock moved (to the connection's first ping) that is read after it starts the
+            // silence again, so the clock moves once more then.
+            link.Drop();
+            await greeting.WaitAsync(TimeSpan.FromSeconds(10));
+            for (var moves = 0; moves < 2 && !seen.Any(e => e.Status == LinkStatus.Stale); moves++)
+            {
+                clock.Advance(6 * Second + Second / 2);
+                Assert.True(await Eventually.TrueAsync(() => seen.Any(e => e.Status == LinkStatus.Stale) || link.Silence < TimeSpan.FromSeconds(6)),
+                    BackupRig.Saw(backup));
+            }
+            var quiet = seen.FirstOrDefault(e => e.Status == LinkStatus.Stale);
+            Assert.Equal((LinkStatus.Stale, "lost", NotSubscribed, "FLEET BACKUP " + BackupRig.PrimaryId), quiet);
+            Assert.Equal(2L, link.Connections);
+            // Preflight's row says the same while the greeting is held, the link quiet or live again with the next answer.
+            var row = await MirrorRowAsync(backup);
+            Assert.Equal((Light.Red, "lost", NotSubscribed, "FLEET BACKUP " + BackupRig.PrimaryId), (row.Light, row.Value, row.Note, row.Fix));
+
+            // The greeting goes on: the primary takes the subscription on the same connection and the mirror is identical again.
+            release.Set();
+            Assert.True(await Eventually.TrueAsync(() => BackupRig.MirrorState(backup) == "identical"), BackupRig.Saw(backup));
+            Assert.Equal(2L, link.Connections);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
     private static async Task<PreflightRow> MirrorRowAsync(HostRig backup) =>
         (await BackupRig.PreflightAsync(backup)).Single(r => r.Id == "backup:mirror");
+
+    /// <summary>Holds the backup's greeting on the link's next connection just before it subscribes, until <paramref name="release"/> is
+    /// set, so no subscription stands on that connection meanwhile; the task ends once the greeting is held.</summary>
+    private static Task HoldNextSubscribe(MirrorLink link, ManualResetEventSlim release)
+    {
+        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hold = 1;
+        link.Subscribing += () =>
+        {
+            if (Interlocked.Exchange(ref hold, 0) == 1)
+            {
+                holding.TrySetResult();
+                release.Wait();
+            }
+        };
+        return holding.Task;
+    }
 
     /// <summary>Holds the backup's reader on the next mirror line it reads (after the node has taken it) until <paramref name="release"/>
     /// is set, so nothing more is heard from the primary meanwhile; the task ends once the reader is held.</summary>

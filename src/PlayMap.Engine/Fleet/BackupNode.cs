@@ -41,8 +41,10 @@ public sealed record BackupOptions
 /// <summary>A takeover or a hand-back as STATE's <c>fleet.last</c> and the journal tell it.</summary>
 public sealed record TakeoverRecord(string Kind, string Id, long AtUnixMs, string Words);
 
-/// <summary>A backup's mirror of its primary, as STATE's <c>fleet.mirror</c> tells it.</summary>
-public sealed record MirrorView(string Of, string Name, string State, long Rev, long BehindRev, string Words);
+/// <summary>A backup's mirror of its primary, as STATE's <c>fleet.mirror</c> tells it, and the line that joins it anew
+/// (<c>FLEET BACKUP &lt;primary&gt;</c>, preflight's row's line) while it is lost and no subscription stands; null otherwise. The state,
+/// the words and the line are read from one look at the link.</summary>
+public sealed record MirrorView(string Of, string Name, string State, long Rev, long BehindRev, string Words, string? Rejoin = null);
 
 /// <summary>The hot backup (wp2-backup, fleet's continuation), network and runtime side:
 /// <list type="bullet">
@@ -307,7 +309,7 @@ public sealed class BackupNode : IAsyncDisposable
                 return CommandReply.Fail($"no PlayMap node '{args[0]}' is heard on the show network — NODES lists the ones that are");
             if (peer.Id == SelfId)
                 return CommandReply.Fail("a node cannot back itself up — FLEET BACKUP <primary> runs on the machine that stands by");
-            if (_settings.Role == FleetRoles.Backup && _settings.Of == peer.Id && _link is not null && _subscribed)
+            if (_settings is { Role: FleetRoles.Backup } s && s.Of == peer.Id && SubscriptionStands)
                 return CommandReply.Fail($"already a hot backup of {peer.Name} ({peer.Id})");
             // A primary's backups go first; the node it hands its show back to (which mirrored it until now) is not one of them.
             var others = Feed.Members.Count(m => m.Node != peer.Id);
@@ -694,8 +696,10 @@ public sealed class BackupNode : IAsyncDisposable
             // connection finds the mirror followed again; a connection that ends takes it, and the next one subscribes anew.
             if (status is LinkStatus.Connecting or LinkStatus.Down)
                 _subscribed = false;
-            else if (status == LinkStatus.Stale)
+            else if (status == LinkStatus.Stale && _subscribed)
                 _log.LogInformation("{Primary} has said nothing on its mirror for over {Seconds} s: lost while it is quiet, still subscribed.", peer.Name, ShowBusConstants.StaleMs / 1000);
+            else if (status == LinkStatus.Stale)
+                _log.LogInformation("{Primary} has said nothing on its mirror for over {Seconds} s before taking its subscription: lost, not subscribed.", peer.Name, ShowBusConstants.StaleMs / 1000);
             _engine?.FactsChanged();
         };
         var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, http, peer.Hello.TlsFingerprint ?? "", token), _pins(),
@@ -1460,7 +1464,7 @@ public sealed class BackupNode : IAsyncDisposable
     /// turns).</summary>
     private async Task KeepFollowingAsync(EngineCore engine)
     {
-        if (_settings.Role != FleetRoles.Backup || !_subscribed || Interlocked.Read(ref _appliedRev) < 0 || _group.Length == 0
+        if (_settings.Role != FleetRoles.Backup || !SubscriptionStands || Interlocked.Read(ref _appliedRev) < 0 || _group.Length == 0
             || engine.Services.GroupSync is not { } sync)
             return;
         // Following the primary's group with the clock asking the port its hello names now: nothing to do. A clock that asks a port
@@ -1481,7 +1485,7 @@ public sealed class BackupNode : IAsyncDisposable
     private async Task RepullAsync(EngineCore engine)
     {
         var announced = Interlocked.Read(ref _announcedRev);
-        if (_link is null || !_subscribed || _pulling || announced < 0 || announced == Interlocked.Read(ref _appliedRev))
+        if (!SubscriptionStands || _pulling || announced < 0 || announced == Interlocked.Read(ref _appliedRev))
         {
             _projectTurns = 0;
             await RepullShowFilesAsync(engine).ConfigureAwait(false);
@@ -1500,7 +1504,7 @@ public sealed class BackupNode : IAsyncDisposable
     /// them).</summary>
     private async Task RepullShowFilesAsync(EngineCore engine)
     {
-        if (_showMissing.Length == 0 || _puller is not { } puller || !_subscribed || Interlocked.Read(ref _appliedRev) < 0)
+        if (_showMissing.Length == 0 || _puller is not { } puller || !SubscriptionStands || Interlocked.Read(ref _appliedRev) < 0)
         {
             _filesTurns = 0;
             return;
@@ -1559,18 +1563,31 @@ public sealed class BackupNode : IAsyncDisposable
     /// every file it names is here, the group's clock is followed and the feed is live.</summary>
     public MirrorView? Mirror()
     {
-        if (_settings.Role != FleetRoles.Backup)
+        if (_settings is not { Role: FleetRoles.Backup } settings)
             return null;
         var announced = Interlocked.Read(ref _announcedRev);
         var applied = Interlocked.Read(ref _appliedRev);
         var behind = announced < 0 || applied < 0 ? 0 : Math.Max(0, announced - applied);
         string state, words;
-        if (_link is not { } link)
+        string? rejoin = null;
+        // The link's status is read before the subscription (see Stands), once, and the state, words and line all come from that look.
+        var link = _link;
+        var status = link?.Status ?? LinkStatus.Down;
+        var subscribed = _subscribed;
+        if (link is null)
+        {
             (state, words) = ("joining", _mirrorWords);
-        else if (link.Status is var status && (status != LinkStatus.Live || !_subscribed))
-            (state, words) = (applied < 0 ? "joining" : "lost", _mirrorWords.Length > 0 && link.RefusedWords.Length > 0 ? _mirrorWords : LostWords(status));
+        }
+        else if (status != LinkStatus.Live || !subscribed)
+        {
+            var stands = Stands(status, subscribed);
+            (state, words) = (applied < 0 ? "joining" : "lost", _mirrorWords.Length > 0 && link.RefusedWords.Length > 0 ? _mirrorWords : LostWords(status, stands));
+            rejoin = state == "lost" && !stands ? "FLEET BACKUP " + settings.Of : null;
+        }
         else if (applied < 0)
+        {
             (state, words) = ("joining", _mirrorWords);
+        }
         else if (_pulling || behind > 0)
             (state, words) = ("resyncing", string.Create(CultureInfo.InvariantCulture, $"pulling {_primaryName}'s show (rev {announced})"));
         else if (MissingHere() is var missing && missing > 0)
@@ -1583,24 +1600,38 @@ public sealed class BackupNode : IAsyncDisposable
             (state, words) = ("joining", $"waiting for {_primaryName}'s group feed ({_engine?.Services.GroupSync?.FeedWord ?? "no sync part"})");
         else
             (state, words) = ("identical", string.Create(CultureInfo.InvariantCulture, $"same show (rev {applied}), clock, transports and air as {_primaryName}"));
-        return new MirrorView(_settings.Of, _primaryName, state, applied, behind, words);
+        return new MirrorView(settings.Of, _primaryName, state, applied, behind, words, rejoin);
     }
 
-    /// <summary>Why the mirror is lost, by where its link stands: quiet (the primary has said nothing on it past the stale mark, on this
-    /// node's clock, and its subscription stands), down (no connection), or connected with no subscription standing.</summary>
-    private string LostWords(LinkStatus status) => status switch
+    /// <summary>Whether a subscription stands on the mirror's link: the primary took this connection's <c>SUBSCRIBE MIRROR</c> and the
+    /// connection is up (live, or quiet past the stale mark). A connection that ends takes its subscription, so a link that reads down or
+    /// dialling holds none, whether or not the node's listener has cleared the flag yet. Read the status before the flag: the flag a
+    /// connection's end clears is cleared before the next connection reads live, so a live read never pairs with an earlier connection's
+    /// subscription.</summary>
+    private static bool Stands(LinkStatus status, bool subscribed) => subscribed && status is LinkStatus.Live or LinkStatus.Stale;
+
+    /// <summary>A subscription stands on the mirror now (<see cref="Stands"/>): FLEET BACKUP refuses then, preflight offers no line, and
+    /// the watch follows the primary's group and asks again for what it could not pull.</summary>
+    private bool SubscriptionStands => _link is { } link && Stands(link.Status, _subscribed);
+
+    /// <summary>Why the mirror is lost, by where its link stands: quiet with its subscription standing (the primary has said nothing on it
+    /// past the stale mark, on this node's clock), connected (live or quiet) with no subscription standing, or down (no connection).</summary>
+    private string LostWords(LinkStatus status, bool stands) => status switch
     {
-        LinkStatus.Stale => string.Create(CultureInfo.InvariantCulture,
+        LinkStatus.Stale when stands => string.Create(CultureInfo.InvariantCulture,
             $"{_primaryName} has said nothing on its mirror for over {ShowBusConstants.StaleMs / 1000} s — the last show and air hold here"),
-        LinkStatus.Live => $"{_primaryName}'s mirror is not subscribed — the last show and air hold here",
+        LinkStatus.Live or LinkStatus.Stale => $"{_primaryName}'s mirror is not subscribed — the last show and air hold here",
         _ => $"{_primaryName}'s mirror is down — the last show and air hold here",
     };
 
-    /// <summary>The line that joins the primary's mirror anew (<c>FLEET BACKUP &lt;primary&gt;</c>) while no subscription stands on
-    /// this backup: its connection ended, a new one is not subscribed yet, or the primary refused it. Null while one stands, a quiet
-    /// link's included, which the verb refuses ("already a hot backup"): the primary's next line on that connection follows the mirror
-    /// again, and a link quiet past the drop mark dials again and subscribes anew. Null on a node that backs up none.</summary>
-    internal string? RejoinLine => _settings is { Role: FleetRoles.Backup } s && !(_link is not null && _subscribed) ? "FLEET BACKUP " + s.Of : null;
+    /// <summary>The light a mirror's state is lit by wherever it is shown, on the backup or on its primary: green identical, red lost,
+    /// amber otherwise (joining, resyncing, different, or not heard).</summary>
+    internal static Light MirrorLight(string? state) => state switch
+    {
+        "identical" => Light.Green,
+        "lost" => Light.Red,
+        _ => Light.Amber,
+    };
 
     /// <summary>The files the show names beside its folder (meshes, measured maps, survey clouds) that could not be pulled from the
     /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror's subscription stands
