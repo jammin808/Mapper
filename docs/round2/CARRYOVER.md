@@ -827,6 +827,12 @@ Round 2 W1 notes:
   of the stopwatch, which measured only the machine's pace around the loop. With the loop's thread stopped 250 ms half way (a delay
   in a scratch copy) the unchanged test failed 3 of 3 at its range; it passed 3 of 3 under it. The rate half is unchanged. No
   failure of it has been seen.
+- Done: a PJLink search counts its window on the clock its socket is given (`PjLinkUdp`'s `time`; a node's is the system's), and
+  `PjLinkDriverTests.ASearchFindsAClass2ProjectorOnLoopbackUdp` and `DeviceManagerTests.DiscoveryFindsAProjectorIdentifiesItAndSuggestsItsNativeDriver`
+  move that clock through the window once the simulator's answer has been heard and the window's wait stands. The search collected
+  answers for 400 ms of real time across two receive loops (the simulator's and its own), so an answer later than that was dropped.
+  With the simulator's answer 500 ms late (a delay in a scratch copy) both unchanged tests failed 3 of 3 ("The collection was
+  empty"); both passed 3 of 3 under it, and the 112 Devices tests passed. No failure of them has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

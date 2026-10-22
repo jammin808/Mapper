@@ -4,6 +4,7 @@ using PlayMap.Devices.Drivers;
 using PlayMap.Devices.Drivers.PjLink;
 using PlayMap.Devices.Model;
 using PlayMap.Devices.Tests.Simulators;
+using PlayMap.Tests;
 
 namespace PlayMap.Devices.Tests;
 
@@ -205,8 +206,13 @@ public class PjLinkDriverTests
     public async Task ASearchFindsAClass2ProjectorOnLoopbackUdp()
     {
         using var projector = new PjLinkUdpSimulator("00:0a:1b:2c:3d:4e");
-        await using var udp = new PjLinkUdp(0, IPAddress.Loopback);
-        var hits = await udp.SearchAsync(projector.EndPoint, TimeSpan.FromMilliseconds(400), CancellationToken.None);
+        // The window is counted on a clock the test moves once the answer is in, so a slow answer is still in it.
+        var time = new ManualTime();
+        await using var udp = new PjLinkUdp(0, IPAddress.Loopback, time);
+        var answered = TestSupport.Answered(udp);
+        var search = udp.SearchAsync(projector.EndPoint, TimeSpan.FromMilliseconds(400), CancellationToken.None);
+        await TestSupport.EndSearchAsync(time, TimeSpan.FromMilliseconds(400), answered);
+        var hits = await search.WaitAsync(TimeSpan.FromSeconds(10));
         var hit = Assert.Single(hits);
         Assert.Equal("00:0a:1b:2c:3d:4e", hit.Mac);
         Assert.Equal(IPAddress.Loopback, hit.Address);

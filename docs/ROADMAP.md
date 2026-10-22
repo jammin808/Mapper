@@ -156,10 +156,7 @@ The lab checks still to do:
   Release build holds; the lane's own measure of an answer, as the slices are read, closes it),
   `ProjectorSolveLanePerfTests.ASolveHoldsTheLaneWithinItsSlice` and its 4× twin (an empty lane turn's stopwatch round trip within
   10 ms; the same), `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
-  order; `OptimiseOptions.Time` now lets them move it), `PjLinkDriverTests.ASearchFindsAClass2ProjectorOnLoopbackUdp` and
-  `DeviceManagerTests.DiscoveryFindsAProjectorIdentifiesItAndSuggestsItsNativeDriver` (a 400 ms real search window across the
-  simulator's and the search's own receive loops; the window on a clock the test moves once the answer is counted closes it),
-  `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
+  order; `OptimiseOptions.Time` now lets them move it), `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
   steps, closes it), `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` (five frames inside a 400 ms real
   hold; a hold until the loop has drawn them closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`
   (the follower's adoption within 800 ms by the stopwatch, a 4× ceiling on a lab bar; the facts kept and the time logged closes it),
