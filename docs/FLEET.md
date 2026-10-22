@@ -218,11 +218,14 @@ Preflight's `fleet` section: every expected machine heard (known before a restar
 pin valid. Its `backup` section: on a backup, its mirror identical and every file and optimised version the show names here (the
 line that fetches a missing one), and every file beside the show (named; the mirror asks for it again itself); on a primary, each
 backup identical; on a node that holds the show, every route reachable (`FLEET ROUTE TEST`); a fenced node red with `FLEET BACKUP
-<new primary>`. A backup's lost mirror carries `FLEET BACKUP <primary>` while no subscription stands, and no line while its link is
-only quiet: that subscription stands, the verb refuses it, and the primary's next line follows the mirror again (or, past 12 s, the
-link dials again). INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses, RESET, and a key per machine with its
-light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node that took a show over, FLEET PROMOTE
-on a follower (red while its leader is silent), and a key per backup of a primary.
+<new primary>`. A backup's lost mirror carries `FLEET BACKUP <primary>` while no subscription stands (its connection ended, or a
+connection, live or quiet, whose subscription is not taken), and no line while its link is only quiet with its subscription
+standing: the verb refuses it, and the primary's next line follows the mirror again (or, past 12 s, the link dials again); the row's
+state, words and line are read from one look at the link. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses,
+RESET, and a key per machine with its light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node
+that took a show over, FLEET PROMOTE on a follower (red while its leader is silent), and a key per backup of a primary. A mirror is
+lit alike wherever it is shown, on the backup or on its primary (STATE, the context, INDEX, preflight): green identical, red lost,
+amber otherwise.
 
 ## Threads
 

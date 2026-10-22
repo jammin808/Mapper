@@ -86,10 +86,12 @@ HEAD.
 
 `fleet` (after `show`, keys in this order): `role` (solo|primary|backup|fenced), `epoch`, `state` (serving, fenced, or the mirror's
 state on a backup), `of` (the primary a backup mirrors, the node a primary took over from, the node that fenced this one), `backups`
-(`[{"node","name","state","light","words"}]`, a primary's backups with the state each reports in its HEALTH), `mirror` (null, or
+(`[{"node","name","state","light","words"}]`, a primary's backups with the state each reports in its HEALTH, lit as a mirror is
+everywhere: green identical, red lost, amber otherwise), `mirror` (null, or
 `{"of","name","state":"joining|resyncing|identical|different|lost","rev","behindRev","words"}`; a lost mirror's words say
 why: "FOH-A's mirror is down", "FOH-A has said nothing on its mirror for over 6 s" (quiet, its subscription standing) or "FOH-A's
-mirror is not subscribed", each "— the last show and air hold here", or the primary's refusal), `succession` (the show's plan; `[]`),
+mirror is not subscribed" (connected, live or quiet, no subscription standing), each "— the last show and air hold here", or the
+primary's refusal), `succession` (the show's plan; `[]`),
 `alarm` (null: automatic takeover is not built), `last` (null, or `{"kind":"takeover|failback|promote","id","at","words"}`), `nodes`,
 `light`, `headline`, `routes` (`[{"output","device","input","backupInput","primaryNode"}]`), `routeTest` (null, or `{"at","words"}`),
 `door` (the words a client's line that would change the show meets on this node — a backup's way out, or a fenced node's — exactly
@@ -113,13 +115,15 @@ and is heard over its pinned certificate.
 ## Preflight and INDEX
 
 Preflight section `backup`: on a backup, `backup:mirror` (green identical; red lost, with `FLEET BACKUP <primary>` while no
-subscription stands — its connection ended, a new one is not subscribed yet, or the primary refused it — and no line while its link
-is only quiet, whose subscription stands and which the verb refuses as "already a hot backup") and `backup:files` (amber
+subscription stands — its connection ended, a connection, live or quiet, is not subscribed yet, or the primary refused it — and no
+line while its link is only quiet, whose subscription stands and which the verb refuses as "already a hot backup"; its state, words
+and line read from one look at the link) and `backup:files` (amber
 with the first missing media file's line: `MEDIA FETCH <media> VERSION <version> FROM <primary>`; it names each file beside the show
-that could not be pulled too, which no line fetches: the mirror asks for it again itself); on a primary, `backup:<node>` per backup;
-`route:<output>` per route (red unreachable, `FLEET ROUTE TEST`); a fenced node `backup:fenced` red; else one grey row. INDEX section
-`fleet` (preset "Fleet", press "hold"): `FAILOVER` lit by the mirror, `FAILBACK CONFIRM`, `FLEET PROMOTE` (red while the leader is
-silent), and `FLEET FOCUS machine:<node>` per backup; every node lists the section, a solo one with no rows.
+that could not be pulled too, which no line fetches: the mirror asks for it again itself); on a primary, `backup:<node>` per backup
+(lit as STATE lights it); `route:<output>` per route (red unreachable, `FLEET ROUTE TEST`); a fenced node `backup:fenced` red; else
+one grey row. INDEX section `fleet` (preset "Fleet", press "hold"): `FAILOVER` lit by the mirror, `FAILBACK CONFIRM`,
+`FLEET PROMOTE` (red while the leader is silent), and `FLEET FOCUS machine:<node>` per backup (lit as STATE lights it); every node
+lists the section, a solo one with no rows.
 
 ## Papers note
 
