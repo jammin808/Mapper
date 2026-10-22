@@ -875,6 +875,11 @@ Round 2 W1 notes:
   the unchanged test failed 3 of 3 at its line 107 (`"following FOH (0badc0de) for show — …"`), and passed unheld. The test now also
   reads STATE's words as the row is written; against the old order that failed 3 of 3 with no hold (the words were set after the
   row, on the same thread), and with the new order it passed 3 of 3 held and 3 of 3 unheld.
+- Done, not seen failing: `AnchorFeedTests.ARestartedFollowerFollowsItsLeaderAgainRejoinsTheShowWhereItIsAndKeepsItsSwitch` waits
+  for the rejoin's row ("… (kept from before the restart)") before it reads it. The rejoin (`SyncNode.RestoreAsync`) follows through
+  the network host, which names the role STATE reads, starts its feed, and then writes the row; the role, the clock and the live
+  feed the test waited for come first. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 156,
+  and passed unheld; it passed 3 of 3 under the hold now.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

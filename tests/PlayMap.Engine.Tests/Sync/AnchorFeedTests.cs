@@ -161,6 +161,8 @@ public sealed class AnchorFeedTests(ITestOutputHelper output)
             Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(again).GetProperty("role").GetString() == "follower"), again.Journal());
             Assert.Equal(SyncRig.LeaderId, SyncRig.Sync(again).GetProperty("leader").GetString());
             await SyncRig.CaughtUpAsync(leader, again);
+            // The rejoin's row is written once the follow has begun, which STATE and the clock show first: it is waited for.
+            Assert.True(await Eventually.TrueAsync(() => again.Journal().Contains("(kept from before the restart)", StringComparison.Ordinal)), again.Journal());
             Assert.Contains("(kept from before the restart)", again.Journal(), StringComparison.Ordinal);
 
             // Its new subscription hands it the latest anchor and the latest blackout: it rejoins the show where the show is.
