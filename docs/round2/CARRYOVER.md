@@ -673,6 +673,18 @@ Round 2 W1 notes:
   worst 192 codes: the view drawn with the wall, the output without) and once at line 61; with the wait it passed 3 of 3 held 1.5 s
   and 1 of 1 held 3 s, every read made with the settled tables in use. Its one failure in a loaded Linux gate (its message lost) is
   consistent with that race, not proven.
+- Done: `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait` asks the thread's measure for half of the time its spins ran, not half
+  of their stopwatch span. A spin bounded by the stopwatch holds every turn the machine gives other threads and every stop of the
+  process, which a thread's CPU clock rightly leaves out, so a thread given under half a processor read under half its span: in a
+  loaded Linux gate (load 29 to 32 on four cores) "the 125 ms spin: spun 127.56 ms of the stopwatch, counted 61.49 ms", and once
+  more in three reruns there, consistent with that, not proven. With its test host stopped 15 ms in every 25 the unchanged test
+  failed 3 of 3 at its first 10 ms (counted 0.93 to 5.77 ms of 16.12 to 20.83 ms; its 125 ms spins counted 43.71 to 48.80 ms), and
+  pinned to one processor beside one busy loop 3 of 3 (its 125 ms spins counted 43.98 to 52.52 ms of 127.96 to 130.00 ms). A spin
+  now runs until it has run its span, summed from the stopwatch's steps between its reads under 20 µs (a longer step is time it was
+  kept from running), within 10 s, and the lower bound is half of that; the upper bound stays 1.1 times the stopwatch span, which a
+  stall only lengthens (on Windows a tick wider: clock interrupts come a tick apart). Under the same stops and pin it passed 6 of 6
+  ("spun 319.57 ms, ran 125.00 ms, counted 130.16 ms"), and a measure that counts two fifths of the CPU clock fails it 2 of 2 ("the
+  first 10 ms: ran 10.00 ms of 11.15 ms of the stopwatch, counted 4.46 ms").
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -721,7 +733,9 @@ Round 2 W1 notes:
   `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (int-tests4's, and a loaded Linux gate's whose message
   was lost; consistent with its read of the journal racing the panic step, above, which the test now waits out, not proven);
   `ProjectorViewTests.TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround`' one loaded Linux failure (its message lost;
-  consistent with its read racing the stage's builder, above, which the test now waits for, not proven).
+  consistent with its read racing the stage's builder, above, which the test now waits for, not proven);
+  `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (consistent with a thread given under half a
+  processor, above, which its lower bound no longer asks of the machine, not proven).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
@@ -747,8 +761,10 @@ Round 2 W1 notes:
   paused the process inside one.
   `ThreadTimeTests` take the measure from their own reading of the platform: on Windows the ticks, not precise, each read allowed
   the tick it states; a thread blocked 50 ms counts at most one tick, so the stopwatch is refused; a spinning thread counts at most
-  1.1 times its span plus a tick, and a spin of eight ticks (125 ms) at least half its span less a tick (three ticks), so a measure
-  that charges a spin nothing, or only its kernel time, is refused. The node converts no thread's cycles. The Windows job runs
+  1.1 times its stopwatch span plus a tick, and a spin that ran eight ticks (125 ms) at least half of what it ran less a tick (three
+  ticks), so a measure that charges a spin nothing, or only its kernel time, is refused; a spin runs until it has run its span,
+  summed from the stopwatch's steps between its reads under 20 µs, so a turn the machine gave another thread, or a stop of the
+  process, is in neither what it ran nor the lower bound (above). The node converts no thread's cycles. The Windows job runs
   the tick measure and passes `ThreadTimeTests` and both slice tests (CI run 312, 8ef15a2); a passing test's readings and `Basis`
   are in that run's test-results-windows trx, which this machine's proxy does not fetch, so what each slice read there is not yet
   recorded. The tick half proves a slice when the lab item below gives a precise clock. The evidence so far, from the
