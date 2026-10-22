@@ -267,8 +267,9 @@ public sealed class HostLifecycleTests
     }
 
     /// <summary>A STATE write a second or longer, when it is the longest yet, is journalled with how long it took, the part that took
-    /// longest and its thread's work, on the engine's clock; a shorter slow one is not, so the rows stay few however often STATE is
-    /// slow.</summary>
+    /// longest and its thread's work, on the engine's clock; one under a second is not, even the first, nor one shorter than the
+    /// longest yet, so the rows stay few however often STATE is slow. The writes the test makes slow move the node's clock; the start's
+    /// write moves none, so its time is the machine's, and it is asserted against that time.</summary>
     [Fact]
     public async Task ASlowStateWriteIsJournalledWithThePartItWentIn()
     {
@@ -288,21 +289,29 @@ public sealed class HostLifecycleTests
             return Assert.IsType<StateWriteTime>(rig.Engine.LastStateWrite);
         }
 
+        static string Row(StateWriteTime t) => "STATE took " + t.Words + " to write, the longest yet";
+
+        // The start's write is the node's first, so the longest yet: journalled exactly when it took a second or more.
+        var start = Assert.IsType<StateWriteTime>(rig.Host.FirstFacts?.State);
+        string[] started = start.Ms >= EngineCore.SlowStateMs ? [Row(start)] : [];
+        Assert.Equal(started, Slow());
+
         var minute = Write(60);
         Assert.Equal("ai", minute.Slowest);
         Assert.True(minute.SlowestMs >= 60_000 && minute.Ms >= minute.SlowestMs, minute.Words);
-        Assert.Equal(["STATE took " + minute.Words + " to write, the longest yet"], Slow());
-        Assert.False(rig.Engine.Journal.Recent(200).Single(r => r.Text.StartsWith("STATE took ", StringComparison.Ordinal)).Ok);
+        Assert.Equal([.. started, Row(minute)], Slow());
+        Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Text.StartsWith("STATE took ", StringComparison.Ordinal) && r.Ok);
 
         Assert.True(Write(30).Ms >= 30_000);
-        Assert.Single(Slow());
+        Assert.Equal([.. started, Row(minute)], Slow());
 
         var twoMinutes = Write(120);
         Assert.Equal("ai", twoMinutes.Slowest);
-        Assert.Equal(["STATE took " + minute.Words + " to write, the longest yet", "STATE took " + twoMinutes.Words + " to write, the longest yet"], Slow());
+        Assert.Equal([.. started, Row(minute), Row(twoMinutes)], Slow());
 
-        Assert.True(Write(0).Ms < EngineCore.SlowStateMs);
-        Assert.Equal(2, Slow().Length);
+        // Shorter than the longest yet: not journalled, whether or not it took a second.
+        Assert.True(Write(0).Ms < twoMinutes.Ms);
+        Assert.Equal([.. started, Row(minute), Row(twoMinutes)], Slow());
     }
 
     [Fact]
