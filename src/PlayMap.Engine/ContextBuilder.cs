@@ -13,6 +13,21 @@ public static class ContextBuilder
     /// takes (MCP's get_context, Patterns, Stagewatch and the assistant).</summary>
     public const int RecentRows = 20;
 
+    /// <summary>A journal row as the context's recent says it, its head following its kind: a line, an edit or a learn this node refused
+    /// (kind refused) says "refused: " before its words, a fault it met (kind fault) "fault: "; every other row is its own words, ok
+    /// or not (a sync warning, a member's receipt, a claim Windows refused), so no row is said refused that the node did not refuse.
+    /// The head is the only "refused" a refused row's own template says.</summary>
+    public static string RecentText(JournalRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.Kind switch
+        {
+            "refused" => "refused: " + row.Text,
+            "fault" => "fault: " + row.Text,
+            _ => row.Text,
+        };
+    }
+
     public static ShowContext Build(EngineCore engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -120,7 +135,7 @@ public static class ContextBuilder
             headline += $" · synced to {sync.Leader}";
         headline = engine.ModuleHeadline(headline);
 
-        var recent = engine.Journal.Recent(RecentRows).Select(r => new ContextRecent(r.AtUnixMs, r.Ok ? r.Text : "refused: " + r.Text)).ToList();
+        var recent = engine.Journal.Recent(RecentRows).Select(r => new ContextRecent(r.AtUnixMs, RecentText(r))).ToList();
         var peers = s.Network.Peers().Select(x => new ContextPeer(x.Kind, x.Id, x.Name, ShowContext.ParseLight(x.Light), x.Headline)).ToList();
         return new ShowContext(ShowBusConstants.KindPlayMap, s.Settings.NodeId, s.Settings.Name, s.Wall.UnixMs, headline,
             items, links, recent, ShowContext.CommandsFromCatalog(engine), peers);

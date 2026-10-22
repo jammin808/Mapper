@@ -226,7 +226,8 @@ public sealed class HostStopTests
         Assert.Null(engine.ControlInput.Learning);
         Assert.Empty(engine.Store.Project.Control.Bindings);
         var rows = (await File.ReadAllLinesAsync(node.Home.JournalPath)).Select(Json).ToList();
-        Assert.Contains(rows, r => (r.GetProperty("kind").GetString(), r.GetProperty("text").GetString()) == ("refused", "learn refused: " + EngineCore.StoppingWords));
+        Assert.Contains(rows, r => (r.GetProperty("kind").GetString(), r.GetProperty("text").GetString(), r.GetProperty("ok").GetBoolean())
+            == ("refused", "learn OSC /go: " + EngineCore.StoppingWords, false));
         Assert.DoesNotContain(rows, r => r.GetProperty("text").GetString()!.StartsWith("learnt:", StringComparison.Ordinal));
     }
 
@@ -257,7 +258,9 @@ public sealed class HostStopTests
         await heard;
         Assert.Equal((EngineCore.StoppingWords, revision), (rig.Engine.ControlInput.Learnt, rig.Engine.Store.Current.Revision));
         Assert.Empty(rig.Engine.Store.Project.Control.Bindings);
-        Assert.Contains(rig.Engine.Journal.Recent(20), r => (r.Kind, r.Text) == ("refused", "learn refused: " + EngineCore.StoppingWords));
+        Assert.Contains(rig.Engine.Journal.Recent(20), r => (r.Kind, r.Text, r.Ok) == ("refused", "learn MIDI NOTE 1 60: " + EngineCore.StoppingWords, false));
+        // The context says the refusal once, at its head.
+        Assert.Contains("refused: learn MIDI NOTE 1 60: " + EngineCore.StoppingWords, ContextBuilder.Build(rig.Engine).Recent.Select(r => r.Text));
     }
 
     [Fact]

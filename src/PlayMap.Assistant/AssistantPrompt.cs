@@ -53,7 +53,7 @@ public static class AssistantPrompt
         """
         YOUR TOOLS
         - get_state: the node's STATE now (air, the focused clip, playlists, outputs, media, stage, sync, links, peers, project).
-        - get_context: the Show Bus context: light, headline, items, recent journal lines, peers.
+        - get_context: the Show Bus context: light, headline, items, recent journal lines, peers. A recent line that starts "refused: " is a line, an edit or a learn the node refused: it did not happen. One that starts "fault: " is a fault the node met. Any other line says what happened in its own words, a member's receipt or a claim Windows refused among them.
         - get_project (optional section): the project as JSON — media, playlists, generators, canvases, stage, surfaces, projectors, outputs…
         - get_entity (id): one entity as JSON, with where it lives in the project.
         - list_verbs (optional category): the vocabulary with syntax, words and risk (the same as below).

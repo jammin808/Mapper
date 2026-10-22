@@ -64,7 +64,7 @@ public sealed class OscArmedTests
         await client.SendToAsync(OscCodec.Write(OscMessage.Of("/fader", OscArg.F(0.25f))), SocketFlags.None, node);
         await ControlRig.Until(() => rig.Engine.Journal.Recent(50).Any(r => r.Who == $"binding:{binding.Id} (OSC /fader)"), "the fader's gesture journalled");
         var gesture = Assert.Single(rig.Engine.Journal.Recent(50), r => r.Who == $"binding:{binding.Id} (OSC /fader)");
-        Assert.Equal(("refused", "OSC /fader → Lobby opacity refused 1 time: " + NotWhileArmed, "SET sf_lobby opacity 0.25", false),
+        Assert.Equal(("refused", "OSC /fader → Lobby opacity, 1 time: " + NotWhileArmed, "SET sf_lobby opacity 0.25", false),
             (gesture.Kind, gesture.Text, gesture.Line, gesture.Ok));
 
         // Show Mode counted both, and nothing moved.

@@ -318,8 +318,8 @@ mode still brings the group to it. `SHOW DISARM ALL` is an operator's (the desk'
 disarm the group. `PREFLIGHT ALL` asks each member `PREFLIGHT QUICK WAIT` and merges the rows of the report each member's receipt
 carries under that member's name, a member that does not answer being a red `fleet` row; a member's fix runs on the member, so it
 is in the row's note (" — on FOH-B: SHOW SET MINGO 300") and never a line this node's report would run here. Every report lists
-one section per node (`nodes`). The journal keeps one row per receipt, never the report it carries. Refused "no fleet fan-out on
-this node" while the node fans out to none.
+one section per node (`nodes`). The journal keeps one row per receipt, a `fleet` row whose words say the member's stage, never the
+report it carries. Refused "no fleet fan-out on this node" while the node fans out to none.
 
 **Show-ready** counts five steps — outputs, media, mapping,
 sync and backup (sync, clock, fleet, links), safety — a step done when none of its rows is red or amber and every check of it finished (a check past its

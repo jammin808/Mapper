@@ -45,7 +45,7 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
             Tools =
             [
                 Tool("get_state", "The node's STATE now: what is on the air, every playlist's transport, outputs' health, sync, links. Read it before acting.", NoArguments, readOnly: true),
-                Tool("get_context", "Show Bus context: the node's light and headline computed from facts, its items, recent journal lines, and the verbs that may be proposed with their risk.", NoArguments, readOnly: true),
+                Tool("get_context", "Show Bus context: the node's light and headline computed from facts, its items, recent journal lines (a line the node refused starts \"refused: \", a fault it met \"fault: \"), and the verbs that may be proposed with their risk.", NoArguments, readOnly: true),
                 Tool("get_project", "The whole project document: media, playlists, generators, canvases, outputs, stage, projectors, surfaces.", NoArguments, readOnly: true),
                 Tool("list_verbs", "PlayMap's vocabulary: every verb with its syntax, what it does, its risk (low, review, high) and whether it changes the show.", NoArguments, readOnly: true),
                 Tool("run_command", "Runs one line of the vocabulary and answers its receipt (applied or accepted, the effect, or why it was refused). High-risk verbs (anything that changes the air) run only when the operator allows assistants to act; otherwise they are queued for approval or refused.", RunArguments, readOnly: false),

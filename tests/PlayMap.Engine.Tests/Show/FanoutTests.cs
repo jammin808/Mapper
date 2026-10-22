@@ -69,7 +69,9 @@ public sealed class FanoutTests
         Assert.True(lead.Engine.ShowNow.Armed);
         Assert.True(b.Engine.ShowNow.Armed);
         Assert.Equal(("Lead", "doors"), (b.Engine.ShowNow.By, b.Engine.ShowNow.Words));
-        Assert.Contains(lead.Engine.Journal.Recent(20), r => r.Kind == "refused" && r.Text.StartsWith("SHOW ARM \"doors\" on FOH-C: refused — already armed", StringComparison.Ordinal));
+        // A member's refusal is its receipt, a fleet row in the member's words: the context does not say this node refused it.
+        Assert.Contains(lead.Engine.Journal.Recent(20), r => r.Kind == "fleet" && !r.Ok && r.Text.StartsWith("SHOW ARM \"doors\" on FOH-C: refused — already armed", StringComparison.Ordinal));
+        Assert.Contains(ContextBuilder.Build(lead.Engine).Recent, r => r.Text.StartsWith("SHOW ARM \"doors\" on FOH-C: refused — already armed", StringComparison.Ordinal));
 
         // This node already armed: ALL still brings the group to it.
         await b.Ok("SHOW DISARM");

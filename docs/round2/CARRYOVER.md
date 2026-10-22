@@ -637,6 +637,19 @@ Round 2 W1 notes:
   (`AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn` read `(1, 1)` with the table's listener held before the change, `(1, 0)`
   after). The old wait was not seen failing; every receive held 250 ms did not make it fail, as the stopped node had sent a
   single hello by then.
+- Done: the context's recent rows take their head from the row's kind (`ContextBuilder.RecentText`). They put "refused: " in front
+  of every journal row that was not ok, so a fault (render, control, sync, preflight, a host's start), a sync warning, a fetch's
+  failed try, a member's receipt and a claim Windows refused (whose own words say "… was refused: …") each reached MCP's
+  `get_context`, Patterns, Stagewatch and the assistant as a refusal of a line that never happened. Now a row of kind `refused`
+  reads "refused: " before its words, a `fault` "fault: ", and every other row its own words, ok or not. A member's receipt is a
+  `fleet` row whatever its stage (the fanned-out show lines, the sync part's receipts and late receipts), and the refused rows whose
+  words said "refused" under the head name what was refused and why: a learn the node refused ("learn OSC /go: …", journalled not
+  ok, where it was journalled ok), a gesture's refused lines ("OSC /fader → Lobby opacity, 3 times: …") and a projector's command
+  its driver did not send ("… — not sent: …"). The assistant's prompt, its `get_context` tool and MCP's say what the two heads mean.
+  `ContextRecentTests` journals a line the node refuses, a claim Windows refuses and a line the node faults on, and reads each head
+  in CONTEXT's JSON; `PromptTests` reads the heads the prompt names in an engine's context. A claim's row on Windows still wraps
+  Windows' own words ("process.awake on was refused: Windows refused the display-required request: …"), which say it twice
+  themselves; the context adds nothing to them.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

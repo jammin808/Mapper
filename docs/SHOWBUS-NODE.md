@@ -41,6 +41,11 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
 | **Patterns' AI / any AI** | `CONTEXT` on the wire, `GET /api/context` (behind the node's token), or MCP at `/mcp` | Reads everything PlayMap is doing (lights, headline, playlists, outputs, projectors, links, recent journal) and proposes verbs with their risk. The direction (docs/round3/PLAN.md D13): the guides (two projectors on a flat screen, a film mapped onto a wall so it reads undistorted from the audience, an object with one or two projectors) become steps in STATE and the context, and an AI proposes a step's lines through the same gate as a person's lines, which decides by the line's risk, the operator's settings and Show Mode what waits for a person. |
 | **Companion / any controller** | Companion: the PlayMap module (`integrations/companion-module-playmap`) on the web port's line channel (`/ws`, `playmap.lines.v1`), paired by proof; any controller: TCP 9941 lines, that channel, or HTTP | The full vocabulary; the module builds its keys from `VERBS`, STATE and every section of `INDEX` (docs/COMPANION.md). |
 
+The context's `recent` (§6's `{at, text}` rows, at most 20) is the journal's last 20 rows, and a reader is told no more than each row
+says: a line, an edit or a learn PlayMap refused reads `refused: <why>`, a fault it met `fault: <what>`, and every other row — a sync
+warning, a member's receipt, a claim Windows refused — reads in its own words, ok or not. So Patterns, Stagewatch and an assistant
+never read a refusal of a line that never happened (docs/WIRE.md, CONTEXT).
+
 ## 3. Following others
 
 - **Patterns** (`LINK PATTERNS host[:9697] [token]`): PlayMap dials Patterns' wire like Stagewatch does

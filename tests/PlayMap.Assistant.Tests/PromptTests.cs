@@ -1,6 +1,10 @@
 using System.Text.Json;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Content;
+using PlayMap.Core.Model;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
+using PlayMap.Engine;
 
 namespace PlayMap.Assistant.Tests;
 
@@ -32,6 +36,24 @@ public class PromptTests
         Assert.Contains("number 0.2..1000000, default 1", a, StringComparison.Ordinal);
         Assert.Contains("propose_commands", a, StringComparison.Ordinal);
         Assert.Contains("Never invent an id", a, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ThePromptSaysWhatTheHeadsOfTheContextsRecentLinesMean()
+    {
+        // A node's context: a line its router refused, then a fault it met.
+        await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)), Project.CreateDefault("Recent test"));
+        Assert.True(WireGrammar.TryParse("SET sf_gone opacity 0.5", out var line, out _));
+        var reply = await engine.HandleAsync(line, SessionInfo.Desk("d1"), CancellationToken.None);
+        Assert.False(reply.Ok);
+        engine.Journal.Add("fault", "render: InvalidOperationException: the device was lost", ok: false);
+        var recent = ShowContext.Parse(engine.Context())!.Recent.Select(r => r.Text).ToList();
+        Assert.Equal(["refused: " + reply.Payload, "fault: render: InvalidOperationException: the device was lost"], recent[^2..]);
+
+        // The prompt reads those heads for what they say.
+        Assert.Contains("A recent line that starts \"refused: \" is a line, an edit or a learn the node refused: it did not happen.", AssistantPrompt.System,
+            StringComparison.Ordinal);
+        Assert.Contains("One that starts \"fault: \" is a fault the node met.", AssistantPrompt.System, StringComparison.Ordinal);
     }
 
     [Fact]

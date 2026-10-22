@@ -110,7 +110,7 @@ public sealed partial class EngineCore
         switch (r.Stage)
         {
             case CommandStage.Refused:
-                return CommandReply.Fail($"{said} — refused: {r.Words}");
+                return CommandReply.Fail($"{said} — not sent: {r.Words}");
             case CommandStage.Unreached:
                 return CommandReply.Fail($"{said} — the projector was not reached: {r.Words}");
             case CommandStage.Rejected:

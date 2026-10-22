@@ -65,7 +65,7 @@ public static class AssistantTools
             "The node's STATE right now as JSON: the air (blackout, freeze, pattern), the focused clip, every playlist's transport, outputs and their health, media readiness, the stage, scan, sync, links and peers, the project's name and revision. Use it to check facts before and after you act.",
             Schema("{}", "[]")),
         new(GetContext,
-            "The node's Show Bus context as JSON: its light and headline, items, recent journal lines in plain words, the verbs it accepts with their risk, and the peers it hears with their headlines.",
+            "The node's Show Bus context as JSON: its light and headline, items, recent journal lines in plain words (a line the node refused starts \"refused: \", a fault it met \"fault: \"), the verbs it accepts with their risk, and the peers it hears with their headlines.",
             Schema("{}", "[]")),
         new(GetProject,
             "The project as JSON (the show's document): media, playlists and their items, generators, canvases, the stage (surfaces with their tags and content, meshes, projectors, cameras, viewpoints, scans) and outputs. Name a section to get only that part. Ids for every line you propose come from here or from STATE.",

@@ -216,6 +216,19 @@ These are the keys every node writes; the packages' keys follow at the end of th
   (power, shutter, input, light-source hours, faults with their severity) and the last command's receipt.
   `credential` says whether a secret is kept for it — never the secret.
 
+## CONTEXT
+
+The Show Bus §6 context (docs/SHOWBUS-NODE.md), its keys in the contract's order: `v`, `node`, `at`, `light`, `headline`, `items`,
+`links`, `recent`, `commands`, `peers`. `recent` is the journal's last 20 rows (`ContextBuilder.RecentRows`), oldest first, each
+`{"at":<unix ms>,"text":"…"}`: the only window of the journal a reader outside the node takes (MCP's `get_context`, Patterns,
+Stagewatch, the assistant). A row's head follows its kind (`ContextBuilder.RecentText`): a line, an edit or a learn this node refused
+says `refused: ` before its words (`refused: nothing has the id sf_gone`), a fault it met `fault: ` (`fault: render: …`); every other
+row is its own words, ok or not — a sync warning, a member's receipt (`SHOW ARM "doors" on FOH-C: refused — already armed`), a claim
+Windows refused (`process.awake on was refused: …`), a fetch's failed try — so no row is said refused that this node did not refuse.
+A refused row's words name what was refused and why, not the refusal again (`learn OSC /go: …`, `OSC /fader → Lobby opacity, 3 times:
+…`, a projector's `Left: input HDMI1 — not sent: …`); a reason that quotes another party's refusal (`FOH-A refused the mirror: …`)
+is that party's.
+
 ## The node's own verbs (beside the catalogue's)
 
 - `PAIRING NEW` (high risk) makes a new pairing token, writes it to the node's settings first, then hands it to the

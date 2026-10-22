@@ -595,8 +595,9 @@ public sealed partial class EngineCore
             var receipts = await sent.ConfigureAwait(false);
             if (!journalReceipts)
                 return;
+            // A member's receipt is a fleet row whose words say its stage: a member that refused is not this node refusing the line.
             foreach (var r in receipts)
-                Journal.Add(r.Stage == "refused" ? "refused" : "fleet", $"{text} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage is not ("refused" or "silent"));
+                Journal.Add("fleet", $"{text} on {r.Name}: {r.Stage}{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage is not ("refused" or "silent"));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

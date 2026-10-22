@@ -148,7 +148,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
             KeepMembersLatency();
             _engine?.FactsChanged();
         };
-        Feed.LateReceipt += (line, r) => _engine?.Journal.Add(r.Stage == "refused" ? "refused" : "fleet",
+        // A member's late receipt is a fleet row whose words say its stage, a member's refusal among them.
+        Feed.LateReceipt += (line, r) => _engine?.Journal.Add("fleet",
             $"{line} on {r.Name}: {r.Stage} at its instant{(r.Words.Length > 0 ? " — " + r.Words : "")}", ok: r.Stage != "refused");
     }
 

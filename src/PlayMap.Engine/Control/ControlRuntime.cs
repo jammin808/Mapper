@@ -290,7 +290,7 @@ public sealed class ControlRuntime
         var made = _engine.Store.Project.Control.Bindings.Find(id);
         var words = made is null ? input : _engine.BindingWords(_engine.Store.Project, made);
         _learnt = r.Changed ? words + (replaced.Count > 0 ? $" (was {string.Join(", ", replaced.Select(w => w[(w.IndexOf('→', StringComparison.Ordinal) + 1)..].Trim()))})" : "") : r.Effect;
-        _engine.Journal.Add(r.Changed ? "control" : "refused", r.Changed ? "learnt: " + _learnt : "learn refused: " + r.Effect, "control");
+        _engine.Journal.Add(r.Changed ? "control" : "refused", r.Changed ? "learnt: " + _learnt : $"learn {input}: {r.Effect}", "control", ok: r.Changed);
         _engine.FactsChanged();
     }
 
@@ -364,7 +364,7 @@ public sealed class ControlRuntime
             _engine.Journal.Add("control", text, who);
         }
         if (g.Refused > 0)
-            _engine.Journal.Add("refused", string.Create(CultureInfo.InvariantCulture, $"{g.Input} → {target} refused {g.Refused} time{(g.Refused == 1 ? "" : "s")}: {g.Why}"),
+            _engine.Journal.Add("refused", string.Create(CultureInfo.InvariantCulture, $"{g.Input} → {target}, {g.Refused} time{(g.Refused == 1 ? "" : "s")}: {g.Why}"),
                 who, g.Line, false);
     }
 

@@ -189,7 +189,9 @@ public sealed class BindingEngineTests
         clock.AdvanceMs(500);
         await rig.Engine.ControlInput.PollAsync(clock.NowNs);
         var row = Assert.Single(rig.Engine.Journal.Recent(200), r => r.Kind == "refused");
-        Assert.Equal("OSC /bad → sf_gone opacity refused 3 times: nothing has the id sf_gone", row.Text);
+        Assert.Equal("OSC /bad → sf_gone opacity, 3 times: nothing has the id sf_gone", row.Text);
+        // The context says the refusal once, at its head.
+        Assert.Contains("refused: OSC /bad → sf_gone opacity, 3 times: nothing has the id sf_gone", ContextBuilder.Build(rig.Engine).Recent.Select(r => r.Text));
         Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Kind == "control");
     }
 

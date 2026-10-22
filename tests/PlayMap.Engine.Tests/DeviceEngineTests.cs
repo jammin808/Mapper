@@ -85,7 +85,9 @@ public sealed class DeviceEngineTests
             Assert.False((await rig.Run("DEVICE ADD Box telnet 10.0.0.9")).Ok);
             var lens = await rig.Run($"DEVICE LENS {id} ZOOM TO 100");
             Assert.False(lens.Ok);
-            Assert.Contains("refused", lens.Payload, StringComparison.Ordinal);
+            Assert.StartsWith("Left box: lens zoom to 100 — not sent: ", lens.Payload, StringComparison.Ordinal);
+            // The context says the refusal once, at its head.
+            Assert.Contains("refused: " + lens.Payload, rig.Context().GetProperty("recent").EnumerateArray().Select(r => r.GetProperty("text").GetString()));
             var unpaired = await rig.Run($"DEVICE POWER {id} OFF", OpsRig.Desk with { Paired = false });
             Assert.False(unpaired.Ok);
             Assert.StartsWith("not paired", unpaired.Payload, StringComparison.Ordinal);

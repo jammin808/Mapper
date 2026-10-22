@@ -67,7 +67,7 @@ public sealed class ArmAllTests
         Assert.Contains("DISARM-FROM DESK", off[2].GetProperty("words").GetString(), StringComparison.Ordinal);
         Assert.False(leader.Engine.ShowNow.Armed || stage.Engine.ShowNow.Armed);
         Assert.True(wing.Engine.ShowNow.Armed);
-        Assert.Single(Rows(leader), r => r.Kind == "refused" && r.Text.StartsWith("SHOW DISARM on Wing: refused — ", StringComparison.Ordinal)
+        Assert.Single(Rows(leader), r => r.Kind == "fleet" && r.Text.StartsWith("SHOW DISARM on Wing: refused — ", StringComparison.Ordinal)
             && r.Text.Contains("DISARM-FROM DESK", StringComparison.Ordinal));
 
         // A member that subscribed and then never answers reads silent; the others answer as they are.
