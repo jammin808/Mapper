@@ -103,9 +103,10 @@ The lab checks still to do:
   socket reads its own way, so the Linux counts of pool turns are not Windows'; a pull's blocks are now 1 MiB and its wait names the
   transfer's row, so a recurrence names its stage),
   `HttpHostTests`' one Windows long-poll that had answered before its check (consistent with the check running more than 450 ms
-  late on the loaded runner, not proven; on Linux, holding new threads' starts 700 ms, which holds the thread xunit starts for
-  that check, made the unchanged test fail so; the poll's limit now runs on a clock the test moves, and two more Net tests that
-  raced a short real limit no longer do),
+  late on the loaded runner, not proven, a request that faulted not ruled out; on Linux, holding new threads' starts 700 ms,
+  which holds the thread xunit starts for that check, made the unchanged test fail so; the poll's limit now runs on a clock the
+  test moves, and three more Net tests that raced a short real limit no longer do),
+  `LinkTests`' one Linux send not answered ok after the Patterns link was live again (its silence limits run on real time),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
