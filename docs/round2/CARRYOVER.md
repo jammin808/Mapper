@@ -407,7 +407,9 @@ Round 2 W1 notes:
   process's clock). Stale at 400 ms and dropped at 900 ms of real time, with a ping every 2 s, its link went stale and dropped on its
   own about a second into every connection whether the desk answered or not (live at 25 ms, stale at 499 ms, down at 1014 ms, live
   again at 1935 ms), and each of the test's polls raced a window of a few hundred milliseconds. Its one failure in 18 loaded Linux
-  Net-suite runs on fix-backup-preflight (about 5 s, its line not kept) is consistent with that, not proven. With the default clock
+  Net-suite runs on fix-backup-preflight (about 5 s, its line not kept), and its one in 9 full Net runs on fix-longpoll-win at a
+  load of about 7 to 9 on four cores (its last send, after the redial, not answered ok), are consistent with that, not proven.
+  With the default clock
   the link counts as it did before `WireClient` took a clock (`MonoClock` is `Stopwatch`'s counter in nanoseconds), so the hazard
   is older than that change. Beside a thread pool held for 9 s in the same test process, the unchanged test failed three runs of
   five with 8 items of 500 ms every 600 ms and three of the four that finished with 16 of 250 ms every 300 ms, at its waits for live
@@ -613,7 +615,8 @@ Round 2 W1 notes:
   not forced: `AFrameMayOvertakeTheReceiptOfTheCommandThatMovedIt` made the frame come first by holding the line's answer 300 ms
   of real time, so a sender that woke later than that let the receipt come first; the answer is now held until the test has the
   frame (`FakeEndpoint.HoldReplyUntil`). `AnchorFeedLineTests` waited 100 and 200 ms of real time for receipts the test hands in
-  its next statements, so a test thread held that long read them silent; their waits now run on a manual clock (`SendAirAsync`'s
+  its next statements, so a test thread held that long read them silent (the one-deadline test's one failure beside ten busy loops,
+  open below, fits that); their waits now run on a manual clock (`SendAirAsync`'s
   `time`) moved once the receipts are in, and the one-deadline test holds that twenty members make one timer and end at its one
   move instead of reading 1.5 s of real time. `StagewatchLinkTests.AStuckBeatShowsAQuestionMarkAndARedirectIsRaised` read the
   countdown's words 1.1 s of real time after the frame, and "12:29" holds only from 1 s to 2 s after it, so a test thread resumed
@@ -664,20 +667,19 @@ Round 2 W1 notes:
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows read of the mirror as lost
   (consistent with the mirror link's real-time silence above — a stale spell, or its latch, both now on the node's clock or fixed
   — not proven: its `("red", "lost")` fits a dropped connection too; its reads now name what the backup saw);
-  `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown`' one loaded Linux failure (consistent with
-  its polls racing the link's own stale-and-drop cycle in real time, which the test no longer counts on, not proven);
+  `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown`' two loaded Linux failures (one on
+  fix-backup-preflight; one on fix-longpoll-win, its send at its line 231 then not answered ok once the link was live again, which
+  of the link's refusals it was the assertion did not say; consistent with its polls racing the link's own stale-and-drop cycle in
+  real time, which the test no longer counts on, not proven);
   `AnchorFeedLineTests.EveryMemberHasTheSameOneDeadlineHoweverManyThereAre`' one failure beside ten busy loops on Linux (twenty
-  members silent where nineteen were due; its 100 ms deadline is on real time and its one member's answer comes after the send;
-  not investigated);
+  members silent where nineteen were due; consistent with its 100 ms real-time deadline passing before the test handed in its one
+  member's answer after the send, not proven; its deadlines now run on a manual clock moved once the receipts are in, above);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
   wait for the link's first clip in STATE (one failure on the batch's baseline);
   `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
   (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
-  runs on a clock the test moves); `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown`' send
-  at line 231, not answered ok once the link was live again, in 1 of 9 full Net runs on Linux at a load of about 7 to 9 on four
-  cores (which of the link's refusals it was the assertion does not say; the link's 400 ms stale and 900 ms drop limits and its
-  wait for a reply run on real time, so moving them onto the node's clock is what would let the test hold them).
+  runs on a clock the test moves).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

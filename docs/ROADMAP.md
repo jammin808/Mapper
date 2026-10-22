@@ -97,10 +97,12 @@ The lab checks still to do:
   which is fixed, not proven; its wait now names what it saw), `BackupPreflightTests`' one Windows read of the backup's mirror as
   lost (consistent with the mirror link's real-time silence — a stale spell, or its latch, both now on the node's clock or fixed —
   not proven: its message gave only `("red", "lost")`, which a dropped connection fits too; its reads now name what the backup
-  saw), `LinkTests`' one loaded Linux failure of the Patterns link's stale test (consistent with its polls racing the link's own
-  stale-and-drop cycle in real time, which the test no longer counts on, not proven), `AnchorFeedLineTests`' one failure of its
-  one-deadline test beside ten busy loops on Linux (twenty members silent where nineteen were due; its 100 ms deadline is real time
-  and its one answer comes after the send; not investigated), `HostNetworkTests`' one Windows wait for a fetched file (its
+  saw), `LinkTests`' two loaded Linux failures of the Patterns link's stale test (one on fix-backup-preflight, its line not kept;
+  one on fix-longpoll-win, its last send not answered ok once the link was live again; consistent with its polls racing the link's
+  own stale-and-drop cycle in real time, which the test no longer counts on, not proven), `AnchorFeedLineTests`' one failure of its
+  one-deadline test beside ten busy loops on Linux (twenty members silent where nineteen were due; consistent with its 100 ms
+  real-time deadline passing before the test handed in the one answer it gives after the send, not proven; its deadlines now run
+  on a clock the test moves once the receipts are in), `HostNetworkTests`' one Windows wait for a fetched file (its
   cause is not shown: the journal it printed shows that the pull had not ended through its catches, each of which journals a
   refused row, within the wait; it shows neither the stage the pull stood at nor whether it faulted outside those catches, which
   at 529b7d94 reached the node's log only; a busy thread pool stretching 64 KiB turns is one reading, unproven: on Linux, beside
@@ -111,8 +113,8 @@ The lab checks still to do:
   `HttpHostTests`' one Windows long-poll that had answered before its check (consistent with the check running more than 450 ms
   late on the loaded runner, not proven, a request that faulted not ruled out; on Linux, holding new threads' starts 700 ms,
   which holds the thread xunit starts for that check, made the unchanged test fail so; the poll's limit now runs on a clock the
-  test moves, and three more Net tests that raced a short real limit no longer do),
-  `LinkTests`' one Linux send not answered ok after the Patterns link was live again (its silence limits run on real time),
+  test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
+  countdown, the Patterns link's clip count and the hello test's grace, no longer do),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
