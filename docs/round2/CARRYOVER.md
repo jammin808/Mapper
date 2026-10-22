@@ -581,7 +581,8 @@ Round 2 W1 notes:
   passing Net test). On Linux they have taken from about 20 ms (a warm run inside the Net suite) to about 0.4 s (a host's first
   start in a test run, at a load of 5 to 9 on four cores), and a runner loaded enough to hold the check that long could slow them
   too. Consistent with the check's thread running late on the loaded runner, not proven, and a request that faulted is not ruled
-  out.
+  out. This reading replaces a step in 300b36ad's message, which brought the fix: that message read the 756 ms on Linux's start
+  and stop, and so put the check about 0.7 s in.
   Forced on Linux, the test unchanged: with every new thread's start held 700 ms (strace's delay injection on `clone`) under the
   default algorithm, it failed at line 163 with the same words and the same second frame in 3 of 15 runs and at line 165 in 4
   (the poll had answered seq 1 at its limit just after the check passed and before the publish: the same race a step later),
@@ -637,6 +638,11 @@ Round 2 W1 notes:
   (`AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn` read `(1, 1)` with the table's listener held before the change, `(1, 0)`
   after). The old wait was not seen failing; every receive held 250 ms did not make it fail, as the stopped node had sent a
   single hello by then.
+  On a node's own clock (`TimeProvider.System`) the fix changes three things a client or a reader sees. Every wait for a change,
+  the long-poll's and the WebSocket sender's, is whole milliseconds rounded up, so a poll with nothing newer ends its wait up to a
+  millisecond later than it did and never spins through the last part of one; the sender's waits are its `BeatEvery` (2 s in a
+  node) or 1 s, whole milliseconds, so its beats are as they were. A poll the web port's own stop cuts is answered 503, not an
+  empty 200. `HelloService.Heard`, which only tests read, counts a hello after the peer table has taken it in.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
