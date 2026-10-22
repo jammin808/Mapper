@@ -77,10 +77,10 @@ public sealed partial class EngineCore
             fault = ex;
             reply = CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
         }
-        if (RowHeldForTests is { } hold)
-            await hold(line, call.HoldsAfterRow).ConfigureAwait(false);
         try
         {
+            if (RowHeldForTests is { } hold)
+                await hold(line, call.HoldsAfterRow).ConfigureAwait(false);
             if (fault is not null)
                 Journal.Add("fault", $"{spec.Name}: {Redact(Journal.Describe(fault))}", session.ClientName, shown, false);
             else if (!reply.Silent && IsJournalled(spec))

@@ -164,10 +164,10 @@ public sealed partial class EngineCore
             // The lane took no more work (the node is closing): nothing of the line ran.
             turn = new LineTurn(null, ex, null);
         }
-        if (RowHeldForTests is { } hold)
-            await hold(line, turn.HoldsWork).ConfigureAwait(false);
         try
         {
+            if (RowHeldForTests is { } hold)
+                await hold(line, turn.HoldsWork).ConfigureAwait(false);
             if (turn.Reply is not { } written)
                 Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
             else if (journalLine && !written.Silent && IsJournalled(line))

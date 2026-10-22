@@ -213,8 +213,10 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     internal Func<SessionInfo, ProjectStore?>? DraftForTests { get; set; }
 
     /// <summary>A test's hold on a line's row: awaited by the line's dispatcher once the line is answered and just before it writes the
-    /// line's row, with whether the line holds work behind that row (<see cref="AfterRow"/>), so a test can make the row as late as a
-    /// busy machine makes it and read what reaches the journal first. Null in a running node.</summary>
+    /// line's row (a member's air line, answered and written within one turn of the lane, has none), with whether the line holds
+    /// work behind that row (<see cref="AfterRow"/>), so a test can make the row as late as a busy machine makes it and read what
+    /// reaches the journal first. A hold that throws loses the row and none of the line's held work: the dispatcher still takes it.
+    /// Null in a running node.</summary>
     internal Func<WireLine, bool, Task>? RowHeldForTests { get; set; }
 
     /// <summary>On the lane, an off-lane verb's document edit with <see cref="Edits"/> on the session's store for its length, so the
@@ -368,10 +370,10 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
             fault = ex;
             reply = CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
         }
-        if (RowHeldForTests is { } hold)
-            await hold(line, call.HoldsAfterRow).ConfigureAwait(false);
         try
         {
+            if (RowHeldForTests is { } hold)
+                await hold(line, call.HoldsAfterRow).ConfigureAwait(false);
             if (fault is not null)
                 Journal.Add("fault", $"{spec.Name}: {Journal.Describe(fault)}", session.ClientName, VerbCatalog.Redacted(line), false);
             else if (!reply.Silent && IsJournalled(spec))
@@ -410,10 +412,10 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
             // The lane took no more work (the node is closing): nothing of the line ran.
             turn = new LineTurn(null, ex, null);
         }
-        if (RowHeldForTests is { } hold)
-            await hold(line, turn.HoldsWork).ConfigureAwait(false);
         try
         {
+            if (RowHeldForTests is { } hold)
+                await hold(line, turn.HoldsWork).ConfigureAwait(false);
             if (turn.Reply is not { } written)
                 Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
             else if (!written.Silent && IsJournalled(line))
@@ -516,8 +518,8 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     }
 
     /// <summary>The work a line began behind its row, begun by its dispatcher once the row is written (in a <c>finally</c>, so a row
-    /// that throws loses none of it): each start on its own, so one that throws is the node's fault, journalled, and the others still
-    /// begin.</summary>
+    /// that throws, or a test's hold on it, loses none of it): each start on its own, so one that throws is the node's fault,
+    /// journalled, and the others still begin.</summary>
     private void BeginAfterRow(Action? held)
     {
         if (held is null)

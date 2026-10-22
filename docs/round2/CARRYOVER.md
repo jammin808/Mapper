@@ -609,9 +609,10 @@ Round 2 W1 notes:
   lines a `CONTROL INJECT` fires, the keep-awake hold Windows refuses, which `MACHINE SET AWAKE ON`'s save and an edit that
   enables a display output each journal as they ask for it) come before its row, as they always did, in a fixed order.
   Every dispatcher begins the held work
-  in a `finally` after the row, so a row that throws loses none of it. Parts that see a verb's change on a turn of their own are an
-  open fix (below). Tests: each makes the work end as early as it can, inside the edge's own call or with the line's row held back
-  (`EngineCore.RowHeldForTests`, which each dispatcher awaits just before the row, told whether the line holds work behind it) until
+  in a `finally` after the row, so a row that throws, or a test's hold on it, loses none of it. Parts that see a verb's change on a
+  turn of their own are an open fix (below). Tests: each makes the work end as early as it can, inside the edge's own call or with
+  the line's row held back (`EngineCore.RowHeldForTests`, which each dispatcher but a member's air line's awaits just before the
+  row, inside the `try` of that `finally`, told whether the line holds work behind it) until
   the work's first row is in, and each of these failed three runs of three with the order before it put back (a local edit, not
   kept) and passes now: `VerbRowTests`' `AFetchsRowComesBeforeEveryRowOfItsPullsWhenTheyAllEndBeforeTheFetchIsAnswered` (its edge
   journals what it queued, as the contract now says), `AnImportsOwnRowsComeAfterTheRowOfTheVerbThatBeganIt`,

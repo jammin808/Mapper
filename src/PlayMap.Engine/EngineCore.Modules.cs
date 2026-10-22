@@ -10,8 +10,9 @@ using PlayMap.Net;
 namespace PlayMap.Engine;
 
 /// <summary>One line of a package's verb as its handler receives it: the matched row, the words after the verb's own, the whole
-/// line and who sent it. One object per line, made by the line's dispatcher, which alone takes the work held behind its row: a
-/// class, so no copy of it holds work that dispatcher never takes.</summary>
+/// line and who sent it. One object per line (made by the router in the line's turn on the lane, by the line's dispatcher off it),
+/// whose work held behind the row the line's dispatcher alone takes, once: a class, so no copy of it holds work that dispatcher
+/// never takes.</summary>
 public sealed class VerbCall(VerbSpec spec, List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
 {
     /// <summary>Marks the work behind the row as taken by the line's dispatcher.</summary>
@@ -30,9 +31,11 @@ public sealed class VerbCall(VerbSpec spec, List<string> args, WireLine line, Se
     public CancellationToken Ct { get; } = ct;
 
     /// <summary>Begins work this line's handler starts and leaves running once the line's own row is in the journal, so every row of
-    /// that work follows the verb's (<see cref="EngineCore.AfterRow"/>): held until the line's dispatcher has written the row, whatever
-    /// it says, or knows it writes none, and begun at once after that, on the lane and off it, whether the handler or work it left
-    /// running holding this call hands it over. A start only begins work that runs off the lane.</summary>
+    /// that work follows the verb's (<see cref="EngineCore.AfterRow"/>), on the lane and off it, whether the handler or work it left
+    /// running holding this call hands it over: held until the line's dispatcher has written the row, whatever it says, or knows it
+    /// writes none, and then begun by that dispatcher on its own thread (the lane's, for a member's air line); handed over after
+    /// that, begun at once on the thread that hands it over. A start only begins work that runs off the lane and touches none of the
+    /// lane's state, so either thread may begin it.</summary>
     public void AfterRow(Action start)
     {
         ArgumentNullException.ThrowIfNull(start);
