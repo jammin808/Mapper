@@ -66,6 +66,26 @@ public class GateTests
     }
 
     [Fact]
+    public void ABindingThatCarriesAPathQuotedWithSingleBackslashesIsRefusedAsThatPathsVerbRefusesIt()
+    {
+        // A binding's target fires later, past the gate: the path it carries is held to its spelling now, however the binding carries it.
+        foreach (var line in new[]
+        {
+            @"BIND ADD MIDI NOTE 1 60 TO PROJECT SAVE ""C:\shows\a.playmap""",
+            @"BIND LEARN PROJECT SAVE ""C:\shows\a.playmap""",
+            """BIND ADD {"input":"MIDI NOTE 1 60","target":"PROJECT SAVE \"C:\\shows\\a.playmap\""}""",
+        })
+        {
+            var check = CommandGate.Check(line);
+            Assert.False(check.Ok, line);
+            Assert.Equal(@"PROJECT SAVE: inside quotes a backslash escapes the mark after it, so ""C:\shows\a.playmap"" reads as C:showsa.playmap — write the path bare, C:\shows\a.playmap, or with / in place of each \",
+                check.Reason);
+        }
+        var written = CommandGate.Check("BIND ADD MIDI NOTE 1 60 TO PROJECT SAVE " + WireGrammar.Quote(@"C:\My shows\a.playmap"));
+        Assert.True(written.Ok, written.Reason);
+    }
+
+    [Fact]
     public void ALineWithItsVerbsSecretWordsPassesMarkedAndOneWithoutThemDoesNot()
     {
         var link = CommandGate.Check("LINK PATTERNS 10.0.0.5:9697 0badc0de0badc0de");

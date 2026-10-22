@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
@@ -138,6 +139,85 @@ public sealed class PathWordTests
         Assert.Equal("failed", rig.Engine.SurveyJob!.State);
         var row = rig.Engine.Journal.Recent(200).Last(r => r.Kind == "refused" && r.Text.StartsWith("broken scan was not imported", StringComparison.Ordinal));
         Assert.Equal(["SURVEY", "IMPORT", file], Line(row.Line!).Words);
+    }
+
+    [Fact]
+    public async Task ABindingsTargetWhosePathLosesItsBackslashesIsRefusedHoweverTheBindingIsMade()
+    {
+        // A control fires its target later, rebuilt from the words the grammar read, past the door: a path that lost its backslashes would
+        // fire a line naming another file. In words, in JSON, as a set, learnt or set on a binding, such a target is refused.
+        const string Refusal = @"LED IMPORT: inside quotes a backslash escapes the mark after it, so ""C:\leds\a.csv"" reads as C:ledsa.csv — write the path bare, C:\leds\a.csv, or with / in place of each \";
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var made = await Run(engine, "BIND ADD MIDI CC 1 9 TO PLAYLIST NEW Bound");
+        Assert.True(made.Ok, made.Payload);
+        var id = JsonDocument.Parse(made.Payload!).RootElement.GetProperty("id").GetString()!;
+        var project = engine.Store.Project;
+        string[] exact =
+        [
+            @"BIND ADD MIDI CC 1 7 TO LED IMPORT ""C:\leds\a.csv"" SCALE *",
+            @"BIND LEARN LED IMPORT ""C:\leds\a.csv"" SCALE *",
+            @"BIND LEARN FROM MIDI LED IMPORT ""C:\leds\a.csv""",
+        ];
+        string[] carried =
+        [
+            """BIND ADD {"input":"MIDI CC 1 7","target":"LED IMPORT \"C:\\leds\\a.csv\" SCALE *"}""",
+            """BIND ADD {"bindings":[{"input":"MIDI CC 1 7","target":"LED IMPORT \"C:\\leds\\a.csv\" SCALE *"}]}""",
+            "SET " + id + @" target ""LED IMPORT \""C:\\leds\\a.csv\"" SCALE *""",
+        ];
+        foreach (var line in exact.Concat(carried))
+        {
+            var reply = await Run(engine, line);
+            Assert.False(reply.Ok, line);
+            if (exact.Contains(line))
+                Assert.Equal(Refusal, reply.Payload);
+            else
+                Assert.EndsWith(Refusal, reply.Payload, StringComparison.Ordinal);
+            var row = engine.Journal.Recent(1)[0];
+            Assert.Equal(("refused", line, false), (row.Kind, row.Line, row.Ok));
+        }
+        Assert.Same(project, engine.Store.Project);
+        Assert.Equal(["PLAYLIST NEW Bound"], engine.Store.Project.Control.Bindings.Select(b => b.Target));
+        Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(engine.State().Json).RootElement.GetProperty("control").GetProperty("learning").ValueKind);
+        var injected = await Run(engine, "CONTROL INJECT MIDI CC 1 7 0.5");
+        Assert.False(injected.Ok);
+        Assert.StartsWith("nothing is bound to MIDI CC 1 7", injected.Payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ABindingsTargetWrittenAsAProducerWritesItFiresALineThatReadsItsPathAsTyped()
+    {
+        // The value word is filled in and the line rebuilt from the words the grammar read: the path in it is the path that was typed.
+        const string Typed = @"C:\My leds\a.csv";
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var made = await Run(engine, "BIND ADD MIDI CC 1 7 TO LED IMPORT " + WireGrammar.Quote(Typed) + " SCALE *");
+        Assert.True(made.Ok, made.Payload);
+
+        var injected = await Run(engine, "CONTROL INJECT MIDI CC 1 7 0.5");
+
+        Assert.True(injected.Ok, injected.Payload);
+        var fired = Assert.Single(JsonDocument.Parse(injected.Payload!).RootElement.GetProperty("fired").EnumerateArray());
+        Assert.Equal(["LED", "IMPORT", Typed, "SCALE", "0.5"], Line(fired.GetProperty("line").GetString()!).Words);
+    }
+
+    [Fact]
+    public async Task ARefusedPathThatReadsAsALineHoldingASecretIsKeptOutOfTheReplyAndTheRow()
+    {
+        // The journal keeps such a phrase back from the row's line; the refusal, which is the reply and the row's words, keeps it back too.
+        const string Secret = "s3cret";
+        await using var engine = new EngineCore(EngineServices.ForTests() with { Media = new Recorded() });
+        foreach (var line in new[] { @"MEDIA IMPORT ""AUTH s3cret\x"" Take", @"BIND ADD MIDI CC 1 7 TO MEDIA IMPORT ""AUTH s3cret\x""" })
+        {
+            var reply = await Run(engine, line);
+
+            Assert.False(reply.Ok, line);
+            Assert.Contains("so the quoted path loses a backslash", reply.Payload, StringComparison.Ordinal);
+            Assert.DoesNotContain(Secret, reply.Payload, StringComparison.Ordinal);
+            var row = engine.Journal.Recent(1)[0];
+            Assert.Equal(("refused", false), (row.Kind, row.Ok));
+            Assert.DoesNotContain(Secret, row.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain(Secret, row.Line, StringComparison.Ordinal);
+        }
+        Assert.Empty(engine.Store.Project.Control.Bindings);
     }
 
     private static WireLine Line(string text)

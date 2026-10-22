@@ -3,8 +3,8 @@ using System.Text;
 
 namespace PlayMap.Core.Wire;
 
-/// <summary>The one reader of a row's syntax, used by the assistant's gate, the node's door and the desk's stand-in engine (a path
-/// that reads as typed), the controllers' typed parameters, HELP and the catalogue's own tests. A row's syntax is one or more forms separated by a top-level " | " (outside &lt;…&gt; and […]);
+/// <summary>The one reader of a row's syntax, used by the assistant's gate, MCP, the node's door, a binding's target and the desk's
+/// stand-in engine (a path that reads as typed), the controllers' typed parameters, HELP and the catalogue's own tests. A row's syntax is one or more forms separated by a top-level " | " (outside &lt;…&gt; and […]);
 /// each form starts with the verb's name.</summary>
 public static class VerbSyntax
 {
@@ -107,16 +107,39 @@ public static class VerbSyntax
     /// refused. Inside quotes a backslash escapes the mark after it (<see cref="WireGrammar.DropsBackslash"/>), so a path quoted with
     /// single backslashes, as Explorer gives a Windows path and as a person or a model types one, would name another file: the words
     /// say what it reads as and the spelling that reads as typed (<see cref="WireGrammar.Quote"/> of the phrase as it stands), bare
-    /// or quoted with each backslash doubled.</summary>
+    /// or quoted with each backslash doubled. The words repeat the phrase only when the line holds nothing the journal keeps back
+    /// (<see cref="VerbCatalog.Redacted(WireLine)"/>), and say that JSON rides bare when the row takes JSON and the phrase reads as it.</summary>
     public static string? DroppedBackslash(VerbSpec spec, WireLine line, int verbWords)
     {
         ArgumentNullException.ThrowIfNull(spec);
         ArgumentNullException.ThrowIfNull(line);
         if (!TakesPath(spec) || line.QuotedText(verbWords) is not { } typed || !WireGrammar.DropsBackslash(typed))
             return null;
+        var rule = $"{spec.Name}: inside quotes a backslash escapes the mark after it, so ";
+        var word = line.Word(verbWords);
+        if (word.Length > 0 && word[0] is ('{' or '[') && spec.Syntax.Contains("<json>", StringComparison.Ordinal))
+            return rule + "quoted JSON loses the escapes its strings hold — a JSON argument rides bare, unquoted, to the end of the line";
+        if (!string.Equals(VerbCatalog.Redacted(line), line.Raw, StringComparison.Ordinal))
+            return rule + "the quoted path loses a backslash — write the path with each \\ doubled inside the quotes, bare when it holds no space or quote, or with / in place of each \\";
         var spelled = WireGrammar.Quote(typed);
         var how = spelled.StartsWith('"') ? $"{spelled}, each \\ doubled inside the quotes," : $"bare, {spelled},";
-        return $"{spec.Name}: inside quotes a backslash escapes the mark after it, so \"{typed}\" reads as {line.Word(verbWords)} — write the path {how} or with / in place of each \\";
+        return rule + $"\"{typed}\" reads as {word} — write the path {how} or with / in place of each \\";
+    }
+
+    /// <summary>Null when the path the line quotes, and the path quoted by the line it carries (a binding's target, as
+    /// <see cref="VerbCatalog.EmbeddedLine"/> reads it), each read as typed; else why the line is refused, in the words of the verb
+    /// whose path it is (<see cref="DroppedBackslash(VerbSpec, WireLine, int)"/>). A carried line carries no line of its own: a binding's
+    /// target is never a binding verb, and the node reads every target again where it binds it (<see cref="Control.TargetLine"/>).</summary>
+    public static string? DroppedBackslash(WireLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (VerbCatalog.Match(line) is not { } m)
+            return null;
+        if (DroppedBackslash(m.Spec, line, m.Words) is { } own)
+            return own;
+        return VerbCatalog.EmbeddedLine(m.Spec, line, m.Words) is { } carried && VerbCatalog.Match(carried) is { } c
+            ? DroppedBackslash(c.Spec, carried, c.Words)
+            : null;
     }
 
     /// <summary>A form's first token after the verb, optional or not ("[&lt;path&gt;]"), or "" when it has none.</summary>

@@ -110,6 +110,10 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
         // A row the node does not answer is refused here, so nothing waits for a person that could only be refused.
         if (verb is not null && runner.Endpoint is IVerbAvailability availability && !availability.IsAvailable(verb))
             return Text($"{verb.Name} is not available on this node yet", error: true);
+        // So is a quoted path that would name another file (the node's door and a binding's target refuse it), with the spelling that
+        // reads as typed, whatever the line's risk.
+        if (VerbSyntax.DroppedBackslash(line) is { } dropped)
+            return Text(dropped, error: true);
         var address = user?.FindFirst(AddressClaim)?.Value ?? "?";
         var loopback = user?.FindFirst(LoopbackClaim)?.Value == "1";
         var session = new SessionInfo("m" + Interlocked.Increment(ref _sessions).ToString(System.Globalization.CultureInfo.InvariantCulture),

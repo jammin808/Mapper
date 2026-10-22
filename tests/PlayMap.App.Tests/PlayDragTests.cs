@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Input.Raw;
 using Avalonia.Platform.Storage;
 using PlayMap.Core.Model;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.App.Tests;
 
@@ -63,6 +64,21 @@ public class PlayDragTests
         Assert.False(reply.Ok);
         Assert.Contains("write the path \"C:\\\\My clips\\\\take 1.mp4\"", reply.Text, StringComparison.Ordinal);
         Assert.Equal(media, desk.Link.CurrentProject.Media);
+    }
+
+    [AvaloniaFact]
+    public async Task ALearnWhoseTargetQuotesAPathWithSingleBackslashesIsRefusedAsTheNodeRefusesIt()
+    {
+        // A binding's target fires later, rebuilt from the words read now: the engine the desk stands in for learns no such target.
+        await using var desk = new DeskHarness();
+
+        var reply = await desk.Session.SendAsync("BIND LEARN PROJECT SAVE \"C:\\shows\\a.playmap\"", Ct);
+
+        Assert.False(reply.Ok);
+        Assert.Equal("PROJECT SAVE: inside quotes a backslash escapes the mark after it, so \"C:\\shows\\a.playmap\" reads as C:showsa.playmap — write the path bare, C:\\shows\\a.playmap, or with / in place of each \\",
+            reply.Text);
+        var learnt = await desk.Session.SendAsync("BIND LEARN PROJECT SAVE " + WireGrammar.Quote("C:\\My shows\\a.playmap"), Ct);
+        Assert.True(learnt.Ok, learnt.Text);
     }
 
     [AvaloniaFact]

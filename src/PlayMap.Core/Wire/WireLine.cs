@@ -117,14 +117,35 @@ public static class WireGrammar
         while (SkipSpace(text, ref i))
         {
             sb.Clear();
+            var start = i;
             if (!ReadWord(text, ref i, sb, out _))
             {
-                why = "a quote that does not close";
+                why = EscapesAQuote(text, start + 1) ? UnclosedAfterEscapedQuote : "a quote that does not close";
                 return false;
             }
             words.Add(sb.ToString());
         }
         return true;
+    }
+
+    /// <summary>Why a phrase that does not close holds a backslash before a quote: that quote is a mark of the phrase, so a phrase typed
+    /// to end in a backslash, as Explorer gives a folder, runs on to the end of the line.</summary>
+    private const string UnclosedAfterEscapedQuote =
+        @"a quote that does not close — inside quotes \"" is a quote mark, never the phrase's end, so a phrase that ends in a backslash doubles it (""C:\\shows\\"")";
+
+    /// <summary>Whether the open phrase from <paramref name="from"/> holds a backslash escaping a quote, read as <see cref="ReadWord"/>
+    /// reads it.</summary>
+    private static bool EscapesAQuote(string text, int from)
+    {
+        for (var i = from; i + 1 < text.Length; i++)
+        {
+            if (text[i] != '\\')
+                continue;
+            if (text[i + 1] == '"')
+                return true;
+            i++;
+        }
+        return false;
     }
 
     /// <summary>Word <paramref name="index"/> of a line as the line spells it between its quotes, its escapes not undone ("C:\\clips"

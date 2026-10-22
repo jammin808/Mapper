@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Control;
 using PlayMap.Core.Wire;
 
 namespace PlayMap.Core.Tests;
@@ -175,6 +176,85 @@ public class WireAndBusTests
         Assert.True(WireGrammar.TryParse(@"SET sf1 label ""Caf\u00e9\n""", out var set, out _));
         Assert.Null(VerbSyntax.DroppedBackslash(VerbCatalog.Find("SET")!, set, 1));
         Assert.Equal(@"""Caf\u00e9\n""", set.RestAfter(3));
+    }
+
+    [Fact]
+    public void ABindingsTargetIsHeldToItsPathsSpellingAsTheLineItself()
+    {
+        // A control fires its target later, rebuilt from the words the grammar read, so a target whose path lost its backslashes is no
+        // target; the line that carries one is refused as that path's own verb refuses it, however it carries it.
+        const string Typed = @"C:\leds\a.csv";
+        const string Refusal = @"LED IMPORT: inside quotes a backslash escapes the mark after it, so ""C:\leds\a.csv"" reads as C:ledsa.csv — write the path bare, C:\leds\a.csv, or with / in place of each \";
+        Assert.Null(TargetLine.Parse($"LED IMPORT \"{Typed}\" SCALE *", out var why));
+        Assert.Equal(Refusal, why);
+        Assert.Null(TargetLine.Parse($"PROJECT SAVE \"{Typed}\"", out why));
+        Assert.StartsWith("PROJECT SAVE: inside quotes a backslash escapes the mark after it", why, StringComparison.Ordinal);
+        foreach (var text in new[]
+        {
+            $"LED IMPORT \"{Typed}\" SCALE *",
+            $"BIND ADD MIDI CC 1 7 TO LED IMPORT \"{Typed}\" SCALE *",
+            $"BIND LEARN LED IMPORT \"{Typed}\" SCALE *",
+            $"BIND LEARN FROM MIDI LED IMPORT \"{Typed}\"",
+            """BIND ADD {"input":"MIDI CC 1 7","target":"LED IMPORT \"C:\\leds\\a.csv\" SCALE *"}""",
+        })
+        {
+            Assert.True(WireGrammar.TryParse(text, out var line, out var error), error?.Reason);
+            Assert.Equal(Refusal, VerbSyntax.DroppedBackslash(line));
+        }
+
+        // Written as a producer writes it, the target is bound and the line it fires reads the path as typed.
+        const string Spaced = @"C:\My leds\a.csv";
+        var written = TargetLine.Parse("LED IMPORT " + WireGrammar.Quote(Spaced) + " SCALE *", out why);
+        Assert.True(written is not null, why);
+        Assert.True(WireGrammar.TryParse(written.Fill(0.5), out var fired, out _));
+        Assert.Equal(["LED", "IMPORT", Spaced, "SCALE", "0.5"], fired.Words);
+        Assert.True(WireGrammar.TryParse("BIND ADD MIDI CC 1 7 TO LED IMPORT " + WireGrammar.Quote(Typed) + " SCALE *", out var bound, out _));
+        Assert.Null(VerbSyntax.DroppedBackslash(bound));
+        // A carried line of a row that takes no path reads its quoted words as the grammar does.
+        Assert.True(WireGrammar.TryParse(@"BIND ADD MIDI CC 1 8 TO PLAYLIST NEW ""AC\DC""", out var named, out _));
+        Assert.Null(VerbSyntax.DroppedBackslash(named));
+    }
+
+    [Fact]
+    public void ARefusedPathNeverRepeatsAPhraseThatReadsAsALineHoldingASecret()
+    {
+        // The journal keeps such a phrase back (VerbCatalog.Redacted); the refusal, which rides the reply and the row's words, does too.
+        var import = VerbCatalog.Find("MEDIA IMPORT")!;
+        Assert.True(WireGrammar.TryParse(@"MEDIA IMPORT ""AUTH s3cret\x"" Take", out var line, out _));
+        Assert.NotEqual(line.Raw, VerbCatalog.Redacted(line));
+        Assert.Equal(@"MEDIA IMPORT: inside quotes a backslash escapes the mark after it, so the quoted path loses a backslash — write the path with each \ doubled inside the quotes, bare when it holds no space or quote, or with / in place of each \",
+            VerbSyntax.DroppedBackslash(import, line, 2));
+        Assert.Null(TargetLine.Parse(@"MEDIA IMPORT ""AUTH s3cret\x""", out var why));
+        Assert.DoesNotContain("s3cret", why, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QuotedJsonThatLosesABackslashIsToldThatJsonRidesBare()
+    {
+        // FX IMPORT takes a path or JSON; JSON quoted as a phrase loses the escapes its strings hold, and is never a path to respell.
+        Assert.True(WireGrammar.TryParse(@"FX IMPORT ""{\""fragment\"":\""a\nb\""}""", out var line, out _));
+        Assert.Equal("""{"fragment":"anb"}""", line.Word(2));
+        Assert.Equal("FX IMPORT: inside quotes a backslash escapes the mark after it, so quoted JSON loses the escapes its strings hold — a JSON argument rides bare, unquoted, to the end of the line",
+            VerbSyntax.DroppedBackslash(VerbCatalog.Find("FX IMPORT")!, line, 2));
+        // MEDIA IMPORT takes no JSON: a phrase that opens like JSON there is a path like any other.
+        Assert.True(WireGrammar.TryParse(@"MEDIA IMPORT ""[old]\a.mp4""", out var path, out _));
+        Assert.Contains(@"write the path ""[old]\\a.mp4"", each \ doubled inside the quotes,", VerbSyntax.DroppedBackslash(VerbCatalog.Find("MEDIA IMPORT")!, path, 2), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AQuoteThatDoesNotCloseBecauseABackslashEscapedItSaysHowAPhraseEndsInABackslash()
+    {
+        // A folder typed as Explorer gives it ends in a backslash, which escapes the closing quote.
+        Assert.False(WireGrammar.TryParse(@"PROJECT SAVE ""C:\shows\""", out _, out var error));
+        Assert.Equal(@"a quote that does not close — inside quotes \"" is a quote mark, never the phrase's end, so a phrase that ends in a backslash doubles it (""C:\\shows\\"")",
+            error!.Reason);
+        Assert.False(WireGrammar.TryParse(@"PROJECT SAVE ""C:\shows\"" NOW", out _, out error));
+        Assert.StartsWith(@"a quote that does not close — inside quotes \"" is a quote mark", error!.Reason, StringComparison.Ordinal);
+        // An open quote with no escaped quote in it says only that.
+        Assert.False(WireGrammar.TryParse(@"SAY ""unclosed \\", out _, out error));
+        Assert.Equal("a quote that does not close", error!.Reason);
+        Assert.True(WireGrammar.TryParse(@"PROJECT SAVE ""C:\\shows\\""", out var closed, out _));
+        Assert.Equal(@"C:\shows\", closed.Word(2));
     }
 
     [Fact]
