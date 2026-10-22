@@ -23,4 +23,10 @@
     <ProjectReference Include="..\..\src\PlayMap.Platform.Windows\PlayMap.Platform.Windows.csproj" />
   </ItemGroup>
 
+  <!-- The one way the suites measure allocation, and what a lock's first wait makes, shared rather than copied. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
+    <Compile Include="..\Shared\LockWaitProbe.cs" Link="Shared\LockWaitProbe.cs" />
+  </ItemGroup>
+
 </Project>

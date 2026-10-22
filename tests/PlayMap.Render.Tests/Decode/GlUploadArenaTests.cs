@@ -160,6 +160,29 @@ public sealed class GlUploadArenaTests(BackendFixture backends)
         }
     });
 
+    /// <summary>Producers return blocks while the render thread fences them every frame, and both rent and return through the arena's
+    /// ranges: the arena's lock and its ranges' are made with their wait events, so a first wait on either allocates nothing.</summary>
+    [Fact]
+    public void TheArenasLocksAreMadeWithTheirWaitEvents() => backends.RunGl(ctx =>
+    {
+        var device = ctx.Device;
+        using var arena = Make(device);
+        try
+        {
+            var probes = LockWaitProbe.FirstWaits(arena).Concat(LockWaitProbe.FirstWaits(Allocator(arena))).ToList();
+            Assert.Equal(2, probes.Count);
+            Assert.All(probes, p => Assert.EndsWith(" 0 B", p, StringComparison.Ordinal));
+        }
+        finally
+        {
+            Close(device);
+        }
+    });
+
+    private static ArenaAllocator Allocator(GlUploadArena arena) =>
+        (ArenaAllocator)(typeof(GlUploadArena).GetField("_allocator", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?.GetValue(arena) ?? throw new MissingFieldException(nameof(GlUploadArena), "_allocator"));
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static long Cycle(GlDevice device, GlUploadArena arena, UploadBlock[] blocks, int frames)
     {

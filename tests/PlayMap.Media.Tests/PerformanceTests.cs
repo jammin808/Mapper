@@ -76,7 +76,7 @@ public class PerformanceTests(ITestOutputHelper output)
                 var waiter = new Thread(() =>
                 {
                     if (prepareThread)
-                        PlayMap.Media.Frames.LockWaits.PrepareThisThread();
+                        PlayMap.Core.Threading.LockWaits.PrepareThisThread();
                     var before = Allocations.Start();
                     if (gate.TryEnter(5))
                         gate.Exit();
@@ -93,9 +93,20 @@ public class PerformanceTests(ITestOutputHelper output)
         }
         var unprepared = new Lock();
         var prepared = new Lock();
-        PlayMap.Media.Frames.LockWaits.Prepare(prepared);
+        PlayMap.Core.Threading.LockWaits.Prepare(prepared);
         Assert.True(WaitOnce(unprepared, prepareThread: true) > 0, "a first wait on a lock makes its event");
         Assert.Equal(0, WaitOnce(prepared, prepareThread: true));
+    }
+
+    /// <summary>A sound output's feeder steps under its lock on its deadlines while readers take it too, and every output shares the
+    /// process-wide context lock where OpenAL Soft has no thread-local context: both locks are made with their wait events.</summary>
+    [Fact]
+    public void ASoundOutputsLocksAreMadeWithTheirWaitEvents()
+    {
+        using var sound = PlayMap.Media.Audio.AudioOut.OpenNullPulled("tests have no sound card", MonoClock.Instance);
+        var probes = LockWaitProbe.FirstWaits(sound, statics: true);
+        Assert.Equal(2, probes.Count);
+        Assert.All(probes, p => Assert.EndsWith(" 0 B", p, StringComparison.Ordinal));
     }
 
     /// <summary>On a loaded machine the decode thread may first have to wait for the queue's lock at any frame of a show (a

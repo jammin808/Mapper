@@ -74,8 +74,9 @@ runs GL:
    waits on its swap chain (sharers submit during the vertical-blank wait); FFmpeg's D3D11VA decoders take it through their lock
    callbacks around each begin–submit–end bracket; Spout on this device takes it around each of its calls. A sharer waits as long as
    the frame takes; the frame waits at most `GpuDeviceLock.FrameBoundMs` (4 ms) for a sharer's bracket, and past it is drawn on the
-   device's multithread protection (each call ordered) and counted (`TimedOut`). Nothing allocates in the lock once warm. One
-   device and one immediate context are what let a decoded frame go as soon as the renderer's read of it is recorded.
+   device's multithread protection (each call ordered) and counted (`TimedOut`). Nothing allocates on a take: the lock's wait event
+   is made with it. One device and one immediate context are what let a decoded frame go as soon as the renderer's read of it is
+   recorded.
 5. **One window and swap chain per display output** (`DxgiOutputWindow`): a borderless top-most popup over the monitor (transitions
    off, the cursor hidden), a waitable `FLIP_DISCARD` swap chain (three B8G8R8A8 buffers, no scaling, no tearing, frame latency 1),
    Alt+Enter and window changes left to PlayMap; a swap chain that lands on another display than its monitor is refused with words.

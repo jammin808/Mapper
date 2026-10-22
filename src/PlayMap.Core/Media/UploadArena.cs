@@ -1,3 +1,5 @@
+using PlayMap.Core.Threading;
+
 namespace PlayMap.Core.Media;
 
 /// <summary>A block of GPU-visible host memory a producer writes a picture into from any thread.</summary>
@@ -47,6 +49,8 @@ public sealed class ArenaAllocator
         _freeAt[0] = 0;
         _freeLength[0] = CapacityBytes;
         _free = 1;
+        // A producer and the render thread meet here every frame: a first wait for the other allocates nothing.
+        LockWaits.Prepare(_gate);
     }
 
     public int Arena { get; }

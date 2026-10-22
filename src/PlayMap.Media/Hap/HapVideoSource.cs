@@ -4,6 +4,7 @@ using FFmpeg.AutoGen;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Frames;

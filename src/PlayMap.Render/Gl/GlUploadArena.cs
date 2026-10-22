@@ -1,4 +1,5 @@
 using PlayMap.Core.Media;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Render.Gl;
 
@@ -36,6 +37,8 @@ public sealed class GlUploadArena : IUploadArena, IDisposable
         _allocator = new ArenaAllocator(Interlocked.Increment(ref _arenas), bytes, maxBlocks);
         _returned = new UploadBlock[maxBlocks];
         _batchOf = new long[maxBlocks];
+        // Producers' returns and the render thread's fence meet here every frame: a first wait for the other allocates nothing.
+        LockWaits.Prepare(_gate);
     }
 
     /// <summary>An arena of <paramref name="megabytes"/> MB on the device's context, or null with the words why (no persistent

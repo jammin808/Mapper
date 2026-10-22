@@ -1,3 +1,5 @@
+using PlayMap.Core.Threading;
+
 namespace PlayMap.Core.Media;
 
 /// <summary>The renderer's device lock (<see cref="IGpuShare.Enter"/>, <see cref="IGpuShare.Exit"/>): one recursive lock that every
@@ -13,7 +15,7 @@ namespace PlayMap.Core.Media;
 /// go of every hold (<see cref="ExitAll"/>) and takes them back after (<see cref="Reenter"/>, bounded), so sharers get the device
 /// between frames and during the vertical-blank wait.</item>
 /// </list>
-/// Nothing allocates once warm (the underlying <see cref="Lock"/> makes its wait event once, at its first contention).</summary>
+/// Nothing allocates on a take: the lock's wait event is made with it.</summary>
 public sealed class GpuDeviceLock
 {
     /// <summary>The longest the render thread waits for a sharer to let go (a quarter of a 60 Hz frame).</summary>
@@ -25,6 +27,8 @@ public sealed class GpuDeviceLock
     private int _depth;
     private long _waits;
     private long _timedOut;
+
+    public GpuDeviceLock() => LockWaits.Prepare(_lock);
 
     /// <summary>The calling thread holds the lock.</summary>
     public bool IsHeldByCurrentThread => _lock.IsHeldByCurrentThread;

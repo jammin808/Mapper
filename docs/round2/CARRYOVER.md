@@ -643,6 +643,33 @@ Round 2 W1 notes:
   millisecond later than it did and never spins through the last part of one; the sender's waits are its `BeatEvery` (2 s in a
   node) or 1 s, whole milliseconds, so its beats are as they were. A poll the web port's own stop cuts is answered 503, not an
   empty 200. `HelloService.Heard`, which only tests read, counts a hello after the peer table has taken it in.
+- Done: every lock a deadline thread takes beside other threads makes its wait event as it is made, so no first wait allocates on a
+  show path. A `Lock` makes its wait event (an `AutoResetEvent` and its `SafeWaitHandle`, 56 bytes, or 280 when a collection has
+  dropped the runtime's cache of the handle's type) on the first thread that has to wait for it. The render host's gates were made
+  bare, so the frame that first met a reader holding one paid for it, at whatever frame that came: `Stats` and the present view
+  copied and sorted the frame-time rings under the gate each frame takes to record its present time.
+  `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound`' one Windows failure at its line 234 (main
+  2724ccd1, run 427, job 119670930217: `Expected: 212744`, `Actual: 213024`, 280 bytes on the warm frame path across its 100 ms
+  hold and 30 frames; the same commit passed in runs 424 and 430 and on Linux) is consistent with that, not proven: the hold's
+  sharer reads `Stats` as it starts and ends, and a reader preempted inside the gate makes the frame's write its first wait. On
+  Linux a scratch build that kept the window's sharer read inside the gate for 20 ms failed the unchanged test at that line by
+  exactly 280 bytes in four runs of four, and a dump of the render thread stopped just after that write held the event, its handle
+  and the two cache objects (24 + 32 + 168 + 56 bytes); the device lock's own timed-out takes allocate nothing after its first.
+  Core's `LockWaits` (moved from Media, whose decode threads' locks already used it) now prepares, as each is made: the render
+  host's five gates (frame times, health, frame waiters, views, draft views), the frame lock host's, the sources' busy gate and
+  lease pool's, the device lock, the upload arena's ranges and the GL arena's own lock, the LED frame pool and the LED sender's
+  gate, a sound output's gate and the process-wide OpenAL context gate, and on Windows the platform's one lateness window, which
+  every deadline thread records in after each wait. `Stats` and the present view hold the frame-time gate only for the copy and
+  sort on their own stack. `RenderHostLockTests.AReaderHoldingTheFrameGateAcrossAFrameCostsTheFramePathNothing` takes that gate
+  between two frames and holds it until the next frame waits on it: against the old host it failed six runs of six by 280 bytes
+  (`Expected: 213360`, `Actual: 213640`). `EveryLockTheRenderThreadTakesBesideOtherThreadsHasItsWaitEventBeforeItsFirstFrame`
+  reads each such lock's first wait through `tests/Shared/LockWaitProbe.cs` (a prepared waiter thread, the lock held by the test):
+  nine runs of nine failed against the old host, 280 bytes on six to eight of its eight locks. `LockWaitsTests` (the device lock,
+  its first timed-out take behind a sharer, the arena's ranges, the LED pool), `LedSenderTests`, Media's `PerformanceTests` (a
+  sound output) and `GlUploadArenaTests` failed three runs of three each against the old code at 280 bytes a lock; on Windows
+  `LatenessTests` reads the lateness window (not run here). All pass now. Read and left: the stage resources', stage meshes' and
+  timer view's locks, which the frame path does not take (the timer view's only as its poller starts), and the runtime deadline
+  timer's, which only its own thread takes.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

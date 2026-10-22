@@ -115,6 +115,10 @@ The lab checks still to do:
   which holds the thread xunit starts for that check, made the unchanged test fail so; the poll's limit now runs on a clock the
   test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
+  `DeviceLockHostTests`' one Windows frame path that allocated 280 bytes across a sharer's hold (consistent with the render
+  thread's first wait on a gate a preempted `Stats` reader held, not proven: on Linux a reader held inside that gate made the
+  unchanged test fail by exactly 280 bytes; every lock a deadline thread shares is made with its wait event now, and a reader
+  holding the frame-time gate across a frame costs the frame path nothing),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes

@@ -1,10 +1,11 @@
-namespace PlayMap.Media.Frames;
+namespace PlayMap.Core.Threading;
 
-/// <summary>A first wait allocates twice, at whatever moment it comes — on a loaded machine that can be any frame of a show, when
-/// a consumer holding a lock is preempted: a <see cref="Lock"/> makes its wait event on the first thread that has to wait for
-/// it, and a thread makes its wait record on its own first wait. <see cref="Prepare"/> makes the locks' events and
-/// <see cref="PrepareThisThread"/> the thread's record before the first frame, so no frame path allocates for a first wait.</summary>
-internal static class LockWaits
+/// <summary>A first wait allocates twice, at whatever moment it comes — on a loaded machine that can be any frame of a show, when a
+/// reader holding a lock is preempted: a <see cref="Lock"/> makes its wait event on the first thread that has to wait for it, and a
+/// thread makes its wait record on its own first wait. Every lock a deadline thread (render, decode, LED, audio) takes is prepared
+/// as it is made (<see cref="Prepare"/>, <see cref="Prepared"/>), and each such thread makes its record as it starts
+/// (<see cref="PrepareThisThread"/>), so no show path allocates for a first wait.</summary>
+public static class LockWaits
 {
     /// <summary>Makes the calling thread's wait record (a frame thread calls it as it starts).</summary>
     public static void PrepareThisThread()
@@ -39,5 +40,13 @@ internal static class LockWaits
             foreach (var gate in gates)
                 gate.Exit();
         }
+    }
+
+    /// <summary>A new lock with its wait event made (a static lock's initialiser).</summary>
+    public static Lock Prepared()
+    {
+        var gate = new Lock();
+        Prepare(gate);
+        return gate;
     }
 }

@@ -156,7 +156,7 @@ and timed beside.
 - Padded surfaces (a 1920×1088 frame with a magenta padding band), the upload arena (uploads, fences, epochs, allocation-free).
 - The device lock (`GpuDeviceLockTests`; `DeviceLockHostTests` runs the render host on a GL platform wearing a shared device, on
   the machine's own context: surfaceless EGL on Linux, WGL on Windows):
-  recursion, exclusion, the bounded take, letting go for a wait and taking every hold back, no allocation once warm; the loop
+  recursion, exclusion, the bounded take, letting go for a wait and taking every hold back, no allocation on a take; the loop
   drawing inside the lock, never waiting past its bound while a sharer holds it, and a sharer taking it bracket by bracket.
 - `decode.glApi egl` on Xvfb: the desktop context and its output windows on EGL, the display's dmabuf share, `decode.platform.gl`
   reading `egl` (`GlApiTests`, `DecodeGlApiTests`; Linux only, as the dmabuf import tests are).

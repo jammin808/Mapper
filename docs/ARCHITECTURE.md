@@ -442,6 +442,8 @@ the pool, and the stage's table builder runs on a thread of its own, its loops o
 and rings that skip rather than wait; no
 allocation on a warm frame (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh;
 every suite measures allocation through one helper, `tests/Shared/Allocations.cs`, whose windows begin after a gen0 collection,
-in Debug and Release); a faulting
+in Debug and Release), nor at a first wait: every lock a deadline thread takes beside other threads makes its wait event as it is
+made (`LockWaits`; `tests/Shared/LockWaitProbe.cs` reads a lock's first wait), and a reader holds the render thread's frame-time
+gate only for a copy; a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

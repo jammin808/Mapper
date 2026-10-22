@@ -6,6 +6,7 @@ using PlayMap.Core.Dmx;
 using PlayMap.Core.Led;
 using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 
 namespace PlayMap.Net.Led;
@@ -115,6 +116,8 @@ public sealed class LedSender : ILedOutput
         _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, Math.Clamp(options.MulticastTtl, 1, 255));
         _pool.Submitted = () => _wake.Set();
         LedArtNet.WritePoll(_poll);
+        // The sender's thread takes the gate on its deadlines while verbs and readers take it too: a first wait allocates nothing.
+        LockWaits.Prepare(_gate);
     }
 
     private bool _listening;
