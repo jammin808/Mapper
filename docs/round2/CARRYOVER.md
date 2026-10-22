@@ -798,6 +798,23 @@ Round 2 W1 notes:
   Windows dumper writes thread information alone, which no managed stack walk reads), and on a failed job prints every managed
   thread's stack from each dump (dotnet-dump 10.0.750501, the package held to its SHA-256), so a stall before the first test is
   named as a test's is.
+- Done: the phone scan rig's hub runs on a clock the test holds (`PhoneScanRig.PhoneTime`), the phone bridge test's scan waits for
+  each answer on a held clock too, and the hub counts a hello's wait on its own clock, its words going before the socket is let go.
+  A session ends "stopped sending: nothing for 10 s" when the node has read nothing from the phone for `QuietTimeout` on the hub's
+  clock (`PhoneSession.ReceiveLoopAsync`), and the rig left that clock the system's while the fake phone in the same process pings
+  every second of real time: a test host that ran neither the phone's ping nor the node's read of it for 10 s ended the session, and
+  the scan's next cue failed. `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced` failed so on the Windows job (run 436, at
+  fix-nodehost-win f7d3645b, which does not touch the phone hub or the bridge) at its line 45 after 1 m 12 s, consistent with that,
+  not proven. With the test host stopped 11 s mid-scan the unchanged test failed 4 of 5 with the same words at the same line, and
+  passed 2 of 2 stopped 8 s; with the host stopped 2.6 s of every 2.75 s it failed 3 of 3 the second way the rig raced real time,
+  "could not take locate frame N: it said nothing for 2 s" (the scan's `PatternTimeout`, `MaxRetakes` 2). Both clocks held, it
+  passed 3 of 3 under each, and the 74 Engine tests of the phone, the folder camera and the camera resolve passed. The hello's wait (`HelloTimeout`) was a `CancelAfter` of real
+  time, and a cancelled read aborts a web socket before any close can go, so a phone that said no hello never heard "no hello":
+  with a 300 ms limit on the system's clock the unchanged hub closed nothing (status null) 3 of 3. The limit now runs on the hub's
+  clock and, once it has run out, sends the close with its words while the read stands, letting the socket go 2 s later if the phone
+  never answers (`PhoneHubOptions.Time`); the new Net tests (the held clock moved through the limit, and the system's clock) failed
+  3 of 3 against the old hub and passed 3 of 3. The rig's invite test reads the invite's expiry against the hub's clock. No assertion
+  of the old tests is changed; scans in the rig that keep the default real-time patience still count it so (`PhoneCameraTests`).
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -873,7 +890,10 @@ Round 2 W1 notes:
   the monitor waits, and names what the node holds of its peer, above); the Engine test host's one Windows stall before its first
   test (run 435: no result and no sequence file before blame's 5 minutes; consistent with libvmx's build in the OMT tests' attribute
   waiting, while the suite was discovered, for the end of its compiler's pipes, not proven; the build now ends with its compiler,
-  and the next hang prints every managed thread's stack in the job's log, above).
+  and the next hang prints every managed thread's stack in the job's log, above);
+  `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced`' one Windows "stopped sending: nothing for 10 s" at its line 45 (run
+  436; consistent with the test host leaving the fake phone's pings unsent for the hub's 10 s of real time, not proven; the rig's hub
+  now runs on a clock the test holds, above).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

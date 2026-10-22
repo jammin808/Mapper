@@ -21,7 +21,7 @@ public sealed record PhoneHubOptions
     /// <summary>phones.json in the node's own folder.</summary>
     public required string KeysPath { get; init; }
 
-    /// <summary>Tickets expire and wrong tickets are counted on this clock.</summary>
+    /// <summary>Tickets expire, wrong tickets are counted, a hello is waited for and a phone's silence is counted on this clock.</summary>
     public TimeProvider Time { get; init; } = TimeProvider.System;
 
     /// <summary>The node's monotonic clock (ns): the clock exchange answers on it, so a phone's capture times compare with presents.</summary>
@@ -311,8 +311,27 @@ public sealed class PhoneHub : IAsyncDisposable
     /// <summary>Reads the hello and admits it, or closes the socket with the reason (1008) and answers null.</summary>
     private async Task<PhoneSession?> HelloAsync(WebSocket socket, string address, CancellationToken ct)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(_options.HelloTimeout);
+        using var read = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        // The hello's limit, counted on the hub's clock as a phone's silence and its tickets are. Once it has run out the phone is told
+        // why (a close with the words) while the read still stands, since a read cancelled first aborts the socket before any words
+        // can go, and the socket is let go if the phone never answers that. Whichever comes first, the limit or the hello's end, is
+        // the only one acted on (decided).
+        var decided = 0;
+        void OutOfTime()
+        {
+            if (Interlocked.Exchange(ref decided, 1) != 0)
+                return;
+            _ = RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation, "no hello", ct);
+            try
+            {
+                read.CancelAfter(TimeSpan.FromSeconds(2));
+            }
+            catch (ObjectDisposedException)
+            {
+                // The read ended first.
+            }
+        }
+        using var limit = _options.Time.CreateTimer(_ => OutOfTime(), null, _options.HelloTimeout, Timeout.InfiniteTimeSpan);
         var buffer = new byte[_options.MaxTextBytes];
         var length = 0;
         ValueWebSocketReceiveResult r;
@@ -322,13 +341,15 @@ public sealed class PhoneHub : IAsyncDisposable
             {
                 if (length == buffer.Length)
                 {
-                    await RefuseAsync(socket, WebSocketCloseStatus.MessageTooBig, "message too big", ct);
+                    if (Interlocked.Exchange(ref decided, 1) == 0)
+                        await RefuseAsync(socket, WebSocketCloseStatus.MessageTooBig, "message too big", ct);
                     return null;
                 }
-                r = await socket.ReceiveAsync(buffer.AsMemory(length), timeout.Token);
+                r = await socket.ReceiveAsync(buffer.AsMemory(length), read.Token);
                 if (r.MessageType == WebSocketMessageType.Close)
                 {
-                    await RefuseAsync(socket, WebSocketCloseStatus.NormalClosure, "bye", ct);
+                    if (Interlocked.Exchange(ref decided, 1) == 0)
+                        await RefuseAsync(socket, WebSocketCloseStatus.NormalClosure, "bye", ct);
                     return null;
                 }
                 length += r.Count;
@@ -337,9 +358,11 @@ public sealed class PhoneHub : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            await RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation, "no hello", ct);
+            // The limit ran out and its words went; the phone never answered them.
             return null;
         }
+        if (Interlocked.Exchange(ref decided, 1) != 0)
+            return null;
         if (r.MessageType != WebSocketMessageType.Text)
         {
             await RefuseAsync(socket, WebSocketCloseStatus.PolicyViolation, "hello first", ct);
@@ -543,9 +566,9 @@ public sealed class PhoneHub : IAsyncDisposable
         {
             await socket.CloseOutputAsync(status, PhoneSession.CloseReason(words), bye.Token);
         }
-        catch (Exception ex) when (ex is WebSocketException or IOException or OperationCanceledException)
+        catch (Exception ex) when (ex is WebSocketException or IOException or OperationCanceledException or ObjectDisposedException)
         {
-            // The phone went first: the refusal has nobody to reach.
+            // The phone went first, or the hub let its socket go: the refusal has nobody to reach.
         }
     }
 

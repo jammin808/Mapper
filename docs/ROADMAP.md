@@ -136,6 +136,9 @@ The lab checks still to do:
   consistent with libvmx's build in the OMT tests' attribute, run while the suite is discovered, waiting for the end of its
   compiler's pipes, which a process the compiler starts can hold, not proven; the build now ends with its compiler, and a hung
   host's every managed stack is printed in the job's log),
+  `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced`' one Windows "stopped sending: nothing for 10 s" (run 436;
+  consistent with the test host leaving the fake phone's pings unsent for the hub's 10 s of real time, not proven; the phone rig's
+  hub and the test's scan now run on clocks the test holds, and a hello's limit on the hub's own clock tells the phone why),
   `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
   (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
   now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent

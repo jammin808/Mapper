@@ -35,7 +35,7 @@ public sealed class PhoneVerbTests
         Assert.Equal(qr.Size, invite.GetProperty("qr").GetProperty("size").GetInt32());
         Assert.Equal(qr.ToBase64Bitset(), invite.GetProperty("qr").GetProperty("modules").GetString());
         var expires = invite.GetProperty("expiresUnixMs").GetInt64();
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var now = rig.PhoneTime.GetUtcNow().ToUnixTimeMilliseconds();
         Assert.InRange(expires - now, 4 * 60_000, 5 * 60_000 + 5_000);
         var journalled = rig.Engine.Journal.Recent(20).Single(r => r.Text.StartsWith("PHONE INVITE", StringComparison.Ordinal));
         Assert.StartsWith("PHONE INVITE \"Stage left phone\" → invite issued, expires ", journalled.Text, StringComparison.Ordinal);

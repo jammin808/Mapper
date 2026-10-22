@@ -17,7 +17,9 @@ public sealed class PhoneBridgeTests(ITestOutputHelper output)
     [Fact]
     public async Task APhoneScanBridgesIntoTheModelAsItIsPlaced()
     {
-        await using var rig = await PhoneScanRig.StartAsync();
+        // The scan's patience runs on a clock held still, as the hub's does: each of the phone's answers is waited for as the fact it
+        // is, however long the machine takes to send it.
+        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(2), Time = new ManualTime() });
         await using var phone = await rig.JoinAsync();
         var offset = new Vec3d(3, 0, 0);
         var scene = SimScenes.FloorAndBox(256, 160, 320, 240).Mesh;
