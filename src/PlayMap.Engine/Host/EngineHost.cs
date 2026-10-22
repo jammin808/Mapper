@@ -40,14 +40,24 @@ public sealed record EngineHostOptions
     public string? SupervisorFolder { get; init; }
 }
 
+/// <summary>How long a node's first STATE and CONTEXT writes took as it started: STATE's time and its slowest part, CONTEXT's ms; either
+/// null when its writer faulted.</summary>
+public sealed record FirstFactsTime(StateWriteTime? State, double? ContextMs)
+{
+    /// <summary>"STATE first written in 412 ms (120 ms in videoio, its thread working 400 ms), CONTEXT in 30 ms".</summary>
+    public string Words => (State is { } s ? "STATE first written in " + s.Words : "STATE not written (its writer faulted)")
+        + (ContextMs is { } c ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $", CONTEXT in {c:0} ms")
+            : ", CONTEXT not written (its writer faulted)");
+}
+
 /// <summary>The composition root of a node process. <see cref="StartAsync"/> loads the node's settings (with the
 /// command line's name and ports for this run), its TLS identity and pins, then builds — in this order — the media
 /// backend, the network host, the render host (or none), the scan backend, the extensions, the engine's services and
-/// the engine; puts the project back (the command line's, else the recovery record's); then starts the render host,
-/// the extensions, the line wire, the web port, the hello, the clock sync and the links, writes STATE and CONTEXT once, and only
-/// then says the node is up (its journal's row, its log's line). A part that fails leaves the
-/// node up without it and says so in STATE's faults; only a node with no door at all (neither the wire nor the web
-/// port could listen) refuses to start, with <see cref="BindRefusedException"/>. <see cref="DisposeAsync"/> first stops
+/// the engine; puts the project back (the command line's, else the recovery record's); then starts the render host and the
+/// extensions, writes STATE and CONTEXT once (<see cref="FirstFacts"/>), starts the line wire, the web port, the hello, the clock
+/// sync and the links, and then says the node is up (its journal's row, its log's line, each with how long that first write took).
+/// A part that fails leaves the node up without it and says so in STATE's faults; only a node with no door at all (neither the
+/// wire nor the web port could listen) refuses to start, with <see cref="BindRefusedException"/>. <see cref="DisposeAsync"/> first stops
 /// the engine taking lines, then undoes the start in reverse — every part closed even when one before it throws — and
 /// writes the recovery record and flushes the journal on the way out. One host per process.</summary>
 public sealed class EngineHost : IAsyncDisposable
@@ -93,6 +103,9 @@ public sealed class EngineHost : IAsyncDisposable
 
     /// <summary>What the node is missing now (also STATE's faults).</summary>
     public IReadOnlyList<NodeFault> Faults => _faults.Faults();
+
+    /// <summary>How long the node's first STATE and CONTEXT writes took as it started (null before then).</summary>
+    public FirstFactsTime? FirstFacts { get; private set; }
 
     public async Task StartAsync(CancellationToken ct = default)
     {
@@ -204,34 +217,57 @@ public sealed class EngineHost : IAsyncDisposable
                 Fault(extension.Name, $"{extension.Name} could not start and the node runs without it: {ex.Message}", ex);
             }
         }
+        var facts = WriteFactsOnce(engine);
+        FirstFacts = facts;
         await _network.StartAsync(engine, ct);
         WritePidRecord(startedUnixMs);
         _recovery = Task.Run(() => KeepRecoveryAsync(engine, _stop.Token), CancellationToken.None);
         // A show that came back armed has its arming hooks run now its parts are up (a hook may need the render host).
         _armedAgain = engine.ArmAgainAsync(_stop.Token);
-        WriteFactsOnce(engine);
-        engine.Journal.Add("node", $"{running.Name} is up: wire {Port(_network.WirePort)}, web {Port(_network.HttpPort)}, renderer {outputs.RendererName} · {engine.Services.Build.Display}");
-        _log.LogInformation("{Name} ({Id}) is up: wire {Wire}, web {Web}, renderer {Renderer}.", running.Name, running.NodeId,
-            Port(_network.WirePort), Port(_network.HttpPort), outputs.RendererName);
+        engine.Journal.Add("node", $"{running.Name} is up: wire {Port(_network.WirePort)}, web {Port(_network.HttpPort)}, renderer {outputs.RendererName}, {facts.Words} · {engine.Services.Build.Display}");
+        _log.LogInformation("{Name} ({Id}) is up: wire {Wire}, web {Web}, renderer {Renderer}; {Facts}.", running.Name, running.NodeId,
+            Port(_network.WirePort), Port(_network.HttpPort), outputs.RendererName, facts.Words);
         Volatile.Write(ref _phase, 2);
     }
 
     private static string Port(int port) => port > 0 ? port.ToString(System.Globalization.CultureInfo.InvariantCulture) : "closed";
 
-    /// <summary>Up means the node answers what it is asked: STATE and CONTEXT are each written once on the start's own thread before
-    /// the node says it is up, so their first build (every package's writer run for the first time) is never paid on a reader's line.
-    /// A writer that faults leaves the node up with the words, as a reader's STATE would fault.</summary>
-    private void WriteFactsOnce(EngineCore engine)
+    /// <summary>STATE and CONTEXT, each written once on the start's own thread before the doors open, and how long each took: their
+    /// first build (every package's writer run for the first time) is paid here, never on a line a reader sends, however soon after
+    /// the wire listens it dials. A writer that faults leaves the node starting: the fault is journalled and logged as what happened
+    /// then (a reader's STATE or CONTEXT answers with its own fault, whatever it is by then), never kept as a standing fault.</summary>
+    private FirstFactsTime WriteFactsOnce(EngineCore engine)
     {
+        StateWriteTime? state = null;
         try
         {
             _ = engine.State();
-            _ = engine.Context();
+            state = engine.LastStateWrite;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Fault("state", $"STATE could not be written as the node started ({ex.GetType().Name}: {ex.Message}); a reader's STATE faults the same way", ex);
+            NotWritten(engine, "STATE", ex);
         }
+        var mono = engine.Services.Mono;
+        var started = mono.NowNs;
+        double? context = null;
+        try
+        {
+            _ = engine.Context();
+            context = (mono.NowNs - started) / 1e6;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            NotWritten(engine, "CONTEXT", ex);
+        }
+        return new FirstFactsTime(state, context);
+    }
+
+    private void NotWritten(EngineCore engine, string what, Exception ex)
+    {
+        var words = $"{what} could not be written as the node started ({ex.GetType().Name}: {ex.Message})";
+        _log.LogWarning(ex, "{Words}", words);
+        engine.Journal.Add("fault", words, ok: false);
     }
 
     /// <summary>The pid record, once the doors are open (its port is the wire's as it listens), into the supervisor's folder where it

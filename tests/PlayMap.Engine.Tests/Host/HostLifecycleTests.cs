@@ -211,8 +211,39 @@ public sealed class HostLifecycleTests
         Assert.Equal(3, rig.State().GetProperty("ai").GetProperty("proposals").GetInt32());
     }
 
-    /// <summary>A STATE writer that faults as the node starts leaves it up, with the words in its journal before it says it is up; the
-    /// wire answers PING, and STATE with the fault's refusal.</summary>
+    /// <summary>STATE's first build is paid before the doors open: a reader that dials the moment the wire listens finds it written,
+    /// and the row and the line that say the node is up say how long that first write took and where it went.</summary>
+    [Fact]
+    public async Task TheHostWritesStateBeforeItsWireListensAndSaysHowLongItTook()
+    {
+        var witness = new StateWitness();
+        var parts = EngineParts.Bare with
+        {
+            Extensions = [setup =>
+            {
+                witness.Network = setup.Network;
+                return witness;
+            }],
+        };
+        await using var rig = await HostRig.StartAsync("Early node", parts: parts);
+
+        Assert.Equal(0, witness.WirePortAtFirstWrite);
+        Assert.True(rig.Network.WirePort > 0);
+        var facts = rig.Host.FirstFacts;
+        Assert.NotNull(facts);
+        var state = Assert.IsType<StateWriteTime>(facts.State);
+        Assert.True(state.Ms >= state.SlowestMs && state.SlowestMs >= 0, state.Words);
+        Assert.NotEqual("", state.Slowest);
+        Assert.True(facts.ContextMs >= 0);
+        var up = rig.Engine.Journal.Recent(200).Single(r => r.Text.StartsWith("Early node is up:", StringComparison.Ordinal));
+        Assert.Contains(", " + facts.Words + " · ", up.Text, StringComparison.Ordinal);
+        // The log's line, written by the log's own thread.
+        Assert.True(await Eventually.TrueAsync(() => rig.LogTail().Contains("; " + facts.Words + ".", StringComparison.Ordinal)), rig.LogTail());
+    }
+
+    /// <summary>A STATE writer that faults as the node starts leaves it up, with the words in its journal before it says it is up and
+    /// no fault kept standing (a reader's STATE answers with its own fault, whatever it is by then); the wire answers PING, CONTEXT,
+    /// and STATE with the fault's refusal.</summary>
     [Fact]
     public async Task ANodeWhoseStateFaultsAsItStartsIsUpAndSaysWhy()
     {
@@ -224,9 +255,54 @@ public sealed class HostLifecycleTests
         var up = rows.FindIndex(r => r.Kind == "node" && r.Text.StartsWith("Faulting node is up:", StringComparison.Ordinal));
         Assert.True(fault >= 0 && up > fault, $"the journal: {rig.Journal()}");
         Assert.Contains(nameof(InvalidOperationException), rows[fault].Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(rows, r => r.Text.StartsWith("CONTEXT could not be written", StringComparison.Ordinal));
+        Assert.Empty(rig.Host.Faults);
+        Assert.Null(rig.Host.FirstFacts?.State);
+        Assert.NotNull(rig.Host.FirstFacts?.ContextMs);
+        Assert.Contains("STATE not written (its writer faulted)", rows[up].Text, StringComparison.Ordinal);
         await using var c = await rig.WireAsync();
         Assert.StartsWith("OK @p PONG 1760101234567 ", await c.AskAsync("@p PING 1760101234567"), StringComparison.Ordinal);
+        Assert.StartsWith("OK @c {", await c.AskAsync("@c CONTEXT"), StringComparison.Ordinal);
         Assert.StartsWith("ERR @s ", await c.AskAsync("@s STATE"), StringComparison.Ordinal);
+    }
+
+    /// <summary>A STATE write a second or longer, when it is the longest yet, is journalled with how long it took, the part that took
+    /// longest and its thread's work, on the engine's clock; a shorter slow one is not, so the rows stay few however often STATE is
+    /// slow.</summary>
+    [Fact]
+    public async Task ASlowStateWriteIsJournalledWithThePartItWentIn()
+    {
+        var clock = new Sync.MovableClock(Core.Time.MonoClock.Instance, 0);
+        var count = new SlowCount(clock);
+        var parts = EngineParts.Bare with { Extensions = [_ => count] };
+        await using var rig = await HostRig.StartAsync("Slow node", mono: clock, parts: parts);
+
+        string[] Slow() => [.. rig.Engine.Journal.Recent(200).Where(r => r.Kind == "node" && r.Text.StartsWith("STATE took ", StringComparison.Ordinal))
+            .Select(r => r.Text)];
+
+        StateWriteTime Write(long seconds)
+        {
+            count.Next = TimeSpan.FromSeconds(seconds);
+            rig.Engine.FactsChanged();
+            _ = rig.Engine.State();
+            return Assert.IsType<StateWriteTime>(rig.Engine.LastStateWrite);
+        }
+
+        var minute = Write(60);
+        Assert.Equal("ai", minute.Slowest);
+        Assert.True(minute.SlowestMs >= 60_000 && minute.Ms >= minute.SlowestMs, minute.Words);
+        Assert.Equal(["STATE took " + minute.Words + " to write, the longest yet"], Slow());
+        Assert.False(rig.Engine.Journal.Recent(200).Single(r => r.Text.StartsWith("STATE took ", StringComparison.Ordinal)).Ok);
+
+        Assert.True(Write(30).Ms >= 30_000);
+        Assert.Single(Slow());
+
+        var twoMinutes = Write(120);
+        Assert.Equal("ai", twoMinutes.Slowest);
+        Assert.Equal(["STATE took " + minute.Words + " to write, the longest yet", "STATE took " + twoMinutes.Words + " to write, the longest yet"], Slow());
+
+        Assert.True(Write(0).Ms < EngineCore.SlowStateMs);
+        Assert.Equal(2, Slow().Length);
     }
 
     [Fact]
@@ -345,14 +421,18 @@ public sealed class HostLifecycleTests
     }
 
     /// <summary>A part whose proposal count (read by STATE's writer alone, for STATE.ai.proposals) keeps, at STATE's first write,
-    /// whether the engine's journal had said the node is up by then.</summary>
+    /// whether the engine's journal had said the node is up by then and the port the wire listened on (0: not yet).</summary>
     private sealed class StateWitness : IEngineExtension, IProposalCount
     {
         private readonly Lock _gate = new();
         private EngineCore? _engine;
         private bool? _upSaid;
+        private int? _wirePort;
 
         public string Name => "state witness";
+
+        /// <summary>The network host whose wire port the first write notes (none: not noted).</summary>
+        public NetworkHost? Network { get; set; }
 
         /// <summary>At STATE's first write, whether the journal held the host's "is up" row (null before STATE is written).</summary>
         public bool? UpSaidAtFirstWrite
@@ -364,6 +444,16 @@ public sealed class HostLifecycleTests
             }
         }
 
+        /// <summary>At STATE's first write, the port the wire listened on (0 before it listens; null before STATE is written).</summary>
+        public int? WirePortAtFirstWrite
+        {
+            get
+            {
+                lock (_gate)
+                    return _wirePort;
+            }
+        }
+
         public int Waiting
         {
             get
@@ -371,6 +461,7 @@ public sealed class HostLifecycleTests
                 lock (_gate)
                 {
                     _upSaid ??= _engine?.Journal.Recent(200).Any(r => r.Kind == "node" && r.Text.Contains(" is up: ", StringComparison.Ordinal)) ?? false;
+                    _wirePort ??= Network?.WirePort;
                 }
                 return 3;
             }
@@ -384,6 +475,36 @@ public sealed class HostLifecycleTests
                 _engine = engine;
             return Task.CompletedTask;
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>A part whose proposal count (read by STATE's writer alone, in its "ai" part) moves the node's clock by
+    /// <see cref="Next"/> as it is read: a STATE write that long in that part, on the engine's clock.</summary>
+    private sealed class SlowCount(Sync.MovableClock clock) : IEngineExtension, IProposalCount
+    {
+        private long _nextTicks;
+
+        public string Name => "slow count";
+
+        public TimeSpan Next
+        {
+            get => TimeSpan.FromTicks(Interlocked.Read(ref _nextTicks));
+            set => Interlocked.Exchange(ref _nextTicks, value.Ticks);
+        }
+
+        public int Waiting
+        {
+            get
+            {
+                clock.OffsetNs += (long)Next.TotalNanoseconds;
+                return 0;
+            }
+        }
+
+        public EngineServices Configure(EngineServices services) => services with { Proposals = this };
+
+        public Task StartAsync(EngineCore engine, CancellationToken ct) => Task.CompletedTask;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

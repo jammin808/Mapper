@@ -114,6 +114,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     private long _motion;
     private long _movedAtNs = long.MinValue;
     private ((long State, long Quantum, long Motion) Key, string Json) _stateCache = ((-1, 0, 0), "");
+    private readonly StateParts _stateParts;
+    private StateWriteTime? _lastStateWrite;
+    private double _longestStateMs;
     private string? _projectPath;
     private bool _dirty;
     private int _stopping;
@@ -128,6 +131,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(services);
         Services = services;
+        _stateParts = new StateParts(services.Mono);
         // The undo window counts on the node's clock, as the control gestures that close inside it do; each step records who made it
         // (the line's session, else the node) and when on the show's wall clock.
         Store = new ProjectStore(project ?? Project.CreateDefault(services.Settings.Name), () => services.Mono.NowNs / 1_000_000)
@@ -416,11 +420,41 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         // with nothing playing (a rolling timecode) keys it through Moved, once per change of what it shows.
         var quantum = IsAnimating || _air.IdentifyUntilLeaderNs != 0 ? LeaderNowNs / 20_000_000 : long.MinValue;
         var cacheKey = (key, quantum, Interlocked.Read(ref _motion));
+        StateWriteTime? longest = null;
+        string json;
         lock (_stateGate)
         {
             if (_stateCache.Key != cacheKey)
-                _stateCache = (cacheKey, StateWriter.Write(this));
-            return (_stateCache.Json, key);
+            {
+                var written = StateWriter.Write(this, _stateParts);
+                var took = _stateParts.End();
+                _lastStateWrite = took;
+                if (took.Ms >= SlowStateMs && took.Ms > _longestStateMs)
+                {
+                    _longestStateMs = took.Ms;
+                    longest = took;
+                }
+                _stateCache = (cacheKey, written);
+            }
+            json = _stateCache.Json;
+        }
+        // Journalled outside STATE's gate, so a row's listeners never wait on a write or write STATE inside one.
+        if (longest is { } slow)
+            Journal.Add("node", "STATE took " + slow.Words + " to write, the longest yet", ok: false);
+        return (json, key);
+    }
+
+    /// <summary>A STATE write this long or longer (ms, on the engine's clock), when it is the longest yet, is journalled with the part
+    /// that took longest and how much of it its thread worked, so a slow STATE names where it went however rarely it comes.</summary>
+    public const double SlowStateMs = 1000;
+
+    /// <summary>How long the last STATE write took and its slowest part (null before STATE is first written).</summary>
+    public StateWriteTime? LastStateWrite
+    {
+        get
+        {
+            lock (_stateGate)
+                return _lastStateWrite;
         }
     }
 
