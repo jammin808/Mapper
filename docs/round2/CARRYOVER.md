@@ -868,6 +868,13 @@ Round 2 W1 notes:
   its landing row ("blind commit: 1 change landed (on go) by Desk") once the member's lane tick that landed the commit is over, for
   the reason above. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 40, and passed unheld; it
   passed 3 of 3 under the hold now.
+- Done, not seen failing: a follower whose leader goes quiet says it free-wheels in STATE (its words, pushed) before its row and its
+  `sync.leader.lost` event, and that it follows again before the row that its leader is heard again (`SyncNode.WatchLeader`). It
+  wrote the row and raised the event first, so `AnchorFeedTests.AFollowerWhoseLeaderDiesFreeWheelsAndSwitchesItsNextItemAtTheAnchoredInstant`,
+  which waits for the row and then reads STATE's words, could read the follow's words: with the lane held 1 s just after the row,
+  the unchanged test failed 3 of 3 at its line 107 (`"following FOH (0badc0de) for show — …"`), and passed unheld. The test now also
+  reads STATE's words as the row is written; against the old order that failed 3 of 3 with no hold (the words were set after the
+  row, on the same thread), and with the new order it passed 3 of 3 held and 3 of 3 unheld.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

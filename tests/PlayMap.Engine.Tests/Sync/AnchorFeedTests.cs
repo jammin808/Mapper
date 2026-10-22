@@ -98,9 +98,17 @@ public sealed class AnchorFeedTests(ITestOutputHelper output)
             Assert.True(await Eventually.TrueAsync(() => follower.Engine.Snapshot.Playback.Playlists["pl_show"].SwitchAtLeaderNs == switchAt));
         }
 
-        // The leader is gone: past the timeout the follower free-wheels on its last estimate, and says so.
+        // The leader is gone: past the timeout the follower free-wheels on its last estimate, and says so — in STATE first, so a reader
+        // that has the row reads it there too.
+        var quiet = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        follower.Engine.Journal.Written += r =>
+        {
+            if (r.Text.Contains("went quiet: free-wheeling", StringComparison.Ordinal))
+                quiet.TrySetResult(SyncRig.Sync(follower).GetProperty("words").GetString() ?? "");
+        };
         clock.AdvanceMs(4_000);
         Assert.True(await Eventually.TrueAsync(() => follower.Journal().Contains("went quiet: free-wheeling", StringComparison.Ordinal)), follower.Journal());
+        Assert.Contains("free-wheeling: FOH (0badc0de) is not heard", await quiet.Task.WaitAsync(TimeSpan.FromSeconds(10)), StringComparison.Ordinal);
         clock.AdvanceMs(1_500);
         Assert.Equal(1.5, SyncRig.Sync(follower).GetProperty("freewheelS").GetDouble());
         Assert.Equal("red", SyncRig.GroupItem(follower).GetProperty("light").GetString());
