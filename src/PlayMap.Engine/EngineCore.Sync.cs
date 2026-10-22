@@ -366,7 +366,9 @@ public sealed partial class EngineCore
         var reply = RouteRoundOne(c.Spec, c.Args, c.Line, c.Session, c.Ct);
         if (!reply.Ok || c.Args.Count < 2 || !c.Args[0].Equals("FOLLOW-BLACKOUT", StringComparison.OrdinalIgnoreCase))
             return reply;
-        sync.PersistFollowBlackout(_air.FollowPatternsBlackout);
+        // The switch is written beside the lane and a write that fails is journalled: behind this line's row.
+        var on = _air.FollowPatternsBlackout;
+        AfterRow(() => sync.PersistFollowBlackout(on));
         return reply;
     }
 
@@ -630,17 +632,19 @@ public sealed partial class EngineCore
         LineTurn turn;
         using (Services.Clock.Pin(atLeaderNs))
             turn = RouteBehindRow(line, session, CancellationToken.None);
-        if (turn.Reply is not { } reply)
+        try
         {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            BeginAfterRow(turn.AfterRow);
-            return (CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged"), ran);
+            if (turn.Reply is not { } written)
+                Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            else if (!written.Silent && IsJournalled(line))
+                Journal.Add(written.Ok ? "verb" : "refused", written.Ok ? (written.Effect.Length > 0 ? written.Effect : VerbCatalog.Redacted(line)) : written.Payload ?? "refused",
+                    session.ClientName, VerbCatalog.Redacted(line), written.Ok);
         }
-        if (!reply.Silent && IsJournalled(line))
-            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
-                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
-        BeginAfterRow(turn.AfterRow);
-        return (reply, ran);
+        finally
+        {
+            BeginAfterRow(turn.AfterRow);
+        }
+        return (turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged"), ran);
     }
 
     /// <summary>A leader's anchor taken through this node's own PLAYLIST ANCHOR, for the playlist of that id in the group, or else —

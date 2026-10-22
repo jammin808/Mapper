@@ -39,7 +39,7 @@ public sealed partial class EngineCore
         ProjectStore? lineStore = null;
         GateFleet(spec, line, session, ref refused);
         if (refused is null)
-            GateLine(spec, line, session, ref refused, ref lineStore);
+            GateLine(spec, line, session, null, ref refused, ref lineStore);
         if (refused is not null)
             return refused;
         _lineStore = lineStore ?? DraftForTests?.Invoke(session);

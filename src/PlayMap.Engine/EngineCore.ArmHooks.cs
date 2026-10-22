@@ -28,15 +28,17 @@ public sealed partial class EngineCore
     /// <summary>1 while the show came back armed from the recovery record and its arming hooks have not run since.</summary>
     private int _armAgain;
 
-    /// <summary>Runs every hook as the show arms (<paramref name="arming"/>) or disarms, and answers what each did, in their order.</summary>
-    internal async Task<ImmutableArray<ArmHookResult>> RunArmHooksAsync(bool arming, CancellationToken ct)
+    /// <summary>Runs every hook as the show arms (<paramref name="arming"/>) or disarms, and answers what each did, in their order. A
+    /// hook left running past its deadline is watched behind the row of <paramref name="call"/>, the line that runs them (at once when
+    /// none does), so a fault it ends on is journalled after that line's row.</summary>
+    internal async Task<ImmutableArray<ArmHookResult>> RunArmHooksAsync(bool arming, CancellationToken ct, VerbCall? call = null)
     {
         var hooks = Services.ArmHooks;
         if (hooks.IsDefaultOrEmpty)
             return [];
         var runs = new Task<ArmHookResult>[hooks.Length];
         for (var i = 0; i < hooks.Length; i++)
-            runs[i] = RunArmHookAsync(hooks[i], arming, ct);
+            runs[i] = RunArmHookAsync(hooks[i], arming, call, ct);
         return [.. await Task.WhenAll(runs).ConfigureAwait(false)];
     }
 
@@ -93,7 +95,7 @@ public sealed partial class EngineCore
         : deadline < TimeSpan.Zero ? TimeSpan.Zero
         : deadline;
 
-    private async Task<ArmHookResult> RunArmHookAsync(IShowArmHook hook, bool arming, CancellationToken ct)
+    private async Task<ArmHookResult> RunArmHookAsync(IShowArmHook hook, bool arming, VerbCall? call, CancellationToken ct)
     {
         var name = NameOf(hook);
         CancellationTokenSource? expiry = null;
@@ -124,7 +126,10 @@ public sealed partial class EngineCore
             var first = await Task.WhenAny(work, expired.Task).ConfigureAwait(false);
             if (first != work)
             {
-                _ = ObserveLateAsync(name, work);
+                if (call is null)
+                    _ = ObserveLateAsync(name, work);
+                else
+                    call.AfterRow(() => _ = ObserveLateAsync(name, work));
                 return new ArmHookResult(name, "cancelled", missed);
             }
             if (work.IsCanceled)

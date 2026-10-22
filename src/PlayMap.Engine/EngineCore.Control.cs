@@ -164,19 +164,23 @@ public sealed partial class EngineCore
             // The lane took no more work (the node is closing): nothing of the line ran.
             turn = new LineTurn(null, ex, null);
         }
-        if (turn.Reply is not { } reply)
+        if (RowHeldForTests is { } hold)
+            await hold(line, turn.AfterRow is not null).ConfigureAwait(false);
+        try
         {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            BeginAfterRow(turn.AfterRow);
-            return CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
+            if (turn.Reply is not { } written)
+                Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            else if (journalLine && !written.Silent && IsJournalled(line))
+                Journal.Add(written.Ok ? "verb" : "refused", written.Ok ? (written.Effect.Length > 0 ? written.Effect : VerbCatalog.Redacted(line)) : written.Payload ?? "refused",
+                    session.ClientName, VerbCatalog.Redacted(line), written.Ok);
+            else if (!journalLine && written.Ok && !written.Silent)
+                FanOutGestureLine(line);
         }
-        if (journalLine && !reply.Silent && IsJournalled(line))
-            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
-                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
-        else if (!journalLine && reply.Ok && !reply.Silent)
-            FanOutGestureLine(line);
-        BeginAfterRow(turn.AfterRow);
-        return reply;
+        finally
+        {
+            BeginAfterRow(turn.AfterRow);
+        }
+        return turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
     }
 
     /// <summary>A verb the operations edge answers (TryOps: devices, the assistant, scanning a surface, solving a projector), not the lane.</summary>

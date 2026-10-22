@@ -37,6 +37,9 @@ public sealed record VerbCall(VerbSpec Spec, List<string> Args, WireLine Line, S
         }
     }
 
+    /// <summary>True while work is held behind the line's row, not yet taken by its dispatcher.</summary>
+    internal bool HoldsAfterRow => Volatile.Read(ref _afterRow) is { } held && !ReferenceEquals(held, Taken);
+
     /// <summary>The work held behind the line's row, taken once by its dispatcher (null when there is none); work handed over after
     /// it begins at once.</summary>
     internal Action? TakeAfterRow()
@@ -372,8 +375,9 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
 
     /// <summary>The show's door for a line about to run — on the lane, or at the start of an off-lane verb (reading only published
     /// state there). Sets <paramref name="refused"/> to refuse it with words, or <paramref name="lineStore"/> to send the line's edits
-    /// to a blind draft. wp2-show implements it (wp2-blind adds the redirection); its stub lets every line pass.</summary>
-    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused, ref ProjectStore? lineStore);
+    /// to a blind draft. What it leaves running goes behind the line's row: through <paramref name="call"/> off the lane, through
+    /// <see cref="AfterRow"/> on it (null there). wp2-show implements it (wp2-blind adds the redirection); its stub lets every line pass.</summary>
+    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, ref CommandReply? refused, ref ProjectStore? lineStore);
 
     /// <summary>The fleet's door before the show's: a hot backup or a fenced node refuses a client's line that would change the show it
     /// mirrors, with the way out (wp2-backup). Same places as <see cref="GateLine"/>.</summary>

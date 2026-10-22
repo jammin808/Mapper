@@ -67,7 +67,8 @@ public interface INetworkControl
 
     Task<string> FollowAsync(string group, string nodeId, CancellationToken ct);
 
-    /// <summary>Starts pulling missing media from peers; answers what was queued.</summary>
+    /// <summary>Starts pulling missing media from peers: journals what was queued, the fetch's accepted row, before any row of its
+    /// pulls (a peer can end them at once), and answers it; a fetch that cannot start throws, and starts no pull.</summary>
     Task<string> FetchAsync(IReadOnlyList<MediaItem> items, string? fromNode, CancellationToken ct);
 }
 
@@ -211,6 +212,11 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// through the same router (null in a running node, where the show's gate decides).</summary>
     internal Func<SessionInfo, ProjectStore?>? DraftForTests { get; set; }
 
+    /// <summary>A test's hold on a line's row: awaited by the line's dispatcher once the line is answered and just before it writes the
+    /// line's row, with whether the line holds work behind that row (<see cref="AfterRow"/>), so a test can make the row as late as a
+    /// busy machine makes it and read what reaches the journal first. Null in a running node.</summary>
+    internal Func<WireLine, bool, Task>? RowHeldForTests { get; set; }
+
     /// <summary>On the lane, an off-lane verb's document edit with <see cref="Edits"/> on the session's store for its length, so the
     /// handler reads what it checks and writes its edit in one store (the session's blind draft, else live). Once the node has begun to
     /// stop it runs nothing for a line from outside the node and answers <paramref name="stopped"/>'s refusal with
@@ -343,18 +349,11 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         SessionInfo session, CancellationToken ct)
     {
         CommandReply reply;
-        VerbCall? call = null;
+        Exception? fault = null;
+        var call = new VerbCall(spec, args, line, session, ct);
         try
         {
-            if ((Admission(spec, session) ?? Gate(spec, line, session)) is { } closed)
-            {
-                reply = closed;
-            }
-            else
-            {
-                call = new VerbCall(spec, args, line, session, ct);
-                reply = await handler(call).ConfigureAwait(false);
-            }
+            reply = Admission(spec, session) ?? Gate(spec, line, session, call) ?? await handler(call).ConfigureAwait(false);
         }
         catch (EditRefusedException refused)
         {
@@ -366,26 +365,36 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Journal.Add("fault", $"{spec.Name}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            BeginAfterRow(call?.TakeAfterRow());
-            return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
+            fault = ex;
+            reply = CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
         }
-        if (!reply.Silent && IsJournalled(spec))
-            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
-                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
-        BeginAfterRow(call?.TakeAfterRow());
+        if (RowHeldForTests is { } hold)
+            await hold(line, call.HoldsAfterRow).ConfigureAwait(false);
+        try
+        {
+            if (fault is not null)
+                Journal.Add("fault", $"{spec.Name}: {Journal.Describe(fault)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            else if (!reply.Silent && IsJournalled(spec))
+                Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
+                    session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
+        }
+        finally
+        {
+            BeginAfterRow(call.TakeAfterRow());
+        }
         return reply;
     }
 
     /// <summary>The show's gate for a line answered off the lane: its refusal, or null to run it (an off-lane handler sends its edits to
-    /// the session's draft itself, through <see cref="EditAsync"/>).</summary>
-    private CommandReply? Gate(VerbSpec spec, WireLine line, SessionInfo session)
+    /// the session's draft itself, through <see cref="EditAsync"/>). What the gate leaves running (a proposal offered to an approval
+    /// desk) goes behind the line's row through <paramref name="call"/>.</summary>
+    private CommandReply? Gate(VerbSpec spec, WireLine line, SessionInfo session, VerbCall call)
     {
         CommandReply? refused = null;
         ProjectStore? lineStore = null;
         GateFleet(spec, line, session, ref refused);
         if (refused is null)
-            GateLine(spec, line, session, ref refused, ref lineStore);
+            GateLine(spec, line, session, call, ref refused, ref lineStore);
         return refused;
     }
 
@@ -401,17 +410,21 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
             // The lane took no more work (the node is closing): nothing of the line ran.
             turn = new LineTurn(null, ex, null);
         }
-        if (turn.Reply is not { } reply)
+        if (RowHeldForTests is { } hold)
+            await hold(line, turn.AfterRow is not null).ConfigureAwait(false);
+        try
         {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            BeginAfterRow(turn.AfterRow);
-            return CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
+            if (turn.Reply is not { } written)
+                Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            else if (!written.Silent && IsJournalled(line))
+                Journal.Add(written.Ok ? "verb" : "refused", written.Ok ? (written.Effect.Length > 0 ? written.Effect : VerbCatalog.Redacted(line)) : written.Payload ?? "refused",
+                    session.ClientName, VerbCatalog.Redacted(line), written.Ok);
         }
-        if (!reply.Silent && IsJournalled(line))
-            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
-                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
-        BeginAfterRow(turn.AfterRow);
-        return reply;
+        finally
+        {
+            BeginAfterRow(turn.AfterRow);
+        }
+        return turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
     }
 
     /// <summary>A line's turn on the lane: its reply, or (null) the fault its handler threw, and the work its handler began behind its
@@ -450,8 +463,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         }
     }
 
-    /// <summary>Begins work a line's handler starts and leaves running (a pull, a scan, a solve, a preflight's run, the node's own lines,
-    /// hooks behind an answer, a takeover) once the line's own row is in the journal, so in the journal and in the context's recent rows
+    /// <summary>Begins work a line's handler or the show's gate starts and leaves running (a pull, a scan, a survey's import, a media
+    /// import, a solve, a preflight's run, the node's own lines, hooks behind an answer, a takeover, a proposal's offer to a desk) once
+    /// the line's own row is in the journal, so in the journal and in the context's recent rows
     /// every row of that work follows the row of the verb that began it (sent → accepted → applied → observed). In a line's turn on the
     /// lane the start is held for the line's dispatcher, which runs it once it has written the line's row — whatever that row says, a
     /// refusal or a fault too — or at once when the line writes none, on the dispatcher's thread and before the line is answered: a start
@@ -485,8 +499,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         }
     }
 
-    /// <summary>The work a line began behind its row, begun by its dispatcher once the row is written: each start on its own, so one that
-    /// throws is the node's fault, journalled, and the others still begin.</summary>
+    /// <summary>The work a line began behind its row, begun by its dispatcher once the row is written (in a <c>finally</c>, so a row
+    /// that throws loses none of it): each start on its own, so one that throws is the node's fault, journalled, and the others still
+    /// begin.</summary>
     private void BeginAfterRow(Action? held)
     {
         if (held is null)

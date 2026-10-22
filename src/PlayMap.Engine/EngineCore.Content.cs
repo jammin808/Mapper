@@ -406,9 +406,9 @@ public sealed partial class EngineCore
         if (isUrl)
             return CommandReply.Success(id, $"added {name}");
         var mediaId = id;
-        var task = media.ImportAsync(location, null, ct);
-        // What the import comes to is journalled behind this line's row: an import that fails at once is said after the verb.
-        AfterRow(() => _ = task.ContinueWith(t => _lane.Post(() =>
+        // The import journals what it finds (a file that will not play here, FFmpeg missing) and can find it at once, and what it comes
+        // to is journalled when it ends: begun behind this line's row, so both follow the verb.
+        AfterRow(() => _ = media.ImportAsync(location, null, ct).ContinueWith(t => _lane.Post(() =>
         {
             if (!t.IsCompletedSuccessfully)
             {
@@ -465,10 +465,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail(args[0].Equals("ALL", StringComparison.OrdinalIgnoreCase) ? "nothing is missing" : $"no media {args[0]}");
         if (Services.NetworkControl is not { } nc)
             return CommandReply.Fail("the network is not running on this node");
-        // The pulls journal their rows as they go and a peer can end them at once: begun behind this line's row, so the verb is said first.
-        AfterRow(() => _ = nc.FetchAsync(wanted, from, ct).ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "media" : "refused",
-            t.IsCompletedSuccessfully ? t.Result : t.Exception?.InnerException?.Message ?? "fetch failed", ok: t.IsCompletedSuccessfully),
-            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
+        // The pulls journal their rows as they go and a peer can end them at once: begun behind this line's row, so the verb is said
+        // first. The edge journals what it queued itself, before its pulls begin; a fetch it cannot start is refused here.
+        AfterRow(() => _ = nc.FetchAsync(wanted, from, ct).ContinueWith(t => Journal.Add("refused", t.Exception?.InnerException?.Message ?? "fetch failed", ok: false),
+            CancellationToken.None, TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         return CommandReply.Accepted($"fetching {wanted.Count} file{(wanted.Count == 1 ? "" : "s")}");
     }
 

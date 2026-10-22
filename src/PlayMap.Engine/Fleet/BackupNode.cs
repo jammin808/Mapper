@@ -820,7 +820,7 @@ public sealed class BackupNode : IAsyncDisposable
             case "HELLO":
                 return Hello(call.Line.RestAfter(2));
             case "PROJECT":
-                return await ProjectAsync(engine, call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
+                return await ProjectAsync(engine, call, call.Line.RestAfter(2)).ConfigureAwait(false);
             case "ANCHOR" when call.Args.Count >= 3:
                 return await engine.AdoptMirrorAnchorAsync(call.Args[1], call.Line.RestAfter(3)).ConfigureAwait(false);
             case "AIR":
@@ -855,9 +855,10 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>The primary's show moved: pulled (with proof, over pinned HTTPS) and applied as one mirror edit; then the files and
-    /// versions it names that are not here are pulled beside the mirror.</summary>
-    private async Task<CommandReply> ProjectAsync(EngineCore engine, string json, CancellationToken ct)
+    /// versions it names that are not here are pulled beside the mirror, behind this line's row (each pull journals how it ended).</summary>
+    private async Task<CommandReply> ProjectAsync(EngineCore engine, VerbCall call, string json)
     {
+        var ct = call.Ct;
         long rev;
         try
         {
@@ -891,7 +892,7 @@ public sealed class BackupNode : IAsyncDisposable
                 engine.ShowFilesLanded();
             Interlocked.Exchange(ref _appliedRev, Math.Max(servedRev, rev));
             _mirrorWords = string.Create(CultureInfo.InvariantCulture, $"{_primaryName}'s show at rev {Math.Max(servedRev, rev)}");
-            Background(PullFilesAsync(engine, _stop.Token));
+            call.AfterRow(() => Background(PullFilesAsync(engine, _stop.Token)));
             return CommandReply.Success(effect: label);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException && !(ex is OperationCanceledException && ct.IsCancellationRequested))

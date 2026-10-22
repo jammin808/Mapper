@@ -122,16 +122,16 @@ public sealed partial class EngineCore : IShowDecisions
     /// <summary>The door: the table's decision, then the network area's lock (the only area with no document to guard). A line
     /// an assistant may only propose waits on this node's list for a person; a draftable line from the blind draft's owner runs
     /// into its draft (<paramref name="draft"/>), refused while that draft is landing.</summary>
-    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
+    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, out ProjectStore? draft)
     {
-        var refused = ShowGateDecide(spec, line, session, out draft);
+        var refused = ShowGateDecide(spec, line, session, call, out draft);
         // Off the lane the line's edits are applied later, through EditAsync on the lane: they keep this decision.
         if (refused is null && !_lane.IsOnLane)
             NoteOffLaneDecision(session, draft);
         return refused;
     }
 
-    private CommandReply? ShowGateDecide(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
+    private CommandReply? ShowGateDecide(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, out ProjectStore? draft)
     {
         draft = null;
         // A row no package answers on this node is the router's to refuse ("not available"): nothing to decide or to queue.
@@ -153,7 +153,7 @@ public sealed partial class EngineCore : IShowDecisions
                 draft = DraftStoreFor(session);
                 return draft is null ? RefuseAtGate(spec, line, session, "this session holds no blind draft — BLIND ON first") : null;
             case ShowVerdict.Propose:
-                return ProposeAtGate(spec, line, session, d.Words ?? "this line waits for a person");
+                return ProposeAtGate(spec, line, session, d.Words ?? "this line waits for a person", call);
             default:
                 return RefuseAtGate(spec, line, session, d.Words ?? "refused by Show Mode");
         }
@@ -175,20 +175,26 @@ public sealed partial class EngineCore : IShowDecisions
     }
 
     /// <summary>An assistant's line the armed table holds for a person: queued on this node's own list (never run), answered with
-    /// the proposal's id so the assistant reads "waiting" rather than a bare refusal.</summary>
-    private CommandReply ProposeAtGate(VerbSpec spec, WireLine line, SessionInfo session, string words)
+    /// the proposal's id so the assistant reads "waiting" rather than a bare refusal. The approval desk elsewhere is offered it behind
+    /// the line's row (<paramref name="call"/> off the lane, <see cref="AfterRow"/> on it): a desk that does not take it is journalled,
+    /// and that row follows the refusal that names the proposal.</summary>
+    private CommandReply ProposeAtGate(VerbSpec spec, WireLine line, SessionInfo session, string words, VerbCall? call)
     {
         if (Services.Assistant is not { } assistant)
             return RefuseAtGate(spec, line, session, words + " — this node keeps no list of proposals, so a person runs it from the desk");
         var check = CommandGate.Check(line.Raw);
         var text = check.Ok ? check.Line : line.Raw;
         var from = session.Transport == "mcp" ? "an assistant over MCP" : "the assistant";
-        // The queue lists a proposal as soon as it is asked (an approval desk elsewhere is offered it after).
-        _ = assistant.Queue.EnqueueAsync(new ProposalDraft(text, spec, "proposed while the show is armed", from, session.SessionId,
-            session.SessionId + "/armed", 0), CancellationToken.None);
-        var id = assistant.Queue.All.LastOrDefault(p => p.SessionId == session.SessionId && p.Line == text)?.Id ?? "on this node's list";
+        var queue = assistant.Queue;
+        var proposal = queue.Add(new ProposalDraft(text, spec, "proposed while the show is armed", from, session.SessionId,
+            session.SessionId + "/armed", 0));
+        Action offer = () => _ = queue.OfferAsync(proposal, CancellationToken.None);
+        if (call is not null)
+            call.AfterRow(offer);
+        else
+            AfterRow(offer);
         FactsChanged();
-        return CommandReply.Fail($"{words} — queued for a person as proposal {id}");
+        return CommandReply.Fail($"{words} — queued for a person as proposal {proposal.Id}");
     }
 
     /// <summary>SHOW ARM [ALL] [words]: this node arms on the lane; ALL then sends the same line to every member of the group this
@@ -234,7 +240,7 @@ public sealed partial class EngineCore : IShowDecisions
         if (!all && c.Session.Transport == LeaderTransport)
             return WithArmHooksBehind(c, local, arming);
         // The mode has changed already; the hooks prepare for it, each bounded by its own deadline, and no caller leaving cuts them short.
-        var hooks = local.Ok ? RunArmHooksAsync(arming, CancellationToken.None) : null;
+        var hooks = local.Ok ? RunArmHooksAsync(arming, CancellationToken.None, c) : null;
         if (!all)
             return hooks is null ? local : WithArmHooks(local, await hooks.ConfigureAwait(false));
         var already = !local.Ok && (local.Payload ?? "").StartsWith(alreadyWords, StringComparison.Ordinal);

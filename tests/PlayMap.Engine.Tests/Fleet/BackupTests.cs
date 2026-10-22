@@ -260,6 +260,51 @@ public sealed class BackupTests
     }
 
     [Fact]
+    public async Task AMirroredShowsFilePullsAreJournalledAfterTheRowOfTheMirrorLineThatBeganThem()
+    {
+        // The backup applies its primary's show and then pulls the clip it names that the backup does not hold: the pull's row follows
+        // the row of the MIRROR PROJECT line that began it, however late that row is written.
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var a = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, clock, time);
+        await using var b = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        var bytes = new byte[20_000];
+        var random = new PlayMap.Core.Numerics.Pcg32(11);
+        for (var i = 0; i < bytes.Length; i++)
+            bytes[i] = (byte)random.NextUInt();
+        var file = Path.Combine(a.Dir.FullName, "clip.mp4");
+        await File.WriteAllBytesAsync(file, bytes);
+        var hash = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        a.Host.Media.AddVerified(hash, file, "clip.mp4");
+        var item = new MediaItem("md_clip", "Clip", MediaKind.Video, "/nowhere/clip.mp4", hash, bytes.Length, MediaInfo.Unknown, []);
+        await SyncRig.OpenShowAsync(a, SyncRig.Show() with { Media = [item] });
+        await a.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(a, b);
+        var pulled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        b.Engine.Journal.Written += r =>
+        {
+            if (r.Kind == "media" && r.Text.StartsWith("clip.mp4 pulled from FOH-A", StringComparison.Ordinal))
+                pulled.TrySetResult();
+        };
+        b.Engine.RowHeldForTests = (line, held) => !held && line.Raw.StartsWith("MIRROR PROJECT", StringComparison.Ordinal)
+            ? pulled.Task.WaitAsync(TimeSpan.FromSeconds(30))
+            : Task.CompletedTask;
+
+        await BackupRig.BackUpAsync(a, b);
+        await pulled.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(b.Engine.Services.Media!.PathForHash(hash)!));
+        var rows = b.Engine.Journal.Recent(200)
+            .Where(r => (r.Kind == "verb" && r.Line?.StartsWith("MIRROR PROJECT", StringComparison.Ordinal) == true) || r.Text.StartsWith("clip.mp4 ", StringComparison.Ordinal))
+            .ToList();
+        var mirrored = rows.FindIndex(r => r.Kind == "verb");
+        var pull = rows.FindIndex(r => r.Kind == "media");
+        Assert.True(mirrored >= 0 && pull > mirrored, string.Join(" | ", rows.Select(r => $"{r.Kind}: {r.Text}")));
+        Assert.StartsWith("mirrored FOH-A rev ", rows[mirrored].Text, StringComparison.Ordinal);
+        Assert.Equal("clip.mp4 pulled from FOH-A with proof over HTTPS and verified", rows[pull].Text);
+    }
+
+    [Fact]
     public async Task AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows()
     {
         // Two hundred and fifty files FOH-A does not hold, each asked for by its size first and refused, and one verb's row to open

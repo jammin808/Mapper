@@ -188,9 +188,12 @@ public sealed partial class EngineCore
         var request = new SurveyRequest(id, name, path, format, unit, zUp ?? format != SurveyFormat.Gltf, crs ?? "", voxel, decimate,
             SurveyDefaultMaxErrorM, site, folder, live.Id);
         var session = call.Session;
-        // Its own thread below the lane's priority, never the pool's: the replies every other line awaits continue on the pool.
-        var task = Task.Factory.StartNew(() => RunSurvey(request, session), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
-        Volatile.Write(ref _surveyTask, task);
+        // Its own thread below the lane's priority, never the pool's: the replies every other line awaits continue on the pool. It
+        // journals how the import ended, and a file that cannot be read ends it at once: begun behind this line's row, and waited for
+        // by a stop from now.
+        var run = new Task<Task>(() => RunSurvey(request, session), CancellationToken.None, TaskCreationOptions.LongRunning);
+        Volatile.Write(ref _surveyTask, run.Unwrap());
+        AfterRow(() => run.Start(TaskScheduler.Default));
         FactsChanged();
         var words = $"importing {name} ({format.ToString().ToUpperInvariant()}) as {id}";
         var payload = JsonOut(w =>

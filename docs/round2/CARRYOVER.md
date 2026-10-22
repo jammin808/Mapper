@@ -510,32 +510,61 @@ Round 2 W1 notes:
   machine), so there the pulls ended between 85 and 100 ms after the handler answered. Now a handler hands the work it leaves running
   to `EngineCore.AfterRow` on the lane (`VerbCall.AfterRow` off it, `ForLine` for a lane part of a line answered off it), and the
   dispatcher begins it once it has written the line's row, whatever that row says, or at once when the line writes none, before the
-  line is answered; with the same 3 s hold the test passes three runs of three. The sweep of the verbs whose handlers leave work
-  running that journals: `MEDIA FETCH` (the node's own pull and the fleet's, `BackupNode.Fetch`), `LINK PATTERNS`, `LINK STAGEWATCH`
-  and a node's own `SYNC LEAD|FOLLOW` without the sync part (the change's end row, journalled inside the handler when the edge
-  answered at once), `SCAN START` (the runner's run and the scan's end), `MEDIA IMPORT` (the import's refusal or probe), `BLEND
-  SOLVE` and the blend solved again by `CALIBRATION ACCEPT|FALLBACK|RESOLVE`, `PANIC` (its shutter and effect lines, each a line of
-  its own with its own row), `PREFLIGHT` without `WAIT` (its run), `MEDIA OPTIMISE` (its jobs stay queued, handed to no worker, until
-  the row: a job whose item is not on the node ends failed at its first step, which the service's loop could take before the row),
-  `BIND LEARN` (the learnt and stopped rows wait for its row; the learn is armed before the answer), `SHOW ARM|DISARM` from the sync
-  leader (the hooks run behind the answer) and `MIRROR HANDBACK` (the takeover); each now begins, or journals, behind the row. Rows a
-  handler writes while it answers (a panic's playlists, a reconnect's words, `FAILBACK`'s) come before its row, as they always did,
-  in a fixed order. Parts that see a verb's change on a turn of their own are an open fix (below). Tests:
-  `VerbRowTests.AFetchsRowComesBeforeEveryRowOfItsPullsWhenTheyAllEndBeforeTheFetchIsAnswered` (a network edge that ends the whole
-  fetch inside its own call) and `VerbRowTests.ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` (an edge that
-  answers at once) failed three runs of three against the product before the fix, the work's rows first in the journal and the
-  context, and pass now; `VerbRowTests.APreflightsRunIsJournalledAfterTheRowOfTheVerbThatStartedIt` failed 3 of 13 unforced runs
-  against it (Linux, the run's row first) and passes now; `WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter` holds
-  `VerbCall`'s hand-over. `BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows` reads the same
-  last row through the fleet's pull, which now begins behind the row too.
+  line is answered; with the same 3 s hold the test passes three runs of three. The fetch's own accepted row was the same order one
+  level down: `NetworkHost.FetchAsync` began the pulls and only then answered what it had queued, which `MEDIA FETCH` journalled as
+  the `media` row "fetching 250 files from Dead list" once the call had answered, so a stall of that one thread between the two
+  statements put that row after the fetch's end row. The Windows run's last row was the verb's own ("fetching 250 files"), so there
+  it was the dispatcher's write that came late, not this one. The review that found it held the thread there 80 to 140 ms on Linux
+  and failed the unchanged test at line 231 with "fetching 250 files from Dead list" as the last row (reported, not rerun here);
+  `HostNetworkTests.AFetchsRowsFollowTheVerbAndWhatWasQueuedWhenItsPeerEndsEveryPullInsideTheFetch` ends every pull inside the call
+  and, with that order put back, finds the edge's row after the end row three runs of three. Now the edge journals what it queued
+  before it begins the pulls (`INetworkControl.FetchAsync`'s contract), and `MEDIA FETCH` journals only a fetch that could not
+  start. The sweep of the work a line leaves running that journals, each now begun, or journalled, behind the line's row: `MEDIA
+  FETCH` (the node's own pull and the fleet's, `BackupNode.Fetch`), `LINK PATTERNS`, `LINK STAGEWATCH` and a node's own `SYNC
+  LEAD|FOLLOW` without the sync part (the change's end row, journalled inside the handler when the edge answered at once), `LINK
+  PATTERNS FOLLOW-BLACKOUT` with the sync part (the switch's write beside the lane, a fault row when it fails), `SCAN START` (the
+  runner's run and the scan's end), `SURVEY IMPORT` (the worker: a file that cannot be read ends the import with a refusal at its
+  first read, so the worker begins behind the row and a stop waits for it from the answer on), `MEDIA IMPORT` (the import itself,
+  whose own row says a file will not play here or FFmpeg is missing, and how it ends), `BLEND SOLVE` and the blend solved again by
+  `CALIBRATION ACCEPT|FALLBACK|RESOLVE`, `PANIC` (its shutter and effect lines, each a line of its own with its own row, sent from
+  the panic's dispatcher with no further hop, and from a pool thread when begun on the lane), `PREFLIGHT` without `WAIT` (its run),
+  `MEDIA OPTIMISE` (its jobs stay queued, handed to no worker, until the row: a job whose item is not on the node ends failed at its
+  first step, which the service's loop could take before the row), `BIND LEARN` (the learnt and stopped rows wait for its row; the
+  learn is armed before the answer), `SHOW ARM|DISARM` (the hooks the sync leader's line runs behind its answer, and a hook any arm
+  leaves running past its deadline, whose fault is journalled when it ends), `MIRROR PROJECT` (the pulls of the files the mirrored
+  show names that are not here), `MIRROR HANDBACK` (the takeover) and an assistant's line the armed show holds for a person (its
+  offer to an approval desk, whose refusal names the proposal the line's own refusal gave its id: `ProposalQueue.Add`, then
+  `OfferAsync` behind the row). `PROJECTOR SOLVE` and `SCAN SURFACE` leave nothing running (their solves and edits are awaited
+  inside the handler); the operations dispatcher hands each its own `VerbCall` and takes it after the row, as the other dispatchers
+  do. Rows a handler writes while it answers (a panic's playlists, a reconnect's words, `FAILBACK`'s, a `PREFLIGHT WAIT`'s run, the
+  lines a `CONTROL INJECT` fires) come before its row, as they always did, in a fixed order. Every dispatcher begins the held work
+  in a `finally` after the row, so a row that throws loses none of it. Parts that see a verb's change on a turn of their own are an
+  open fix (below). Tests: each makes the work end as early as it can, inside the edge's own call or with the line's row held back
+  (`EngineCore.RowHeldForTests`, which each dispatcher awaits just before the row, told whether the line holds work behind it) until
+  the work's first row is in, and each of these failed three runs of three with the order before it put back (a local edit, not
+  kept) and passes now: `VerbRowTests`' `AFetchsRowComesBeforeEveryRowOfItsPullsWhenTheyAllEndBeforeTheFetchIsAnswered` (its edge
+  journals what it queued, as the contract now says), `AnImportsOwnRowsComeAfterTheRowOfTheVerbThatBeganIt`,
+  `ASurveyThatCannotBeReadIsRefusedAfterTheRowOfTheImportThatBeganIt`, `APreflightsRunIsJournalledAfterTheRowOfTheVerbThatStartedIt`
+  (unforced at first, it failed 3 of 13 runs against the product before the fix; held, it fails every run),
+  `ABlendSolveIsJournalledAfterTheRowOfTheLineThatAskedForIt`, `AHookLeftRunningPastItsDeadlineFaultsAfterTheRowOfTheArmThatLeftIt`,
+  `TheSyncLeadersArmRunsItsHooksBehindItsRow`, `APanicsOwnLinesAreJournalledAfterThePanicsRow` and
+  `AProposalADeskDoesNotTakeIsSaidAfterTheRefusalThatNamesIt`; the `HostNetworkTests` test above;
+  `BackupTests.AMirroredShowsFilePullsAreJournalledAfterTheRowOfTheMirrorLineThatBeganThem`;
+  `SettingsWriterTests.AFollowSwitchTheFileCannotKeepIsSaidAfterTheRowOfTheLineThatSetIt`.
+  `VerbRowTests.ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` failed three runs of three against the product
+  before the fix and passes now; `WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter` holds `VerbCall`'s hand-over.
+  `SCAN START`, `MEDIA OPTIMISE`, `BIND LEARN`, `MIRROR HANDBACK` and the fleet's fetch have no forcing test of their own; they hand
+  their work over the same way. The 250-file tests, the node's own and the fleet's
+  (`BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows`), read the fetch's end row as the last.
 - Open: a part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row,
   since the dispatcher writes a lane verb's row once the lane's turn is over, on another thread. A lane tick that runs first (a
   timecode chase's first step, a blind commit landing at its instant, the sound input the tick opens) and a part on a thread of its
   own (the video I/O hub's word of a reconnected input's first frame, the sync node's rows of a leader's feed after `SYNC FOLLOW`, a
-  backup's watch after `FLEET BACKUP`, a projector link set up again when an edit moved the project, the render host's frame lock
-  falling out after `SYNC APPLY`, a machine claim refused after `MACHINE SET`) can each write first. None is measured and no test
-  covers them. Writing a lane verb's row in the lane's own turn would order the ticks behind it; the other parts would need to hold a
-  line's rows until its row.
+  backup's watch and its mirror link's own lines after `FLEET BACKUP`, a Stagewatch operator's word on the link after `LINK
+  STAGEWATCH`, a projector link set up again when an edit moved the project, the optimise service's automatic queue when an edit
+  lands a hashed item, the render host's frame lock falling out after `SYNC APPLY`, a machine claim refused after `MACHINE SET`) can
+  each write first. None is measured and no test covers them. Writing a lane verb's row in the lane's own turn would order the ticks
+  behind it; the other parts would need to hold a line's rows until its row.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
