@@ -21,7 +21,9 @@ public sealed class ChangeSignal
     /// <summary>True when a change came within the wait; false on the wait's end.</summary>
     public Task<bool> WaitAsync(Task next, TimeSpan max, CancellationToken ct) => WaitAsync(next, max, TimeProvider.System, ct);
 
-    /// <summary>True when a change came within the wait, counted on <paramref name="time"/>; false on the wait's end.</summary>
+    /// <summary>True when a change came within the wait, counted on <paramref name="time"/>; false on the wait's end, which is never
+    /// sooner than <paramref name="max"/>: the runtime's timed wait counts whole milliseconds, dropping a part of one (and ending at
+    /// once on less than one), so a part of a millisecond is waited as a whole one.</summary>
     public async Task<bool> WaitAsync(Task next, TimeSpan max, TimeProvider time, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(next);
@@ -30,7 +32,7 @@ public sealed class ChangeSignal
             return next.IsCompleted;
         try
         {
-            await next.WaitAsync(max, time, ct);
+            await next.WaitAsync(TimeSpan.FromMilliseconds((max.Ticks + TimeSpan.TicksPerMillisecond - 1) / TimeSpan.TicksPerMillisecond), time, ct);
             return true;
         }
         catch (TimeoutException)

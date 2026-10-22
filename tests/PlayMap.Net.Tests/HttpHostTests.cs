@@ -189,6 +189,71 @@ public class HttpHostTests
         Assert.Equal((4, 0), (time.Made, time.Waiting));
     }
 
+    [Fact]
+    public async Task ALongPollWithUnderAMillisecondOfItsLimitLeftWaitsThatOutOnTheClock()
+    {
+        // A wake that brings nothing newer with a part of a millisecond of the limit left waits for that part on a timer, as for any
+        // rest of the limit, and the poll answers once the limit has passed.
+        var endpoint = new FakeEndpoint();
+        var time = new ManualTime();
+        var limit = TimeSpan.FromMilliseconds(600);
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = limit, Time = time });
+        using var c = Client(host);
+        var poll = c.GetStringAsync("/api/state?since=1");
+        await WaitsOnItsLimitAsync(time, 1, poll);
+        time.Advance(limit - TimeSpan.FromTicks(5_000));
+        endpoint.Touch();
+        await WaitsOnItsLimitAsync(time, 2, poll);
+        time.Advance(TimeSpan.FromTicks(4_999));
+        Assert.Equal((TaskStatus.WaitingForActivation, 1), (poll.Status, time.Waiting));
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Contains("\"seq\":1,", await poll.WaitAsync(TimeSpan.FromSeconds(10)), StringComparison.Ordinal);
+        Assert.Equal((2, 0), (time.Made, time.Waiting));
+    }
+
+    [Fact]
+    public async Task AWaitForAChangeEndsNoSoonerThanItsTimeThoughThatIsNotWholeMilliseconds()
+    {
+        // The runtime's timed wait counts whole milliseconds, dropping a part of one, and ends at once on less than one; the signal's
+        // wait is never shorter than it was asked for.
+        var time = new ManualTime();
+        var signal = new ChangeSignal();
+        foreach (var max in new[] { TimeSpan.FromTicks(5_000), TimeSpan.FromTicks(15_000) })
+        {
+            var wait = signal.WaitAsync(signal.Next, max, time, CancellationToken.None);
+            time.Advance(max - TimeSpan.FromTicks(1));
+            Assert.Equal((TaskStatus.WaitingForActivation, 1), (wait.Status, time.Waiting));
+            time.Advance(TimeSpan.FromMilliseconds(1));
+            Assert.False(await wait.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(0, time.Waiting);
+        }
+
+        // A change within the wait ends it with true, the clock unmoved.
+        var changed = signal.WaitAsync(signal.Next, TimeSpan.FromTicks(5_000), time, CancellationToken.None);
+        Assert.Equal((TaskStatus.WaitingForActivation, 1), (changed.Status, time.Waiting));
+        signal.Fire();
+        Assert.True(await changed.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(3, time.Made);
+    }
+
+    [Fact]
+    public async Task OnTheSystemClockALongPollWithNothingNewerAnswersNoSoonerThanItsLimit()
+    {
+        // The clock a node's web port counts on unless it is given another. The count starts before the request is sent, so the poll
+        // answers after it has counted its limit however the threads run, and the test reads no other bound of real time.
+        Assert.Same(TimeProvider.System, new HttpHostOptions().Time);
+        var endpoint = new FakeEndpoint();
+        var limit = TimeSpan.FromMilliseconds(50);
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = limit });
+        using var c = Client(host);
+        var asked = System.Diagnostics.Stopwatch.GetTimestamp();
+        var answer = await c.GetStringAsync("/api/state?since=1").WaitAsync(TimeSpan.FromSeconds(20));
+        var took = System.Diagnostics.Stopwatch.GetElapsedTime(asked);
+        Assert.Contains("\"seq\":1,", answer, StringComparison.Ordinal);
+        Assert.True(took >= limit, string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"answered {took.TotalMilliseconds:F3} ms after it was asked, inside its {limit.TotalMilliseconds} ms limit"));
+    }
+
     /// <summary>Waits until the poll has made its <paramref name="made"/>th wait on the clock and that wait alone stands, then holds that
     /// the poll has not answered: from here only a change or a move of the clock ends it.</summary>
     private static async Task WaitsOnItsLimitAsync(ManualTime time, int made, Task<string> poll)
