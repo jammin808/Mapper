@@ -4,6 +4,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Scanning;
@@ -169,7 +170,7 @@ public sealed class OpsRenderScanTests(ITestOutputHelper output)
         var folder = Directory.CreateDirectory(Path.Combine(node.Dir.FullName, "show")).FullName;
         var path = Path.Combine(folder, "show.playmap");
         await File.WriteAllTextAsync(path, ProjectJson.Serialize(project));
-        await node.OkAsync("PROJECT OPEN " + path);
+        await node.OkAsync("PROJECT OPEN " + WireGrammar.Quote(path));
 
         var started = await node.RunAsync("SCAN START cm00000001 MODE ROBUST");
         Assert.True(started.Ok, started.Payload);

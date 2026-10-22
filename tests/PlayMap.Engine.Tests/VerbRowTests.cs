@@ -125,7 +125,7 @@ public sealed class VerbRowTests
         var refusal = HoldRowUntil(rig.Engine, "SURVEY IMPORT", r => r.Kind == "refused" && r.Text.StartsWith("broken was not imported", StringComparison.Ordinal));
         var before = rig.Engine.Journal.Recent(200).Count;
 
-        var accepted = SiteRig.Json(await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL"));
+        var accepted = SiteRig.Json(await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL"));
         await rig.Engine.WhenSurveyed.WaitAsync(TimeSpan.FromMinutes(1));
         await refusal.WaitAsync(TimeSpan.FromSeconds(30));
 

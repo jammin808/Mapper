@@ -54,10 +54,11 @@ internal sealed class SiteRig : IAsyncDisposable
 
     public JsonElement State() => Json(Engine.State().Json);
 
-    /// <summary>Starts an import and waits for it to be applied (or to fail): the job's final view.</summary>
-    public async Task<SurveyJobView> Import(string args)
+    /// <summary>Starts an import of the file at <paramref name="path"/> (written as a producer writes a path) with its
+    /// <paramref name="options"/> and waits for it to be applied (or to fail): the job's final view.</summary>
+    public async Task<SurveyJobView> Import(string path, string options = "")
     {
-        var accepted = Json(await Ok("SURVEY IMPORT " + args));
+        var accepted = Json(await Ok("SURVEY IMPORT " + WireGrammar.Quote(path) + (options.Length > 0 ? " " + options : "")));
         Assert.Equal("accepted", accepted.GetProperty("stage").GetString());
         await Engine.WhenSurveyed.WaitAsync(TimeSpan.FromMinutes(5));
         return Engine.SurveyJob!;

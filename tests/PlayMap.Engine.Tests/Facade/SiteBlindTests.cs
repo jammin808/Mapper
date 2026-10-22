@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Tests.Show;
 
 namespace PlayMap.Engine.Tests.Facade;
@@ -42,12 +43,12 @@ public sealed class SiteBlindTests : IDisposable
         Assert.StartsWith("staged in the blind draft: site origin", origin.GetProperty("words").GetString(), StringComparison.Ordinal);
         var prior = Json(await rig.Ok("PROJECTOR PRIOR pj_far1 THROW 3.02"));
         Assert.True(prior.GetProperty("staged").GetBoolean());
-        var imported = Json(await rig.Ok($"SITE POINTS {points}"));
+        var imported = Json(await rig.Ok($"SITE POINTS {WireGrammar.Quote(points)}"));
         Assert.True(imported.GetProperty("staged").GetBoolean());
         Assert.Equal(14, imported.GetProperty("added").GetInt32());
 
         // Heavy work is never staged: refused from the draft's session, nothing started.
-        Assert.Contains("not staged in a blind draft", await rig.Refused($"SURVEY IMPORT {points}"), StringComparison.Ordinal);
+        Assert.Contains("not staged in a blind draft", await rig.Refused($"SURVEY IMPORT {WireGrammar.Quote(points)}"), StringComparison.Ordinal);
         Assert.Null(rig.Engine.SurveyJob);
 
         // Live: nothing moved — the document, STATE and the air's snapshot.
