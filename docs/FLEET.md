@@ -42,7 +42,8 @@ The machine's light is the worst known category (red over amber over green; grey
 that moves while all is well: "FOH-A · primary · all green · 2 unknown", "FOH-B · backup · 1 amber: outputs — Left: 4 dropped, 1
 missed in a minute".
 
-The numbers come from the **machine sampler**, on its own one-second timer (never the control lane, never the render thread):
+The numbers come from the **machine sampler**, on its own one-second timer (never the control lane, never the render thread; a
+tick that finds the last reading still being read takes none, so a reading that stalls holds one pool thread, never one a second):
 Linux reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `/proc/uptime`, the home volume's free space, and the GPU from
 `/sys/class/drm/card*/device` (`gpu_busy_percent`, a hwmon `temp1_input`) where the driver gives it; Windows reads system times,
 `GlobalMemoryStatusEx`, `GetTickCount64`, the interfaces' bytes and the PDH counter `\GPU Engine(*engtype_3D)\Utilization Percentage`

@@ -64,10 +64,14 @@ engine, on a shared second context (§5).
   does — never over a record that names another engine still running (that is a fault in STATE, with the other engine's
   pid), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
   installer's armed check needs to ask it on loopback, and no secret.
-- A node says it is up (its journal's row, its log's "is up: wire …" line) once its doors are open and it has written STATE and
-  CONTEXT once, on its start's own thread: no reader's line pays their first build, which runs every package's writer for the
-  first time (a client's first STATE took 250 to 920 ms on a Debug build on Linux; asked as the node says it is up it takes 5 to
-  10 ms there). A writer that faults then leaves the node up, with the words in its journal before the row that says so.
+- A node writes STATE and CONTEXT once on its start's own thread, after its render host and extensions start and before its doors
+  open, so no reader's line pays their first build (every package's writer run for the first time), however soon after the wire
+  listens it dials: on a Debug build on Linux that write took 250 to 270 ms, and a STATE asked the moment the wire listened then
+  answered in 15 to 17 ms, against 280 to 350 ms when the write came after the doors. The node then says it is up (its journal's
+  row, its log's "is up: wire …" line), each with how long that write took, its slowest part and how much of it its thread
+  worked. A writer that faults there does not stop the start: its fault is journalled as what happened then, never kept standing.
+  Every STATE write is timed part by part on the engine's clock (STATE's top-level parts, each package by its hook word) beside
+  its thread's own processor time, and one of a second or more that is the longest yet is journalled with the part it went in.
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with

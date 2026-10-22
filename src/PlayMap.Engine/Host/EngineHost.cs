@@ -234,7 +234,7 @@ public sealed class EngineHost : IAsyncDisposable
 
     /// <summary>STATE and CONTEXT, each written once on the start's own thread before the doors open, and how long each took: their
     /// first build (every package's writer run for the first time) is paid here, never on a line a reader sends, however soon after
-    /// the wire listens it dials. A writer that faults leaves the node starting: the fault is journalled and logged as what happened
+    /// the wire listens it dials. A writer that faults does not stop the start: its fault is journalled and logged as what happened
     /// then (a reader's STATE or CONTEXT answers with its own fault, whatever it is by then), never kept as a standing fault.</summary>
     private FirstFactsTime WriteFactsOnce(EngineCore engine)
     {

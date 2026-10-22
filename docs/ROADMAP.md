@@ -104,8 +104,12 @@ The lab checks still to do:
   transfer's row, so a recurrence names its stage),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, and `NodeHostTests`' one Windows wait for a fresh node's first STATE
-  (its PING answered; consistent with STATE's first build paid on the reader's line, which is fixed: the host writes STATE and
-  CONTEXT before it says the node is up; not proven, the job's log showing nothing of the node; its asks now name the node's log).
+  (its PING answered; its cause is not shown, the job's log showing nothing of the node: STATE's first build as measured on Linux
+  is 0.13 to 0.33 of the start's time, about 1 to 2 s for that node, not 10, so a wait only STATE meets there, a frozen or starved
+  process or a starved test host is not ruled out; the node now writes STATE and CONTEXT before its doors open, journals a STATE
+  write of 1 s or more that is the longest yet with the part it went in and whether its thread worked or waited, and the test's
+  unanswered line says when it was answered, whether a second connection's PING and CONTEXT were, and the node's journal, log and
+  output, so a recurrence names its stage).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.
