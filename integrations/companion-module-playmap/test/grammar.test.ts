@@ -33,3 +33,23 @@ void test('a word the module quotes comes back as that one word, mid-line', () =
 	assert.equal(quote('plain'), 'plain')
 	assert.equal(quote('[L]'), '"[L]"')
 })
+
+void test('a path the module quotes reads back as typed, and one quoted with single backslashes reads as the node reads it', () => {
+	// The node refuses a path quoted the second way, naming the first: a Windows path rides bare or quoted with its backslashes doubled.
+	for (const path of [
+		'C:\\Users\\me\\clip.mp4',
+		'C:\\My clips\\take 1.mp4',
+		'\\\\server\\share\\a b.mp4',
+		'C:\\My clips\\',
+	])
+		assert.deepEqual(splitLine(`MEDIA IMPORT ${quote(path)} Take`), {
+			ok: true,
+			words: ['MEDIA', 'IMPORT', path, 'Take'],
+		})
+	assert.equal(quote('C:\\Users\\me\\clip.mp4'), 'C:\\Users\\me\\clip.mp4')
+	assert.equal(quote('C:\\My clips\\take 1.mp4'), '"C:\\\\My clips\\\\take 1.mp4"')
+	assert.deepEqual(splitLine('MEDIA IMPORT "C:\\Users\\me\\clip.mp4"'), {
+		ok: true,
+		words: ['MEDIA', 'IMPORT', 'C:Usersmeclip.mp4'],
+	})
+})

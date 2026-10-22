@@ -81,6 +81,10 @@ public sealed class OptimiseService : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _kick = new(0);
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+
+    /// <summary>Queued jobs no step hands out yet: a verb's jobs until its own row is in the journal (<see cref="Release"/>). Under the
+    /// gate.</summary>
+    private readonly HashSet<string> _waitingForRow = new(StringComparer.Ordinal);
     private EngineCore? _engine;
     private Task _loop = Task.CompletedTask;
     private string? _running;
@@ -181,8 +185,10 @@ public sealed class OptimiseService : IAsyncDisposable
     }
 
     /// <summary>Plans each item (the named target, else the rules as if the mode were auto: a person asked) and queues a job for
-    /// those that need one; the others answer why not. Reads files (the probe): call it off the lane.</summary>
-    public IReadOnlyList<OptimiseOutcome> Request(IReadOnlyList<MediaItem> items, string? to, EncodeQuality quality)
+    /// those that need one; the others answer why not. Reads files (the probe): call it off the lane. With
+    /// <paramref name="waitForRow"/> its jobs stay queued, handed to no worker, until <see cref="Release"/>: a verb's jobs wait for its
+    /// row, so nothing a job journals (a job that fails at its first step) comes before the verb that asked for it.</summary>
+    public IReadOnlyList<OptimiseOutcome> Request(IReadOnlyList<MediaItem> items, string? to, EncodeQuality quality, bool waitForRow = false)
     {
         ArgumentNullException.ThrowIfNull(items);
         var engine = _engine ?? throw new InvalidOperationException("the optimise service is not attached");
@@ -195,7 +201,7 @@ public sealed class OptimiseService : IAsyncDisposable
             foreach (var item in items)
             {
                 var (plan, why) = Plan(engine, item, to, quality, settings with { Mode = OptimiseMode.Auto });
-                outcomes.Add(plan is null ? new OptimiseOutcome(item.Id, null, why) : Queue(item, plan));
+                outcomes.Add(plan is null ? new OptimiseOutcome(item.Id, null, why) : Queue(item, plan, waitForRow));
             }
             Kick();
             return outcomes;
@@ -204,6 +210,15 @@ public sealed class OptimiseService : IAsyncDisposable
         {
             Leave();
         }
+    }
+
+    /// <summary>Lets jobs that waited for their verb's row (<see cref="Request"/>) go to the worker in their turn.</summary>
+    public void Release(IEnumerable<string> jobIds)
+    {
+        ArgumentNullException.ThrowIfNull(jobIds);
+        lock (_gate)
+            _waitingForRow.ExceptWith(jobIds);
+        Kick();
     }
 
     /// <summary>Cancels a job (or every unfinished one): a queued job leaves the queue, a running one stops (its worker is killed)
@@ -370,7 +385,7 @@ public sealed class OptimiseService : IAsyncDisposable
         return File.Exists(full) ? full : null;
     }
 
-    private OptimiseOutcome Queue(MediaItem item, Recipe recipe)
+    private OptimiseOutcome Queue(MediaItem item, Recipe recipe, bool waitForRow = false)
     {
         var id = "oj" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4));
         var job = new OptimiseJob(id, item.Id, item.Name, item.ContentHash, recipe.Key(item.ContentHash), recipe.Canonical(), recipe.To, JobStates.Queued, Now());
@@ -379,6 +394,8 @@ public sealed class OptimiseService : IAsyncDisposable
             if (_jobs.FirstOrDefault(j => j.Key == job.Key && !JobStates.IsOver(j.State)) is { } queued)
                 return new OptimiseOutcome(item.Id, null, $"already queued ({queued.Id})");
             _jobs.Add(job);
+            if (waitForRow)
+                _waitingForRow.Add(job.Id);
             _store.Save(_jobs);
         }
         Changed();
@@ -524,7 +541,7 @@ public sealed class OptimiseService : IAsyncDisposable
             // A stopping service hands out no job: a step begun before the stop starts nothing after it.
             if (_running is null && !_closed && knobs.MayWork && now >= _restartAtNs && _settings.Role != "never")
             {
-                next = _jobs.Where(j => j.State == JobStates.Queued && !j.Paused).OrderBy(j => j.CreatedUnixMs).FirstOrDefault();
+                next = _jobs.Where(j => j.State == JobStates.Queued && !j.Paused && !_waitingForRow.Contains(j.Id)).OrderBy(j => j.CreatedUnixMs).FirstOrDefault();
                 // Reserved under the lock: a cancel from here on sees the job as running and stops its worker.
                 if (next is not null)
                     _running = next.Id;

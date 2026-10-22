@@ -154,7 +154,7 @@ public sealed partial class FacadeStateFixtureTest
     public async Task TheFacadesStateIsTheCommittedFixtureAndItsCardsReadIt()
     {
         await using var rig = await ControlPointVerbTests.Surveyed();
-        await rig.Ok($"SITE POINTS {rig.File("points.csv")}");
+        await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}");
         await rig.Ok("SITE MAINS 50");
         await rig.Ok("SITE CHECK");
         var far = LongThrowVerbTestsScene.Projector();

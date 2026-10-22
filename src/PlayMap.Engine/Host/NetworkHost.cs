@@ -521,9 +521,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     }
 
     /// <summary>Queues a pull of each item from the heard PlayMap nodes (only <paramref name="fromNode"/>, by id or name,
-    /// when given) and answers what was queued; the pulls run beside the engine — each verified against the item's
-    /// SHA-256 before it lands in the media store. STATE's row says where each stands (its stage, bytes and peer, its last failed
-    /// try's words) and how it ended when it failed; the journal holds each pull's first failed try at each peer and its end, at most
+    /// when given), journals what was queued (the fetch's accepted row, before any row of its pulls) and answers it; the pulls run
+    /// beside the engine — each verified against the item's SHA-256 before it lands in the media store. STATE's row says where each
+    /// stands (its stage, bytes and peer, its last failed try's words) and how it ended when it failed; the journal holds each pull's
+    /// first failed try at each peer and its end, at most
     /// <see cref="FetchJournal.Most"/> rows a fetch, and one that counts the rest when there were more (<see cref="FetchJournal"/>).
     /// This is the node's own pull, over a peer's <c>/api/media</c>; a node with the fleet's part pulls MEDIA FETCH's files with the
     /// peer's proof instead (<c>BackupNode.FetchMedia</c>).</summary>
@@ -555,8 +556,12 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         Facts();
         var from = string.Join(", ", peers.Select(p => p.Name));
         var what = string.Create(CultureInfo.InvariantCulture, $"{wanted.Count} file{(wanted.Count == 1 ? "" : "s")} from {from}");
+        // What was queued is the fetch's accepted row, written before the pulls begin: a peer can end them all at once, and every
+        // row of theirs follows it.
+        var accepted = "fetching " + what;
+        engine.Journal.Add("media", accepted);
         Background(PullAllAsync(wanted, peers, new FetchJournal(engine.Journal, _log, "the fetch of " + what), _stop.Token));
-        return "fetching " + what;
+        return accepted;
     }
 
     /// <summary>PAIRING NEW: a new token written to the node's settings first (a token that could not be kept is not

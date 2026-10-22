@@ -10,8 +10,59 @@ using PlayMap.Net;
 namespace PlayMap.Engine;
 
 /// <summary>One line of a package's verb as its handler receives it: the matched row, the words after the verb's own, the whole
-/// line and who sent it.</summary>
-public sealed record VerbCall(VerbSpec Spec, List<string> Args, WireLine Line, SessionInfo Session, CancellationToken Ct);
+/// line and who sent it. One object per line (made by the router in the line's turn on the lane, by the line's dispatcher off it),
+/// whose work held behind the row the line's dispatcher alone takes, once: a class, so no copy of it holds work that dispatcher
+/// never takes.</summary>
+public sealed class VerbCall(VerbSpec spec, List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
+{
+    /// <summary>Marks the work behind the row as taken by the line's dispatcher.</summary>
+    private static readonly Action Taken = static () => { };
+
+    private Action? _afterRow;
+
+    public VerbSpec Spec { get; } = spec;
+
+    public List<string> Args { get; } = args;
+
+    public WireLine Line { get; } = line;
+
+    public SessionInfo Session { get; } = session;
+
+    public CancellationToken Ct { get; } = ct;
+
+    /// <summary>Begins work this line's handler starts and leaves running once the line's own row is in the journal, so every row of
+    /// that work follows the verb's (<see cref="EngineCore.AfterRow"/>), on the lane and off it, whether the handler or work it left
+    /// running holding this call hands it over: held until the line's dispatcher has written the row, whatever it says, or knows it
+    /// writes none, and then begun by that dispatcher on its own thread (the lane's, for a member's air line); handed over after
+    /// that, begun at once on the thread that hands it over. A start only begins work that runs off the lane and touches none of the
+    /// lane's state, so either thread may begin it.</summary>
+    public void AfterRow(Action start)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        while (true)
+        {
+            var held = Volatile.Read(ref _afterRow);
+            if (ReferenceEquals(held, Taken))
+            {
+                start();
+                return;
+            }
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _afterRow, held + start, held), held))
+                return;
+        }
+    }
+
+    /// <summary>True while work is held behind the line's row, not yet taken by its dispatcher.</summary>
+    internal bool HoldsAfterRow => Volatile.Read(ref _afterRow) is { } held && !ReferenceEquals(held, Taken);
+
+    /// <summary>The work held behind the line's row, taken once by its dispatcher (null when there is none); work handed over after
+    /// it begins at once.</summary>
+    internal Action? TakeAfterRow()
+    {
+        var held = Interlocked.Exchange(ref _afterRow, Taken);
+        return ReferenceEquals(held, Taken) ? null : held;
+    }
+}
 
 /// <summary>What opening a topic gave: a subscription to dispose on OFF or close, or the refusal words.</summary>
 public readonly record struct PushOpen(IDisposable? Sub, string? Refused)
@@ -339,8 +390,9 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
 
     /// <summary>The show's door for a line about to run — on the lane, or at the start of an off-lane verb (reading only published
     /// state there). Sets <paramref name="refused"/> to refuse it with words, or <paramref name="lineStore"/> to send the line's edits
-    /// to a blind draft. wp2-show implements it (wp2-blind adds the redirection); its stub lets every line pass.</summary>
-    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused, ref ProjectStore? lineStore);
+    /// to a blind draft. What it leaves running goes behind the line's row: through <paramref name="call"/> off the lane, through
+    /// <see cref="AfterRow"/> on it (null there). wp2-show implements it (wp2-blind adds the redirection); its stub lets every line pass.</summary>
+    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, ref CommandReply? refused, ref ProjectStore? lineStore);
 
     /// <summary>The fleet's door before the show's: a hot backup or a fenced node refuses a client's line that would change the show it
     /// mirrors, with the way out (wp2-backup). Same places as <see cref="GateLine"/>.</summary>

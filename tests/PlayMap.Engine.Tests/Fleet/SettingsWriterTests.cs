@@ -57,5 +57,35 @@ public sealed class SettingsWriterTests
         Assert.Equal(last.Token, node.Network.Settings.Token);
     }
 
+    [Fact]
+    public async Task AFollowSwitchTheFileCannotKeepIsSaidAfterTheRowOfTheLineThatSetIt()
+    {
+        // The switch is written beside the lane and its file refuses the write: the fault row that says so follows the row of the
+        // LINK PATTERNS that set it, however late that row is written.
+        await using var node = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, new ManualClock(1_000 * SyncRig.Second));
+        node.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        var fault = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        node.Engine.Journal.Written += r =>
+        {
+            if (r.Kind == "fault" && r.Text.StartsWith("the follow-blackout switch", StringComparison.Ordinal))
+                fault.TrySetResult();
+        };
+        node.Engine.RowHeldForTests = (line, held) => !held && line.Raw.StartsWith("LINK PATTERNS FOLLOW-BLACKOUT", StringComparison.Ordinal)
+            ? fault.Task.WaitAsync(TimeSpan.FromSeconds(30))
+            : Task.CompletedTask;
+        var before = node.Engine.Journal.Recent(200).Count;
+
+        await node.OkAsync("LINK PATTERNS FOLLOW-BLACKOUT OFF");
+        await fault.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var rows = node.Engine.Journal.Recent(200).Skip(before)
+            .Where(r => r.Line?.StartsWith("LINK PATTERNS", StringComparison.Ordinal) == true || r.Text.StartsWith("the follow-blackout switch", StringComparison.Ordinal)).ToList();
+        Assert.True(rows.Count == 2, node.Journal());
+        Assert.Equal(["verb", "fault"], rows.Select(r => r.Kind));
+        Assert.StartsWith("LINK PATTERNS FOLLOW-BLACKOUT ", rows[0].Line, StringComparison.Ordinal);
+        Assert.Equal("the follow-blackout switch — not kept for the next start (the node's settings could not be written: disk full)", rows[1].Text);
+        Assert.True(Kept(node).Sync.FollowPatternsBlackout);
+    }
+
     private static Core.Bus.NodeSettings Kept(HostRig rig) => rig.Home.LoadSettings("unused");
 }

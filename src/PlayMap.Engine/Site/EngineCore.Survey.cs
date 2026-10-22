@@ -188,9 +188,12 @@ public sealed partial class EngineCore
         var request = new SurveyRequest(id, name, path, format, unit, zUp ?? format != SurveyFormat.Gltf, crs ?? "", voxel, decimate,
             SurveyDefaultMaxErrorM, site, folder, live.Id);
         var session = call.Session;
-        // Its own thread below the lane's priority, never the pool's: the replies every other line awaits continue on the pool.
-        var task = Task.Factory.StartNew(() => RunSurvey(request, session), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
-        Volatile.Write(ref _surveyTask, task);
+        // Its own thread below the lane's priority, never the pool's: the replies every other line awaits continue on the pool. It
+        // journals how the import ended, and a file that cannot be read ends it at once: begun behind this line's row, and waited for
+        // by a stop from now.
+        var run = new Task<Task>(() => RunSurvey(request, session), CancellationToken.None, TaskCreationOptions.LongRunning);
+        Volatile.Write(ref _surveyTask, run.Unwrap());
+        AfterRow(() => run.Start(TaskScheduler.Default));
         FactsChanged();
         var words = $"importing {name} ({format.ToString().ToUpperInvariant()}) as {id}";
         var payload = JsonOut(w =>
@@ -376,7 +379,7 @@ public sealed partial class EngineCore
             var words = $"imported {request.Name} ({surveyId}): {product.Words}"
                 + (meshId.Length > 0 ? $"; mesh {meshId} on surface {surfaceId}" : "")
                 + (request.SiteAtStart.IsSet ? "" : string.Create(SiteInv, $"; the site is {product.Frame.Crs} at {product.Frame.Origin.X:0.###} {product.Frame.Origin.Y:0.###} {product.Frame.Origin.Z:0.###}"));
-            Journal.Add("verb", words, session.ClientName, $"SURVEY IMPORT {request.Path}", true);
+            Journal.Add("verb", words, session.ClientName, "SURVEY IMPORT " + WireGrammar.Quote(request.Path), true);
             SetSurvey(v => v with { Id = surveyId, State = "ready", Progress = 1, Words = words }, shown: false);
             return "";
         }
@@ -404,7 +407,7 @@ public sealed partial class EngineCore
         }
         var words = $"{request.Name} was not imported: {why}";
         if (!Stopping)
-            Journal.Add("refused", words, session.ClientName, $"SURVEY IMPORT {request.Path}", false);
+            Journal.Add("refused", words, session.ClientName, "SURVEY IMPORT " + WireGrammar.Quote(request.Path), false);
         SetSurvey(v => v with { State = "failed", Words = words }, shown: true);
     }
 

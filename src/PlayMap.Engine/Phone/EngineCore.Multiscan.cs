@@ -291,9 +291,10 @@ public sealed partial class EngineCore
 
     /// <summary>SCAN SURFACE's ON form and a multi-view scan's surfaces (the first round's handler asks here first): the reply, or
     /// null for a single-view scan without ON, which the first round's handler answers.</summary>
-    private async Task<CommandReply?> ScanSurfaceMultiscanAsync(List<string> words, WireLine line, SessionInfo session, CancellationToken ct)
+    private async Task<CommandReply?> ScanSurfaceMultiscanAsync(VerbCall call)
     {
-        var args = new List<string>(words);
+        var ct = call.Ct;
+        var args = new List<string>(call.Args);
         string? on = null;
         // ON is the keyword only when a projector follows it: "On stage left" stays a name.
         if (args.Count >= 5 && args[3].Equals("ON", StringComparison.OrdinalIgnoreCase) && FindProjectorWord(Store.Project, args[4]) is not null)
@@ -306,7 +307,6 @@ public sealed partial class EngineCore
         var outcome = await Compute.RunAsync(() => OutcomeOf(record), ct).ConfigureAwait(false);
         if (outcome is null || (outcome.Multi is null && on is null))
             return null;
-        var call = new VerbCall(VerbCatalog.Find("SCAN SURFACE")!, args, line, session, ct);
         string? projectorId = null;
         if (on is not null)
         {

@@ -28,7 +28,7 @@ public sealed class SitePreflightTests
         var none = await Row(rig);
         Assert.Equal((Light.Green, "no control points"), (none.Light, none.Value));
 
-        await rig.Ok($"SITE POINTS {rig.File("points.csv")}");
+        await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}");
         var good = await Row(rig);
         Assert.Equal(Light.Green, good.Light);
         Assert.Null(good.Fix);
@@ -39,7 +39,7 @@ public sealed class SitePreflightTests
         parts[1] = (double.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture) + 0.3).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture);
         text[3] = string.Join(',', parts);
         await File.WriteAllTextAsync(rig.File("points-bad.csv"), string.Join('\n', text));
-        await rig.Ok($"SITE POINTS {rig.File("points-bad.csv")}");
+        await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points-bad.csv"))}");
         var cp3 = rig.Engine.Store.Project.Stage.Controls.Single(c => c.Name == "CP3");
         var bad = await Row(rig);
         Assert.Equal(Light.Red, bad.Light);

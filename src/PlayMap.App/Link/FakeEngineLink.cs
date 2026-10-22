@@ -423,6 +423,9 @@ public sealed partial class FakeEngineLink : IEngineLink
     {
         if (!WireGrammar.TryParse(text, out var line, out var error))
             return Err(error?.Reason ?? "an unreadable line");
+        // A quoted path whose backslashes the grammar would drop is refused before any verb reads it, as the node's door refuses it.
+        if (VerbCatalog.Match(line) is { } door && VerbSyntax.DroppedBackslash(door.Spec, line, door.Words) is { } dropped)
+            return Err(dropped);
         // Verbs the desk needs that the catalogue does not name yet (proposed in the desk's report).
         switch (line.Verb)
         {

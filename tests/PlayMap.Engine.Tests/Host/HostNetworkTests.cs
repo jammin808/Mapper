@@ -234,6 +234,45 @@ public sealed class HostNetworkTests
     }
 
     [Fact]
+    public async Task AFetchsRowsFollowTheVerbAndWhatWasQueuedWhenItsPeerEndsEveryPullInsideTheFetch()
+    {
+        // A peer whose hello names no address it can be asked at: every pull ends at it without a request, so the whole fetch (each
+        // file refused, then the row that counts the rest) ends inside the node's own call that queued it. The verb's row comes first,
+        // then what was queued, then every pull's row: none of the pulls begins before the rows that began it.
+        const int Files = 6;
+        await using var fetcher = await HostRig.StartAsync("Stage right", network: true);
+        for (var k = 0; k < Files; k++)
+            await AddAsync(fetcher, Clip(k), Convert.ToHexStringLower(SHA256.HashData(BitConverter.GetBytes(k))), 1000);
+        fetcher.Network.Hello!.Peers.Hear(new ShowBusHello(ShowBusConstants.KindPlayMap, 1, 1, "a0d0e55e", "Nowhere", "elsewhere",
+            new Dictionary<string, int> { ["http"] = 8080 }, ShowBusHello.PlayMapCaps, 0, null, null), "no address");
+        var before = fetcher.Engine.Journal.Recent(200).Count;
+
+        var reply = await fetcher.RunAsync("MEDIA FETCH ALL FROM a0d0e55e");
+
+        Assert.True(reply.Ok, reply.Payload);
+        var ended = string.Create(CultureInfo.InvariantCulture,
+            $"the fetch of {Files} files from Nowhere ended: 0 pulled and verified, {Files} could not be fetched; {Files - FetchJournal.Most} of its rows are in the node's log only");
+        List<(string Kind, string Text)> expected =
+        [
+            ("verb", $"fetching {Files} files"),
+            ("media", $"fetching {Files} files from Nowhere"),
+            .. Enumerable.Range(0, FetchJournal.Most).Select(k => ("refused", $"{Clip(k)} could not be fetched: no heard node holds it")),
+            ("refused", ended),
+        ];
+        Assert.True(await Eventually.TrueAsync(() => Rows(fetcher, "the fetch of").Count == 1), fetcher.Journal());
+        bool OfTheFetch(string text) => text.StartsWith("fetching ", StringComparison.Ordinal) || text.Contains(" could not be fetched: ", StringComparison.Ordinal)
+            || text.StartsWith("the fetch of ", StringComparison.Ordinal);
+        var rows = fetcher.Engine.Journal.Recent(200).Skip(before).Where(r => OfTheFetch(r.Text)).ToList();
+        Assert.Equal(expected, rows.Select(r => (r.Kind, r.Text)));
+        Assert.Equal("MEDIA FETCH ALL FROM a0d0e55e", rows[0].Line);
+        // The context's recent rows say them in the same order.
+        Assert.Equal([.. expected.Select(e => e.Kind == "refused" ? "refused: " + e.Text : e.Text)],
+            ContextRows(fetcher).Where(t => OfTheFetch(t.StartsWith("refused: ", StringComparison.Ordinal) ? t["refused: ".Length..] : t)));
+        Assert.Equal(Files, fetcher.State().GetProperty("media").GetProperty("transfers").EnumerateArray()
+            .Count(t => Str(t, "state") == "failed: no heard node holds it"));
+    }
+
+    [Fact]
     public async Task AFetchThatMovesOnToAnotherPeerKeepsTheChunksItHasAndSaysThemAtOnce()
     {
         // Three chunks of 64 KiB, one at a time, one try each. Keeper gives the first chunk and then falls silent; the next peer, Silent,

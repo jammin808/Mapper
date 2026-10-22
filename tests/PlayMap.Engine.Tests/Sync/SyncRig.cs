@@ -2,6 +2,7 @@ using System.Text.Json;
 using PlayMap.Core.Model;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Sync;
 using PlayMap.Engine.Tests.Host;
@@ -52,7 +53,7 @@ internal static class SyncRig
     {
         var path = Path.Combine(rig.Dir.FullName, "show.playmap");
         await File.WriteAllTextAsync(path, ProjectJson.Serialize(project ?? Show()));
-        await rig.OkAsync("PROJECT OPEN " + path);
+        await rig.OkAsync("PROJECT OPEN " + WireGrammar.Quote(path));
     }
 
     public static JsonElement Sync(HostRig rig) => rig.State().GetProperty("sync");
