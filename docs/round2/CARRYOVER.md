@@ -494,6 +494,27 @@ Round 2 W1 notes:
   it landed 250 ms or more after the last word, so whether it could pass there hung on how far apart the blocks landed (the pace is
   gone now). The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both
   nodes' journals and log tails, so a recurrence names its stage.
+- Done: the anchor feed's tests wait out their sends' deadlines on a clock the test moves. The one failure seen:
+  `AnchorFeedLineTests.EveryMemberHasTheSameOneDeadlineHoweverManyThereAre` on Linux, with ten busy-loop processes beside a full
+  Net-suite run (1 run of 15), at its count of silent members (line 118 before this change): "Assert.Equal() Failure: Expected: 19
+  Actual: 20". The test sent one line to twenty members with a 100 ms deadline on the system clock (`SendAirAsync` with no `time`)
+  and handed s7's applied receipt only once the send had returned, so the receipt raced real time. Held 150 ms between the send
+  and the receipt (a scratch copy of the test, not kept), it failed at the receipt in every run, three in Debug and three in
+  Release: the send had stopped waiting and dropped s7's entry, so `Receipt` answered false. The failure's own words need the
+  deadline to pass while the receipt is in flight: `Receipt` finds s7's entry before the send's `finally` removes it, and the send
+  reads s7's final receipt before `Receipt` sets it, so the send counts twenty silent while `Receipt` answers true. With the
+  deadline fired on a thread of its own as the test thread hands s7's receipt, the receipt's moment swept across the deadline's
+  work, 1 058, 583 and 665 of three runs of 20 000 gave exactly that, in those words. Unforced it did not recur: twenty full
+  Net-suite runs at d205f792 beside ten busy-loop processes on four cores all passed, so the failure stays watched
+  (below). `AirLinesArePushedInOrderKeptWithNoMemberAndAnswersComeLateWhenTheyMust` raced its three timed sends the same way: held
+  250 ms after its two sends, or 150 ms after the later one, it failed at the receipt in every run (three in Debug, three in
+  Release). Both tests now hand `SendAirAsync` a `ManualTime` (the Engine suite's hand-moved clock, copied into the Net suite), so
+  a receipt is in before the deadline it is meant to beat however long the test's thread is held, and a deadline passes only where
+  the test moves the clock; with the same holds both pass, three runs of three in Debug and in Release. Every assertion is kept
+  (twenty receipts, nineteen silent and s7 applied; the second line silent; the later line accepted, then its late receipt), and
+  the one deadline, read before on the stopwatch's 1.5 s, is read on the clock: the send waits on one timer for the twenty, still
+  waits a tick before the deadline, and ends at it. Fifteen full Net-suite runs with the change beside the same ten busy-loop
+  processes all passed.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -515,6 +536,12 @@ Round 2 W1 notes:
   state's publish, up to the quiet (10 s) for each missing show file every time it asks for them again, and an answer whose headers
   never come for the client's 60 s. Pulling the show files off the watch's own turn, with a test of the watch's pace while a show
   file is silent, closes it.
+- Open: a member's final receipt that comes as its air line's deadline passes can be taken while the send counts the member
+  silent. `AnchorFeed.Receipt` finds the member's waiting entry before the send's `finally` removes it, but the send has already
+  read the member's final receipt as not in; `Receipt` then sets it and answers true, so `SYNC RECEIPT` answers OK while the send's
+  result reads the member "silent", and no late receipt is raised (the feed keeps a receipt past its send only for a member that
+  had accepted). The forced runs above show it (the deadline fired beside the receipt). Deciding a final receipt and the deadline's
+  reading under the feed's lock, so a receipt the send no longer counts is refused as too late or raised as a late one, closes it.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
@@ -523,7 +550,10 @@ Round 2 W1 notes:
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
-  wait for the link's first clip in STATE (one failure on the batch's baseline).
+  wait for the link's first clip in STATE (one failure on the batch's baseline);
+  `AnchorFeedLineTests.EveryMemberHasTheSameOneDeadlineHoweverManyThereAre`' one Linux failure under load (twenty silent where
+  nineteen were due: consistent with its deadline, then on the system clock, passing while s7's receipt was in flight, which a
+  forced run gives in the same words, not proven; no unforced run failed it; its deadlines now run on a clock the test moves, above).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

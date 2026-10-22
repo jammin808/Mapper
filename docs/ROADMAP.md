@@ -91,6 +91,10 @@ The lab checks still to do:
   the watch (its fence, its follow of a group's new leader, the mirror state's publish) up to the quiet, 10 s, for each missing show
   file every time it asks for them again. Pulling them off the watch's own turn, with a test of the watch's pace while a show file
   is silent, closes it.
+- A member's final receipt that comes as its air line's deadline passes can be taken (`SYNC RECEIPT` answers OK) while the send
+  reads the member silent and raises no late receipt: `AnchorFeed.Receipt` finds the waiting entry before the send's `finally`
+  removes it, after the send has read the receipt as not in. Deciding a final receipt and the deadline's reading under the feed's
+  lock closes it.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
@@ -102,8 +106,12 @@ The lab checks still to do:
   of 4 (one-sided Fisher p about 0.07), while lighter loads, their runs not recorded, did not make it fail, and Windows completes
   socket reads its own way, so the Linux counts of pool turns are not Windows'; a pull's blocks are now 1 MiB and its wait names the
   transfer's row, so a recurrence names its stage),
-  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
-  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
+  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
+  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, and
+  `AnchorFeedLineTests.EveryMemberHasTheSameOneDeadlineHoweverManyThereAre`' one Linux failure under load (twenty silent where
+  nineteen were due: consistent with its deadline, then on the system clock, passing while s7's receipt was in flight, which a
+  forced run gives in the same words, not proven; no unforced run failed it; the feed's tests now run their deadlines on a clock
+  the test moves).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.
