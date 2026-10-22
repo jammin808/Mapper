@@ -822,6 +822,11 @@ Round 2 W1 notes:
   copy) the unchanged test passed 3 of 3 with the lock's waits at 1, the bounded take's alone; it now waits for the sharer's wait to
   be counted, asserts the sharer took nothing while the holder held, and that the waits rose by exactly that one, and passed 3 of 3
   under the same delay. No failure of it has been seen.
+- Done: `MediaTransferTests.TheBandwidthBucketHoldsItsRateAndCanBeLoweredAndLifted` asks that a bucket with no limit answer each of
+  its hundred takes as it is asked (each take complete as it returns, none waiting in the bucket), not that the hundred fit in 200 ms
+  of the stopwatch, which measured only the machine's pace around the loop. With the loop's thread stopped 250 ms half way (a delay
+  in a scratch copy) the unchanged test failed 3 of 3 at its range; it passed 3 of 3 under it. The rate half is unchanged. No
+  failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

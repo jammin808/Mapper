@@ -358,11 +358,11 @@ public sealed class MediaTransferTests : IDisposable
             await bucket.TakeAsync(64 * 1024, CancellationToken.None);   // 1.5 MiB at 2 MiB/s, a quarter-second burst
         Assert.InRange(sw.ElapsedMilliseconds, 350, 3000);
 
+        // No limit: every take is answered as it is asked, none waits, however the machine is paced.
         bucket.SetRate(0);
-        sw.Restart();
         for (var i = 0; i < 100; i++)
-            await bucket.TakeAsync(1024 * 1024, CancellationToken.None);
-        Assert.InRange(sw.ElapsedMilliseconds, 0, 200);
+            Assert.True(bucket.TakeAsync(1024 * 1024, CancellationToken.None).AsTask().IsCompletedSuccessfully, $"take {i} waited with no limit");
+        Assert.Equal(0, bucket.Waiting);
         Assert.Equal(0, bucket.BytesPerSecond);
     }
 }
