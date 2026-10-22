@@ -823,6 +823,28 @@ Round 2 W1 notes:
   test began, so what would hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s
   summary says what its reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but
   a collection the thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
+- Done: a follower that takes its clock from its group's new leader (`BackupNode.RetargetAsync`) raises STATE's push once the epoch
+  is the node's and writes the row of the follow after that, with `Persist`'s words when the settings file could not keep the
+  epoch, as the fleet's other changes carry them; `PromoteTests` waits for that row before it reads it.
+  `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt` waited for follower 2's STATE to show the new leader,
+  a live feed, no hold and epoch 1, then read its journal once for "leads show now (epoch 1)". The follow publishes the epoch
+  (which `STATE.sync.epoch` reads), then writes the settings file durably (read fresh, flushed, renamed into place), and only then
+  writes the row, which says whether the epoch was kept: a reader can see the epoch while the file is still being written, and read
+  the journal before the row. It failed so on the Windows job (run 439, job 120079075197, fix-win-batch2 4f38560e, which does not
+  touch the fleet) at its line 113 (`Assert.Contains()`, `Not found: "leads show now (epoch 1)"`), every assertion before it
+  passing, consistent with a slow settings write or the watch's thread held between the epoch and the row on the loaded runner, not
+  proven: the log times neither. With the row held 1 s before it is written (the test unchanged, the hold in a copy of the journal)
+  the unchanged test failed 5 of 5 at that line with those words, and passed 2 of 2 unheld; every settings write held 250 ms did not
+  make it fail in 4 runs (the test's own steps then wait longer). The test now waits for the row, as `BackupTests` waits for the
+  fence's, and keeps every assertion; it passed 3 of 3 under the same hold against the old product and against the new.
+  The follow also dropped `Persist`'s words, so a follower whose settings file refused the write said nothing of it, and it raised
+  no push, so STATE showed the old epoch until another fact moved (0.3 to 0.96 s in traces while the test read it every 20 ms).
+  `AFollowerWhoseSettingsCannotKeepItsNewLeadersEpochSaysSoInTheRowOfItsFollow`, its settings refusing every write, asks the row for
+  " — not kept for the next start (the node's settings could not be written: disk full)" and not ok, STATE read as the row is
+  written for the new leader and epoch 1, a push raised between the epoch's move and the row, and the file still at epoch 0. It
+  failed 3 of 3 on the words against the old product; with the words carried and no push, 2 of 5 on the push (in the other three
+  another fact's push fell in that window, so the missing push cannot be made to fail every time); with both, it passed 3 of 3
+  under the hold and 3 of 3 without.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -875,6 +897,9 @@ Round 2 W1 notes:
   consistent with its read racing the stage's builder, above, which the test now waits for, not proven);
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (consistent with a thread given under half a
   processor, above, which its lower bound no longer asks of the machine, not proven);
+  `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt`' one Windows read of the follow's row before it was
+  written (consistent with a slow settings write, or the watch's thread held, between the epoch's move and the row, above, which
+  the test now waits for, not proven);
   `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's heap limit fails its ready check, above, but what would hold
   that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap).

@@ -1276,7 +1276,8 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>A follower whose leader is silent (its clock free-wheels) follows the peer that leads its group under a higher epoch
-    /// than any this node knows.</summary>
+    /// than any this node knows. The row of the follow says whether its epoch was kept for the next start, so it follows the settings
+    /// file, and STATE: a reader that has the row reads the epoch in STATE.</summary>
     private async Task RetargetAsync(EngineCore engine)
     {
         NoteGroup(engine);
@@ -1295,8 +1296,10 @@ public sealed class BackupNode : IAsyncDisposable
         var reply = await RunAsync(engine, $"SYNC FOLLOW {group} {next.Id}", _stop.Token).ConfigureAwait(false);
         if (reply.Ok)
         {
-            Persist(s => s with { Epoch = Math.Max(s.Epoch, nextEpoch) });
-            engine.Journal.Add("fleet", $"{Label(leader)} went quiet and {next.Name} leads {group} now (epoch {nextEpoch}): following it on the same time line");
+            var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, nextEpoch) });
+            engine.FactsChanged();
+            engine.Journal.Add("fleet", $"{Label(leader)} went quiet and {next.Name} leads {group} now (epoch {nextEpoch}): following it on the same time line{kept}",
+                ok: kept.Length == 0);
         }
         else
         {
