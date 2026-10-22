@@ -15,15 +15,21 @@ Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r`
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
 is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Inside quotes a
 backslash escapes the mark after it, as Patterns reads it: `\"` is a quote, `\\` a backslash, and any other mark is read alone, its
-backslash lost; a bare word keeps every backslash. Every producer writes a word through the one quoting rule, `WireGrammar.Quote` (the
-desk's `VerbText.Word`, the Companion module's `quote`): bare when it holds no white space or quote and opens with neither `{` nor `[`,
-else quoted with each backslash and quote escaped. So a Windows path rides bare (`MEDIA IMPORT C:\clips\a.mp4`) or, holding a space,
-quoted with its backslashes doubled (`MEDIA IMPORT "C:\\My clips\\a.mp4"`). A verb that takes a path as its first word (`MEDIA IMPORT`,
+backslash lost; a bare word keeps every backslash. A producer quotes a word so it reads back as itself, each backslash and quote in it
+escaped, by the one rule `WireGrammar.Quote` writes (the desk's `VerbText.Word`, the Companion module's `quote`, the node's own
+suggestions and preflight fixes): bare when it holds no white space or quote and opens with neither `{` nor `[`, else quoted; SET's
+value rides as a JSON string. So a Windows path rides bare (`MEDIA IMPORT C:\clips\a.mp4`) or, holding a space, quoted with its
+backslashes doubled (`MEDIA IMPORT "C:\\My clips\\a.mp4"`). A verb that takes a path as its first word (`MEDIA IMPORT`,
 `PROJECT SAVE`, `PROJECT OPEN`, `FX IMPORT`, `LED IMPORT`, `SITE POINTS`, `SURVEY IMPORT`: `VerbSyntax.TakesPath`) refuses one quoted
-with a backslash before any other mark, as Explorer gives a path and a person or a model types it, at the node's door and in the
-assistant's gate, before anything reads it: the refusal says what it reads as and the spelling that reads as typed
-(`MEDIA IMPORT: inside quotes a backslash escapes the mark after it, so "C:\My clips\a.mp4" reads as C:My clipsa.mp4 — write the
-path "C:\\My clips\\a.mp4", each \ doubled inside the quotes, or with / in place of each \`). Replies: `OK`, `OK <payload>`,
+with a backslash before any other mark, as Explorer gives a path and a person or a model types it, before anything reads it: at the
+node's door, where a binding's target is read (`BIND ADD`, `BIND LEARN`, a binding's `target` set; a control fires its target later,
+rebuilt from the words read then), and in the assistant's gate and MCP's `run_command`, which read a binding's target too (such a
+line never waits for a person). The refusal says what it reads as and the spelling that reads as typed (`MEDIA IMPORT: inside quotes a backslash escapes
+the mark after it, so "C:\My clips\a.mp4" reads as C:My clipsa.mp4 — write the path "C:\\My clips\\a.mp4", each \ doubled inside
+the quotes, or with / in place of each \`), and repeats the phrase only when the line holds nothing the journal keeps back; quoted JSON
+to `FX IMPORT` is told that JSON rides bare. A phrase that does not close because a backslash escaped its closing quote, as a folder
+typed to end in `\` does, is refused with `a quote that does not close — inside quotes \" is a quote mark, never the phrase's end, so
+a phrase that ends in a backslash doubles it ("C:\\shows\\")`. Replies: `OK`, `OK <payload>`,
 `ERR <reason>`, the id after the first word (`OK @a1 …`). A line that carries a request id is always answered: a verb that answers nothing otherwise (`CURSOR`, streamed on
 every move) answers `OK @a1`. A refused verb says why; a verb that would change nothing is refused ("already playing").
 
