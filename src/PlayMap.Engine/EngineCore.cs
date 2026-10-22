@@ -343,9 +343,18 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         SessionInfo session, CancellationToken ct)
     {
         CommandReply reply;
+        VerbCall? call = null;
         try
         {
-            reply = Admission(spec, session) ?? Gate(spec, line, session) ?? await handler(new VerbCall(spec, args, line, session, ct)).ConfigureAwait(false);
+            if ((Admission(spec, session) ?? Gate(spec, line, session)) is { } closed)
+            {
+                reply = closed;
+            }
+            else
+            {
+                call = new VerbCall(spec, args, line, session, ct);
+                reply = await handler(call).ConfigureAwait(false);
+            }
         }
         catch (EditRefusedException refused)
         {
@@ -358,11 +367,13 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Journal.Add("fault", $"{spec.Name}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            BeginAfterRow(call?.TakeAfterRow());
             return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
         }
         if (!reply.Silent && IsJournalled(spec))
             Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
                 session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
+        BeginAfterRow(call?.TakeAfterRow());
         return reply;
     }
 
@@ -380,25 +391,117 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
 
     private async Task<CommandReply> HandleOnLaneAsync(WireLine line, SessionInfo session, CancellationToken ct)
     {
-        CommandReply reply;
+        LineTurn turn;
         try
         {
-            reply = await _lane.RunAsync(() => Route(line, session, ct)).ConfigureAwait(false);
-        }
-        catch (EditRefusedException refused)
-        {
-            // A handler refusing a word it cannot take: a refusal like any other, not a fault.
-            reply = CommandReply.Fail(refused.Message);
+            turn = await _lane.RunAsync(() => RouteBehindRow(line, session, ct)).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
+            // The lane took no more work (the node is closing): nothing of the line ran.
+            turn = new LineTurn(null, ex, null);
+        }
+        if (turn.Reply is not { } reply)
+        {
+            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            BeginAfterRow(turn.AfterRow);
+            return CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
         }
         if (!reply.Silent && IsJournalled(line))
             Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
                 session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
+        BeginAfterRow(turn.AfterRow);
         return reply;
+    }
+
+    /// <summary>A line's turn on the lane: its reply, or (null) the fault its handler threw, and the work its handler began behind its
+    /// row (<see cref="AfterRow"/>), null when it began none.</summary>
+    private readonly record struct LineTurn(CommandReply? Reply, Exception? Fault, Action? AfterRow);
+
+    /// <summary>True while a line's handler runs on the lane (<see cref="RouteBehindRow"/>): <see cref="AfterRow"/> then holds the work it
+    /// begins for the line's dispatcher. On the lane only.</summary>
+    private bool _lineTurn;
+
+    /// <summary>The work the line running on the lane began behind its row, null while it began none. On the lane only.</summary>
+    private Action? _afterRow;
+
+    /// <summary>The router on the lane for one line, the work its handler begins through <see cref="AfterRow"/> held for the line's
+    /// dispatcher. A handler refusing a word it cannot take (<see cref="EditRefusedException"/>) is a refusal like any other; any other
+    /// throw is the line's fault. Either way the work it began before it threw is handed back with it.</summary>
+    private LineTurn RouteBehindRow(WireLine line, SessionInfo session, CancellationToken ct)
+    {
+        var (outerTurn, outerAfter) = (_lineTurn, _afterRow);
+        (_lineTurn, _afterRow) = (true, null);
+        try
+        {
+            return new LineTurn(Route(line, session, ct), null, _afterRow);
+        }
+        catch (EditRefusedException refused)
+        {
+            return new LineTurn(CommandReply.Fail(refused.Message), null, _afterRow);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return new LineTurn(null, ex, _afterRow);
+        }
+        finally
+        {
+            (_lineTurn, _afterRow) = (outerTurn, outerAfter);
+        }
+    }
+
+    /// <summary>Begins work a line's handler starts and leaves running (a pull, a scan, a solve, a preflight's run, the node's own lines,
+    /// hooks behind an answer, a takeover) once the line's own row is in the journal, so in the journal and in the context's recent rows
+    /// every row of that work follows the row of the verb that began it (sent → accepted → applied → observed). In a line's turn on the
+    /// lane the start is held for the line's dispatcher, which runs it once it has written the line's row — whatever that row says, a
+    /// refusal or a fault too — or at once when the line writes none, on the dispatcher's thread and before the line is answered: a start
+    /// only begins work that runs off the lane and touches none of the lane's state. Anywhere else (a tick, the node's own work) it runs
+    /// at once. A handler answered off the lane hands its work to <see cref="VerbCall.AfterRow"/>, and its lane part to
+    /// <see cref="ForLine"/>.</summary>
+    internal void AfterRow(Action start)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        if (_lane.IsOnLane && _lineTurn)
+            _afterRow += start;
+        else
+            start();
+    }
+
+    /// <summary>On the lane, the lane part of a line answered off it: the work it begins through <see cref="AfterRow"/> goes behind that
+    /// line's row with its handler's own.</summary>
+    private T ForLine<T>(VerbCall call, Func<T> work)
+    {
+        var (outerTurn, outerAfter) = (_lineTurn, _afterRow);
+        (_lineTurn, _afterRow) = (true, null);
+        try
+        {
+            return work();
+        }
+        finally
+        {
+            if (_afterRow is { } held)
+                call.AfterRow(held);
+            (_lineTurn, _afterRow) = (outerTurn, outerAfter);
+        }
+    }
+
+    /// <summary>The work a line began behind its row, begun by its dispatcher once the row is written: each start on its own, so one that
+    /// throws is the node's fault, journalled, and the others still begin.</summary>
+    private void BeginAfterRow(Action? held)
+    {
+        if (held is null)
+            return;
+        foreach (var start in held.GetInvocationList())
+        {
+            try
+            {
+                ((Action)start)();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Journal.Add("fault", "work a line began: " + Journal.Describe(ex), ok: false);
+            }
+        }
     }
 
     private static bool IsJournalled(WireLine line) =>

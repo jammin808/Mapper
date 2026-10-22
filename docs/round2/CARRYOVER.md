@@ -494,6 +494,48 @@ Round 2 W1 notes:
   it landed 250 ms or more after the last word, so whether it could pass there hung on how far apart the blocks landed (the pace is
   gone now). The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both
   nodes' journals and log tails, so a recurrence names its stage.
+- Done: a verb's own journal row comes before every row of the work its handler leaves running. The dispatcher writes a verb's row
+  once its handler has answered, on the thread that awaited the answer (for a lane verb, a pool thread after the lane's turn), and
+  work the handler had begun ran beside that write. `MEDIA FETCH`'s handler began `NetworkHost.FetchAsync`, which yields to the pool
+  and starts the pulls, so a peer whose list is refused at once could end the whole fetch (its first four refused rows and the row
+  that counts the rest) before the verb's row was written: the journal and the context said the fetch ended before the verb that
+  began it. That is `HostNetworkTests.AFetchOfMoreFilesThanTheJournalHoldsFromAPeerWhoseListFailsLeavesTheNodesOwnRows`' one Windows
+  failure, at its line 231 (run 420, job 119506902541, at fix-backup-preflight 93f05df9, which touches none of this code; run 419,
+  green on both jobs, passed it on Windows, and it passes on Linux): the context's last row was "fetching 250 files", the verb's own
+  row, where the test reads the fetch's end row, which it had waited for and found. So the log shows the verb's row written after the
+  end of every pull, 1 min 34 s into an Engine suite of 8 min 19 s (1 172 passed, 1 failed), the test itself taking 1 s. It does not
+  show why the dispatcher's write came so late: a busy thread pool on the runner is consistent with it, not proven. On Linux, holding
+  the verb's row 3 s before the dispatcher writes it (a local edit, not kept) failed the unchanged test at line 231 with the same
+  words; holds of 0, 5, 15, 40, 55, 70 and 85 ms passed it three runs of three each and 100 ms failed it three of three (Debug, one
+  machine), so there the pulls ended between 85 and 100 ms after the handler answered. Now a handler hands the work it leaves running
+  to `EngineCore.AfterRow` on the lane (`VerbCall.AfterRow` off it, `ForLine` for a lane part of a line answered off it), and the
+  dispatcher begins it once it has written the line's row, whatever that row says, or at once when the line writes none, before the
+  line is answered; with the same 3 s hold the test passes three runs of three. The sweep of the verbs whose handlers leave work
+  running that journals: `MEDIA FETCH` (the node's own pull and the fleet's, `BackupNode.Fetch`), `LINK PATTERNS`, `LINK STAGEWATCH`
+  and a node's own `SYNC LEAD|FOLLOW` without the sync part (the change's end row, journalled inside the handler when the edge
+  answered at once), `SCAN START` (the runner's run and the scan's end), `MEDIA IMPORT` (the import's refusal or probe), `BLEND
+  SOLVE` and the blend solved again by `CALIBRATION ACCEPT|FALLBACK|RESOLVE`, `PANIC` (its shutter and effect lines, each a line of
+  its own with its own row), `PREFLIGHT` without `WAIT` (its run), `MEDIA OPTIMISE` (its jobs stay queued, handed to no worker, until
+  the row: a job whose item is not on the node ends failed at its first step, which the service's loop could take before the row),
+  `BIND LEARN` (the learnt and stopped rows wait for its row; the learn is armed before the answer), `SHOW ARM|DISARM` from the sync
+  leader (the hooks run behind the answer) and `MIRROR HANDBACK` (the takeover); each now begins, or journals, behind the row. Rows a
+  handler writes while it answers (a panic's playlists, a reconnect's words, `FAILBACK`'s) come before its row, as they always did,
+  in a fixed order. Parts that see a verb's change on a turn of their own are an open fix (below). Tests:
+  `VerbRowTests.AFetchsRowComesBeforeEveryRowOfItsPullsWhenTheyAllEndBeforeTheFetchIsAnswered` (a network edge that ends the whole
+  fetch inside its own call) and `VerbRowTests.ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` (an edge that
+  answers at once) failed three runs of three against the product before the fix, the work's rows first in the journal and the
+  context, and pass now; `VerbRowTests.APreflightsRunIsJournalledAfterTheRowOfTheVerbThatStartedIt` failed 3 of 13 unforced runs
+  against it (Linux, the run's row first) and passes now; `WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter` holds
+  `VerbCall`'s hand-over. `BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows` reads the same
+  last row through the fleet's pull, which now begins behind the row too.
+- Open: a part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row,
+  since the dispatcher writes a lane verb's row once the lane's turn is over, on another thread. A lane tick that runs first (a
+  timecode chase's first step, a blind commit landing at its instant, the sound input the tick opens) and a part on a thread of its
+  own (the video I/O hub's word of a reconnected input's first frame, the sync node's rows of a leader's feed after `SYNC FOLLOW`, a
+  backup's watch after `FLEET BACKUP`, a projector link set up again when an edit moved the project, the render host's frame lock
+  falling out after `SYNC APPLY`, a machine claim refused after `MACHINE SET`) can each write first. None is measured and no test
+  covers them. Writing a lane verb's row in the lane's own turn would order the ticks behind it; the other parts would need to hold a
+  line's rows until its row.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

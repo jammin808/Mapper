@@ -54,13 +54,13 @@ public sealed partial class EngineCore
     }
 
     /// <summary>The hooks run behind a mode's answer (the sync leader's line): the answer names each as running, and each outcome is
-    /// journalled when it ends.</summary>
-    private CommandReply WithArmHooksBehind(CommandReply reply, bool arming)
+    /// journalled when it ends. They begin behind the line's own row, so every hook's row follows it.</summary>
+    private CommandReply WithArmHooksBehind(VerbCall call, CommandReply reply, bool arming)
     {
         var hooks = Services.ArmHooks;
         if (hooks.IsDefaultOrEmpty || !reply.Ok)
             return reply;
-        _ = JournalArmHooksBehindAsync(arming);
+        call.AfterRow(() => _ = JournalArmHooksBehindAsync(arming));
         return WithArmHooks(reply, [.. hooks.Select(h => new ArmHookResult(NameOf(h), "running", BehindWords))]);
     }
 

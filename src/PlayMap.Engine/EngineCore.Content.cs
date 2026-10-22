@@ -358,11 +358,12 @@ public sealed partial class EngineCore
             : Task.FromException<string>(new InvalidOperationException("this node's scans take no views INTO them"));
         if (task.IsFaulted)
             return CommandReply.Fail(task.Exception?.InnerException?.Message ?? "the scan did not start");
-        _ = task.ContinueWith(t => _lane.Post(() =>
+        // The scan's end is journalled behind this line's row (the runner begins its run there too), whatever backend ends it.
+        AfterRow(() => _ = task.ContinueWith(t => _lane.Post(() =>
         {
             Journal.Add(t.IsCompletedSuccessfully ? "scan" : "refused", t.IsCompletedSuccessfully ? $"scan {t.Result} finished" : t.Exception?.InnerException?.Message ?? "scan failed", ok: t.IsCompletedSuccessfully);
             FactsChanged();
-        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         var effect = $"scanning {projectors.Count} projector{(projectors.Count == 1 ? "" : "s")} through {camera?.Name ?? "the simulated camera"} ({mode})";
         return ScanStarted(effect);
     }
@@ -406,7 +407,8 @@ public sealed partial class EngineCore
             return CommandReply.Success(id, $"added {name}");
         var mediaId = id;
         var task = media.ImportAsync(location, null, ct);
-        _ = task.ContinueWith(t => _lane.Post(() =>
+        // What the import comes to is journalled behind this line's row: an import that fails at once is said after the verb.
+        AfterRow(() => _ = task.ContinueWith(t => _lane.Post(() =>
         {
             if (!t.IsCompletedSuccessfully)
             {
@@ -418,7 +420,7 @@ public sealed partial class EngineCore
             {
                 Media = p.Media.Update(mediaId, m => m with { Kind = found.Kind, Info = found.Info, ContentHash = found.ContentHash, SizeBytes = found.SizeBytes }),
             });
-        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
@@ -463,10 +465,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail(args[0].Equals("ALL", StringComparison.OrdinalIgnoreCase) ? "nothing is missing" : $"no media {args[0]}");
         if (Services.NetworkControl is not { } nc)
             return CommandReply.Fail("the network is not running on this node");
-        var task = nc.FetchAsync(wanted, from, ct);
-        _ = task.ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "media" : "refused",
+        // The pulls journal their rows as they go and a peer can end them at once: begun behind this line's row, so the verb is said first.
+        AfterRow(() => _ = nc.FetchAsync(wanted, from, ct).ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "media" : "refused",
             t.IsCompletedSuccessfully ? t.Result : t.Exception?.InnerException?.Message ?? "fetch failed", ok: t.IsCompletedSuccessfully),
-            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         return CommandReply.Accepted($"fetching {wanted.Count} file{(wanted.Count == 1 ? "" : "s")}");
     }
 

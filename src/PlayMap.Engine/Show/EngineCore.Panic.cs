@@ -593,7 +593,8 @@ public sealed partial class EngineCore
         if (!WireGrammar.TryParse(text, out var line, out _))
             return;
         _panicLines[key] = "sent";
-        _ = Task.Run(async () =>
+        // A line of the node's own is journalled as it runs: sent behind the row of the PANIC that sends it, at once from the tick.
+        AfterRow(() => _ = Task.Run(async () =>
         {
             string stage;
             try
@@ -607,7 +608,7 @@ public sealed partial class EngineCore
             }
             _panicLines[key] = stage;
             FactsChanged();
-        }, CancellationToken.None);
+        }, CancellationToken.None));
     }
 
     /// <summary>The lane's panic work each tick: transport outcomes whose instant has come, returns that have settled, and one

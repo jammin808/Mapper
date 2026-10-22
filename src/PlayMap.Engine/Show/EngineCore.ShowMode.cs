@@ -232,7 +232,7 @@ public sealed partial class EngineCore : IShowDecisions
         if (local.Ok)
             Volatile.Write(ref _armAgain, 0);
         if (!all && c.Session.Transport == LeaderTransport)
-            return WithArmHooksBehind(local, arming);
+            return WithArmHooksBehind(c, local, arming);
         // The mode has changed already; the hooks prepare for it, each bounded by its own deadline, and no caller leaving cuts them short.
         var hooks = local.Ok ? RunArmHooksAsync(arming, CancellationToken.None) : null;
         if (!all)

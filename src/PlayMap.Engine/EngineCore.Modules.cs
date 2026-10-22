@@ -11,7 +11,40 @@ namespace PlayMap.Engine;
 
 /// <summary>One line of a package's verb as its handler receives it: the matched row, the words after the verb's own, the whole
 /// line and who sent it.</summary>
-public sealed record VerbCall(VerbSpec Spec, List<string> Args, WireLine Line, SessionInfo Session, CancellationToken Ct);
+public sealed record VerbCall(VerbSpec Spec, List<string> Args, WireLine Line, SessionInfo Session, CancellationToken Ct)
+{
+    /// <summary>Marks the work behind the row as taken by the line's dispatcher.</summary>
+    private static readonly Action Taken = static () => { };
+
+    private Action? _afterRow;
+
+    /// <summary>Begins work this line's handler starts and leaves running once the line's own row is in the journal, so every row of
+    /// that work follows the verb's (<see cref="EngineCore.AfterRow"/>): held until the line's dispatcher has written the row, whatever
+    /// it says, or knows it writes none, and begun at once after that. A start only begins work that runs off the lane.</summary>
+    public void AfterRow(Action start)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        while (true)
+        {
+            var held = Volatile.Read(ref _afterRow);
+            if (ReferenceEquals(held, Taken))
+            {
+                start();
+                return;
+            }
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _afterRow, held + start, held), held))
+                return;
+        }
+    }
+
+    /// <summary>The work held behind the line's row, taken once by its dispatcher (null when there is none); work handed over after
+    /// it begins at once.</summary>
+    internal Action? TakeAfterRow()
+    {
+        var held = Interlocked.Exchange(ref _afterRow, Taken);
+        return ReferenceEquals(held, Taken) ? null : held;
+    }
+}
 
 /// <summary>What opening a topic gave: a subscription to dispose on OFF or close, or the refusal words.</summary>
 public readonly record struct PushOpen(IDisposable? Sub, string? Refused)

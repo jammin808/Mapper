@@ -361,7 +361,15 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   node's own: `ERR <VERB>: this line is node-to-node only`. Then the fleet's door (a hot backup or a fenced node refuses a
   client's line that would change the show it mirrors, with the way out, the words `fleet.door` carries in STATE — docs/wire/backup.md), then the show's gate (Show Mode
   and the GO fence, docs/SHOW.md), then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
-  gesture (a drag, a nudge) is journalled once per gesture by its owner. `CURSOR` runs off the control lane: its line goes on
+  gesture (a drag, a nudge) is journalled once per gesture by its owner. A verb's row is written once its handler has answered,
+  and the work the handler leaves running — a fetch's pulls (the node's own and the fleet's), a scan's run, a blend solve
+  (`BLEND SOLVE`, and the one a calibration accept, fallback or re-solve runs), a preflight's run, an optimise job, what a learn
+  comes to, a panic's shutter and effect lines, a link or sync change, an import's probe, the hooks a leader's `SHOW ARM|DISARM`
+  runs behind its answer, a hand-back's takeover — begins, or journals, only after that row and before the line is answered, so in
+  the journal and the context's recent rows every row of that work follows the row of the verb that began it, however soon the
+  work ends; a refused or faulted line's work begins after its refused or fault row. Rows the handler writes while it answers
+  come before its row. A part that sees the verb's change on a turn of its own (the lane's ticks, the video I/O hub, the sync and
+  backup links, the render host) journals what it sees when it sees it (an open fix, docs/ROADMAP.md). `CURSOR` runs off the control lane: its line goes on
   the wall's cursor board as it arrives, stamped then, never queued behind edits.
 - **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; HEALTH —
   fleet; MIRROR <node> — backup, a primary's show to its hot backup, paired only; ANCHORS — sync, the group's feed, whose members answer each air line with `SYNC RECEIPT` on the same connection,

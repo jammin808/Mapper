@@ -48,7 +48,19 @@ public sealed partial class EngineCore
         try
         {
             if (_routes.TryLane(spec.Name, out var handler))
-                return handler(new VerbCall(spec, args, line, session, ct));
+            {
+                var call = new VerbCall(spec, args, line, session, ct);
+                try
+                {
+                    return handler(call);
+                }
+                finally
+                {
+                    // On the lane the line's turn holds what its handler began behind its row, whichever way it handed it over.
+                    if (call.TakeAfterRow() is { } held)
+                        AfterRow(held);
+                }
+            }
             return RouteRoundOne(spec, args, line, session, ct);
         }
         finally
@@ -213,10 +225,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail(syntax);
         if (Services.NetworkControl is not { } nc)
             return CommandReply.Fail("the network is not running on this node");
-        var task = action(nc, args);
-        _ = task.ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "network" : "refused",
+        // The change runs off the lane and journals how it ended (and any fault of the link it makes): begun behind this line's row.
+        AfterRow(() => _ = action(nc, args).ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "network" : "refused",
                 t.IsCompletedSuccessfully ? t.Result : t.Exception?.InnerException?.Message ?? "failed", ok: t.IsCompletedSuccessfully),
-            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         return CommandReply.Accepted($"{syntax.Split(' ')[0]} {syntax.Split(' ')[1]} started");
     }
 

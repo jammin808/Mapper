@@ -627,24 +627,19 @@ public sealed partial class EngineCore
         // pressed here a second time it would turn the panic hard.
         if (_air.Panic is { } panic && atLeaderNs <= panic.SinceLeaderNs && VerbCatalog.Match(line) is { Spec.Name: "PANIC" })
             return (CommandReply.Fail($"already in this panic since {Seconds(panic.SinceUnixMs)} — the leader's press at that instant ran here"), ran);
-        CommandReply reply;
-        try
+        LineTurn turn;
+        using (Services.Clock.Pin(atLeaderNs))
+            turn = RouteBehindRow(line, session, CancellationToken.None);
+        if (turn.Reply is not { } reply)
         {
-            using (Services.Clock.Pin(atLeaderNs))
-                reply = Route(line, session, CancellationToken.None);
-        }
-        catch (EditRefusedException refused)
-        {
-            reply = CommandReply.Fail(refused.Message);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            return (CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged"), ran);
+            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            BeginAfterRow(turn.AfterRow);
+            return (CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged"), ran);
         }
         if (!reply.Silent && IsJournalled(line))
             Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
                 session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
+        BeginAfterRow(turn.AfterRow);
         return (reply, ran);
     }
 
