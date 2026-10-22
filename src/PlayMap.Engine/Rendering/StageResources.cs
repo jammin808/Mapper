@@ -15,6 +15,10 @@ public sealed record StageResourceOptions
     /// <summary>The quiet time after the last stage change before the automatic 3D blend is solved again.</summary>
     public TimeSpan BlendDebounce { get; init; } = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>The clock <see cref="BlendDebounce"/> is counted on: no automatic solve starts before this clock has run that long
+    /// past the last stage change.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     /// <summary>A manual edge-blend map's size as a fraction of the output's raster (the GPU upsamples it).</summary>
     public double EdgeMapScale { get; init; } = 0.25;
 
@@ -41,8 +45,8 @@ public sealed record StageResourceOptions
 /// (one reference read) and, when the project snapshot moved, wakes the builder; the lookups read the tables
 /// in use with no lock and no allocation. A mesh still loading is null (its surfaces are not drawn) and its
 /// tables are published again once it is in. The automatic blend is solved when the stage has been quiet for
-/// <see cref="StageResourceOptions.BlendDebounce"/>, a solve under way is cancelled by a newer stage, and the
-/// last good maps stay up meanwhile; a solve BLEND SOLVE made for the same inputs is taken as it is.</summary>
+/// <see cref="StageResourceOptions.BlendDebounce"/> on <see cref="StageResourceOptions.Time"/>, a solve under way is cancelled by a
+/// newer stage, and the last good maps stay up meanwhile; a solve BLEND SOLVE made for the same inputs is taken as it is.</summary>
 public sealed class StageResources : IStageResources, IAsyncDisposable
 {
     /// <summary>An output's warp mesh and what it was built from: the operator's warp and the measured lattice under it.</summary>
@@ -457,7 +461,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                 do
                 {
                     seen = Interlocked.Read(ref _blendWantedVersion);
-                    await Task.Delay(_options.BlendDebounce, ct).ConfigureAwait(false);
+                    await Task.Delay(_options.BlendDebounce, _options.Time, ct).ConfigureAwait(false);
                 }
                 while (seen != Interlocked.Read(ref _blendWantedVersion));
                 var inputs = Volatile.Read(ref _blendWanted);

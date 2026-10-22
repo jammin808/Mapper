@@ -637,6 +637,20 @@ Round 2 W1 notes:
   (`AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn` read `(1, 1)` with the table's listener held before the change, `(1, 0)`
   after). The old wait was not seen failing; every receive held 250 ms did not make it fail, as the stopped node had sent a
   single hello by then.
+- Done: the stage's automatic blend counts its quiet time on the clock its options give (`StageResourceOptions.Time`; the render
+  host keeps the system's), and its tests move that clock.
+  `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps` read the tables for no blend just after its
+  first settle, and for the last good map just after its second, while the blender counted its 150 ms of real time from the
+  builder's signal on threads of its own, so a test whose next step ran later than the quiet time and a solve read the solved map.
+  It failed so on the Windows job (run 425, at fix-nodehost-win 39caa04c, which does not touch the stage) at its line 75
+  (`Assert.Null()`, `BlendMap { OutputId = op_left, Width = 480, Height = 270 … }`), consistent with its continuation starting a few
+  hundred milliseconds late on the loaded runner, not proven. With the test's own continuations held 3 s each (a context of one
+  thread that runs what is posted to it no sooner than 3 s later, the stage's threads free), the unchanged test failed 3 of 3 at
+  that line with those words, and passed 3 of 3 held 0 s; `ABlendTheVerbSolvedIsTakenAsItIsWithoutSolvingAgain`'s count of no solves
+  held only while the test outran its 30 s quiet time, and held 31 s it failed 3 of 3 at its line 107 (`Expected: 0`, `Actual: 1`).
+  The first test now moves the clock once the blender waits on it, a tick short of the quiet time (the wait stands, nothing is
+  solved) and then the last tick (the wait ends), and the second never moves it; both passed 3 of 3 held as above, and the first
+  fails 2 of 2, timed out waiting for the blender's wait, against a blender that counts on the system's clock.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -679,7 +693,9 @@ Round 2 W1 notes:
   wait for the link's first clip in STATE (one failure on the batch's baseline);
   `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
   (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
-  runs on a clock the test moves).
+  runs on a clock the test moves); `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
+  read of a solved blend just after its first settle (consistent with its continuation running later than the blend's real-time
+  quiet time, above, not proven; the quiet time now runs on a clock the test moves).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
