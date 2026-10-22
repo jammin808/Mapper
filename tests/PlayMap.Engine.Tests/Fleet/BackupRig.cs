@@ -105,3 +105,28 @@ internal static class BackupRig
         Assert.True(await Eventually.TrueAsync(() => MirrorState(by) == "identical", 15000), Fleet(by).ToString() + "\n" + by.Journal());
     }
 }
+
+/// <summary>The node's first row of a kind whose text holds the words, written once this watch is made: the row, the node's STATE read
+/// as the row is written, and whether a push of STATE was raised, before the row, while <c>moved</c> read true (the fact the row
+/// reports is the node's by then).</summary>
+internal sealed class RowWatch
+{
+    private readonly TaskCompletionSource<(JournalRow Row, JsonElement State, bool Pushed)> _seen = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _pushed;
+
+    public RowWatch(HostRig rig, string kind, string words, Func<bool> moved)
+    {
+        rig.Engine.StateChanged += _ =>
+        {
+            if (moved())
+                Interlocked.Exchange(ref _pushed, 1);
+        };
+        rig.Engine.Journal.Written += r =>
+        {
+            if (r.Kind == kind && r.Text.Contains(words, StringComparison.Ordinal))
+                _seen.TrySetResult((r, rig.State(), Volatile.Read(ref _pushed) == 1));
+        };
+    }
+
+    public Task<(JournalRow Row, JsonElement State, bool Pushed)> SeenAsync(TimeSpan within) => _seen.Task.WaitAsync(within);
+}

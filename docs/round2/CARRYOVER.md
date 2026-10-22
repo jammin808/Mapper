@@ -845,6 +845,19 @@ Round 2 W1 notes:
   failed 3 of 3 on the words against the old product; with the words carried and no push, 2 of 5 on the push (in the other three
   another fact's push fell in that window, so the missing push cannot be made to fail every time); with both, it passed 3 of 3
   under the hold and 3 of 3 without.
+- Done: every change of the fleet's settings says when the settings file could not keep it, once STATE holds it. A leader that steps
+  down to a member leading its group under a higher epoch (`StepDownAsync`) did as the follow above did: it dropped `Persist`'s words
+  and raised no push; it now pushes STATE, then writes its row with the words, not ok when the epoch was not kept. A backup that
+  takes the higher epoch its primary is heard to hold (`KeepPrimaryEpoch`), a node a backup joins becoming its primary with that
+  backup (`OnMembersChanged`) and a node that handed its show back taking the epoch it was taken back under (the hand-back in
+  `LookAsync`) dropped the words too, so a node whose file could not keep them would, after a restart, take over under an epoch
+  that fences no one, go out without waiting to hear its backups, or be fenced by none of them, having said nothing. The first two
+  now say so in a fault row and the hand-back in its own row, each after STATE moved and was pushed (the epoch's move raised none
+  before). With the settings refusing every write, `ALeaderWhoseSettingsCannotKeepTheEpochItStepsDownUnderSaysSoInTheRowOfItsStepDown`,
+  `ABackupWhoseSettingsCannotKeepItsPrimarysEpochSaysSo`, `APrimaryWhoseSettingsCannotKeepItsRoleSaysSo` and
+  `ANodeWhoseSettingsCannotKeepTheEpochOfItsHandBackSaysSoInItsRow` ask each row for its words, not ok, STATE read as it is written
+  for what it reports, a push raised before it, and the file as it was; against the product before this change each failed 2 of 2
+  (the step-down's and the hand-back's rows without the words, no row at all for the other two), and with it each passed 3 of 3.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
