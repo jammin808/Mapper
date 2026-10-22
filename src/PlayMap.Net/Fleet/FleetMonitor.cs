@@ -65,6 +65,25 @@ public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
         }
     }
 
+    /// <summary>Subscriptions that ended and wait out their backoff on <see cref="FleetMonitorOptions.Time"/> before they dial again
+    /// (counted in <see cref="Subscriptions"/> too); a reader that sees one counted sees its wait standing on that clock.</summary>
+    public int Redialling
+    {
+        get
+        {
+            lock (_gate)
+                return _entries.Values.Count(e => e.Redialling);
+        }
+    }
+
+    /// <summary>What the monitor last said of a machine it keeps, heard or not (how its last subscription ended, or that it is
+    /// subscribed), or null for a machine it does not keep.</summary>
+    public string? WordsOf(string nodeId)
+    {
+        lock (_gate)
+            return _entries.TryGetValue(nodeId, out var e) ? e.Words : null;
+    }
+
     /// <summary>Starts aging liveness, and attaches to the peer table if the hello has started.</summary>
     public void Start()
     {
@@ -184,7 +203,18 @@ public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
                 attempt = end.Heard ? 0 : Math.Min(attempt + 1, 4);
                 if (_table?.Find(entry.Id) is null)
                     break;   // forgotten by the hello: the machine stays on the board as it was last heard
-                await Task.Delay(Backoff(entry.Id, attempt), _o.Time, ct);
+                var wait = Task.Delay(Backoff(entry.Id, attempt), _o.Time, ct);
+                lock (_gate)
+                    entry.Redialling = true;
+                try
+                {
+                    await wait;
+                }
+                finally
+                {
+                    lock (_gate)
+                        entry.Redialling = false;
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -324,6 +354,7 @@ public sealed class FleetMonitor : IFleetPeers, IAsyncDisposable
         public string Projection { get; set; } = "";
         public bool Refused { get; set; }
         public bool Running { get; set; }
+        public bool Redialling { get; set; }
 
         public FleetPeer View(TimeSpan silent) =>
             new(Id, Name, Dial.Host, Health, Health is null ? FleetHeard.Gone : Heard, Words)

@@ -726,6 +726,25 @@ Round 2 W1 notes:
   unchanged test failed 3 of 3 at that line. It now hears the stage on the scan's own thread (`Progressed`, raised once the step is
   stored) and holds the scan there until `SCAN CANCEL` is answered, every assertion kept; it passed 3 of 3 under the same stop
   (the scan held at its first pattern) and 3 of 3 without it.
+- Done: the hot-backup tests' meeting (`BackupRig.MeetAsync`) hears each peer at the web port it serves, and moves the fleet's
+  clock while a node lacks a peer's health and its fleet monitor waits to dial again. A fleet monitor whose subscription to a peer
+  ends without a record (refused, cut, or answered by another machine under the peer's id) dials again once its backoff (0.5 s
+  doubling to 8 s, spread by up to a fifth) has run out on the fleet's clock, and until then takes no newer hello of that peer, one
+  at another port included (`FleetMonitor.Consider` returns while the peer's feed runs, its wait included); the rigs' nodes run
+  the fleet on a `ManualTime` that no hot-backup test moves, so one such end left the peer unheard for good and the meeting's wait
+  for its health ran out with "0badc0de has no health of 9f8e7d6c"; the meeting's first wait took any hello under the peer's id
+  that named a web port. `BackupRenderTests.TheBackupPlaysTheSameVersionAndItsPictureIsTheSameBytesAtTheSameInstants` failed so
+  on the Windows job (run 433, at fix-fetchrow-win ae9ca8d9, which does not touch the backup), from its line 141 after 22 s,
+  consistent with that, not proven: no node log or monitor words survive in the job's output, so what ended the first subscription
+  there is not known (a stray hello under the peer's id, which the rigs' shared ids and hello sockets allow, below, or a dial
+  refused or cut). With a hello under the backup's id that names a closed web port sent to the test host's UDP ports in their first
+  3 s (before the meeting), the unchanged test failed 3 of 3 with those words, as did, 3 of 3 against the meeting as it was, two
+  new tests (`BackupRigTests`: the same stray hello sent in the process, and a first subscription that ends unheard). The monitor
+  now counts the subscriptions waiting out their backoff (`FleetMonitor.Redialling`, each counted once its wait's timer stands) and
+  says what it last said of a machine it keeps, heard or not (`WordsOf`); the meeting moves every node's fleet clock 50 ms at each
+  20 ms look while the node lacks the peer's health and its monitor waits so (never while a dial is under way or once the health is
+  held), and a meeting that fails names the hello's address and port, the peer's own port and the monitor's counts and words. The
+  new tests passed 3 of 3, the render test 3 of 3 with the stray hello, and the 54 Fleet tests all passed.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -747,6 +766,17 @@ Round 2 W1 notes:
   state's publish, up to the quiet (10 s) for each missing show file every time it asks for them again, and an answer whose headers
   never come for the client's 60 s. Pulling the show files off the watch's own turn, with a test of the watch's pace while a show
   file is silent, closes it.
+- Open: a fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended
+  (`FleetMonitor.Consider` returns while the peer's feed runs), so a peer heard again at another address, port or certificate is
+  dialled up to about 9.6 s late; and the monitor's peers (`Peers()`, which STATE and the board read) leave out a machine never
+  heard, so nothing a person reads says why a peer whose hello is heard has no health (`WordsOf` says it, to tests). Cutting the
+  wait short when the dial changes, and a never-heard peer's words on the board, close it.
+- Open: the hello shares the port it listens on with every other socket on the machine (SO_REUSEADDR, and SO_REUSEPORT on Linux)
+  on the port a test asks the system for too (`HelloOptions.ListenPort` 0), so a test node's hello socket can take a port another
+  live test node's hello socket holds (here, 71 of 2000 live binds to port 0 with those options, none without them; Windows not
+  measured), and the hot-backup and sync rigs give their nodes the same constant ids (`BackupRig.PrimaryId` is
+  `SyncRig.LeaderId`), so a rig's node can hear another rig's node under a peer's id. Sharing only the well-known port closes it;
+  the hot-backup meeting now waits for the peer at the web port it serves, and names what it holds when it does not hear it.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
@@ -783,7 +813,10 @@ Round 2 W1 notes:
   that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap);
   `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows failure at its line 420 (consistent with
   its 20 ms samples missing the scan's few hundred milliseconds of "scanning", not proven; the scan is now held there until the
-  cancel is in, above).
+  cancel is in, above); `BackupRenderTests.TheBackupPlaysTheSameVersionAndItsPictureIsTheSameBytesAtTheSameInstants`' one Windows
+  wait for the backup's health from its line 141 (consistent with the primary's fleet monitor's first subscription ending unheard
+  and its next dial waiting on a fleet clock the hot-backup tests never moved, not proven; the meeting now moves that clock while
+  the monitor waits, and names what the node holds of its peer, above).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

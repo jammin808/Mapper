@@ -89,6 +89,14 @@ The lab checks still to do:
   the watch (its fence, its follow of a group's new leader, the mirror state's publish) up to the quiet, 10 s, for each missing show
   file every time it asks for them again. Pulling them off the watch's own turn, with a test of the watch's pace while a show file
   is silent, closes it.
+- A fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended, so a peer heard again
+  at another address, port or certificate is dialled up to about 9.6 s late; and STATE and the board leave out a machine the
+  monitor never heard, so nothing a person reads says why a peer whose hello is heard has no health. Cutting the wait short when
+  the dial changes, and a never-heard peer's words on the board, close it.
+- The hello shares its listening port (SO_REUSEADDR, and SO_REUSEPORT on Linux) on the port a test asks the system for too, so a
+  test node's hello socket can take another live test node's port (71 of 2000 live binds to port 0 here, none without the
+  options), and the hot-backup and sync rigs share their nodes' ids, so a rig's node can hear another's under a peer's id. Sharing
+  only the well-known port closes it.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
@@ -125,7 +133,10 @@ The lab checks still to do:
   stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
   `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
   (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
-  now held at its first pattern until the cancel is in),
+  now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent
+  with the primary's fleet monitor's first subscription ending unheard and its next dial waiting on a fleet clock the hot-backup
+  tests never moved, not proven; the meeting now moves that clock while the monitor waits, and names what the node holds of its
+  peer),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
