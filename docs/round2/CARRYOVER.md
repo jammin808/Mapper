@@ -242,7 +242,11 @@ Round 2 W1 notes:
   stands as (a `standsAs` per row) so the desk greys them with the node's words; the desk does not repeat the node's comparison over
   its own mirror.
 - The HoldButton's ring times its hold on the machine's stopwatch; the menus' second press and the leases run on the desk's injected
-  clock.
+  clock. In the desk's headless tests the ring's timer runs only when a test yields to the dispatcher (a pump runs the dispatcher's
+  jobs, not its timers), and no test that holds a button yields while it holds, so none races the hold's 600 ms now: with the press
+  pumped 650 ms late (a delay in a scratch copy) `DeskSpineTests`' hold test and the tests that hold through `DeskHarness.Hold`
+  (`BlindChipTests`, `OnWallTests`) passed 3 of 3, and a scratch test that then yielded 100 ms saw the press complete on its own. A
+  test that awaits while a press is held would race it; the desk's clock for the ring closes that.
 
 ## Integrator notes from the round-2 fix batch (fix-tests3)
 
