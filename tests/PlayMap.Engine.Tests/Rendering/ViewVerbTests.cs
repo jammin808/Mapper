@@ -208,6 +208,8 @@ public sealed class ViewVerbTests
         // A viewer that stopped renewing: the lane's tick hides the view and lets its ring go, and says so.
         clock.NowNs += 6_000_000_000;
         Assert.True(await OpsRig.Eventually(() => !File.Exists(path)));
+        // The tick that let the ring go journals it once the views have said so: a lane turn after it sees the row.
+        await engine.Lane.RunAsync(() => { });
         Assert.True(feed.Stopped);
         Assert.Empty(engine.Previews.Shown());
         Assert.Contains(engine.Journal.Recent(10), r => r.Text.StartsWith("scan-camera hidden: not renewed for 15 s", StringComparison.Ordinal));

@@ -74,8 +74,6 @@ The lab checks still to do:
 - A node's first survey import holds the lane 12 to 22 ms in its slices in a Debug build (their first-call compilation), past the
   10 ms slice; Release is not measured cold.
 - Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
-- `PANIC REWIND` publishes its lane as Cued before it writes the panic's journal row, so a reader that sees Cued can read the
-  journal without it; `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads it at once and failed one gate run on that.
 - With the fleet's part, which the exe composes, `MEDIA FETCH` pulls through the fleet's path (`BackupNode.FetchMedia`, with the
   peer's proof), which writes no `media.transfers` row, so the desk's Network drawer and PLAY show none of its pulls; says no failed
   try while it tries again; has a bandwidth bucket with no rate, so it is not throttled while a show plays; and lets a second
@@ -116,9 +114,11 @@ The lab checks still to do:
   test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
-  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, and `StageResourcesTests`' one Windows read of a solved blend just
-  after the stage settled (consistent with the test's next step running later than the blend's 150 ms real-time quiet time, not
-  proven; the quiet time now runs on a clock the test moves).
+  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `StageResourcesTests`' one Windows read of a solved blend just after
+  the stage settled (consistent with the test's next step running later than the blend's 150 ms real-time quiet time, not proven;
+  the quiet time now runs on a clock the test moves), and `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures
+  (consistent with its read of the panic's journal row racing the lane's step that writes it after the cue, not proven; it now reads
+  the journal once the lane's tick that saw the fade's end has run).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

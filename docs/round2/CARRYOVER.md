@@ -651,6 +651,18 @@ Round 2 W1 notes:
   The first test now moves the clock once the blender waits on it, a tick short of the quiet time (the wait stands, nothing is
   solved) and then the last tick (the wait ends), and the second never moves it; both passed 3 of 3 held as above, and the first
   fails 2 of 2, timed out waiting for the blender's wait, against a blender that counts on the system's clock.
+- Done, off the open list: `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the panic's journal row once a tick of the
+  lane has seen the fade's end (`ShowRig.Ticked`: the show's tick instant is written after its panic steps have run), not at its
+  first sight of the cue. `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued and runs its
+  listeners before `RunStep` journals the row ("panic … cued A"), so a reader that saw Cued could read the journal without it; the
+  row says the cue happened, so it is written after it. Holding the lane 300 ms in a last listener of the playback once it shows the
+  cue failed the unchanged test 3 of 3 at its line 102 (the journal holding only the two verb rows); the test now asserts Cued after
+  that tick, not at some point, and passed 3 of 3 under the same hold (and with it 3 s). Its failures, in one Engine run of
+  int-tests4's gate and once in a loaded Linux gate whose message was lost, are consistent with that order, not proven. The same
+  read was in `ViewVerbTests.AViewNotRenewedForFifteenSecondsIsHiddenAndItsRingLetGo`, which read the expiry's journal row the
+  moment the view's ring file was gone: the views delete it and run their listeners before the lane's tick journals the row. A
+  300 ms hold there failed it 3 of 3 at its line 213; it now takes a lane turn after the file goes (the tick is a lane item, so a
+  later one runs after it), and passed 3 of 3 under the hold.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -695,7 +707,9 @@ Round 2 W1 notes:
   (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
   runs on a clock the test moves); `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
   read of a solved blend just after its first settle (consistent with its continuation running later than the blend's real-time
-  quiet time, above, not proven; the quiet time now runs on a clock the test moves).
+  quiet time, above, not proven; the quiet time now runs on a clock the test moves);
+  `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (int-tests4's, and a loaded Linux gate's whose message
+  was lost; consistent with its read of the journal racing the panic step, above, which the test now waits out, not proven).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
@@ -751,11 +765,6 @@ Round 2 W1 notes:
   process; 22.22 ms on a loaded machine), and an import after it about 1 ms. `SurveyImportPerfTests` measures an import after a
   small one has compiled the path, and logs the small one's slices; the regular test holds a first import to its 40 ms ceiling.
   Release is not measured cold; ReadyToRun or a pre-roll (round 3's M13) bears on it.
-- Open: `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued before `RunStep` writes the
-  panic's journal row ("panic … cued A"), so a reader that sees Cued can read the journal without the row.
-  `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the journal the moment it sees Cued, and failed one Engine run of
-  the int-tests4 gate on that ordering. A row written before the lane is published, or a test that
-  waits for the row as it waits for the lane, closes it.
 - Open on Windows: whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - Of the desk-2 notes: the desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at every press and presses a card's `APPROVE` once,
   as the owner decided (calls 7 and 8); still open, the throttle sends what it coalesced to the link it holds when it flushes, across
