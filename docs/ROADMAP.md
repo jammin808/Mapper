@@ -115,11 +115,12 @@ The lab checks still to do:
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `StageResourcesTests`' one Windows read of a solved blend just after
-  the stage settled (consistent with the test's next step running later than the blend's 150 ms real-time quiet time, not proven;
-  the quiet time now runs on a clock the test moves), `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures
-  (consistent with its read of the panic's journal row racing the lane's step that writes it after the cue, not proven; it now reads
-  the journal once the lane's tick that saw the fade's end has run), `ProjectorViewTests`' one loaded Linux failure (its message
-  lost; consistent with its first read of the output racing the stage builder's first tables, not proven; it now waits for them),
+  the stage settled (consistent with the test's next step, or the stage builder between its signal to the blender and its tables,
+  running later than the blend's 150 ms real-time quiet time, not proven; the quiet time now runs on a clock the test moves),
+  `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (consistent with its read of the panic's journal row
+  racing the lane's step that writes it after the cue, not proven; it now reads the journal once the lane's tick that saw the fade's
+  end has run), `ProjectorViewTests`' one loaded Linux failure (its message lost; consistent with its first read of the output
+  racing the stage builder's first tables, not proven; it now waits for them),
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (its 125 ms spin counted 61.49 ms of 127.56 ms by the
   stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion

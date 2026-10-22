@@ -111,6 +111,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
     private int _blendSignalled;
     private BlendInputs? _blendWanted;
     private long _blendWantedVersion;
+    private int _blendPasses;
     private BlendSolveResult? _solved;
     private BlendSolveResult? _offered;
     private CancellationTokenSource? _solving;
@@ -138,6 +139,11 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
     /// <summary>Automatic blend solves finished so far (a solve BLEND SOLVE handed over is not counted). A count, not a fact about the
     /// tables in use: the tables built with the latest solve reach the render thread after it (<see cref="BlendInUseFor"/>).</summary>
     public int BlendSolves { get; private set; }
+
+    /// <summary>The automatic blend's quiet times that have run out so far, each counted once what it led to is done: its inputs
+    /// solved (<see cref="BlendSolves"/> counted before it), found solved already or offered (nothing solved), or a solve cut short (by
+    /// a newer stage or the stop) or failed.</summary>
+    public int BlendPasses => Volatile.Read(ref _blendPasses);
 
     /// <summary>The automatic blend's last words (empty before the first), and the last fault a build hit.</summary>
     public string BlendWords { get; private set; } = "";
@@ -452,6 +458,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            var quietRanOut = false;
             try
             {
                 await _blendWake.WaitAsync(ct).ConfigureAwait(false);
@@ -464,6 +471,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                     await Task.Delay(_options.BlendDebounce, _options.Time, ct).ConfigureAwait(false);
                 }
                 while (seen != Interlocked.Read(ref _blendWantedVersion));
+                quietRanOut = true;
                 var inputs = Volatile.Read(ref _blendWanted);
                 if (inputs is null || inputs.IsEmpty || (Volatile.Read(ref _solved) is { } done && done.Inputs.Equals(inputs)))
                     continue;
@@ -478,18 +486,20 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                 BlendWords = solution.Words;
                 Signal(ref _buildSignalled, _buildWake);
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                // A newer stage cancelled this solve; its own wake-up solves it after the quiet time.
-            }
             catch (OperationCanceledException)
             {
-                return;
+                // A newer stage cancelled this solve, and its own wake-up solves it after the quiet time; or the stop did, and the
+                // loop ends.
             }
             catch (Exception ex)
             {
                 // The last good blend stays up; the next stage change tries again.
                 LastProblem = $"blend: {ex.GetType().Name}: {ex.Message}";
+            }
+            finally
+            {
+                if (quietRanOut)
+                    Interlocked.Increment(ref _blendPasses);
             }
         }
     }

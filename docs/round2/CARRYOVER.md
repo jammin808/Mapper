@@ -647,16 +647,24 @@ Round 2 W1 notes:
   host keeps the system's), and its tests move that clock.
   `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps` read the tables for no blend just after its
   first settle, and for the last good map just after its second, while the blender counted its 150 ms of real time from the
-  builder's signal on threads of its own, so a test whose next step ran later than the quiet time and a solve read the solved map.
-  It failed so on the Windows job (run 425, at fix-nodehost-win 39caa04c, which does not touch the stage) at its line 75
-  (`Assert.Null()`, `BlendMap { OutputId = op_left, Width = 480, Height = 270 … }`), consistent with its continuation starting a few
-  hundred milliseconds late on the loaded runner, not proven. With the test's own continuations held 3 s each (a context of one
-  thread that runs what is posted to it no sooner than 3 s later, the stage's threads free), the unchanged test failed 3 of 3 at
-  that line with those words, and passed 3 of 3 held 0 s; `ABlendTheVerbSolvedIsTakenAsItIsWithoutSolvingAgain`'s count of no solves
-  held only while the test outran its 30 s quiet time, and held 31 s it failed 3 of 3 at its line 107 (`Expected: 0`, `Actual: 1`).
-  The first test now moves the clock once the blender waits on it, a tick short of the quiet time (the wait stands, nothing is
-  solved) and then the last tick (the wait ends), and the second never moves it; both passed 3 of 3 held as above, and the first
-  fails 2 of 2, timed out waiting for the blender's wait, against a blender that counts on the system's clock.
+  builder's signal on threads of its own, so a solve could reach those tables in two ways: the test's next step running later than
+  the quiet time and a solve, or the builder running late between its signal to the blender and the tables it then builds, whose
+  last assembly takes in whatever the blender has solved by then. It failed so on the Windows job (run 425, at fix-nodehost-win
+  39caa04c, which does not touch the stage) at its line 75 (`Assert.Null()`, `BlendMap { OutputId = op_left, Width = 480,
+  Height = 270 … }`), consistent with either on the loaded runner, not proven, and its words do not tell the two apart. Each,
+  forced, failed the unchanged test 3 of 3 at that line with those words: the test's own continuations held 3 s each (a context of
+  one thread that runs what is posted to it no sooner than 3 s later, the stage's threads free; held 0 s it passed 3 of 3), and the
+  builder held 5 s just after its signal to the blender (the test's continuations free).
+  `ABlendTheVerbSolvedIsTakenAsItIsWithoutSolvingAgain`'s count of no solves held only while the test outran its 30 s quiet time,
+  and held 31 s it failed 3 of 3 at its line 107 (`Expected: 0`, `Actual: 1`). The first test now moves the clock once the blender
+  waits on it, a tick short of the quiet time (the wait stands, nothing is solved) and then the last tick (the wait ends); it passed
+  3 of 3 under each hold above, and fails 2 of 2, timed out waiting for the blender's wait, against a blender that counts on the
+  system's clock. The second moves the clock through its quiet time once the offered blend is in use and, when the blender has
+  ended that pass (`StageResources.BlendPasses`, counted once what a quiet time led to is done), asks for no solve and the offered
+  map still up: the blender's taking inputs already solved or offered as solved was not run by the test before, whose quiet time
+  never ran out. With that check taken out of the blender it fails 3 of 3 at its line 134 (`Expected: 0`, `Actual: 1`), where the
+  test before the change and a form of it that never moved its clock passed 3 of 3; it passed 3 of 3 with its continuations held
+  31 s and 3 of 3 with the builder held 5 s.
 - Done, off the open list: `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the panic's journal row once a tick of the
   lane has seen the fade's end (`ShowRig.Ticked`: the show's tick instant is written after its panic steps have run), not at its
   first sight of the cue. `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued and runs its
@@ -749,8 +757,9 @@ Round 2 W1 notes:
   `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
   (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
   runs on a clock the test moves); `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
-  read of a solved blend just after its first settle (consistent with its continuation running later than the blend's real-time
-  quiet time, above, not proven; the quiet time now runs on a clock the test moves);
+  read of a solved blend just after its first settle (consistent with its continuation, or the stage builder between its signal to
+  the blender and its tables, running later than the blend's real-time quiet time, above, not proven; the quiet time now runs on a
+  clock the test moves);
   `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (int-tests4's, and a loaded Linux gate's whose message
   was lost; consistent with its read of the journal racing the panic step, above, which the test now waits out, not proven);
   `ProjectorViewTests.TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround`' one loaded Linux failure (its message lost;
