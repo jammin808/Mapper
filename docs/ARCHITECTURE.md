@@ -66,12 +66,13 @@ engine, on a shared second context (§5).
   installer's armed check needs to ask it on loopback, and no secret.
 - A node writes STATE and CONTEXT once on its start's own thread, after its render host and extensions start and before its doors
   open, so no reader's line pays their first build (every package's writer run for the first time), however soon after the wire
-  listens it dials: on a Debug build on Linux that write took 250 to 270 ms, and a STATE asked the moment the wire listened then
-  answered in 15 to 17 ms, against 280 to 350 ms when the write came after the doors. The node then says it is up (its journal's
-  row, its log's "is up: wire …" line), each with how long that write took, its slowest part and how much of it its thread
-  worked. A writer that faults there does not stop the start: its fault is journalled as what happened then, never kept standing.
-  Every STATE write is timed part by part on the engine's clock (STATE's top-level parts, each package by its hook word) beside
-  its thread's own processor time, and one of a second or more that is the longest yet is journalled with the part it went in.
+  listens it dials: on a Debug build on Linux that write takes some hundreds of milliseconds, and a STATE asked the moment the wire
+  listens then some tens (docs/round2/CARRYOVER.md has the runs). The node then says it is up (its journal's row, its log's "is up:
+  wire …" line), each with how long that write took, its slowest part and how much of it its thread worked. A writer that faults
+  there does not stop the start: its fault is journalled under its own name (STATE or CONTEXT) as what happened then, never kept
+  standing. Every STATE write is timed part by part on the engine's clock (STATE's top-level parts, each package by its hook word)
+  beside its thread's own processor time, and one after the first of a second or more that is the longest since the first is
+  journalled with the part it went in, as a fact the context's recent rows carry as written (the first is said in the "is up" row).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with

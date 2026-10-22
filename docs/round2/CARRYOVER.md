@@ -583,10 +583,17 @@ Round 2 W1 notes:
   network host opens the wire, the web port and the rest (`EngineHost.WriteFactsOnce`). 5f6436d8 wrote them after the doors and
   before the "is up" row, so a reader that dialled the moment the wire listened (the supervisor adopting from the pid record, a desk
   that redials) still paid the build under STATE's gate: probed as the log said the wire listened, that STATE took 284 to 349 ms
-  then and 15 to 17 ms now, five runs each. The "is up" row and log line say how long the write took, its slowest part and how much
-  of it its thread worked (`EngineHost.FirstFacts`); every STATE write is timed part by part on the engine's clock (`StateParts`:
-  STATE's top-level parts, each package by its hook word) beside its thread's own processor time, and a write of 1 s or more that is
-  the longest yet is journalled ("STATE took … ms (… ms in videoio, its thread working … ms) to write, the longest yet"). A writer
+  then and 15 to 17 ms now, five runs each. A review's re-run (eight starts of the node tool, llvmpipe on one thread) put the first
+  write at 268 to 323 ms, and a client of its own that sent `@s STATE` the moment the log said the wire listened was answered in 37
+  to 46 ms (three runs): some hundreds of milliseconds and some tens, the spread the machine's. The "is up" row and log line say how
+  long the write took, its slowest part and how much of it its thread worked (`EngineHost.FirstFacts`); every STATE write is timed
+  part by part on the engine's clock (`StateParts`: STATE's top-level parts, each package by its hook word) beside its thread's own
+  processor time, and a write after the first of 1 s or more that is the longest since the first is journalled as an ok row
+  ("STATE took … ms (… ms in videoio, its thread working … ms) to write, the longest since its first"). Journalled first as not ok,
+  that row reached the context's recent rows as "refused: STATE took …" (`ContextBuilder` prefixes every row not ok so), a refusal
+  that never happened, and the first write, which the "is up" row already says, was journalled too whenever it took a second (the
+  review's start pinned to one core beside eight spinning loops: 2 713 ms) and was the measure every later write had to pass, so a
+  slow reader's STATE after a slower first build went unjournalled. A writer
   that faults there is journalled and logged once under its own name (STATE or CONTEXT); 5f6436d8 kept it as a standing host fault,
   which STATE's faults and the context's red items went on claiming after STATE wrote cleanly, and named a CONTEXT fault STATE's.
   The test reads the node's output and errors as they come (a redirected pipe nobody reads fills, on Windows at the system's
@@ -598,18 +605,34 @@ Round 2 W1 notes:
   the process lives, and the ends of its journal, log and output. Forced on Linux (a hook kept out of the tree holding each STATE
   after the first in its videoio part): held 12 s, it said "answered 12.0 s after it was asked", the second `PING` in 0 ms and
   `CONTEXT` in 2 ms, and the journal's "STATE took 12010 ms (12001 ms in videoio, its thread working 10 ms) to write, the longest
-  yet"; held 120 s, "not answered within 60 s" with that `PING` and `CONTEXT` answered and no such row (a write stuck in STATE in a
-  live node, its part not named: the node's thread stacks would name it); the node stopped (SIGSTOP) at that write, "a second
-  connection's PING not answered within 10 s; the node runs" (a frozen process). `HostLifecycleTests`'
+  yet" (the row's words then); held 120 s, "not answered within 60 s" with that `PING` and `CONTEXT` answered and no such row (a
+  write stuck in STATE in a live node, its part not named: the node's thread stacks would name it); the node stopped (SIGSTOP) at
+  that write, "a second connection's PING not answered within 10 s; the node runs" (a frozen process). `HostLifecycleTests`'
   `TheHostWritesStateBeforeItsWireListensAndSaysHowLongItTook` (the write after the doors: the wire had listened on 44363 at
   STATE's first write), `ANodeWhoseStateFaultsAsItStartsIsUpAndSaysWhy` (the fault kept standing: the host's faults not empty)
-  and `ASlowStateWriteIsJournalledWithThePartItWentIn` (no row: a part's proposal count moves the node's clock a minute, half a
-  minute and two minutes inside STATE's "ai" part, and the minute and the two minutes are journalled, each naming "ai") each fail
-  with only its behaviour reverted and pass now; 5f6436d8's `TheHostSaysItIsUpOnlyOnceItsStateHasBeenWritten` passes as before.
+  and `ASlowStateWriteIsJournalledWithThePartItWentIn` (a part's proposal count moves the node's clock inside STATE's "ai" part:
+  the start's write two minutes, said in the "is up" row and journalled nowhere else, then a minute, half a minute and two minutes,
+  the minute and the two minutes journalled, ok, each naming "ai", the minute in the context's recent rows as written; it failed
+  with no slow row before 4e18f961, on the start's row under 4e18f961's rule, and with the row journalled not ok on its ok) each
+  fail with only its behaviour reverted and pass now, the last also three runs of three pinned to one core beside eight spinning
+  loops;
+  `AStateWriteAfterTheFirstIsJournalledFromASecondWhenItIsTheLongestSince` runs the rule on a manual clock only STATE's writes move
+  (a first of 5 s not journalled, 999 ms not, 1 000 ms journalled, 1 000 and 999 ms again not, 1 500 ms journalled), so the bound is
+  pinned at a second exactly (with it set to 0 the 999 ms write is journalled and the test fails);
+  `ANodeWhoseContextFaultsAsItStartsIsUpAndSaysWhy` holds the CONTEXT half (a part whose faults fault once, on the thread that has
+  just written STATE's "ai" part, so only the start's CONTEXT faults: its row is CONTEXT's, before "is up", which says STATE's time
+  and "CONTEXT not written"; no fault stays; it fails with that fault named STATE's); 5f6436d8's
+  `TheHostSaysItIsUpOnlyOnceItsStateHasBeenWritten` passes as before. The Windows job passed the node host test at 39caa04c (run
+  39727116245), its one run there since; one pass shows nothing of the cause.
   In the same review, `MachineSampler`'s 1 Hz timer took a reading on every tick with no guard while the Windows reader holds its
   lock around PDH's collect, so a stalled reading parked one more pool thread each second without bound; a tick now takes none while
   a reading is in flight (`MachineSamplerTests.TicksWhileAReadingStallsTakeNoneOfTheirOwn`: without the guard its second advance
   parked in the reader and its 10 s wait ran out; now one reading in all until the held one returns). It is not on STATE's path.
+- Open: the context's recent rows put "refused: " in front of every journal row that is not ok (`ContextBuilder.Build`: `r.Ok ?
+  r.Text : "refused: " + r.Text`), and not ok is how a fault, a sync warning ("… went quiet: free-wheeling …"), a decode or media
+  word and a claim Windows refused ("… was refused: …", so "refused: " twice) are journalled, so each reads there as a refusal of a
+  line to MCP's get_context, Patterns, Stagewatch and the assistant (`BackupTests` asserts the prefix as it is). Prefixing a row by
+  its kind (a refusal's "refused: ", a fault's its own), with a test that reads the context's recent rows, closes it.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -650,10 +673,14 @@ Round 2 W1 notes:
   wait for the link's first clip in STATE (one failure on the batch's baseline); `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing`'
   one Windows wait for its first STATE (its `PING` answered; its cause open, above: STATE's first build as measured does not reach
   10 s, and a wait only STATE meets, a frozen or starved process, or a starved test host is not ruled out; an unanswered line now
-  names its stage: when it came, a second connection's `PING` and `CONTEXT`, a STATE write's slowest part, the node's output). On
-  that runner the fresh node also draws its default project's display output (1920 × 1080 at 60 Hz, offscreen, on Mesa's
-  llvmpipe) in a process the machine part claims HIGH, beside a test host at normal priority on four cores; whether a node with no
-  display draws an output nobody sees is the owner's call.
+  names its stage: when it came, a second connection's `PING` and `CONTEXT`, a STATE write's slowest part, the node's output; the
+  Windows job passed it at 39caa04c, its one run there since). On that runner the fresh node also draws its default project's
+  display output (1920 × 1080 at 60 Hz, offscreen, on Mesa's llvmpipe) in a process the machine part claims HIGH, beside a test
+  host at normal priority on four cores; whether a node with no display draws an output nobody sees is the owner's call;
+  `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows failure at that same run
+  (fix-nodehost-win 39caa04c, run 39727116245: at its line 75 the left output's blend was already solved after the first settle,
+  where it asserts none yet; `StageResources` waits the blend's debounce, 150 ms in the test, as a real-time `Task.Delay`, which a
+  first settle slower than that outlasts, consistent with the failure, not proven; not investigated).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
