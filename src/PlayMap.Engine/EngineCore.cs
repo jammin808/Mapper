@@ -428,24 +428,28 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
             {
                 var written = StateWriter.Write(this, _stateParts);
                 var took = _stateParts.End();
-                _lastStateWrite = took;
-                if (took.Ms >= SlowStateMs && took.Ms > _longestStateMs)
+                // The first write is STATE's first build (every writer run once), which the host says where it says the node is up:
+                // it is not journalled here, nor is it the measure the writes after it are held to.
+                if (_lastStateWrite is not null && took.Ms >= SlowStateMs && took.Ms > _longestStateMs)
                 {
                     _longestStateMs = took.Ms;
                     longest = took;
                 }
+                _lastStateWrite = took;
                 _stateCache = (cacheKey, written);
             }
             json = _stateCache.Json;
         }
-        // Journalled outside STATE's gate, so a row's listeners never wait on a write or write STATE inside one.
+        // Journalled outside STATE's gate, so a row's listeners never wait on a write or write STATE inside one; a fact, not a refusal
+        // or a fault (the write ended), so the context's recent rows carry its words as written.
         if (longest is { } slow)
-            Journal.Add("node", "STATE took " + slow.Words + " to write, the longest yet", ok: false);
+            Journal.Add("node", "STATE took " + slow.Words + " to write, the longest since its first");
         return (json, key);
     }
 
-    /// <summary>A STATE write this long or longer (ms, on the engine's clock), when it is the longest yet, is journalled with the part
-    /// that took longest and how much of it its thread worked, so a slow STATE names where it went however rarely it comes.</summary>
+    /// <summary>A STATE write after the first this long or longer (ms, on the engine's clock), when it is the longest since the first, is
+    /// journalled with the part that took longest and how much of it its thread worked, so a slow STATE names where it went however
+    /// rarely it comes.</summary>
     public const double SlowStateMs = 1000;
 
     /// <summary>How long the last STATE write took and its slowest part (null before STATE is first written).</summary>

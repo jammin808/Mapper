@@ -266,53 +266,141 @@ public sealed class HostLifecycleTests
         Assert.StartsWith("ERR @s ", await c.AskAsync("@s STATE"), StringComparison.Ordinal);
     }
 
-    /// <summary>A STATE write a second or longer, when it is the longest yet, is journalled with how long it took, the part that took
-    /// longest and its thread's work, on the engine's clock; one under a second is not, even the first, nor one shorter than the
-    /// longest yet, so the rows stay few however often STATE is slow. The writes the test makes slow move the node's clock; the start's
-    /// write moves none, so its time is the machine's, and it is asserted against that time.</summary>
+    /// <summary>A CONTEXT writer that faults as the node starts, after STATE was written, leaves it up with the fault named CONTEXT's in
+    /// its journal before it says it is up, STATE's first write kept and its time said, and no fault kept standing: the context the wire
+    /// answers next lists none.</summary>
+    [Fact]
+    public async Task ANodeWhoseContextFaultsAsItStartsIsUpAndSaysWhy()
+    {
+        var part = new ContextFaultsOnce();
+        var parts = EngineParts.Bare with
+        {
+            Extensions = [setup =>
+            {
+                setup.AddFaults?.Invoke(part);
+                return part;
+            }],
+        };
+        await using var rig = await HostRig.StartAsync("Context node", parts: parts);
+
+        var rows = rig.Engine.Journal.Recent(200).ToList();
+        var fault = rows.FindIndex(r => r.Kind == "fault" && r.Text.StartsWith("CONTEXT could not be written as the node started", StringComparison.Ordinal));
+        var up = rows.FindIndex(r => r.Kind == "node" && r.Text.StartsWith("Context node is up:", StringComparison.Ordinal));
+        Assert.True(fault >= 0 && up > fault, $"the journal: {rig.Journal()}");
+        Assert.Contains(nameof(InvalidOperationException), rows[fault].Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(rows, r => r.Text.StartsWith("STATE could not be written", StringComparison.Ordinal));
+        Assert.Equal(1, part.Faulted);
+        var facts = rig.Host.FirstFacts;
+        Assert.NotNull(facts);
+        var state = Assert.IsType<StateWriteTime>(facts.State);
+        Assert.Null(facts.ContextMs);
+        Assert.Contains("STATE first written in " + state.Words + ", CONTEXT not written (its writer faulted)", rows[up].Text, StringComparison.Ordinal);
+        Assert.Empty(rig.Host.Faults);
+        await using var c = await rig.WireAsync();
+        var context = await c.AskAsync("@c CONTEXT") ?? "";
+        Assert.StartsWith("OK @c {", context, StringComparison.Ordinal);
+        using var doc = JsonDocument.Parse(context["OK @c ".Length..]);
+        Assert.DoesNotContain(doc.RootElement.GetProperty("items").EnumerateArray(), i => i.GetProperty("kind").GetString() == "fault");
+    }
+
+    /// <summary>A STATE write after the node's first that takes a second or more, when it is the longest since the first, is journalled
+    /// as a fact (nothing was refused, so the context's recent rows carry its words as written) with how long it took, the part that took
+    /// longest and its thread's work, on the engine's clock. The first, the start's, is said where the node says it is up and journalled
+    /// nowhere else however long it took, nor is it the measure the writes after it are held to; one shorter than the longest since the
+    /// first is not journalled, so the rows stay few however often STATE is slow. Each write the test makes slow moves the node's clock
+    /// inside STATE's "ai" part.</summary>
     [Fact]
     public async Task ASlowStateWriteIsJournalledWithThePartItWentIn()
     {
         var clock = new Sync.MovableClock(Core.Time.MonoClock.Instance, 0);
-        var count = new SlowCount(clock);
+        var count = new SlowCount(ns => clock.OffsetNs += ns);
+        count.NextTakes(TimeSpan.FromMinutes(2));
         var parts = EngineParts.Bare with { Extensions = [_ => count] };
         await using var rig = await HostRig.StartAsync("Slow node", mono: clock, parts: parts);
 
-        string[] Slow() => [.. rig.Engine.Journal.Recent(200).Where(r => r.Kind == "node" && r.Text.StartsWith("STATE took ", StringComparison.Ordinal))
-            .Select(r => r.Text)];
+        string[] Slow() => [.. SlowRows(rig.Engine).Select(r => r.Text)];
+        string[] Recent() => [.. JsonDocument.Parse(rig.Engine.Context()).RootElement.GetProperty("recent").EnumerateArray()
+            .Select(r => r.GetProperty("text").GetString() ?? "")];
 
         StateWriteTime Write(long seconds)
         {
-            count.Next = TimeSpan.FromSeconds(seconds);
+            count.NextTakes(TimeSpan.FromSeconds(seconds));
             rig.Engine.FactsChanged();
             _ = rig.Engine.State();
             return Assert.IsType<StateWriteTime>(rig.Engine.LastStateWrite);
         }
 
-        static string Row(StateWriteTime t) => "STATE took " + t.Words + " to write, the longest yet";
-
-        // The start's write is the node's first, so the longest yet: journalled exactly when it took a second or more.
+        // The start's write took two minutes in its "ai" part: said in the row that says the node is up, journalled nowhere else.
         var start = Assert.IsType<StateWriteTime>(rig.Host.FirstFacts?.State);
-        string[] started = start.Ms >= EngineCore.SlowStateMs ? [Row(start)] : [];
-        Assert.Equal(started, Slow());
+        Assert.Equal("ai", start.Slowest);
+        Assert.True(start.SlowestMs >= 120_000 && start.Ms >= start.SlowestMs, start.Words);
+        Assert.Contains(rig.Engine.Journal.Recent(200), r => r.Kind == "node" && r.Text.StartsWith("Slow node is up:", StringComparison.Ordinal)
+            && r.Text.Contains("STATE first written in " + start.Words, StringComparison.Ordinal));
+        Assert.Empty(Slow());
 
+        // A minute, shorter than the start's write: the longest since it, so journalled, and published as written.
         var minute = Write(60);
         Assert.Equal("ai", minute.Slowest);
         Assert.True(minute.SlowestMs >= 60_000 && minute.Ms >= minute.SlowestMs, minute.Words);
-        Assert.Equal([.. started, Row(minute)], Slow());
-        Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Text.StartsWith("STATE took ", StringComparison.Ordinal) && r.Ok);
+        Assert.Equal([SlowRow(minute)], Slow());
+        Assert.All(SlowRows(rig.Engine), r => Assert.True(r.Ok, r.Text));
+        Assert.Contains(SlowRow(minute), Recent());
 
         Assert.True(Write(30).Ms >= 30_000);
-        Assert.Equal([.. started, Row(minute)], Slow());
+        Assert.Equal([SlowRow(minute)], Slow());
 
         var twoMinutes = Write(120);
         Assert.Equal("ai", twoMinutes.Slowest);
-        Assert.Equal([.. started, Row(minute), Row(twoMinutes)], Slow());
+        Assert.Equal([SlowRow(minute), SlowRow(twoMinutes)], Slow());
 
-        // Shorter than the longest yet: not journalled, whether or not it took a second.
+        // Shorter than the longest since the first: not journalled, whether or not it took a second.
         Assert.True(Write(0).Ms < twoMinutes.Ms);
-        Assert.Equal([.. started, Row(minute), Row(twoMinutes)], Slow());
+        Assert.Equal([SlowRow(minute), SlowRow(twoMinutes)], Slow());
+        Assert.All(SlowRows(rig.Engine), r => Assert.True(r.Ok, r.Text));
     }
+
+    /// <summary>The rule on a clock only STATE's writes move: a write after the node's first is journalled from exactly a second, when it is
+    /// the longest since the first; the first is never journalled and is not the measure, however long it took.</summary>
+    [Fact]
+    public async Task AStateWriteAfterTheFirstIsJournalledFromASecondWhenItIsTheLongestSince()
+    {
+        var clock = new Core.Time.ManualClock(1_000_000_000);
+        var count = new SlowCount(clock.Advance);
+        await using var engine = new EngineCore(EngineServices.ForTests(clock) with { Proposals = count });
+
+        string[] Slow() => [.. SlowRows(engine).Select(r => r.Text)];
+
+        StateWriteTime Write(double ms)
+        {
+            count.NextTakes(TimeSpan.FromMilliseconds(ms));
+            engine.FactsChanged();
+            _ = engine.State();
+            return Assert.IsType<StateWriteTime>(engine.LastStateWrite);
+        }
+
+        Assert.Equal(5000, Write(5000).Ms);
+        Assert.Empty(Slow());
+        // The longest since the first, a millisecond under a second: not journalled.
+        Assert.Equal(999, Write(999).Ms);
+        Assert.Empty(Slow());
+        var second = Write(1000);
+        Assert.Equal(1000, second.Ms);
+        Assert.Equal("ai", second.Slowest);
+        Assert.Equal([SlowRow(second)], Slow());
+        // No longer than the longest since the first: not journalled.
+        Assert.Equal(1000, Write(1000).Ms);
+        Assert.Equal(999, Write(999).Ms);
+        Assert.Equal([SlowRow(second)], Slow());
+        var longer = Write(1500);
+        Assert.Equal([SlowRow(second), SlowRow(longer)], Slow());
+        Assert.All(SlowRows(engine), r => Assert.True(r.Ok, r.Text));
+    }
+
+    /// <summary>The journal's rows that say a STATE write was slow, oldest first.</summary>
+    private static List<JournalRow> SlowRows(EngineCore engine) =>
+        [.. engine.Journal.Recent(200).Where(r => r.Kind == "node" && r.Text.StartsWith("STATE took ", StringComparison.Ordinal))];
+
+    private static string SlowRow(StateWriteTime t) => "STATE took " + t.Words + " to write, the longest since its first";
 
     [Fact]
     public async Task TheEntryAnswersItsExitCodes()
@@ -488,27 +576,63 @@ public sealed class HostLifecycleTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    /// <summary>A part whose proposal count (read by STATE's writer alone, in its "ai" part) moves the node's clock by
-    /// <see cref="Next"/> as it is read: a STATE write that long in that part, on the engine's clock.</summary>
-    private sealed class SlowCount(Sync.MovableClock clock) : IEngineExtension, IProposalCount
+    /// <summary>A part whose proposal count (read by STATE's writer alone, in its "ai" part) moves the node's clock by what
+    /// <see cref="NextTakes"/> was last given, once for each time it is given: one STATE write that long in that part, on the engine's
+    /// clock.</summary>
+    private sealed class SlowCount(Action<long> move) : IEngineExtension, IProposalCount
     {
         private long _nextTicks;
 
         public string Name => "slow count";
 
-        public TimeSpan Next
-        {
-            get => TimeSpan.FromTicks(Interlocked.Read(ref _nextTicks));
-            set => Interlocked.Exchange(ref _nextTicks, value.Ticks);
-        }
+        /// <summary>The next read of the count moves the clock by <paramref name="time"/>.</summary>
+        public void NextTakes(TimeSpan time) => Interlocked.Exchange(ref _nextTicks, time.Ticks);
 
         public int Waiting
         {
             get
             {
-                clock.OffsetNs += (long)Next.TotalNanoseconds;
+                move((long)TimeSpan.FromTicks(Interlocked.Exchange(ref _nextTicks, 0)).TotalNanoseconds);
                 return 0;
             }
+        }
+
+        public EngineServices Configure(EngineServices services) => services with { Proposals = this };
+
+        public Task StartAsync(EngineCore engine, CancellationToken ct) => Task.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>A part whose faults fault once, read on the thread that has just read its proposal count for the first time: STATE's
+    /// writer reads the faults before its "ai" part and the count in it, and the start writes CONTEXT after STATE on its own thread, so
+    /// the start's CONTEXT faults and its STATE does not; every other read of the faults answers none.</summary>
+    private sealed class ContextFaultsOnce : IEngineExtension, IProposalCount, INodeFaults
+    {
+        private int _countRead;
+        private int _armedThread;
+        private int _faulted;
+
+        public string Name => "context faults once";
+
+        /// <summary>How many times the faults faulted (at most once).</summary>
+        public int Faulted => Volatile.Read(ref _faulted);
+
+        public int Waiting
+        {
+            get
+            {
+                if (Interlocked.Exchange(ref _countRead, 1) == 0)
+                    Volatile.Write(ref _armedThread, Environment.CurrentManagedThreadId);
+                return 0;
+            }
+        }
+
+        public IReadOnlyList<NodeFault> Faults()
+        {
+            if (Volatile.Read(ref _armedThread) == Environment.CurrentManagedThreadId && Interlocked.CompareExchange(ref _faulted, 1, 0) == 0)
+                throw new InvalidOperationException("the part's faults fault");
+            return [];
         }
 
         public EngineServices Configure(EngineServices services) => services with { Proposals = this };
