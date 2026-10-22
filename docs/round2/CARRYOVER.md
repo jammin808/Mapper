@@ -685,6 +685,21 @@ Round 2 W1 notes:
   stall only lengthens (on Windows a tick wider: clock interrupts come a tick apart). Under the same stops and pin it passed 6 of 6
   ("spun 319.57 ms, ran 125.00 ms, counted 130.16 ms"), and a measure that counts two fifths of the CPU clock fails it 2 of 2 ("the
   first 10 ms: ran 10.00 ms of 11.15 ms of the stopwatch, counted 4.46 ms").
+- Done, its cause not found: the survey import tests' ready checks fail with the import's own words and the test host's heap against
+  its limit (`SurveyImportTests.AssertReady`; `SurveyJobViewTests.AnImportThatIsNotReadyFailsWithItsWordsAndTheHeap`).
+  `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice` failed once in a loaded Linux gate (load up to
+  about 23) and once earlier under the full suite; the gate keeps only a test's [FAIL] line, so which assertion failed is not known.
+  Its slice check reads the lane thread's CPU clock on Linux, which a preemption or a stop does not move: with the test host stopped
+  10 ms in every 13 for the whole run it passed (the longest slice 1.88 ms of the lane thread's time, 25.79 ms by the stopwatch).
+  Its ready check fails when the import is refused for memory: under the gate's 1.5 GB heap limit (`DOTNET_GCHeapHardLimit`) the
+  2 M-triangle import needs some 0.75 to 1 GB beside what the host holds, and with 800 MB held live in the test host by a startup
+  hook the unchanged test failed 2 of 2 at its line 485 with no reason (`Expected: "ready"`, `Actual: "failed"`), as the full-suite
+  failure kept from 2026-10-19 reads (600 MB held, it passes); it now fails 2 of 2 with "the import … is failed, not ready: North
+  front was not imported: the file is too large for this machine's memory — thin or split it first; the managed heap 1455 MB,
+  1491 MB committed of the 1536 MB this process may use". A full Engine run here had 31 MB live when the test began, so what would
+  hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s summary says what its
+  reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but a collection the
+  thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -735,7 +750,10 @@ Round 2 W1 notes:
   `ProjectorViewTests.TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround`' one loaded Linux failure (its message lost;
   consistent with its read racing the stage's builder, above, which the test now waits for, not proven);
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (consistent with a thread given under half a
-  processor, above, which its lower bound no longer asks of the machine, not proven).
+  processor, above, which its lower bound no longer asks of the machine, not proven);
+  `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
+  failed was not kept; an import refused for memory under the gate's heap limit fails its ready check, above, but what would hold
+  that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
