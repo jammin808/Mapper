@@ -205,7 +205,6 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
     private void Run()
     {
         using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Decode);
-        LockWaits.PrepareThisThread();
         try
         {
             if (!Open())

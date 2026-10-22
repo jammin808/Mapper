@@ -1,3 +1,5 @@
+using PlayMap.Core.Threading;
+
 namespace PlayMap.Core.Content;
 
 /// <summary>The shape of a sting: four quick pulses (a rise and a settle) and eight scored shapes that run
@@ -335,10 +337,11 @@ public static class EffectEnvelope
 
 /// <summary>The sting channel a node's generators read: the last sting fired, stamped with the leader clock.
 /// One at a time — a new press restarts the surge from its own rise. Written by the command lane, read by
-/// the render thread; the value is copied under a lock, never torn.</summary>
+/// the render thread every frame; the value is copied under a lock, never torn, made with its wait event, so the frame's first
+/// wait behind a writer allocates nothing.</summary>
 public sealed class EffectImpulseChannel
 {
-    private readonly Lock _gate = new();
+    private readonly Lock _gate = LockWaits.Prepared();
     private EffectImpulse _current = EffectImpulse.None;
 
     public void Fire(PulsePreset preset, double startSeconds, double lengthSeconds)

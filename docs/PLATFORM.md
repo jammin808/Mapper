@@ -19,7 +19,8 @@ Design: `docs/round3/design/platform.md`. Wire: `docs/wire/machine.md`.
 
 The host points `ThreadClaims` at the composed platform once at start, after every part's Configure and before it starts the render host
 or any part; each thread claims its role in one line as its work starts (`using var claim = ThreadClaims.Claim(ThreadRole.Decode);`) and
-the claim reverts at its end. The render thread, made with the render host before the parts compose, claims once the engine is attached,
+the claim reverts at its end. A claim also makes the thread's wait record, on whatever platform, so the thread's first wait on a
+prepared lock allocates nothing at whatever frame it comes (`LockWaits`). The render thread, made with the render host before the parts compose, claims once the engine is attached,
 just before its loop. The claim holds the thread itself, so any thread may dispose it. The threads that claim are the render thread, the
 decode workers (FFmpeg's and HAP's), each audio feeder, the LTC reader, the control lane and the LED sender. The present, capture,
 network and background roles have their claims in the policy, made on the Windows runner by `PlatformCallsTests`, but no node thread

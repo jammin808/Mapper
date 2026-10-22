@@ -116,9 +116,10 @@ The lab checks still to do:
   test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
   `DeviceLockHostTests`' one Windows frame path that allocated 280 bytes across a sharer's hold (consistent with the render
-  thread's first wait on a gate a preempted `Stats` reader held, not proven: on Linux a reader held inside that gate made the
-  unchanged test fail by exactly 280 bytes; every lock a deadline thread shares is made with its wait event now, and a reader
-  holding the frame-time gate across a frame costs the frame path nothing),
+  thread's first wait on a gate a preempted reader held, the frame-time gate's `Stats` reader or the health gate's, not proven: on
+  Linux a reader held inside the frame-time gate made the unchanged test fail by exactly 280 bytes; every lock the air's threads
+  share frame by frame is made with its wait event now, each of those threads has its wait record before its first frame, and a
+  reader or writer holding the frame-time gate or the sting channel across a frame costs the frame path nothing),
   `BackupMirrorLinkTests`' one Windows read of a mirror quiet before its new connection subscribed with no stale move at all (its
   actual was the default tuple; consistent with the primary's STATE pushes, 200 ms after each move of the clock, landing before the
   link's 250 ms beat looked, not proven: on Linux the unchanged test, stopped 100 ms from 205 ms after the redial, failed so in six

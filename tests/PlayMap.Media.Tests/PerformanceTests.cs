@@ -1,5 +1,9 @@
 using System.Diagnostics;
+using System.Reflection;
 using PlayMap.Core.Time;
+using PlayMap.Media.Frames;
+using PlayMap.Media.Hap;
+using PlayMap.Media.Video;
 using PlayMap.Media.Sources;
 using PlayMap.Tests;
 using Xunit.Abstractions;
@@ -106,6 +110,48 @@ public class PerformanceTests(ITestOutputHelper output)
         using var sound = PlayMap.Media.Audio.AudioOut.OpenNullPulled("tests have no sound card", MonoClock.Instance);
         var probes = LockWaitProbe.FirstWaits(sound, statics: true);
         Assert.Equal(2, probes.Count);
+        Assert.All(probes, p => Assert.EndsWith(" 0 B", p, StringComparison.Ordinal));
+    }
+
+    private static Lock Gate(object owner, string name) =>
+        owner.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(owner) as Lock
+        ?? throw new MissingFieldException(owner.GetType().Name, name);
+
+    private static T Field<T>(object owner, string name) =>
+        owner.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(owner) is T value
+            ? value : throw new MissingFieldException(owner.GetType().Name, name);
+
+    /// <summary>The locks the render thread meets every frame beside the threads that feed it: a capture input's (its thread hands each
+    /// frame over and takes buffers back while the renderer acquires and lets go), a still's (the renderer acquires while readers take
+    /// its health), a live input's leases, and a HAP clip's packet ring and arena gate (its read and decode threads every frame) and
+    /// the shared HAP workers' job ring. Each is made with its wait event, as a decoder's queue, pool and counters are; the sources here
+    /// open nothing, so no other thread has waited on them.</summary>
+    [Fact]
+    public async Task TheLocksTheRenderThreadAndItsFeedersShareAreMadeWithTheirWaitEvents()
+    {
+        TestMedia.Ensure();
+        using var camera = new CaptureSource(new CaptureOptions { Format = "no-such-format", Device = "x" });
+        Assert.False(await camera.Opened);
+        using var still = new ImageSource(Path.Combine(Path.GetTempPath(), "playmap-no-such-still.png"));
+        Assert.False(await still.Opened);
+        using var live = new LiveFramePool(4);
+        using var hap = new HapVideoSource(Path.Combine(Path.GetTempPath(), "playmap-no-such-clip.mov"));
+        Assert.False(await hap.Opened);
+        using var workers = new HapWorkers(1);
+        var gates = new (string Name, Lock Gate)[]
+        {
+            ("capture", Gate(camera, "_gate")),
+            ("capture pool", Field<FramePool>(camera, "_pool").Gate),
+            ("capture leases", Field<LeasePool>(camera, "_leases").Gate),
+            ("capture counters", Field<SourceStats>(camera, "_stats").Gate),
+            ("still", Gate(still, "_gate")),
+            ("still leases", Field<LeasePool>(still, "_leases").Gate),
+            ("live leases", Gate(live, "_leaseGate")),
+            ("hap ring", Gate(hap, "_ringGate")),
+            ("hap arena", Gate(hap, "_arenaGate")),
+            ("hap workers", Gate(workers, "_gate")),
+        };
+        var probes = gates.Select(g => $"{g.Name} {LockWaitProbe.FirstWait(g.Gate)} B").ToList();
         Assert.All(probes, p => Assert.EndsWith(" 0 B", p, StringComparison.Ordinal));
     }
 

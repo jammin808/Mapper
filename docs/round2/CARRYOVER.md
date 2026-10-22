@@ -644,33 +644,55 @@ Round 2 W1 notes:
   millisecond later than it did and never spins through the last part of one; the sender's waits are its `BeatEvery` (2 s in a
   node) or 1 s, whole milliseconds, so its beats are as they were. A poll the web port's own stop cuts is answered 503, not an
   empty 200. `HelloService.Heard`, which only tests read, counts a hello after the peer table has taken it in.
-- Done: every lock a deadline thread takes beside other threads makes its wait event as it is made, so no first wait allocates on a
-  show path. A `Lock` makes its wait event (an `AutoResetEvent` and its `SafeWaitHandle`, 56 bytes, or 280 when a collection has
-  dropped the runtime's cache of the handle's type) on the first thread that has to wait for it. The render host's gates were made
-  bare, so the frame that first met a reader holding one paid for it, at whatever frame that came: `Stats` and the present view
-  copied and sorted the frame-time rings under the gate each frame takes to record its present time.
+- Done: every lock the air's threads take beside another thread frame by frame makes its wait event as it is made, and each of
+  those threads has its own wait record before its first frame, so no first wait allocates on a show path. A `Lock` makes its wait
+  event (an `AutoResetEvent` and its `SafeWaitHandle`, 56 bytes, or 280 when a collection has dropped the runtime's cache of the
+  handle's type) on the first thread that has to wait for it, and a thread makes its wait record (160 bytes on Linux) on its own
+  first wait. The render host's gates were made bare, so the frame that first met a reader holding one paid for it, at whatever
+  frame that came. Two gates every frame takes inside its counted span are read from other threads: the frame-time gate, under which
+  `Stats` and the present view copied and sorted the frame-time rings, and the health gate, under which `Health`, `Present` and
+  `Machine` build their lists for the fleet sampler and STATE while each frame writes every output's numbers.
   `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound`' one Windows failure at its line 234 (main
   2724ccd1, run 427, job 119670930217: `Expected: 212744`, `Actual: 213024`, 280 bytes on the warm frame path across its 100 ms
-  hold and 30 frames; the same commit passed in runs 424 and 430 and on Linux) is consistent with that, not proven: the hold's
-  sharer reads `Stats` as it starts and ends, and a reader preempted inside the gate makes the frame's write its first wait. On
-  Linux a scratch build that kept the window's sharer read inside the gate for 20 ms failed the unchanged test at that line by
-  exactly 280 bytes in four runs of four, and a dump of the render thread stopped just after that write held the event, its handle
-  and the two cache objects (24 + 32 + 168 + 56 bytes); the device lock's own timed-out takes allocate nothing after its first.
-  Core's `LockWaits` (moved from Media, whose decode threads' locks already used it) now prepares, as each is made: the render
-  host's five gates (frame times, health, frame waiters, views, draft views), the frame lock host's, the sources' busy gate and
-  lease pool's, the device lock, the upload arena's ranges and the GL arena's own lock, the LED frame pool and the LED sender's
-  gate, a sound output's gate and the process-wide OpenAL context gate, and on Windows the platform's one lateness window, which
-  every deadline thread records in after each wait. `Stats` and the present view hold the frame-time gate only for the copy and
-  sort on their own stack. `RenderHostLockTests.AReaderHoldingTheFrameGateAcrossAFrameCostsTheFramePathNothing` takes that gate
-  between two frames and holds it until the next frame waits on it: against the old host it failed six runs of six by 280 bytes
-  (`Expected: 213360`, `Actual: 213640`). `EveryLockTheRenderThreadTakesBesideOtherThreadsHasItsWaitEventBeforeItsFirstFrame`
-  reads each such lock's first wait through `tests/Shared/LockWaitProbe.cs` (a prepared waiter thread, the lock held by the test):
-  nine runs of nine failed against the old host, 280 bytes on six to eight of its eight locks. `LockWaitsTests` (the device lock,
-  its first timed-out take behind a sharer, the arena's ranges, the LED pool), `LedSenderTests`, Media's `PerformanceTests` (a
-  sound output) and `GlUploadArenaTests` failed three runs of three each against the old code at 280 bytes a lock; on Windows
-  `LatenessTests` reads the lateness window (not run here). All pass now. Read and left: the stage resources', stage meshes' and
-  timer view's locks, which the frame path does not take (the timer view's only as its poller starts), and the runtime deadline
-  timer's, which only its own thread takes.
+  hold and 30 frames; the same commit passed in runs 424 and 430 and on Linux) is consistent with either, not proven: the hold's
+  sharer reads `Stats` as it starts and ends, STATE reads the health gate meanwhile, and a reader preempted inside either makes the
+  frame's write its first wait. On Linux a scratch build that kept the window's sharer read inside the frame-time gate for 20 ms
+  failed the unchanged test at that line by exactly 280 bytes in four runs of four, and a dump of the render thread stopped just
+  after that write held the event, its handle and the two cache objects (24 + 32 + 168 + 56 bytes); the device lock's own timed-out
+  takes allocate nothing after its first.
+  Core's `LockWaits` (moved from Media, whose decode threads' queue, pool and counters already used it) prepares, as each is made:
+  the render host's five gates (frame times, health, frame waiters, views, draft views), the frame lock host's, the sources' busy
+  gate and lease pool's, the device lock, the upload arena's ranges and the GL arena's own lock, the sting channel every frame reads
+  its sting from, the LED frame pool and the LED sender's gate, a sound output's gate and the process-wide OpenAL context gate, a
+  capture input's lock, frame pool, lease pool and counters, a still's lock and lease pool, a live input's lease pool, a sender's
+  offer and stats gates, a HAP clip's packet ring and arena gate and the shared HAP workers' job ring, the composed platform's
+  record of every deadline wait's lateness and of the claims (`RecordedPlatform`, on every platform), and on Windows the platform's
+  own lateness window. A thread that claims its role (render, decode, sound, LED, control) makes its wait record with the claim
+  (`ThreadClaims.Claim`); HAP's read and decode threads, an image sequence's and a capture input's make theirs as they start, and a
+  send worker's first act is a wait. `Stats` and the present view hold the frame-time gate only for the copy and sort on their own
+  stack. Preparing waits, where the lock is made, for one timed take of each lock (a millisecond, up to a timer tick on Windows): off
+  the frame for every lock but the GL upload arena's two, which the render thread makes with the context's first frame with an
+  engine (and again after a lost context), never on a warm frame.
+  `RenderHostLockTests.AReaderHoldingTheFrameGateAcrossAFrameCostsTheFramePathNothing` takes that gate between two frames and holds
+  it until the next frame waits on it: against the old host it failed six runs of six by 280 bytes (`Expected: 213360`, `Actual:
+  213640`). `AWriterHoldingTheStingChannelAcrossAFrameCostsTheFramePathNothing` does the same with the sting channel, which the frame
+  reaches as it composes, once its sources have begun it: against the old channel it failed three runs of three by 280 bytes
+  (`Expected: 213872`, `Actual: 214152`). `EveryLockTheRenderThreadTakesBesideOtherThreadsHasItsWaitEventBeforeItsFirstFrame` reads
+  each such lock's first wait, the sting channel's among them, through `tests/Shared/LockWaitProbe.cs` (a prepared waiter thread,
+  the lock held by the test): nine runs of nine failed against the old host, 280 bytes on six to eight of its eight locks, and one
+  run of three against the old channel; a lock the render thread takes every frame can read 0 on old code, as the render thread can
+  be the one that waits first during the probe's hold. `LockWaitsTests` (the device lock, its first timed-out take behind a sharer,
+  the arena's ranges, the LED pool, the sting channel), `LedSenderTests`, Media's `PerformanceTests` (a sound output; the capture
+  input's, still's, live input's and HAP locks, 280 bytes on each of ten), `SendSinkTests.ASendersLocksAreMadeWithTheirWaitEvents`,
+  `DeadlineThreadTests.TheLatenessRecordEveryDeadlineWaitWritesIsMadeWithItsWaitEvent` and `GlUploadArenaTests` failed three runs
+  of three each against the old code at 280 bytes a lock; `LockWaitsTests.AClaimedThreadsFirstWaitOnAPreparedLockAllocatesNothing`
+  failed three runs of three at 160 bytes, the thread's record; on Windows `LatenessTests` reads the lateness window (not run here).
+  All pass now. Read and left: the stage resources', stage meshes' and timer view's locks, which the frame path does not take (the
+  timer view's only as its poller starts); the runtime deadline timer's, which only its own thread takes; a preview sink's, which
+  the render thread takes drawing a draft view between frames, outside the counted span; the GL share's and the dmabuf importer's
+  books of import failures, which a frame writes only when an import has failed; the NVIDIA frame lock driver's, which only its
+  once-a-second read of the board and its dispose take; and a live input's tally, set by the video hub's thread. The render thread can still wait a moment
+  behind a reader holding the health gate or the frame lock host's: that wait allocates nothing.
 - Done: the mirror test that moves the backup's clock before a new connection subscribes hears nothing on that connection meanwhile.
   `BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
   holds the new connection's reader on the primary's answer to its proof (`MirrorLink.PairingChanged`, which hands on the link's
