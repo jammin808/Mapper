@@ -412,6 +412,65 @@ public sealed class VerbRowTests
         Assert.Equal(spec.Name + " x1", rows[0].Line);
     }
 
+    [Theory]
+    [InlineData("wire")]
+    [InlineData("binding")]
+    [InlineData("air")]
+    public async Task WorkALaneHandlerHandsOverThroughItsCallFollowsTheLinesRowOnEveryLaneDispatcher(string dispatcher)
+    {
+        // A lane line comes from the wire, from a binding that fired it, or as a leader's air line run on a member, and each way has a
+        // dispatcher of its own that takes what was handed over through the handler's call once it has written the line's row. The
+        // handler hands one start over while it answers and keeps its call; another goes over after the answer, at the last moment
+        // before the dispatcher takes the call: in the row's hold (the wire, a binding's line) or as the line's own row is written (an
+        // air line, which has no hold). Both begin after the line's row, in the order they were handed over.
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var spec = RoutesTests.Unrouted(engine, v => v.Mutates && !v.Ephemeral && !v.Gesture);
+        var text = spec.Name + " x1";
+        VerbCall? kept = null;
+        engine.Routes.Lane(spec.Name, call =>
+        {
+            kept = call;
+            call.AfterRow(() => engine.Journal.Add("test", "handed while answering"));
+            return CommandReply.Success(effect: "the line's row");
+        });
+        void HandOverLate() => kept!.AfterRow(() => engine.Journal.Add("test", "handed after the answer"));
+        var told = new List<bool>();
+        engine.RowHeldForTests = (line, holdsWork) =>
+        {
+            if (line.Raw == text)
+            {
+                told.Add(holdsWork);
+                HandOverLate();
+            }
+            return Task.CompletedTask;
+        };
+        if (dispatcher == "air")
+        {
+            engine.Journal.Written += r =>
+            {
+                if (r.Kind == "verb" && r.Line == text)
+                    HandOverLate();
+            };
+        }
+        var before = engine.Journal.Recent(200).Count;
+
+        var reply = dispatcher switch
+        {
+            "wire" => await Run(engine, text),
+            "binding" => await engine.RunBindingLineAsync(text, Desk, journalLine: true, CancellationToken.None),
+            _ => (await engine.RunAirLineAsync(Line(text), spec, engine.LeaderNowNs, Desk)).Reply,
+        };
+
+        Assert.True(reply.Ok, reply.Payload);
+        var rows = engine.Journal.Recent(200).Skip(before).Where(r => r.Kind is "verb" or "test").ToList();
+        Assert.Equal([("verb", "the line's row"), ("test", "handed while answering"), ("test", "handed after the answer")],
+            rows.Select(r => (r.Kind, r.Text)));
+        Assert.Equal(text, rows[0].Line);
+        // The row's hold is told the line holds work behind its row when only the call holds it; an air line's dispatcher has no hold.
+        bool[] holds = dispatcher == "air" ? [] : [true];
+        Assert.Equal(holds, told);
+    }
+
     [Fact]
     public void WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter()
     {
