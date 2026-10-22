@@ -592,7 +592,11 @@ Round 2 W1 notes:
   first read, so the worker begins behind the row and a stop waits for it from the answer on), `MEDIA IMPORT` (the import itself,
   whose own row says a file will not play here or FFmpeg is missing, and how it ends), `BLEND SOLVE` and the blend solved again by
   `CALIBRATION ACCEPT|FALLBACK|RESOLVE`, `PANIC` (its shutter and effect lines, each a line of its own with its own row, sent from
-  the panic's dispatcher with no further hop, and from a pool thread when begun on the lane), `PREFLIGHT` without `WAIT` (its run),
+  the panic's dispatcher with no further hop, and from a pool thread when begun on the lane; so the panic is answered once its
+  dispatcher has begun each line, one after another, up to that line's first wait: the show's gate, the projector link's lookup
+  and as much of its command as runs before it waits, or an effect line's post to the lane. That is work in the panic's answer
+  that a pool hop per line would take out of it, at the cost of a hop before each shutter; the air change is made before it, in
+  the panic's own turn, and the group's fan-out goes with the panic's row), `PREFLIGHT` without `WAIT` (its run),
   `MEDIA OPTIMISE` (its jobs stay queued, handed to no worker, until the row: a job whose item is not on the node ends failed at its
   first step, which the service's loop could take before the row), `BIND LEARN` (the learnt and stopped rows wait for its row; the
   learn is armed before the answer), `SHOW ARM|DISARM` (the hooks the sync leader's line runs behind its answer, and a hook any arm
@@ -602,7 +606,9 @@ Round 2 W1 notes:
   `OfferAsync` behind the row). `PROJECTOR SOLVE` and `SCAN SURFACE` leave nothing running (their solves and edits are awaited
   inside the handler); the operations dispatcher hands each its own `VerbCall` and takes it after the row, as the other dispatchers
   do. Rows a handler writes while it answers (a panic's playlists, a reconnect's words, `FAILBACK`'s, a `PREFLIGHT WAIT`'s run, the
-  lines a `CONTROL INJECT` fires) come before its row, as they always did, in a fixed order. Every dispatcher begins the held work
+  lines a `CONTROL INJECT` fires, the keep-awake hold Windows refuses, which `MACHINE SET AWAKE ON`'s save and an edit that
+  enables a display output each journal as they ask for it) come before its row, as they always did, in a fixed order.
+  Every dispatcher begins the held work
   in a `finally` after the row, so a row that throws loses none of it. Parts that see a verb's change on a turn of their own are an
   open fix (below). Tests: each makes the work end as early as it can, inside the edge's own call or with the line's row held back
   (`EngineCore.RowHeldForTests`, which each dispatcher awaits just before the row, told whether the line holds work behind it) until
@@ -631,17 +637,25 @@ Round 2 W1 notes:
   made then, its row after); `BackupTests.AFleetFetchsRowsFollowTheRowOfTheVerbThatBeganThem` and
   `AHandBacksTakeoverIsJournalledAfterTheRowOfTheMirrorLineThatAskedForIt` (the takeover's `SYNC LEAD` and its own row);
   `ResolveTests.AReSolvesBlendIsJournalledAfterTheRowOfTheResolveThatSolvedIt` (the blend a `CALIBRATION RESOLVE` solves again, its
-  lane part through `ForLine`). `LINK STAGEWATCH` and `SYNC LEAD|FOLLOW` take the link test's path; `CALIBRATION ACCEPT|FALLBACK`
+  lane part through `ForLine`). `LINK STAGEWATCH`, and `SYNC LEAD|FOLLOW` on a node without the sync part, take the link test's
+  path (with the sync part, which the exe composes, `SYNC LEAD|FOLLOW` await their change inside the handler and say it in their
+  own row; the leader's feed a follow then reads is open, below); `CALIBRATION ACCEPT|FALLBACK`
   solve the blend in their line's own turn on the lane, as `BLEND SOLVE` does; the scan runner's own row (a camera latency below
   zero, journalled by its run, which begins behind the row) has no forcing test. The 250-file tests, the node's own and the fleet's
   (`BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows`), read the fetch's end row as the last.
+  The runs first reported as three of three kept a log of one run, cut off at its last test, for the first twelve forcing tests
+  above and none for the six after them. Run again at b93f06ff with every one of those orders put back at once (each start begun
+  at once where it is handed over, the seams kept) and the link change's too, the eighteen forcing tests and
+  `ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` failed three runs of three, each with the work's row ahead
+  of the line's (the mirrored show's pull and the hand-back's takeover before their `MIRROR` rows), and all nineteen passed three
+  runs of three as committed.
 - Open: a part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row,
   since the dispatcher writes a lane verb's row once the lane's turn is over, on another thread. A lane tick that runs first (a
   timecode chase's first step, a blind commit landing at its instant, the sound input the tick opens) and a part on a thread of its
   own (the video I/O hub's word of a reconnected input's first frame, the sync node's rows of a leader's feed after `SYNC FOLLOW`, a
   backup's watch and its mirror link's own lines after `FLEET BACKUP`, a Stagewatch operator's word on the link after `LINK
   STAGEWATCH`, a projector link set up again when an edit moved the project, the optimise service's automatic queue when an edit
-  lands a hashed item, the render host's frame lock falling out after `SYNC APPLY`, a machine claim refused after `MACHINE SET`) can
+  lands a hashed item, the render host's frame lock falling out after `SYNC APPLY`) can
   each write first. None is measured and no test covers them. Writing a lane verb's row in the lane's own turn would order the ticks
   behind it; the other parts would need to hold a line's rows until its row.
 - Done: a long-poll counts its limit on the web port's clock (`HttpHostOptions.Time`, the system's in a node), so

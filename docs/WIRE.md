@@ -366,7 +366,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   and the work the handler or the show's gate leaves running — a fetch's pulls (the node's own, whose row of what it queued comes
   before any of theirs, and the fleet's), a scan's run, a survey's import, a blend solve (`BLEND SOLVE`, and the one a calibration
   accept, fallback or re-solve runs), a preflight's run, an optimise job, what a learn comes to, a panic's shutter and effect lines,
-  a link or sync change and the follow-blackout switch's write, a media import (what it finds and how it ends), the hooks a
+  a link change (and a sync change on a node without the sync part; with it, `SYNC LEAD|FOLLOW` await their change inside the
+  handler) and the follow-blackout switch's write, a media import (what it finds and how it ends), the hooks a
   leader's `SHOW ARM|DISARM` runs behind its answer and a hook any arm leaves running past its deadline, a mirrored show's file
   pulls, a hand-back's takeover, an armed assistant's proposal offered to an approval desk — begins, or journals, only after that
   row and before the line is answered, so in the journal and the context's recent rows every row of that work follows the row of
