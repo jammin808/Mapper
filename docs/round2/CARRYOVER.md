@@ -619,8 +619,14 @@ Round 2 W1 notes:
   countdown's words 1.1 s of real time after the frame, and "12:29" holds only from 1 s to 2 s after it, so a test thread resumed
   0.9 s late read "12:28". It failed so here at line 171 (`Expected: "12:29"`, `Actual: "12:28"`) in 2 of 9 full Net runs at a
   load of about 7 to 9 on four cores, and in 5 of 5 runs with its process stopped 2.5 s and run 0.3 s in turn; the link now counts
-  on a `ManualClock` the test moves 1.1 s, and the test passed 6 of 6 under the same stops. `LinkTests`' counted clip position
-  leaves 1.7 s of room after its 300 ms and is unchanged; `HelloTests.TwoNodesHearEachOtherAndAgeOutOnTheClock`
+  on a `ManualClock` the test moves 1.1 s, and the test passed 6 of 6 under the same stops. `LinkTests.ThePatternsLinkPairsTracksTheClipAndFollowsTheBlackout`
+  read the link's counted clip 300 ms of real time after its first frame and asked for 62250 to 64000 ms, then 10000 to 11000 ms
+  after a new seq landed, so a test thread held 1.7 s at the first read, or 1 s at the second, failed it, and one held past the
+  link's 3 s `VideoStaleAfter` read no clip at all. With its process stopped 2.5 s and run 0.3 s in turn it failed 3 of 3 at its
+  first read (twice `link.Video` null, once `Actual: 64572.55`). The link counts its clip and the desk's silence on a
+  `ManualClock` the test moves now (the `PatternsLink` constructor's clock and `PatternsLinkOptions.Clock`): 62000 ms at the first
+  frame, 62300 after a 300 ms move, the same 62300 after a frame 120 ms behind it, 10000 at the new seq; it passed 6 of 6 under
+  the same stops. `HelloTests.TwoNodesHearEachOtherAndAgeOutOnTheClock`
   gave the hellos its stopped node had already sent 150 ms of real time to land before it moved the peer table's clock, so a
   listener held longer would take one in after the move as a fresh hello and the sweep would read the peer live, not stale. It now
   waits until the listener has counted every hello that node sent (`HelloService.Heard` at least the peer's `Sent`), and `Heard`
