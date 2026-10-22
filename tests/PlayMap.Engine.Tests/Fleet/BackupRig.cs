@@ -1,5 +1,8 @@
+using System.Globalization;
 using System.Text.Json;
+using PlayMap.Core.Fleet;
 using PlayMap.Core.Model;
+using PlayMap.Core.Preflight;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Fleet;
 using PlayMap.Engine.Host;
@@ -43,7 +46,38 @@ internal static class BackupRig
     public static string? MirrorState(HostRig rig) =>
         Fleet(rig).GetProperty("mirror") is { ValueKind: JsonValueKind.Object } m ? m.GetProperty("state").GetString() : null;
 
+    /// <summary>What a backup saw of its primary, for a failing assertion: its mirror (state and words), the mirror link (its status,
+    /// its connections, how long the primary has said nothing on it, on the node's clock) and the fleet monitor's record of the primary
+    /// (how long since it was heard, on the fleet's clock).</summary>
+    public static string Saw(HostRig backup)
+    {
+        var node = backup.Engine.Services.Backup!;
+        var link = node.Link is { } l
+            ? string.Create(CultureInfo.InvariantCulture, $"the mirror link is {l.Status} on connection {l.Connections}, the primary silent on it for {l.Silence.TotalSeconds:0.###} s on the node's clock")
+            : "no mirror link";
+        var heard = backup.Engine.Services.FleetPeers?.Peers().FirstOrDefault(p => p.Id == node.Settings.Of) is { } p
+            ? string.Create(CultureInfo.InvariantCulture, $"the fleet monitor last heard {p.Name} {p.SilentS:0.###} s ago on the fleet's clock ({FleetPeer.HeardWord(p.Heard)})")
+            : "the fleet monitor has no record of the primary";
+        return $"{Fleet(backup).GetProperty("mirror")}; {link}; {heard}";
+    }
+
     public static string ShowJson(HostRig rig) => ProjectJson.Serialize(rig.Engine.Store.Project);
+
+    /// <summary>Preflight's backup section on a node now, run at its quick depth.</summary>
+    public static async Task<IReadOnlyList<PreflightRow>> PreflightAsync(HostRig rig)
+    {
+        var check = rig.Engine.Services.PreflightChecks.Single(c => c.Section == "backup");
+        return await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
+    }
+
+    /// <summary>INDEX's fleet section on a node now: its rows.</summary>
+    public static async Task<List<JsonElement>> IndexAsync(HostRig rig)
+    {
+        var json = await rig.OkAsync("INDEX");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("sections").EnumerateArray()
+            .Single(s => s.GetProperty("section").GetString() == "fleet").GetProperty("rows").EnumerateArray().Select(r => r.Clone()).ToList();
+    }
 
     /// <summary>Introduces the nodes to each other and waits until each hears the others' hellos and health.</summary>
     public static async Task MeetAsync(params HostRig[] rigs)

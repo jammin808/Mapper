@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Fleet;
 using PlayMap.Core.Model;
 
@@ -7,7 +8,8 @@ namespace PlayMap.Engine.Fleet;
 /// <summary>INDEX's fleet section (wp2-backup): the keys a deck shows for this node's place in a hot-backup pair, each row's id the line
 /// its key sends — FAILOVER on a backup (lit by its mirror: green identical, amber joining or resyncing, red lost), FAILBACK CONFIRM on a
 /// node that took a show over, FLEET PROMOTE on a sync follower (red while its leader is silent), and each backup of a primary with its
-/// state. Written from published state only; a node without the backup part lists the section with no rows.</summary>
+/// state, lit as a mirror is lit wherever it is shown (<see cref="BackupNode.MirrorLight"/>). Written from published state only; a node
+/// without the backup part lists the section with no rows.</summary>
 internal sealed class BackupIndex(EngineCore engine) : IIndexContributor
 {
     public string Section => "fleet";
@@ -29,8 +31,7 @@ internal sealed class BackupIndex(EngineCore engine) : IIndexContributor
                 var state = backup.Mirror()?.State ?? "joining";
                 // A primary gone silent turns the key red with its words, whatever the mirror said last.
                 var gone = engine.Services.Clock.IsHolding;
-                Row(w, "FAILOVER", "takeover", "FAILOVER", gone ? "red" : state switch { "identical" => "green", "lost" => "red", _ => "amber" },
-                    gone ? "primary gone" : state);
+                Row(w, "FAILOVER", "takeover", "FAILOVER", gone ? "red" : ShowContext.LightWord(BackupNode.MirrorLight(state)), gone ? "primary gone" : state);
             }
             if (role.Role == FleetRoles.Primary && role.Of.Length > 0)
                 Row(w, "FAILBACK CONFIRM", "takeover", "FAILBACK", backup.Feed.Members.Any(m => m.Node == role.Of) ? "green" : "grey", "to " + role.Of);
@@ -41,7 +42,7 @@ internal sealed class BackupIndex(EngineCore engine) : IIndexContributor
             {
                 var facts = engine.Services.FleetPeers?.Peers().FirstOrDefault(p => p.Id == m.Node)?.Health?.Facts;
                 var state = facts?.Mirror is { Length: > 0 } s ? s : "joining";
-                Row(w, "FLEET FOCUS " + FleetGraph.MachineId(m.Node), "backup", facts?.Name ?? m.Name, state == "identical" ? "green" : "amber", state);
+                Row(w, "FLEET FOCUS " + FleetGraph.MachineId(m.Node), "backup", facts?.Name ?? m.Name, ShowContext.LightWord(BackupNode.MirrorLight(state)), state);
             }
         }
         w.WriteEndArray();

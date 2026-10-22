@@ -1,10 +1,8 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
-using PlayMap.Core.Preflight;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Tests.Host;
 using PlayMap.Net;
@@ -21,18 +19,11 @@ public sealed class BackupPreflightTests
 {
     private const long Second = SyncRig.Second;
 
-    private static async Task<IReadOnlyList<PreflightRow>> Rows(HostRig rig)
-    {
-        var check = rig.Engine.Services.PreflightChecks.Single(c => c.Section == "backup");
-        return await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
-    }
-
-    private static async Task<List<JsonElement>> Index(HostRig rig)
-    {
-        var json = await rig.OkAsync("INDEX");
-        return JsonDocument.Parse(json).RootElement.GetProperty("sections").EnumerateArray()
-            .Single(s => s.GetProperty("section").GetString() == "fleet").GetProperty("rows").EnumerateArray().Select(r => r.Clone()).ToList();
-    }
+    /// <summary>What the backup saw, read as a read of its mirror fails (after that read, not at it): its mirror's state and words, the
+    /// mirror link's status, connection and the primary's silence on it on the node's clock, and when the fleet monitor last heard the
+    /// primary on the fleet's clock.</summary>
+    private static string Saw(HostRig backup) =>
+        "the backup's mirror, its link and the fleet monitor's record of the primary, read after that read as this fails: " + BackupRig.Saw(backup);
 
     private static int ClosedPort()
     {
@@ -50,7 +41,7 @@ public sealed class BackupPreflightTests
         var time = new ManualTime();
         await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, clock, time);
         await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
-        var solo = Assert.Single(await Rows(primary));
+        var solo = Assert.Single(await BackupRig.PreflightAsync(primary));
         Assert.Equal((Light.Grey, "none"), (solo.Light, solo.Value));
 
         // A version whose file no machine holds and a mesh file beside the show the primary does not hold (the faults), and a route
@@ -73,27 +64,31 @@ public sealed class BackupPreflightTests
         await backup.OkAsync("FLEET BACKUP " + primary.Id);
         Assert.True(await Eventually.TrueAsync(() => backup.Journal().Contains("mv_1.hap-q could not be pulled from FOH-A", StringComparison.Ordinal)), backup.Journal());
 
-        var rows = await Rows(backup);
+        var rows = await BackupRig.PreflightAsync(backup);
         var files = rows.Single(r => r.Id == "backup:files");
         Assert.Equal((Light.Amber, "2 missing"), (files.Light, files.Value));
         Assert.Equal("MEDIA FETCH md_clip VERSION mv_1 FROM 0badc0de", files.Fix);
         Assert.Contains("meshes/ms00000009-gone.ply", files.Note, StringComparison.Ordinal);
         var mirror = rows.Single(r => r.Id == "backup:mirror");
-        Assert.Equal(("different", Light.Amber), (mirror.Value, mirror.Light));
+        // What the backup saw is read only when a read misses, so a passing run reads nothing more between the two reads under watch.
+        if (("different", Light.Amber) != (mirror.Value, mirror.Light))
+            Assert.Fail($"backup:mirror read {mirror.Value} {mirror.Light}, not different Amber; {Saw(backup)}");
         Assert.Contains("could not be pulled from FOH-A", mirror.Note, StringComparison.Ordinal);
         var route = rows.Single(r => r.Id == "route:op_1");
         Assert.Equal((Light.Red, "unreachable", "FLEET ROUTE TEST"), (route.Light, route.Value, route.Fix));
         Assert.StartsWith("P1 · unreachable", route.Note, StringComparison.Ordinal);
 
         // The primary lists its backup with the state it reports; its route is red too.
-        var primaryRows = await Rows(primary);
+        var primaryRows = await BackupRig.PreflightAsync(primary);
         Assert.Equal(Light.Amber, primaryRows.Single(r => r.Id == "backup:" + backup.Id).Light);
         Assert.Equal(Light.Red, primaryRows.Single(r => r.Id == "route:op_1").Light);
 
         // INDEX: the backup's FAILOVER key, lit by its mirror; the primary's key per backup.
-        var failover = (await Index(backup)).Single(r => r.GetProperty("id").GetString() == "FAILOVER");
-        Assert.Equal(("amber", "different"), (failover.GetProperty("light").GetString(), failover.GetProperty("state").GetString()));
+        var failover = (await BackupRig.IndexAsync(backup)).Single(r => r.GetProperty("id").GetString() == "FAILOVER");
+        var lit = (failover.GetProperty("light").GetString(), failover.GetProperty("state").GetString());
+        if (("amber", "different") != lit)
+            Assert.Fail($"INDEX's FAILOVER read {lit}, not (amber, different); {Saw(backup)}");
         await deck.Heard("\"id\":\"FAILOVER\",\"kind\":\"takeover\",\"label\":\"FAILOVER\",\"parent\":\"fleet\",\"light\":\"amber\",\"state\":\"different\"");
-        Assert.Contains(await Index(primary), r => r.GetProperty("label").GetString() == "FOH-B" && r.GetProperty("kind").GetString() == "backup");
+        Assert.Contains(await BackupRig.IndexAsync(primary), r => r.GetProperty("label").GetString() == "FOH-B" && r.GetProperty("kind").GetString() == "backup");
     }
 }

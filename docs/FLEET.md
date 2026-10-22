@@ -149,13 +149,16 @@ that falls silent for 10 s on the node's clock fails that try.
 
 The backup is **identical** when the primary's show is here at its revision, every file it names is here, the backup's clock reads
 the primary's time line and the group's feed is live; `joining`, `resyncing` (a pull under way), `different` (a file could not be
-pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. The backup keeps the highest epoch its primary is
-heard to hold (the mirror's hello, its HEALTH) in its settings, so a takeover after the backup restarted, its primary silent by
-then, still commits above it. A client's edit on a backup is refused with the way out ("FOH-B mirrors FOH-A — send it to FOH-A
-(10.0.0.21), or FAILOVER to make this node the show", the words STATE.fleet.door carries, so the desk greys what the node would
-refuse before the press); queries, panic, Show Mode, the node's own administration, a fetch of a file by hash and the fleet's verbs
-stay; no blind draft is begun or landed on a backup, and `FLEET BACKUP` waits while the node holds
-one. A pull that fails is asked again from the watch while the primary's revision is ahead or a file the show names is missing. A
+pulled) and `lost` (the mirror is down or not subscribed, or its primary has said nothing on it for over 6 s; the last show and air
+hold) say otherwise. The mirror's link counts the primary's silence on the backup's own clock, as its pulls count a body's: a
+subscription lives as long as its connection, so a mirror quiet past 6 s is followed again with the primary's next line on that
+connection, and one quiet past 12 s is dropped and dialled again, and the new connection subscribes anew. The backup keeps the
+highest epoch its primary is heard to hold (the mirror's hello, its HEALTH) in its settings, so a takeover after the backup
+restarted, its primary silent by then, still commits above it. A client's edit on a backup is refused with the way out ("FOH-B
+mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to make this node the show", the words STATE.fleet.door carries, so the
+desk greys what the node would refuse before the press); queries, panic, Show Mode, the node's own administration, a fetch of a
+file by hash and the fleet's verbs stay; no blind draft is begun or landed on a backup, and `FLEET BACKUP` waits while the node
+holds one. A pull that fails is asked again from the watch while the primary's revision is ahead or a file the show names is missing. A
 follower whose clock asks a port its leader no longer answers on (the leader's hello names another since it led again) follows
 afresh. A node that has begun to stop starts no pull, no join and no takeover step, and its mirror and pulls end with it.
 
@@ -215,9 +218,14 @@ Preflight's `fleet` section: every expected machine heard (known before a restar
 pin valid. Its `backup` section: on a backup, its mirror identical and every file and optimised version the show names here (the
 line that fetches a missing one), and every file beside the show (named; the mirror asks for it again itself); on a primary, each
 backup identical; on a node that holds the show, every route reachable (`FLEET ROUTE TEST`); a fenced node red with `FLEET BACKUP
-<new primary>`. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses, RESET, and a key per machine with its
-light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node that took a show over, FLEET PROMOTE
-on a follower (red while its leader is silent), and a key per backup of a primary.
+<new primary>`. A backup's lost mirror carries `FLEET BACKUP <primary>` while no subscription stands (its connection ended, or a
+connection, live or quiet, whose subscription is not taken), and no line while its link is only quiet with its subscription
+standing: the verb refuses it, and the primary's next line follows the mirror again (or, past 12 s, the link dials again); the row's
+state, words and line are read from one look at the link. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses,
+RESET, and a key per machine with its light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node
+that took a show over, FLEET PROMOTE on a follower (red while its leader is silent), and a key per backup of a primary. A mirror is
+lit alike wherever it is shown, on the backup or on its primary (STATE, the context, INDEX, preflight): green identical, red lost,
+amber otherwise.
 
 ## Threads
 
