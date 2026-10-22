@@ -370,8 +370,9 @@ Round 2 W1 notes:
   connection's subscription is taken holds none: the mirror reads `lost` "FOH-A's mirror is not subscribed" then and is offered
   the line, and the node's log says it is not subscribed
   (`BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
-  holds the new connection's greeting before it subscribes while the clock passes the stale mark; against the old words it failed
-  three runs of three with the quiet words). The mirror's state, words and line are read from one look at the link, and a link
+  holds the new connection's reader on the primary's answer to its proof and its greeting before it subscribes, so nothing more is
+  heard on it while the clock passes the stale mark; against the old words it failed three runs of three with the quiet words).
+  The mirror's state, words and line are read from one look at the link, and a link
   that reads down or dialling holds no subscription whether or not the node's listener has cleared it yet: a preflight run between
   the link's move to down and that listener read `lost` "down" with no line (a listener ahead of the node's holding the link's
   thread 300 ms on that move failed the dropped row's assertion three runs of three; it passes now). FLEET BACKUP's refusal, the
@@ -670,6 +671,26 @@ Round 2 W1 notes:
   `LatenessTests` reads the lateness window (not run here). All pass now. Read and left: the stage resources', stage meshes' and
   timer view's locks, which the frame path does not take (the timer view's only as its poller starts), and the runtime deadline
   timer's, which only its own thread takes.
+- Done: the mirror test that moves the backup's clock before a new connection subscribes hears nothing on that connection meanwhile.
+  `BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
+  holds the new connection's reader on the primary's answer to its proof (`MirrorLink.PairingChanged`, which hands on the link's
+  pairing moves) as well as its greeting before it subscribes, and moves the clock past the stale mark once. Holding the greeting
+  alone left the reader free: the mirror link says HELLO, which makes it a STATE listener on the primary, and the primary pushes
+  STATE to every listener 200 ms of real time after any change (`WireServerOptions.PushThrottle`): after the new connection's own
+  HELLO, and after each move of the clock, which moves the primary's peer table and fleet monitor on the same hand-moved clock. The
+  link drops those pushes but its reader counts each as heard (rightly: the primary spoke), and its beat looks every 250 ms of real
+  time, so a move went stale only if a look fell between it and the next push. The test moved the clock at most twice, and when both
+  moves were absorbed it read no stale move and line 172 compared against `FirstOrDefault`'s default, `(Connecting, null, null,
+  null)`; the link had neither read Connecting nor dropped. That is the test's one Windows failure (branch fix-fetchrow-win
+  d3df7fb5, run 431, job 119794922607, after 7 s, on a branch that touches neither the backup nor its links), whose actual is
+  exactly that default: consistent with a push landing before the beat's look on the loaded runner, not proven. On Linux the
+  unchanged test, its process stopped for 100 ms from 205 ms after the redial, failed at line 172 with that tuple in six runs of
+  eight, and passed three of three with the same stop from 400 ms; a traced copy made while diagnosing it, not run again since, saw
+  the pushes land 222 ms after the first move and 209 ms after the second, each before the beat's next look. The test now passes
+  eight runs of eight under the 205 ms stop, four of four with it pinned to one CPU as well, and one each under stops of 150 ms from
+  0, 40, 120, 250 and 300 ms; the class passes. It keeps every assertion, its wait for the stale move now for `Stale` alone. No
+  product behaviour changes; that the mirror link and the anchor follower are STATE listeners that drop every STATE line is an
+  efficiency question, open below.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -691,6 +712,12 @@ Round 2 W1 notes:
   state's publish, up to the quiet (10 s) for each missing show file every time it asks for them again, and an answer whose headers
   never come for the client's 60 s. Pulling the show files off the watch's own turn, with a test of the watch's pace while a show
   file is silent, closes it.
+- Open (efficiency, not measured as the cause of anything): a backup's mirror link (`MirrorLink`) and a follower's anchor link
+  (`AnchorFollower`) say HELLO, which makes each a STATE listener on its primary or leader (`WireSession`'s HELLO), and each drops
+  every STATE line it is sent: every change there (coalesced to one push per 200 ms, and at least one a second while anything
+  plays; about 7.5 KB in the backup rig) crosses to every backup and follower, which reads and discards it. The pushes count as the
+  peer speaking on those links, which is right. Saying `SUBSCRIBE OFF` before their own subscription (OFF also ends topics, so it
+  goes first), or a HELLO that is no listener, closes it; either is a wire change with its catalogue row and papers.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);

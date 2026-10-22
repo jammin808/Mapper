@@ -119,6 +119,10 @@ The lab checks still to do:
   thread's first wait on a gate a preempted `Stats` reader held, not proven: on Linux a reader held inside that gate made the
   unchanged test fail by exactly 280 bytes; every lock a deadline thread shares is made with its wait event now, and a reader
   holding the frame-time gate across a frame costs the frame path nothing),
+  `BackupMirrorLinkTests`' one Windows read of a mirror quiet before its new connection subscribed with no stale move at all (its
+  actual was the default tuple; consistent with the primary's STATE pushes, 200 ms after each move of the clock, landing before the
+  link's 250 ms beat looked, not proven: on Linux the unchanged test, stopped 100 ms from 205 ms after the redial, failed so in six
+  runs of eight; the test now holds the new connection's reader as well as its greeting, so nothing is heard while the clock moves),
   `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
