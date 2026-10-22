@@ -357,6 +357,69 @@ Round 2 W1 notes:
   the pace holds at the jump) failed all six of its runs against the old order (three in Debug, three in Release) and passes
   against the new; a wait on the senders fails with STATE's counts, the service's own senders and when each was last heard, the
   node's clocks and the loop's ticks.
+- Done: a backup's mirror whose primary has said nothing past the stale mark is followed again with the primary's next line on the
+  same connection. The backup cleared its subscription on every move of the mirror's link but to live, the stale one included, and
+  only a new connection's `SUBSCRIBE MIRROR` set it again; a quiet spell ends with the next line on the same connection (the link
+  is live again and does not dial), so the mirror read `lost` ("FOH-A's mirror is not subscribed") for as long as that connection
+  lasted, and the watch's follow and repulls stopped with it, while the primary's lines kept landing. Now a subscription lives as
+  long as its connection: a link that goes down or dials again takes it, a stale one keeps it, and the mirror reads `lost` while
+  its link is quiet ("FOH-A has said nothing on its mirror for over 6 s"), down or unsubscribed. Preflight's mirror row offers
+  `FLEET BACKUP <primary>` only while no subscription stands; a quiet link's stands, the verb refuses it ("already a hot backup of
+  FOH-A"), and the row offers no line then
+  (`BackupMirrorLinkTests.AQuietMirrorIsOfferedNoLineInPreflightAndADroppedOneTheLineThatJoinsItAnew`). A link quiet before its
+  connection's subscription is taken holds none: the mirror reads `lost` "FOH-A's mirror is not subscribed" then and is offered
+  the line, and the node's log says it is not subscribed
+  (`BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
+  holds the new connection's greeting before it subscribes while the clock passes the stale mark; against the old words it failed
+  three runs of three with the quiet words). The mirror's state, words and line are read from one look at the link, and a link
+  that reads down or dialling holds no subscription whether or not the node's listener has cleared it yet: a preflight run between
+  the link's move to down and that listener read `lost` "down" with no line (a listener ahead of the node's holding the link's
+  thread 300 ms on that move failed the dropped row's assertion three runs of three; it passes now). FLEET BACKUP's refusal, the
+  row's line and the watch's follow and repulls read that one predicate. A primary lights a backup whose mirror is lost red alike
+  in STATE, on INDEX's key for it and in preflight's row for it; the key and the row were amber
+  (`BackupMirrorLinkTests.APrimaryLightsABackupWhoseMirrorIsLostRedInStateOnItsKeyAndInPreflightAlike`). The link counted that
+  silence (stale at 6 s, dropped at 12 s) on the process's clock, while the rig counts on hand-moved clocks the fleet monitor's,
+  the pulls' and the sync part's watch of its leader's clock; it counts it on the node's clock now (`WireClientOptions.Clock`,
+  which `MirrorLink` takes from the node). Every other link keeps the process's clock, the sync part's anchor follower among them
+  (`AnchorFollower`, on `WireClient`'s default options): it counts its leader's silence in real time, its feed reads `connecting`
+  while that link is stale, and an otherwise identical mirror reads `joining` then.
+  `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows failure at its line 95
+  (wp3-installer c92e3c2a, run 39653186869, the test 22 s: INDEX's `FAILOVER` red `lost` where it waited amber `different`, after
+  the backup's preflight had read the mirror `different`) is consistent with the mirror link's real-time silence, not proven: its
+  message gave only `("red", "lost")`, which fits the link still stale at INDEX's read (which only the count on the node's clock
+  covers), a subscription cleared by a stale spell that had ended (the latch, fixed), and a dropped connection not yet subscribed
+  again alike. Between the two reads the test runs
+  two route reads to a closed loopback port, whose 2 s bound is on the rig's fleet clock, which does not move, so each ends only
+  when the refused connect does, which on Linux takes under a millisecond here; that the Windows run stalled 6 s or more there is
+  not shown. On Linux (Debug), the test process stopped by a signal for 8 s at that point failed the unchanged test at that line,
+  `("red", "lost")` with "FOH-A's mirror is not subscribed", in three runs of three, as did the thread pool held 8 s (256 blocking
+  items on its global queue) followed by 3 s of real time, three of three; held 3 s, it passed twice. The stopped process passes
+  three of three now, and three of three with the subscription's fix alone and the link on the process's clock.
+  `BackupMirrorLinkTests.AMirrorQuietPastTheStaleMarkIsFollowedAgainWithItsNextLineAndADroppedOneSubscribesAnew` holds the
+  backup's reader on a mirror line while the backup's clock moves past the stale mark, lets it go, then drops the connection; it
+  failed three runs of three against the old handler (`lost`, "not subscribed", the link live on its first connection) and passes
+  against the new. `LinkTests.ALinkCountsItsPeersSilenceOnItsClockAndIsLiveAgainWithTheNextLineOnTheSameConnection` shows that
+  real time is not counted and the link's clock is. The preflight test's two reads of the mirror name what the backup saw: the
+  mirror's state and words, the link's status, connection and silence on the node's clock, and when the fleet monitor last heard
+  the primary.
+- Done: `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown` counts the desk's silence on a
+  hand-moved clock (`PatternsLinkOptions.Clock`, which `PatternsLink` hands its link; the engine's Patterns link keeps the
+  process's clock). Stale at 400 ms and dropped at 900 ms of real time, with a ping every 2 s, its link went stale and dropped on its
+  own about a second into every connection whether the desk answered or not (live at 25 ms, stale at 499 ms, down at 1014 ms, live
+  again at 1935 ms), and each of the test's polls raced a window of a few hundred milliseconds. Its one failure in 18 loaded Linux
+  Net-suite runs on fix-backup-preflight (about 5 s, its line not kept) is consistent with that, not proven. With the default clock
+  the link counts as it did before `WireClient` took a clock (`MonoClock` is `Stopwatch`'s counter in nanoseconds), so the hazard
+  is older than that change. Beside a thread pool held for 9 s in the same test process, the unchanged test failed three runs of
+  five with 8 items of 500 ms every 600 ms and three of the four that finished with 16 of 250 ms every 300 ms, at its waits for live
+  and paired and for stale and at its last send. The new test (stale and dropped as the clock moves, a line sent at the move to down
+  refused at once, the moves recorded) passed eight of eight beside the first hold, eight of eight beside the second held for 4 s,
+  and five of six held for 9 s, the sixth's first 5 s wait ending live and paired before the first ping's answer was read (the pool
+  held longer than the wait, not a window missed). Held harder (64 items of 400 ms every 700 ms) both fail, the new one because the
+  link does not connect within its first wait. The same pattern (a short real-time stale or drop mark and a poll for a passing status) is not used elsewhere
+  in the Net and Engine suites: `LinkTests.TheEngineLinkPairsMirrorsStateAndProjectAndRedials` waits for down with no server
+  listening, which stays; `LinkTests.ALinkCountsItsPeersSilenceOnItsClockAndIsLiveAgainWithTheNextLineOnTheSameConnection` now
+  waits for its first ping's answer before its peer falls silent, so no answer read after its clock moves starts the silence
+  again; `BackupMirrorLinkTests`' wait for its dropped row read one look at the link apart from another, settled above.
 - Done: a media pull is served and written in 1 MiB blocks, a chunk's body that falls silent is named, a pull says where it
   stands, and a fetch's journal rows are bounded. What was seen: the Windows failure (build 400 at fix-fanout-win 529b7d94, run
   39578502602, job 119149948163) is `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt` waiting 20 s for the pulled
@@ -574,6 +637,14 @@ Round 2 W1 notes:
   `FleetMonitorTests`' 10 s wait for the peer to read live (the test now waits until the headline and the context match the record
   the monitor holds; the 10 s "peer not live" is not reproduced); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
+  `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows read of the mirror as lost
+  (consistent with the mirror link's real-time silence above — a stale spell, or its latch, both now on the node's clock or fixed
+  — not proven: its `("red", "lost")` fits a dropped connection too; its reads now name what the backup saw);
+  `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown`' one loaded Linux failure (consistent with
+  its polls racing the link's own stale-and-drop cycle in real time, which the test no longer counts on, not proven);
+  `AnchorFeedLineTests.EveryMemberHasTheSameOneDeadlineHoweverManyThereAre`' one failure beside ten busy loops on Linux (twenty
+  members silent where nineteen were due; its 100 ms deadline is on real time and its one member's answer comes after the send;
+  not investigated);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
   wait for the link's first clip in STATE (one failure on the batch's baseline); `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing`'

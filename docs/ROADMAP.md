@@ -94,7 +94,13 @@ The lab checks still to do:
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
-  which is fixed, not proven; its wait now names what it saw), `HostNetworkTests`' one Windows wait for a fetched file (its
+  which is fixed, not proven; its wait now names what it saw), `BackupPreflightTests`' one Windows read of the backup's mirror as
+  lost (consistent with the mirror link's real-time silence — a stale spell, or its latch, both now on the node's clock or fixed —
+  not proven: its message gave only `("red", "lost")`, which a dropped connection fits too; its reads now name what the backup
+  saw), `LinkTests`' one loaded Linux failure of the Patterns link's stale test (consistent with its polls racing the link's own
+  stale-and-drop cycle in real time, which the test no longer counts on, not proven), `AnchorFeedLineTests`' one failure of its
+  one-deadline test beside ten busy loops on Linux (twenty members silent where nineteen were due; its 100 ms deadline is real time
+  and its one answer comes after the send; not investigated), `HostNetworkTests`' one Windows wait for a fetched file (its
   cause is not shown: the journal it printed shows that the pull had not ended through its catches, each of which journals a
   refused row, within the wait; it shows neither the stage the pull stood at nor whether it faulted outside those catches, which
   at 529b7d94 reached the node's log only; a busy thread pool stretching 64 KiB turns is one reading, unproven: on Linux, beside
