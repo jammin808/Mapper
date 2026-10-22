@@ -557,8 +557,14 @@ Round 2 W1 notes:
   0.9 s late read "12:28". It failed so here at line 171 (`Expected: "12:29"`, `Actual: "12:28"`) in 2 of 9 full Net runs at a
   load of about 7 to 9 on four cores, and in 5 of 5 runs with its process stopped 2.5 s and run 0.3 s in turn; the link now counts
   on a `ManualClock` the test moves 1.1 s, and the test passed 6 of 6 under the same stops. `LinkTests`' counted clip position
-  leaves 1.7 s of room after its 300 ms and is unchanged; `HelloTests`' 150 ms for a datagram already sent to land before its
-  clock moves is a wait of another shape (a receive held longer would fail it) and is unchanged too.
+  leaves 1.7 s of room after its 300 ms and is unchanged; `HelloTests.TwoNodesHearEachOtherAndAgeOutOnTheClock`
+  gave the hellos its stopped node had already sent 150 ms of real time to land before it moved the peer table's clock, so a
+  listener held longer would take one in after the move as a fresh hello and the sweep would read the peer live, not stale. It now
+  waits until the listener has counted every hello that node sent (`HelloService.Heard` at least the peer's `Sent`), and `Heard`
+  counts a hello once the peer table has taken it in and told its listeners, where it had counted it before the table saw it
+  (`AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn` read `(1, 1)` with the table's listener held before the change, `(1, 0)`
+  after). The old wait was not seen failing; every receive held 250 ms did not make it fail, as the stopped node had sent a
+  single hello by then.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
