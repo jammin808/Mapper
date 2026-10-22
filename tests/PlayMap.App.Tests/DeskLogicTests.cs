@@ -116,7 +116,7 @@ public class DeskLogicTests
     [Fact]
     public async Task ACommitDropsTheLineTheIntervalSentUnderItsKeyAndARefusedOneGoesAgain()
     {
-        var time = new PlayMap.App.Tests.Quad.ManualTime();
+        var time = new ManualTime();
         var sent = new List<string>();
         var refuse = false;
         using var throttle = new ThrottledSender((line, _) =>
