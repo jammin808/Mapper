@@ -92,14 +92,14 @@ jobs:
           if [ -n "$present" ]; then echo "::error::the runner has $present; run the suites through tools/without-libs.sh"; exit 1; fi
       - name: Test (every project to its end; one crash hides no other result)
         run: |
-          # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
-          # project runs.
+          # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
+          # reads, written by the runtime: tens of megabytes, never the heap), read into the log below, and the next project runs.
           failed=""
           for project in tests/*/*.csproj; do
             name=$(basename "$project" .csproj)
             echo "::group::$name"
             dotnet test "$project" -c Release --no-build --logger "trx;LogFileName=$name.trx" \
-              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none || failed="$failed $name"
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini || failed="$failed $name"
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
@@ -112,7 +112,27 @@ jobs:
         run: |
           dotnet test tests/PlayMap.Render.Tests/PlayMap.Render.Tests.csproj -c Release --no-build \
             --logger "trx;LogFileName=PlayMap.Render.Tests.es300.trx" \
-            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
+            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+      # A test host that --blame-hang stopped: every managed thread's stack from each hang dump in a project's TestResults (dotnet-dump's
+      # clrstack -all), so the log says where the host stood — in a test, in a fixture, or before any test while the suite was
+      # discovered. dotnet-dump 10.0.750501 from nuget.org, the .nupkg held to its SHA-256 and run from the package itself; the dumps
+      # stay on the runner.
+      - name: The stacks of a hung test host (dotnet-dump, pinned)
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          mapfile -t dumps < <(find tests/*/TestResults -name '*_hangdump.dmp' 2>/dev/null | awk -F/ '!seen[$NF]++')
+          if [ ${#dumps[@]} -eq 0 ]; then echo "No test host hung: no hang dump to read."; exit 0; fi
+          curl -sSfL -o dotnet-dump.nupkg "https://api.nuget.org/v3-flatcontainer/dotnet-dump/10.0.750501/dotnet-dump.10.0.750501.nupkg"
+          echo "ae70c9f37548e1e006467893e21ae41a005fefaf2270e29642b415df053324a7  dotnet-dump.nupkg" | sha256sum -c -
+          mkdir -p .tools/dotnet-dump
+          unzip -q dotnet-dump.nupkg -d .tools/dotnet-dump
+          for dump in "${dumps[@]}"; do
+            echo "::group::$(basename "$dump")"
+            dotnet .tools/dotnet-dump/tools/net8.0/any/dotnet-dump.dll analyze "$dump" -c "clrstack -all" -c "exit" \
+              || echo "::warning::dotnet-dump could not read $dump"
+            echo "::endgroup::"
+          done
       # The Companion module (integrations/companion-module-playmap): its type check, lint and tests — the e2e test against this
       # job's Release engine — then Companion's own module check. It runs whatever the .NET suites said.
       - name: Node for the Companion module
@@ -154,6 +174,9 @@ jobs:
       PLAYMAP_D3D12_EVIDENCE: ${{ github.workspace }}\d3d12-evidence
       # The dispatched leg's filter, read by the leg's script from the environment, never pasted into a command.
       D3D12_FILTER: ${{ inputs.d3d12 }}
+      # A hung test host's dump is written by the runtime through its diagnostics port, as on Linux, so it carries what a managed stack
+      # walk reads; the blame collector's own Windows dumper writes a mini dump of thread information alone, which no stack walk reads.
+      VSTEST_DUMP_FORCENETDUMP: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -288,9 +311,10 @@ jobs:
         if: ${{ !inputs.d3d12 }}
         shell: pwsh
         run: |
-          # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
-          # project runs. No test project fails the step, and so does a suite that answers 0 but leaves no results file. The
-          # Backend=D3D12 tests run in the Direct3D 12 leg below, so each result is counted once.
+          # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
+          # reads: tens of megabytes, never the heap), read into the log after the Direct3D 12 leg, and the next project runs. No test
+          # project fails the step, and so does a suite that answers 0 but leaves no results file. The Backend=D3D12 tests run in the
+          # Direct3D 12 leg below, so each result is counted once.
           $failed = @()
           $projects = @(Get-ChildItem tests/*/*.csproj)
           if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
@@ -298,7 +322,7 @@ jobs:
             $name = $project.BaseName
             Write-Host "::group::$name"
             dotnet test $project.FullName -c Release --no-build --filter "Backend!=D3D12" --logger "trx;LogFileName=$name.trx" `
-              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
             if ($LASTEXITCODE -ne 0) { $failed += $name }
             elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
             Write-Host "::endgroup::"
@@ -327,6 +351,26 @@ jobs:
         if: ${{ !cancelled() }}
         shell: pwsh
         run: ./tools/ci-d3d12.ps1 -Leg -Filter "$env:D3D12_FILTER"
+      # A test host that --blame-hang stopped, in the suites or the Direct3D 12 leg: as on Linux, every managed thread's stack from each
+      # hang dump (dotnet-dump 10.0.750501, the .nupkg held to its SHA-256, run from the package itself); the dumps stay on the runner.
+      - name: The stacks of a hung test host (dotnet-dump, pinned)
+        if: ${{ failure() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dumps = @(Get-ChildItem tests/*/TestResults -Recurse -Filter *_hangdump.dmp -ErrorAction SilentlyContinue | Sort-Object Name -Unique)
+          if ($dumps.Count -eq 0) { Write-Host 'No test host hung: no hang dump to read.'; exit 0 }
+          Invoke-WebRequest -Uri 'https://api.nuget.org/v3-flatcontainer/dotnet-dump/10.0.750501/dotnet-dump.10.0.750501.nupkg' -OutFile dotnet-dump.zip
+          $hash = (Get-FileHash dotnet-dump.zip -Algorithm SHA256).Hash
+          if ($hash -ne 'AE70C9F37548E1E006467893E21AE41A005FEFAF2270E29642B415DF053324A7') { throw "dotnet-dump.zip is not the pinned package ($hash)" }
+          Expand-Archive dotnet-dump.zip -DestinationPath .tools/dotnet-dump
+          $tool = (Resolve-Path .tools/dotnet-dump/tools/net8.0/any/dotnet-dump.dll).Path
+          foreach ($dump in $dumps) {
+            Write-Host "::group::$($dump.Name)"
+            dotnet $tool analyze $dump.FullName -c 'clrstack -all' -c 'exit'
+            if ($LASTEXITCODE -ne 0) { Write-Host "::warning::dotnet-dump could not read $($dump.Name) ($LASTEXITCODE)" }
+            Write-Host '::endgroup::'
+          }
       - name: The runner's answers (M7, M14)
         # bench/r3-probe asks Windows on this runner and writes each answer, yes or no, in the summary; it fails only when it
         # writes none. M9's session calls are asked again as LocalSystem, through a scheduled task, the way the supervisor asks.

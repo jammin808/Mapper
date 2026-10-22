@@ -41,4 +41,9 @@
     <Using Include="PlayMap.Tests" />
   </ItemGroup>
 
+  <!-- A tool whose helper holds its pipes after it exits, shared by the native doubles' build test and the node probe's. -->
+  <ItemGroup Label="fix-win-batch4">
+    <Compile Include="..\Shared\PipeHolder.cs" Link="Shared\PipeHolder.cs" />
+  </ItemGroup>
+
 </Project>

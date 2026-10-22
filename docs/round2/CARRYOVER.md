@@ -775,6 +775,29 @@ Round 2 W1 notes:
   test that read STATE more than 3 s after that read no clip. With the test's read held 3.5 s once the link was live and paired (a
   delay in a scratch copy) the unchanged test failed 3 of 3 at its line 346; on the held clock it passed 3 of 3 under the same delay
   and 3 of 3 without it.
+- Done: a native double's build ends with its compiler, never with the compiler's pipes (`NativeBuild.Run`), and a hung test host's
+  stacks reach the CI log. The OMT tests' attribute builds libvmx with clang++ while the suite is discovered (`OmtFactAttribute`,
+  `VmxBuild.Ensure`; the fake NDI runtime's attribute the same way), and the build read the compiler's output to its end and then
+  waited for its exit, neither bounded; the end of a pipe comes only once every process holding its write end has let go, and a
+  process the compiler starts inherits it (on Windows clang++ links through Visual Studio's link.exe, whose helpers are known to
+  linger on build machines), so one that held on stalled the whole test host in discovery, where blame has no test to name. The
+  Engine test host on the Windows job stalled so (run 435, at main cf9699d8, which passed on Windows in run 434 and on Linux): "A total
+  of 1 test files matched" and nothing more until blame's 5 minutes ran out, no test result and no sequence file; consistent with
+  that, not proven: blame's dump was off and the runner's processes cannot be seen from here. With clang++ wrapped so a helper it
+  starts holds its stdout and stderr, and a fresh temp folder, the unchanged Engine host failed 3 of 3 with run 435's lines word for
+  word under a 1-minute blame limit (the library built, never moved into place); the dump of one such run, read with dotnet-dump,
+  stood in `NativeBuild.Run`'s read under `OmtFactAttribute`'s constructor in xunit's discovery. A build now reads the compiler's
+  words while it waits for the compiler alone, up to 3 minutes (then it and every process it started are stopped, with the words
+  "did not finish … and was stopped"), reads the words for 5 s more, and says a failed build's exit code; it passed 3 of 3 under the
+  same wrapper. `NativeBuildTests` runs a "compiler" whose helper holds its pipes until the test lets it go (`PipeHolder`): the
+  unchanged build failed 3 of 3 ("the build was still waiting for the end of the compiler's pipes", after 60 s), the new one passed
+  3 of 3, with a compiler stopped at its deadline and one that fails with its words. The node probe a phone test's attribute runs in
+  the Net suite's discovery (`NodeTools`, npm's global root) read its tool's output to its end before its 30 s bound could apply; it
+  now ends with the tool (its test failed 3 of 3 against the old probe's logic, passed 3 of 3). CI now stops a hung test host with a
+  mini dump the runtime writes (`--blame-hang-dump-type mini`; on Windows `VSTEST_DUMP_FORCENETDUMP`, since the collector's own
+  Windows dumper writes thread information alone, which no managed stack walk reads), and on a failed job prints every managed
+  thread's stack from each dump (dotnet-dump 10.0.750501, the package held to its SHA-256), so a stall before the first test is
+  named as a test's is.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -847,7 +870,10 @@ Round 2 W1 notes:
   cancel is in, above); `BackupRenderTests.TheBackupPlaysTheSameVersionAndItsPictureIsTheSameBytesAtTheSameInstants`' one Windows
   wait for the backup's health from its line 141 (consistent with the primary's fleet monitor's first subscription ending unheard
   and its next dial waiting on a fleet clock the hot-backup tests never moved, not proven; the meeting now moves that clock while
-  the monitor waits, and names what the node holds of its peer, above).
+  the monitor waits, and names what the node holds of its peer, above); the Engine test host's one Windows stall before its first
+  test (run 435: no result and no sequence file before blame's 5 minutes; consistent with libvmx's build in the OMT tests' attribute
+  waiting, while the suite was discovered, for the end of its compiler's pipes, not proven; the build now ends with its compiler,
+  and the next hang prints every managed thread's stack in the job's log, above).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

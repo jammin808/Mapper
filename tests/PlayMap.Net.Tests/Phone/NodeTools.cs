@@ -7,7 +7,7 @@ namespace PlayMap.Net.Tests.Phone;
 internal static class NodeTools
 {
     private static readonly Lazy<string?> NodePath = new(() => Find("node"));
-    private static readonly Lazy<string?> GlobalRoot = new(() => Output("npm", "root -g"));
+    private static readonly Lazy<string?> GlobalRoot = new(() => Output("npm", ["root", "-g"]));
 
     public static string? Node => NodePath.Value;
 
@@ -37,23 +37,56 @@ internal static class NodeTools
         return null;
     }
 
-    private static string? Output(string tool, string args)
+    /// <summary>The longest a probe of a tool runs before it is stopped with every process it started.</summary>
+    public static readonly TimeSpan ProbeDeadline = TimeSpan.FromSeconds(30);
+
+    private static string? Output(string tool, string[] args)
     {
         var path = Find(tool) ?? (OperatingSystem.IsWindows() ? Find(tool + ".cmd") : null);
-        if (path is null)
-            return null;
+        return path is null ? null : Probe(path, args, ProbeDeadline);
+    }
+
+    /// <summary>What a tool wrote, read once the tool itself has exited (or null when it did not within
+    /// <paramref name="deadline"/>, or could not be started). A process the tool starts (npm's, or cmd.exe's for a .cmd on Windows)
+    /// inherits its output pipe and may hold it open long after, so the probe ends with the tool, never with the end of its pipe: it
+    /// runs while the suite is discovered, where a wait that does not end stalls the whole test host before any test starts.</summary>
+    internal static string? Probe(string path, IEnumerable<string> args, TimeSpan deadline)
+    {
+        var start = new ProcessStartInfo(path) { RedirectStandardOutput = true, UseShellExecute = false };
+        foreach (var a in args)
+            start.ArgumentList.Add(a);
+        Process? p;
         try
         {
-            using var p = Process.Start(new ProcessStartInfo(path, args) { RedirectStandardOutput = true, UseShellExecute = false });
-            if (p is null)
-                return null;
-            var text = p.StandardOutput.ReadToEnd().Trim();
-            p.WaitForExit(30_000);
-            return text;
+            p = Process.Start(start);
         }
         catch (System.ComponentModel.Win32Exception)
         {
             return null;
+        }
+        if (p is null)
+            return null;
+        using (p)
+        {
+            var text = p.StandardOutput.ReadToEndAsync();
+            if (!p.WaitForExit(deadline))
+            {
+                Stop(p);
+                return null;
+            }
+            return text.Wait(TimeSpan.FromSeconds(5)) ? text.Result.Trim() : null;
+        }
+    }
+
+    private static void Stop(Process p)
+    {
+        try
+        {
+            p.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // It exited between the wait and the kill.
         }
     }
 
