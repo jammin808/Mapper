@@ -765,6 +765,10 @@ Round 2 W1 notes:
   that writes it. With the publishing loop held 250 ms twice (a delay in a scratch copy) the unchanged test failed 3 of 3 at its
   line 247 (three pushes); it now reads the one push the window makes, and waits for the skip, and passed 3 of 3 under the same
   delays and 3 of 3 without them. No failure of it has been seen.
+- Done: `ClockSyncTests`' convergence waits for the leader's count of its answers (`ClockSyncResponder.Answered`) rather than reading
+  it once the follower holds eight samples: the responder counts an answer once its send has returned, which can be after the
+  follower has taken that answer in. With the count landing 300 ms after each send (a scratch copy of the responder) the unchanged
+  tests failed 3 of 3 at its line 36; waiting, they passed 3 of 3 under it and 3 of 3 without it. No failure of them has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
