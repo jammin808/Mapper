@@ -815,6 +815,13 @@ Round 2 W1 notes:
   never answers (`PhoneHubOptions.Time`); the new Net tests (the held clock moved through the limit, and the system's clock) failed
   3 of 3 against the old hub and passed 3 of 3. The rig's invite test reads the invite's expiry against the hub's clock. No assertion
   of the old tests is changed; scans in the rig that keep the default real-time patience still count it so (`PhoneCameraTests`).
+- Done: `GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound` lets the holder go only once the sharer's
+  own wait is counted. It let go 100 ms after the sharer's thread said it had started, and its last count held from the bounded take
+  before it alone (`TryEnter` counts a wait), so a sharer that reached its take after the holder had let go took the lock unopposed
+  and the test passed without showing the sharer waited. With the sharer's thread 150 ms late to its take (a delay in a scratch
+  copy) the unchanged test passed 3 of 3 with the lock's waits at 1, the bounded take's alone; it now waits for the sharer's wait to
+  be counted, asserts the sharer took nothing while the holder held, and that the waits rose by exactly that one, and passed 3 of 3
+  under the same delay. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

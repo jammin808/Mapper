@@ -93,19 +93,20 @@ public sealed class GpuDeviceLockTests
         Assert.False(l.IsHeldByCurrentThread);
         Assert.Equal(1, l.TimedOut);
 
-        // A sharer's take has no bound: it gets the lock only once the holder lets go.
-        using var started = new ManualResetEventSlim();
+        // A sharer's take has no bound: it waits, counted, while the holder holds, and gets the lock only once the holder lets go. The
+        // holder lets go only once the sharer's own wait is counted (the bounded take above counted one already), so the sharer is
+        // seen to wait however late its thread runs.
+        var waits = l.Waits;
         var sharer = Task.Run(() =>
         {
-            started.Set();
             l.Enter();
             l.Exit();
         });
-        started.Wait(Patience);
-        Assert.NotSame(sharer, await Task.WhenAny(sharer, Task.Delay(100)));
+        Assert.True(SpinWait.SpinUntil(() => l.Waits > waits, Patience), $"the sharer never waited for the holder (waits {l.Waits})");
+        Assert.False(sharer.IsCompleted, "the sharer took the lock while the holder held it");
         holder.Release();
         await sharer.WaitAsync(Patience);
-        Assert.True(l.Waits >= 1, $"waits {l.Waits}");
+        Assert.Equal(waits + 1, l.Waits);
         Assert.Equal(1, l.TimedOut);
     }
 

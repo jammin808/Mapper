@@ -173,8 +173,7 @@ The lab checks still to do:
   stopwatch), `MediaTransferTests.TheBandwidthBucketHoldsItsRateAndCanBeLoweredAndLifted` (100 takes within 200 ms),
   `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
   `ArtNetInTests.ATimecodeConsumerOpensTheSocketArtTimeCodeRollsAndDmxFiresNoBinding` (dropout after 100 ms of the real clock; it
-  heals within its wait). `GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound` is no window but its
-  last count holds from the bounded take before it alone (`TryEnter` counts a wait), so it does not show the sharer waited.
+  heals within its wait).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.
