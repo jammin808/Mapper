@@ -154,8 +154,7 @@ The lab checks still to do:
   measure of the work rather than the stopwatch): `SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds`
   (the worst SITE round trip within 50 ms by the test's stopwatch, its own continuation included, at the 1× bar the Windows job's
   Release build holds; the lane's own measure of an answer, as the slices are read, closes it),
-  `ProjectorSolveLanePerfTests.ASolveHoldsTheLaneWithinItsSlice` and its 4× twin (an empty lane turn's stopwatch round trip within
-  10 ms; the same), `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
+  `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
   order; `OptimiseOptions.Time` now lets them move it), `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
   steps, closes it), `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` (five frames inside a 400 ms real
   hold; a hold until the loop has drawn them closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`
