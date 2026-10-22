@@ -151,10 +151,7 @@ The lab checks still to do:
   words and the heap).
 - Watched, short real-time windows a sweep of the tests found and none has failed on yet (each keeps its bar; the fix named is
   the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
-  measure of the work rather than the stopwatch): `SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds`
-  (the worst SITE round trip within 50 ms by the test's stopwatch, its own continuation included, at the 1× bar the Windows job's
-  Release build holds; the lane's own measure of an answer, as the slices are read, closes it),
-  `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
+  measure of the work rather than the stopwatch): `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
   order; `OptimiseOptions.Time` now lets them move it), `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
   steps, closes it), `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` (five frames inside a 400 ms real
   hold; a hold until the loop has drawn them closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`

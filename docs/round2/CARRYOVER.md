@@ -850,6 +850,12 @@ Round 2 W1 notes:
   and 10); read on the lane they passed 3 of 3 under the same delay, and the probe still reads the solve's slices (a median of about
   1 ms, a worst of 2 to 6 ms, here). A wait inside a slice and a stop of the lane thread are still in the reading. No failure of
   them has been seen.
+- Done: the survey import's lane tests (`SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds` and
+  the regular `SurveyImportTests.ATwoMillionTrianglePlyComesInAsOneEditWithinItsDeviationAndNeverHoldsTheLane`) read how long the
+  lane keeps a line waiting on the lane itself (`LaneProbe`, before each SITE, which must still be answered), not by the test's
+  stopwatch around SITE's whole round trip, which held the test's own continuation. With that continuation 210 ms late once (a delay
+  in a scratch copy) both unchanged tests failed 3 of 3 (a worst of 210.2 to 210.5 ms against the Debug build's 200 ms ceiling); read
+  on the lane they passed 3 of 3 under the same delay (a worst of 1 to 10 ms). No failure of them has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
