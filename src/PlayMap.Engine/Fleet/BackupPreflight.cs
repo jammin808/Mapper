@@ -54,7 +54,7 @@ internal sealed class BackupPreflight : IPreflightCheck
                     var facts = engine.Services.FleetPeers?.Peers().FirstOrDefault(p => p.Id == m.Node)?.Health?.Facts;
                     var mirrored = facts is { Role: FleetRoles.Backup } f && f.Of == node ? f.Mirror : "";
                     rows.Add(new PreflightRow("backup:" + m.Node, node, Section, (facts?.Name ?? m.Name) + " (hot backup)",
-                        mirrored == "identical" ? Light.Green : Light.Amber, mirrored.Length > 0 ? mirrored : "not heard",
+                        BackupNode.MirrorLight(mirrored), mirrored.Length > 0 ? mirrored : "not heard",
                         mirrored == "identical" ? "same show, versions, clock and air" : $"its mirror is {(mirrored.Length > 0 ? mirrored : "not heard in its health")}", null));
                 }
                 break;

@@ -186,6 +186,55 @@ public sealed class BackupMirrorLinkTests
         }
     }
 
+    [Fact]
+    public async Task APrimaryLightsABackupWhoseMirrorIsLostRedInStateOnItsKeyAndInPreflightAlike()
+    {
+        // The gate the backup's reader is held on: it outlives the nodes and is set on every way out before they stop.
+        using var release = new ManualResetEventSlim();
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        try
+        {
+            await SyncRig.OpenShowAsync(primary);
+            await primary.OkAsync("SYNC LEAD show");
+            await BackupRig.MeetAsync(primary, backup);
+            await BackupRig.BackUpAsync(primary, backup);
+            var holding = HoldNextLine(backup.Engine.Services.Backup!.Link!, release);
+
+            // The backup's reader held on the primary's line and its clock past the stale mark: its mirror is lost, its health says so, and
+            // the primary lights it red alike in STATE, on INDEX's key for it and in preflight's row for it.
+            await primary.OkAsync("SET op_1 name Quiet");
+            await holding.WaitAsync(TimeSpan.FromSeconds(10));
+            clock.Advance(6 * Second + Second / 2);
+            Assert.True(await Eventually.TrueAsync(() => BackupState(primary) == "lost"), BackupRig.Fleet(primary).ToString());
+            Assert.Equal(("lost", "red", "lost", "red", "lost", Light.Red), await LightsAsync(primary, backup.Id));
+
+            // The reader goes on: identical again, and green alike.
+            release.Set();
+            Assert.True(await Eventually.TrueAsync(() => BackupState(primary) == "identical"), BackupRig.Fleet(primary).ToString());
+            Assert.Equal(("identical", "green", "identical", "green", "identical", Light.Green), await LightsAsync(primary, backup.Id));
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    private static string? BackupState(HostRig primary) =>
+        BackupRig.Fleet(primary).GetProperty("backups").EnumerateArray().SingleOrDefault().GetProperty("state").GetString();
+
+    /// <summary>How a primary shows its one backup: STATE.fleet.backups' state and light, INDEX's key for it, and preflight's row for it.</summary>
+    private static async Task<(string?, string?, string?, string?, string, Light)> LightsAsync(HostRig primary, string backupId)
+    {
+        var listed = BackupRig.Fleet(primary).GetProperty("backups").EnumerateArray().Single();
+        var key = (await BackupRig.IndexAsync(primary)).Single(r => r.GetProperty("kind").GetString() == "backup");
+        var row = (await BackupRig.PreflightAsync(primary)).Single(r => r.Id == "backup:" + backupId);
+        return (listed.GetProperty("state").GetString(), listed.GetProperty("light").GetString(), key.GetProperty("state").GetString(),
+            key.GetProperty("light").GetString(), row.Value, row.Light);
+    }
+
     private static async Task<PreflightRow> MirrorRowAsync(HostRig backup) =>
         (await BackupRig.PreflightAsync(backup)).Single(r => r.Id == "backup:mirror");
 

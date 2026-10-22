@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
@@ -19,13 +18,6 @@ namespace PlayMap.Engine.Tests.Fleet;
 public sealed class BackupPreflightTests
 {
     private const long Second = SyncRig.Second;
-
-    private static async Task<List<JsonElement>> Index(HostRig rig)
-    {
-        var json = await rig.OkAsync("INDEX");
-        return JsonDocument.Parse(json).RootElement.GetProperty("sections").EnumerateArray()
-            .Single(s => s.GetProperty("section").GetString() == "fleet").GetProperty("rows").EnumerateArray().Select(r => r.Clone()).ToList();
-    }
 
     /// <summary>What the backup saw, read as a read of its mirror fails (after that read, not at it): its mirror's state and words, the
     /// mirror link's status, connection and the primary's silence on it on the node's clock, and when the fleet monitor last heard the
@@ -92,11 +84,11 @@ public sealed class BackupPreflightTests
         Assert.Equal(Light.Red, primaryRows.Single(r => r.Id == "route:op_1").Light);
 
         // INDEX: the backup's FAILOVER key, lit by its mirror; the primary's key per backup.
-        var failover = (await Index(backup)).Single(r => r.GetProperty("id").GetString() == "FAILOVER");
+        var failover = (await BackupRig.IndexAsync(backup)).Single(r => r.GetProperty("id").GetString() == "FAILOVER");
         var lit = (failover.GetProperty("light").GetString(), failover.GetProperty("state").GetString());
         if (("amber", "different") != lit)
             Assert.Fail($"INDEX's FAILOVER read {lit}, not (amber, different); {Saw(backup)}");
         await deck.Heard("\"id\":\"FAILOVER\",\"kind\":\"takeover\",\"label\":\"FAILOVER\",\"parent\":\"fleet\",\"light\":\"amber\",\"state\":\"different\"");
-        Assert.Contains(await Index(primary), r => r.GetProperty("label").GetString() == "FOH-B" && r.GetProperty("kind").GetString() == "backup");
+        Assert.Contains(await BackupRig.IndexAsync(primary), r => r.GetProperty("label").GetString() == "FOH-B" && r.GetProperty("kind").GetString() == "backup");
     }
 }

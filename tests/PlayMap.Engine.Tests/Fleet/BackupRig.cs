@@ -70,6 +70,15 @@ internal static class BackupRig
         return await check.RunAsync(new PreflightContext(rig.Engine, PreflightDepth.Quick, false), CancellationToken.None);
     }
 
+    /// <summary>INDEX's fleet section on a node now: its rows.</summary>
+    public static async Task<List<JsonElement>> IndexAsync(HostRig rig)
+    {
+        var json = await rig.OkAsync("INDEX");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("sections").EnumerateArray()
+            .Single(s => s.GetProperty("section").GetString() == "fleet").GetProperty("rows").EnumerateArray().Select(r => r.Clone()).ToList();
+    }
+
     /// <summary>Introduces the nodes to each other and waits until each hears the others' hellos and health.</summary>
     public static async Task MeetAsync(params HostRig[] rigs)
     {
