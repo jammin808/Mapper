@@ -1,3 +1,4 @@
+using System.Globalization;
 using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
@@ -12,9 +13,9 @@ namespace PlayMap.Engine.Tests.Rendering;
 
 /// <summary>The render loop on a device other threads share (the DXGI platform's, decoders on it), here a GL platform wearing a fake
 /// share whose Enter and Exit are the device's lock: uncontended, every frame takes the lock within its bound; a sharer holding the
-/// device across many frames never stops the loop — each frame waits out its bound and is drawn and counted, and no frame lands while
-/// the sharer holds the lock without a timed-out take to show for it; a decoder taking the lock bracket by bracket gets it between
-/// frames; and the frame path stays allocation-free throughout.</summary>
+/// device across many frames never stops the loop — each frame waits out its bound (its wait read on the render thread) and is drawn
+/// and counted, and no frame lands while the sharer holds the lock without a timed-out take to show for it; a decoder taking the lock
+/// bracket by bracket gets it between frames; and the frame path stays allocation-free throughout.</summary>
 [Collection("render host")]
 public sealed class DeviceLockHostTests(ITestOutputHelper log)
 {
@@ -173,13 +174,20 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         return seen;
     }
 
+    /// <summary>The longest the shortest of the loop's timed-out takes inside a hold may wait (ms): twenty times the take's 4 ms bound,
+    /// which holds a wait rounded up to Windows' default 15.625 ms timer tick, and five frames' takes within 400 ms. A literal, not a
+    /// multiple of <see cref="GpuDeviceLock.FrameBoundMs"/>, so a bound grown past it fails here too.</summary>
+    private const double ShortestTakeCeilingMs = 80;
+
     /// <summary>Holds the share's lock on a thread of its own until the loop has drawn <paramref name="frames"/> frames inside the hold,
-    /// or <see cref="HostRig.Patience"/> has passed: the frames drawn meanwhile and the frame takes that timed out meanwhile. The hold
-    /// ends on the loop's own count, never on a span of real time, so however slowly the machine runs the loop the frames it waits for
-    /// are drawn inside it or never come.</summary>
-    private static (long Frames, long TimedOut) HoldUntilDrawn(IGpuShare share, GpuDeviceLock deviceLock, RenderHost host, long frames)
+    /// or <see cref="HostRig.Patience"/> has passed: the frames drawn meanwhile, the frame takes that timed out meanwhile, and the
+    /// shortest wait of those takes the holder saw (<see cref="GpuDeviceLock.LastTimedOutWaitNs"/>, read each time their count moved;
+    /// in ms, infinite when none moved it). The hold ends on the loop's own count, never on a span of real time, so however slowly the
+    /// machine runs the loop the frames it waits for are drawn inside it or never come; and each wait is read on the render thread,
+    /// from the start of its take to its giving up, so the holder's own pace is in none of them.</summary>
+    private static (long Frames, long TimedOut, double ShortestWaitMs) HoldUntilDrawn(IGpuShare share, GpuDeviceLock deviceLock, RenderHost host, long frames)
     {
-        (long Frames, long TimedOut) seen = default;
+        (long Frames, long TimedOut, double ShortestWaitMs) seen = default;
         var thread = new Thread(() =>
         {
             share.Enter();
@@ -187,13 +195,27 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
             {
                 var timedOut = deviceLock.TimedOut;
                 var drawn = host.Stats.Frames;
+                var counted = timedOut;
+                var shortestNs = long.MaxValue;
                 var waited = System.Diagnostics.Stopwatch.StartNew();
                 using (var nap = new ManualResetEventSlim())
                 {
-                    while (host.Stats.Frames - drawn < frames && waited.Elapsed < HostRig.Patience)
+                    while (true)
+                    {
+                        // The wait is written before the count moves, so a count seen moved reads that take's wait or a later one's.
+                        var count = deviceLock.TimedOut;
+                        if (count != counted)
+                        {
+                            shortestNs = Math.Min(shortestNs, deviceLock.LastTimedOutWaitNs);
+                            counted = count;
+                        }
+                        if (host.Stats.Frames - drawn >= frames || waited.Elapsed >= HostRig.Patience)
+                            break;
                         nap.Wait(5);
+                    }
                 }
-                seen = (host.Stats.Frames - drawn, deviceLock.TimedOut - timedOut);
+                seen = (host.Stats.Frames - drawn, deviceLock.TimedOut - timedOut,
+                    shortestNs == long.MaxValue ? double.PositiveInfinity : shortestNs / 1e6);
             }
             finally
             {
@@ -232,11 +254,16 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         // A sharer holding the device for many frames: the loop goes on, each frame drawn past its bound and counted. A frame lands
         // inside the hold only after a take that timed out (one may have timed out just before the count was read). The hold lasts
         // until the loop has drawn its five frames: what the loop does while the device is held is the question, not how many frames
-        // a machine's pace fits into a span of real time (the take's own bound is GpuDeviceLockTests').
-        var (frames, timedOut) = HoldUntilDrawn(share, deviceLock, rig.Host, 5);
-        log.WriteLine($"during a hold until five frames were drawn: {frames} frames, {timedOut} timed-out takes");
+        // a machine's pace fits into a span of real time. Each take waits about its bound, read on the render thread: every take is
+        // the loop's one bounded take, and a render thread the machine leaves unrun only lengthens a wait, so the shortest of them is
+        // the bound's measure however the machine is paced.
+        var (frames, timedOut, shortestMs) = HoldUntilDrawn(share, deviceLock, rig.Host, 5);
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"during a hold until five frames were drawn: {frames} frames, {timedOut} timed-out takes, the shortest of them {shortestMs:0.00} ms"));
         Assert.True(frames >= 5, $"the loop drew {frames} frames while a sharer held the device, waiting for five");
         Assert.True(frames <= timedOut + 1, $"{frames} frames landed inside the hold with {timedOut} timed-out takes");
+        Assert.True(shortestMs <= ShortestTakeCeilingMs, string.Create(CultureInfo.InvariantCulture,
+            $"the shortest of the loop's {timedOut} timed-out takes inside the hold waited {shortestMs:0.0} ms, past {ShortestTakeCeilingMs} ms (its bound is {GpuDeviceLock.FrameBoundMs} ms)"));
 
         // A decoder taking the lock bracket by bracket gets it between frames while the loop draws on: it takes its sixty brackets,
         // and goes on taking them until the loop has drawn a frame among them (or the patience has passed).

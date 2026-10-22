@@ -862,8 +862,14 @@ Round 2 W1 notes:
   frames of a span of real time, so a render thread the machine left unrun for that span failed them. With the test host's render
   threads alone frozen 1.5 s (a cgroup freezer of their own) just before the hold the unchanged test failed 3 of 3 ("the loop drew 0
   frames while a sharer held the device for 400 ms"), and frozen as the hold began it failed 3 of 3 at the decoder's ("the loop drew
-  nothing while a decoder took the device bracket by bracket"); it passed 3 of 3 under the first. The take's own bound is
-  `GpuDeviceLockTests`'. No failure of it has been seen.
+  nothing while a decoder took the device bracket by bracket"); it passed 3 of 3 under the first. The loop's take is still held to
+  its bound, read on the render thread: the lock says how long its latest bounded take that gave up waited
+  (`GpuDeviceLock.LastTimedOutWaitNs`, written before `TimedOut` counts it), the sharer reads it each time the count moves, and the
+  shortest of the hold's takes must be within 80 ms (twenty times the 4 ms bound; a render thread left unrun only lengthens a wait,
+  so the shortest is the bound's measure however the machine is paced). With the loop's take given 125 times its bound a hold
+  that asks for its frames alone passed 3 of 3, and this one failed 3 of 3 (its shortest take 500.1 to 500.2 ms), as it did 3 of 3
+  with `FrameBoundMs` itself 500; with the render threads frozen 1.5 s inside a take (the longest take read 1504 to 1505 ms, the
+  hold 1.57 s) it passed 3 of 3, its shortest take 4.1 to 4.3 ms. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

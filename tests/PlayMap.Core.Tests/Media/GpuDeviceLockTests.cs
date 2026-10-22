@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using PlayMap.Core.Media;
+using PlayMap.Core.Time;
 using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Media;
@@ -86,12 +87,18 @@ public sealed class GpuDeviceLockTests
     {
         var l = new GpuDeviceLock();
         using var holder = new Holder(l);
+        Assert.Equal(0, l.LastTimedOutWaitNs);
         var watch = Stopwatch.StartNew();
+        var from = MonoClock.Instance.NowNs;
         Assert.False(l.TryEnter(20));
+        var span = MonoClock.Instance.NowNs - from;
         var waited = watch.Elapsed;
         Assert.True(waited >= TimeSpan.FromMilliseconds(10) && waited < TimeSpan.FromSeconds(2), $"the bounded take waited {waited.TotalMilliseconds:0.#} ms for a 20 ms bound");
         Assert.False(l.IsHeldByCurrentThread);
         Assert.Equal(1, l.TimedOut);
+        // The take that gave up says how long it waited, read on its own thread: its bound at least in part, and never more than the
+        // span around its call on the same clock.
+        Assert.InRange(l.LastTimedOutWaitNs, 10_000_000, span);
 
         // A sharer's take has no bound: it waits, counted, while the holder holds, and gets the lock only once the holder lets go. The
         // holder lets go only once the sharer's own wait is counted (the bounded take above counted one already), so the sharer is
