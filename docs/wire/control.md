@@ -9,7 +9,7 @@ Control input — OSC, MIDI, Art-Net and sACN — bound to wire lines, and timec
 (the address may be an OSC pattern), `ARTNET [<surface>] <port-address 0-32767> <channel 1-512>[+<fine>]`, `SACN [<surface>] <universe 1-63999> <channel 1-512>[+<fine>]`. Patterns' bare rows
 (`NOTE 1 53`, `CC 1 7 *`) read as MIDI. **A target line** is any line that changes something, with at most one value word as a
 whole word — `*` (the shaped value), `*%` (0–100) or `#*` (an item number, `#3`); session, secret, approval and binding verbs are
-refused as targets.
+refused as targets, and so is a path quoted with single backslashes, with the refusal the node's door gives it (`docs/WIRE.md`).
 
 ## Verbs
 

@@ -222,6 +222,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         Track track;
         Task<Task<string>> start;
         Task<string> finished;
+        EngineCore owner;
         lock (_gate)
         {
             if (_stopped)
@@ -233,6 +234,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             if (into is not null && _solving.Contains(into))
                 return Task.FromException<string>(new InvalidOperationException($"{into} is being solved — add the view once it is done"));
             var engine = _engine;
+            owner = engine;
             Setup setup;
             try
             {
@@ -277,7 +279,8 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         }
         finally
         {
-            start.Start(TaskScheduler.Default);
+            // The run journals what it measures: begun behind the row of the SCAN START that asked for it (at once from anywhere else).
+            owner.AfterRow(() => start.Start(TaskScheduler.Default));
         }
         return finished;
     }

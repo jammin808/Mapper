@@ -1,3 +1,4 @@
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Optimise;
 
 namespace PlayMap.Engine.Tests.Facade;
@@ -16,8 +17,8 @@ public sealed class SiteCrossTests
         rig.Engine.BeginStop();
         foreach (var line in new[]
         {
-            "SITE", "SITE MAINS 50", "SITE ORIGIN 512300 5401200 100", $"SITE POINTS {rig.File("points.csv")}", "SITE CHECK",
-            $"SURVEY IMPORT {rig.File("front.obj")}", "SURVEY LIST", "PROJECTOR PRIOR pj_none THROW 3",
+            "SITE", "SITE MAINS 50", "SITE ORIGIN 512300 5401200 100", $"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}", "SITE CHECK",
+            $"SURVEY IMPORT {WireGrammar.Quote(rig.File("front.obj"))}", "SURVEY LIST", "PROJECTOR PRIOR pj_none THROW 3",
         })
             Assert.Equal(EngineCore.StoppingWords, await rig.Refused(line));
         Assert.Equal(revision, rig.Engine.Store.Current.Revision);
@@ -30,20 +31,20 @@ public sealed class SiteCrossTests
         var job = rig.Engine.SurveyJob;
         await rig.Ok("LOCK AREA mapping set for the night");
         var revision = rig.Engine.Store.Current.Revision;
-        foreach (var line in new[] { "SITE MAINS 50", "SITE ORIGIN 512300 5401200 100", $"SITE POINTS {rig.File("points.csv")}" })
+        foreach (var line in new[] { "SITE MAINS 50", "SITE ORIGIN 512300 5401200 100", $"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}" })
             Assert.Contains("mapping is locked by", await rig.Refused(line), StringComparison.Ordinal);
         // The import is refused before it reads the file: no job starts.
-        Assert.Contains("mapping is locked by", await rig.Refused($"SURVEY IMPORT {rig.File("front.obj")} NAME again"), StringComparison.Ordinal);
+        Assert.Contains("mapping is locked by", await rig.Refused($"SURVEY IMPORT {WireGrammar.Quote(rig.File("front.obj"))} NAME again"), StringComparison.Ordinal);
         Assert.Same(job, rig.Engine.SurveyJob);
         Assert.Equal(revision, rig.Engine.Store.Current.Revision);
         await rig.Ok("UNLOCK AREA mapping");
 
-        var ids = SiteRig.Json(await rig.Ok($"SITE POINTS {rig.File("points.csv")}")).GetProperty("ids");
+        var ids = SiteRig.Json(await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}")).GetProperty("ids");
         var cp1 = ids[0].GetString()!;
         var locked = SiteRig.Json(await rig.Ok($"LOCK {cp1}"));
         Assert.Equal(cp1, locked.GetProperty("target").GetString());
         await File.WriteAllTextAsync(rig.File("points2.csv"), ControlPointVerbTests.Points(1.0));
-        Assert.Contains("CP1 (control point) is locked by", await rig.Refused($"SITE POINTS {rig.File("points2.csv")}"), StringComparison.Ordinal);
+        Assert.Contains("CP1 (control point) is locked by", await rig.Refused($"SITE POINTS {WireGrammar.Quote(rig.File("points2.csv"))}"), StringComparison.Ordinal);
         Assert.Contains("CP1 (control point) is locked by", await rig.Refused($"SET {cp1} name \"Corner\""), StringComparison.Ordinal);
         var survey = rig.Engine.Store.Project.Stage.Surveys[0].Id;
         await rig.Ok($"LOCK {survey}");
@@ -58,7 +59,7 @@ public sealed class SiteCrossTests
         foreach (var name in new[] { "scan.e57", "scan.las", "scan.laz", "front.obj", "cloud.pts" })
         {
             await File.WriteAllTextAsync(rig.File(name), "not media");
-            Assert.Contains("SURVEY IMPORT", await rig.Refused($"MEDIA IMPORT {rig.File(name)}"), StringComparison.Ordinal);
+            Assert.Contains("SURVEY IMPORT", await rig.Refused($"MEDIA IMPORT {WireGrammar.Quote(rig.File(name))}"), StringComparison.Ordinal);
         }
         Assert.Empty(rig.Engine.Store.Project.Media);
         Assert.Equal(revision, rig.Engine.Store.Current.Revision);

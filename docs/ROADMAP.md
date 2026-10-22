@@ -97,6 +97,14 @@ The lab checks still to do:
   test node's hello socket can take another live test node's port (71 of 2000 live binds to port 0 here, none without the
   options), and the hot-backup and sync rigs share their nodes' ids, so a rig's node can hear another's under a peer's id. Sharing
   only the well-known port closes it.
+- A part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row: the
+  dispatcher writes a lane verb's row once the lane's turn is over, on another thread, so a tick that runs first (a timecode chase's
+  first step, a blind commit landing at its instant, the sound input the tick opens) and a part on a thread of its own (the video
+  I/O hub's word of an input's first frame, the sync node's rows of a leader's feed, a backup's watch and its mirror link's lines, a
+  Stagewatch operator's word on its link, a projector link set up again when the project moved, the optimise service's automatic
+  queue, the frame lock's fall-out) can each write first. Work a line's handler or the show's gate starts itself begins behind the
+  row (docs/WIRE.md "The door"); these parts are not measured and no test covers them. Writing a lane verb's row in the lane's own
+  turn would order the ticks behind it; the other parts would need to hold a line's rows until its row.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,

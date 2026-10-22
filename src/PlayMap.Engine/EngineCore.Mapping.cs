@@ -333,10 +333,11 @@ public sealed partial class EngineCore
     /// over the scanned surface, stopping at depth jumps; the region's mesh faces and its outline (pen-tool masks on
     /// the mesh's UVs) make the surface, named as the scan reads it unless a name is given. The scan's mesh joins the
     /// stage with it when it is not there yet; one undoable edit. Answers the surface's id.</summary>
-    private async Task<CommandReply> ScanSurfaceAsync(List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
+    private async Task<CommandReply> ScanSurfaceAsync(VerbCall call)
     {
+        var (args, session, ct) = (call.Args, call.Session, call.Ct);
         // wp2-multiscan: ON <projector>, and a scan of many views, are answered there.
-        if (await ScanSurfaceMultiscanAsync(args, line, session, ct).ConfigureAwait(false) is { } multiscan)
+        if (await ScanSurfaceMultiscanAsync(call).ConfigureAwait(false) is { } multiscan)
             return multiscan;
         const string Syntax = "SCAN SURFACE <scan> <x> <y> [<name>] — x and y from 0 to 1 across and down the scan's smart-scan picture — or SCAN SURFACE <scan> REGION <region> [<name>]";
         var byRegion = args.Count >= 3 && args[1].Equals("REGION", StringComparison.OrdinalIgnoreCase);

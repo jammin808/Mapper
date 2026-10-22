@@ -355,11 +355,11 @@ public sealed class EngineRouterTests
         var path = Path.Combine(Path.GetTempPath(), $"playmap-{Guid.NewGuid():N}.playmap");
         try
         {
-            await rig.Ok($"PROJECT SAVE {path}");
+            await rig.Ok($"PROJECT SAVE {WireGrammar.Quote(path)}");
             Assert.False(rig.Engine.Dirty);
             await rig.Ok("PROJECT NEW Blank");
             Assert.Empty(rig.Engine.Store.Project.Playlists);
-            await rig.Ok($"PROJECT OPEN {path}");
+            await rig.Ok($"PROJECT OPEN {WireGrammar.Quote(path)}");
             Assert.Single(rig.Engine.Store.Project.Playlists);
         }
         finally

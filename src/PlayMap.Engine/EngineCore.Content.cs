@@ -358,11 +358,12 @@ public sealed partial class EngineCore
             : Task.FromException<string>(new InvalidOperationException("this node's scans take no views INTO them"));
         if (task.IsFaulted)
             return CommandReply.Fail(task.Exception?.InnerException?.Message ?? "the scan did not start");
-        _ = task.ContinueWith(t => _lane.Post(() =>
+        // The scan's end is journalled behind this line's row (the runner begins its run there too), whatever backend ends it.
+        AfterRow(() => _ = task.ContinueWith(t => _lane.Post(() =>
         {
             Journal.Add(t.IsCompletedSuccessfully ? "scan" : "refused", t.IsCompletedSuccessfully ? $"scan {t.Result} finished" : t.Exception?.InnerException?.Message ?? "scan failed", ok: t.IsCompletedSuccessfully);
             FactsChanged();
-        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         var effect = $"scanning {projectors.Count} projector{(projectors.Count == 1 ? "" : "s")} through {camera?.Name ?? "the simulated camera"} ({mode})";
         return ScanStarted(effect);
     }
@@ -381,7 +382,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail("MEDIA IMPORT <path|url> [<name>]");
         // A survey or model file is never media: no decoder plays it, and the library would keep a clip that cannot play.
         if (Path.GetExtension(args[0]).ToLowerInvariant() is ".obj" or ".ply" or ".gltf" or ".glb" or ".las" or ".laz" or ".e57" or ".xyz" or ".pts")
-            return CommandReply.Fail($"{Path.GetFileName(args[0])} is a survey or model, not media — SURVEY IMPORT {args[0]} brings it onto the stage");
+            return CommandReply.Fail($"{Path.GetFileName(args[0])} is a survey or model, not media — SURVEY IMPORT {WireGrammar.Quote(args[0])} brings it onto the stage");
         if (Services.Media is not { } media)
             return CommandReply.Fail("no media engine on this node");
         var location = args[0];
@@ -405,8 +406,9 @@ public sealed partial class EngineCore
         if (isUrl)
             return CommandReply.Success(id, $"added {name}");
         var mediaId = id;
-        var task = media.ImportAsync(location, null, ct);
-        _ = task.ContinueWith(t => _lane.Post(() =>
+        // The import journals what it finds (a file that will not play here, FFmpeg missing) and can find it at once, and what it comes
+        // to is journalled when it ends: begun behind this line's row, so both follow the verb.
+        AfterRow(() => _ = media.ImportAsync(location, null, ct).ContinueWith(t => _lane.Post(() =>
         {
             if (!t.IsCompletedSuccessfully)
             {
@@ -418,7 +420,7 @@ public sealed partial class EngineCore
             {
                 Media = p.Media.Update(mediaId, m => m with { Kind = found.Kind, Info = found.Info, ContentHash = found.ContentHash, SizeBytes = found.SizeBytes }),
             });
-        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();
@@ -463,10 +465,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail(args[0].Equals("ALL", StringComparison.OrdinalIgnoreCase) ? "nothing is missing" : $"no media {args[0]}");
         if (Services.NetworkControl is not { } nc)
             return CommandReply.Fail("the network is not running on this node");
-        var task = nc.FetchAsync(wanted, from, ct);
-        _ = task.ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "media" : "refused",
-            t.IsCompletedSuccessfully ? t.Result : t.Exception?.InnerException?.Message ?? "fetch failed", ok: t.IsCompletedSuccessfully),
-            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        // The pulls journal their rows as they go and a peer can end them at once: begun behind this line's row, so the verb is said
+        // first. The edge journals what it queued itself, before its pulls begin; a fetch it cannot start is refused here.
+        AfterRow(() => _ = nc.FetchAsync(wanted, from, ct).ContinueWith(t => Journal.Add("refused", t.Exception?.InnerException?.Message ?? "fetch failed", ok: false),
+            CancellationToken.None, TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         return CommandReply.Accepted($"fetching {wanted.Count} file{(wanted.Count == 1 ? "" : "s")}");
     }
 

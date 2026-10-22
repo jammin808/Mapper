@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
@@ -139,7 +141,10 @@ public sealed class OutputsCheck : IPreflightCheck
                     string.Create(CultureInfo.InvariantCulture, $"{shown.Width}×{shown.Height} at {shown.RefreshHz:0.##} Hz"), null));
                 continue;
             }
-            var fix = displays.Count > 0 ? $"SET {o.Id} displayKey \"{displays[0].Key}\"" : $"OUTPUT ENABLE {o.Id} OFF";
+            // SET reads its value as JSON: the key rides as a JSON string, so it is set as the machine names it, whatever marks it holds.
+            var fix = displays.Count > 0
+                ? $"SET {o.Id} displayKey \"{JsonEncodedText.Encode(displays[0].Key, JavaScriptEncoder.UnsafeRelaxedJsonEscaping).Value}\""
+                : $"OUTPUT ENABLE {o.Id} OFF";
             rows.Add(new PreflightRow(id, node, Section, o.Name, Light.Red, o.DisplayKey,
                 $"its display {o.DisplayKey} is not connected{(displays.Count > 0 ? $" ({displays.Count} other{(displays.Count == 1 ? " is" : "s are")})" : "")}", fix));
         }

@@ -82,8 +82,11 @@ public sealed partial class EngineCore
         }
         if (items.Count == 0)
             return CommandReply.Fail("the library holds no video clip to optimise");
-        var outcomes = await Task.Run(() => service.Request(items, to, quality), call.Ct);
+        // The jobs are queued now and handed to the worker once this line's row is in: a job journals how it ends, at its first step
+        // when it cannot run at all.
+        var outcomes = await Task.Run(() => service.Request(items, to, quality, waitForRow: true), call.Ct);
         var jobs = outcomes.Where(o => o.Job is not null).ToList();
+        call.AfterRow(() => service.Release(jobs.Select(o => o.Job!.Id)));
         if (jobs.Count == 0)
         {
             return CommandReply.Fail("nothing to do: " + string.Join("; ", outcomes.Select(o =>
