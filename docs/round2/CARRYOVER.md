@@ -657,7 +657,8 @@ Round 2 W1 notes:
   passing Net test). On Linux they have taken from about 20 ms (a warm run inside the Net suite) to about 0.4 s (a host's first
   start in a test run, at a load of 5 to 9 on four cores), and a runner loaded enough to hold the check that long could slow them
   too. Consistent with the check's thread running late on the loaded runner, not proven, and a request that faulted is not ruled
-  out.
+  out. This reading replaces a step in 300b36ad's message, which brought the fix: that message read the 756 ms on Linux's start
+  and stop, and so put the check about 0.7 s in.
   Forced on Linux, the test unchanged: with every new thread's start held 700 ms (strace's delay injection on `clone`) under the
   default algorithm, it failed at line 163 with the same words and the same second frame in 3 of 15 runs and at line 165 in 4
   (the poll had answered seq 1 at its limit just after the check passed and before the publish: the same race a step later),
@@ -713,6 +714,83 @@ Round 2 W1 notes:
   (`AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn` read `(1, 1)` with the table's listener held before the change, `(1, 0)`
   after). The old wait was not seen failing; every receive held 250 ms did not make it fail, as the stopped node had sent a
   single hello by then.
+  On a node's own clock (`TimeProvider.System`) the fix changes three things a client or a reader sees. Every wait for a change,
+  the long-poll's and the WebSocket sender's, is whole milliseconds rounded up, so a poll with nothing newer ends its wait up to a
+  millisecond later than it did and never spins through the last part of one; the sender's waits are its `BeatEvery` (2 s in a
+  node) or 1 s, whole milliseconds, so its beats are as they were. A poll the web port's own stop cuts is answered 503, not an
+  empty 200. `HelloService.Heard`, which only tests read, counts a hello after the peer table has taken it in.
+- Done: the stage's automatic blend counts its quiet time on the clock its options give (`StageResourceOptions.Time`; the render
+  host keeps the system's), and its tests move that clock.
+  `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps` read the tables for no blend just after its
+  first settle, and for the last good map just after its second, while the blender counted its 150 ms of real time from the
+  builder's signal on threads of its own, so a solve could reach those tables in two ways: the test's next step running later than
+  the quiet time and a solve, or the builder running late between its signal to the blender and the tables it then builds, whose
+  last assembly takes in whatever the blender has solved by then. It failed so on the Windows job (run 425, at fix-nodehost-win
+  39caa04c, which does not touch the stage) at its line 75 (`Assert.Null()`, `BlendMap { OutputId = op_left, Width = 480,
+  Height = 270 … }`), consistent with either on the loaded runner, not proven, and its words do not tell the two apart. Each,
+  forced, failed the unchanged test 3 of 3 at that line with those words: the test's own continuations held 3 s each (a context of
+  one thread that runs what is posted to it no sooner than 3 s later, the stage's threads free; held 0 s it passed 3 of 3), and the
+  builder held 5 s just after its signal to the blender (the test's continuations free).
+  `ABlendTheVerbSolvedIsTakenAsItIsWithoutSolvingAgain`'s count of no solves held only while the test outran its 30 s quiet time,
+  and held 31 s it failed 3 of 3 at its line 107 (`Expected: 0`, `Actual: 1`). The first test now moves the clock once the blender
+  waits on it, a tick short of the quiet time (the wait stands, nothing is solved) and then the last tick (the wait ends); it passed
+  3 of 3 under each hold above, and fails 2 of 2, timed out waiting for the blender's wait, against a blender that counts on the
+  system's clock. The second moves the clock through its quiet time once the offered blend is in use and, when the blender has
+  ended that pass (`StageResources.BlendPasses`, counted once what a quiet time led to is done), asks for no solve and the offered
+  map still up: the blender's taking inputs already solved or offered as solved was not run by the test before, whose quiet time
+  never ran out. With that check taken out of the blender it fails 3 of 3 at its line 134 (`Expected: 0`, `Actual: 1`), where the
+  test before the change and a form of it that never moved its clock passed 3 of 3; it passed 3 of 3 with its continuations held
+  31 s and 3 of 3 with the builder held 5 s.
+- Done, off the open list: `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the panic's journal row once a tick of the
+  lane has seen the fade's end (`ShowRig.Ticked`: the show's tick instant is written after its panic steps have run), not at its
+  first sight of the cue. `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued and runs its
+  listeners before `RunStep` journals the row ("panic … cued A"), so a reader that saw Cued could read the journal without it; the
+  row says the cue happened, so it is written after it. Holding the lane 300 ms in a last listener of the playback once it shows the
+  cue failed the unchanged test 3 of 3 at its line 102 (the journal holding only the two verb rows); the test now asserts Cued after
+  that tick, not at some point, and passed 3 of 3 under the same hold (and with it 3 s). Its failures, in one Engine run of
+  int-tests4's gate and once in a loaded Linux gate whose message was lost, are consistent with that order, not proven. The same
+  read was in `ViewVerbTests.AViewNotRenewedForFifteenSecondsIsHiddenAndItsRingLetGo`, which read the expiry's journal row the
+  moment the view's ring file was gone: the views delete it and run their listeners before the lane's tick journals the row. A
+  300 ms hold there failed it 3 of 3 at its line 213; it now takes a lane turn after the file goes (the tick is a lane item, so a
+  later one runs after it), and passed 3 of 3 under the hold.
+- Done: `ProjectorViewTests.TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround` reads the output, and shows the view,
+  only once the stage's tables for the project are published with every mesh tried (`StageResources.WhenSettledAsync`, as
+  `RenderHostTests` and `FxHostTests` wait). The wall's mesh and the output's lens lookup are built on the stage builder's own
+  thread, which the render thread's first frame wakes and never waits for, so a picture drawn before the tables land lights nothing;
+  the test read the output two frames after the host started, which on a loaded machine can come before them. Holding the builder
+  1.5 s at its first wake failed the unchanged test 3 of 3 at its line 61 (`middle (0, 0, 0)`: the output and the view both black),
+  and holding it until the output's first read failed it 2 of 2, once at its line 55 (`Actual: 68448` pixels more than one code off,
+  worst 192 codes: the view drawn with the wall, the output without) and once at line 61; with the wait it passed 3 of 3 held 1.5 s
+  and 1 of 1 held 3 s, every read made with the settled tables in use. Its one failure in a loaded Linux gate (its message lost) is
+  consistent with that race, not proven.
+- Done: `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait` asks the thread's measure for half of the time its spins ran, not half
+  of their stopwatch span. A spin bounded by the stopwatch holds every turn the machine gives other threads and every stop of the
+  process, which a thread's CPU clock rightly leaves out, so a thread given under half a processor read under half its span: in a
+  loaded Linux gate (load 29 to 32 on four cores) "the 125 ms spin: spun 127.56 ms of the stopwatch, counted 61.49 ms", and once
+  more in three reruns there, consistent with that, not proven. With its test host stopped 15 ms in every 25 the unchanged test
+  failed 3 of 3 at its first 10 ms (counted 0.93 to 5.77 ms of 16.12 to 20.83 ms; its 125 ms spins counted 43.71 to 48.80 ms), and
+  pinned to one processor beside one busy loop 3 of 3 (its 125 ms spins counted 43.98 to 52.52 ms of 127.96 to 130.00 ms). A spin
+  now runs until it has run its span, summed from the stopwatch's steps between its reads under 20 µs (a longer step is time it was
+  kept from running), within 10 s, and the lower bound is half of that; the upper bound stays 1.1 times the stopwatch span, which a
+  stall only lengthens (on Windows a tick wider: clock interrupts come a tick apart). Under the same stops and pin it passed 6 of 6
+  ("spun 319.57 ms, ran 125.00 ms, counted 130.16 ms"), and a measure that counts two fifths of the CPU clock fails it 2 of 2 ("the
+  first 10 ms: ran 10.00 ms of 11.15 ms of the stopwatch, counted 4.46 ms").
+- Done, its cause not found: the survey import tests' ready checks fail with the import's own words and the test host's heap against
+  its limit (`SurveyImportTests.AssertReady`; `SurveyJobViewTests.AnImportThatIsNotReadyFailsWithItsWordsAndTheHeap`).
+  `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice` failed once in a loaded Linux gate (load up to
+  about 23) and once earlier under the full suite; the gate keeps only a test's [FAIL] line, so which assertion failed is not known.
+  Its slice check reads the lane thread's CPU clock on Linux, which a preemption or a stop does not move: with the test host stopped
+  10 ms in every 13 for the whole run it passed (the longest slice 1.88 ms of the lane thread's time, 25.79 ms by the stopwatch).
+  Its ready check fails when the import is refused for memory: under the gate's 1.5 GB heap limit (`DOTNET_GCHeapHardLimit`) the
+  2 M-triangle import needs some 0.75 to 1 GB beside what the host holds, and with 800 MB held live in the test host by a startup
+  hook the unchanged test failed 2 of 2 at its line 485 with no reason (`Expected: "ready"`, `Actual: "failed"`), as the full-suite
+  failure kept from 2026-10-19 reads (600 MB held, it passes); it now fails 2 of 2 with "the import … is failed, not ready: North
+  front was not imported: the file is too large for this machine's memory — thin or split it first; the managed heap 1456 MB
+  allocated now, 1456 MB and 1494 MB committed at its last collection, of the 1536 MB this process may use" (what is allocated is
+  read at the check, the heap's size and commit as the last collection left them). A full Engine run here had 31 MB live when the
+  test began, so what would hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s
+  summary says what its reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but
+  a collection the thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -762,10 +840,19 @@ Round 2 W1 notes:
   Windows job passed it at 39caa04c, its one run there since). On that runner the fresh node also draws its default project's
   display output (1920 × 1080 at 60 Hz, offscreen, on Mesa's llvmpipe) in a process the machine part claims HIGH, beside a test
   host at normal priority on four cores; whether a node with no display draws an output nobody sees is the owner's call;
-  `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows failure at that same run
-  (fix-nodehost-win 39caa04c, run 39727116245: at its line 75 the left output's blend was already solved after the first settle,
-  where it asserts none yet; `StageResources` waits the blend's debounce, 150 ms in the test, as a real-time `Task.Delay`, which a
-  first settle slower than that outlasts, consistent with the failure, not proven; not investigated).
+  `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
+  read of a solved blend just after its first settle (consistent with its continuation, or the stage builder between its signal to
+  the blender and its tables, running later than the blend's real-time quiet time, above, not proven; the quiet time now runs on a
+  clock the test moves);
+  `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (int-tests4's, and a loaded Linux gate's whose message
+  was lost; consistent with its read of the journal racing the panic step, above, which the test now waits out, not proven);
+  `ProjectorViewTests.TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround`' one loaded Linux failure (its message lost;
+  consistent with its read racing the stage's builder, above, which the test now waits for, not proven);
+  `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (consistent with a thread given under half a
+  processor, above, which its lower bound no longer asks of the machine, not proven);
+  `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
+  failed was not kept; an import refused for memory under the gate's heap limit fails its ready check, above, but what would hold
+  that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
@@ -791,8 +878,10 @@ Round 2 W1 notes:
   paused the process inside one.
   `ThreadTimeTests` take the measure from their own reading of the platform: on Windows the ticks, not precise, each read allowed
   the tick it states; a thread blocked 50 ms counts at most one tick, so the stopwatch is refused; a spinning thread counts at most
-  1.1 times its span plus a tick, and a spin of eight ticks (125 ms) at least half its span less a tick (three ticks), so a measure
-  that charges a spin nothing, or only its kernel time, is refused. The node converts no thread's cycles. The Windows job runs
+  1.1 times its stopwatch span plus a tick, and a spin that ran eight ticks (125 ms) at least half of what it ran less a tick (three
+  ticks), so a measure that charges a spin nothing, or only its kernel time, is refused; a spin runs until it has run its span,
+  summed from the stopwatch's steps between its reads under 20 µs, so a turn the machine gave another thread, or a stop of the
+  process, is in neither what it ran nor the lower bound (above). The node converts no thread's cycles. The Windows job runs
   the tick measure and passes `ThreadTimeTests` and both slice tests (CI run 312, 8ef15a2); a passing test's readings and `Basis`
   are in that run's test-results-windows trx, which this machine's proxy does not fetch, so what each slice read there is not yet
   recorded. The tick half proves a slice when the lab item below gives a precise clock. The evidence so far, from the
@@ -821,11 +910,6 @@ Round 2 W1 notes:
   process; 22.22 ms on a loaded machine), and an import after it about 1 ms. `SurveyImportPerfTests` measures an import after a
   small one has compiled the path, and logs the small one's slices; the regular test holds a first import to its 40 ms ceiling.
   Release is not measured cold; ReadyToRun or a pre-roll (round 3's M13) bears on it.
-- Open: `PANIC REWIND` cues its item through `PlaybackLanes.Cue`, which publishes the lane as Cued before `RunStep` writes the
-  panic's journal row ("panic … cued A"), so a reader that sees Cued can read the journal without the row.
-  `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads the journal the moment it sees Cued, and failed one Engine run of
-  the int-tests4 gate on that ordering. A row written before the lane is published, or a test that
-  waits for the row as it waits for the lane, closes it.
 - Open on Windows: whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
 - Of the desk-2 notes: the desk sends `VIDEO STOP`, `PANIC CLEAR` and `MASTER` at every press and presses a card's `APPROVE` once,
   as the owner decided (calls 7 and 8); still open, the throttle sends what it coalesced to the link it holds when it flushes, across
