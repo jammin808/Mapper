@@ -745,6 +745,12 @@ Round 2 W1 notes:
   20 ms look while the node lacks the peer's health and its monitor waits so (never while a dial is under way or once the health is
   held), and a meeting that fails names the hello's address and port, the peer's own port and the monitor's counts and words. The
   new tests passed 3 of 3, the render test 3 of 3 with the stray hello, and the 54 Fleet tests all passed.
+- Done: `OptimiseJobTests.CancelStopsTheRunningJobAndLeavesNoPartialFile` holds its worker after the first frame
+  (`OptimiseRig.HeldAtFirstFrame`), so its cancel lands mid-job. The job's partial file is on disk only while the clip encodes and
+  until the service takes the end in (a few seconds here), and the test looked for it every 50 ms before it cancelled, so a test
+  that looked only after that waited out its 4 minutes and failed. With the test's continuation 15 s late once the job had begun
+  (a delay in a scratch copy) the unchanged test failed 3 of 3 ("the partial file never came", the version made); held, it passed
+  3 of 3 under the same delay and 3 of 3 without it. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
