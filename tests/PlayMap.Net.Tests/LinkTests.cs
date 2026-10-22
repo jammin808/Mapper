@@ -150,7 +150,17 @@ public class LinkTests
     public async Task ThePatternsLinkPairsTracksTheClipAndFollowsTheBlackout()
     {
         await using var desk = new FakePatternsDesk(TestSettings.Token);
-        await using var link = new PatternsLink(new PatternsLinkOptions { Host = "127.0.0.1", Port = desk.Port, Token = TestSettings.Token, ContextEvery = TimeSpan.FromMilliseconds(200) }, TestSettings.Wall());
+        // The clip is counted, and the desk's silence too, on a clock only the test moves, so the count read is the one the test made
+        // however late its next step runs.
+        var clock = new ManualClock(1_000_000_000);
+        await using var link = new PatternsLink(new PatternsLinkOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            Token = TestSettings.Token,
+            ContextEvery = TimeSpan.FromMilliseconds(200),
+            Clock = clock,
+        }, TestSettings.Wall(), clock);
         var blackouts = new ConcurrentQueue<bool>();
         link.BlackoutChanged += blackouts.Enqueue;
         link.Start();
@@ -160,10 +170,9 @@ public class LinkTests
         Assert.DoesNotContain(desk.Heard, l => l.Contains(Pairing.Normalise(TestSettings.Token), StringComparison.Ordinal));
         Assert.True(await Eventually.TrueAsync(() => link.Video is not null));
         var first = link.Video!;
-        Assert.Equal("sponsor.mp4", first.File);
-        Assert.Equal(7, first.Seq);
-        await Task.Delay(300);
-        Assert.InRange(link.Video!.PositionMs, 62250, 64000);
+        Assert.Equal(("sponsor.mp4", 7L, 62000.0), (first.File, first.Seq, first.PositionMs));
+        clock.AdvanceMs(300);
+        Assert.Equal(62300, link.Video!.PositionMs, 6);
         Assert.False(link.Blackout);
 
         // A frame that agrees with the count (within a quarter second) keeps the anchor: no jump backwards.
@@ -171,11 +180,11 @@ public class LinkTests
         await desk.PushAsync(FakePatternsDesk.StateWith(counted - 120, 7, playing: true, blackout: true));
         Assert.True(await Eventually.TrueAsync(() => link.Blackout == true));
         Assert.Equal([false, true], blackouts);
-        Assert.True(link.Video!.PositionMs >= counted);
+        Assert.Equal(counted, link.Video!.PositionMs, 6);
 
         await desk.PushAsync(FakePatternsDesk.StateWith(10000, 8, playing: true, blackout: true));
         Assert.True(await Eventually.TrueAsync(() => link.Video is { Seq: 8 }));
-        Assert.InRange(link.Video!.PositionMs, 10000, 11000);   // a new seq re-anchors
+        Assert.Equal(10000, link.Video!.PositionMs, 6);   // a new seq re-anchors
 
         var reply = await link.SendAsync("VIDEO PAUSE");
         Assert.True(reply.Ok);

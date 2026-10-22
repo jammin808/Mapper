@@ -407,7 +407,9 @@ Round 2 W1 notes:
   process's clock). Stale at 400 ms and dropped at 900 ms of real time, with a ping every 2 s, its link went stale and dropped on its
   own about a second into every connection whether the desk answered or not (live at 25 ms, stale at 499 ms, down at 1014 ms, live
   again at 1935 ms), and each of the test's polls raced a window of a few hundred milliseconds. Its one failure in 18 loaded Linux
-  Net-suite runs on fix-backup-preflight (about 5 s, its line not kept) is consistent with that, not proven. With the default clock
+  Net-suite runs on fix-backup-preflight (about 5 s, its line not kept), and its one in 9 full Net runs on fix-longpoll-win at a
+  load of about 7 to 9 on four cores (its last send, after the redial, not answered ok), are consistent with that, not proven.
+  With the default clock
   the link counts as it did before `WireClient` took a clock (`MonoClock` is `Stopwatch`'s counter in nanoseconds), so the hazard
   is older than that change. Beside a thread pool held for 9 s in the same test process, the unchanged test failed three runs of
   five with 8 items of 500 ms every 600 ms and three of the four that finished with 16 of 250 ms every 300 ms, at its waits for live
@@ -637,6 +639,84 @@ Round 2 W1 notes:
   lands a hashed item, the render host's frame lock falling out after `SYNC APPLY`, a machine claim refused after `MACHINE SET`) can
   each write first. None is measured and no test covers them. Writing a lane verb's row in the lane's own turn would order the ticks
   behind it; the other parts would need to hold a line's rows until its row.
+- Done: a long-poll counts its limit on the web port's clock (`HttpHostOptions.Time`, the system's in a node), so
+  `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit` moves that clock by hand and no longer races its own pace.
+  What was seen: its one failure on the Windows job (run 417, job 119488722915, wp3-installer e03befea, which touches neither
+  `src/PlayMap.Net` nor its tests; the test passed there in run 418 and on Linux in both) was "Assert.False() Failure, Expected:
+  False, Actual: True" at line 163, `Assert.False(waiting.IsCompleted)` after `await Task.Delay(150)` against a 600 ms
+  `LongPollMax`, then line 170 (the method's end, where the host is disposed), in 756 ms, 7 s into a 14 s Net run of 194 tests.
+  That is all the log gives: it does not say whether the poll had answered or faulted, or when. Read against the code, the handler
+  answers a `since` poll only with a newer STATE or, once the limit has passed since it took the request, the one it holds. It
+  takes the change signal's next task before it reads STATE, so a change between the two ends the wait; a wake that brings
+  nothing newer, or a timer that fires early, waits on for what is left; the signal swaps its task before completing the old one,
+  so no waiter holds a task no later change completes; its clock is the process's own monotonic one. Nothing there ends a poll
+  early, and the tests below hold it. So the poll could have answered before the check only if the check ran 600 ms or more
+  after the handler took the request, over 450 ms after its 150 ms delay was due. On Linux, where the host's start completes at
+  once, the check runs on a thread xunit starts for it when the delay's timer fires (the test's first await that does not
+  complete at once resumes through xunit's context, which runs it on a long-running thread of its own); the poll's limit, its
+  answer and the client's read of it run on the thread pool. The log does not tell a late check from a request that faulted
+  inside the 150 ms: either fails at line 163 with these words and frames. Nor does the 756 ms, which ends at the check and holds
+  the host's start and stop beside the test's own waits: it fits a late check only if start and stop took about 150 ms or less
+  together on the runner, and a faulted request whenever they took up to about 0.6 s. The log measures neither (it times no
+  passing Net test). On Linux they have taken from about 20 ms (a warm run inside the Net suite) to about 0.4 s (a host's first
+  start in a test run, at a load of 5 to 9 on four cores), and a runner loaded enough to hold the check that long could slow them
+  too. Consistent with the check's thread running late on the loaded runner, not proven, and a request that faulted is not ruled
+  out.
+  Forced on Linux, the test unchanged: with every new thread's start held 700 ms (strace's delay injection on `clone`) under the
+  default algorithm, it failed at line 163 with the same words and the same second frame in 3 of 15 runs and at line 165 in 4
+  (the poll had answered seq 1 at its limit just after the check passed and before the publish: the same race a step later),
+  and passed 8; a copy of its steps traced under the same hold saw the handler give up 605 ms after it began to wait and the
+  client hold that answer 538 ms before the check ran, on xunit's thread. With xunit's aggressive algorithm on one thread and a
+  test beside it that holds that thread 900 ms at a time, it failed at line 163 with the same words in 6 of 6 runs (holds of
+  700 ms did not: the request reached the handler about 120 ms after it was sent, so the check still came first). Those runs show
+  that a held thread makes the unchanged test fail this way, not that one did on the runner: under the holds a run took seconds.
+  Now the test asks with a `since` older than STATE (answered at once, no wait made), then with STATE's own seq: it holds that
+  the poll waits on the clock (`ManualTime.Made` and `Waiting`), that a wake with nothing newer (`FakeEndpoint.Touch`) leaves it
+  waiting, that the next change answers it, and, with nothing newer, that it answers the one it holds when the clock has moved
+  the limit since it took the request, a wake on the way counting toward the limit, and not a tick before. It passed 6 of 6 runs
+  under each hold above. Two local mutations of the handler, not kept, fail it: a wake that restarts the limit (at its last
+  answer) and a wake that answers whatever it holds (at the first wake).
+  A wake that brought nothing newer with less than a millisecond of the limit left did not wait out that part: the runtime's timed
+  wait counts whole milliseconds, dropping a part of one, and ends at once on less than one, so the handler threw, caught and read
+  STATE again on its pool thread until the limit had passed (under a millisecond on the system's clock; without end on a clock the
+  test moves, its first wait's timer still standing, as the loop ran inside that wait's completion). It never answered early, so
+  it is not this failure's cause. `ChangeSignal.WaitAsync` now waits a part of a millisecond as a whole one, so its wait is never
+  shorter than asked; `ALongPollWithUnderAMillisecondOfItsLimitLeftWaitsThatOutOnTheClock` (no second wait was made: "1 waits
+  made, 1 standing") and `AWaitForAChangeEndsNoSoonerThanItsTimeThoughThatIsNotWholeMilliseconds` (a 0.5 ms wait had ended at its
+  call) failed before it and pass with it. `OnTheSystemClockALongPollWithNothingNewerAnswersNoSoonerThanItsLimit` runs a poll on
+  the clock a node counts on (`HttpHostOptions.Time` unset, `TimeProvider.System`), with a 50 ms limit, and reads only that it
+  answered no sooner than that after it was asked, which no pace of the threads can break. A poll the web port's own stop cut
+  (the host's dispose cancels it before Kestrel stops) left its handler without a word, so its client had a 200 with an empty body,
+  no STATE in it; it is answered 503 with the reason now, and a poll its client gave up on is answered nothing
+  (`ALongPollTheWebPortsStopCutsIsAnsweredThatItStopsNotWithAnEmptyState`: `(OK, null)` before, `ServiceUnavailable` and JSON
+  after). The hand-moved clock is one file the Engine, App and Net suites share (`tests/Shared/ManualTime.cs`) instead of three
+  copies.
+  The same race, the test's own pace against a short real limit, was in three more Net tests and is gone from them, the first two
+  not forced: `AFrameMayOvertakeTheReceiptOfTheCommandThatMovedIt` made the frame come first by holding the line's answer 300 ms
+  of real time, so a sender that woke later than that let the receipt come first; the answer is now held until the test has the
+  frame (`FakeEndpoint.HoldReplyUntil`). `AnchorFeedLineTests` waited 100 and 200 ms of real time for receipts the test hands in
+  its next statements, so a test thread held that long read them silent (the one-deadline test's one failure beside ten busy loops,
+  open below, fits that); their waits now run on a manual clock (`SendAirAsync`'s
+  `time`) moved once the receipts are in, and the one-deadline test holds that twenty members make one timer and end at its one
+  move instead of reading 1.5 s of real time. `StagewatchLinkTests.AStuckBeatShowsAQuestionMarkAndARedirectIsRaised` read the
+  countdown's words 1.1 s of real time after the frame, and "12:29" holds only from 1 s to 2 s after it, so a test thread resumed
+  0.9 s late read "12:28". It failed so here at line 171 (`Expected: "12:29"`, `Actual: "12:28"`) in 2 of 9 full Net runs at a
+  load of about 7 to 9 on four cores, and in 5 of 5 runs with its process stopped 2.5 s and run 0.3 s in turn; the link now counts
+  on a `ManualClock` the test moves 1.1 s, and the test passed 6 of 6 under the same stops. `LinkTests.ThePatternsLinkPairsTracksTheClipAndFollowsTheBlackout`
+  read the link's counted clip 300 ms of real time after its first frame and asked for 62250 to 64000 ms, then 10000 to 11000 ms
+  after a new seq landed, so a test thread held 1.7 s at the first read, or 1 s at the second, failed it, and one held past the
+  link's 3 s `VideoStaleAfter` read no clip at all. With its process stopped 2.5 s and run 0.3 s in turn it failed 3 of 3 at its
+  first read (twice `link.Video` null, once `Actual: 64572.55`). The link counts its clip and the desk's silence on a
+  `ManualClock` the test moves now (the `PatternsLink` constructor's clock and `PatternsLinkOptions.Clock`): 62000 ms at the first
+  frame, 62300 after a 300 ms move, the same 62300 after a frame 120 ms behind it, 10000 at the new seq; it passed 6 of 6 under
+  the same stops. `HelloTests.TwoNodesHearEachOtherAndAgeOutOnTheClock`
+  gave the hellos its stopped node had already sent 150 ms of real time to land before it moved the peer table's clock, so a
+  listener held longer would take one in after the move as a fresh hello and the sweep would read the peer live, not stale. It now
+  waits until the listener has counted every hello that node sent (`HelloService.Heard` at least the peer's `Sent`), and `Heard`
+  counts a hello once the peer table has taken it in and told its listeners, where it had counted it before the table saw it
+  (`AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn` read `(1, 1)` with the table's listener held before the change, `(1, 0)`
+  after). The old wait was not seen failing; every receive held 250 ms did not make it fail, as the stopped node had sent a
+  single hello by then.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -667,14 +747,19 @@ Round 2 W1 notes:
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows read of the mirror as lost
   (consistent with the mirror link's real-time silence above — a stale spell, or its latch, both now on the node's clock or fixed
   — not proven: its `("red", "lost")` fits a dropped connection too; its reads now name what the backup saw);
-  `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown`' one loaded Linux failure (consistent with
-  its polls racing the link's own stale-and-drop cycle in real time, which the test no longer counts on, not proven);
+  `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown`' two loaded Linux failures (one on
+  fix-backup-preflight; one on fix-longpoll-win, its send at its line 231 then not answered ok once the link was live again, which
+  of the link's refusals it was the assertion did not say; consistent with its polls racing the link's own stale-and-drop cycle in
+  real time, which the test no longer counts on, not proven);
   `AnchorFeedLineTests.EveryMemberHasTheSameOneDeadlineHoweverManyThereAre`' one failure beside ten busy loops on Linux (twenty
-  members silent where nineteen were due; its 100 ms deadline is on real time and its one member's answer comes after the send;
-  not investigated);
+  members silent where nineteen were due; consistent with its 100 ms real-time deadline passing before the test handed in its one
+  member's answer after the send, not proven; its deadlines now run on a manual clock moved once the receipts are in, above);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
-  wait for the link's first clip in STATE (one failure on the batch's baseline).
+  wait for the link's first clip in STATE (one failure on the batch's baseline);
+  `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
+  (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
+  runs on a clock the test moves).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

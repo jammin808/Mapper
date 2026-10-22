@@ -18,7 +18,7 @@ public sealed class GroupAirTests
     {
         var clock = new ManualClock(1_000 * Second);
         // The leader's receipt deadline (the node's 2 s) runs on this test's clock: a member's answer is never raced against it.
-        var time = new Fleet.ManualTime();
+        var time = new ManualTime();
         var options = SyncRig.Fast() with { Time = time };
         await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead), options);
         await using var member = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);

@@ -42,9 +42,9 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
     /// <summary>STATE itself faults (an engine bug the transports must survive).</summary>
     public bool ThrowOnState { get; set; }
 
-    /// <summary>How long a BLACKOUT that changed something holds its answer after publishing the change (a slow verb:
-    /// the change is a fact before the line is answered).</summary>
-    public TimeSpan HoldReply { get; set; }
+    /// <summary>A BLACKOUT that changed something holds its answer, after publishing the change, until this completes (a slow
+    /// verb: the change is a fact before the line is answered); null answers at once.</summary>
+    public Task? HoldReplyUntil { get; set; }
 
     public ConcurrentQueue<(WireLine Line, SessionInfo Session)> Lines { get; } = new();
 
@@ -132,7 +132,7 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
                     return ValueTask.FromResult(CommandReply.Fail(on ? "already blacked out" : "not blacked out"));
                 Publish(() => Blackout = on);
                 var done = CommandReply.Success(null, on ? "blackout on" : "blackout off");
-                return HoldReply > TimeSpan.Zero ? new ValueTask<CommandReply>(HeldAsync(done, ct)) : ValueTask.FromResult(done);
+                return HoldReplyUntil is { } hold ? new ValueTask<CommandReply>(HeldAsync(done, hold, ct)) : ValueTask.FromResult(done);
             case "VIDEO" when line.WordUpper(1) == "SEEK":
                 return ValueTask.FromResult(CommandReply.Success(null, "seeked to " + line.Word(2)));
             case "SCAN" when line.WordUpper(1) == "START":
@@ -152,9 +152,9 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
         }
     }
 
-    private async Task<CommandReply> HeldAsync(CommandReply reply, CancellationToken ct)
+    private static async Task<CommandReply> HeldAsync(CommandReply reply, Task hold, CancellationToken ct)
     {
-        await Task.Delay(HoldReply, ct);
+        await hold.WaitAsync(ct);
         return reply;
     }
 }
