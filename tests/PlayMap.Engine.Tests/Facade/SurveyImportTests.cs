@@ -87,12 +87,13 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
             $"the import's lane slices are not within {budgetMs} ms: the longest by the lesser of its readings {job.LaneMaxBoundMs:0.00} ms; the longest by the lane thread's time {job.LaneMaxMs:0.00} ms in steps of {job.LaneResolutionMs:0.######} ms; the longest by the stopwatch {job.LaneMaxWallMs:0.00} ms; the collections paused the process {job.LaneMaxPauseMs:0.00} ms in a slice at most; over {job.LaneSlices} slices ({ThreadTime.Basis})"));
 
     /// <summary>The import ended ready. Where it did not, the failure carries the import's own words and the test host's managed heap
-    /// against the limit it runs under, so an import refused for memory is told apart from one refused for any other reason.</summary>
+    /// against the limit it runs under (what is allocated at the check, and the heap and its commit as the last collection left them),
+    /// so an import refused for memory is told apart from one refused for any other reason.</summary>
     internal static void AssertReady(SurveyJobView job)
     {
-        var heap = GC.GetGCMemoryInfo();
+        var last = GC.GetGCMemoryInfo();
         Assert.True(job.State == "ready", string.Create(CultureInfo.InvariantCulture,
-            $"the import {job.Id} is {job.State}, not ready: {job.Words}; the managed heap {heap.HeapSizeBytes >> 20} MB, {heap.TotalCommittedBytes >> 20} MB committed of the {heap.TotalAvailableMemoryBytes >> 20} MB this process may use, the collector in {GCSettings.LatencyMode}"));
+            $"the import {job.Id} is {job.State}, not ready: {job.Words}; the managed heap {GC.GetTotalMemory(false) >> 20} MB allocated now, {last.HeapSizeBytes >> 20} MB and {last.TotalCommittedBytes >> 20} MB committed at its last collection, of the {last.TotalAvailableMemoryBytes >> 20} MB this process may use; the collector in {GCSettings.LatencyMode}"));
     }
 
     /// <summary>What a pass of <see cref="AssertTheSlicesAreWithin"/> stands on, for the log.</summary>
@@ -535,7 +536,8 @@ public sealed class SurveyJobViewTests
             "North front was not imported: the file is too large for this machine's memory — thin or split it first", 0, 0.000001, 0, 0, 0, 1);
         var refused = Assert.Throws<Xunit.Sdk.TrueException>(() => SurveyImportTests.AssertReady(failed));
         Assert.Contains("survey-1 is failed, not ready: North front was not imported: the file is too large for this machine's memory", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("MB committed of the", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("MB allocated now", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("MB committed at its last collection, of the", refused.Message, StringComparison.Ordinal);
         Assert.Contains("MB this process may use", refused.Message, StringComparison.Ordinal);
         SurveyImportTests.AssertReady(failed with { State = "ready" });
     }

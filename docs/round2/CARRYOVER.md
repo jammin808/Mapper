@@ -709,11 +709,12 @@ Round 2 W1 notes:
   2 M-triangle import needs some 0.75 to 1 GB beside what the host holds, and with 800 MB held live in the test host by a startup
   hook the unchanged test failed 2 of 2 at its line 485 with no reason (`Expected: "ready"`, `Actual: "failed"`), as the full-suite
   failure kept from 2026-10-19 reads (600 MB held, it passes); it now fails 2 of 2 with "the import … is failed, not ready: North
-  front was not imported: the file is too large for this machine's memory — thin or split it first; the managed heap 1455 MB,
-  1491 MB committed of the 1536 MB this process may use". A full Engine run here had 31 MB live when the test began, so what would
-  hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s summary says what its
-  reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but a collection the
-  thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
+  front was not imported: the file is too large for this machine's memory — thin or split it first; the managed heap 1456 MB
+  allocated now, 1456 MB and 1494 MB committed at its last collection, of the 1536 MB this process may use" (what is allocated is
+  read at the check, the heap's size and commit as the last collection left them). A full Engine run here had 31 MB live when the
+  test began, so what would hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s
+  summary says what its reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but
+  a collection the thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
