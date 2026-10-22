@@ -29,6 +29,10 @@ public sealed record OptimiseOptions
     public TimeSpan StopGrace { get; init; } = TimeSpan.FromSeconds(5);
     public TimeSpan KillWait { get; init; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>The clock a stop's grace (<see cref="StopGrace"/>) is counted on: the system's on a node; a test moves its own, so a stop
+    /// kills its worker when the test says the grace has passed, however slowly the test runs.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     /// <summary>How a worker is killed: its whole process tree. A test stands in a kill the system takes and a worker does not obey
     /// (a thread held in a driver), which no worker can be made to do.</summary>
     internal Action<Process> Kill { get; init; } = static p => p.Kill(entireProcessTree: true);

@@ -751,6 +751,13 @@ Round 2 W1 notes:
   that looked only after that waited out its 4 minutes and failed. With the test's continuation 15 s late once the job had begun
   (a delay in a scratch copy) the unchanged test failed 3 of 3 ("the partial file never came", the version made); held, it passed
   3 of 3 under the same delay and 3 of 3 without it. No failure of it has been seen.
+- Done: an optimise stop counts its grace on the clock its options give (`OptimiseOptions.Time`; a node keeps the system's), and
+  `OptimiseWorkerEndTests.AStopKillsTheWorkerItAskedToEndNotTheOneThatTookAJobMeanwhile` moves that clock once it has seen the kill a
+  job's arrival makes. Its stop waited 500 ms of real time before killing the worker it asked to end, while the test started a
+  fresh worker (a process start, much slower on Windows) and asked for that arrival's kill alone; a start slower than the grace
+  put the stop's kill first. With 700 ms between the stop and the fresh start (a delay in a scratch copy) the unchanged test
+  failed 3 of 3 at its line 159 (both kills already in); it passed 3 of 3 under the same delay and 3 of 3 without it. No failure
+  of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
