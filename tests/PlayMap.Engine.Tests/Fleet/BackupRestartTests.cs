@@ -125,6 +125,8 @@ public sealed class BackupRestartTests
         Assert.True(await Eventually.TrueAsync(() => node.Engine.NetworkAir == NetworkAir.Live), node.Journal());
         Assert.True(await Eventually.TrueAsync(() => led.Master), node.Journal());
         Assert.Equal(1f, node.Engine.AirAudioGain(node.Engine.LeaderNowNs));
+        // The row that says so is written once the air has moved, which the LED sender reads first: it is waited for.
+        Assert.True(await Eventually.TrueAsync(() => node.Journal().Contains("did not hear its hot backup", StringComparison.Ordinal)), node.Journal());
         Assert.Contains("did not hear its hot backup", node.Journal(), StringComparison.Ordinal);
         Assert.Equal("primary", BackupRig.Role(node));
     }

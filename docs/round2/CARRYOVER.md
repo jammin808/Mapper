@@ -880,6 +880,11 @@ Round 2 W1 notes:
   the network host, which names the role STATE reads, starts its feed, and then writes the row; the role, the clock and the live
   feed the test waited for come first. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 156,
   and passed unheld; it passed 3 of 3 under the hold now.
+- Done, not seen failing: `BackupRestartTests.APrimaryWhoseBackupIsNotHeardGoesOutOnceItsClockHasWaitedForIt` waits for the row
+  ("… did not hear its hot backup …") before it reads it. `BackupNode.Hear` moves the node's network air under the settings' lock
+  (live, the LED sender's master, the sends reconciled, a push) and writes the row after the lock; the air and the LED, which the
+  test waited for, come first. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 128, and
+  passed unheld; it passed 3 of 3 under the hold now.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

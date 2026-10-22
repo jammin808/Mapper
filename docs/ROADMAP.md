@@ -134,7 +134,10 @@ The lab checks still to do:
   `PromoteTests`' one Windows read of a follower's journal before the row of its follow of the group's new leader (consistent with
   a slow settings write, or the watch's thread held, between the epoch's move, which STATE shows, and the row, not proven; the test
   now waits for the row, which says whether the epoch was kept, and the follow raises STATE's push before it; a step-down, a backup's
-  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them),
+  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them; the same read of a row
+  before it is written, not seen failing, is gone from `ClockSlewTests` and `MemberCommitTests` (a blind commit's landing),
+  `AnchorFeedTests` (a rejoin after a restart, and a follower now says it free-wheels in STATE before its row) and
+  `BackupRestartTests` (a primary that goes out without hearing its backup)),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
