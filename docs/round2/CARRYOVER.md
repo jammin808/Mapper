@@ -833,6 +833,12 @@ Round 2 W1 notes:
   answers for 400 ms of real time across two receive loops (the simulator's and its own), so an answer later than that was dropped.
   With the simulator's answer 500 ms late (a delay in a scratch copy) both unchanged tests failed 3 of 3 ("The collection was
   empty"); both passed 3 of 3 under it, and the 112 Devices tests passed. No failure of them has been seen.
+- Done: the desk's toasts are aged on the session's clock (`DeskSession`'s `time`, which its throttle already ran on; the desk's is
+  the system's), and `DeskLogicTests.ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt` moves it. A repeated refusal folds into
+  the toast already up when the same words come within two seconds, which `Notify` read on the stopwatch, so a repeat the test sent
+  more than 2 s after the first stacked a second toast. With the test's repeat 2.1 s late (a delay in a scratch copy) the unchanged
+  test failed 3 of 3 ("The collection contained 2 items"); on the moved clock it passed 3 of 3 under the same delay, and now also
+  shows a repeat past the two seconds stacking and a refusal's toast going at twice the window's age. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

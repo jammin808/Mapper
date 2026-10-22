@@ -166,8 +166,7 @@ The lab checks still to do:
   `FirstMapTests.TheFirstMapTakesUnderFiveSecondsOfMachineTime`, `LightPlanPerfTests.TwelveProjectorsPlanInThreeSeconds`; a reading
   of the same runner, or the bar kept as a lab line, closes them), the desk's hold button timed on the stopwatch
   (`DeskSpineTests.AHoldButtonActsOnlyWhenHeldItsTimeAndADropGoesToTheHandlerOfItsFormat` and `DeskHarness.Hold`, 600 ms; the desk's
-  clock closes it), `DeskLogicTests.ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt` (a repeat folded within 2 s of the
-  stopwatch), `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
+  clock closes it), `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
   `ArtNetInTests.ATimecodeConsumerOpensTheSocketArtTimeCodeRollsAndDmxFiresNoBinding` (dropout after 100 ms of the real clock; it
   heals within its wait).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
