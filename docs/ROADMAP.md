@@ -142,6 +142,32 @@ The lab checks still to do:
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
   words and the heap).
+- Watched, short real-time windows a sweep of the tests found and none has failed on yet (each keeps its bar; the fix named is
+  the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
+  measure of the work rather than the stopwatch): `SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds`
+  (the worst SITE round trip within 50 ms by the test's stopwatch, its own continuation included, at the 1× bar the Windows job's
+  Release build holds; the lane's own measure of an answer, as the slices are read, closes it),
+  `ProjectorSolveLanePerfTests.ASolveHoldsTheLaneWithinItsSlice` and its 4× twin (an empty lane turn's stopwatch round trip within
+  10 ms; the same), `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
+  order; `OptimiseOptions.Time` now lets them move it), `PjLinkDriverTests.ASearchFindsAClass2ProjectorOnLoopbackUdp` and
+  `DeviceManagerTests.DiscoveryFindsAProjectorIdentifiesItAndSuggestsItsNativeDriver` (a 400 ms real search window across the
+  simulator's and the search's own receive loops; the window on a clock the test moves once the answer is counted closes it),
+  `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
+  steps, closes it), `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` (five frames inside a 400 ms real
+  hold; a hold until the loop has drawn them closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`
+  (the follower's adoption within 800 ms by the stopwatch, a 4× ceiling on a lab bar; the facts kept and the time logged closes it),
+  `ClockSyncTests`' best round trip within 20 ms over real loopback, the real-time throughput bars the Windows job runs at 1×
+  (`PerformanceTests.A1080pH264DecodesFasterThanRealTimeInSoftware`,
+  `SelfCalibrationTests.SelfCalibrationRecoversFocalAndRotationFromNoisyRoomPairsWithinASecond`,
+  `FirstMapTests.TheFirstMapTakesUnderFiveSecondsOfMachineTime`, `LightPlanPerfTests.TwelveProjectorsPlanInThreeSeconds`; a reading
+  of the same runner, or the bar kept as a lab line, closes them), the desk's hold button timed on the stopwatch
+  (`DeskSpineTests.AHoldButtonActsOnlyWhenHeldItsTimeAndADropGoesToTheHandlerOfItsFormat` and `DeskHarness.Hold`, 600 ms; the desk's
+  clock closes it), `DeskLogicTests.ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt` (a repeat folded within 2 s of the
+  stopwatch), `MediaTransferTests.TheBandwidthBucketHoldsItsRateAndCanBeLoweredAndLifted` (100 takes within 200 ms),
+  `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
+  `ArtNetInTests.ATimecodeConsumerOpensTheSocketArtTimeCodeRollsAndDmxFiresNoBinding` (dropout after 100 ms of the real clock; it
+  heals within its wait). `GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound` is no window but its
+  last count holds from the bounded take before it alone (`TryEnter` counts a wait), so it does not show the sharer waited.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.
