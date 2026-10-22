@@ -758,6 +758,13 @@ Round 2 W1 notes:
   put the stop's kill first. With 700 ms between the stop and the fresh start (a delay in a scratch copy) the unchanged test
   failed 3 of 3 at its line 159 (both kills already in); it passed 3 of 3 under the same delay and 3 of 3 without it. No failure
   of it has been seen.
+- Done: the line wire's STATE and PROJECT push throttle counts its 200 ms window on the clock the wire's options give
+  (`WireServerOptions.Time`, through `TrailingThrottle`; a node's wire and its web port's line sessions keep the system's), and
+  `WireServerTests.PushesAreThrottledLatestWinsAndNeverRepeated` moves that clock once the window stands. Its fifty changes had to
+  fall inside two real-time windows, and the skip it counted was read 600 ms after the touches without waiting for the throttle
+  that writes it. With the publishing loop held 250 ms twice (a delay in a scratch copy) the unchanged test failed 3 of 3 at its
+  line 247 (three pushes); it now reads the one push the window makes, and waits for the skip, and passed 3 of 3 under the same
+  delays and 3 of 3 without them. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
