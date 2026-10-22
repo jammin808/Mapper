@@ -62,7 +62,9 @@ public sealed record VerbSpec(
     public int WordCount => Name.Count(c => c == ' ') + 1;
 
     /// <summary>The word index from which a line of this verb carries a secret (a token, a key, a password),
-    /// or null. Everything from there on is kept out of journals, logs and records.</summary>
+    /// or null. Everything from there on is kept out of journals, logs and records, on every line but one that is word for
+    /// word a form the syntax spells out whole (<see cref="VerbSyntax.SpellsOut"/>: LINK PATTERNS FOLLOW-BLACKOUT ON|OFF),
+    /// which has no word a secret could be.</summary>
     public int? SecretFrom { get; init; }
 
     /// <summary>First words after the verb that make a line of it high risk whatever <see cref="Risk"/> says (an
@@ -664,7 +666,7 @@ public static class VerbCatalog
         {
             if (!starts[s] || MatchAt(line, s) is not { } c)
                 continue;
-            if (c.Spec.SecretFrom is int from && s + c.Words + from - c.Spec.WordCount is var secret && secret < count)
+            if (SecretAt(line, s, c.Spec, c.Words) is int secret && secret < count)
                 first = Math.Min(first ?? secret, secret);
             if (c.Spec.EmbedsLine)
                 Carry(c.Spec, s, c.Words);
@@ -937,12 +939,17 @@ public static class VerbCatalog
 
     /// <summary>The word a matched line's secret starts at: its verb's <see cref="VerbSpec.SecretFrom"/> counted from where the verb's
     /// name ends in this line, as the router reads its arguments (a two-word name quoted as one word takes one word); null for a verb
-    /// with no secret words.</summary>
-    private static int? SecretAt(WireLine line)
+    /// with no secret words, and for a line that is word for word a form its syntax spells out whole (<see cref="VerbSyntax.SpellsOut"/>:
+    /// LINK PATTERNS FOLLOW-BLACKOUT ON beside LINK PATTERNS &lt;host&gt; &lt;token&gt;), where no word is one a secret could be.</summary>
+    private static int? SecretAt(WireLine line) => Match(line) is { } m ? SecretAt(line, 0, m.Spec, m.Words) : null;
+
+    /// <summary><see cref="SecretAt(WireLine)"/> for the line that starts at word <paramref name="at"/> of this one and runs to its end,
+    /// its verb <paramref name="spec"/> taking <paramref name="verbWords"/> words.</summary>
+    private static int? SecretAt(WireLine line, int at, VerbSpec spec, int verbWords)
     {
-        if (Match(line) is not { } m || m.Spec.SecretFrom is not int from)
+        if (spec.SecretFrom is not int from || VerbSyntax.SpellsOut(spec, line, at + verbWords))
             return null;
-        return m.Words + from - m.Spec.Name.Split(' ').Length;
+        return at + verbWords + from - spec.WordCount;
     }
 
     /// <summary>True when a line's secret words are the marker a shown copy carries: a copy taken from a desk or a

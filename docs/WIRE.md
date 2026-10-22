@@ -267,6 +267,11 @@ These are the keys every node writes; the packages' keys follow at the end of th
   its word: it waits for a person whatever the risk switches say. A shown copy (its secret words the marker) is
   refused wherever it arrives. A verb's secret words are counted from where its name ends, as its arguments are: a
   two-word name quoted as one word (`"LINK PATTERNS" 10.0.0.5 <token>`) hides its token as the plain spelling does. A line
+  that is word for word a form its syntax spells out whole — keywords and fixed choices, no placeholder, nothing optional:
+  `LINK PATTERNS FOLLOW-BLACKOUT ON|OFF` beside `LINK PATTERNS <host[:port]> [<token>]` — has no word a secret could be:
+  it is written down whole (the journal, logs, a proposal and its replies say ON or OFF), holds no secret for the
+  assistant's gate and is no shown copy; any other word where the form's own stand (`LINK PATTERNS FOLLOW-BLACKOUT
+  <token>`, or one after `ON`) is kept back as a token is. A line
   carried inside another is shown the same way wherever the node writes the outer one down, however deep it rides — a binding's
   target after any `TO` or in `BIND LEARN`'s words, every string literal of a JSON argument (read as the node's JSON reader reads
   it: comments skipped, escapes decoded, a key given twice read each time, one cut short read to the end), a word that reads as

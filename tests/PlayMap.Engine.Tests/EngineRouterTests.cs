@@ -348,6 +348,23 @@ public sealed class EngineRouterTests
     }
 
     [Fact]
+    public async Task TheFollowSwitchIsJournalledWholeBesideALinksKeptBackToken()
+    {
+        await using var rig = new Rig();
+        // The switch's form carries no token, so each of its rows says ON or OFF; the link's token is kept back on its own row.
+        await rig.Run("LINK PATTERNS 10.0.0.5 s3cr3t-token");
+        await rig.Ok("LINK PATTERNS FOLLOW-BLACKOUT OFF");
+        Assert.False((await rig.Run("LINK PATTERNS FOLLOW-BLACKOUT OFF")).Ok);
+        await rig.Ok("LINK PATTERNS FOLLOW-BLACKOUT ON");
+        var rows = rig.Engine.Journal.Recent(10);
+        Assert.Contains(rows, r => !r.Ok && r.Line == "LINK PATTERNS 10.0.0.5 " + VerbCatalog.SecretMarker);
+        Assert.Contains(rows, r => r.Ok && r.Line == "LINK PATTERNS FOLLOW-BLACKOUT OFF" && r.Text == "ignoring Patterns' blackout");
+        Assert.Contains(rows, r => !r.Ok && r.Line == "LINK PATTERNS FOLLOW-BLACKOUT OFF" && r.Text == "already ignoring Patterns' blackout");
+        Assert.Contains(rows, r => r.Ok && r.Line == "LINK PATTERNS FOLLOW-BLACKOUT ON" && r.Text == "following Patterns' blackout");
+        Assert.DoesNotContain(rows, r => (r.Text + " " + r.Line).Contains("s3cr3t-token", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task AProjectSavesAndOpensAgain()
     {
         await using var rig = new Rig();

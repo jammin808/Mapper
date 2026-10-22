@@ -96,6 +96,40 @@ public static class VerbSyntax
         return token.Contains('<', StringComparison.Ordinal) || token.Contains('…', StringComparison.Ordinal);
     }
 
+    /// <summary>Each row's forms that the syntax spells out whole, as each token's literal choices; read once per row object and
+    /// released with it.</summary>
+    private static readonly ConditionalWeakTable<VerbSpec, string[][][]> SpelledOf = new();
+
+    /// <summary>True when the line's words from <paramref name="argsAt"/> to its end are, word for word, a form of the row the syntax
+    /// spells out whole: no placeholder and nothing optional, each word a keyword or one of a fixed choice (any case). "LINK PATTERNS
+    /// FOLLOW-BLACKOUT ON" is one; "LINK PATTERNS 10.0.0.5 x" and "LINK PATTERNS FOLLOW-BLACKOUT ON x" are not. No word of such a line
+    /// is one the syntax leaves free.</summary>
+    public static bool SpellsOut(VerbSpec spec, WireLine line, int argsAt)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        ArgumentNullException.ThrowIfNull(line);
+        foreach (var form in SpelledOf.GetValue(spec, static s => Spelled(s)))
+        {
+            if (line.Count - argsAt != form.Length)
+                continue;
+            var fits = true;
+            for (var i = 0; i < form.Length && fits; i++)
+                fits = form[i].Contains(line.Word(argsAt + i), StringComparer.OrdinalIgnoreCase);
+            if (fits)
+                return true;
+        }
+        return false;
+    }
+
+    private static string[][][] Spelled(VerbSpec spec) =>
+    [
+        .. Alternatives(spec)
+            .Where(f => !f.Contains('[', StringComparison.Ordinal))
+            .Select(f => RequiredTokens(spec, f))
+            .Where(tokens => !tokens.Any(IsPlaceholder))
+            .Select(tokens => tokens.Select(t => t.Split('|', StringSplitOptions.RemoveEmptyEntries)).ToArray()),
+    ];
+
     /// <summary>True when the line's words after the verb satisfy at least one form's required tokens: each is present, and a
     /// literal choice ("ON|OFF") holds one of its words (any case). <paramref name="why"/> says what the closest form lacks.</summary>
     public static bool Fits(VerbSpec spec, WireLine line, out string? why)

@@ -56,6 +56,8 @@ public class GateTests
         Assert.True(link.Ok, link.Reason);
         Assert.True(link.HoldsSecret);
         Assert.False(CommandGate.Check("LINK PATTERNS 10.0.0.5:9697").HoldsSecret);
+        // The same row's follow switch is a keyword and ON|OFF: it holds no secret, so it is decided by its risk like any line.
+        Assert.False(CommandGate.Check("LINK PATTERNS FOLLOW-BLACKOUT ON").HoldsSecret);
         Assert.False(CommandGate.Check("BLACKOUT ON").HoldsSecret);
     }
 

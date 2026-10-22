@@ -57,6 +57,41 @@ public sealed class ShownLineTests
     }
 
     [Fact]
+    public void AFormTheSyntaxSpellsOutIsWrittenDownWholeAndATokenBesideItIsNot()
+    {
+        // LINK PATTERNS FOLLOW-BLACKOUT ON|OFF is a keyword and a fixed choice: no word of it is one a secret could be, so it is written
+        // down as it came, ON or OFF, in any case and with the verb's name quoted as one word; it holds no secret and is no shown copy.
+        foreach (var text in new[]
+        {
+            "LINK PATTERNS FOLLOW-BLACKOUT ON", "LINK PATTERNS FOLLOW-BLACKOUT OFF", "link patterns follow-blackout off", "\"LINK PATTERNS\" FOLLOW-BLACKOUT ON",
+        })
+        {
+            Assert.Equal(text, Shown(text));
+            Assert.False(VerbCatalog.HoldsSecret(Parsed(text)), text);
+            Assert.False(VerbCatalog.IsShownCopy(Parsed(text)), text);
+        }
+
+        // The same row's token form keeps its token back, and so does a word that is not the switch's own, where ON|OFF stands or after it.
+        var keyed = "LINK PATTERNS 10.0.0.5 " + Token;
+        Assert.Equal("LINK PATTERNS 10.0.0.5 " + VerbCatalog.SecretMarker, Shown(keyed));
+        Assert.Equal("\"LINK PATTERNS\" 10.0.0.5 " + VerbCatalog.SecretMarker, Shown("\"LINK PATTERNS\" 10.0.0.5 " + Token));
+        Assert.Equal("LINK PATTERNS FOLLOW-BLACKOUT " + VerbCatalog.SecretMarker, Shown("LINK PATTERNS FOLLOW-BLACKOUT " + Token));
+        Assert.Equal("LINK PATTERNS FOLLOW-BLACKOUT " + VerbCatalog.SecretMarker, Shown("LINK PATTERNS FOLLOW-BLACKOUT ON " + Token));
+
+        // Carried inside a line, the switch is written down whole too, and a token beside it is not.
+        Assert.Equal("BIND ADD OSC /x TO LINK PATTERNS FOLLOW-BLACKOUT ON", Shown("BIND ADD OSC /x TO LINK PATTERNS FOLLOW-BLACKOUT ON"));
+        Assert.Equal("SET bd0a1b2c3d target \"LINK PATTERNS FOLLOW-BLACKOUT OFF\"", Shown("SET bd0a1b2c3d target \"LINK PATTERNS FOLLOW-BLACKOUT OFF\""));
+        Assert.Equal("BIND ADD OSC /x TO LINK PATTERNS 10.0.0.5 " + VerbCatalog.SecretMarker, Shown("BIND ADD OSC /x TO " + keyed));
+
+        // Only a line whose token was kept back is a shown copy: the line holding its token runs, the copy never does. A switch's copy
+        // with the marker where ON|OFF stands says neither, so it is a copy too.
+        Assert.True(VerbCatalog.HoldsSecret(Parsed(keyed)));
+        Assert.False(VerbCatalog.IsShownCopy(Parsed(keyed)));
+        Assert.True(VerbCatalog.IsShownCopy(Parsed(Shown(keyed))));
+        Assert.True(VerbCatalog.IsShownCopy(Parsed("LINK PATTERNS FOLLOW-BLACKOUT " + VerbCatalog.SecretMarker)));
+    }
+
+    [Fact]
     public void ALineCarriedFiveDeepInBindLearnsWordsKeepsItsSecretBack()
     {
         Assert.Equal("BIND LEARN BIND LEARN BIND LEARN BIND LEARN BIND LEARN AUTH " + VerbCatalog.SecretMarker,

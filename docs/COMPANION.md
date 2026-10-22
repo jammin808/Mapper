@@ -195,7 +195,9 @@ escapes decoded, a key given twice read both times, a string cut short read to t
 `VerbCatalog.HoldsSecret` would call it a line that carries a secret: it names a row with a `SecretFrom` (`AUTH` from word 1,
 `CREDENTIAL SET`, `LINK PATTERNS` and `LINK STAGEWATCH` from word 3 — the module's `SECRET_FROM`, held to the catalogue's by the
 contract test) and has a word at or past it, counted from where the row's name ends (a name quoted as one word, `"LINK PATTERNS" <host>
-<token>`, holds its token one word sooner). Any other word inside is the operator's own: a label `"Record"`, `"Auth"`,
+<token>`, holds its token one word sooner). The one form the fence refuses that `HoldsSecret` passes is one the node's syntax spells
+out whole, `LINK PATTERNS FOLLOW-BLACKOUT ON|OFF` (no word of it a secret could be): carried inside a line it is still refused, which
+costs no key anything, since `TargetLine.Parse` refuses every `LINK PATTERNS` line as a binding's target. Any other word inside is the operator's own: a label `"Record"`, `"Auth"`,
 `"Link Patterns"` or `"Pairing new year"`, `SET <item> index 3`, `DEVICE RAW <device> STATUS`, and a pairing row, which holds no
 secret words and which the node's `TargetLine.Parse` refuses as a binding's target anyway. A refusal names only the outer verb, never
 the operator's words. Encoders turn `$(this:delta)` into `MASTER`, `VIDEO RATE`, `VIDEO SEEK` (absolute, from the STATE

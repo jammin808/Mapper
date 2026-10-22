@@ -86,18 +86,8 @@ public class DeskVerbRuleTests(ITestOutputHelper output)
             return "no catalogue row";
         if (!VerbSyntax.Fits(m.Spec, parsed, m.Words, out var lacks))
             return "does not fit " + m.Spec.Name + ": " + lacks;
-        if (m.Spec.SecretFrom is int from)
-        {
-            // A word in the secret position is a secret unless it is one of the syntax's own keywords (LINK PATTERNS
-            // FOLLOW-BLACKOUT ON names no token).
-            var keywords = System.Text.RegularExpressions.Regex.Matches(m.Spec.Syntax, "[A-Z][A-Z0-9-]*").Select(x => x.Value).ToHashSet(StringComparer.Ordinal);
-            for (var i = from; i < parsed.Count; i++)
-            {
-                if (!keywords.Contains(parsed.Word(i)))
-                    return "carries a secret (" + m.Spec.Name + ")";
-            }
-        }
-        return null;
+        // As the catalogue reads a secret: LINK PATTERNS FOLLOW-BLACKOUT ON, a form its syntax spells out whole, names no token.
+        return VerbCatalog.HoldsSecret(parsed) ? "carries a secret (" + m.Spec.Name + ")" : null;
     }
 
     /// <summary>Every action the desk offers with STATE as the link holds it: from the top bar, the drawers, the inspectors and every
