@@ -114,6 +114,70 @@ public class WireAndBusTests
     }
 
     [Fact]
+    public void InsideQuotesABackslashEscapesTheMarkAfterItAsPatternsReadsIt()
+    {
+        // \" a quote, \\ a backslash, any other mark read alone; a bare word keeps every backslash.
+        Assert.True(WireGrammar.TryParse(@"MEDIA IMPORT ""C:\Users\me\clip.mp4"" ""a\""b"" ""a\\b"" C:\bare\path.mp4", out var line, out _));
+        Assert.Equal(["MEDIA", "IMPORT", "C:Usersmeclip.mp4", "a\"b", @"a\b", @"C:\bare\path.mp4"], line.Words);
+        // The phrase as the line spells it between its quotes, its escapes not undone; none for a bare word, JSON or no word at all.
+        Assert.Equal(@"C:\Users\me\clip.mp4", line.QuotedText(2));
+        Assert.Equal(@"a\""b", line.QuotedText(3));
+        Assert.Equal(@"a\\b", line.QuotedText(4));
+        Assert.Null(line.QuotedText(5));
+        Assert.Null(line.QuotedText(0));
+        Assert.Null(line.QuotedText(6));
+        Assert.Null(WireGrammar.QuotedText(@"SET sf1 label {""a"":""\u00e9""}", 3));
+        Assert.Null(WireGrammar.QuotedText(@"MEDIA IMPORT ""C:\open", 2));
+        // A backslash is lost only before a mark that needs no escape.
+        Assert.True(WireGrammar.DropsBackslash(@"C:\Users\me\clip.mp4"));
+        Assert.True(WireGrammar.DropsBackslash(@"\\server\share"));
+        Assert.False(WireGrammar.DropsBackslash(@"a\""b"));
+        Assert.False(WireGrammar.DropsBackslash(@"\\\\server\\share"));
+        Assert.False(WireGrammar.DropsBackslash("plain words"));
+    }
+
+    [Fact]
+    public void EveryPathQuotedAsProducersQuoteItReadsBackAsTyped()
+    {
+        // The desk's pickers and drops, the Companion module, the assistant's recipes and the node's own lines write a word through
+        // Quote: bare when it holds no space or quote, else quoted with each backslash and quote escaped.
+        foreach (var path in new[]
+        {
+            @"C:\Users\me\clip.mp4", @"C:\My clips\take 1.mp4", @"\\server\share\a b.mp4", @"C:\My clips\", @"D:\""quoted""\x.mp4",
+            "/home/me/My clips/a.mp4", @"/home/me/a\b c.mp4", "",
+        })
+        {
+            var text = "MEDIA IMPORT " + WireGrammar.Quote(path) + " Take";
+            Assert.True(WireGrammar.TryParse(text, out var line, out var error), $"{text}: {error?.Reason}");
+            Assert.Equal(["MEDIA", "IMPORT", path, "Take"], line.Words);
+            Assert.False(line.QuotedText(2) is { } quoted && WireGrammar.DropsBackslash(quoted), text);
+            Assert.Null(VerbSyntax.DroppedBackslash(VerbCatalog.Find("MEDIA IMPORT")!, line, 2));
+        }
+        Assert.Equal(@"C:\Users\me\clip.mp4", WireGrammar.Quote(@"C:\Users\me\clip.mp4"));
+        Assert.Equal(@"""C:\\My clips\\take 1.mp4""", WireGrammar.Quote(@"C:\My clips\take 1.mp4"));
+    }
+
+    [Fact]
+    public void TheRowsThatTakeAPathAreTheFileVerbsAndOnlyTheirPathIsHeldToItsSpelling()
+    {
+        Assert.Equal(["MEDIA IMPORT", "PROJECT SAVE", "PROJECT OPEN", "FX IMPORT", "LED IMPORT", "SITE POINTS", "SURVEY IMPORT"],
+            VerbCatalog.All.Where(VerbSyntax.TakesPath).Select(v => v.Name));
+        var import = VerbCatalog.Find("MEDIA IMPORT")!;
+        Assert.True(WireGrammar.TryParse(@"MEDIA IMPORT ""C:\My clips\a.mp4"" ""Act\1""", out var typed, out _));
+        Assert.Equal(@"MEDIA IMPORT: inside quotes a backslash escapes the mark after it, so ""C:\My clips\a.mp4"" reads as C:My clipsa.mp4 — write the path ""C:\\My clips\\a.mp4"", each \ doubled inside the quotes, or with / in place of each \",
+            VerbSyntax.DroppedBackslash(import, typed, 2));
+        // The name after the path is the operator's own word, and a row that takes no path reads its quoted words as the grammar does.
+        Assert.True(WireGrammar.TryParse(@"MEDIA IMPORT C:\clips\a.mp4 ""Act\1""", out var named, out _));
+        Assert.Null(VerbSyntax.DroppedBackslash(import, named, 2));
+        Assert.True(WireGrammar.TryParse(@"PLAYLIST NEW ""AC\DC""", out var playlist, out _));
+        Assert.Null(VerbSyntax.DroppedBackslash(VerbCatalog.Find("PLAYLIST NEW")!, playlist, 2));
+        // A JSON value is read raw by its verb, whatever escapes its string holds.
+        Assert.True(WireGrammar.TryParse(@"SET sf1 label ""Caf\u00e9\n""", out var set, out _));
+        Assert.Null(VerbSyntax.DroppedBackslash(VerbCatalog.Find("SET")!, set, 1));
+        Assert.Equal(@"""Caf\u00e9\n""", set.RestAfter(3));
+    }
+
+    [Fact]
     public void AWordThatOpensLikeJsonIsQuotedAndStaysOneWordInTheMiddleOfALine()
     {
         // The grammar reads a bare "{" or "[" as JSON to the end of the line: such a word is quoted wherever it stands.

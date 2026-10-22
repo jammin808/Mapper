@@ -32,7 +32,7 @@ public sealed partial class EngineCore
         if (match is null)
             return CommandReply.Fail($"unknown verb '{line.Word(0)}' — HELP lists the vocabulary");
         var (spec, used) = match.Value;
-        if (Admission(spec, session) is { } closed)
+        if (Admission(spec, line, used, session) is { } closed)
             return closed;
         var args = line.Words.Skip(used).ToList();
         CommandReply? refused = null;
@@ -64,14 +64,18 @@ public sealed partial class EngineCore
         }
     }
 
-    /// <summary>The door before any handler: a verb that changes something or opens a stream needs pairing, and a node-to-node verb
-    /// runs only from a fleet peer or the node itself. Null lets the line on to the show's gate.</summary>
-    private static CommandReply? Admission(VerbSpec spec, SessionInfo session)
+    /// <summary>The door before any handler: a verb that changes something or opens a stream needs pairing, a node-to-node verb
+    /// runs only from a fleet peer or the node itself, and a path the line quotes reads as typed, never as another file its
+    /// backslashes were lost from (<see cref="VerbSyntax.DroppedBackslash"/>). <paramref name="verbWords"/> is how many words the
+    /// verb's name took. Null lets the line on to the show's gate.</summary>
+    private static CommandReply? Admission(VerbSpec spec, WireLine line, int verbWords, SessionInfo session)
     {
         if ((spec.Mutates || spec.PairedOnly) && !session.Paired)
             return CommandReply.Fail(PlayMap.Net.Commands.WireWords.NotPaired);
         if (spec.Internal && session.Transport is not ("fleet" or "system"))
             return CommandReply.Fail($"{spec.Name}: this line is node-to-node only");
+        if (VerbSyntax.DroppedBackslash(spec, line, verbWords) is { } dropped)
+            return CommandReply.Fail(dropped);
         return null;
     }
 

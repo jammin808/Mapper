@@ -56,7 +56,7 @@ public sealed partial class EngineCore
         var call = new VerbCall(spec, args, line, session, ct);
         try
         {
-            reply = Admission(spec, session) ?? Gate(spec, line, session, call) ?? spec.Category switch
+            reply = Admission(spec, line, line.Count - args.Count, session) ?? Gate(spec, line, session, call) ?? spec.Category switch
                 {
                     VerbCategory.Device => await DeviceVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
                     VerbCategory.Assistant => await AssistantVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),

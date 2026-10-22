@@ -50,6 +50,22 @@ public class GateTests
     }
 
     [Fact]
+    public void APathQuotedWithSingleBackslashesIsRefusedAndTheSpellingThatReadsAsTypedPasses()
+    {
+        // Inside quotes a backslash escapes the mark after it: a Windows path quoted as Explorer gives it would name another file, so
+        // the gate refuses it with the spelling that reads as typed, and that spelling passes.
+        const string Typed = @"C:\My clips\take 1.mp4";
+        var refused = CommandGate.Check($"MEDIA IMPORT \"{Typed}\" Take");
+        Assert.False(refused.Ok);
+        Assert.Equal(VerbRisk.High, refused.Risk);
+        Assert.Contains("write the path \"C:\\\\My clips\\\\take 1.mp4\"", refused.Reason, StringComparison.Ordinal);
+
+        var written = CommandGate.Check("MEDIA IMPORT " + WireGrammar.Quote(Typed) + " Take");
+        Assert.True(written.Ok, written.Reason);
+        Assert.Equal(Typed, written.Parsed!.Word(2));
+    }
+
+    [Fact]
     public void ALineWithItsVerbsSecretWordsPassesMarkedAndOneWithoutThemDoesNot()
     {
         var link = CommandGate.Check("LINK PATTERNS 10.0.0.5:9697 0badc0de0badc0de");

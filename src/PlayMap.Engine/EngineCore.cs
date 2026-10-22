@@ -345,8 +345,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         return true;
     }
 
-    /// <summary>A package's off-lane verb: pairing, the node-to-node rule and the show's gate (reading published state) first, then
-    /// its handler; faults and the journal follow the router's rules. Its document edits go through <see cref="EditAsync"/>.</summary>
+    /// <summary>A package's off-lane verb: the door (pairing, the node-to-node rule, a quoted path read as typed) and the show's gate
+    /// (reading published state) first, then its handler; faults and the journal follow the router's rules. Its document edits go
+    /// through <see cref="EditAsync"/>.</summary>
     private async Task<CommandReply> RunOffLaneAsync(VerbSpec spec, Func<VerbCall, Task<CommandReply>> handler, List<string> args, WireLine line,
         SessionInfo session, CancellationToken ct)
     {
@@ -355,7 +356,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         var call = new VerbCall(spec, args, line, session, ct);
         try
         {
-            reply = Admission(spec, session) ?? Gate(spec, line, session, call) ?? await handler(call).ConfigureAwait(false);
+            reply = Admission(spec, line, line.Count - args.Count, session) ?? Gate(spec, line, session, call) ?? await handler(call).ConfigureAwait(false);
         }
         catch (EditRefusedException refused)
         {

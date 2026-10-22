@@ -51,6 +51,21 @@ public class PlayDragTests
     }
 
     [AvaloniaFact]
+    public async Task APathTypedWithSingleBackslashesInsideQuotesIsRefusedAsTheNodeRefusesIt()
+    {
+        // The console sends a line as a person types it; the engine the desk stands in for refuses a quoted path whose backslashes the
+        // grammar would drop, with the spelling that reads as typed, and imports nothing.
+        await using var desk = new DeskHarness();
+        var media = desk.Link.CurrentProject.Media;
+
+        var reply = await desk.Session.SendAsync("MEDIA IMPORT \"C:\\My clips\\take 1.mp4\"", Ct);
+
+        Assert.False(reply.Ok);
+        Assert.Contains("write the path \"C:\\\\My clips\\\\take 1.mp4\"", reply.Text, StringComparison.Ordinal);
+        Assert.Equal(media, desk.Link.CurrentProject.Media);
+    }
+
+    [AvaloniaFact]
     public async Task AddingAndMovingItemsAreThePlaylistVerbs()
     {
         await using var desk = new DeskHarness();

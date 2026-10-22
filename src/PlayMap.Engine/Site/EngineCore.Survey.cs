@@ -379,7 +379,7 @@ public sealed partial class EngineCore
             var words = $"imported {request.Name} ({surveyId}): {product.Words}"
                 + (meshId.Length > 0 ? $"; mesh {meshId} on surface {surfaceId}" : "")
                 + (request.SiteAtStart.IsSet ? "" : string.Create(SiteInv, $"; the site is {product.Frame.Crs} at {product.Frame.Origin.X:0.###} {product.Frame.Origin.Y:0.###} {product.Frame.Origin.Z:0.###}"));
-            Journal.Add("verb", words, session.ClientName, $"SURVEY IMPORT {request.Path}", true);
+            Journal.Add("verb", words, session.ClientName, "SURVEY IMPORT " + WireGrammar.Quote(request.Path), true);
             SetSurvey(v => v with { Id = surveyId, State = "ready", Progress = 1, Words = words }, shown: false);
             return "";
         }
@@ -407,7 +407,7 @@ public sealed partial class EngineCore
         }
         var words = $"{request.Name} was not imported: {why}";
         if (!Stopping)
-            Journal.Add("refused", words, session.ClientName, $"SURVEY IMPORT {request.Path}", false);
+            Journal.Add("refused", words, session.ClientName, "SURVEY IMPORT " + WireGrammar.Quote(request.Path), false);
         SetSurvey(v => v with { State = "failed", Words = words }, shown: true);
     }
 

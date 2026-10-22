@@ -14,8 +14,8 @@ public sealed record LineCheck(bool Ok, string Line, WireLine? Parsed, VerbSpec?
 }
 
 /// <summary>The fence every line an assistant proposes passes before anything runs or queues: the wire's own
-/// grammar, the vocabulary, the verb's required words and fixed choices, and — given the project — that an id
-/// it names exists. The connection's own verbs (HELLO, AUTH…) are refused. A line carrying its verb's secret words (a
+/// grammar, the vocabulary, the verb's required words and fixed choices, a quoted path that reads as typed, and — given
+/// the project — that an id it names exists. The connection's own verbs (HELLO, AUTH…) are refused. A line carrying its verb's secret words (a
 /// link's token) passes marked: it is only ever queued for a person, shown without them, and an approval runs it
 /// whole. Risk comes from the verb's entry in the catalogue; anything not in it is high.</summary>
 public static class CommandGate
@@ -58,6 +58,8 @@ public static class CommandGate
             return LineCheck.Refused(normalised, $"{spec.Name} is the connection's own verb, not a show verb");
         if (!CheckRequiredWords(spec, parsed, verbWords, out var why))
             return LineCheck.Refused(normalised, why);
+        if (VerbSyntax.DroppedBackslash(spec, parsed, verbWords) is { } dropped)
+            return LineCheck.Refused(normalised, dropped);
         if (project is not null && FirstUnknownId(project, parsed, verbWords) is { } unknown)
             return LineCheck.Refused(normalised, $"no entity '{unknown}' in the project — look ids up (get_project, get_entity) rather than writing them");
         return new LineCheck(true, normalised, parsed, spec, VerbCatalog.RiskOf(parsed), "", VerbCatalog.HoldsSecret(parsed));

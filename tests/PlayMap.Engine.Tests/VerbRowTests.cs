@@ -98,7 +98,7 @@ public sealed class VerbRowTests
             media.Journal = engine.Journal;
             var before = engine.Journal.Recent(200).Count;
 
-            var reply = await Run(engine, $"MEDIA IMPORT \"{file}\" Garbage");
+            var reply = await Run(engine, $"MEDIA IMPORT {WireGrammar.Quote(file)} Garbage");
 
             Assert.True(reply.Ok, reply.Payload);
             Assert.False(reply.Applied);
