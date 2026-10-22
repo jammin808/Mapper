@@ -18,8 +18,9 @@ public enum ThreadClock
 }
 
 /// <summary>The work the calling thread has done, in nanoseconds of its own processor time: what it did between two reads, never the
-/// time the machine gave other threads meanwhile (a preemption, a loaded machine) nor the time it was stopped (a collection, a page
-/// brought in). <see cref="Clock"/> says what a read is here, <see cref="ResolutionNs"/> the finest step it moves in and
+/// time the machine gave other threads meanwhile (a preemption, a loaded machine) nor a stop it waited out (another thread's
+/// collection, a page read in from disk); a collection this thread runs itself, and the kernel's work on its own page faults, are
+/// its work and count. <see cref="Clock"/> says what a read is here, <see cref="ResolutionNs"/> the finest step it moves in and
 /// <see cref="Basis"/> both in words. Linux and macOS read the thread's CPU clock, which is <see cref="Precise"/>: a span's work is
 /// within its read and the step. Windows reads the thread's kernel and user time, which it charges in whole clock ticks (15.625 ms
 /// by default), a tick to the thread a clock interrupt finds running, so a read there is not precise and bounds no span's work from

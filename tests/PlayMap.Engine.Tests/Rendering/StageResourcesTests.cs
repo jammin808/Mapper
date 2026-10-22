@@ -8,7 +8,9 @@ namespace PlayMap.Engine.Tests.Rendering;
 /// <summary>The stage's maps over the project snapshot, with no GPU: an unchanged input hands back the same
 /// object (so the renderer uploads nothing again), a moved warp node rebuilds that output's warp alone, the
 /// automatic blend waits for a quiet stage and keeps its last good maps meanwhile, a blend BLEND SOLVE made is
-/// taken as it is, and masks, manual edges and lens lookups come out at their sizes.</summary>
+/// taken as it is (its quiet time run out, nothing solved again), and masks, manual edges and lens lookups come out at their sizes.
+/// The blend's quiet time runs on a clock the test moves, so what has not been solved yet is not solved however late the test's
+/// own steps, or the stage builder's, run.</summary>
 public sealed class StageResourcesTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(20);
@@ -31,6 +33,19 @@ public sealed class StageResourcesTests
             await Task.Delay(20);
             resources.Observe(snap);
         }
+    }
+
+    /// <summary>Moves the test's clock through the blend's quiet time once the blender waits on it: a tick short of it the wait
+    /// stands and nothing is solved, and the last tick ends it.</summary>
+    private static async Task PassTheQuietTime(ManualTime time, TimeSpan quiet, StageResources resources, ProjectSnapshot snap)
+    {
+        await Until(() => time.Waiting == 1, resources, snap);
+        var solves = resources.BlendSolves;
+        time.Advance(quiet - TimeSpan.FromTicks(1));
+        Assert.Equal(1, time.Waiting);
+        Assert.Equal(solves, resources.BlendSolves);
+        time.Advance(TimeSpan.FromTicks(1));
+        Assert.Equal(0, time.Waiting);
     }
 
     internal static Project WithWarps(Project p) => p with
@@ -69,10 +84,13 @@ public sealed class StageResourcesTests
     [Fact]
     public async Task TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps()
     {
+        var time = new ManualTime();
+        var quiet = TimeSpan.FromMilliseconds(150);
         var store = new ProjectStore(BlendSolveTests.TwoProjectorsOnAWall());
-        await using var resources = new StageResources(new StageMeshes(() => null), StageResourceOptions.Default with { BlendDebounce = TimeSpan.FromMilliseconds(150) });
+        await using var resources = new StageResources(new StageMeshes(() => null), StageResourceOptions.Default with { BlendDebounce = quiet, Time = time });
         await Settle(resources, store.Current);
         Assert.Null(resources.Blend("op_left"));
+        await PassTheQuietTime(time, quiet, resources, store.Current);
         await Until(() => resources.Blend("op_left") is not null, resources, store.Current);
         var first = resources.Blend("op_left");
         Assert.Equal(1, resources.BlendSolves);
@@ -81,6 +99,7 @@ public sealed class StageResourcesTests
         store.Apply("brighter", p => p.WithStage(s => s with { Projectors = s.Projectors.Update("pj_right", x => x with { Lumens = 8000 }) }));
         await Settle(resources, store.Current);
         Assert.Same(first, resources.Blend("op_left"));
+        await PassTheQuietTime(time, quiet, resources, store.Current);
         await Until(() => !ReferenceEquals(first, resources.Blend("op_left")), resources, store.Current);
         Assert.Equal(2, resources.BlendSolves);
 
@@ -94,17 +113,26 @@ public sealed class StageResourcesTests
     [Fact]
     public async Task ABlendTheVerbSolvedIsTakenAsItIsWithoutSolvingAgain()
     {
+        var time = new ManualTime();
+        var quiet = TimeSpan.FromSeconds(30);
         var project = BlendSolveTests.TwoProjectorsOnAWall();
         var store = new ProjectStore(project);
         var meshes = new StageMeshes(() => null);
-        await using var resources = new StageResources(meshes, StageResourceOptions.Default with { BlendDebounce = TimeSpan.FromSeconds(30) });
+        await using var resources = new StageResources(meshes, StageResourceOptions.Default with { BlendDebounce = quiet, Time = time });
         await Settle(resources, store.Current);
         var inputs = BlendInputs.Of(project);
         var offered = new BlendSolveResult(inputs, inputs.Solve(meshes), store.Current.Revision);
+        // Offered inside the quiet time, which stands until the test moves its clock: the only blend there can be is the one offered.
         resources.Offer(offered);
         await Until(() => resources.Blend("op_right") is not null, resources, store.Current);
         Assert.Same(offered.Solution.For("op_right")!.Map, resources.Blend("op_right"));
         Assert.Equal(0, resources.BlendSolves);
+
+        // The quiet time runs out with the project's inputs answered by the offer: the blender takes it as solved and solves nothing.
+        await PassTheQuietTime(time, quiet, resources, store.Current);
+        await Until(() => resources.BlendPasses == 1, resources, store.Current);
+        Assert.Equal(0, resources.BlendSolves);
+        Assert.Same(offered.Solution.For("op_right")!.Map, resources.Blend("op_right"));
     }
 
     [Fact]
