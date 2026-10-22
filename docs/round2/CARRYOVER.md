@@ -858,6 +858,12 @@ Round 2 W1 notes:
   `ANodeWhoseSettingsCannotKeepTheEpochOfItsHandBackSaysSoInItsRow` ask each row for its words, not ok, STATE read as it is written
   for what it reports, a push raised before it, and the file as it was; against the product before this change each failed 2 of 2
   (the step-down's and the hand-back's rows without the words, no row at all for the other two), and with it each passed 3 of 3.
+- Done, not seen failing: `ClockSlewTests.AWaitingBlindCommitMovesWithTheStepSoItLandsNeitherEarlyNorLate` reads the landing's
+  journal row once the lane's tick that landed the commit is over (`Ticked`, as `BlindTests` reads it), not at its first sight of
+  the landed show. A commit lands on the lane's tick: the store publishes the show and runs its listeners, and then the row ("blind
+  commit: 1 change landed (at) by Desk") says it landed, so it rightly follows; a reader that saw the show could read the journal
+  before the row. With the row held 1 s before the journal took it (in a copy of the journal), the unchanged test failed 3 of 3 at
+  its line 102 with the row not found, and passed unheld; it passed 3 of 3 under the hold now.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
