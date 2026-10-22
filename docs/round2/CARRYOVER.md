@@ -663,6 +663,16 @@ Round 2 W1 notes:
   moment the view's ring file was gone: the views delete it and run their listeners before the lane's tick journals the row. A
   300 ms hold there failed it 3 of 3 at its line 213; it now takes a lane turn after the file goes (the tick is a lane item, so a
   later one runs after it), and passed 3 of 3 under the hold.
+- Done: `ProjectorViewTests.TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround` reads the output, and shows the view,
+  only once the stage's tables for the project are published with every mesh tried (`StageResources.WhenSettledAsync`, as
+  `RenderHostTests` and `FxHostTests` wait). The wall's mesh and the output's lens lookup are built on the stage builder's own
+  thread, which the render thread's first frame wakes and never waits for, so a picture drawn before the tables land lights nothing;
+  the test read the output two frames after the host started, which on a loaded machine can come before them. Holding the builder
+  1.5 s at its first wake failed the unchanged test 3 of 3 at its line 61 (`middle (0, 0, 0)`: the output and the view both black),
+  and holding it until the output's first read failed it 2 of 2, once at its line 55 (`Actual: 68448` pixels more than one code off,
+  worst 192 codes: the view drawn with the wall, the output without) and once at line 61; with the wait it passed 3 of 3 held 1.5 s
+  and 1 of 1 held 3 s, every read made with the settled tables in use. Its one failure in a loaded Linux gate (its message lost) is
+  consistent with that race, not proven.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -709,7 +719,9 @@ Round 2 W1 notes:
   read of a solved blend just after its first settle (consistent with its continuation running later than the blend's real-time
   quiet time, above, not proven; the quiet time now runs on a clock the test moves);
   `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (int-tests4's, and a loaded Linux gate's whose message
-  was lost; consistent with its read of the journal racing the panic step, above, which the test now waits out, not proven).
+  was lost; consistent with its read of the journal racing the panic step, above, which the test now waits out, not proven);
+  `ProjectorViewTests.TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround`' one loaded Linux failure (its message lost;
+  consistent with its read racing the stage's builder, above, which the test now waits for, not proven).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
