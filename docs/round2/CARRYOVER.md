@@ -715,6 +715,17 @@ Round 2 W1 notes:
   test began, so what would hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s
   summary says what its reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but
   a collection the thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
+- Done: `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack` holds the simulated scan at its first pattern
+  until its cancel is in. A simulated scan reads "scanning" only while its patterns render, the FAST plan's 34 back to back in one
+  work item on a compute thread (`ScanRunner.CaptureSimulated`; 0.3 to 0.7 s here in Debug), and goes on to its decode, its solve
+  and "done" with no wait; the test sampled the stage every 20 ms of `Task.Delay`, which needs the runtime's timer thread and then a
+  pool thread, so a sampler not run in that window never saw the stage and read "decoding" to "done" until its 30 s ran out. It
+  failed so on the Windows job (run 432, at fix-fetchrow-win ae9ca8d9, which does not touch the scan) at its line 420
+  (`Assert.True() Failure`, after 30 s), consistent with that, not proven: the assertion names no stage. With the test host's
+  ".NET Timer" thread alone stopped 5 s once the rig was built (the scan's threads running on; the whole scan ran in that time) the
+  unchanged test failed 3 of 3 at that line. It now hears the stage on the scan's own thread (`Progressed`, raised once the step is
+  stored) and holds the scan there until `SCAN CANCEL` is answered, every assertion kept; it passed 3 of 3 under the same stop
+  (the scan held at its first pattern) and 3 of 3 without it.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -769,7 +780,10 @@ Round 2 W1 notes:
   processor, above, which its lower bound no longer asks of the machine, not proven);
   `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's heap limit fails its ready check, above, but what would hold
-  that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap).
+  that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap);
+  `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows failure at its line 420 (consistent with
+  its 20 ms samples missing the scan's few hundred milliseconds of "scanning", not proven; the scan is now held there until the
+  cancel is in, above).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

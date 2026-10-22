@@ -123,6 +123,9 @@ The lab checks still to do:
   racing the stage builder's first tables, not proven; it now waits for them),
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (its 125 ms spin counted 61.49 ms of 127.56 ms by the
   stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
+  `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
+  (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
+  now held at its first pattern until the cancel is in),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
