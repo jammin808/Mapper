@@ -34,6 +34,9 @@ public sealed class ProjectorViewTests(ITestOutputHelper log)
     public async Task TheProjectorViewIsTheOutputsPictureBeforeItsTrimAndBlackAround()
     {
         await using var rig = HostRig.Start(WallWithALensedProjector());
+        // The wall's mesh and the output's lens lookup are built off the render thread: the output is read, and the view drawn, only
+        // with them in use (until then the projector lights nothing and both pictures are black).
+        await rig.Host.Stage!.WhenSettledAsync(rig.Engine.Store.Current.Revision).WaitAsync(HostRig.Patience);
         var output = await rig.Read("op_1");
         await rig.Ok($"VIEW pj-pj_1 SHOW projector:pj_1 {W}x{H}");
         var (info, view) = await Frame(rig.Engine.Previews.RingPath("pj-pj_1"));

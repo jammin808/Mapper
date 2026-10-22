@@ -74,8 +74,6 @@ The lab checks still to do:
 - A node's first survey import holds the lane 12 to 22 ms in its slices in a Debug build (their first-call compilation), past the
   10 ms slice; Release is not measured cold.
 - Whether the Windows job's Spout test takes the real WARP round trip or its fallback is not verified.
-- `PANIC REWIND` publishes its lane as Cued before it writes the panic's journal row, so a reader that sees Cued can read the
-  journal without it; `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd` reads it at once and failed one gate run on that.
 - With the fleet's part, which the exe composes, `MEDIA FETCH` pulls through the fleet's path (`BackupNode.FetchMedia`, with the
   peer's proof), which writes no `media.transfers` row, so the desk's Network drawer and PLAY show none of its pulls; says no failed
   try while it tries again; has a bandwidth bucket with no rate, so it is not throttled while a show plays; and lets a second
@@ -124,8 +122,20 @@ The lab checks still to do:
   actual was the default tuple; consistent with the primary's STATE pushes, 200 ms after each move of the clock, landing before the
   link's 250 ms beat looked, not proven: on Linux the unchanged test, stopped 100 ms from 205 ms after the redial, failed so in six
   runs of eight; the test now holds the new connection's reader as well as its greeting, so nothing is heard while the clock moves),
-  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip, and
-  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`.
+  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
+  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `StageResourcesTests`' one Windows read of a solved blend just after
+  the stage settled (consistent with the test's next step, or the stage builder between its signal to the blender and its tables,
+  running later than the blend's 150 ms real-time quiet time, not proven; the quiet time now runs on a clock the test moves),
+  `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (consistent with its read of the panic's journal row
+  racing the lane's step that writes it after the cue, not proven; it now reads the journal once the lane's tick that saw the fade's
+  end has run), `ProjectorViewTests`' one loaded Linux failure (its message lost; consistent with its first read of the output
+  racing the stage builder's first tables, not proven; it now waits for them),
+  `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (its 125 ms spin counted 61.49 ms of 127.56 ms by the
+  stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
+  and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
+  failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
+  live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
+  words and the heap).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

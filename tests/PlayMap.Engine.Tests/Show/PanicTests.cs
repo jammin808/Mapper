@@ -94,9 +94,11 @@ public sealed class PanicTests
         var lane = rig.Engine.Playback.Lane("pl_show")!;
         Assert.Equal(TransportState.Playing, lane.Clip.State);
 
+        // A tick that has seen the fade's end has run its panic step whole: the cue and the journal row that says so.
         rig.Advance(10);
-        Assert.True(await ShowRig.Eventually(() => rig.Engine.Playback.Lane("pl_show")!.Clip.State == TransportState.Cued));
+        await rig.Ticked();
         lane = rig.Engine.Playback.Lane("pl_show")!;
+        Assert.Equal(TransportState.Cued, lane.Clip.State);
         Assert.Equal("it_a", lane.ItemId);
         Assert.Equal(lane.Clip.InNs, lane.Clip.PositionAt(end));
         Assert.Contains(rig.Engine.Journal.Recent(20), r => r.Kind == "panic" && r.Text.Contains("cued A", StringComparison.Ordinal));

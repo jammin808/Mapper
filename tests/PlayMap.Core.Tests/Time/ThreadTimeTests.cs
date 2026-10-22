@@ -6,21 +6,27 @@ using Xunit.Abstractions;
 namespace PlayMap.Core.Tests.Time;
 
 /// <summary>A thread's time counts the work it did, not the time it was kept from running. What the measure must be is the test's
-/// own reading of the platform, never the measure's word: on Linux and macOS the thread's CPU clock, precise, and no read is
-/// allowed a tick; on Windows the thread's kernel and user time in clock ticks, not precise, and each read is allowed the tick it
-/// states. A thread blocked while the test's thread spins 50 ms counts a fiftieth of that span at most (and, where the measure is
-/// precise, the little it ran); a thread that spins counts half to 1.1 times the span it spun, in each 10 ms of it, in the whole
-/// 20 ms and in a spin of 125 ms or eight of the measure's steps, whichever is longer, within the measure's step. On Windows each
-/// bound is a tick wider, and the reads still refuse the stopwatch: the blocked thread counts at most one tick (a fiftieth of its
-/// span is under one), never the 50 ms the stopwatch reads. A clock interrupt charges a tick to the thread it finds running, so a
-/// stretch spun unbroken is charged at most a tick over its length and the 10 ms and 20 ms reads stay under their upper bounds (a
-/// 20 ms read of three ticks or more is not a tick clock's); their lower bounds are below zero there, so the long spin is what shows
-/// that a spinning thread is charged its work: half its span less a tick is three of the eight ticks it spins, which a measure that
-/// charged the spin nothing, or only its kernel time, never reads, and a tick an interrupt or a DPC takes costs one of the five to
-/// spare. A tick read on Linux or macOS fails by the measure's word (it is not precise) and by its reads: the blocked thread runs
-/// microseconds, so it reads nothing ("the little it ran") or, when the clock interrupt lands in them, a whole tick (fifteen times a
-/// fiftieth of its span); and a 10 ms stretch holds at most one tick, so it reads nothing or a tick, never between half and 1.1
-/// times its span. The spins are timed by the stopwatch, so they run alone.</summary>
+/// own reading of the platform, never the measure's word: on Linux and macOS the thread's CPU clock, precise, and no read is allowed
+/// a tick; on Windows the thread's kernel and user time in clock ticks, not precise, and each read is allowed the tick it states. A
+/// thread blocked while the test's thread spins 50 ms counts a fiftieth of that span at most (and, where the measure is precise, the
+/// little it ran); a thread that spins counts at least half the time it ran and at most 1.1 times the stopwatch's span of the spin,
+/// in each 10 ms of it, in the whole 20 ms and in a spin of 125 ms or eight of the measure's steps, whichever is longer, within the
+/// measure's step. A spin runs until it has run its span: what it ran is the sum of the stopwatch's steps between its consecutive
+/// reads that are under 20 µs, and a longer step is time it was kept from running (another thread's turn on its processor, the
+/// process stopped), which the lower bound does not ask the measure to count; the upper bound is on the stopwatch's span, which
+/// holds every such step. So a machine that gives the spinning thread less than a whole processor, or stops the process, fails
+/// neither bound while the spin runs its span within 10 s of the stopwatch, and a measure that counts a running thread too little
+/// still fails the lower one. On Windows each bound is a tick wider, and the reads still refuse the stopwatch: the blocked thread
+/// counts at most one tick (a fiftieth of its span is under one), never the 50 ms the stopwatch reads. A clock interrupt charges a
+/// tick to the thread it finds running, and interrupts come a tick apart, so a span is charged at most a tick over its stopwatch
+/// length and the 10 ms and 20 ms reads stay under their upper bounds (a 20 ms read of three ticks or more is not a tick clock's);
+/// their lower bounds are below zero there, so the long spin is what shows that a spinning thread is charged its work: half of what
+/// it ran less a tick is three of the eight ticks it runs, which a measure that charged the spin nothing, or only its kernel time,
+/// never reads, and a tick an interrupt or a DPC takes costs one of the five to spare. A tick read on Linux or macOS fails by the
+/// measure's word (it is not precise) and by its reads: the blocked thread runs microseconds, so it reads nothing ("the little it
+/// ran") or, when the clock interrupt lands in them, a whole tick (fifteen times a fiftieth of its span); and a 10 ms stretch run
+/// unbroken holds at most one tick, so it reads nothing or a tick, never between half and 1.1 times its span. The spins are timed by
+/// the stopwatch, so they run alone.</summary>
 [Collection(ThreadClockCollection.Name)]
 public sealed class ThreadTimeTests(ITestOutputHelper log)
 {
@@ -63,25 +69,28 @@ public sealed class ThreadTimeTests(ITestOutputHelper log)
 
         var w0 = Stopwatch.GetTimestamp();
         var t0 = ThreadTime.NowNs();
-        var spun = Spin(10);
+        var first = Spin(10);
         var t1 = ThreadTime.NowNs();
         var w1 = Stopwatch.GetTimestamp();
-        spun += Spin(10);
+        var second = Spin(10);
         var t2 = ThreadTime.NowNs();
         var w2 = Stopwatch.GetTimestamp();
-        // Eight steps or more: on Windows half the span less a tick is three of the ticks spun.
+        // Eight steps or more: on Windows half of what it ran less a tick is three of the ticks spun.
         var longMs = (int)Math.Max(125, Math.Ceiling(8.0 * step / 1e6));
         var w3 = Stopwatch.GetTimestamp();
         var t3 = ThreadTime.NowNs();
-        spun += Spin(longMs);
+        var spin = Spin(longMs);
         var t4 = ThreadTime.NowNs();
         var w4 = Stopwatch.GetTimestamp();
-        Assert.True(spun > 0);
-        log.WriteLine(Words($"blocked {waitedWall / 1e6:0.0} ms, counted {waitedCpu / 1e3:0.0} µs; spun {(w1 - w0) * 1e3 / Stopwatch.Frequency:0.00} + {(w2 - w1) * 1e3 / Stopwatch.Frequency:0.00} ms, counted {(t1 - t0) / 1e6:0.00} + {(t2 - t1) / 1e6:0.00} ms; spun {(w4 - w3) * 1e3 / Stopwatch.Frequency:0.00} ms, counted {(t4 - t3) / 1e6:0.00} ms"));
-        AboutItsSpan("the first 10 ms", t1 - t0, Stopwatch.GetElapsedTime(w0, w1).Ticks * 100, step);
-        AboutItsSpan("the second 10 ms", t2 - t1, Stopwatch.GetElapsedTime(w1, w2).Ticks * 100, step);
-        AboutItsSpan("the whole 20 ms", t2 - t0, Stopwatch.GetElapsedTime(w0, w2).Ticks * 100, step);
-        AboutItsSpan(Words($"the {longMs} ms spin"), t4 - t3, Stopwatch.GetElapsedTime(w3, w4).Ticks * 100, step);
+        Assert.True(first.Reads + second.Reads + spin.Reads > 0);
+        log.WriteLine(Words($"blocked {waitedWall / 1e6:0.0} ms, counted {waitedCpu / 1e3:0.0} µs; spun {(w1 - w0) * 1e3 / Stopwatch.Frequency:0.00} + {(w2 - w1) * 1e3 / Stopwatch.Frequency:0.00} ms, ran {first.RanNs / 1e6:0.00} + {second.RanNs / 1e6:0.00} ms, counted {(t1 - t0) / 1e6:0.00} + {(t2 - t1) / 1e6:0.00} ms; spun {(w4 - w3) * 1e3 / Stopwatch.Frequency:0.00} ms, ran {spin.RanNs / 1e6:0.00} ms, counted {(t4 - t3) / 1e6:0.00} ms"));
+        RanItsSpan("the first 10 ms", first, 10);
+        RanItsSpan("the second 10 ms", second, 10);
+        RanItsSpan(Words($"the {longMs} ms spin"), spin, longMs);
+        AboutItsSpan("the first 10 ms", t1 - t0, first.RanNs, Stopwatch.GetElapsedTime(w0, w1).Ticks * 100, step);
+        AboutItsSpan("the second 10 ms", t2 - t1, second.RanNs, Stopwatch.GetElapsedTime(w1, w2).Ticks * 100, step);
+        AboutItsSpan("the whole 20 ms", t2 - t0, first.RanNs + second.RanNs, Stopwatch.GetElapsedTime(w0, w2).Ticks * 100, step);
+        AboutItsSpan(Words($"the {longMs} ms spin"), t4 - t3, spin.RanNs, Stopwatch.GetElapsedTime(w3, w4).Ticks * 100, step);
     }
 
     /// <summary>A read moves in steps no finer than the step the measure states. Where the thread's time can be read precisely the
@@ -164,20 +173,51 @@ public sealed class ThreadTimeTests(ITestOutputHelper log)
         }
     }
 
-    private static long Spin(int ms)
+    /// <summary>The step of the stopwatch between a spin's consecutive reads under which the spin counts the step as its own running
+    /// (ns): a read takes tens of nanoseconds, and a longer step is time the thread was kept from running (another thread's turn on its
+    /// processor, the process stopped) or, rarely, an interrupt it waited out, which the spin then does not count either.</summary>
+    private const long RunStepNs = 20_000;
+
+    /// <summary>The longest a spin takes, by the stopwatch, to run its span before it gives up.</summary>
+    private static readonly TimeSpan SpinPatience = TimeSpan.FromSeconds(10);
+
+    /// <summary>What a spin did: how often it read the stopwatch, the time it ran (stopwatch ticks: the sum of the steps between its
+    /// consecutive reads under <see cref="RunStepNs"/>) and the span it was asked to run (stopwatch ticks, rounded up).</summary>
+    private readonly record struct Spun(long Reads, long Ran, long Span)
     {
-        var spun = 0L;
-        var w = Stopwatch.GetTimestamp();
-        while (Stopwatch.GetElapsedTime(w) < TimeSpan.FromMilliseconds(ms))
-            spun++;
-        return spun;
+        /// <summary>The time it ran (ns).</summary>
+        public long RanNs => (long)(Ran * (1e9 / Stopwatch.Frequency));
     }
 
-    /// <summary>A spin counts about its span: never more than a tenth over, never less than half of it, within a step of the
-    /// measure.</summary>
-    private static void AboutItsSpan(string what, long cpuNs, long wallNs, long step) =>
-        Assert.True(cpuNs >= wallNs / 2 - step && cpuNs <= wallNs * 11 / 10 + step,
-            Words($"{what}: spun {wallNs / 1e6:0.00} ms of the stopwatch, counted {cpuNs / 1e6:0.00} ms, 0.5 to 1.1 of it allowed within {step / 1e6:0.###} ms ({ThreadTime.Basis})"));
+    /// <summary>Spins until it has run <paramref name="ms"/>, or until <see cref="SpinPatience"/> has passed by the stopwatch.</summary>
+    private static Spun Spin(int ms)
+    {
+        var runStep = RunStepNs * Stopwatch.Frequency / 1_000_000_000;
+        var span = (ms * Stopwatch.Frequency + 999) / 1000;
+        var last = Stopwatch.GetTimestamp();
+        var giveUp = last + (long)(SpinPatience.TotalSeconds * Stopwatch.Frequency);
+        long reads = 0, ran = 0;
+        while (ran < span && last < giveUp)
+        {
+            var now = Stopwatch.GetTimestamp();
+            if (now - last < runStep)
+                ran += now - last;
+            last = now;
+            reads++;
+        }
+        return new Spun(reads, ran, span);
+    }
+
+    /// <summary>A spin ran the span it was asked for, so its lower bound asks the measure for half of that span at least.</summary>
+    private static void RanItsSpan(string what, Spun spin, int ms) =>
+        Assert.True(spin.Ran >= spin.Span,
+            Words($"{what}: ran {spin.RanNs / 1e6:0.00} ms of its {ms} ms in {SpinPatience.TotalSeconds:0} s of the stopwatch"));
+
+    /// <summary>A spin counts about the time it ran: never more than a tenth over the stopwatch's span, never less than half of what it
+    /// ran, within a step of the measure.</summary>
+    private static void AboutItsSpan(string what, long cpuNs, long ranNs, long wallNs, long step) =>
+        Assert.True(cpuNs >= ranNs / 2 - step && cpuNs <= wallNs * 11 / 10 + step,
+            Words($"{what}: ran {ranNs / 1e6:0.00} ms of {wallNs / 1e6:0.00} ms of the stopwatch, counted {cpuNs / 1e6:0.00} ms, half of what it ran to 1.1 of the stopwatch's span allowed within {step / 1e6:0.###} ms ({ThreadTime.Basis})"));
 
     private static string Words(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
 

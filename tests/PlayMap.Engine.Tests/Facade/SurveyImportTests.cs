@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime;
 using System.Text;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
@@ -84,6 +85,16 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
     internal static void AssertTheSlicesAreWithin(SurveyJobView job, double budgetMs) =>
         Assert.True(job.LaneMaxBoundMs <= budgetMs, string.Create(CultureInfo.InvariantCulture,
             $"the import's lane slices are not within {budgetMs} ms: the longest by the lesser of its readings {job.LaneMaxBoundMs:0.00} ms; the longest by the lane thread's time {job.LaneMaxMs:0.00} ms in steps of {job.LaneResolutionMs:0.######} ms; the longest by the stopwatch {job.LaneMaxWallMs:0.00} ms; the collections paused the process {job.LaneMaxPauseMs:0.00} ms in a slice at most; over {job.LaneSlices} slices ({ThreadTime.Basis})"));
+
+    /// <summary>The import ended ready. Where it did not, the failure carries the import's own words and the test host's managed heap
+    /// against the limit it runs under (what is allocated at the check, and the heap and its commit as the last collection left them),
+    /// so an import refused for memory is told apart from one refused for any other reason.</summary>
+    internal static void AssertReady(SurveyJobView job)
+    {
+        var last = GC.GetGCMemoryInfo();
+        Assert.True(job.State == "ready", string.Create(CultureInfo.InvariantCulture,
+            $"the import {job.Id} is {job.State}, not ready: {job.Words}; the managed heap {GC.GetTotalMemory(false) >> 20} MB allocated now, {last.HeapSizeBytes >> 20} MB and {last.TotalCommittedBytes >> 20} MB committed at its last collection, of the {last.TotalAvailableMemoryBytes >> 20} MB this process may use; the collector in {GCSettings.LatencyMode}"));
+    }
 
     /// <summary>What a pass of <see cref="AssertTheSlicesAreWithin"/> stands on, for the log.</summary>
     internal static string Proof(SurveyJobView job, double budgetMs) =>
@@ -175,7 +186,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         var (job, seconds, answer, asked) = await ImportWhileAsking(rig, file);
         log.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"2 M triangles imported in {seconds:0.0} s; {Slices(job)}; {asked} lane queries, worst {answer:0.0} ms; {job.Words}"));
-        Assert.Equal("ready", job.State);
+        AssertReady(job);
         Assert.True(seconds <= 15 * 4, $"{seconds:0.0} s");
         // The lane answers SITE throughout: held here to the 4× ceiling of its 50 ms budget (the Perf twin holds an optimised build
         // to the budget).
@@ -463,7 +474,7 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
         var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);
         var (_, seconds, worst, asked) = await SurveyImportTests.ImportWhileAsking(rig, file);
         log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles in {seconds:0.0} s; {asked} lane queries, worst {worst:0.0} ms"));
-        Assert.Equal("ready", rig.Engine.SurveyJob!.State);
+        SurveyImportTests.AssertReady(rig.Engine.SurveyJob!);
         // Both budgets are for optimised code: a Debug build (the JIT's optimiser off) records its times against their 4× ceilings.
         var scale = SurveyImportTests.Optimised ? 1 : 4;
         log.WriteLine(SurveyImportTests.Optimised ? "optimised build: the 15 s and 50 ms budgets hold" : "Debug build: recorded against the 4× ceilings (60 s, 200 ms)");
@@ -477,12 +488,12 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
         await using var rig = new SiteRig();
         // The lane's import path compiled first, by a small import into the same project.
         var first = await rig.Import($"{SurveyFacade.WritePly(rig.File("warm.ply"), 101, 101)} CRS LOCAL UP Z DECIMATE 10000 NAME Warm");
-        Assert.Equal("ready", first.State);
+        SurveyImportTests.AssertReady(first);
         log.WriteLine($"the import that compiles the lane's path where nothing in this process has: {SurveyImportTests.Slices(first)}");
         var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);
         var (job, seconds) = await SurveyImportTests.ImportBig(rig, file);
         log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"2 M triangles imported in {seconds:0.0} s; {SurveyImportTests.Slices(job)}"));
-        Assert.Equal("ready", job.State);
+        SurveyImportTests.AssertReady(job);
         Assert.NotEqual(first.Id, job.Id);
         Assert.Equal(2, job.LaneSlices);
         SurveyImportTests.AssertTheSlicesAreWithin(job, SurveyImportTests.LaneSliceBudgetMs);
@@ -492,7 +503,7 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
 
 /// <summary>The import's view takes each lane slice by the lesser of its readings, its thread time plus the step or its stopwatch time,
 /// so slices each within a budget by one measure are within it though the longest by each measure is over it, and a slice over it
-/// by both fails it with its readings.</summary>
+/// by both fails it with its readings; an import that did not end ready fails the ready check with its words and the heap.</summary>
 public sealed class SurveyJobViewTests
 {
     [Fact]
@@ -514,6 +525,21 @@ public sealed class SurveyJobViewTests
         Assert.Equal(3, over.LaneSlices);
         var refused = Assert.Throws<Xunit.Sdk.TrueException>(() => SurveyImportTests.AssertTheSlicesAreWithin(over, 40));
         Assert.Contains("the longest by the stopwatch 47.00 ms", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>An import that did not end ready fails the ready check with its own words and the test host's heap against its limit,
+    /// and one that did passes it.</summary>
+    [Fact]
+    public void AnImportThatIsNotReadyFailsWithItsWordsAndTheHeap()
+    {
+        var failed = new SurveyJobView("survey-1", "North front", SurveyFormat.Ply, "north-front.ply", "failed", 0.3,
+            "North front was not imported: the file is too large for this machine's memory — thin or split it first", 0, 0.000001, 0, 0, 0, 1);
+        var refused = Assert.Throws<Xunit.Sdk.TrueException>(() => SurveyImportTests.AssertReady(failed));
+        Assert.Contains("survey-1 is failed, not ready: North front was not imported: the file is too large for this machine's memory", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("MB allocated now", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("MB committed at its last collection, of the", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("MB this process may use", refused.Message, StringComparison.Ordinal);
+        SurveyImportTests.AssertReady(failed with { State = "ready" });
     }
 }
 
