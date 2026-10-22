@@ -519,9 +519,13 @@ public sealed class HttpHost : IAsyncDisposable
         app.MapFallback((HttpContext c) => WriteErrorAsync(c, StatusCodes.Status404NotFound, "no such route — /api/state, /api/context, /api/project, /api/verbs, /api/cmd, /ws, /tls, /api/media, /api/thumb, /mcp"));
     }
 
+    /// <summary>Why a long-poll the web port's own stop cuts is answered 503, with no STATE.</summary>
+    internal const string StoppingWords = "this node's web port is stopping — ask again once it is back";
+
     /// <summary>STATE now; with <c>?since=&lt;seq&gt;</c> it answers the first STATE newer than that, or the one it holds once the
     /// long-poll time has passed on <see cref="HttpHostOptions.Time"/> since it took the request. A wake that brings nothing newer
-    /// waits on for what is left of that time.</summary>
+    /// waits on for what is left of that time. A poll the web port's own stop cuts is answered 503 with the reason; one its client
+    /// gave up on is answered nothing.</summary>
     private async Task StateAsync(HttpContext context)
     {
         var (json, revision) = _endpoint.State();
@@ -545,6 +549,8 @@ public sealed class HttpHost : IAsyncDisposable
                 }
                 catch (OperationCanceledException)
                 {
+                    if (!context.RequestAborted.IsCancellationRequested)
+                        await WriteErrorAsync(context, StatusCodes.Status503ServiceUnavailable, StoppingWords);
                     return;
                 }
                 (json, revision) = _endpoint.State();

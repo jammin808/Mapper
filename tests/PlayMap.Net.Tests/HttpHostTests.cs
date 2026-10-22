@@ -254,9 +254,30 @@ public class HttpHostTests
             $"answered {took.TotalMilliseconds:F3} ms after it was asked, inside its {limit.TotalMilliseconds} ms limit"));
     }
 
+    [Fact]
+    public async Task ALongPollTheWebPortsStopCutsIsAnsweredThatItStopsNotWithAnEmptyState()
+    {
+        // A poll waiting when the node's web port stops has seen no newer STATE and has not reached its limit: it is refused with the
+        // reason, as a request the port cannot serve, never a 200 without a STATE in it.
+        var endpoint = new FakeEndpoint();
+        var time = new ManualTime();
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = TimeSpan.FromSeconds(25), Time = time });
+        using var c = Client(host);
+        var poll = c.GetAsync("/api/state?since=1");
+        await WaitsOnItsLimitAsync(time, 1, poll);
+        await host.DisposeAsync();
+        using var answer = await poll.WaitAsync(TimeSpan.FromSeconds(10));
+        var body = await answer.Content.ReadAsStringAsync();
+        Assert.Equal((HttpStatusCode.ServiceUnavailable, "application/json; charset=utf-8"), (answer.StatusCode, answer.Content.Headers.ContentType?.ToString()));
+        using var json = JsonDocument.Parse(body);
+        Assert.False(json.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(HttpHost.StoppingWords, json.RootElement.GetProperty("error").GetString());
+        Assert.Equal((1, 0), (time.Made, time.Waiting));
+    }
+
     /// <summary>Waits until the poll has made its <paramref name="made"/>th wait on the clock and that wait alone stands, then holds that
     /// the poll has not answered: from here only a change or a move of the clock ends it.</summary>
-    private static async Task WaitsOnItsLimitAsync(ManualTime time, int made, Task<string> poll)
+    private static async Task WaitsOnItsLimitAsync(ManualTime time, int made, Task poll)
     {
         Assert.True(await Eventually.TrueAsync(() => (time.Made == made && time.Waiting == 1) || poll.IsCompleted, 20000),
             $"the poll never waited on its limit: {time.Made} waits made, {time.Waiting} standing");

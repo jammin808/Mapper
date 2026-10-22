@@ -540,8 +540,12 @@ Round 2 W1 notes:
   made, 1 standing") and `AWaitForAChangeEndsNoSoonerThanItsTimeThoughThatIsNotWholeMilliseconds` (a 0.5 ms wait had ended at its
   call) failed before it and pass with it. `OnTheSystemClockALongPollWithNothingNewerAnswersNoSoonerThanItsLimit` runs a poll on
   the clock a node counts on (`HttpHostOptions.Time` unset, `TimeProvider.System`), with a 50 ms limit, and reads only that it
-  answered no sooner than that after it was asked, which no pace of the threads can break. The hand-moved clock is one file the
-  Engine, App and Net suites share (`tests/Shared/ManualTime.cs`) instead of three copies.
+  answered no sooner than that after it was asked, which no pace of the threads can break. A poll the web port's own stop cut
+  (the host's dispose cancels it before Kestrel stops) left its handler without a word, so its client had a 200 with an empty body,
+  no STATE in it; it is answered 503 with the reason now, and a poll its client gave up on is answered nothing
+  (`ALongPollTheWebPortsStopCutsIsAnsweredThatItStopsNotWithAnEmptyState`: `(OK, null)` before, `ServiceUnavailable` and JSON
+  after). The hand-moved clock is one file the Engine, App and Net suites share (`tests/Shared/ManualTime.cs`) instead of three
+  copies.
   The same race, the test's own pace against a short real limit, was in three more Net tests and is gone from them, the first two
   not forced: `AFrameMayOvertakeTheReceiptOfTheCommandThatMovedIt` made the frame come first by holding the line's answer 300 ms
   of real time, so a sender that woke later than that let the receipt come first; the answer is now held until the test has the
