@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Fleet;
@@ -85,16 +84,13 @@ internal static class BackupRig
             .Single(s => s.GetProperty("section").GetString() == "fleet").GetProperty("rows").EnumerateArray().Select(r => r.Clone()).ToList();
     }
 
-    /// <summary>How far a meeting moves the fleet's clock at each look that finds a node without a peer's health while its fleet monitor
-    /// waits to dial again: at 50 ms a look (20 ms apart), the monitor's longest wait (8 s, spread by up to a fifth) passes within 192
-    /// looks.</summary>
-    private static readonly TimeSpan RedialStep = TimeSpan.FromMilliseconds(50);
-
     /// <summary>Introduces the nodes to each other and waits until each hears the others' hellos, at the web port each serves (so the
     /// machine a fleet monitor dials under that id is the rig's own), and their health. A monitor whose subscription ended without a
-    /// record (refused, cut, or made to another machine under the same id) dials again only once its backoff has run out on the fleet's
-    /// clock, which these tests move by hand: while a node lacks a peer's health and its monitor waits so, each look moves every node's
-    /// fleet clock a step on. Nothing moves that clock while a dial is under way or once the health is held.</summary>
+    /// record dials again only once its backoff has run out on the fleet's clock, which these tests move by hand: while a node lacks a
+    /// peer's health and its monitor waits to dial any machine again, each look moves every node's fleet clock a step on
+    /// (<see cref="FleetWait.UntilAsync"/>). That step also moves any dial a node has under way (its connect timeout runs on that clock)
+    /// and ages every record a node holds; no look moves it while the node's monitor waits to dial none, or once the node holds the
+    /// peer's health.</summary>
     public static async Task MeetAsync(params HostRig[] rigs)
     {
         foreach (var a in rigs)
@@ -107,43 +103,12 @@ internal static class BackupRig
             foreach (var b in rigs.Where(b => b != a))
             {
                 Assert.True(await Eventually.TrueAsync(() => a.Network.Hello!.Peers.Find(b.Id)?.Hello.Port("http") == b.Network.HttpPort),
-                    $"{a.Id} does not hear {b.Id} at its web port: {Knows(a, b)}");
-                Assert.True(await HealthAsync(a, b, clocks), $"{a.Id} has no health of {b.Id}: {Knows(a, b)}");
+                    $"{a.Id} does not hear {b.Id} at its web port: {FleetWait.Knows(a, b)}");
+                var (held, _) = await FleetWait.UntilAsync(() => a.Engine.Services.FleetPeers!.Peers().Any(p => p.Id == b.Id && p.Health is not null),
+                    a.Engine.Services.FleetPeers as FleetMonitor, clocks);
+                Assert.True(held, $"{a.Id} has no health of {b.Id}: {FleetWait.Knows(a, b)}");
             }
         }
-    }
-
-    /// <summary>True once <paramref name="a"/>'s fleet monitor holds a record of <paramref name="b"/>'s health, within the patience of
-    /// <see cref="Eventually"/>; each look without one while the monitor waits to dial again moves the fleet's clocks a step.</summary>
-    private static async Task<bool> HealthAsync(HostRig a, HostRig b, IReadOnlyList<ManualTime> clocks)
-    {
-        var monitor = a.Engine.Services.FleetPeers as FleetMonitor;
-        bool Holds() => a.Engine.Services.FleetPeers!.Peers().Any(p => p.Id == b.Id && p.Health is not null);
-        var waited = Stopwatch.StartNew();
-        while (!Holds())
-        {
-            if (waited.ElapsedMilliseconds >= 10_000)
-                return Holds();
-            if (monitor?.Redialling > 0)
-            {
-                foreach (var clock in clocks)
-                    clock.Advance(RedialStep);
-            }
-            await Task.Delay(20);
-        }
-        return true;
-    }
-
-    /// <summary>What a node's hello and fleet monitor hold of a peer, for a meeting that fails.</summary>
-    private static string Knows(HostRig a, HostRig b)
-    {
-        var peer = a.Network.Hello!.Peers.Find(b.Id);
-        var table = peer is null
-            ? $"its hello has no {b.Id}"
-            : string.Create(CultureInfo.InvariantCulture, $"its hello has {b.Id} at {peer.Address}:{peer.Hello.Port("http")} ({peer.Liveness})");
-        var monitor = a.Engine.Services.FleetPeers as FleetMonitor;
-        return string.Create(CultureInfo.InvariantCulture,
-            $"{table}, and {b.Id} serves {b.Network.HttpPort}; its monitor keeps {monitor?.Count} machines, {monitor?.Subscriptions} subscribed or waiting to dial again ({monitor?.Redialling} waiting), and says of {b.Id}: {monitor?.WordsOf(b.Id) ?? "nothing"}");
     }
 
     /// <summary>The backup proves the primary's token, joins its mirror, and is identical.</summary>

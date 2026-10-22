@@ -742,9 +742,25 @@ Round 2 W1 notes:
   new tests (`BackupRigTests`: the same stray hello sent in the process, and a first subscription that ends unheard). The monitor
   now counts the subscriptions waiting out their backoff (`FleetMonitor.Redialling`, each counted once its wait's timer stands) and
   says what it last said of a machine it keeps, heard or not (`WordsOf`); the meeting moves every node's fleet clock 50 ms at each
-  20 ms look while the node lacks the peer's health and its monitor waits so (never while a dial is under way or once the health is
-  held), and a meeting that fails names the hello's address and port, the peer's own port and the monitor's counts and words. The
-  new tests passed 3 of 3, the render test 3 of 3 with the stray hello, and the 54 Fleet tests all passed.
+  20 ms look while the node lacks the peer's health and its monitor waits to dial any machine again (`FleetWait.UntilAsync`; no look
+  moves it once the health is held or while that monitor waits to dial none, but a step moves every node's clock, so it also moves a
+  dial another node has under way, whose connect timeout runs on that clock, and ages the records the nodes hold), and a meeting
+  that fails names the hello's address and port, the peer's own port and the monitor's counts and words. The new tests passed 3 of
+  3, the render test 3 of 3 with the stray hello, and the 54 Fleet tests all passed.
+- Done: `FleetMonitorTests.APeerAppearsWhenItsHealthArrivesAndGoesStaleThenGoneOnTheMonitorsClock` moves A's fleet clock while A
+  lacks B live and A's fleet monitor waits to dial again, through the hot-backup meeting's wait (`FleetWait.UntilAsync`). Its nodes
+  run the fleet on a `ManualTime` the test did not move before B read live, so a first subscription to B that ended without a
+  record (refused or cut) left A's monitor waiting out its backoff for good, and the 10 s wait for B live ran out at its line 52
+  with only the journal in its message. With a hello under B's id (read from B's settings file as B started) naming a closed web
+  port, sent to the test host's UDP ports for 0.4 s before the two met, the unchanged test failed 3 of 3 at that line after 11 s.
+  The wait's steps are the monitor's sweep (250 ms): the sweep ages liveness every 250 ms from the clock's zero, so a record heard
+  between two sweeps would be read stale or gone up to 250 ms after the test's advances cross 3 s and 6 s (with 50 ms steps the
+  test failed 2 runs of 3 so, at its stale read); heard at a sweep's instant, as on the unmoved clock, it is read at them. Every
+  assertion is kept: A's clock reads exactly what the wait moved it (zero when the first subscription is heard), and a wait that
+  fails names what A's hello and monitor hold of B. Under the same stray hello it passed 3 of 3 (A's clock moved 8 s on a probed
+  run), and 3 of 3 without it (0 s); the 54 Fleet tests all passed. The watched "peer not live" below is consistent with this, not
+  proven: the failing runs kept only the journal, and in this rig, whose node ids are random, a stray hello under B's id is not the
+  likely way in; a dial refused or cut is.
 - Done: `OptimiseJobTests.CancelStopsTheRunningJobAndLeavesNoPartialFile` holds its worker after the first frame
   (`OptimiseRig.HeldAtFirstFrame`), so its cancel lands mid-job. The job's partial file is on disk only while the clip encodes and
   until the service takes the end in (a few seconds here), and the test looked for it every 50 ms before it cancelled, so a test
@@ -811,7 +827,9 @@ Round 2 W1 notes:
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
   `FleetMonitorTests`' 10 s wait for the peer to read live (the test now waits until the headline and the context match the record
-  the monitor holds; the 10 s "peer not live" is not reproduced); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
+  the monitor holds; the 10 s "peer not live" is consistent with A's monitor's first subscription to B ending unheard and its next
+  dial waiting on A's fleet clock, which the test did not move before B read live, not proven; the wait now moves that clock while
+  the monitor waits, and names what A holds of B, above); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows read of the mirror as lost
   (consistent with the mirror link's real-time silence above — a stale spell, or its latch, both now on the node's clock or fixed
