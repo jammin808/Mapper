@@ -17,6 +17,7 @@ using PlayMap.Engine.Tests.Host;
 using PlayMap.Engine.Tests.Optimise;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Engine.Tests.Show;
+using PlayMap.Engine.Tests.Spine;
 
 namespace PlayMap.Engine.Tests;
 
@@ -373,6 +374,42 @@ public sealed class VerbRowTests
             .Where(r => r.Line == "BIND LEARN FROM MIDI SET sf_lobby opacity *" || r.Text.StartsWith("learnt: ", StringComparison.Ordinal)).ToList();
         Assert.Equal([("verb", "Desk"), ("control", "control")], rows.Select(r => (r.Kind, r.Who)));
         Assert.Equal("learnt: MIDI CC 1 7 → Lobby opacity", rows[1].Text);
+    }
+
+    [Fact]
+    public async Task WorkALaneHandlerLeftRunningHandsOverThroughItsCallAfterTheAnswerStillFollowsTheLinesRow()
+    {
+        // A lane handler answers and leaves work running that holds its call; that work hands its row over through the call only
+        // once the handler has answered, just before the line's row is written. The line's dispatcher takes the call after the row,
+        // so the work's row still follows it.
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var spec = RoutesTests.Unrouted(engine, v => v.Mutates && !v.Ephemeral && !v.Gesture);
+        var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.Routes.Lane(spec.Name, call =>
+        {
+            _ = answered.Task.ContinueWith(_ =>
+            {
+                call.AfterRow(() => engine.Journal.Add("test", "the work's row"));
+                handed.TrySetResult();
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return CommandReply.Success(effect: "the line's row");
+        });
+        engine.RowHeldForTests = async (line, _) =>
+        {
+            if (!line.Raw.StartsWith(spec.Name, StringComparison.Ordinal))
+                return;
+            answered.TrySetResult();
+            await handed.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        };
+        var before = engine.Journal.Recent(200).Count;
+
+        var reply = await Run(engine, spec.Name + " x1");
+
+        Assert.True(reply.Ok, reply.Payload);
+        var rows = engine.Journal.Recent(200).Skip(before).Where(r => r.Kind is "verb" or "test").ToList();
+        Assert.Equal([("verb", "the line's row"), ("test", "the work's row")], rows.Select(r => (r.Kind, r.Text)));
+        Assert.Equal(spec.Name + " x1", rows[0].Line);
     }
 
     [Fact]

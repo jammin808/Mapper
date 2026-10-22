@@ -165,7 +165,7 @@ public sealed partial class EngineCore
             turn = new LineTurn(null, ex, null);
         }
         if (RowHeldForTests is { } hold)
-            await hold(line, turn.AfterRow is not null).ConfigureAwait(false);
+            await hold(line, turn.HoldsWork).ConfigureAwait(false);
         try
         {
             if (turn.Reply is not { } written)
@@ -178,7 +178,7 @@ public sealed partial class EngineCore
         }
         finally
         {
-            BeginAfterRow(turn.AfterRow);
+            BeginAfterRow(turn.TakeWork());
         }
         return turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
     }

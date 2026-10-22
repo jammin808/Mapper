@@ -411,7 +411,7 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
             turn = new LineTurn(null, ex, null);
         }
         if (RowHeldForTests is { } hold)
-            await hold(line, turn.AfterRow is not null).ConfigureAwait(false);
+            await hold(line, turn.HoldsWork).ConfigureAwait(false);
         try
         {
             if (turn.Reply is not { } written)
@@ -422,14 +422,24 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         }
         finally
         {
-            BeginAfterRow(turn.AfterRow);
+            BeginAfterRow(turn.TakeWork());
         }
         return turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
     }
 
-    /// <summary>A line's turn on the lane: its reply, or (null) the fault its handler threw, and the work its handler began behind its
-    /// row (<see cref="AfterRow"/>), null when it began none.</summary>
-    private readonly record struct LineTurn(CommandReply? Reply, Exception? Fault, Action? AfterRow);
+    /// <summary>A line's turn on the lane: its reply, or (null) the fault its handler threw, the work its handler began behind its
+    /// row (<see cref="AfterRow"/>), null when it began none, and the call a package's lane handler took (null for the router's own
+    /// verbs), whose work handed over through it, by the handler or after the answer by work it left running, also waits for the
+    /// row.</summary>
+    private readonly record struct LineTurn(CommandReply? Reply, Exception? Fault, Action? AfterRow, VerbCall? Call = null)
+    {
+        /// <summary>True while work is held behind the line's row, not yet taken by its dispatcher.</summary>
+        public bool HoldsWork => AfterRow is not null || Call is { HoldsAfterRow: true };
+
+        /// <summary>The work held behind the line's row, taken once by its dispatcher once it has written the row (null when there is
+        /// none); work handed to the call after that begins at once.</summary>
+        public Action? TakeWork() => AfterRow + Call?.TakeAfterRow();
+    }
 
     /// <summary>True while a line's handler runs on the lane (<see cref="RouteBehindRow"/>): <see cref="AfterRow"/> then holds the work it
     /// begins for the line's dispatcher. On the lane only.</summary>
@@ -438,28 +448,34 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
     /// <summary>The work the line running on the lane began behind its row, null while it began none. On the lane only.</summary>
     private Action? _afterRow;
 
-    /// <summary>The router on the lane for one line, the work its handler begins through <see cref="AfterRow"/> held for the line's
-    /// dispatcher. A handler refusing a word it cannot take (<see cref="EditRefusedException"/>) is a refusal like any other; any other
-    /// throw is the line's fault. Either way the work it began before it threw is handed back with it.</summary>
+    /// <summary>The call the package's lane handler of the line running on the lane took, null for the router's own verbs. On the
+    /// lane only.</summary>
+    private VerbCall? _lineCall;
+
+    /// <summary>The router on the lane for one line, the work its handler begins through <see cref="AfterRow"/>, and the call a
+    /// package's lane handler took, held for the line's dispatcher. A handler refusing a word it cannot take
+    /// (<see cref="EditRefusedException"/>) is a refusal like any other; any other throw is the line's fault. Either way the work it
+    /// began before it threw, and its call, are handed back with it.</summary>
     private LineTurn RouteBehindRow(WireLine line, SessionInfo session, CancellationToken ct)
     {
-        var (outerTurn, outerAfter) = (_lineTurn, _afterRow);
-        (_lineTurn, _afterRow) = (true, null);
+        var (outerTurn, outerAfter, outerCall) = (_lineTurn, _afterRow, _lineCall);
+        (_lineTurn, _afterRow, _lineCall) = (true, null, null);
         try
         {
-            return new LineTurn(Route(line, session, ct), null, _afterRow);
+            var reply = Route(line, session, ct);
+            return new LineTurn(reply, null, _afterRow, _lineCall);
         }
         catch (EditRefusedException refused)
         {
-            return new LineTurn(CommandReply.Fail(refused.Message), null, _afterRow);
+            return new LineTurn(CommandReply.Fail(refused.Message), null, _afterRow, _lineCall);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return new LineTurn(null, ex, _afterRow);
+            return new LineTurn(null, ex, _afterRow, _lineCall);
         }
         finally
         {
-            (_lineTurn, _afterRow) = (outerTurn, outerAfter);
+            (_lineTurn, _afterRow, _lineCall) = (outerTurn, outerAfter, outerCall);
         }
     }
 

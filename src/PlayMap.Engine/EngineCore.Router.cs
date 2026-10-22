@@ -49,17 +49,11 @@ public sealed partial class EngineCore
         {
             if (_routes.TryLane(spec.Name, out var handler))
             {
+                // The line's turn hands its call to the line's dispatcher, which takes what was handed over through it (by the
+                // handler, or after the answer by work the handler left running) once it has written the line's row.
                 var call = new VerbCall(spec, args, line, session, ct);
-                try
-                {
-                    return handler(call);
-                }
-                finally
-                {
-                    // On the lane the line's turn holds what its handler began behind its row, whichever way it handed it over.
-                    if (call.TakeAfterRow() is { } held)
-                        AfterRow(held);
-                }
+                _lineCall = call;
+                return handler(call);
             }
             return RouteRoundOne(spec, args, line, session, ct);
         }

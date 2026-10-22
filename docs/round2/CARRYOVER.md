@@ -618,6 +618,11 @@ Round 2 W1 notes:
   `SettingsWriterTests.AFollowSwitchTheFileCannotKeepIsSaidAfterTheRowOfTheLineThatSetIt`.
   `VerbRowTests.ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` failed three runs of three against the product
   before the fix and passes now; `WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter` holds `VerbCall`'s hand-over.
+  A package's lane handler's `VerbCall` goes to the line's dispatcher with the lane's turn, and the dispatcher takes what was
+  handed over through it once it has written the row, so work the handler left running that hands its row over through the call
+  after the handler has answered still follows the row: `WorkALaneHandlerLeftRunningHandsOverThroughItsCallAfterTheAnswerStillFollowsTheLinesRow`
+  failed three runs of three when the router took the call's work at the handler's answer (the work's row first) and passes now.
+  No handler does that today. `VerbCall` is a class, one per line, so no copy of it holds work its dispatcher never takes.
   These failed three runs of three with the order before them put back (a local edit, not kept) and pass now, each with the line's
   row held until the work's first row is in: `VerbRowTests.AScansEndIsJournalledAfterTheRowOfTheStartThatBeganIt` (a scan backend
   whose scan has ended when it answers), `AnOptimiseJobThatCannotRunIsJournalledAfterTheRowOfTheVerbThatQueuedIt` (a margin of free

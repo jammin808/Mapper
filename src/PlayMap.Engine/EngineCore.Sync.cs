@@ -642,7 +642,7 @@ public sealed partial class EngineCore
         }
         finally
         {
-            BeginAfterRow(turn.AfterRow);
+            BeginAfterRow(turn.TakeWork());
         }
         return (turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged"), ran);
     }
