@@ -3,6 +3,7 @@ using System.Text.Json;
 using PlayMap.Core.Fleet;
 using PlayMap.Core.Model;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Fleet;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Host;
@@ -344,6 +345,92 @@ public sealed class BackupTests
         Assert.Contains(before.Ok ? before.Text : "refused: " + before.Text, context);
         Assert.Equal(FetchJournal.Most, context.Count(r => r.Contains("could not be pulled from FOH-A", StringComparison.Ordinal)));
         Assert.Equal(ended, context[^1]);
+    }
+
+    [Fact]
+    public async Task AFleetFetchsRowsFollowTheRowOfTheVerbThatBeganThem()
+    {
+        // Six files FOH-A does not hold, each refused at its first ask: every pull's row, and the row that counts the rest, follow the
+        // MEDIA FETCH's own row, however late that row is written.
+        const int Files = 6;
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var a = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, clock, time);
+        await using var b = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        string Name(int k) => string.Create(CultureInfo.InvariantCulture, $"clip{k}");
+        var show = SyncRig.Show() with
+        {
+            Media = [.. Enumerable.Range(0, Files).Select(k => new MediaItem("md" + Name(k), Name(k), MediaKind.Video, $"/nowhere/{Name(k)}.mp4",
+                "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(BitConverter.GetBytes(k))), 0, MediaInfo.Unknown, []))],
+        };
+        await SyncRig.OpenShowAsync(b, show);
+        await BackupRig.MeetAsync(a, b);
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        b.Engine.Journal.Written += r =>
+        {
+            if (r.Text.StartsWith("the fetch of ", StringComparison.Ordinal))
+                ended.TrySetResult();
+        };
+        b.Engine.RowHeldForTests = (line, held) => !held && line.Raw.StartsWith("MEDIA FETCH", StringComparison.Ordinal)
+            ? ended.Task.WaitAsync(TimeSpan.FromSeconds(60))
+            : Task.CompletedTask;
+
+        var reply = await b.RunAsync("MEDIA FETCH ALL FROM FOH-A");
+        await ended.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.True(reply.Ok, reply.Payload);
+        var rows = b.Engine.Journal.Recent(200)
+            .Where(r => r.Line == "MEDIA FETCH ALL FROM FOH-A" || r.Text.Contains(" could not be pulled from FOH-A: ", StringComparison.Ordinal)
+                || r.Text.StartsWith("the fetch of ", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(["verb", .. Enumerable.Repeat("refused", FetchJournal.Most + 1)], rows.Select(r => r.Kind));
+        Assert.Equal($"fetching {Files} files from FOH-A by hash, with proof", rows[0].Text);
+        for (var k = 0; k < FetchJournal.Most; k++)
+            Assert.StartsWith($"{Name(k)}.mp4 could not be pulled from FOH-A: ", rows[k + 1].Text, StringComparison.Ordinal);
+        Assert.Equal(string.Create(CultureInfo.InvariantCulture,
+            $"the fetch of {Files} files from FOH-A ended: 0 pulled and verified, {Files} could not be fetched; {Files - FetchJournal.Most} of its rows are in the node's log only"),
+            rows[^1].Text);
+    }
+
+    [Fact]
+    public async Task AHandBacksTakeoverIsJournalledAfterTheRowOfTheMirrorLineThatAskedForIt()
+    {
+        // An identical backup handed the show back takes it over beside the line: the takeover's own lines and its row follow the
+        // MIRROR HANDBACK's row, however late that row is written.
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        await SyncRig.OpenShowAsync(primary);
+        await primary.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(primary, backup);
+        await BackupRig.BackUpAsync(primary, backup);
+        var taken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        backup.Engine.Journal.Written += r =>
+        {
+            if (r.Kind == "fleet" && r.Text.StartsWith("takeover ", StringComparison.Ordinal))
+                taken.TrySetResult();
+        };
+        backup.Engine.RowHeldForTests = (line, held) => !held && line.Raw.StartsWith("MIRROR HANDBACK", StringComparison.Ordinal)
+            ? taken.Task.WaitAsync(TimeSpan.FromSeconds(60))
+            : Task.CompletedTask;
+        Assert.True(WireGrammar.TryParse($"MIRROR HANDBACK {{\"from\":\"{BackupRig.PrimaryId}\",\"epoch\":0}}", out var handback, out var error), error?.Reason);
+        var mirror = new SessionInfo("fleet:" + BackupRig.PrimaryId, "fleet", "127.0.0.1", false, "FOH-A (mirror)", true);
+
+        var reply = await backup.Engine.HandleAsync(handback, mirror, CancellationToken.None);
+        await taken.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.True(reply.Ok, reply.Payload);
+        Assert.Equal("primary", BackupRig.Role(backup));
+        var rows = backup.Engine.Journal.Recent(200).ToList();
+        var asked = rows.FindLastIndex(r => r.Kind == "verb" && r.Line?.StartsWith("MIRROR HANDBACK", StringComparison.Ordinal) == true);
+        var lead = rows.FindLastIndex(r => r.Line == "SYNC LEAD show");
+        var takeover = rows.FindLastIndex(r => r.Kind == "fleet" && r.Text.StartsWith("takeover ", StringComparison.Ordinal));
+        var said = string.Join(" | ", rows.Select(r => $"{r.Kind}: {r.Text}"));
+        Assert.True(asked >= 0 && lead > asked && takeover > lead, said);
+        Assert.StartsWith("taking the show back from FOH-A", rows[asked].Text, StringComparison.Ordinal);
+        Assert.Equal(EngineCore.SystemSession.ClientName, rows[lead].Who);
+        Assert.Contains("(handed back by FOH-A", rows[takeover].Text, StringComparison.Ordinal);
     }
 
     /// <summary>The journal's recent rows that hold <paramref name="text"/>, oldest first.</summary>

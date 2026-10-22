@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Assistant;
+using PlayMap.Core.Control;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
@@ -9,8 +10,11 @@ using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Fx;
 using PlayMap.Engine.Host;
+using PlayMap.Engine.Tests.Control;
 using PlayMap.Engine.Tests.Facade;
 using PlayMap.Engine.Tests.Fleet;
+using PlayMap.Engine.Tests.Host;
+using PlayMap.Engine.Tests.Optimise;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Engine.Tests.Show;
 
@@ -288,6 +292,90 @@ public sealed class VerbRowTests
     }
 
     [Fact]
+    public async Task AScansEndIsJournalledAfterTheRowOfTheStartThatBeganIt()
+    {
+        // A scan backend whose scan has ended by the time it answers: the row that says the scan finished follows the verb's, however
+        // late the verb's row is written.
+        var scans = new EndedScan();
+        var project = BlendSolveTests.TwoProjectorsOnAWall();
+        await using var engine = new EngineCore(EngineServices.ForTests(new ManualClock(5_000_000_000)) with { Scan = scans }, project);
+        var finished = HoldRowUntil(engine, "SCAN START", r => r.Kind == "scan");
+        var before = engine.Journal.Recent(200).Count;
+
+        var reply = await Run(engine, "SCAN START sim MODE FAST");
+        await finished.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(reply.Ok, reply.Payload);
+        Assert.Equal(1, scans.Asked);
+        var rows = engine.Journal.Recent(200).Skip(before).Where(r => r.Kind is "verb" or "scan").ToList();
+        Assert.Equal([
+            ("verb", string.Create(CultureInfo.InvariantCulture, $"scanning {project.Stage.Projectors.Length} projectors through the simulated camera (fast)")),
+            ("scan", $"scan {EndedScan.Id} finished"),
+        ], rows.Select(r => (r.Kind, r.Text)));
+        Assert.Equal("SCAN START sim MODE FAST", rows[0].Line);
+    }
+
+    [FfmpegFact]
+    public async Task AnOptimiseJobThatCannotRunIsJournalledAfterTheRowOfTheVerbThatQueuedIt()
+    {
+        // The node's margin of free disk is more than any disk holds: the job is planned and queued, and its first step ends it failed
+        // at once, before any worker starts. That row follows the verb's, however late the verb's row is written.
+        await using var rig = OptimiseRig.Start(settings: s => s with { MinFreeGb = 1_000_000 });
+        var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 320, 180, 2), "Clip");
+        var failed = HoldRowUntil(rig.Engine, "MEDIA OPTIMISE", r => r.Kind == "optimise" && r.Text.Contains(" failed: needs ", StringComparison.Ordinal));
+        var before = rig.Engine.Journal.Recent(200).Count;
+
+        using var reply = System.Text.Json.JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap QUALITY FAST"));
+        await failed.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var job = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;
+        Assert.Equal("failed", rig.Job(job).State);
+        Assert.Null(rig.Service.View.Pid);
+        var rows = rig.Engine.Journal.Recent(200).Skip(before)
+            .Where(r => (r.Kind == "verb" && r.Line?.StartsWith("MEDIA OPTIMISE", StringComparison.Ordinal) == true) || r.Text.StartsWith(job + " ", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal([("verb", "optimising 1 clip in the background"), ("optimise", job + " failed")],
+            rows.Select(r => (r.Kind, r.Kind == "optimise" ? r.Text[..r.Text.IndexOf(':', StringComparison.Ordinal)] : r.Text)));
+        Assert.Contains(" GB margin; ", rows[1].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALearnsRowIsJournalledAfterTheRowOfTheBindLearnThatArmedIt()
+    {
+        // The control moves as the verb's row is about to be written, once the learn is armed: the binding is made then, and the row
+        // that says what was learnt follows the verb's.
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show());
+        var cc = InputAddress.Midi(MidiFamily.Cc, 1, 7);
+        var learnt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Engine.Journal.Written += r =>
+        {
+            if (r.Text.StartsWith("learnt: ", StringComparison.Ordinal))
+                learnt.TrySetResult();
+        };
+        rig.Engine.RowHeldForTests = async (line, _) =>
+        {
+            if (!line.Raw.StartsWith("BIND LEARN", StringComparison.Ordinal))
+                return;
+            // A first reading sets where the fader starts; the second move binds it.
+            await rig.Engine.ControlInput.InjectAsync(cc, 0.2, CancellationToken.None);
+            await rig.Engine.ControlInput.InjectAsync(cc, 0.5, CancellationToken.None);
+            Assert.Single(rig.Engine.Store.Project.Control.Bindings);
+        };
+        var before = rig.Engine.Journal.Recent(200).Count;
+
+        var reply = await rig.Ok("BIND LEARN FROM MIDI SET sf_lobby opacity *");
+        await learnt.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.False(reply.Applied);
+        var made = Assert.Single(rig.Engine.Store.Project.Control.Bindings);
+        Assert.Equal(("MIDI CC 1 7", "SET sf_lobby opacity *"), (made.Input, made.Target));
+        var rows = rig.Engine.Journal.Recent(200).Skip(before)
+            .Where(r => r.Line == "BIND LEARN FROM MIDI SET sf_lobby opacity *" || r.Text.StartsWith("learnt: ", StringComparison.Ordinal)).ToList();
+        Assert.Equal([("verb", "Desk"), ("control", "control")], rows.Select(r => (r.Kind, r.Who)));
+        Assert.Equal("learnt: MIDI CC 1 7 → Lobby opacity", rows[1].Text);
+    }
+
+    [Fact]
     public void WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter()
     {
         var call = new VerbCall(VerbCatalog.Find("PREFLIGHT")!, [], Line("PREFLIGHT"), Desk, CancellationToken.None);
@@ -410,6 +498,25 @@ public sealed class VerbRowTests
         }
 
         public Task<string> DisarmingAsync(CancellationToken ct) => Task.FromResult("");
+    }
+
+    /// <summary>A scan backend whose scan has ended by the time it answers.</summary>
+    private sealed class EndedScan : IScanBackend
+    {
+        public const string Id = "sc_ended";
+
+        public ScanProgress? Current { get; private set; }
+
+        public int Asked { get; private set; }
+
+        public Task<string> StartAsync(string cameraId, IReadOnlyList<string> projectorIds, string mode, CancellationToken ct)
+        {
+            Asked++;
+            Current = new ScanProgress("done", null, 0, 0, 1, "scanned");
+            return Task.FromResult(Id);
+        }
+
+        public bool Cancel() => false;
     }
 
     /// <summary>An approval desk that refuses every offer at once.</summary>

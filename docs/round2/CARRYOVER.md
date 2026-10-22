@@ -616,8 +616,17 @@ Round 2 W1 notes:
   `SettingsWriterTests.AFollowSwitchTheFileCannotKeepIsSaidAfterTheRowOfTheLineThatSetIt`.
   `VerbRowTests.ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` failed three runs of three against the product
   before the fix and passes now; `WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter` holds `VerbCall`'s hand-over.
-  `SCAN START`, `MEDIA OPTIMISE`, `BIND LEARN`, `MIRROR HANDBACK` and the fleet's fetch have no forcing test of their own; they hand
-  their work over the same way. The 250-file tests, the node's own and the fleet's
+  These failed three runs of three with the order before them put back (a local edit, not kept) and pass now, each with the line's
+  row held until the work's first row is in: `VerbRowTests.AScansEndIsJournalledAfterTheRowOfTheStartThatBeganIt` (a scan backend
+  whose scan has ended when it answers), `AnOptimiseJobThatCannotRunIsJournalledAfterTheRowOfTheVerbThatQueuedIt` (a margin of free
+  disk no disk holds: the job fails at its first step, before any worker starts) and
+  `ALearnsRowIsJournalledAfterTheRowOfTheBindLearnThatArmedIt` (the control moves just before the row is written: the binding is
+  made then, its row after); `BackupTests.AFleetFetchsRowsFollowTheRowOfTheVerbThatBeganThem` and
+  `AHandBacksTakeoverIsJournalledAfterTheRowOfTheMirrorLineThatAskedForIt` (the takeover's `SYNC LEAD` and its own row);
+  `ResolveTests.AReSolvesBlendIsJournalledAfterTheRowOfTheResolveThatSolvedIt` (the blend a `CALIBRATION RESOLVE` solves again, its
+  lane part through `ForLine`). `LINK STAGEWATCH` and `SYNC LEAD|FOLLOW` take the link test's path; `CALIBRATION ACCEPT|FALLBACK`
+  solve the blend in their line's own turn on the lane, as `BLEND SOLVE` does; the scan runner's own row (a camera latency below
+  zero, journalled by its run, which begins behind the row) has no forcing test. The 250-file tests, the node's own and the fleet's
   (`BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows`), read the fetch's end row as the last.
 - Open: a part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row,
   since the dispatcher writes a lane verb's row once the lane's turn is over, on another thread. A lane tick that runs first (a
