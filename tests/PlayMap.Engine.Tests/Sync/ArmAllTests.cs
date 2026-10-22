@@ -136,7 +136,7 @@ public sealed class ArmAllTests
         var clock = new ManualClock(1_000 * Second);
         var air = TimeSpan.FromMilliseconds(500);
         // The leader's deadlines run on this test's clock: an answer is never raced against them, and they pass when the test says.
-        var time = new Fleet.ManualTime();
+        var time = new ManualTime();
         var held = new HeldCheck();
         await using var leader = await StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead), SyncRig.Fast() with { ReceiptWait = air, Time = time });
         await using var stage = await StartAsync("Stage", StageId, clock, check: held);

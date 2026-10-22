@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Links;
 using PlayMap.Net.Tls;
@@ -150,7 +151,10 @@ public class StagewatchLinkTests
     {
         await using var sw = await FakeStagewatch.StartAsync();
         var commands = new ConcurrentQueue<StagewatchScreenCommand>();
-        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore());
+        // The link counts a frame on from its arrival on a clock only the test moves, so the reading a second on is the frame
+        // counted on by exactly that second, however late the test reads it.
+        var mono = new ManualClock(1_000_000_000);
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), mono);
         link.ScreenCommand += commands.Enqueue;
         link.Start();
         Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live));
@@ -166,9 +170,10 @@ public class StagewatchLinkTests
         Assert.Equal("REHEARSAL", reading.Watermark);
         Assert.Equal(42, reading.Playout!.Remaining);
         Assert.True(reading.Show["timer"]);
-        await Task.Delay(1100);
-        Assert.InRange(link.Reading.Timer!.Seconds, 740, 749);
-        Assert.Equal("12:29", link.Reading.Text);
+        Assert.Equal((750.0, "12:30"), (link.Reading.Timer!.Seconds, link.Reading.Text));
+        mono.AdvanceMs(1100);
+        var counted = link.Reading;
+        Assert.Equal((748.9, "12:29", true), (Math.Round(counted.Timer!.Seconds, 6), counted.Text, counted.Trusted));
 
         await sw.SendAsync(Frame5.Replace("\"seq\":5", "\"seq\":4", StringComparison.Ordinal).Replace("\"Keynote\"", "\"Old\"", StringComparison.Ordinal));
         await sw.SendAsync("{\"type\":\"beat\",\"live\":false}");

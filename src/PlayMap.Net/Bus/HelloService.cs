@@ -70,8 +70,11 @@ public sealed class HelloService : IAsyncDisposable
     /// <summary>The port hellos are heard on (after <see cref="Start"/>).</summary>
     public int ListenPort { get; private set; }
 
+    /// <summary>Hellos that left this node's socket.</summary>
     public long Sent => Interlocked.Read(ref _sent);
 
+    /// <summary>Hellos heard from other nodes, each counted once the peer table has taken it in and told its listeners, so a reader
+    /// that sees the count sees what the table made of every hello it counts.</summary>
     public long Heard => Interlocked.Read(ref _heard);
 
     /// <summary>Datagrams on the port that were not a hello (or too big): dropped, never fatal.</summary>
@@ -238,7 +241,6 @@ public sealed class HelloService : IAsyncDisposable
             }
             if (hello.Instance == Instance)
                 continue;
-            Interlocked.Increment(ref _heard);
             var from = r.RemoteEndPoint is IPEndPoint ep ? NetAddress.Text(ep.Address) : "";
             try
             {
@@ -249,6 +251,7 @@ public sealed class HelloService : IAsyncDisposable
                 // A listener to the peer table that faults must not stop the hello.
                 _log.LogWarning(ex, "A peer-table listener faulted.");
             }
+            Interlocked.Increment(ref _heard);
         }
     }
 

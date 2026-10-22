@@ -224,7 +224,7 @@ public sealed class ResolveCameraTests(ITestOutputHelper output)
         p = p.WithStage(st => st with { Projectors = [.. st.Projectors.Select((pj, n) => pj with { Pose = WallRig.TruePose(n) })] });
         var glass = new WallGlass();
         // The camera's patience runs on the hub's clock, held still here: a picture is waited for as the fact it is, never raced.
-        var hub = new PhoneHub(new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), NodeId = "0badc0de", NodeName = "Test node", Time = new Fleet.ManualTime() });
+        var hub = new PhoneHub(new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), NodeId = "0badc0de", NodeName = "Test node", Time = new ManualTime() });
         var services = EngineServices.ForTests(MonoClock.Instance) with
         {
             ProjectFolder = folder,

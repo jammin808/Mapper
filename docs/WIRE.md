@@ -281,7 +281,8 @@ These are the keys every node writes; the packages' keys follow at the end of th
 
 ## HTTP (9940)
 
-`GET /api/state` (`?since=<seq>` long-polls ≤ 25 s), `GET /api/context`, `GET /api/project`, `GET /api/verbs`,
+`GET /api/state` (`?since=<seq>` long-polls ≤ 25 s; a poll the node's own stop cuts is answered 503 with the reason, never an
+empty 200), `GET /api/context`, `GET /api/project`, `GET /api/verbs`,
 `POST /api/cmd` (body = one line; `X-Request-Id` → receipt JSON), `GET /api/media/<sha256>` (range requests,
 between nodes), `GET /api/media` (manifest), `GET /api/thumb?ref=<media:…|generator:…|playlist:…|color:#RRGGBB>&w=&h=&fmt=jpeg|png`
 (a key's picture, with an ETag), `GET /ws` (state frames `{"type":"state",…}`, beats every 2 s, `{"cmd":"…","id":"…"}`
