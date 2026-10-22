@@ -87,6 +87,79 @@ public sealed class MachineSamplerTests
         Assert.Equal(100, sampler.Latest.CpuPct, 6);
     }
 
+    /// <summary>A reading that stalls holds one tick: the ticks that come while it is held take no reading of their own (each returns
+    /// at once), and the next tick after it returns reads again.</summary>
+    [Fact]
+    public async Task TicksWhileAReadingStallsTakeNoneOfTheirOwn()
+    {
+        var time = new ManualTime();
+        var reader = new HeldReader();
+        using var sampler = new MachineSampler(reader, time);
+        sampler.Start();
+        var first = Task.Run(() => time.Advance(TimeSpan.Zero));
+        await reader.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Five ticks while the first reading is held.
+        await Task.Run(() => time.Advance(TimeSpan.FromSeconds(5))).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, reader.Reads);
+
+        reader.Release();
+        await first.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(8000, sampler.Latest.MemFreeMb);
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, reader.Reads);
+        Assert.Equal(1, reader.MostAtOnce);
+    }
+
+    /// <summary>A reader whose reads wait until the test lets them go, counting them and the most in flight at once.</summary>
+    private sealed class HeldReader : IMachineReader, IDisposable
+    {
+        private readonly ManualResetEventSlim _go = new(false);
+        private readonly Lock _gate = new();
+        private int _reads;
+        private int _in;
+        private int _most;
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Reads
+        {
+            get
+            {
+                lock (_gate)
+                    return _reads;
+            }
+        }
+
+        public int MostAtOnce
+        {
+            get
+            {
+                lock (_gate)
+                    return _most;
+            }
+        }
+
+        public MachineReading Read()
+        {
+            lock (_gate)
+            {
+                _reads++;
+                _in++;
+                _most = Math.Max(_most, _in);
+            }
+            Entered.TrySetResult();
+            _ = _go.Wait(TimeSpan.FromSeconds(60));
+            lock (_gate)
+                _in--;
+            return new(200, 1000, 8000, 812, 1000, 3600, -1, -1, "none here");
+        }
+
+        public void Release() => _go.Set();
+
+        public void Dispose() => _go.Dispose();
+    }
+
     private sealed class StepReader : IMachineReader
     {
         public MachineReading Next { get; set; } = new(200, 1000, 8000, 812, 1000, 3600, -1, -1, "none here");

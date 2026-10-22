@@ -50,7 +50,8 @@ internal sealed class ManualTime(DateTimeOffset? start = null) : TimeProvider
                 next = _timers.Where(t => t.DueTicks <= target).OrderBy(t => t.DueTicks).ThenBy(t => t.Order).FirstOrDefault();
                 if (next is null)
                 {
-                    _ticks = target;
+                    // Never back: an advance from another thread may have gone further while this one fired a timer.
+                    _ticks = Math.Max(_ticks, target);
                     return;
                 }
                 _ticks = Math.Max(_ticks, next.DueTicks);
