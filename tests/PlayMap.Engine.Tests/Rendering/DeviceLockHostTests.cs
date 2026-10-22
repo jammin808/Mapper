@@ -173,6 +173,39 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         return seen;
     }
 
+    /// <summary>Holds the share's lock on a thread of its own until the loop has drawn <paramref name="frames"/> frames inside the hold,
+    /// or <see cref="HostRig.Patience"/> has passed: the frames drawn meanwhile and the frame takes that timed out meanwhile. The hold
+    /// ends on the loop's own count, never on a span of real time, so however slowly the machine runs the loop the frames it waits for
+    /// are drawn inside it or never come.</summary>
+    private static (long Frames, long TimedOut) HoldUntilDrawn(IGpuShare share, GpuDeviceLock deviceLock, RenderHost host, long frames)
+    {
+        (long Frames, long TimedOut) seen = default;
+        var thread = new Thread(() =>
+        {
+            share.Enter();
+            try
+            {
+                var timedOut = deviceLock.TimedOut;
+                var drawn = host.Stats.Frames;
+                var waited = System.Diagnostics.Stopwatch.StartNew();
+                using (var nap = new ManualResetEventSlim())
+                {
+                    while (host.Stats.Frames - drawn < frames && waited.Elapsed < HostRig.Patience)
+                        nap.Wait(5);
+                }
+                seen = (host.Stats.Frames - drawn, deviceLock.TimedOut - timedOut);
+            }
+            finally
+            {
+                share.Exit();
+            }
+        })
+        { IsBackground = true, Name = "sharer" };
+        thread.Start();
+        thread.Join();
+        return seen;
+    }
+
     [Fact]
     public async Task TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound()
     {
@@ -197,18 +230,22 @@ public sealed class DeviceLockHostTests(ITestOutputHelper log)
         Assert.Equal(quiet, deviceLock.TimedOut);
 
         // A sharer holding the device for many frames: the loop goes on, each frame drawn past its bound and counted. A frame lands
-        // inside the hold only after a take that timed out (one may have timed out just before the count was read).
-        var (frames, timedOut) = HoldFor(share, deviceLock, rig.Host, TimeSpan.FromMilliseconds(400));
-        log.WriteLine($"during a 400 ms hold: {frames} frames, {timedOut} timed-out takes");
-        Assert.True(frames >= 5, $"the loop drew {frames} frames while a sharer held the device for 400 ms");
+        // inside the hold only after a take that timed out (one may have timed out just before the count was read). The hold lasts
+        // until the loop has drawn its five frames: what the loop does while the device is held is the question, not how many frames
+        // a machine's pace fits into a span of real time (the take's own bound is GpuDeviceLockTests').
+        var (frames, timedOut) = HoldUntilDrawn(share, deviceLock, rig.Host, 5);
+        log.WriteLine($"during a hold until five frames were drawn: {frames} frames, {timedOut} timed-out takes");
+        Assert.True(frames >= 5, $"the loop drew {frames} frames while a sharer held the device, waiting for five");
         Assert.True(frames <= timedOut + 1, $"{frames} frames landed inside the hold with {timedOut} timed-out takes");
 
-        // A decoder taking the lock bracket by bracket gets it between frames while the loop draws on.
+        // A decoder taking the lock bracket by bracket gets it between frames while the loop draws on: it takes its sixty brackets,
+        // and goes on taking them until the loop has drawn a frame among them (or the patience has passed).
         var before = rig.Host.Stats.Frames;
         var decoder = Task.Factory.StartNew(() =>
         {
             using var nap = new ManualResetEventSlim();
-            for (var i = 0; i < 60; i++)
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            for (var i = 0; i < 60 || (rig.Host.Stats.Frames == before && waited.Elapsed < HostRig.Patience); i++)
             {
                 share.Enter();
                 try

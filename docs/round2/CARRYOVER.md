@@ -856,6 +856,14 @@ Round 2 W1 notes:
   stopwatch around SITE's whole round trip, which held the test's own continuation. With that continuation 210 ms late once (a delay
   in a scratch copy) both unchanged tests failed 3 of 3 (a worst of 210.2 to 210.5 ms against the Debug build's 200 ms ceiling); read
   on the lane they passed 3 of 3 under the same delay (a worst of 1 to 10 ms). No failure of them has been seen.
+- Done: `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` holds the device until the loop has drawn its
+  five frames inside the hold (`HoldUntilDrawn`, within the rig's patience), not for 400 ms of real time, and its decoder takes its
+  brackets until the loop has drawn a frame among them, not for sixty brackets' few hundred milliseconds. Both asked a number of
+  frames of a span of real time, so a render thread the machine left unrun for that span failed them. With the test host's render
+  threads alone frozen 1.5 s (a cgroup freezer of their own) just before the hold the unchanged test failed 3 of 3 ("the loop drew 0
+  frames while a sharer held the device for 400 ms"), and frozen as the hold began it failed 3 of 3 at the decoder's ("the loop drew
+  nothing while a decoder took the device bracket by bracket"); it passed 3 of 3 under the first. The take's own bound is
+  `GpuDeviceLockTests`'. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
