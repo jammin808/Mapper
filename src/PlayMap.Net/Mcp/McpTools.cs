@@ -25,7 +25,7 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
 
     private static readonly JsonElement RunArguments = Schema("""
         {"type":"object","properties":{
-          "line":{"type":"string","description":"One line of PlayMap's vocabulary exactly as on the wire, e.g. \"VIDEO SEEK 83\" or \"PLAYLIST GO Show #2\" (list_verbs has every verb with its syntax and risk)"},
+          "line":{"type":"string","description":"One line of PlayMap's vocabulary exactly as on the wire, e.g. \"VIDEO SEEK 83\" or \"PLAYLIST GO Show #2\" (list_verbs has every verb with its syntax and risk). Words with spaces go in double quotes, where a backslash escapes the mark after it: a Windows path rides bare (MEDIA IMPORT C:\\clips\\a.mp4) or, holding a space, quoted with each backslash doubled (MEDIA IMPORT \"C:\\\\My clips\\\\a.mp4\")"},
           "reason":{"type":"string","description":"Why, in a sentence: shown to the operator and journalled with the result"}},
          "required":["line","reason"]}
         """);

@@ -13,8 +13,18 @@ a secret ("type secrets in Network ▸ Links"); such a row is a menu entry that 
 
 Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r` stripped); optional request id
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
-is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
-(`OK @a1 …`). A line that carries a request id is always answered: a verb that answers nothing otherwise (`CURSOR`, streamed on
+is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Inside quotes a
+backslash escapes the mark after it, as Patterns reads it: `\"` is a quote, `\\` a backslash, and any other mark is read alone, its
+backslash lost; a bare word keeps every backslash. Every producer writes a word through the one quoting rule, `WireGrammar.Quote` (the
+desk's `VerbText.Word`, the Companion module's `quote`): bare when it holds no white space or quote and opens with neither `{` nor `[`,
+else quoted with each backslash and quote escaped. So a Windows path rides bare (`MEDIA IMPORT C:\clips\a.mp4`) or, holding a space,
+quoted with its backslashes doubled (`MEDIA IMPORT "C:\\My clips\\a.mp4"`). A verb that takes a path as its first word (`MEDIA IMPORT`,
+`PROJECT SAVE`, `PROJECT OPEN`, `FX IMPORT`, `LED IMPORT`, `SITE POINTS`, `SURVEY IMPORT`: `VerbSyntax.TakesPath`) refuses one quoted
+with a backslash before any other mark, as Explorer gives a path and a person or a model types it, at the node's door and in the
+assistant's gate, before anything reads it: the refusal says what it reads as and the spelling that reads as typed
+(`MEDIA IMPORT: inside quotes a backslash escapes the mark after it, so "C:\My clips\a.mp4" reads as C:My clipsa.mp4 — write the
+path "C:\\My clips\\a.mp4", each \ doubled inside the quotes, or with / in place of each \`). Replies: `OK`, `OK <payload>`,
+`ERR <reason>`, the id after the first word (`OK @a1 …`). A line that carries a request id is always answered: a verb that answers nothing otherwise (`CURSOR`, streamed on
 every move) answers `OK @a1`. A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a

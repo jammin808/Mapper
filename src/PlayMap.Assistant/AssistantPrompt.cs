@@ -101,7 +101,7 @@ public static class AssistantPrompt
         ArgumentNullException.ThrowIfNull(sb);
         ArgumentNullException.ThrowIfNull(availability);
         sb.Append("THE VOCABULARY (one line per verb: syntax — what it does — risk)\n");
-        sb.Append("Sources are written kind:id — media:md…, playlist:pl…, generator:gn…, canvas:cv…, live:…, timer:…, color:#RRGGBB, or none. Words with spaces go in \"double quotes\"; a JSON argument runs to the end of the line.\n");
+        sb.Append("Sources are written kind:id — media:md…, playlist:pl…, generator:gn…, canvas:cv…, live:…, timer:…, color:#RRGGBB, or none. Words with spaces go in \"double quotes\", where a backslash escapes the mark after it: a Windows path rides bare (C:\\clips\\a.mp4) or, holding a space, quoted with each backslash doubled (\"C:\\\\My clips\\\\a.mp4\"); a JSON argument runs to the end of the line.\n");
         foreach (var group in VerbCatalog.All.Where(v => !v.Internal && availability.IsAvailable(v)).GroupBy(v => v.Category).OrderBy(g => (int)g.Key))
         {
             sb.Append('\n').Append(group.Key.ToString().ToUpperInvariant()).Append('\n');
