@@ -168,8 +168,15 @@ internal sealed class OpsRig : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        await _ops.DisposeAsync();
-        await Engine.DisposeAsync();
+        try
+        {
+            await _ops.DisposeAsync();
+        }
+        finally
+        {
+            // A service that fails to stop fails the test, and leaves no engine running in the test host.
+            await Engine.DisposeAsync();
+        }
     }
 
     /// <summary>Removes the rig's folder (after <see cref="DisposeAsync"/>, once the journal has been read).</summary>

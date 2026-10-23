@@ -920,6 +920,14 @@ Round 2 W1 notes:
   the sink as before; a failure no pull expects ends the pull, said at once on the sink and in the journal; and the sink's dispose
   runs once and lets its client and stop go whatever it meets. The two new tests and the three before them, every assertion kept,
   passed 8 runs of 8. The unchanged test still cannot be made to fail on Linux on its own, where the refusal is immediate.
+- Done: the operations services an engine built without the host owns (`OpsServices.Attach`: the scan runner, projector control
+  and the assistant, each with its attachment) are all let go when one of them fails to stop, and what failed is thrown once they
+  are (itself when one part failed, together when several did). Their dispose stopped at the first part that threw and runs once,
+  so the parts attached before it were never let go: with the approval desk's dispose throwing as above, the assistant's failure
+  kept projector control and the scan runner, and the test rig (`OpsRig`) then skipped its engine's dispose, leaving the engine
+  running in the test host. With a part that throws, `OpsServicesTests` failed 3 of 3 against the dispose as it was (only the
+  failing part and the one after it went; several failures came out as the first alone); they passed 5 runs of 5, and the rig now lets
+  its engine go whatever its services' dispose meets. A node's host lets each part go on its own (`EngineHost`'s quiet stop).
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

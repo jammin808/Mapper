@@ -151,7 +151,8 @@ The lab checks still to do:
   peer), `StagewatchSinkTests.ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList`' one Windows failure, its refused connect
   thrown from the approval desk's dispose after 2 s (consistent with the refusal, which Windows gives a closed loopback port about
   2 s late, landing as the pull's stop was taken, before the stop reached the request's own token, not proven; the pull now ends on
-  its stop whatever it meets, and letting the desk go throws nothing),
+  its stop whatever it meets, letting the desk go throws nothing, and the services an engine built without the host owns are all
+  let go when one of them fails to stop),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
