@@ -122,7 +122,7 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t dumps < <(find tests/*/TestResults -name '*_hangdump.dmp' 2>/dev/null | awk -F/ '!seen[$NF]++')
-          if [ ${#dumps[@]} -eq 0 ]; then echo "No test host hung: no hang dump to read."; exit 0; fi
+          if [ ${#dumps[@]} -eq 0 ]; then echo "No hang dump was written, so there are no stacks to print; a host blame stopped without writing one says so in the test step's log."; exit 0; fi
           curl -sSfL -o dotnet-dump.nupkg "https://api.nuget.org/v3-flatcontainer/dotnet-dump/10.0.750501/dotnet-dump.10.0.750501.nupkg"
           echo "ae70c9f37548e1e006467893e21ae41a005fefaf2270e29642b415df053324a7  dotnet-dump.nupkg" | sha256sum -c -
           mkdir -p .tools/dotnet-dump
@@ -359,7 +359,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $dumps = @(Get-ChildItem tests/*/TestResults -Recurse -Filter *_hangdump.dmp -ErrorAction SilentlyContinue | Sort-Object Name -Unique)
-          if ($dumps.Count -eq 0) { Write-Host 'No test host hung: no hang dump to read.'; exit 0 }
+          if ($dumps.Count -eq 0) { Write-Host "No hang dump was written, so there are no stacks to print; a host blame stopped without writing one says so in the test step's log."; exit 0 }
           Invoke-WebRequest -Uri 'https://api.nuget.org/v3-flatcontainer/dotnet-dump/10.0.750501/dotnet-dump.10.0.750501.nupkg' -OutFile dotnet-dump.zip
           $hash = (Get-FileHash dotnet-dump.zip -Algorithm SHA256).Hash
           if ($hash -ne 'AE70C9F37548E1E006467893E21AE41A005FEFAF2270E29642B415DF053324A7') { throw "dotnet-dump.zip is not the pinned package ($hash)" }
