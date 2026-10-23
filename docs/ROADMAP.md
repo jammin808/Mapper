@@ -89,6 +89,14 @@ The lab checks still to do:
   the watch (its fence, its follow of a group's new leader, the mirror state's publish) up to the quiet, 10 s, for each missing show
   file every time it asks for them again. Pulling them off the watch's own turn, with a test of the watch's pace while a show file
   is silent, closes it.
+- A fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended, so a peer heard again
+  at another address, port or certificate is dialled up to about 9.6 s late; and STATE and the board leave out a machine the
+  monitor never heard, so nothing a person reads says why a peer whose hello is heard has no health. Cutting the wait short when
+  the dial changes, and a never-heard peer's words on the board, close it.
+- The hello shares its listening port (SO_REUSEADDR, and SO_REUSEPORT on Linux) on the port a test asks the system for too, so a
+  test node's hello socket can take another live test node's port (71 of 2000 live binds to port 0 here, none without the
+  options), and the hot-backup and sync rigs share their nodes' ids, so a rig's node can hear another's under a peer's id. Sharing
+  only the well-known port closes it.
 - A part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row: the
   dispatcher writes a lane verb's row once the lane's turn is over, on another thread, so a tick that runs first (a timecode chase's
   first step, a blind commit landing at its instant, the sound input the tick opens) and a part on a thread of its own (the video
@@ -130,7 +138,11 @@ The lab checks still to do:
   actual was the default tuple; consistent with the primary's STATE pushes, 200 ms after each move of the clock, landing before the
   link's 250 ms beat looked, not proven: on Linux the unchanged test, stopped 100 ms from 205 ms after the redial, failed so in six
   runs of eight; the test now holds the new connection's reader as well as its greeting, so nothing is heard while the clock moves),
-  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
+  `FleetMonitorTests`' 10 s wait for the peer to read live (consistent with A's fleet monitor's first subscription to B ending
+  unheard and its next dial waiting on A's fleet clock, which the test did not move before B read live, not proven; the wait now
+  moves that clock while the monitor waits, and names what A holds of B), `HostNetworkTests`' wait for the Patterns link's first
+  clip (consistent with the clip's 3 s of trust on the node's real clock running out before the test read it, not proven; the node
+  now runs on a clock the test holds),
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `StageResourcesTests`' one Windows read of a solved blend just after
   the stage settled (consistent with the test's next step, or the stage builder between its signal to the blender and its tables,
   running later than the blend's 150 ms real-time quiet time, not proven; the quiet time now runs on a clock the test moves),
@@ -140,10 +152,42 @@ The lab checks still to do:
   racing the stage builder's first tables, not proven; it now waits for them),
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (its 125 ms spin counted 61.49 ms of 127.56 ms by the
   stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
+  `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
+  (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
+  now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent
+  with the primary's fleet monitor's first subscription ending unheard and its next dial waiting on a fleet clock the hot-backup
+  tests never moved, not proven; the meeting now moves that clock while the monitor waits, and names what the node holds of its
+  peer),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
   words and the heap).
+- Watched, short real-time windows a sweep of the tests found and none has failed on yet (each keeps its bar; the fix named is
+  the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
+  measure of the work rather than the stopwatch): `SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds`
+  (the worst SITE round trip within 50 ms by the test's stopwatch, its own continuation included, at the 1× bar the Windows job's
+  Release build holds; the lane's own measure of an answer, as the slices are read, closes it),
+  `ProjectorSolveLanePerfTests.ASolveHoldsTheLaneWithinItsSlice` and its 4× twin (an empty lane turn's stopwatch round trip within
+  10 ms; the same), `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
+  order; `OptimiseOptions.Time` now lets them move it), `PjLinkDriverTests.ASearchFindsAClass2ProjectorOnLoopbackUdp` and
+  `DeviceManagerTests.DiscoveryFindsAProjectorIdentifiesItAndSuggestsItsNativeDriver` (a 400 ms real search window across the
+  simulator's and the search's own receive loops; the window on a clock the test moves once the answer is counted closes it),
+  `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
+  steps, closes it), `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` (five frames inside a 400 ms real
+  hold; a hold until the loop has drawn them closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`
+  (the follower's adoption within 800 ms by the stopwatch, a 4× ceiling on a lab bar; the facts kept and the time logged closes it),
+  `ClockSyncTests`' best round trip within 20 ms over real loopback, the real-time throughput bars the Windows job runs at 1×
+  (`PerformanceTests.A1080pH264DecodesFasterThanRealTimeInSoftware`,
+  `SelfCalibrationTests.SelfCalibrationRecoversFocalAndRotationFromNoisyRoomPairsWithinASecond`,
+  `FirstMapTests.TheFirstMapTakesUnderFiveSecondsOfMachineTime`, `LightPlanPerfTests.TwelveProjectorsPlanInThreeSeconds`; a reading
+  of the same runner, or the bar kept as a lab line, closes them), the desk's hold button timed on the stopwatch
+  (`DeskSpineTests.AHoldButtonActsOnlyWhenHeldItsTimeAndADropGoesToTheHandlerOfItsFormat` and `DeskHarness.Hold`, 600 ms; the desk's
+  clock closes it), `DeskLogicTests.ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt` (a repeat folded within 2 s of the
+  stopwatch), `MediaTransferTests.TheBandwidthBucketHoldsItsRateAndCanBeLoweredAndLifted` (100 takes within 200 ms),
+  `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
+  `ArtNetInTests.ATimecodeConsumerOpensTheSocketArtTimeCodeRollsAndDmxFiresNoBinding` (dropout after 100 ms of the real clock; it
+  heals within its wait). `GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound` is no window but its
+  last count holds from the bounded take before it alone (`TryEnter` counts a wait), so it does not show the sharer waited.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

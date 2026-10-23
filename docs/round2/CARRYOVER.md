@@ -893,6 +893,82 @@ Round 2 W1 notes:
   0, 40, 120, 250 and 300 ms; the class passes. It keeps every assertion, its wait for the stale move now for `Stale` alone. No
   product behaviour changes; that the mirror link and the anchor follower are STATE listeners that drop every STATE line is an
   efficiency question, open below.
+- Done: `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack` holds the simulated scan at its first pattern
+  until its cancel is in. A simulated scan reads "scanning" only while its patterns render, the FAST plan's 34 back to back in one
+  work item on a compute thread (`ScanRunner.CaptureSimulated`; 0.3 to 0.7 s here in Debug), and goes on to its decode, its solve
+  and "done" with no wait; the test sampled the stage every 20 ms of `Task.Delay`, which needs the runtime's timer thread and then a
+  pool thread, so a sampler not run in that window never saw the stage and read "decoding" to "done" until its 30 s ran out. It
+  failed so on the Windows job (run 432, at fix-fetchrow-win ae9ca8d9, which does not touch the scan) at its line 420
+  (`Assert.True() Failure`, after 30 s), consistent with that, not proven: the assertion names no stage. With the test host's
+  ".NET Timer" thread alone stopped 5 s once the rig was built (the scan's threads running on; the whole scan ran in that time) the
+  unchanged test failed 3 of 3 at that line. It now hears the stage on the scan's own thread (`Progressed`, raised once the step is
+  stored) and holds the scan there until `SCAN CANCEL` is answered, every assertion kept; it passed 3 of 3 under the same stop
+  (the scan held at its first pattern) and 3 of 3 without it.
+- Done: the hot-backup tests' meeting (`BackupRig.MeetAsync`) hears each peer at the web port it serves, and moves the fleet's
+  clock while a node lacks a peer's health and its fleet monitor waits to dial again. A fleet monitor whose subscription to a peer
+  ends without a record (refused, cut, or answered by another machine under the peer's id) dials again once its backoff (0.5 s
+  doubling to 8 s, spread by up to a fifth) has run out on the fleet's clock, and until then takes no newer hello of that peer, one
+  at another port included (`FleetMonitor.Consider` returns while the peer's feed runs, its wait included); the rigs' nodes run
+  the fleet on a `ManualTime` that no hot-backup test moves, so one such end left the peer unheard for good and the meeting's wait
+  for its health ran out with "0badc0de has no health of 9f8e7d6c"; the meeting's first wait took any hello under the peer's id
+  that named a web port. `BackupRenderTests.TheBackupPlaysTheSameVersionAndItsPictureIsTheSameBytesAtTheSameInstants` failed so
+  on the Windows job (run 433, at fix-fetchrow-win ae9ca8d9, which does not touch the backup), from its line 141 after 22 s,
+  consistent with that, not proven: no node log or monitor words survive in the job's output, so what ended the first subscription
+  there is not known (a stray hello under the peer's id, which the rigs' shared ids and hello sockets allow, below, or a dial
+  refused or cut). With a hello under the backup's id that names a closed web port sent to the test host's UDP ports in their first
+  3 s (before the meeting), the unchanged test failed 3 of 3 with those words, as did, 3 of 3 against the meeting as it was, two
+  new tests (`BackupRigTests`: the same stray hello sent in the process, and a first subscription that ends unheard). The monitor
+  now counts the subscriptions waiting out their backoff (`FleetMonitor.Redialling`, each counted once its wait's timer stands) and
+  says what it last said of a machine it keeps, heard or not (`WordsOf`); the meeting moves every node's fleet clock 50 ms at each
+  20 ms look while the node lacks the peer's health and its monitor waits to dial any machine again (`FleetWait.UntilAsync`; no look
+  moves it once the health is held or while that monitor waits to dial none, but a step moves every node's clock, so it also moves a
+  dial another node has under way, whose connect timeout runs on that clock, and ages the records the nodes hold), and a meeting
+  that fails names the hello's address and port, the peer's own port and the monitor's counts and words. The new tests passed 3 of
+  3, the render test 3 of 3 with the stray hello, and the 54 Fleet tests all passed.
+- Done: `FleetMonitorTests.APeerAppearsWhenItsHealthArrivesAndGoesStaleThenGoneOnTheMonitorsClock` moves A's fleet clock while A
+  lacks B live and A's fleet monitor waits to dial again, through the hot-backup meeting's wait (`FleetWait.UntilAsync`). Its nodes
+  run the fleet on a `ManualTime` the test did not move before B read live, so a first subscription to B that ended without a
+  record (refused or cut) left A's monitor waiting out its backoff for good, and the 10 s wait for B live ran out at its line 52
+  with only the journal in its message. With a hello under B's id (read from B's settings file as B started) naming a closed web
+  port, sent to the test host's UDP ports for 0.4 s before the two met, the unchanged test failed 3 of 3 at that line after 11 s.
+  The wait's steps are the monitor's sweep (250 ms): the sweep ages liveness every 250 ms from the clock's zero, so a record heard
+  between two sweeps would be read stale or gone up to 250 ms after the test's advances cross 3 s and 6 s (with 50 ms steps the
+  test failed 2 runs of 3 so, at its stale read); heard at a sweep's instant, as on the unmoved clock, it is read at them. Every
+  assertion is kept: A's clock reads exactly what the wait moved it (zero when the first subscription is heard), and a wait that
+  fails names what A's hello and monitor hold of B. Under the same stray hello it passed 3 of 3 (A's clock moved 8 s on a probed
+  run), and 3 of 3 without it (0 s); the 54 Fleet tests all passed. The watched "peer not live" below is consistent with this, not
+  proven: the failing runs kept only the journal, and in this rig, whose node ids are random, a stray hello under B's id is not the
+  likely way in; a dial refused or cut is.
+- Done: `OptimiseJobTests.CancelStopsTheRunningJobAndLeavesNoPartialFile` holds its worker after the first frame
+  (`OptimiseRig.HeldAtFirstFrame`), so its cancel lands mid-job. The job's partial file is on disk only while the clip encodes and
+  until the service takes the end in (a few seconds here), and the test looked for it every 50 ms before it cancelled, so a test
+  that looked only after that waited out its 4 minutes and failed. With the test's continuation 15 s late once the job had begun
+  (a delay in a scratch copy) the unchanged test failed 3 of 3 ("the partial file never came", the version made); held, it passed
+  3 of 3 under the same delay and 3 of 3 without it. No failure of it has been seen.
+- Done: an optimise stop counts its grace on the clock its options give (`OptimiseOptions.Time`; a node keeps the system's), and
+  `OptimiseWorkerEndTests.AStopKillsTheWorkerItAskedToEndNotTheOneThatTookAJobMeanwhile` moves that clock once it has seen the kill a
+  job's arrival makes. Its stop waited 500 ms of real time before killing the worker it asked to end, while the test started a
+  fresh worker (a process start, much slower on Windows) and asked for that arrival's kill alone; a start slower than the grace
+  put the stop's kill first. With 700 ms between the stop and the fresh start (a delay in a scratch copy) the unchanged test
+  failed 3 of 3 at its line 159 (both kills already in); it passed 3 of 3 under the same delay and 3 of 3 without it. No failure
+  of it has been seen.
+- Done: the line wire's STATE and PROJECT push throttle counts its 200 ms window on the clock the wire's options give
+  (`WireServerOptions.Time`, through `TrailingThrottle`; a node's wire and its web port's line sessions keep the system's), and
+  `WireServerTests.PushesAreThrottledLatestWinsAndNeverRepeated` moves that clock once the window stands. Its fifty changes had to
+  fall inside two real-time windows, and the skip it counted was read 600 ms after the touches without waiting for the throttle
+  that writes it. With the publishing loop held 250 ms twice (a delay in a scratch copy) the unchanged test failed 3 of 3 at its
+  line 247 (three pushes); it now reads the one push the window makes, and waits for the skip, and passed 3 of 3 under the same
+  delays and 3 of 3 without them. No failure of it has been seen.
+- Done: `ClockSyncTests`' convergence waits for the leader's count of its answers (`ClockSyncResponder.Answered`) rather than reading
+  it once the follower holds eight samples: the responder counts an answer once its send has returned, which can be after the
+  follower has taken that answer in. With the count landing 300 ms after each send (a scratch copy of the responder) the unchanged
+  tests failed 3 of 3 at its line 36; waiting, they passed 3 of 3 under it and 3 of 3 without it. No failure of them has been seen.
+- Done: `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` runs its node on a clock the test holds
+  (`HostRig`'s mono a `ManualClock`). The link trusts a running clip for 3 s of the node's clock after the desk's last STATE
+  (`PatternsLinkOptions.VideoStaleAfter`, counted on the node's own clock) and the fake desk sends its STATE once, at connect, so a
+  test that read STATE more than 3 s after that read no clip. With the test's read held 3.5 s once the link was live and paired (a
+  delay in a scratch copy) the unchanged test failed 3 of 3 at its line 346; on the held clock it passed 3 of 3 under the same delay
+  and 3 of 3 without it.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -920,11 +996,24 @@ Round 2 W1 notes:
   plays; about 7.5 KB in the backup rig) crosses to every backup and follower, which reads and discards it. The pushes count as the
   peer speaking on those links, which is right. Saying `SUBSCRIBE OFF` before their own subscription (OFF also ends topics, so it
   goes first), or a HELLO that is no listener, closes it; either is a wire change with its catalogue row and papers.
+- Open: a fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended
+  (`FleetMonitor.Consider` returns while the peer's feed runs), so a peer heard again at another address, port or certificate is
+  dialled up to about 9.6 s late; and the monitor's peers (`Peers()`, which STATE and the board read) leave out a machine never
+  heard, so nothing a person reads says why a peer whose hello is heard has no health (`WordsOf` says it, to tests). Cutting the
+  wait short when the dial changes, and a never-heard peer's words on the board, close it.
+- Open: the hello shares the port it listens on with every other socket on the machine (SO_REUSEADDR, and SO_REUSEPORT on Linux)
+  on the port a test asks the system for too (`HelloOptions.ListenPort` 0), so a test node's hello socket can take a port another
+  live test node's hello socket holds (here, 71 of 2000 live binds to port 0 with those options, none without them; Windows not
+  measured), and the hot-backup and sync rigs give their nodes the same constant ids (`BackupRig.PrimaryId` is
+  `SyncRig.LeaderId`), so a rig's node can hear another rig's node under a peer's id. Sharing only the well-known port closes it;
+  the hot-backup meeting now waits for the peer at the web port it serves, and names what it holds when it does not hear it.
 - Open, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step (its 597.5 s matches
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
   `FleetMonitorTests`' 10 s wait for the peer to read live (the test now waits until the headline and the context match the record
-  the monitor holds; the 10 s "peer not live" is not reproduced); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
+  the monitor holds; the 10 s "peer not live" is consistent with A's monitor's first subscription to B ending unheard and its next
+  dial waiting on A's fleet clock, which the test did not move before B read live, not proven; the wait now moves that clock while
+  the monitor waits, and names what A holds of B, above); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows read of the mirror as lost
   (consistent with the mirror link's real-time silence above — a stale spell, or its latch, both now on the node's clock or fixed
@@ -938,7 +1027,8 @@ Round 2 W1 notes:
   member's answer after the send, not proven; its deadlines now run on a manual clock moved once the receipts are in, above);
   `HostNetworkTests.FetchPullsAFileByItsHashFromAPeerAndVerifiesIt`' one Windows wait for the pulled file (its cause not shown,
   above; its wait now names the transfer's stage); `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine`'s
-  wait for the link's first clip in STATE (one failure on the batch's baseline);
+  wait for the link's first clip in STATE (one failure on the batch's baseline; consistent with the clip's 3 s of trust on the
+  node's real clock running out before the test read it, not proven; the node now runs on a clock the test holds, above);
   `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
   (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
   runs on a clock the test moves); `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
@@ -953,7 +1043,13 @@ Round 2 W1 notes:
   processor, above, which its lower bound no longer asks of the machine, not proven);
   `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's heap limit fails its ready check, above, but what would hold
-  that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap).
+  that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap);
+  `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows failure at its line 420 (consistent with
+  its 20 ms samples missing the scan's few hundred milliseconds of "scanning", not proven; the scan is now held there until the
+  cancel is in, above); `BackupRenderTests.TheBackupPlaysTheSameVersionAndItsPictureIsTheSameBytesAtTheSameInstants`' one Windows
+  wait for the backup's health from its line 141 (consistent with the primary's fleet monitor's first subscription ending unheard
+  and its next dial waiting on a fleet clock the hot-backup tests never moved, not proven; the meeting now moves that clock while
+  the monitor waits, and names what the node holds of its peer, above).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it

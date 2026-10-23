@@ -9,6 +9,7 @@ using PlayMap.Engine.Host;
 using PlayMap.Engine.Sync;
 using PlayMap.Engine.Tests.Host;
 using PlayMap.Engine.Tests.Sync;
+using PlayMap.Net.Fleet;
 
 namespace PlayMap.Engine.Tests.Fleet;
 
@@ -21,13 +22,15 @@ internal static class BackupRig
     public const string BackupId = SyncRig.FollowerId;
     public const string ThirdId = "c0ffee00";
 
-    public static EngineParts Parts(ManualTime time)
+    /// <param name="feeds">The fleet monitor's transport, when a test stands between the monitor and its peers' health.</param>
+    public static EngineParts Parts(ManualTime time, Func<FleetPinFile, IHealthFeeds>? feeds = null)
     {
         var fleet = new FleetOptions
         {
             Time = time,
             Reader = new UnknownMachineReader("not read in tests"),
             Backup = new BackupOptions { WatchEvery = TimeSpan.FromMilliseconds(20) },
+            Feeds = feeds,
         };
         var parts = new EngineParts
         {
@@ -36,8 +39,10 @@ internal static class BackupRig
         return OpsParts.With(parts, OpsHostTests.Quick());
     }
 
-    public static Task<HostRig> StartAsync(string name, string id, IMonoClock mono, ManualTime time, DirectoryInfo? dir = null) =>
-        HostRig.StartAsync(name, network: true, mono: mono, parts: Parts(time), settings: s => s with { NodeId = id, TrustLoopback = false }, dir: dir);
+    public static Task<HostRig> StartAsync(string name, string id, IMonoClock mono, ManualTime time, DirectoryInfo? dir = null,
+        Func<FleetPinFile, IHealthFeeds>? feeds = null) =>
+        HostRig.StartAsync(name, network: true, mono: mono, parts: Parts(time, feeds), settings: s => s with { NodeId = id, TrustLoopback = false },
+            dir: dir);
 
     public static JsonElement Fleet(HostRig rig) => rig.State().GetProperty("fleet");
 
@@ -79,20 +84,29 @@ internal static class BackupRig
             .Single(s => s.GetProperty("section").GetString() == "fleet").GetProperty("rows").EnumerateArray().Select(r => r.Clone()).ToList();
     }
 
-    /// <summary>Introduces the nodes to each other and waits until each hears the others' hellos and health.</summary>
+    /// <summary>Introduces the nodes to each other and waits until each hears the others' hellos, at the web port each serves (so the
+    /// machine a fleet monitor dials under that id is the rig's own), and their health. A monitor whose subscription ended without a
+    /// record dials again only once its backoff has run out on the fleet's clock, which these tests move by hand: while a node lacks a
+    /// peer's health and its monitor waits to dial any machine again, each look moves every node's fleet clock a step on
+    /// (<see cref="FleetWait.UntilAsync"/>). That step also moves any dial a node has under way (its connect timeout runs on that clock)
+    /// and ages every record a node holds; no look moves it while the node's monitor waits to dial none, or once the node holds the
+    /// peer's health.</summary>
     public static async Task MeetAsync(params HostRig[] rigs)
     {
         foreach (var a in rigs)
         {
             a.Network.Hello!.Targets = [.. rigs.Where(b => b != a).Select(b => new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, b.Network.HelloPort))];
         }
+        var clocks = rigs.Select(r => r.Engine.Services.FleetTime).OfType<ManualTime>().Distinct().ToList();
         foreach (var a in rigs)
         {
             foreach (var b in rigs.Where(b => b != a))
             {
-                Assert.True(await Eventually.TrueAsync(() => a.Network.Hello!.Peers.Find(b.Id)?.Hello.Port("http") > 0), $"{a.Id} does not hear {b.Id}");
-                Assert.True(await Eventually.TrueAsync(() => a.Engine.Services.FleetPeers!.Peers().Any(p => p.Id == b.Id && p.Health is not null)),
-                    $"{a.Id} has no health of {b.Id}");
+                Assert.True(await Eventually.TrueAsync(() => a.Network.Hello!.Peers.Find(b.Id)?.Hello.Port("http") == b.Network.HttpPort),
+                    $"{a.Id} does not hear {b.Id} at its web port: {FleetWait.Knows(a, b)}");
+                var (held, _) = await FleetWait.UntilAsync(() => a.Engine.Services.FleetPeers!.Peers().Any(p => p.Id == b.Id && p.Health is not null),
+                    a.Engine.Services.FleetPeers as FleetMonitor, clocks);
+                Assert.True(held, $"{a.Id} has no health of {b.Id}: {FleetWait.Knows(a, b)}");
             }
         }
     }
