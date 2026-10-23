@@ -155,7 +155,7 @@ public sealed class BackupRestartTests
         var (row, state, pushedBefore) = await epoch.SeenAsync(TimeSpan.FromSeconds(15));
 
         Assert.Equal("the epoch 5 FOH-A holds — not kept for the next start (the node's settings could not be written: disk full): after a "
-            + "restart a takeover by FOH-B could commit one below it, which would not fence FOH-A", row.Text);
+            + "restart a takeover by FOH-B could commit one not above it, which would not fence FOH-A", row.Text);
         Assert.False(row.Ok);
         var fleet = state.GetProperty("fleet");
         Assert.Equal(("backup", 5L), (fleet.GetProperty("role").GetString(), fleet.GetProperty("epoch").GetInt64()));

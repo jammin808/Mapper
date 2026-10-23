@@ -1242,7 +1242,7 @@ public sealed class BackupNode : IAsyncDisposable
         if (kept.Length > 0)
         {
             _engine?.Journal.Add("fault", string.Create(CultureInfo.InvariantCulture,
-                $"the epoch {epoch} {Label(_settings.Of)} holds{kept}: after a restart a takeover by {SelfName} could commit one below it, which would not fence {Label(_settings.Of)}"), ok: false);
+                $"the epoch {epoch} {Label(_settings.Of)} holds{kept}: after a restart a takeover by {SelfName} could commit one not above it, which would not fence {Label(_settings.Of)}"), ok: false);
         }
     }
 
