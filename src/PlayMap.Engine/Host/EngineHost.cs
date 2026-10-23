@@ -25,6 +25,10 @@ public sealed record EngineHostOptions
     /// <summary>The node's monotonic clock; null = the process's.</summary>
     public IMonoClock? Mono { get; init; }
 
+    /// <summary>The Unix milliseconds the node's wall clock starts from, read once as the host starts; null = the system's time.
+    /// Nodes standing for machines on one time server read one wall from it, however far apart in real time they start.</summary>
+    public Func<long>? UnixMs { get; init; }
+
     /// <summary>The node's time for the parts that count waits, expiries and timers on a <see cref="TimeProvider"/> (the phone hub);
     /// null = the system's.</summary>
     public TimeProvider? Time { get; init; }
@@ -122,7 +126,7 @@ public sealed class EngineHost : IAsyncDisposable
         var logs = _host.Logs ?? NullLoggerFactory.Instance;
         _log = logs.CreateLogger("PlayMap.Engine.Host");
         var mono = _host.Mono ?? MonoClock.Instance;
-        var wall = new ShowWallClock(mono, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var wall = new ShowWallClock(mono, _host.UnixMs?.Invoke() ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         var startedUnixMs = wall.UnixMs;
 
         // The node's own: its settings (this run's name and ports over the stored ones), its certificate, its pins.

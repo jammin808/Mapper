@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -23,6 +24,9 @@ namespace PlayMap.Engine.Tests.Host;
 internal sealed class HostRig : IAsyncDisposable
 {
     public const string Token = "K7QM-3XWD-P9RA";
+
+    // Each moved clock's wall at its zero, taken as the first node on it starts.
+    private static readonly ConditionalWeakTable<IMonoClock, StrongBox<long>> Walls = new();
 
     private readonly ILoggerFactory _logs;
     private readonly NodeLogProvider _log;
@@ -79,6 +83,7 @@ internal sealed class HostRig : IAsyncDisposable
         {
             Parts = parts ?? EngineParts.Bare,
             Mono = mono,
+            UnixMs = SharedWall(mono),
             Time = time,
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             Logs = logs,
@@ -95,6 +100,20 @@ internal sealed class HostRig : IAsyncDisposable
             throw;
         }
         return rig;
+    }
+
+    /// <summary>The wall the nodes on one moved clock share, as machines on one time server do: the system's time as the first of
+    /// them started, moved as the clock under any offset moves (an offset is another machine's boot, not its time). Null on the
+    /// process's clock, whose nodes read the system's time.</summary>
+    private static Func<long>? SharedWall(IMonoClock? mono)
+    {
+        if (mono is null)
+            return null;
+        var root = mono;
+        while (root is IClockOver over)
+            root = over.Inner;
+        var zero = Walls.GetValue(root, r => new StrongBox<long>(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - r.NowNs / Durations.NsPerMs)).Value;
+        return () => zero + root.NowNs / Durations.NsPerMs;
     }
 
     /// <summary>Headless, this rig's folder, nothing put back.</summary>
@@ -182,9 +201,17 @@ internal sealed class HostRig : IAsyncDisposable
     }
 }
 
-/// <summary>A monotonic clock moved by a fixed amount (another machine's clock).</summary>
-internal sealed class OffsetClock(IMonoClock inner, long offsetNs) : IMonoClock
+/// <summary>A clock read off another one (another machine's), which the rig's shared wall follows to the clock under it.</summary>
+internal interface IClockOver
 {
+    IMonoClock Inner { get; }
+}
+
+/// <summary>A monotonic clock moved by a fixed amount (another machine's clock).</summary>
+internal sealed class OffsetClock(IMonoClock inner, long offsetNs) : IMonoClock, IClockOver
+{
+    public IMonoClock Inner => inner;
+
     public long NowNs => inner.NowNs + offsetNs;
 }
 

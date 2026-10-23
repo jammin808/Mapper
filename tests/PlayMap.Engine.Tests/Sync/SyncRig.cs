@@ -86,9 +86,11 @@ internal static class SyncRig
 }
 
 /// <summary>A monotonic clock moved by an offset a test may change (another machine's clock, stepped or drifting).</summary>
-internal sealed class MovableClock(IMonoClock inner, long offsetNs) : IMonoClock
+internal sealed class MovableClock(IMonoClock inner, long offsetNs) : IMonoClock, IClockOver
 {
     private long _offset = offsetNs;
+
+    public IMonoClock Inner => inner;
 
     public long OffsetNs
     {
