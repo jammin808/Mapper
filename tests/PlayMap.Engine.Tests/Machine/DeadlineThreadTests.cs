@@ -94,4 +94,15 @@ public sealed class DeadlineThreadTests
                 ThreadClaims.Use(was);
         }
     }
+
+    /// <summary>Every deadline thread (the headless pacer, the LED sender, each audio feeder) records each wait's lateness in the
+    /// composed platform under its lock while STATE reads the record and the claims: the lock is made with its wait event, so a
+    /// deadline thread's first wait behind a reader allocates nothing.</summary>
+    [Fact]
+    public void TheLatenessRecordEveryDeadlineWaitWritesIsMadeWithItsWaitEvent()
+    {
+        var inner = new NullMachinePlatform("tests have no machine platform", MonoClock.Instance);
+        using var recorded = new RecordedPlatform(inner, MonoClock.Instance, () => RuntimeIdentity.Empty);
+        Assert.Empty(PlayMap.Tests.LockWaitProbe.Unprepared(recorded));
+    }
 }

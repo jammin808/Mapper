@@ -1,4 +1,5 @@
 using PlayMap.Core.Media.Hap;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Media.Hap;
 
@@ -70,6 +71,8 @@ internal sealed unsafe class HapWorkers : IDisposable
 
     internal HapWorkers(int threads)
     {
+        // Decode threads post every frame's chunks under the ring's lock while the workers take them: a first wait allocates nothing.
+        LockWaits.Prepare(_gate);
         _threads = new Thread[threads];
         Threads = threads;
         for (var i = 0; i < threads; i++)

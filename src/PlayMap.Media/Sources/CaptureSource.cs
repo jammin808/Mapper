@@ -2,6 +2,7 @@ using System.Diagnostics;
 using FFmpeg.AutoGen;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Frames;
@@ -62,6 +63,9 @@ public sealed unsafe class CaptureSource : IVideoSource
         _options = options;
         Key = key ?? options.Device;
         _pool = new FramePool(PoolFrames);
+        // The capture thread hands each frame over and takes buffers back while the render thread acquires and lets go, and readers
+        // ask the newest frame's age and the counters: a first wait for the other allocates nothing.
+        LockWaits.Prepare(_gate, _pool.Gate, _leases.Gate, _stats.Gate);
         _thread = new Thread(Run) { IsBackground = true, Name = "capture " + options.Device };
         _thread.Start();
     }
@@ -158,6 +162,7 @@ public sealed unsafe class CaptureSource : IVideoSource
 
     private void Run()
     {
+        LockWaits.PrepareThisThread();
         StreamDecoder? decoder = null;
         FrameWriter? writer = null;
         var packet = ffmpeg.av_packet_alloc();

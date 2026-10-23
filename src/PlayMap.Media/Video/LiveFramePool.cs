@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using PlayMap.Core.Media;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Media.Video;
 
@@ -50,6 +51,8 @@ public sealed unsafe class LiveFramePool : IDisposable
         _slots = new Slot[Math.Max(3, slots)];
         for (var i = 0; i < _slots.Length; i++)
             _slots[i] = new Slot();
+        // The render thread rents and returns a lease every frame beside every other reader: a first wait allocates nothing.
+        LockWaits.Prepare(_leaseGate);
     }
 
     /// <summary>Frames published.</summary>

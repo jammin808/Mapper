@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using PlayMap.Core.Machine;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 using PlayMap.Platform.Windows.Interop;
 
@@ -109,6 +110,10 @@ internal sealed class Lateness
     private readonly double[] _lateUs = new double[Window];
     private readonly Lock _gate = new();
     private int _next;
+
+    /// <summary>A window whose lock has its wait event: every deadline thread records here after each wait, so a first wait behind
+    /// another allocates nothing.</summary>
+    public Lateness() => LockWaits.Prepare(_gate);
 
     public int Count { get; private set; }
 

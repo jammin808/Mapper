@@ -374,8 +374,9 @@ Round 2 W1 notes:
   connection's subscription is taken holds none: the mirror reads `lost` "FOH-A's mirror is not subscribed" then and is offered
   the line, and the node's log says it is not subscribed
   (`BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
-  holds the new connection's greeting before it subscribes while the clock passes the stale mark; against the old words it failed
-  three runs of three with the quiet words). The mirror's state, words and line are read from one look at the link, and a link
+  holds the new connection's reader on the primary's answer to its proof and its greeting before it subscribes, so nothing more is
+  heard on it while the clock passes the stale mark; against the old words it failed three runs of three with the quiet words).
+  The mirror's state, words and line are read from one look at the link, and a link
   that reads down or dialling holds no subscription whether or not the node's listener has cleared it yet: a preflight run between
   the link's move to down and that listener read `lost` "down" with no line (a listener ahead of the node's holding the link's
   thread 300 ms on that move failed the dropped row's assertion three runs of three; it passes now). FLEET BACKUP's refusal, the
@@ -827,6 +828,162 @@ Round 2 W1 notes:
   test began, so what would hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s
   summary says what its reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but
   a collection the thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
+- Done: every lock the air's threads take beside another thread frame by frame makes its wait event as it is made, and each of
+  those threads has its own wait record before its first frame, so no first wait allocates on a show path. A `Lock` makes its wait
+  event (an `AutoResetEvent` and its `SafeWaitHandle`, 56 bytes, or 280 when a collection has dropped the runtime's cache of the
+  handle's type) on the first thread that has to wait for it, and a thread makes its wait record (160 bytes on Linux) on its own
+  first wait. The render host's gates were made bare, so the frame that first met a reader holding one paid for it, at whatever
+  frame that came. Two gates every frame takes inside its counted span are read from other threads: the frame-time gate, under which
+  `Stats` and the present view copied and sorted the frame-time rings, and the health gate, under which `Health`, `Present` and
+  `Machine` build their lists for the fleet sampler and STATE while each frame writes every output's numbers.
+  `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound`' one Windows failure at its line 234 (main
+  2724ccd1, run 427, job 119670930217: `Expected: 212744`, `Actual: 213024`, 280 bytes on the warm frame path across its 100 ms
+  hold and 30 frames; the same commit passed in runs 424 and 430 and on Linux) is consistent with either, not proven: the hold's
+  sharer reads `Stats` as it starts and ends, STATE reads the health gate meanwhile, and a reader preempted inside either makes the
+  frame's write its first wait. On Linux a scratch build that kept the window's sharer read inside the frame-time gate for 20 ms
+  failed the unchanged test at that line by exactly 280 bytes in four runs of four, and a dump of the render thread stopped just
+  after that write held the event, its handle and the two cache objects (24 + 32 + 168 + 56 bytes); the device lock's own timed-out
+  takes allocate nothing after its first.
+  Core's `LockWaits` (moved from Media, whose decode threads' queue, pool and counters already used it) prepares, as each is made:
+  the render host's five gates (frame times, health, frame waiters, views, draft views), the frame lock host's, the sources' busy
+  gate and lease pool's, the device lock, the upload arena's ranges and the GL arena's own lock, the sting channel every frame reads
+  its sting from, the LED frame pool and the LED sender's gate, a sound output's gate and the process-wide OpenAL context gate, a
+  capture input's lock, frame pool, lease pool and counters, a still's lock and lease pool, a live input's lease pool, a sender's
+  offer and stats gates, a HAP clip's packet ring and arena gate and the shared HAP workers' job ring, the composed platform's
+  record of every deadline wait's lateness and of the claims (`RecordedPlatform`, on every platform), and on Windows the platform's
+  own lateness window. A thread that claims its role (render, decode, sound, LED, control) makes its wait record with the claim
+  (`ThreadClaims.Claim`); HAP's read and decode threads, an image sequence's and a capture input's make theirs as they start, and a
+  send worker's first act is a wait. `Stats` and the present view hold the frame-time gate only for the copy and sort on their own
+  stack. Preparing waits, where the lock is made, for one timed take of each lock (a millisecond, up to a timer tick on Windows): off
+  the frame for every lock but the GL upload arena's two, which the render thread makes with the context's first frame with an
+  engine (and again after a lost context), never on a warm frame.
+  `RenderHostLockTests.AReaderHoldingTheFrameGateAcrossAFrameCostsTheFramePathNothing` takes that gate between two frames and holds
+  it until the next frame waits on it: against the old host it failed six runs of six by 280 bytes (`Expected: 213360`, `Actual:
+  213640`). `AWriterHoldingTheStingChannelAcrossAFrameCostsTheFramePathNothing` does the same with the sting channel, which the frame
+  reaches as it composes, once its sources have begun it: against the old channel it failed three runs of three by 280 bytes
+  (`Expected: 213872`, `Actual: 214152`). `EveryLockTheRenderThreadTakesBesideOtherThreadsHasItsWaitEventBeforeItsFirstFrame` reads
+  each such lock's first wait, the sting channel's among them, through `tests/Shared/LockWaitProbe.cs` (a prepared waiter thread,
+  the lock held by the test): nine runs of nine failed against the old host, 280 bytes on six to eight of its eight locks, and one
+  run of three against the old channel; a lock the render thread takes every frame can read 0 on old code, as the render thread can
+  be the one that waits first during the probe's hold. `LockWaitsTests` (the device lock, its first timed-out take behind a sharer,
+  the arena's ranges, the LED pool, the sting channel), `LedSenderTests`, Media's `PerformanceTests` (a sound output; the capture
+  input's, still's, live input's and HAP locks, 280 bytes on each of ten), `SendSinkTests.ASendersLocksAreMadeWithTheirWaitEvents`,
+  `DeadlineThreadTests.TheLatenessRecordEveryDeadlineWaitWritesIsMadeWithItsWaitEvent` and `GlUploadArenaTests` failed three runs
+  of three each against the old code at 280 bytes a lock; `LockWaitsTests.AClaimedThreadsFirstWaitOnAPreparedLockAllocatesNothing`
+  failed three runs of three at 160 bytes, the thread's record; on Windows `LatenessTests` reads the lateness window (not run here).
+  All pass now. Read and left: the stage resources', stage meshes' and timer view's locks, which the frame path does not take (the
+  timer view's only as its poller starts); the runtime deadline timer's, which only its own thread takes; a preview sink's, which
+  the render thread takes drawing a draft view between frames, outside the counted span; the GL share's and the dmabuf importer's
+  books of import failures, which a frame writes only when an import has failed; the NVIDIA frame lock driver's, which only its
+  once-a-second read of the board and its dispose take; and a live input's tally, set by the video hub's thread. The render thread can still wait a moment
+  behind a reader holding the health gate or the frame lock host's: that wait allocates nothing.
+- Done: the mirror test that moves the backup's clock before a new connection subscribes hears nothing on that connection meanwhile.
+  `BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
+  holds the new connection's reader on the primary's answer to its proof (`MirrorLink.PairingChanged`, which hands on the link's
+  pairing moves) as well as its greeting before it subscribes, and moves the clock past the stale mark once. Holding the greeting
+  alone left the reader free: the mirror link says HELLO, which makes it a STATE listener on the primary, and the primary pushes
+  STATE to every listener 200 ms of real time after any change (`WireServerOptions.PushThrottle`): after the new connection's own
+  HELLO, and after each move of the clock, which moves the primary's peer table and fleet monitor on the same hand-moved clock. The
+  link drops those pushes but its reader counts each as heard (rightly: the primary spoke), and its beat looks every 250 ms of real
+  time, so a move went stale only if a look fell between it and the next push. The test moved the clock at most twice, and when both
+  moves were absorbed it read no stale move and line 172 compared against `FirstOrDefault`'s default, `(Connecting, null, null,
+  null)`; the link had neither read Connecting nor dropped. That is the test's one Windows failure (branch fix-fetchrow-win
+  d3df7fb5, run 431, job 119794922607, after 7 s, on a branch that touches neither the backup nor its links), whose actual is
+  exactly that default: consistent with a push landing before the beat's look on the loaded runner, not proven. On Linux the
+  unchanged test, its process stopped for 100 ms from 205 ms after the redial, failed at line 172 with that tuple in six runs of
+  eight, and passed three of three with the same stop from 400 ms; a traced copy made while diagnosing it, not run again since, saw
+  the pushes land 222 ms after the first move and 209 ms after the second, each before the beat's next look. The test now passes
+  eight runs of eight under the 205 ms stop, four of four with it pinned to one CPU as well, and one each under stops of 150 ms from
+  0, 40, 120, 250 and 300 ms; the class passes. It keeps every assertion, its wait for the stale move now for `Stale` alone. No
+  product behaviour changes; that the mirror link and the anchor follower are STATE listeners that drop every STATE line is an
+  efficiency question, open below.
+- Done: a follower that takes its clock from its group's new leader (`BackupNode.RetargetAsync`) raises STATE's push once the epoch
+  is the node's and writes the row of the follow after that, with `Persist`'s words when the settings file could not keep the
+  epoch, as the fleet's other changes carry them; `PromoteTests` waits for that row before it reads it.
+  `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt` waited for follower 2's STATE to show the new leader,
+  a live feed, no hold and epoch 1, then read its journal once for "leads show now (epoch 1)". The follow publishes the epoch
+  (which `STATE.sync.epoch` reads), then writes the settings file durably (read fresh, flushed, renamed into place), and only then
+  writes the row, which says whether the epoch was kept: a reader can see the epoch while the file is still being written, and read
+  the journal before the row. It failed so on the Windows job (run 439, job 120079075197, fix-win-batch2 4f38560e, which does not
+  touch the fleet) at its line 113 (`Assert.Contains()`, `Not found: "leads show now (epoch 1)"`), every assertion before it
+  passing, consistent with a slow settings write or the watch's thread held between the epoch and the row on the loaded runner, not
+  proven: the log times neither. With the row held 1 s before it is written (the test unchanged, the hold in a copy of the journal)
+  the unchanged test failed 5 of 5 at that line with those words, and passed 2 of 2 unheld; every settings write held 250 ms did not
+  make it fail in 4 runs (the test's own steps then wait longer). The test now waits for the row, as `BackupTests` waits for the
+  fence's, and keeps every assertion; it passed 3 of 3 under the same hold against the old product and against the new.
+  The follow also dropped `Persist`'s words, so a follower whose settings file refused the write said nothing of it, and it raised
+  no push, so STATE showed the old epoch until another fact moved (0.3 to 0.96 s in traces while the test read it every 20 ms).
+  `AFollowerWhoseSettingsCannotKeepItsNewLeadersEpochSaysSoInTheRowOfItsFollow`, its settings refusing every write, asks the row for
+  " — not kept for the next start (the node's settings could not be written: disk full)" and not ok, STATE read as the row is
+  written for the new leader and epoch 1, a push raised between the epoch's move and the row, and the file still at epoch 0. It
+  failed 3 of 3 on the words against the old product; with the words carried and no push, 2 of 5 on the push (in the other three
+  another fact's push fell in that window; the watch now counts only the push of the row's own writer, below, and so fails every
+  run without it); with both, it passed 3 of 3 under the hold and 3 of 3 without.
+- Done: a step-down, a backup's kept epoch, a primary's role and a hand-back say when the settings file could not keep them, once
+  STATE holds them. A leader that steps down to a member leading its group under a higher epoch (`StepDownAsync`) did as the follow
+  above did: it dropped `Persist`'s words and raised no push; it now pushes STATE, then writes its row with the words, not ok when
+  the epoch was not kept. A backup that takes the higher epoch its primary is heard to hold (`KeepPrimaryEpoch`), a node a backup
+  joins becoming its primary with that backup (`OnMembersChanged`) and a node that handed its show back taking the epoch it was taken
+  back under (the hand-back in `LookAsync`) dropped the words too, so a node whose file could not keep them would, after a restart,
+  take over under an epoch that fences no one, go out without waiting to hear its backups, or be fenced by none of them, having said
+  nothing. The first two now say so in a fault row and the hand-back in its own row, each after STATE moved and was pushed (the
+  epoch's move raised none before). With the settings refusing every write,
+  `ALeaderWhoseSettingsCannotKeepTheEpochItStepsDownUnderSaysSoInTheRowOfItsStepDown`,
+  `ABackupWhoseSettingsCannotKeepItsPrimarysEpochSaysSo`, `APrimaryWhoseSettingsCannotKeepItsRoleSaysSo` and
+  `ANodeWhoseSettingsCannotKeepTheEpochOfItsHandBackSaysSoInItsRow` ask each row for its words, not ok, STATE read as it is written
+  for what it reports, a push raised before it, and the file as it was; against the product before this change each failed 2 of 2
+  (the step-down's and the hand-back's rows without the words, no row at all for the other two), and with it each passed 3 of 3.
+  Their watch (`RowWatch`, as the follow's above) counts only a push the row's own writer raised: the fact moves and its row is
+  written on one thread with no wait between, and a push another thread raised in that span, for a fact of its own, let a missing
+  push pass. Counting any push, the product built without the follow's, the step-down's, the kept epoch's and the hand-back's pushes
+  failed their push assertions 3, 2, 2 and 1 of 3 runs; counting the writer's, each failed 3 of 3, and with the pushes each passed 3
+  of 3.
+- Done: `BackupNode.Persist` pushes STATE once the fleet's settings are the node's, before it answers, so every change of them writes
+  its row, or answers its verb, beside a STATE that holds it (the follow's, the step-down's and the kept epoch's own pushes, above,
+  are now that one). FLEET FENCE and the takeover wrote theirs before any push of the role and epoch they set: a new role's only push
+  was the network air's (`MoveAir`), which moves before the settings are the node's so that STATE never names a role whose air has
+  not moved, and STATE is cached on its revision, so a reader holding the fence's row, or the takeover's fault row for an epoch the
+  file could not keep, could read the role and epoch from before (the fence's next push came after `LeadsHeardAsync` and a
+  `SYNC FOLLOW`, the takeover's after its routes). `AFailoverWhoseSettingsCannotBeKeptOnEitherNodeSaysSoInEachRowOnceStateHoldsIt`,
+  both nodes' files refusing every write, asks the backup's fault row and the old primary's fence row for their words, not ok, STATE
+  read as each is written for the role, the node it names and epoch 1, a push by the row's writer before it, and each file as it was;
+  against the product before this change it failed 3 of 3 at the takeover's push, and with it it passed 3 of 3.
+- Done, not seen failing: a backup that hears its primary's epoch in the hello of its mirror and in the primary's HEALTH at once
+  (`KeepPrimaryEpoch`, from the mirror's line and from the watch) takes it once and says once that its settings file could not keep
+  it. The epoch was read outside the settings' lock and taken inside it, so both callers could pass the read and both write the fault
+  row (before the fleet-words change above, only a second write of the same epoch). It is now read and taken in one step under the
+  lock. `ABackupThatHearsItsPrimarysEpochOnItsMirrorAndInItsHealthSaysOnceThatItCannotKeepIt`, a backup restarted under epoch 2 whose
+  primary holds 5, its file refusing every write, waits for the row and for its mirror to be identical (its hello read; the watch has
+  read the primary's HEALTH many times by then) and asks for one row, STATE at epoch 5 and the file at 2. With the first caller past
+  the read held until a second passed it (in a scratch copy) it failed 3 of 3 against the two steps, with two rows, and passed
+  unheld; with one step it passed 3 of 3 under the same hold (the second caller waits on the lock, then finds the epoch taken).
+- Done, not seen failing: `ClockSlewTests.AWaitingBlindCommitMovesWithTheStepSoItLandsNeitherEarlyNorLate` reads the landing's
+  journal row once the lane's tick that landed the commit is over (`Ticked`, as `BlindTests` reads it), not at its first sight of
+  the landed show. A commit lands on the lane's tick: the store publishes the show and runs its listeners, and then the row ("blind
+  commit: 1 change landed (at) by Desk") says it landed, so it rightly follows; a reader that saw the show could read the journal
+  before the row. With the row held 1 s before the journal took it (in a copy of the journal), the unchanged test failed 3 of 3 at
+  its line 102 with the row not found, and passed unheld; it passed 3 of 3 under the hold now.
+- Done, not seen failing: `MemberCommitTests.AMembersCommitWaitingForAGoLandsWithTheLeadersGoAndANextCommitWithItsEarlyNext` reads
+  its landing row ("blind commit: 1 change landed (on go) by Desk") once the member's lane tick that landed the commit is over, for
+  the reason above. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 40, and passed unheld; it
+  passed 3 of 3 under the hold now.
+- Done, not seen failing: a follower whose leader goes quiet says it free-wheels in STATE (its words, pushed) before its row and its
+  `sync.leader.lost` event, and that it follows again before the row that its leader is heard again (`SyncNode.WatchLeader`). It
+  wrote the row and raised the event first, so `AnchorFeedTests.AFollowerWhoseLeaderDiesFreeWheelsAndSwitchesItsNextItemAtTheAnchoredInstant`,
+  which waits for the row and then reads STATE's words, could read the follow's words: with the lane held 1 s just after the row,
+  the unchanged test failed 3 of 3 at its line 107 (`"following FOH (0badc0de) for show — …"`), and passed unheld. The test now also
+  reads STATE's words as the row is written; against the old order that failed 3 of 3 with no hold (the words were set after the
+  row, on the same thread), and with the new order it passed 3 of 3 held and 3 of 3 unheld.
+- Done, not seen failing: `AnchorFeedTests.ARestartedFollowerFollowsItsLeaderAgainRejoinsTheShowWhereItIsAndKeepsItsSwitch` waits
+  for the rejoin's row ("… (kept from before the restart)") before it reads it. The rejoin (`SyncNode.RestoreAsync`) follows through
+  the network host, which names the role STATE reads, starts its feed, and then writes the row; the role, the clock and the live
+  feed the test waited for come first. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 156,
+  and passed unheld; it passed 3 of 3 under the hold now.
+- Done, not seen failing: `BackupRestartTests.APrimaryWhoseBackupIsNotHeardGoesOutOnceItsClockHasWaitedForIt` waits for the row
+  ("… did not hear its hot backup …") before it reads it. `BackupNode.Hear` moves the node's network air under the settings' lock
+  (live, the LED sender's master, the sends reconciled, a push) and writes the row after the lock; the air and the LED, which the
+  test waited for, come first. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 128, and
+  passed unheld; it passed 3 of 3 under the hold now.
 - Done: `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack` holds the simulated scan at its first pattern
   until its cancel is in. A simulated scan reads "scanning" only while its patterns render, the FAST plan's 34 back to back in one
   work item on a compute thread (`ScanRunner.CaptureSimulated`; 0.3 to 0.7 s here in Debug), and goes on to its decode, its solve
@@ -1027,6 +1184,12 @@ Round 2 W1 notes:
   state's publish, up to the quiet (10 s) for each missing show file every time it asks for them again, and an answer whose headers
   never come for the client's 60 s. Pulling the show files off the watch's own turn, with a test of the watch's pace while a show
   file is silent, closes it.
+- Open (efficiency, not measured as the cause of anything): a backup's mirror link (`MirrorLink`) and a follower's anchor link
+  (`AnchorFollower`) say HELLO, which makes each a STATE listener on its primary or leader (`WireSession`'s HELLO), and each drops
+  every STATE line it is sent: every change there (coalesced to one push per 200 ms, and at least one a second while anything
+  plays; about 7.5 KB in the backup rig) crosses to every backup and follower, which reads and discards it. The pushes count as the
+  peer speaking on those links, which is right. Saying `SUBSCRIBE OFF` before their own subscription (OFF also ends topics, so it
+  goes first), or a HELLO that is no listener, closes it; either is a wire change with its catalogue row and papers.
 - Open: a fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended
   (`FleetMonitor.Consider` returns while the peer's feed runs), so a peer heard again at another address, port or certificate is
   dialled up to about 9.6 s late; and the monitor's peers (`Peers()`, which STATE and the board read) leave out a machine never
@@ -1072,6 +1235,9 @@ Round 2 W1 notes:
   consistent with its read racing the stage's builder, above, which the test now waits for, not proven);
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (consistent with a thread given under half a
   processor, above, which its lower bound no longer asks of the machine, not proven);
+  `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt`' one Windows read of the follow's row before it was
+  written (consistent with a slow settings write, or the watch's thread held, between the epoch's move and the row, above, which
+  the test now waits for, not proven);
   `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's heap limit fails its ready check, above, but what would hold
   that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap);

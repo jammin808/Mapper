@@ -1,5 +1,6 @@
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Engine.Playback;
 using PlayMap.Media.Sources;
 using PlayMap.Render.Engine;
@@ -108,6 +109,8 @@ internal sealed class EngineSources : ISourceProvider, IDisposable
         _itemGone = ItemGone;
         _mediaGone = MediaGone;
         _liveGone = LiveGone;
+        // The render thread queues an open under the gate while a worker ends one: a first wait allocates nothing.
+        LockWaits.Prepare(_busyGate);
     }
 
     /// <summary>How long <see cref="Dispose"/> waits for every source to close.</summary>

@@ -60,12 +60,18 @@ public sealed class MirrorLink : IAsyncDisposable
         _link = link;
         _link.Line += OnLine;
         _link.StatusChanged += s => StatusChanged?.Invoke(s);
+        _link.PairingChanged += s => PairingChanged?.Invoke(s);
     }
 
     /// <summary>A <c>MIRROR …</c> line from the primary, raised on the link's reader (a handler keeps it short).</summary>
     public event Action<string>? Line;
 
     public event Action<LinkStatus>? StatusChanged;
+
+    /// <summary>Raised when the connection's pairing moves: unknown as it connects; paired, refused or a token asked for on the link's
+    /// reader as it reads the primary's NONCE or answer (a handler keeps it short); not needed once the primary asked no proof within
+    /// the nonce wait.</summary>
+    public event Action<PairState>? PairingChanged;
 
     /// <summary>Raised on each connection just before it subscribes.</summary>
     public event Action? Subscribing;

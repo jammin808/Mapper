@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 
 namespace PlayMap.Core.Machine;
@@ -50,9 +51,14 @@ public static class ThreadClaims
     /// <summary>The platform claims go to now, or null before <see cref="Use"/>.</summary>
     public static IMachinePlatform? Platform => Volatile.Read(ref _platform);
 
-    /// <summary>Claims the calling thread's role through the platform in use; dispose it at the thread's end.</summary>
-    public static IThreadClaim Claim(ThreadRole role) =>
-        Platform is { } platform ? platform.ClaimThread(role) : new UnclaimedThread(role, NoPlatformWords);
+    /// <summary>Claims the calling thread's role through the platform in use; dispose it at the thread's end. The thread's wait record
+    /// is made with the claim (<see cref="LockWaits.PrepareThisThread"/>), so its first wait on a prepared lock, at whatever frame it
+    /// comes, allocates nothing.</summary>
+    public static IThreadClaim Claim(ThreadRole role)
+    {
+        LockWaits.PrepareThisThread();
+        return Platform is { } platform ? platform.ClaimThread(role) : new UnclaimedThread(role, NoPlatformWords);
+    }
 
     /// <summary>Points every claim made from now on at <paramref name="platform"/> (the host's, once at start). A claim made before
     /// keeps what it was.</summary>

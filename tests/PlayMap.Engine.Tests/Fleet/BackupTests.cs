@@ -433,6 +433,116 @@ public sealed class BackupTests
         Assert.Contains("(handed back by FOH-A", rows[takeover].Text, StringComparison.Ordinal);
     }
 
+    /// <summary>A FAILOVER between two nodes whose settings files refuse every write moves both for this run and says so on each: the
+    /// backup's fault row says its takeover's epoch is not kept, the old primary's fence row says its fence is not, and each node's STATE
+    /// holds what its row reports, and has been pushed, by the time that row is written.</summary>
+    [Fact]
+    public async Task AFailoverWhoseSettingsCannotBeKeptOnEitherNodeSaysSoInEachRowOnceStateHoldsIt()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        await SyncRig.OpenShowAsync(primary);
+        await primary.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(primary, backup);
+        await BackupRig.BackUpAsync(primary, backup);
+        Assert.True(await Eventually.TrueAsync(() => BackupRig.Fleet(primary).GetProperty("backups").EnumerateArray()
+            .Any(b => b.GetProperty("node").GetString() == backup.Id && b.GetProperty("state").GetString() == "identical")), BackupRig.Fleet(primary).ToString());
+
+        primary.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        backup.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        var taken = new RowWatch(backup, "fault", "the takeover's epoch 1", () => backup.Engine.Services.Backup!.Role == FleetRoles.Primary);
+        var fenced = new RowWatch(primary, "fleet", "fenced: FOH-B has the show since", () => primary.Engine.Services.Backup!.Role == FleetRoles.Fenced);
+        var takeover = await backup.RunAsync("FAILOVER");
+        Assert.True(takeover.Ok, takeover.Payload);
+
+        var (row, state, pushedBefore) = await taken.SeenAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal("the takeover's epoch 1 — not kept for the next start (the node's settings could not be written: disk full): after a "
+            + "restart this node would not know it took the show", row.Text);
+        Assert.False(row.Ok);
+        var fleet = state.GetProperty("fleet");
+        Assert.Equal(("primary", primary.Id, 1L), (fleet.GetProperty("role").GetString(), fleet.GetProperty("of").GetString(), fleet.GetProperty("epoch").GetInt64()));
+        Assert.True(pushedBefore, "no push of STATE was raised between the takeover's role and epoch and its fault row");
+        Assert.Equal((FleetRoles.Backup, 0L), (backup.Home.LoadSettings("x").Fleet.Role, backup.Home.LoadSettings("x").Fleet.Epoch));
+
+        var (fence, fenceState, fencePushedBefore) = await fenced.SeenAsync(TimeSpan.FromSeconds(15));
+        Assert.StartsWith("fenced: FOH-B has the show since ", fence.Text, StringComparison.Ordinal);
+        Assert.EndsWith("(epoch 1) — outputs held black; FLEET BACKUP FOH-B to mirror it — not kept for the next start (the node's settings "
+            + "could not be written: disk full)", fence.Text, StringComparison.Ordinal);
+        Assert.False(fence.Ok);
+        var fenceFleet = fenceState.GetProperty("fleet");
+        Assert.Equal(("fenced", backup.Id, 1L), (fenceFleet.GetProperty("role").GetString(), fenceFleet.GetProperty("of").GetString(),
+            fenceFleet.GetProperty("epoch").GetInt64()));
+        Assert.True(fencePushedBefore, "no push of STATE was raised between the fence's role and epoch and its row");
+        Assert.Equal((FleetRoles.Primary, 0L), (primary.Home.LoadSettings("x").Fleet.Role, primary.Home.LoadSettings("x").Fleet.Epoch));
+    }
+
+    /// <summary>A node a backup joins is the show's primary, with that backup, for this run though its settings file refuses the write,
+    /// and says so: STATE names it the primary, and has been pushed, by the time that row is written.</summary>
+    [Fact]
+    public async Task APrimaryWhoseSettingsCannotKeepItsRoleSaysSo()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        await SyncRig.OpenShowAsync(primary);
+        await primary.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(primary, backup);
+        primary.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        var role = new RowWatch(primary, "fault", "FOH-A's role as the primary of FOH-B", () => primary.Engine.Services.Backup!.Role == FleetRoles.Primary);
+
+        await BackupRig.BackUpAsync(primary, backup);
+        var (row, state, pushedBefore) = await role.SeenAsync(TimeSpan.FromSeconds(15));
+
+        Assert.Equal("FOH-A's role as the primary of FOH-B — not kept for the next start (the node's settings could not be written: disk full): "
+            + "after a restart it would not wait to hear them before it sends, and none that took its show could fence it", row.Text);
+        Assert.False(row.Ok);
+        Assert.Equal("primary", state.GetProperty("fleet").GetProperty("role").GetString());
+        Assert.True(pushedBefore, "no push of STATE was raised between the role's move and the row");
+        Assert.Equal(FleetRoles.Solo, primary.Home.LoadSettings("x").Fleet.Role);
+    }
+
+    /// <summary>A node that handed its show back mirrors the node that took it back, under the epoch it took it with, for this run though
+    /// its settings file refuses the write: the row of the hand-back says the epoch is not kept for the next start, and STATE holds the
+    /// hand-back's record and the epoch, and has been pushed, by the time that row is written.</summary>
+    [Fact]
+    public async Task ANodeWhoseSettingsCannotKeepTheEpochOfItsHandBackSaysSoInItsRow()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        await SyncRig.OpenShowAsync(primary);
+        await primary.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(primary, backup);
+        await BackupRig.BackUpAsync(primary, backup);
+        var takeover = await backup.RunAsync("FAILOVER");
+        Assert.True(takeover.Ok, takeover.Payload);
+        Assert.True(await Eventually.TrueAsync(() => BackupRig.Role(primary) == "fenced"), BackupRig.Fleet(primary) + "\n" + primary.Journal());
+        await BackupRig.BackUpAsync(backup, primary);
+        Assert.True(await Eventually.TrueAsync(() => BackupRig.Fleet(backup).GetProperty("backups").EnumerateArray()
+            .Any(b => b.GetProperty("node").GetString() == primary.Id && b.GetProperty("state").GetString() == "identical")), BackupRig.Fleet(backup).ToString());
+
+        backup.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        var handedBack = new RowWatch(backup, "fleet", "took the show back (epoch 2)", () => backup.Engine.Services.Backup!.Last?.Kind == "failback");
+        var back = await backup.RunAsync("FAILBACK CONFIRM");
+        Assert.True(back.Ok, back.Payload);
+        var (row, state, pushedBefore) = await handedBack.SeenAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("FOH-A took the show back (epoch 2): FOH-B is its hot backup again — not kept for the next start (the node's settings could "
+            + "not be written: disk full)", row.Text);
+        Assert.False(row.Ok);
+        var fleet = state.GetProperty("fleet");
+        Assert.Equal(("backup", primary.Id, 2L, "failback"), (fleet.GetProperty("role").GetString(), fleet.GetProperty("of").GetString(),
+            fleet.GetProperty("epoch").GetInt64(), fleet.GetProperty("last").GetProperty("kind").GetString()));
+        Assert.Equal(row.Text, fleet.GetProperty("last").GetProperty("words").GetString());
+        Assert.True(pushedBefore, "no push of STATE was raised between the hand-back's record and its row");
+        // The file holds what it held before the hand-back: the primary under the takeover's epoch.
+        Assert.Equal((FleetRoles.Primary, 1L), (backup.Home.LoadSettings("x").Fleet.Role, backup.Home.LoadSettings("x").Fleet.Epoch));
+    }
+
     /// <summary>The journal's recent rows that hold <paramref name="text"/>, oldest first.</summary>
     private static List<string> Rows(HostRig rig, string text) => [.. rig.Journal().Split('\n').Where(r => r.Contains(text, StringComparison.Ordinal))];
 

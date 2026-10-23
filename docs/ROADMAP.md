@@ -129,6 +129,15 @@ The lab checks still to do:
   which holds the thread xunit starts for that check, made the unchanged test fail so; the poll's limit now runs on a clock the
   test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
+  `DeviceLockHostTests`' one Windows frame path that allocated 280 bytes across a sharer's hold (consistent with the render
+  thread's first wait on a gate a preempted reader held, the frame-time gate's `Stats` reader or the health gate's, not proven: on
+  Linux a reader held inside the frame-time gate made the unchanged test fail by exactly 280 bytes; every lock the air's threads
+  share frame by frame is made with its wait event now, each of those threads has its wait record before its first frame, and a
+  reader or writer holding the frame-time gate or the sting channel across a frame costs the frame path nothing),
+  `BackupMirrorLinkTests`' one Windows read of a mirror quiet before its new connection subscribed with no stale move at all (its
+  actual was the default tuple; consistent with the primary's STATE pushes, 200 ms after each move of the clock, landing before the
+  link's 250 ms beat looked, not proven: on Linux the unchanged test, stopped 100 ms from 205 ms after the redial, failed so in six
+  runs of eight; the test now holds the new connection's reader as well as its greeting, so nothing is heard while the clock moves),
   `FleetMonitorTests`' 10 s wait for the peer to read live (consistent with A's fleet monitor's first subscription to B ending
   unheard and its next dial waiting on A's fleet clock, which the test did not move before B read live, not proven; the wait now
   moves that clock while the monitor waits, and names what A holds of B), `HostNetworkTests`' wait for the Patterns link's first
@@ -150,6 +159,14 @@ The lab checks still to do:
   `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced`' one Windows "stopped sending: nothing for 10 s" (run 436;
   consistent with the test host leaving the fake phone's pings unsent for the hub's 10 s of real time, not proven; the phone rig's
   hub and the test's scan now run on clocks the test holds, and a hello's limit on the hub's own clock tells the phone why),
+  `PromoteTests`' one Windows read of a follower's journal before the row of its follow of the group's new leader (consistent with
+  a slow settings write, or the watch's thread held, between the epoch's move, which STATE shows, and the row, not proven; the test
+  now waits for the row, which says whether the epoch was kept, and the follow raises STATE's push before it; a step-down, a backup's
+  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them, and every change of the
+  fleet's settings, a fence's and a takeover's too, pushes STATE before its row; the same read of a row
+  before it is written, not seen failing, is gone from `ClockSlewTests` and `MemberCommitTests` (a blind commit's landing),
+  `AnchorFeedTests` (a rejoin after a restart, and a follower now says it free-wheels in STATE before its row) and
+  `BackupRestartTests` (a primary that goes out without hearing its backup)),
   `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
   (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
   now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent

@@ -29,9 +29,10 @@
     <PackageReference Include="Snappier" Version="1.3.1" />
   </ItemGroup>
 
-  <!-- The one way the suites measure allocation, shared rather than copied. -->
+  <!-- The one way the suites measure allocation, and what a lock's first wait makes, shared rather than copied. -->
   <ItemGroup Label="fix-tests3">
     <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
+    <Compile Include="..\Shared\LockWaitProbe.cs" Link="Shared\LockWaitProbe.cs" />
   </ItemGroup>
 
   <!-- A tool whose helper holds its pipes after it exits, shared by the native doubles' build test and the node probe's. -->

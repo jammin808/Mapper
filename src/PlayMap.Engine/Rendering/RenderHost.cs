@@ -141,7 +141,6 @@ public sealed partial class RenderHost : IRenderHost
     private readonly Lock _waiterGate = new();
     private readonly List<(long Frame, TaskCompletionSource Done)> _frameWaiters = [];
     private readonly double[] _frameMs = new double[FrameRing];
-    private readonly double[] _frameMsSorted = new double[FrameRing];
     private readonly Lock _frameMsGate = new();
     private FramePacer _loopPacer = new(60);
 #pragma warning disable CA2213 // Disposed by TearDown on the render thread, which made its deadline timer and waited on it.
@@ -149,7 +148,6 @@ public sealed partial class RenderHost : IRenderHost
 #pragma warning restore CA2213
     private readonly Func<string, long> _presentOf;
     private readonly double[] _presentMs = new double[FrameRing];
-    private readonly double[] _presentMsSorted = new double[FrameRing];
 #pragma warning disable CA2213 // Disposed by TearDown on the render thread (it leaves every joined output there).
     private readonly FrameLockHost _lock;
 #pragma warning restore CA2213
@@ -210,6 +208,9 @@ public sealed partial class RenderHost : IRenderHost
         _lock.Changed += OnLockChanged;
         _lock.FellOut += OnFellOut;
         _scan = new ScanFrames(() => Volatile.Read(ref _engine)?.Store.Project);
+        // Every gate the render thread takes beside other threads has its wait event before the first frame, so a first wait
+        // behind a reader allocates nothing at whatever frame it comes.
+        Core.Threading.LockWaits.Prepare(_frameMsGate, _healthGate, _waiterGate, _viewGate, _draftGate);
         _thread = new Thread(Main) { IsBackground = true, Name = "render", Priority = ThreadPriority.AboveNormal };
         _thread.Start();
     }
@@ -345,15 +346,16 @@ public sealed partial class RenderHost : IRenderHost
             double mean = 0, p95 = 0;
             if (n > 0)
             {
+                // The gate is held only for the copy: a reader never holds the render thread while it sorts.
+                Span<double> sorted = stackalloc double[FrameRing];
+                sorted = sorted[..n];
                 lock (_frameMsGate)
-                {
-                    Array.Copy(_frameMs, _frameMsSorted, n);
-                    Array.Sort(_frameMsSorted, 0, n);
-                    for (var i = 0; i < n; i++)
-                        mean += _frameMsSorted[i];
-                    mean /= n;
-                    p95 = _frameMsSorted[Math.Clamp((int)Math.Ceiling(0.95 * n) - 1, 0, n - 1)];
-                }
+                    _frameMs.AsSpan(0, n).CopyTo(sorted);
+                sorted.Sort();
+                foreach (var ms in sorted)
+                    mean += ms;
+                mean /= n;
+                p95 = sorted[Math.Clamp((int)Math.Ceiling(0.95 * n) - 1, 0, n - 1)];
             }
             return new RenderHostStats(frames, mean, p95, _loopPacer.Fps, Interlocked.Read(ref _framePathBytes), _openWindows, _sources?.OpenSources ?? 0);
         }
