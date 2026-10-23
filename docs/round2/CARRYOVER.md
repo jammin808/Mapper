@@ -919,7 +919,11 @@ Round 2 W1 notes:
   the dispose threw it). The pull now ends quietly on whatever it meets once the stop is taken; a refusal before the stop is said on
   the sink as before; a failure no pull expects ends the pull, said at once on the sink and in the journal; and the sink's dispose
   runs once and lets its client and stop go whatever it meets. The two new tests and the three before them, every assertion kept,
-  passed 8 runs of 8. The unchanged test still cannot be made to fail on Linux on its own, where the refusal is immediate.
+  passed 8 runs of 8. The unchanged test still cannot be made to fail on Linux on its own, where the refusal is immediate. A
+  change of desk while the old desk's call was refused so (`AssistantService.UseApprovalDeskAsync`) threw the refusal at whoever
+  changed the desk once the change was made, and skipped telling STATE; with the same held refusal,
+  `AChangeOfDeskWhileTheOldDesksCallIsRefusedAsItsStopIsTakenCompletes` failed 3 of 3 against the sink as it was, the refusal thrown
+  from the change, and passes now (5 runs of 5, with the sink's other tests): the new desk is the one read, the old names nothing new.
 - Done: the operations services an engine built without the host owns (`OpsServices.Attach`: the scan runner, projector control
   and the assistant, each with its attachment) are all let go when one of them fails to stop, and what failed is thrown once they
   are (itself when one part failed, together when several did). Their dispose stopped at the first part that threw and runs once,

@@ -228,6 +228,24 @@ internal sealed class LateRefusalDesk(PullTokenSpy spy) : HttpMessageHandler
         new(HttpRequestError.ConnectionError, words, new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused));
 }
 
+/// <summary>An approval desk with nothing waiting: every pull is answered with an empty list.</summary>
+internal sealed class QuietDesk : HttpMessageHandler
+{
+    private int _asked;
+
+    public int Asked => Volatile.Read(ref _asked);
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _asked);
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"proposals\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            RequestMessage = request,
+        });
+    }
+}
+
 /// <summary>An approval desk whose client fails as no pull expects, at every request.</summary>
 internal sealed class BrokenClientDesk : HttpMessageHandler
 {
@@ -467,6 +485,53 @@ public sealed class StagewatchSinkTests
             await rig.DisposeAsync();
             Assert.Contains(BrokenClientDesk.Words, sink.Problem, StringComparison.Ordinal);
             Assert.Null(rig.Assistant.ApprovalDesk);
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A change of desk while the old desk's call is refused as its stop is taken completes: the new desk is the one the node
+    /// reads, the old one names nothing new, and nothing is thrown at whoever changed the desk.</summary>
+    [Fact]
+    public async Task AChangeOfDeskWhileTheOldDesksCallIsRefusedAsItsStopIsTakenCompletes()
+    {
+        var spy = new PullTokenSpy();
+        var rig = new OpsRig(network: spy);
+        using var desk = new LateRefusalDesk(spy);
+        using var next = new QuietDesk();
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = desk,
+            });
+            var old = rig.Assistant.ApprovalDesk!;
+            await spy.Token.WaitAsync(TimeSpan.FromSeconds(30));
+            await desk.Held.WaitAsync(TimeSpan.FromSeconds(30));
+
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:10/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = next,
+            });
+            Assert.True(desk.RaisedAfterTheStop && desk.RaisedBeforeTheRequestsCancel,
+                $"the late refusal was raised after the stop: {desk.RaisedAfterTheStop}, before the request's cancel: {desk.RaisedBeforeTheRequestsCancel}");
+            Assert.Equal($"{old.Name} could not be read: {LateRefusalDesk.EarlyWords}", old.Problem);
+            var used = rig.Assistant.ApprovalDesk;
+            Assert.NotNull(used);
+            Assert.Equal("Stagewatch at 127.0.0.1:10", used.Name);
+            Assert.True(await OpsRig.Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
+            Assert.Equal("", used.Problem);
         }
         finally
         {
