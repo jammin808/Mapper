@@ -843,8 +843,8 @@ Round 2 W1 notes:
   " — not kept for the next start (the node's settings could not be written: disk full)" and not ok, STATE read as the row is
   written for the new leader and epoch 1, a push raised between the epoch's move and the row, and the file still at epoch 0. It
   failed 3 of 3 on the words against the old product; with the words carried and no push, 2 of 5 on the push (in the other three
-  another fact's push fell in that window, so the missing push cannot be made to fail every time); with both, it passed 3 of 3
-  under the hold and 3 of 3 without.
+  another fact's push fell in that window; the watch now counts only the push of the row's own writer, below, and so fails every
+  run without it); with both, it passed 3 of 3 under the hold and 3 of 3 without.
 - Done: a step-down, a backup's kept epoch, a primary's role and a hand-back say when the settings file could not keep them, once
   STATE holds them. A leader that steps down to a member leading its group under a higher epoch (`StepDownAsync`) did as the follow
   above did: it dropped `Persist`'s words and raised no push; it now pushes STATE, then writes its row with the words, not ok when
@@ -869,10 +869,10 @@ Round 2 W1 notes:
   are now that one). FLEET FENCE and the takeover wrote theirs before any push of the role and epoch they set: a new role's only push
   was the network air's (`MoveAir`), which moves before the settings are the node's so that STATE never names a role whose air has
   not moved, and STATE is cached on its revision, so a reader holding the fence's row, or the takeover's fault row for an epoch the
-  file could not keep, could read the role and epoch from before (the fence's next push came after `LeadsHeardAsync` and a `SYNC
-  FOLLOW`, the takeover's after its routes). `AFailoverWhoseSettingsCannotBeKeptOnEitherNodeSaysSoInEachRowOnceStateHoldsIt`, both
-  nodes' files refusing every write, asks the backup's fault row and the old primary's fence row for their words, not ok, STATE read
-  as each is written for the role, the node it names and epoch 1, a push by the row's writer before it, and each file as it was;
+  file could not keep, could read the role and epoch from before (the fence's next push came after `LeadsHeardAsync` and a
+  `SYNC FOLLOW`, the takeover's after its routes). `AFailoverWhoseSettingsCannotBeKeptOnEitherNodeSaysSoInEachRowOnceStateHoldsIt`,
+  both nodes' files refusing every write, asks the backup's fault row and the old primary's fence row for their words, not ok, STATE
+  read as each is written for the role, the node it names and epoch 1, a push by the row's writer before it, and each file as it was;
   against the product before this change it failed 3 of 3 at the takeover's push, and with it it passed 3 of 3.
 - Done, not seen failing: a backup that hears its primary's epoch in the hello of its mirror and in the primary's HEALTH at once
   (`KeepPrimaryEpoch`, from the mirror's line and from the watch) takes it once and says once that its settings file could not keep
