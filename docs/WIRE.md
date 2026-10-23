@@ -340,7 +340,8 @@ at most 30. A view keeps its ring while it lives (a reader opens it once). Each 
 of the view's (`playmap-<node>-<view>~<generation>.preview`): a view shown again after its ring went, or a draft view shown again
 while its last ring retires, writes a ring no reader has mapped, so a reader that still maps the old one keeps its last picture and
 never holds the new one up; generations count up from the engine's start (its wall-clock milliseconds × 1000), so a ring made after a
-restart never takes a name a reader opened before it. `ring` is empty for a view the node writes no ring for. A reader opens the
+restart never takes a name a reader opened before it. A node that stops lets every ring it writes go, and a node making its views
+takes away its own earlier rings' files that no writer or reader has open. `ring` is empty for a view the node writes no ring for. A reader opens the
 file the reply or STATE names, and opens it again when that name changes. The desk reads that file only when it is one of the
 linked node's rings for that view in its own preview folder (`playmap-<node>-<view>~<digits>.preview`, directly in the folder,
 decided from the words before the disk is touched), and no other file: any other name opens nothing, and a named file that is not a

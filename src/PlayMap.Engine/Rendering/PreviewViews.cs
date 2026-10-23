@@ -271,6 +271,7 @@ public sealed class PreviewViews : IDisposable
     private readonly IMonoClock _clock;
     private IViewRenderer? _renderer;
     private long _generation;
+    private bool _disposed;
 
     /// <param name="firstGeneration">The generation the first ring made takes, counted up from there: the engine gives its start's
     /// wall-clock milliseconds × 1000, so a ring made after a restart never takes the name of one a reader opened before it.</param>
@@ -317,6 +318,51 @@ public sealed class PreviewViews : IDisposable
             {
                 TryDelete(path);
             }
+        }
+    }
+
+    /// <summary>Takes away the files of this node's rings that nothing holds any more, such as those of a run that stopped without
+    /// letting its rings go: every generation's file of this node in the preview folder ("playmap-&lt;node&gt;-&lt;name&gt;~&lt;digits&gt;.preview")
+    /// that no writer and no reader has open. A ring that another engine of this node id still writes, or that a reader still maps,
+    /// is held open, and stays; a file named without a generation is never this node's ring.</summary>
+    public void SweepLeftovers()
+    {
+        var prefix = $"playmap-{_nodeId}-";
+        string[] files;
+        try
+        {
+            files = Directory.GetFiles(PreviewRing.DefaultFolder(), prefix + "*~*.preview");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The folder cannot be read now: each ring made sweeps its own name's generations still.
+            return;
+        }
+        foreach (var file in files)
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            var tilde = name.LastIndexOf('~');
+            if (tilde > prefix.Length && tilde < name.Length - 1 && !name.AsSpan(tilde + 1).ContainsAnyExceptInRange('0', '9'))
+                TryDeleteUnheld(file);
+        }
+    }
+
+    /// <summary>Deletes a file only when it can open it alone: a writer or a reader that has it open makes that open fail (a sharing
+    /// violation on Windows, the advisory lock every open takes on Linux and macOS), and the file stays.</summary>
+    private static void TryDeleteUnheld(string path)
+    {
+        try
+        {
+            var alone = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+            alone.Dispose();
+        }
+        catch (IOException)
+        {
+            // Held, or gone already: it stays, or there is nothing to take.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Not this user's to open: it stays.
         }
     }
 
@@ -416,6 +462,8 @@ public sealed class PreviewViews : IDisposable
         changed = false;
         lock (_gate)
         {
+            if (_disposed)
+                return "the node is stopping";
             if (_shown.TryGetValue(request.ViewId, out var had) && had == request)
             {
                 _renewed[request.ViewId] = _clock.NowNs;
@@ -565,6 +613,7 @@ public sealed class PreviewViews : IDisposable
     {
         lock (_gate)
         {
+            _disposed = true;
             foreach (var id in _fed.Keys.ToList())
                 StopFeed(id);
             _shown.Clear();

@@ -1345,6 +1345,19 @@ Round 2 W1 notes:
   6 s of real time into the silence); now the link reads live on its first connection through that real-time silence, stale (the
   feed `connecting`) on the same connection once the node's clock passes 6 s, and dials again once it passes 12 s, 3 of 3. No
   failure of either has been seen.
+- Done: a node's preview rings leave no file behind it. The engine never let its views go at its stop (`EngineCore.DisposeAsync`
+  left `PreviewViews` undisposed), so a view a feed draws, whose ring the views make (`PreviewSink`: a draft view's, a camera's, a
+  scan's), still shown when the node stopped kept its ring's file in the preview folder, about 11 MB at the largest size; the render
+  host lets its own rings go as it stops. Here that folder held 32 such files, every one the view a blind render test left shown at
+  its end, under node ids the rig draws at random, so no later node of that id ever made a ring of that name to sweep it. The
+  engine now lets its views go once the host has stopped the render host and the lane takes no line (a view asked after is refused,
+  "the node is stopping"), and a node making its views takes away its own earlier rings that nothing holds
+  (`PreviewViews.SweepLeftovers`: every generation's file of its id is opened alone first, so a ring another engine of the same id
+  still writes, or a reader still maps, stays; a file named without a generation is no ring of a node's).
+  `PreviewRingFileTests.ADraftViewStillShownWhenTheNodeStopsLeavesNoFileBehind` (a draft view drawn, then the rig stopped) and
+  `ANodeMakingItsViewsTakesAwayItsOwnEarlierRingsThatNothingHolds` (two leftovers taken; one held open as a reader holds it, one
+  named without a generation and another node's kept) failed 3 runs of 3 against the old engine (the draft view's ring left; every
+  leftover kept) and pass 3 of 3.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

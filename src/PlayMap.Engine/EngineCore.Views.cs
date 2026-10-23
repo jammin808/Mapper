@@ -31,6 +31,7 @@ public sealed partial class EngineCore
     private PreviewViews MakePreviews()
     {
         var previews = new PreviewViews(Services.Settings.NodeId, Services.Mono, Math.Max(1, Services.Wall.UnixMs) * 1000);
+        previews.SweepLeftovers();
         previews.Changed += FactsChanged;
         return previews;
     }

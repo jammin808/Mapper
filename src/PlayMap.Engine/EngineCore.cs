@@ -658,6 +658,9 @@ public sealed partial class EngineCore : IWireEndpoint, IAsyncDisposable
         CancelSurvey();
         await _ticker.DisposeAsync().ConfigureAwait(false);
         _lane.Dispose();
+        // The host has stopped the render host by now, and the lane takes no line: every view still shown lets its ring, and the ring's
+        // file, go with the engine.
+        _previews?.Dispose();
         await EndSurveyAsync().ConfigureAwait(false);
         await Journal.DisposeAsync().ConfigureAwait(false);
     }
