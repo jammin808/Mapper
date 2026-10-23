@@ -25,6 +25,9 @@ public sealed class GpuDeviceLock
 
     private readonly Lock _lock = new();
 
+    // Taken as the lock is made, so a take's first read of the clock makes nothing.
+    private readonly MonoClock _clock = MonoClock.Instance;
+
     // The holder's recursion; read and written only by the thread that holds the lock.
     private int _depth;
     private long _waits;
@@ -66,10 +69,10 @@ public sealed class GpuDeviceLock
         if (!_lock.TryEnter())
         {
             Interlocked.Increment(ref _waits);
-            var from = MonoClock.Instance.NowNs;
+            var from = _clock.NowNs;
             if (!_lock.TryEnter(timeoutMs))
             {
-                Interlocked.Exchange(ref _lastTimedOutWaitNs, MonoClock.Instance.NowNs - from);
+                Interlocked.Exchange(ref _lastTimedOutWaitNs, _clock.NowNs - from);
                 Interlocked.Increment(ref _timedOut);
                 return false;
             }
