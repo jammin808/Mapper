@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using PlayMap.Assistant;
 using PlayMap.Core.Show;
 using PlayMap.Core.Wire;
@@ -22,6 +23,10 @@ public sealed record AssistantServiceOptions
     /// <summary>Keeps changed settings (the host writes the node's playmap.assistant.json); null: they live only until
     /// the node stops, and ASSISTANT SET says so.</summary>
     public Action<AssistantSettings>? Save { get; init; }
+
+    /// <summary>The engine's log: a fault no part of the assistant expects is written there with its trace (null: only its words,
+    /// on the part and in the journal).</summary>
+    public ILogger? Log { get; init; }
 }
 
 /// <summary>One conversation as STATE and the desk see it: whose, how its last request ended, its words (secrets
@@ -138,7 +143,7 @@ public sealed class AssistantService : IAsyncDisposable, IProposalCount
         StagewatchProposalSink? old;
         StagewatchProposalSink? next = null;
         if (options is not null)
-            next = new StagewatchProposalSink(options, Queue, _endpoint, line => Journal(line, true));
+            next = new StagewatchProposalSink(options, Queue, _endpoint, line => Journal(line, true), _options.Log);
         lock (_gate)
         {
             old = _desk;

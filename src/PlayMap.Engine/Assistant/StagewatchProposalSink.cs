@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Assistant;
 using PlayMap.Core.Wire;
 
@@ -52,6 +54,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
     private readonly ProposalQueue _queue;
     private readonly IWireEndpoint _endpoint;
     private readonly Action<string> _log;
+    private readonly ILogger _engineLog;
     private readonly HttpClient _http;
     private readonly HashSet<string> _ran = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
@@ -59,7 +62,9 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
     private Task? _loop;
     private int _disposed;
 
-    public StagewatchProposalSink(StagewatchSinkOptions options, ProposalQueue queue, IWireEndpoint endpoint, Action<string>? log = null)
+    /// <param name="log">The journal's words.</param>
+    /// <param name="engineLog">Where a fault nothing in the sink expects is written with its trace (the engine's log).</param>
+    public StagewatchProposalSink(StagewatchSinkOptions options, ProposalQueue queue, IWireEndpoint endpoint, Action<string>? log = null, ILogger? engineLog = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(queue);
@@ -68,6 +73,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
         _queue = queue;
         _endpoint = endpoint;
         _log = log ?? Ignore;
+        _engineLog = engineLog ?? NullLogger.Instance;
         _http = options.Handler is { } h ? new HttpClient(h, disposeHandler: false) : new HttpClient();
         _http.BaseAddress = options.BaseUri;
         _http.Timeout = TimeSpan.FromSeconds(10);
@@ -259,9 +265,10 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             }
             catch (Exception ex)
             {
-                // A failure no pull expects ends the pull, said at once on the sink and in the journal, never thrown at whoever
-                // lets the desk go.
+                // A failure no pull expects ends the pull: said at once on the sink, written with its trace to the engine's log and
+                // said in the journal, never thrown at whoever lets the desk go.
                 Problem = $"{Name} is no longer read: {ex.Message}";
+                _engineLog.LogWarning(ex, "The approval desk's pull from {Desk} faulted and ended.", Name);
                 _log("assistant: " + Problem);
                 return;
             }

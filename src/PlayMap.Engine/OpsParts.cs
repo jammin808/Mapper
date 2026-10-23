@@ -110,6 +110,7 @@ public static class OpsParts
             _service = new AssistantService(credentials, settings, options.Assistant with
             {
                 Save = options.Assistant.Save ?? (s => AssistantSettingsFile.Save(home, s)),
+                Log = options.Assistant.Log ?? setup.Logs.CreateLogger("PlayMap.Assistant"),
             });
             return services with { Assistant = _service, Proposals = _service };
         }

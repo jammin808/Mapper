@@ -262,6 +262,19 @@ internal sealed class BrokenClientDesk : HttpMessageHandler
     }
 }
 
+/// <summary>An engine log that keeps what it is given, the fault with its words.</summary>
+internal sealed class KeptFaults : ILogger
+{
+    public ConcurrentQueue<(LogLevel Level, string Words, Exception? Fault)> Entries { get; } = new();
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Entries.Enqueue((logLevel, formatter(state, exception), exception));
+}
+
 /// <summary>The node's proposals on a Stagewatch approval desk: offered with the node as proposer and target and the
 /// key in the Authorization header only; what the show caller approves is collected, run through the node's own path
 /// and answered, and completes the node's proposal; what the caller rejects completes it as rejected and nothing runs;
@@ -456,12 +469,13 @@ public sealed class StagewatchSinkTests
         }
     }
 
-    /// <summary>A pull that fails as no pull expects ends, said at once on the sink and in the journal, and letting the desk go
-    /// throws nothing.</summary>
+    /// <summary>A pull that fails as no pull expects ends, said at once on the sink and in the journal and written with its trace to
+    /// the engine's log, and letting the desk go throws nothing.</summary>
     [Fact]
     public async Task APullThatFailsAsNoPullExpectsEndsSaidAndIsNotThrownAtWhoeverLetsTheDeskGo()
     {
-        var rig = new OpsRig();
+        var log = new KeptFaults();
+        var rig = new OpsRig(assistantLog: log);
         using var desk = new BrokenClientDesk();
         try
         {
@@ -474,10 +488,16 @@ public sealed class StagewatchSinkTests
                 Handler = desk,
             });
             var sink = rig.Assistant.ApprovalDesk!;
-            // Said on the sink first, then in the journal: the journal's row is the later of the two.
+            // Said on the sink and written to the engine's log first, then in the journal: the journal's row is the last of the three.
             Assert.True(await OpsRig.Eventually(() => rig.Engine.Journal.Recent(80).Any(r => r.Text.Contains(BrokenClientDesk.Words, StringComparison.Ordinal))),
                 $"the sink says \"{sink.Problem}\"");
             Assert.Contains(BrokenClientDesk.Words, sink.Problem, StringComparison.Ordinal);
+            var (level, words, fault) = Assert.Single(log.Entries);
+            Assert.Equal(LogLevel.Warning, level);
+            Assert.Contains(sink.Name, words, StringComparison.Ordinal);
+            var thrown = Assert.IsType<InvalidOperationException>(fault);
+            Assert.Equal(BrokenClientDesk.Words, thrown.Message);
+            Assert.Contains(typeof(BrokenClientDesk).FullName!, thrown.StackTrace ?? "", StringComparison.Ordinal);
             await Task.Delay(200);
             Assert.Equal(1, desk.Asked);
             Assert.Single(rig.Engine.Journal.Recent(80), r => r.Text.Contains(BrokenClientDesk.Words, StringComparison.Ordinal));
@@ -485,6 +505,7 @@ public sealed class StagewatchSinkTests
             await rig.DisposeAsync();
             Assert.Contains(BrokenClientDesk.Words, sink.Problem, StringComparison.Ordinal);
             Assert.Null(rig.Assistant.ApprovalDesk);
+            Assert.Single(log.Entries);
         }
         finally
         {

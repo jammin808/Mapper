@@ -917,8 +917,10 @@ Round 2 W1 notes:
   with the Windows job's exception and its stack from the sink's collect to the test; and with a client that fails as no pull
   expects, `APullThatFailsAsNoPullExpectsEndsSaidAndIsNotThrownAtWhoeverLetsTheDeskGo` failed 3 of 3 (the pull faulted unsaid, and
   the dispose threw it). The pull now ends quietly on whatever it meets once the stop is taken; a refusal before the stop is said on
-  the sink as before; a failure no pull expects ends the pull, said at once on the sink and in the journal; and the sink's dispose
-  runs once and lets its client and stop go whatever it meets. The two new tests and the three before them, every assertion kept,
+  the sink as before; a failure no pull expects ends the pull, said at once on the sink and in the journal and written with its
+  trace to the engine's log (`AssistantServiceOptions.Log`, which the host's assistant part fills; with only its words kept, the
+  same test's new log assertions failed 3 of 3); and the sink's dispose runs once and lets its client and stop go whatever it
+  meets. The two new tests and the three before them, every assertion kept,
   passed 8 runs of 8. The unchanged test still cannot be made to fail on Linux on its own, where the refusal is immediate. A
   change of desk while the old desk's call was refused so (`AssistantService.UseApprovalDeskAsync`) threw the refusal at whoever
   changed the desk once the change was made, and skipped telling STATE; with the same held refusal,
