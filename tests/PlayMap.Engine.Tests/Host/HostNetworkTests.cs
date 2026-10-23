@@ -403,8 +403,10 @@ public sealed class HostNetworkTests
         await desk.PushAsync(FakePatternsDesk.StateWith(blackout: false));
         Assert.True(await Eventually.TrueAsync(() => !Air().GetProperty("blackout").GetBoolean()));
 
-        // Kept for the next start, token and all — in the node's settings, and nowhere a peer reads. Every write of the file landed
-        // (one a reader could refuse would leave a settings fault in STATE, a fault row in the journal and the link off the disk).
+        // Kept for the next start, token and all — in the node's settings, and nowhere a peer reads. The link's row comes once its
+        // change has ended, its settings written. Every write of the file landed (one a reader could refuse would leave a settings fault
+        // in STATE, a fault row in the journal and the link off the disk).
+        Assert.True(await Eventually.TrueAsync(() => rig.Journal().Contains("following Patterns at 127.0.0.1", StringComparison.Ordinal)));
         Assert.DoesNotContain(rig.State().GetProperty("faults").EnumerateArray(), f => f.GetProperty("part").GetString() == "settings");
         Assert.DoesNotContain(rig.Engine.Journal.Recent(200), r => r.Kind == "fault");
         var kept = rig.Home.LoadSettings("unused");
@@ -413,7 +415,6 @@ public sealed class HostNetworkTests
         Assert.DoesNotContain(deskToken, rig.Engine.State().Json, StringComparison.Ordinal);
         Assert.DoesNotContain(deskToken, rig.Engine.Context(), StringComparison.Ordinal);
         Assert.DoesNotContain(deskToken, rig.Journal(), StringComparison.Ordinal);
-        Assert.True(await Eventually.TrueAsync(() => rig.Journal().Contains("following Patterns at 127.0.0.1", StringComparison.Ordinal)));
 
         Assert.StartsWith("OK @o", await c.AskAsync("@o LINK PATTERNS OFF"), StringComparison.Ordinal);
         Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("state").GetString() == "off"));

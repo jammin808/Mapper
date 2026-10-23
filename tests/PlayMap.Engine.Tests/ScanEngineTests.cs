@@ -349,6 +349,9 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
             Assert.NotNull(reread.Geometry);
             Assert.Equal(rig.Scanner.Find(scanId)!.Solution.Mesh!.TriangleCount, reread.Solution.Mesh!.TriangleCount);
             Assert.Equal(record.Points, reread.Geometry!.Cloud.Points.Count(PointCloud.IsValid));
+            // The scan's end is journalled on the lane once its run's task has ended, which can be after the scan reads done.
+            Assert.True(await OpsRig.Eventually(() => rig.Engine.Journal.Recent(50).Any(r => r.Kind == "scan" && r.Text == $"scan {record.Id} finished"), 60_000),
+                string.Join("\n", rig.Engine.Journal.Recent(20).Select(r => $"{r.Kind}: {r.Text}")));
             Assert.Contains(record.Id, rig.Engine.Journal.Recent(50).Select(r => r.Text).Last(t => t.StartsWith("scan ", StringComparison.Ordinal)), StringComparison.Ordinal);
 
             var revision = rig.Engine.Store.Current.Revision;

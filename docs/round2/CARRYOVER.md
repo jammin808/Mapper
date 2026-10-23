@@ -1369,6 +1369,15 @@ Round 2 W1 notes:
   that time passes 10 s, and a phone's ping is answered at the node's monotonic instant. Built against the old part it failed 3
   runs of 3 (the invite's expiry the system's time), and it passes 3 of 3. The phone loop (`PhoneScanE2ETests`) runs its node's
   hub on a time it holds, so the browser's pings, paced by the real clock, never race the hub's 10 s waits.
+- Done: two tests read a later step only after waiting for what writes it.
+  `ScanEngineTests.ASimulatedScanRunsThroughTheVerbsAndAppliesWithinToleranceOfTheTruth` read the journal's "scan … finished" row
+  having waited only for the scan to read done, and the row is posted to the lane once the run's task has ended
+  (`EngineCore.Content`), so a lane that ran late left the test's `Last` with no such row; it now waits for that row (60 s) and says
+  the journal's last rows if it never comes. `HostNetworkTests.ThePatternsLinkDrivesTheBlackoutAndKeepsItsTokenOffEveryLine` read
+  the node's settings file once the link was live, and `LINK PATTERNS` answers accepted and writes the settings after it starts the
+  link (`NetworkHost.LinkPatternsAsync`); it now waits for the link's row, written once that change has ended, before it reads the
+  file. With the row's post held 30 s and the settings' write 5 s (delays in a scratch copy) the unchanged tests failed 3 of 3 (no
+  "scan " row; the kept host ""), and the changed ones passed 3 of 3 under the same delays. No failure of either has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
