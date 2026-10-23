@@ -441,4 +441,15 @@ public sealed class LedSenderTests
         sender.Sink.Submit(held);
         Assert.Null(sender.Sink.Rent(plan.Rows.Length));
     }
+
+    /// <summary>The sender's thread takes its gate on its deadlines while verbs and readers take it too, and the render thread meets
+    /// the sender at the frame pool: both locks are made with their wait events, so a first wait on either allocates nothing.</summary>
+    [Fact]
+    public async Task TheSendersLocksAreMadeWithTheirWaitEvents()
+    {
+        await using var sender = new LedSender(new LedSenderOptions { Bind = IPAddress.Parse(Address(62)), Clock = new ManualClock(1_000_000_000) });
+        var probes = LockWaitProbe.FirstWaits(sender).Concat(LockWaitProbe.FirstWaits(sender.Sink)).ToList();
+        Assert.Equal(2, probes.Count);
+        Assert.All(probes, p => Assert.EndsWith(" 0 B", p, StringComparison.Ordinal));
+    }
 }

@@ -7,6 +7,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Tests.Facade;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Facade;
@@ -142,7 +143,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
     internal static async Task<(SurveyJobView Job, double Seconds)> ImportBig(SiteRig rig, string file)
     {
         var watch = Stopwatch.StartNew();
-        var job = await rig.Import($"{file} CRS LOCAL UP Z DECIMATE 300000 NAME North front");
+        var job = await rig.Import(file, "CRS LOCAL UP Z DECIMATE 300000 NAME North front");
         return (job, watch.Elapsed.TotalSeconds);
     }
 
@@ -154,19 +155,19 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         .OfType<DebuggableAttribute>().All(a => !a.IsJITOptimizerDisabled);
 
     /// <summary>Imports the 2 M-triangle front while the lane is asked SITE every 20 ms: the job, the import's time, the worst answer
-    /// and how many were asked.</summary>
+    /// and how many were asked. An answer's time is the lane's, read on the lane (<see cref="LaneProbe.AnsweredMsAsync"/>): how long
+    /// SITE waited for the lane and SITE's own turn on it, never the test's own pace or continuation. Each SITE must be answered.</summary>
     internal static async Task<(SurveyJobView Job, double Seconds, double WorstMs, int Asked)> ImportWhileAsking(SiteRig rig, string file)
     {
+        var probe = new LaneProbe(rig.Engine.Lane);
         var watch = Stopwatch.StartNew();
-        var accepted = SiteRig.Json(await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL UP Z DECIMATE 300000 NAME North front"));
+        var accepted = SiteRig.Json(await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL UP Z DECIMATE 300000 NAME North front"));
         Assert.Equal("accepted", accepted.GetProperty("stage").GetString());
         var worst = 0.0;
         var asked = 0;
         while (!rig.Engine.WhenSurveyed.IsCompleted)
         {
-            var ask = Stopwatch.StartNew();
-            await rig.Ok("SITE");
-            worst = Math.Max(worst, ask.Elapsed.TotalMilliseconds);
+            worst = Math.Max(worst, await probe.AnsweredMsAsync(() => rig.Ok("SITE")));
             asked++;
             await Task.Delay(20);
         }
@@ -188,8 +189,8 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
             $"2 M triangles imported in {seconds:0.0} s; {Slices(job)}; {asked} lane queries, worst {answer:0.0} ms; {job.Words}"));
         AssertReady(job);
         Assert.True(seconds <= 15 * 4, $"{seconds:0.0} s");
-        // The lane answers SITE throughout: held here to the 4× ceiling of its 50 ms budget (the Perf twin holds an optimised build
-        // to the budget).
+        // The lane answers SITE throughout, SITE's wait for the lane and its own turn read on the lane: held here to the 4× ceiling of
+        // its 50 ms budget (the Perf twin holds an optimised build to the budget).
         Assert.True(asked >= 2, $"{asked}");
         Assert.True(answer <= 4 * LaneAnswerBudgetMs, string.Create(CultureInfo.InvariantCulture, $"{answer:0.0} ms"));
         Assert.Equal(2, job.LaneSlices);
@@ -264,7 +265,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         var wkt = "PROJCS[\"ETRS89 / UTM zone 32N\",UNIT[\"metre\",1],AUTHORITY[\"EPSG\",\"25832\"]]";
         var path = rig.File("scan.las");
         await File.WriteAllBytesAsync(path, LasTestWriter.Write(pts, null, new Vec3d(0.001, 0.001, 0.001), new Vec3d(512_000, 5_401_000, 0), wkt));
-        var job = await rig.Import($"{path} VOXEL 0.5");
+        var job = await rig.Import(path, "VOXEL 0.5");
         Assert.Equal("ready", job.State);
         var p = rig.Engine.Store.Project;
         var survey = Assert.Single(p.Stage.Surveys);
@@ -283,7 +284,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         Assert.True(min.X >= -20.3 && max.X <= 20.3, $"{min} {max}");
 
         // A second file in another system is refused before anything starts.
-        Assert.Contains("reproject", await rig.Refused($"SURVEY IMPORT {path} CRS EPSG:32632"), StringComparison.Ordinal);
+        Assert.Contains("reproject", await rig.Refused($"SURVEY IMPORT {WireGrammar.Quote(path)} CRS EPSG:32632"), StringComparison.Ordinal);
     }
 
     /// <summary>A LAS with only a GeoKey directory (no WKT) names the site by its EPSG system too; SITE ORIGIN keeps the system and its
@@ -297,7 +298,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         var pts = Enumerable.Range(0, 4000).Select(_ => new Vec3d(512_300 + rng.Range(0.0, 40.0), 5_401_200 + rng.Range(0.0, 0.5), 100 + rng.Range(0.0, 20.0))).ToList();
         var path = rig.File("keys.las");
         await File.WriteAllBytesAsync(path, LasTestWriter.Write(pts, null, new Vec3d(0.001, 0.001, 0.001), new Vec3d(512_000, 5_401_000, 0), null, 32633));
-        Assert.Equal("ready", (await rig.Import($"{path} VOXEL 0.5")).State);
+        Assert.Equal("ready", (await rig.Import(path, "VOXEL 0.5")).State);
         var site = rig.State().GetProperty("stage").GetProperty("site");
         Assert.Equal(("EPSG:32633", "WGS 84 / UTM zone 33N"), (site.GetProperty("crs").GetString(), site.GetProperty("name").GetString()));
 
@@ -333,7 +334,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
             }
         var path = rig.File("front.obj");
         await File.WriteAllTextAsync(path, sb.ToString());
-        var job = await rig.Import($"{path} CRS EPSG:25832");
+        var job = await rig.Import(path, "CRS EPSG:25832");
         Assert.Equal("ready", job.State);
         var p = rig.Engine.Store.Project;
         var mesh = MeshIO.Load(rig.File(p.Stage.Meshes[0].Path)).Mesh!;
@@ -363,7 +364,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         var station2 = new E57TestScan("Station 2", pts) { Cells = cells, Translation = new Vec3d(512_306, 5_401_200, 100), Storage = "double" };
         var path = rig.File("site.e57");
         await File.WriteAllBytesAsync(path, E57TestWriter.Write([station1, station2], "AUTHORITY[\"EPSG\",\"25832\"]"));
-        var job = await rig.Import($"{path} VOXEL 0.05");
+        var job = await rig.Import(path, "VOXEL 0.05");
         Assert.Equal("ready", job.State);
         var p = rig.Engine.Store.Project;
         var survey = Assert.Single(p.Stage.Surveys);
@@ -389,7 +390,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         var row = rig.State().GetProperty("stage").GetProperty("surveys")[0];
         Assert.StartsWith("failed: ", row.GetProperty("state").GetString(), StringComparison.Ordinal);
         Assert.Contains("no file", await rig.Refused("SURVEY IMPORT /nowhere/at/all.ply"), StringComparison.Ordinal);
-        Assert.Contains("LAZ", await rig.Refused($"SURVEY IMPORT {rig.File("a.laz")}"), StringComparison.Ordinal);
+        Assert.Contains("LAZ", await rig.Refused($"SURVEY IMPORT {WireGrammar.Quote(rig.File("a.laz"))}"), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -424,14 +425,14 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
     {
         await using var rig = new SiteRig();
         var file = SurveyFacade.WritePly(rig.File("front.ply"), 401, 401);
-        await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL DECIMATE 20000");
-        Assert.Contains("one survey at a time", await rig.Refused($"SURVEY IMPORT {file}"), StringComparison.Ordinal);
+        await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL DECIMATE 20000");
+        Assert.Contains("one survey at a time", await rig.Refused($"SURVEY IMPORT {WireGrammar.Quote(file)}"), StringComparison.Ordinal);
         var importing = rig.State().GetProperty("stage").GetProperty("surveys")[0].GetProperty("state").GetString();
         Assert.StartsWith("importing", importing, StringComparison.Ordinal);
         await rig.Engine.WhenSurveyed.WaitAsync(TimeSpan.FromMinutes(2));
 
         rig.Engine.BeginStop();
-        var stopped = await rig.Engine.HandleAsync(Core.Wire.WireGrammar.TryParse($"SURVEY IMPORT {file}", out var line, out _) ? line! : throw new InvalidOperationException(),
+        var stopped = await rig.Engine.HandleAsync(WireGrammar.TryParse($"SURVEY IMPORT {WireGrammar.Quote(file)}", out var line, out _) ? line! : throw new InvalidOperationException(),
             EngineCore.SystemSession, CancellationToken.None);
         Assert.False(stopped.Ok);
         Assert.Contains("stopping", stopped.Payload, StringComparison.Ordinal);
@@ -443,7 +444,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         await using var rig = new SiteRig();
         var file = SurveyFacade.WritePly(rig.File("front.ply"), 601, 601);
         var revision = rig.Engine.Store.Current.Revision;
-        await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL DECIMATE 20000");
+        await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL DECIMATE 20000");
         rig.Engine.BeginStop();
         await rig.Engine.WhenSurveyed.WaitAsync(TimeSpan.FromMinutes(2));
         Assert.Equal("failed", rig.Engine.SurveyJob!.State);
@@ -453,7 +454,8 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 }
 
 /// <summary>The import's budgets, measured on this machine and run serially at integration: 2 M triangles in 15 s, and the control lane
-/// answering within 50 ms throughout (PING is the transport's own word, so the lane is probed with SITE, a query it answers). Both are
+/// answering within 50 ms throughout (PING is the transport's own word, so the lane is asked SITE, a query it answers, and how long it
+/// takes to answer is read on the lane, <see cref="LaneProbe"/>). Both are
 /// budgets for optimised code: a Debug build of the solvers (the JIT's optimiser off) records its times against their 4× ceilings.
 /// The import never holds the lane for more than 10 ms of work in a slice once the lane has compiled the import's path (a small
 /// import first compiles it here; a node's first import compiles it in its slices, which this budget does not cover), by the lesser
@@ -487,7 +489,7 @@ public sealed class SurveyImportPerfTests(ITestOutputHelper log)
     {
         await using var rig = new SiteRig();
         // The lane's import path compiled first, by a small import into the same project.
-        var first = await rig.Import($"{SurveyFacade.WritePly(rig.File("warm.ply"), 101, 101)} CRS LOCAL UP Z DECIMATE 10000 NAME Warm");
+        var first = await rig.Import(SurveyFacade.WritePly(rig.File("warm.ply"), 101, 101), "CRS LOCAL UP Z DECIMATE 10000 NAME Warm");
         SurveyImportTests.AssertReady(first);
         log.WriteLine($"the import that compiles the lane's path where nothing in this process has: {SurveyImportTests.Slices(first)}");
         var file = SurveyFacade.WritePly(rig.File("north-front.ply"), 1001, 1001);

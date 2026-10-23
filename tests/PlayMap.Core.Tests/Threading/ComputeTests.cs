@@ -163,6 +163,7 @@ public sealed partial class ComputeTests
         ["PlayMap.Engine/Companion/Announcer.cs"] = 1, // announce loop
         ["PlayMap.Engine/Companion/CompanionParts.cs"] = 2, // facts handed on
         ["PlayMap.Engine/Companion/ThumbnailService.cs"] = 1, // a source opened and waited for (its encode through Compute)
+        ["PlayMap.Engine/Control/ControlRuntime.cs"] = 1, // a learn's row journalled behind its verb's row
         ["PlayMap.Engine/Control/ControlService.cs"] = 3, // input loop, ticker, an LTC input opened or closed after the one before
         ["PlayMap.Engine/EngineCore.Audio.cs"] = 1, // listen loop
         ["PlayMap.Engine/EngineCore.BlendSolve.cs"] = 3, // the solver's async run (its solve through Compute), its end posted to the lane, the wait for it

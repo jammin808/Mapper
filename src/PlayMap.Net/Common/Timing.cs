@@ -5,10 +5,10 @@ using PlayMap.Core.Numerics;
 
 namespace PlayMap.Net;
 
-/// <summary>A trailing throttle: the first <see cref="Arm"/> starts a window; every arm inside it is absorbed;
-/// at the window's end the action runs once and reads the newest facts itself (latest wins). An arm while the
+/// <summary>A trailing throttle: the first <see cref="Arm"/> starts a window, counted on <paramref name="time"/>; every arm inside it is
+/// absorbed; at the window's end the action runs once and reads the newest facts itself (latest wins). An arm while the
 /// action runs starts the next window, so the last change is never lost.</summary>
-public sealed class TrailingThrottle(TimeSpan window, Action fire, ILogger log, CancellationToken stop)
+public sealed class TrailingThrottle(TimeSpan window, Action fire, ILogger log, TimeProvider time, CancellationToken stop)
 {
     private int _armed;
 
@@ -22,7 +22,7 @@ public sealed class TrailingThrottle(TimeSpan window, Action fire, ILogger log, 
     {
         try
         {
-            await Task.Delay(window, stop);
+            await Task.Delay(window, time, stop);
         }
         catch (OperationCanceledException)
         {

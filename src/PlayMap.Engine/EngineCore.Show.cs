@@ -74,8 +74,8 @@ public sealed partial class EngineCore
             LoadShowRecovery(json);
     }
 
-    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused, ref ProjectStore? lineStore) =>
-        refused = ShowGateLine(spec, line, session, out lineStore);
+    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, ref CommandReply? refused, ref ProjectStore? lineStore) =>
+        refused = ShowGateLine(spec, line, session, call, out lineStore);
 
     partial void SnapshotShow(ref EngineSnapshot snapshot) => SnapshotBlind(ref snapshot);
 

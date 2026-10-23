@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using PlayMap.Core.Model;
 using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
+using PlayMap.Core.Threading;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
@@ -67,6 +68,8 @@ internal sealed class FrameLockHost : IDisposable
         ArgumentNullException.ThrowIfNull(driver);
         _driver = driver;
         _auto = auto;
+        // The render thread steps under the gate every frame and verbs set the wish under it: a first wait allocates nothing.
+        LockWaits.Prepare(_gate);
         _boardPoll = new Timer(static s => ((FrameLockHost)s!).PollBoard(), this, TimeSpan.Zero, TimeSpan.FromSeconds(1));
     }
 

@@ -7,7 +7,8 @@ public enum Placeholder { None, Value, Percent, Index }
 
 /// <summary>A binding's target: a wire line a control fires, read once. At most one placeholder, a whole word; the line names a
 /// verb that changes something, and never a session, secret, approval or binding verb (a binding never stores a secret, never
-/// speaks for a person, never binds a binding).</summary>
+/// speaks for a person, never binds a binding); a path it quotes reads as typed
+/// (<see cref="VerbSyntax.DroppedBackslash(VerbSpec, WireLine, int)"/>).</summary>
 public sealed record TargetLine(string Text, WireLine Line, VerbSpec Spec, int VerbWords, Placeholder Placeholder, int PlaceholderAt)
 {
     private static readonly HashSet<string> Refused = new(StringComparer.Ordinal)
@@ -95,6 +96,13 @@ public sealed record TargetLine(string Text, WireLine Line, VerbSpec Spec, int V
         if (!spec.Mutates)
         {
             why = $"{spec.Name} changes nothing — a control fires lines that act";
+            return null;
+        }
+        // The line fires later, rebuilt from the words read now and past the door: a path that lost its backslashes here would name
+        // another file then, so it is refused as the door refuses it.
+        if (VerbSyntax.DroppedBackslash(spec, line, m.Words) is { } dropped)
+        {
+            why = dropped;
             return null;
         }
         var placeholder = Placeholder.None;

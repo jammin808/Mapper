@@ -25,7 +25,7 @@ only** note what waits for real hardware. Camera auto-align and the content pack
 
 **Not on the desk:** wire-only — the effects browser and inspector, modulation sockets, tempo, bindings and learn, timecode, LED fixture placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks, the content library, the machine platform's claims, identity and driver lock (`MACHINE SET`, `MACHINE LOCK`) and the effect quarantine (`FX RELEASE`): their STATE shows on the desk's cards, their verbs run from the cards, the generated right-click entries and over the wire, HTTP, MCP and bindings. The blind draft's ON GO and AT commits run over the wire. The desk has no console yet, so the facade's lines that take the operator's values (`SITE ORIGIN`, `SITE POINTS`, `SURVEY IMPORT`, a `PROJECTOR PRIOR` with a value, `STACK NEW`, `STACK ALIGN`, `STACK MATCH`) and `PLAN LIGHT`, which have no desk control, go over the wire, HTTP, MCP, Companion and bindings; a stack's card holds its list, its failover and its REMOVE. A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk (the owner's call). A Recall the node refuses because the target stands as that result already (just after it was recalled) is offered: CALIBRATION HISTORY does not say which result a target stands as. The desk has no PANIC pulse and no master level bar; Simple hides nothing; the PLAY bin is not a panel of its own; a drag the gate refuses still moves on screen while its steps are not sent. The direction is a typed console beside the menu bar and the right-click menus, with every command and feature reached from the menus and never only by typing (wp3-desk-shell, `MenuCoverageTests`).
 
-**CI:** every push builds the whole solution in Release, the desk included, with the analyzers on and runs every test project to its end on Linux (Mesa llvmpipe under Xvfb, FFmpeg 9.0.2 from one build pinned by its hash, no libva and no system OpenAL, as on a bare machine) and on Windows (OpenGL 3.3 from a hash-pinned Mesa llvmpipe beside every test host, since the runner has no GPU; the same FFmpeg build; no audio endpoint; the Windows-only render and media code on WARP: the DXGI presenter, Spout's round trip, the D3D11VA device). The native test doubles — the fake NDI runtime and libvmx, which OMT loads — are compiled on both jobs (on Windows with the runner's LLVM clang), and a double that does not build fails its tests with the compiler's words instead of skipping them (`PLAYMAP_NATIVE_REQUIRED`). The tests' media are made at test time with LGPL-compatible encoders (R0.7). A test whose subject exists on one platform only carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Spout and D3D11VA on Windows). After the .NET suites the Linux job runs the Companion module's type check, lint and tests — its end-to-end test against the job's own engine — and Companion's module check. Each project's result is counted on its own, so one failure hides no other; the Windows job also publishes the portable exe, as the artifact `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64`. Every CI build is numbered from its run number, less `PlayMapRunBase`, and its commit (README, "Versions"); each job reads the stamp back from what it built straight after the build (and the Windows job again from the published exe's version resource), refuses one that is not this run's, and writes it to its summary (`tools/ci-stamp.ps1`).
+**CI:** every push builds the whole solution in Release, the desk included, with the analyzers on and runs every test project to its end on Linux (Mesa llvmpipe under Xvfb, FFmpeg 9.0.2 from one build pinned by its hash, no libva and no system OpenAL, as on a bare machine) and on Windows (OpenGL 3.3 from a hash-pinned Mesa llvmpipe beside every test host, since the runner has no GPU; the same FFmpeg build; no audio endpoint; the Windows-only render and media code on WARP: the DXGI presenter, Spout's round trip, the D3D11VA device). The native test doubles — the fake NDI runtime and libvmx, which OMT loads — are compiled on both jobs (on Windows with the runner's LLVM clang), and a double that does not build fails its tests with the compiler's words instead of skipping them (`PLAYMAP_NATIVE_REQUIRED`); a build ends with its compiler, never with the compiler's pipes, which a process it starts can hold, and one past 3 minutes is stopped with its words. A test host that hangs is stopped after 5 minutes with a mini dump the runtime writes, and a failed job prints every managed thread's stack from it (dotnet-dump, pinned by its hash), so a stall before the first test, in discovery or a fixture, is named as a hung test is; shown on Linux (a stalled discovery's dump read to the build under the attribute's constructor), not yet run on Windows, where the dump comes through `VSTEST_DUMP_FORCENETDUMP` and neither it, the Windows stacks step nor the Windows forms of `NativeBuildTests` and `ToolProbeTests` (a batch file's `start /b` helper, `ping.exe`) has run: the Windows job's next run is their first. The tests' media are made at test time with LGPL-compatible encoders (R0.7). A test whose subject exists on one platform only carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Spout and D3D11VA on Windows). After the .NET suites the Linux job runs the Companion module's type check, lint and tests — its end-to-end test against the job's own engine — and Companion's module check. Each project's result is counted on its own, so one failure hides no other; the Windows job also publishes the portable exe, as the artifact `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64`. Every CI build is numbered from its run number, less `PlayMapRunBase`, and its commit (README, "Versions"); each job reads the stamp back from what it built straight after the build (and the Windows job again from the published exe's version resource), refuses one that is not this run's, and writes it to its summary (`tools/ci-stamp.ps1`).
 
 **Lab only** (built in code and tested on CI, not yet proven on real hardware or a real show). No lab exists yet (the rule
 below), so none of these has run; each is reported not run, never passed. The tests run on Mesa llvmpipe
@@ -93,6 +93,22 @@ The lab checks still to do:
   sync warning or a claim Windows refused (whose own words already say "was refused") reads there as a refusal of a line, to MCP's
   get_context, Patterns, Stagewatch and the assistant. Prefixing a row by what it is (its kind), with a test that reads the context,
   closes it.
+- A fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended, so a peer heard again
+  at another address, port or certificate is dialled up to about 9.6 s late; and STATE and the board leave out a machine the
+  monitor never heard, so nothing a person reads says why a peer whose hello is heard has no health. Cutting the wait short when
+  the dial changes, and a never-heard peer's words on the board, close it.
+- The hello shares its listening port (SO_REUSEADDR, and SO_REUSEPORT on Linux) on the port a test asks the system for too, so a
+  test node's hello socket can take another live test node's port (71 of 2000 live binds to port 0 here, none without the
+  options), and the hot-backup and sync rigs share their nodes' ids, so a rig's node can hear another's under a peer's id. Sharing
+  only the well-known port closes it.
+- A part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row: the
+  dispatcher writes a lane verb's row once the lane's turn is over, on another thread, so a tick that runs first (a timecode chase's
+  first step, a blind commit landing at its instant, the sound input the tick opens) and a part on a thread of its own (the video
+  I/O hub's word of an input's first frame, the sync node's rows of a leader's feed, a backup's watch and its mirror link's lines, a
+  Stagewatch operator's word on its link, a projector link set up again when the project moved, the optimise service's automatic
+  queue, the frame lock's fall-out) can each write first. Work a line's handler or the show's gate starts itself begins behind the
+  row (docs/WIRE.md "The door"); these parts are not measured and no test covers them. Writing a lane verb's row in the lane's own
+  turn would order the ticks behind it; the other parts would need to hold a line's rows until its row.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,
@@ -117,7 +133,20 @@ The lab checks still to do:
   which holds the thread xunit starts for that check, made the unchanged test fail so; the poll's limit now runs on a clock the
   test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
-  `FleetMonitorTests`' 10 s wait for the peer to read live, `HostNetworkTests`' wait for the Patterns link's first clip,
+  `DeviceLockHostTests`' one Windows frame path that allocated 280 bytes across a sharer's hold (consistent with the render
+  thread's first wait on a gate a preempted reader held, the frame-time gate's `Stats` reader or the health gate's, not proven: on
+  Linux a reader held inside the frame-time gate made the unchanged test fail by exactly 280 bytes; every lock the air's threads
+  share frame by frame is made with its wait event now, each of those threads has its wait record before its first frame, and a
+  reader or writer holding the frame-time gate or the sting channel across a frame costs the frame path nothing),
+  `BackupMirrorLinkTests`' one Windows read of a mirror quiet before its new connection subscribed with no stale move at all (its
+  actual was the default tuple; consistent with the primary's STATE pushes, 200 ms after each move of the clock, landing before the
+  link's 250 ms beat looked, not proven: on Linux the unchanged test, stopped 100 ms from 205 ms after the redial, failed so in six
+  runs of eight; the test now holds the new connection's reader as well as its greeting, so nothing is heard while the clock moves),
+  `FleetMonitorTests`' 10 s wait for the peer to read live (consistent with A's fleet monitor's first subscription to B ending
+  unheard and its next dial waiting on A's fleet clock, which the test did not move before B read live, not proven; the wait now
+  moves that clock while the monitor waits, and names what A holds of B), `HostNetworkTests`' wait for the Patterns link's first
+  clip (consistent with the clip's 3 s of trust on the node's real clock running out before the test read it, not proven; the node
+  now runs on a clock the test holds),
   `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `NodeHostTests`' one Windows wait for a fresh node's first STATE
   (its PING answered; its cause is not shown, the job's log showing nothing of the node: STATE's first build as measured on Linux
   is 0.13 to 0.33 of the start's time, which for that node's start predicts about 1 to 2 s, not 10, a ratio not measured on
@@ -135,10 +164,47 @@ The lab checks still to do:
   racing the stage builder's first tables, not proven; it now waits for them),
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (its 125 ms spin counted 61.49 ms of 127.56 ms by the
   stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
+  the Engine test host's one Windows stall before its first test (run 435: no result and no sequence file before blame's 5 minutes;
+  consistent with libvmx's build in the OMT tests' attribute, run while the suite is discovered, waiting for the end of its
+  compiler's pipes, which a process the compiler starts can hold, not proven; the build now ends with its compiler, and a hung
+  host's every managed stack is printed in the job's log),
+  `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced`' one Windows "stopped sending: nothing for 10 s" (run 436;
+  consistent with the test host leaving the fake phone's pings unsent for the hub's 10 s of real time, not proven; the phone rig's
+  hub and the test's scan now run on clocks the test holds, and a hello's limit on the hub's own clock tells the phone why),
+  `PromoteTests`' one Windows read of a follower's journal before the row of its follow of the group's new leader (consistent with
+  a slow settings write, or the watch's thread held, between the epoch's move, which STATE shows, and the row, not proven; the test
+  now waits for the row, which says whether the epoch was kept, and the follow raises STATE's push before it; a step-down, a backup's
+  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them, and every change of the
+  fleet's settings, a fence's and a takeover's too, pushes STATE before its row; the same read of a row
+  before it is written, not seen failing, is gone from `ClockSlewTests` and `MemberCommitTests` (a blind commit's landing),
+  `AnchorFeedTests` (a rejoin after a restart, and a follower now says it free-wheels in STATE before its row) and
+  `BackupRestartTests` (a primary that goes out without hearing its backup)),
+  `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
+  (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
+  now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent
+  with the primary's fleet monitor's first subscription ending unheard and its next dial waiting on a fleet clock the hot-backup
+  tests never moved, not proven; the meeting now moves that clock while the monitor waits, and names what the node holds of its
+  peer),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
   words and the heap).
+- Watched, short real-time windows a sweep of the tests found and none has failed on yet (each keeps its bar; the fix named is
+  the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
+  measure of the work rather than the stopwatch): `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they
+  wait for facts, not for the kill's order; `OptimiseOptions.Time` now lets them move it),
+  `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
+  steps, closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`
+  (the follower's adoption within 800 ms by the stopwatch, a 4× ceiling on a lab bar; the facts kept and the time logged closes it),
+  `ClockSyncTests`' best round trip within 20 ms over real loopback, the real-time throughput bars the Windows job runs at 1×
+  (`PerformanceTests.A1080pH264DecodesFasterThanRealTimeInSoftware`,
+  `SelfCalibrationTests.SelfCalibrationRecoversFocalAndRotationFromNoisyRoomPairsWithinASecond`,
+  `FirstMapTests.TheFirstMapTakesUnderFiveSecondsOfMachineTime`, `LightPlanPerfTests.TwelveProjectorsPlanInThreeSeconds`; a reading
+  of the same runner, or the bar kept as a lab line, closes them), the desk's hold button timed on the stopwatch
+  (600 ms; its ring's timer runs in the headless tests only when a test yields to the dispatcher, which no test that holds a button
+  does while it holds, so none races it now; the desk's clock closes it), `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
+  `ArtNetInTests.ATimecodeConsumerOpensTheSocketArtTimeCodeRollsAndDmxFiresNoBinding` (dropout after 100 ms of the real clock; it
+  heals within its wait).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

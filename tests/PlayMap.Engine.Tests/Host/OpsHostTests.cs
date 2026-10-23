@@ -4,6 +4,7 @@ using ModelContextProtocol.Client;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Wire;
 using PlayMap.Devices.Drivers;
 using PlayMap.Devices.Manager;
 using PlayMap.Devices.Tests.Simulators;
@@ -80,7 +81,7 @@ public sealed class OpsHostTests
         var path = Path.Combine(folder, "show.playmap");
         await File.WriteAllTextAsync(path, ProjectJson.Serialize(TwoProjectors()));
         await using var wire = await node.WireAsync();
-        Answer(await wire.AskAsync("@o PROJECT OPEN " + path), "o");
+        Answer(await wire.AskAsync("@o PROJECT OPEN " + WireGrammar.Quote(path)), "o");
         Answer(await wire.AskAsync("@v VIEW cam SHOW camera:sim 320x240"), "v");
 
         using (var started = JsonDocument.Parse(Answer(await wire.AskAsync("@s SCAN START sim MODE FAST"), "s")))

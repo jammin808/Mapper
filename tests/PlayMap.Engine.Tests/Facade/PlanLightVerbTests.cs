@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine.Tests.Facade;
 
@@ -17,7 +18,7 @@ public sealed class PlanLightVerbTests
         var obj = string.Create(CultureInfo.InvariantCulture,
             $"v 512330 5401230 110\nv 512350 5401230 110\nv 512350 5401230 130\nv 512330 5401230 130\nf 1 2 3\nf 1 3 4\n");
         await File.WriteAllTextAsync(rig.File("front.obj"), obj);
-        Assert.Equal("ready", (await rig.Import($"{rig.File("front.obj")} CRS EPSG:25832 NAME Front")).State);
+        Assert.Equal("ready", (await rig.Import(rig.File("front.obj"), "CRS EPSG:25832 NAME Front")).State);
         var k = Intrinsics.FromThrowRatio(1920, 1080, 1.5);
         var pj = new Projector("pj00000001", "P1", k, LensDistortion.None, Pose.LookAt(new Vec3d(0, 0, 18), Vec3d.Zero, Vec3d.UnitY), 10_000, "#FFFFFF",
             false, [], SolveLocks.None, 0);

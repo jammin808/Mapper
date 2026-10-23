@@ -228,10 +228,12 @@ public sealed class BackupNode : IAsyncDisposable
         if (_engine is not { } engine)
             return;
         // A node a backup joined is the show's primary, kept for the next start, with the backups it has had: only they may fence it.
+        // A role the settings could not keep is said once STATE holds it.
         var members = Feed.Members.Select(m => m.Node).ToList();
+        var kept = "";
         if (members.Count > 0 && (_settings.Role == FleetRoles.Solo || members.Any(n => !_settings.Backups.Contains(n))))
         {
-            Persist(s => s with
+            kept = Persist(s => s with
             {
                 Role = s.Role == FleetRoles.Solo ? FleetRoles.Primary : s.Role,
                 Of = s.Role == FleetRoles.Solo ? "" : s.Of,
@@ -239,6 +241,11 @@ public sealed class BackupNode : IAsyncDisposable
             });
         }
         engine.FactsChanged();
+        if (kept.Length > 0)
+        {
+            engine.Journal.Add("fault", $"{SelfName}'s role as the primary of {string.Join(", ", _settings.Backups.Select(Label))}{kept}: after a restart it "
+                + "would not wait to hear them before it sends, and none that took its show could fence it", ok: false);
+        }
     }
 
     private string HelloLine()
@@ -828,13 +835,13 @@ public sealed class BackupNode : IAsyncDisposable
             case "HELLO":
                 return Hello(call.Line.RestAfter(2));
             case "PROJECT":
-                return await ProjectAsync(engine, call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
+                return await ProjectAsync(engine, call, call.Line.RestAfter(2)).ConfigureAwait(false);
             case "ANCHOR" when call.Args.Count >= 3:
                 return await engine.AdoptMirrorAnchorAsync(call.Args[1], call.Line.RestAfter(3)).ConfigureAwait(false);
             case "AIR":
                 return AirLine(call.Line.RestAfter(2));
             case "HANDBACK":
-                return await HandbackAsync(call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
+                return await HandbackAsync(call, call.Line.RestAfter(2)).ConfigureAwait(false);
             default:
                 return CommandReply.Fail("MIRROR HELLO|PROJECT|ANCHOR|AIR|HANDBACK <json>");
         }
@@ -863,9 +870,10 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>The primary's show moved: pulled (with proof, over pinned HTTPS) and applied as one mirror edit; then the files and
-    /// versions it names that are not here are pulled beside the mirror.</summary>
-    private async Task<CommandReply> ProjectAsync(EngineCore engine, string json, CancellationToken ct)
+    /// versions it names that are not here are pulled beside the mirror, behind this line's row (each pull journals how it ended).</summary>
+    private async Task<CommandReply> ProjectAsync(EngineCore engine, VerbCall call, string json)
     {
+        var ct = call.Ct;
         long rev;
         try
         {
@@ -899,7 +907,7 @@ public sealed class BackupNode : IAsyncDisposable
                 engine.ShowFilesLanded();
             Interlocked.Exchange(ref _appliedRev, Math.Max(servedRev, rev));
             _mirrorWords = string.Create(CultureInfo.InvariantCulture, $"{_primaryName}'s show at rev {Math.Max(servedRev, rev)}");
-            Background(PullFilesAsync(engine, _stop.Token));
+            call.AfterRow(() => Background(PullFilesAsync(engine, _stop.Token)));
             return CommandReply.Success(effect: label);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException && !(ex is OperationCanceledException && ct.IsCancellationRequested))
@@ -1093,7 +1101,8 @@ public sealed class BackupNode : IAsyncDisposable
         }
         var source = peers.Count == 1 ? peers[0].Name : string.Join(", ", peers.Select(p => p.Name));
         var rows = new FetchJournal(engine.Journal, _log, $"the fetch of {what} from {source}");
-        Background(Task.Run(async () =>
+        // The pulls journal each file's end, and a peer can end them at once: begun behind the MEDIA FETCH's own row.
+        engine.AfterRow(() => Background(Task.Run(async () =>
         {
             foreach (var f in files)
             {
@@ -1124,7 +1133,7 @@ public sealed class BackupNode : IAsyncDisposable
                 engine.FactsChanged();
             }
             rows.End();
-        }, CancellationToken.None));
+        }, CancellationToken.None)));
         return CommandReply.Accepted($"fetching {what} from {source} by hash, with proof");
     }
 
@@ -1186,7 +1195,7 @@ public sealed class BackupNode : IAsyncDisposable
         }
     }
 
-    private async Task<CommandReply> HandbackAsync(string json, CancellationToken ct)
+    private async Task<CommandReply> HandbackAsync(VerbCall call, string json)
     {
         string from;
         try
@@ -1209,19 +1218,32 @@ public sealed class BackupNode : IAsyncDisposable
             _engine?.Journal.Add("refused", words, ok: false);
             return CommandReply.Fail(words);
         }
-        // The takeover runs beside the mirror's line (it closes the link this line came on).
-        Background(Task.Run(() => TakeOverAsync($"handed back by {Label(from)}", _stop.Token), CancellationToken.None));
+        // The takeover runs beside the mirror's line (it closes the link this line came on) and journals how it went: begun behind
+        // this line's own row.
+        call.AfterRow(() => Background(Task.Run(() => TakeOverAsync($"handed back by {Label(from)}", _stop.Token), CancellationToken.None)));
         await Task.CompletedTask.ConfigureAwait(false);
         return CommandReply.Accepted($"taking the show back from {Label(from)}");
     }
 
     /// <summary>A backup keeps the highest epoch its primary is heard to hold (its mirror's hello, its HEALTH) in its settings: a
     /// takeover after this node restarted, its primary silent by then, still commits an epoch above the primary's, so the primary
-    /// fences itself when it is heard again.</summary>
+    /// fences itself when it is heard again. STATE moves with the epoch; an epoch the settings could not keep is said once STATE
+    /// holds it, and once: the epoch is read and taken in one step under the settings' lock, so the hello and the watch, hearing the
+    /// same epoch at once, do not both take it.</summary>
     private void KeepPrimaryEpoch(long epoch)
     {
-        if (_settings.Role == FleetRoles.Backup && epoch > _settings.Epoch)
-            Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+        string kept;
+        lock (_settingsGate)
+        {
+            if (_settings.Role != FleetRoles.Backup || epoch <= _settings.Epoch)
+                return;
+            kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+        }
+        if (kept.Length > 0)
+        {
+            _engine?.Journal.Add("fault", string.Create(CultureInfo.InvariantCulture,
+                $"the epoch {epoch} {Label(_settings.Of)} holds{kept}: after a restart a takeover by {SelfName} could commit one not above it, which would not fence {Label(_settings.Of)}"), ok: false);
+        }
     }
 
     // ---- What this node hears ---------------------------------------------------------------------------------------------
@@ -1248,20 +1270,23 @@ public sealed class BackupNode : IAsyncDisposable
                     // taken only from a node that leads, so it is joined once that node's HEALTH says it does.
                     await LeadsGroupAsync(peer.Id, _stop.Token).ConfigureAwait(false);
                     var joined = await RunAsync(engine, $"FLEET BACKUP {peer.Id}", _stop.Token).ConfigureAwait(false);
+                    var kept = "";
                     if (joined.Ok)
                     {
                         // The epoch it took the show under is this node's to know as its backup.
-                        Persist(s => s with { Epoch = Math.Max(s.Epoch, f.Epoch) });
+                        kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, f.Epoch) });
                     }
                     else
                     {
                         // A node that handed its show back and cannot mirror it does not keep serving beside it: it is fenced.
                         await RunAsync(engine, string.Create(CultureInfo.InvariantCulture, $"FLEET FENCE {f.Epoch} {peer.Id}"), _stop.Token).ConfigureAwait(false);
                     }
-                    var words = joined.Ok ? $"{peer.Name} took the show back (epoch {f.Epoch}): {SelfName} is its hot backup again"
+                    var words = joined.Ok ? $"{peer.Name} took the show back (epoch {f.Epoch}): {SelfName} is its hot backup again{kept}"
                         : $"{peer.Name} took the show back, but {SelfName} could not mirror it ({joined.Payload}): fenced, its outputs held";
+                    // The record is STATE's before the row that says how the hand-back went, and whether its epoch was kept.
                     _last = new TakeoverRecord("failback", NewId(), _setup.Wall.UnixMs, words);
-                    engine.Journal.Add("fleet", words, ok: joined.Ok);
+                    engine.FactsChanged();
+                    engine.Journal.Add("fleet", words, ok: joined.Ok && kept.Length == 0);
                 }
                 else
                 {
@@ -1273,7 +1298,8 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>A follower whose leader is silent (its clock free-wheels) follows the peer that leads its group under a higher epoch
-    /// than any this node knows.</summary>
+    /// than any this node knows. The row of the follow says whether its epoch was kept for the next start, so it follows the settings
+    /// file, and STATE: a reader that has the row reads the epoch in STATE.</summary>
     private async Task RetargetAsync(EngineCore engine)
     {
         NoteGroup(engine);
@@ -1292,8 +1318,9 @@ public sealed class BackupNode : IAsyncDisposable
         var reply = await RunAsync(engine, $"SYNC FOLLOW {group} {next.Id}", _stop.Token).ConfigureAwait(false);
         if (reply.Ok)
         {
-            Persist(s => s with { Epoch = Math.Max(s.Epoch, nextEpoch) });
-            engine.Journal.Add("fleet", $"{Label(leader)} went quiet and {next.Name} leads {group} now (epoch {nextEpoch}): following it on the same time line");
+            var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, nextEpoch) });
+            engine.Journal.Add("fleet", $"{Label(leader)} went quiet and {next.Name} leads {group} now (epoch {nextEpoch}): following it on the same time line{kept}",
+                ok: kept.Length == 0);
         }
         else
         {
@@ -1337,7 +1364,8 @@ public sealed class BackupNode : IAsyncDisposable
     internal bool KnowsInGroup(string peerId) => _groupPeers.ContainsKey(peerId);
 
     /// <summary>A leader that hears a member of its group lead it under a higher epoch (a promotion or a takeover while this node was
-    /// away or cut off) steps down and follows it: a group has one clock.</summary>
+    /// away or cut off) steps down and follows it: a group has one clock. The row of the step-down says whether its epoch was kept for
+    /// the next start, so it follows the settings file, and STATE: a reader that has the row reads the epoch in STATE.</summary>
     private async Task StepDownAsync(EngineCore engine)
     {
         if (engine.Services.GroupSync is not { Role: "leader" } sync || _settings.Role is FleetRoles.Backup or FleetRoles.Fenced)
@@ -1353,8 +1381,9 @@ public sealed class BackupNode : IAsyncDisposable
         var reply = await RunAsync(engine, $"SYNC FOLLOW {group} {next.Id}", _stop.Token).ConfigureAwait(false);
         if (reply.Ok)
         {
-            Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
-            engine.Journal.Add("fleet", $"{next.Name} leads {group} under epoch {epoch}, above this node's: {SelfName} steps down and follows it");
+            var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+            engine.Journal.Add("fleet", $"{next.Name} leads {group} under epoch {epoch}, above this node's: {SelfName} steps down and follows it{kept}",
+                ok: kept.Length == 0);
         }
         else
         {
@@ -1725,7 +1754,8 @@ public sealed class BackupNode : IAsyncDisposable
 
     /// <summary>Keeps a change of the fleet settings for the next start, through the network host (the settings file's one writer);
     /// answers "" or the words of a failure (the change holds for this run either way). A new role moves what the node sends beside its
-    /// outputs first (<see cref="Air"/>), then the role is the node's.</summary>
+    /// outputs first (<see cref="Air"/>), then the settings are the node's, which STATE reads; STATE is pushed before this answers, so
+    /// a row the caller writes with the answer is read beside a STATE that holds the change.</summary>
     private string Persist(Func<FleetSettings, FleetSettings> edit)
     {
         string failed;
@@ -1737,6 +1767,7 @@ public sealed class BackupNode : IAsyncDisposable
             _settings = next;
             failed = _setup.Network.PersistSettings(s => s with { Fleet = next });
         }
+        _engine?.FactsChanged();
         return failed.Length == 0 ? "" : " — not kept for the next start (" + failed + ")";
     }
 

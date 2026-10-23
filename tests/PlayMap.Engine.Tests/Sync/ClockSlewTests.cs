@@ -99,6 +99,8 @@ public sealed class ClockSlewTests
         Assert.Equal("#000000", Background(node));
         clock.AdvanceMs(1);
         Assert.True(await Eventually.TrueAsync(() => Background(node) == "#FF0000"), node.Journal());
+        // The landing's row is written once the commit has landed, on the lane's tick that landed it: it is read once that tick is over.
+        await Ticked(node);
         Assert.Contains("blind commit: 1 change landed (at) by Desk", node.Journal(), StringComparison.Ordinal);
     }
 

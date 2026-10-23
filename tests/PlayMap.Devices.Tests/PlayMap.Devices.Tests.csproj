@@ -23,4 +23,9 @@
     <ProjectReference Include="..\..\src\PlayMap.Devices\PlayMap.Devices.csproj" />
   </ItemGroup>
 
+  <!-- The clock a test moves by hand, shared with the Engine, App and Net suites rather than copied. -->
+  <ItemGroup Label="fix-win-batch4">
+    <Compile Include="..\Shared\ManualTime.cs" Link="Shared\ManualTime.cs" />
+  </ItemGroup>
+
 </Project>

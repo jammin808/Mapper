@@ -14,6 +14,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Phone;
 using PlayMap.Engine.Rendering;
@@ -283,20 +284,14 @@ internal sealed class LoopPhone : IAsyncDisposable
     public static string E2e => Path.Combine(NodeExeRoot(), "tests", "e2e", "phonescan");
 
     public static bool HasPlaywright =>
-        Directory.Exists(Path.Combine(E2e, "node_modules", "playwright")) || GlobalRoot() is { } root && Directory.Exists(Path.Combine(root, "playwright"));
+        Directory.Exists(Path.Combine(E2e, "node_modules", "playwright"))
+        || (GlobalRoot.Value is { Length: > 0 } root && Directory.Exists(Path.Combine(root, "playwright")));
 
     private static string NodeExeRoot() => Spine.NodeExe.RepoRoot();
 
-    private static string? GlobalRoot()
-    {
-        var npm = Find("npm");
-        if (npm is null)
-            return null;
-        using var p = Process.Start(new ProcessStartInfo(npm, "root -g") { RedirectStandardOutput = true, UseShellExecute = false });
-        var text = p?.StandardOutput.ReadToEnd().Trim();
-        p?.WaitForExit(30_000);
-        return text;
-    }
+    /// <summary>npm's global root, asked once, as <see cref="BrowserFactAttribute"/> asks it while the suite is discovered: ended with
+    /// npm, never with its output pipe (<see cref="ToolProbe"/>).</summary>
+    private static readonly Lazy<string?> GlobalRoot = new(() => Find("npm") is { } npm ? ToolProbe.Run(npm, ["root", "-g"], ToolProbe.Deadline) : null);
 
     private static string? Find(string name)
     {
@@ -429,7 +424,7 @@ public sealed class PhoneScanE2ETests(ITestOutputHelper output)
             var folder = Directory.CreateDirectory(Path.Combine(node.Dir.FullName, "show")).FullName;
             var path = Path.Combine(folder, "show.playmap");
             await File.WriteAllTextAsync(path, ProjectJson.Serialize(project));
-            await node.OkAsync("PROJECT OPEN " + path);
+            await node.OkAsync("PROJECT OPEN " + WireGrammar.Quote(path));
 
             bridge = new CameraBridge(() => render, "op00000001", scene, hunting: profile == "ios");
             await bridge.StartAsync();

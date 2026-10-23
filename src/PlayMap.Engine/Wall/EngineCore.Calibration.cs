@@ -853,7 +853,7 @@ public sealed partial class EngineCore
         var applied = results.Where(x => x.Applied).Select(x => x.Projector).ToList();
         // The re-solve has landed: a stop begun since leaves it as it is, and a blend that was due is not solved again.
         if (applied.Count > 0)
-            blend = await _lane.RunAsync(() => BlendAfter(DraftOf(c.Session) ?? Store, applied, RefusedAsStopping(c.Session))).ConfigureAwait(false);
+            blend = await _lane.RunAsync(() => ForLine(c, () => BlendAfter(DraftOf(c.Session) ?? Store, applied, RefusedAsStopping(c.Session)))).ConfigureAwait(false);
         if (blend.Length > 0)
             words += "; " + blend;
         SetTask(task with { State = "done", Progress = 1, Words = words });
