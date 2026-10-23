@@ -1409,6 +1409,13 @@ Round 2 W1 notes:
   passes (the Core suite's build stamp tests 16, the supervisor's suite 95 with its 33 Windows tests skipped here, the shader
   worker's 12). The installer's tests build here and run only on the elevated installer job, and the supervisor's Windows tests only
   on the Windows job: neither job has run them with this change yet.
+- Done: a tool the runner stops at its deadline says what it wrote by then. A stopped run's words (`ChildRun.Words`) said only that it
+  did not finish and was stopped, though the stop, which takes every process holding its pipes, lets what it wrote in: a hung
+  ffmpeg, compiler or Windows tool failed its test with none of its own words (`TestMedia`, `HostRig.MakeClipAsync`,
+  `OptimiseClips`, the installer's tools). They now carry its errors, else its output, as a finished run's do.
+  `ChildProcessTests.AToolPastItsDeadlineIsStoppedAndSaysSoWithWhatItWrote` runs a tool that writes "waiting" on its errors and then
+  waits ten minutes, under a 3 s deadline, through `Run` and `RunAsync`: against the old words it failed 3 runs of 3 (they ended at
+  "was stopped"), and it passes 3 of 3.
 - Done: the phone tests find their tools as Windows names them. The phone loop's lookup (`LoopPhone.Find`) and the node scripts'
   (`NodeTools.Find`) each took `name.exe` alone on Windows, so npm, a batch file there (`npm.cmd`), was never found, and the node
   scripts' fallback asked for `npm.cmd.exe`; each also looked in every PATH entry, a relative one (the current directory's) too.

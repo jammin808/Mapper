@@ -57,17 +57,17 @@ public sealed class ChildProcessTests
     }
 
     [Fact]
-    public async Task AToolPastItsDeadlineIsStoppedAndSaysSo()
+    public async Task AToolPastItsDeadlineIsStoppedAndSaysSoWithWhatItWrote()
     {
         var (tool, args) = OperatingSystem.IsWindows()
-            ? ("ping.exe", new[] { "-n", "600", "127.0.0.1" })
-            : ("/bin/sh", new[] { "-c", "sleep 600" });
-        var ran = ChildProcess.Run(tool, args, TimeSpan.FromSeconds(1));
+            ? ("cmd.exe", new[] { "/d", "/c", "echo waiting 1>&2 & ping -n 600 127.0.0.1 >nul" })
+            : ("/bin/sh", new[] { "-c", "echo waiting >&2; sleep 600" });
+        var ran = ChildProcess.Run(tool, args, TimeSpan.FromSeconds(3));
         Assert.Equal((true, false, false), (ran.Started, ran.Finished, ran.Ok));
-        Assert.Equal($"{tool} did not finish within 1 s and was stopped", ran.Words);
-        var awaited = await ChildProcess.RunAsync(tool, args, TimeSpan.FromSeconds(1));
+        Assert.Equal($"{tool} did not finish within 3 s and was stopped: waiting", ran.Words.TrimEnd());
+        var awaited = await ChildProcess.RunAsync(tool, args, TimeSpan.FromSeconds(3));
         Assert.Equal((true, false, false), (awaited.Started, awaited.Finished, awaited.Ok));
-        Assert.Equal($"{tool} did not finish within 1 s and was stopped", awaited.Words);
+        Assert.Equal($"{tool} did not finish within 3 s and was stopped: waiting", awaited.Words.TrimEnd());
     }
 
     [Fact]

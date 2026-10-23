@@ -17,10 +17,12 @@ internal sealed record ChildRun(string Tool, bool Started, bool Finished, int Ex
     /// <summary>It finished with exit code 0 and every word it wrote is in.</summary>
     public bool Ok => Started && Finished && ExitCode == 0 && WordsIn;
 
-    /// <summary>How it ended, in words, for a test's message.</summary>
+    /// <summary>How it ended, in words, for a test's message: one stopped at its deadline with what it had written by then (its errors,
+    /// else its output), as a finished one says what it wrote.</summary>
     public string Words =>
         !Started ? $"{Tool} could not be started: {Why}"
         : !Finished ? string.Create(CultureInfo.InvariantCulture, $"{Tool} did not finish within {Deadline.TotalSeconds:0} s and was stopped")
+            + (Errors.Length > 0 ? ": " + Errors : Text.Length > 0 ? ": " + Text : "")
         : !WordsIn ? string.Create(CultureInfo.InvariantCulture, $"{Tool} (exit code {ExitCode}): its words were held open by a process it started")
         : string.Create(CultureInfo.InvariantCulture, $"{Tool} (exit code {ExitCode}): {(Errors.Length > 0 ? Errors : Text)}");
 }
