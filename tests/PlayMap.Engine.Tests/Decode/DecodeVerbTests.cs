@@ -16,6 +16,7 @@ using PlayMap.Engine.Tests.Presentation;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Media.Hw;
 using PlayMap.Media.Sources;
+using PlayMap.Tests;
 using FfmpegFactAttribute = PlayMap.Engine.Tests.Host.FfmpegFactAttribute;
 
 namespace PlayMap.Engine.Tests.Decode;
@@ -228,14 +229,9 @@ public sealed class DecodePathStateTests
     {
         // mpeg4 (LGPL-compatible) at 3840×2160, two seconds at 25 fps: the size, not the codec, is what the row is about.
         var path = Path.Combine(folder, "uhd.mp4");
-        var psi = new ProcessStartInfo(Clips.Ffmpeg()) { RedirectStandardError = true, UseShellExecute = false };
-        foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=3840x2160:r=25:d=2",
-                     "-c:v", "mpeg4", "-q:v", "8", "-pix_fmt", "yuv420p", path })
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var err = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        Assert.True(p.ExitCode == 0 && File.Exists(path), "ffmpeg: " + err);
+        var ran = ChildProcess.Run(Clips.Ffmpeg(), ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=3840x2160:r=25:d=2",
+            "-c:v", "mpeg4", "-q:v", "8", "-pix_fmt", "yuv420p", path], ChildProcess.Deadline);
+        Assert.True(ran.Ok && File.Exists(path), "ffmpeg: " + ran.Words);
         return path;
     }
 
@@ -358,16 +354,9 @@ public sealed class ReopenLadderTests
         {
             FfmpegFactAttribute.UseDefaultLibraries();
             var path = Path.Combine(dir.FullName, "clip.mp4");
-            var psi = new ProcessStartInfo(Clips.Ffmpeg()) { RedirectStandardError = true, UseShellExecute = false };
-            foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=64x36:r=25:d=1",
-                         "-c:v", "mpeg4", "-q:v", "8", "-pix_fmt", "yuv420p", path })
-                psi.ArgumentList.Add(a);
-            using (var p = Process.Start(psi)!)
-            {
-                var err = await p.StandardError.ReadToEndAsync();
-                await p.WaitForExitAsync();
-                Assert.True(p.ExitCode == 0 && File.Exists(path), "ffmpeg: " + err);
-            }
+            var ran = await ChildProcess.RunAsync(Clips.Ffmpeg(), ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=64x36:r=25:d=1",
+                "-c:v", "mpeg4", "-q:v", "8", "-pix_fmt", "yuv420p", path], ChildProcess.Deadline);
+            Assert.True(ran.Ok && File.Exists(path), "ffmpeg: " + ran.Words);
             var item = new MediaItem("md_clip", "Clip", MediaKind.Video, path, "", 0,
                 MediaInfo.Unknown with { Width = 64, Height = 36, FrameRate = "25", VideoCodec = "mpeg4", DurationNs = 1_000_000_000 }, []);
             await using var media = new MediaBackend(new NodeHome(Path.Combine(dir.FullName, "node")), NullLogger.Instance);

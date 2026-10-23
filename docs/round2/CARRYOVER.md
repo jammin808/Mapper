@@ -1378,6 +1378,24 @@ Round 2 W1 notes:
   link (`NetworkHost.LinkPatternsAsync`); it now waits for the link's row, written once that change has ended, before it reads the
   file. With the row's post held 30 s and the settings' write 5 s (delays in a scratch copy) the unchanged tests failed 3 of 3 (no
   "scan " row; the kept host ""), and the changed ones passed 3 of 3 under the same delays. No failure of either has been seen.
+- Done: a test that runs a child process ends with the process itself, under a deadline, never with the end of its output pipes.
+  The sites read every word to its end before or after waiting for the exit, or awaited an exit with no bound, so a process the
+  tool started that held its pipes (a linker's helper, npm's, cmd.exe's) held the test without end. One runner in the shared
+  test files (`tests/Shared/ChildProcess.cs`) waits for the process under a deadline (3 minutes unless the caller names one), stops
+  it and every process it started past that, then reads its words for at most 5 s, as the native build did; a process a test
+  started itself is ended the same way (`EndAsync`, `StopAsync`, `Stop`). The native build (`NativeBuild.Run`) and the tool probe
+  (`ToolProbe`) run through it, and so do the media suite's clips and ffprobe read (`TestMedia`) and its hash test's `sha256sum`
+  (fed on its standard input), the render suite's HAP clips, the engine suite's clip makers (`HostRig.MakeClipAsync`, the HAP and
+  decode tests', `OptimiseClips`), the node host tests, the phone loop's browser driver, the Net suite's node scripts
+  (`NodeTools.RunAsync`) and the supervisor tests' helpers. `ChildProcessTests` runs a tool whose helper holds its pipes
+  (`PipeHolder`) through `Run`, `RunAsync` and `EndAsync`: against the sites' old pattern (every word read to its end, then the
+  exit waited for) all three failed 3 runs of 3, still waiting after 60 s, and they pass 3 of 3; beside them a tool past its
+  deadline is stopped with its words, a tool's input, output, errors and exit code are its own, and one that cannot start says
+  so. Two sites are wave-2 package files and stay open (below).
+- Open: two tests' clip makers still read ffmpeg's errors to their end and then wait for its exit with no bound:
+  `tests/PlayMap.Engine.Tests/Rendering/HostRig.cs` (d3d12-passes' file in wave 2) and
+  `tests/PlayMap.Engine.Tests/Fleet/BackupRenderTests.cs` (stability's hunk in wave 2). Moving each to the tests' runner
+  (`ChildProcess.Run`) in its package closes it.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace PlayMap.Tests;
 
 /// <summary>A tool's answer for a test attribute that asks a tool while a suite is discovered (npm's global root, for the Net suite's
@@ -13,43 +11,6 @@ internal static class ToolProbe
 
     /// <summary>What a tool wrote, read once the tool itself has exited (or null when it did not within
     /// <paramref name="deadline"/>, when its words were not in within 5 s of its exit, or when it could not be started).</summary>
-    public static string? Run(string path, IEnumerable<string> args, TimeSpan deadline)
-    {
-        var start = new ProcessStartInfo(path) { RedirectStandardOutput = true, UseShellExecute = false };
-        foreach (var a in args)
-            start.ArgumentList.Add(a);
-        Process? p;
-        try
-        {
-            p = Process.Start(start);
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return null;
-        }
-        if (p is null)
-            return null;
-        using (p)
-        {
-            var text = p.StandardOutput.ReadToEndAsync();
-            if (!p.WaitForExit(deadline))
-            {
-                Stop(p);
-                return null;
-            }
-            return text.Wait(TimeSpan.FromSeconds(5)) ? text.Result.Trim() : null;
-        }
-    }
-
-    private static void Stop(Process p)
-    {
-        try
-        {
-            p.Kill(entireProcessTree: true);
-        }
-        catch (InvalidOperationException)
-        {
-            // It exited between the wait and the kill.
-        }
-    }
+    public static string? Run(string path, IEnumerable<string> args, TimeSpan deadline) =>
+        ChildProcess.Run(path, args, deadline) is { Finished: true, WordsIn: true } ran ? ran.Text.Trim() : null;
 }

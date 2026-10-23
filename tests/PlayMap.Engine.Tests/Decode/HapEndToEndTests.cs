@@ -8,6 +8,7 @@ using PlayMap.Engine.Host;
 using FfmpegFactAttribute = PlayMap.Engine.Tests.Host.FfmpegFactAttribute;
 using PlayMap.Engine.Tests.Rendering;
 using PlayMap.Engine.Tests.Spine;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Decode;
@@ -26,14 +27,9 @@ public sealed class HapEndToEndTests(ITestOutputHelper log)
     {
         var path = Path.Combine(folder, "counted-hapq.mov");
         var painter = "geq=lum='if(lt(Y,24),if(mod(floor(N/pow(2,floor(X/8))),2),235,16),128)':cb=128:cr=128,format=rgba";
-        var psi = new ProcessStartInfo(Clips.Ffmpeg()) { RedirectStandardError = true, UseShellExecute = false };
-        foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x48:r=25:d=3", "-vf", painter,
-                     "-c:v", "hap", "-format", "hap_q", path })
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var err = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        Assert.True(p.ExitCode == 0 && File.Exists(path), "ffmpeg: " + err);
+        var ran = ChildProcess.Run(Clips.Ffmpeg(), ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x48:r=25:d=3",
+            "-vf", painter, "-c:v", "hap", "-format", "hap_q", path], ChildProcess.Deadline);
+        Assert.True(ran.Ok && File.Exists(path), "ffmpeg: " + ran.Words);
         return path;
     }
 

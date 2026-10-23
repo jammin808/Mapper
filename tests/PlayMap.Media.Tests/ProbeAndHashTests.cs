@@ -1,6 +1,6 @@
-using System.Diagnostics;
 using PlayMap.Core.Model;
 using PlayMap.Media.Ffmpeg;
+using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests;
 
@@ -142,15 +142,13 @@ public class ProbeAndHashTests
         Assert.True(ContentHasher.IsValid(hash));
         // The file goes in on standard input: sha256sum then names no file, and a name with a backslash (a Windows path) cannot
         // make it mark its line with one.
-        var psi = new ProcessStartInfo("sha256sum") { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false };
-        using var p = Process.Start(psi)!;
-        var reading = p.StandardOutput.ReadToEndAsync();
-        await using (var file = File.OpenRead(path))
-            await file.CopyToAsync(p.StandardInput.BaseStream);
-        p.StandardInput.Close();
-        var line = await reading;
-        await p.WaitForExitAsync();
-        Assert.Equal("sha256:" + line.Split(' ')[0], hash);
+        var ran = await ChildProcess.RunAsync("sha256sum", [], ChildProcess.Deadline, input: async s =>
+        {
+            await using var file = File.OpenRead(path);
+            await file.CopyToAsync(s);
+        });
+        Assert.True(ran.Ok, ran.Words);
+        Assert.Equal("sha256:" + ran.Text.Split(' ')[0], hash);
     }
 
     [Fact]

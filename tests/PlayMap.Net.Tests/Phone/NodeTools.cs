@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using PlayMap.Tests;
 
 namespace PlayMap.Net.Tests.Phone;
 
@@ -47,31 +47,16 @@ internal static class NodeTools
     /// <summary>Runs a script of tests/e2e/phonescan to its end; answers its exit code and what it wrote.</summary>
     public static async Task<(int Code, string Output)> RunAsync(string script, TimeSpan timeout, params string[] args)
     {
-        var start = new ProcessStartInfo(Node ?? throw new InvalidOperationException("node is not installed"))
+        var ran = await ChildProcess.RunAsync(Node ?? throw new InvalidOperationException("node is not installed"), [script, .. args], timeout, start =>
         {
-            WorkingDirectory = E2e,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        start.ArgumentList.Add(script);
-        foreach (var a in args)
-            start.ArgumentList.Add(a);
-        start.Environment["PLAYWRIGHT_BROWSERS_PATH"] = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH") ?? "/opt/pw-browsers";
-        using var p = Process.Start(start)!;
-        var stdout = p.StandardOutput.ReadToEndAsync();
-        var stderr = p.StandardError.ReadToEndAsync();
-        using var cts = new CancellationTokenSource(timeout);
-        try
-        {
-            await p.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            p.Kill(entireProcessTree: true);
-            throw new TimeoutException($"{script} ran past {timeout.TotalSeconds} s: {await stderr}");
-        }
-        return (p.ExitCode, await stdout + await stderr);
+            start.WorkingDirectory = E2e;
+            start.Environment["PLAYWRIGHT_BROWSERS_PATH"] = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH") ?? "/opt/pw-browsers";
+        });
+        if (!ran.Finished)
+            throw new TimeoutException($"{script} ran past {timeout.TotalSeconds} s and was stopped: {ran.Errors}");
+        if (!ran.WordsIn)
+            throw new TimeoutException($"{script} exited {ran.ExitCode}, its words held open by a process it started: {ran.Errors}");
+        return (ran.ExitCode, ran.Text + ran.Errors);
     }
 }
 

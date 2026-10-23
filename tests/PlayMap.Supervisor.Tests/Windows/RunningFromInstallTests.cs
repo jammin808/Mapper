@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
 using PlayMap.Supervisor.Windows;
+using PlayMap.Tests;
 
 namespace PlayMap.Supervisor.Tests.Windows;
 
@@ -32,8 +33,7 @@ public sealed class RunningFromInstallTests
         }
         finally
         {
-            ping.Kill();
-            ping.WaitForExit();
+            ChildProcess.Stop(ping);
             Directory.Delete(dir, true);
         }
     }

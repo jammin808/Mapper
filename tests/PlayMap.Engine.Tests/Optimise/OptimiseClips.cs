@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Engine.Tests.Host;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Optimise;
 
@@ -20,17 +20,9 @@ internal static class OptimiseClips
     /// <summary>Runs the tool with these words and answers its standard output; fails the test with its errors when it fails.</summary>
     public static byte[] Run(string tool, params string[] args)
     {
-        var psi = new ProcessStartInfo(Tool(tool)) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false };
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        using var output = new MemoryStream();
-        var copy = p.StandardOutput.BaseStream.CopyToAsync(output);
-        var err = p.StandardError.ReadToEnd();
-        copy.GetAwaiter().GetResult();
-        p.WaitForExit();
-        Assert.True(p.ExitCode == 0, $"{tool} {string.Join(' ', args)}: {err}");
-        return output.ToArray();
+        var ran = ChildProcess.Run(Tool(tool), args, ChildProcess.Deadline);
+        Assert.True(ran.Ok, $"{tool} {string.Join(' ', args)}: {ran.Words}");
+        return ran.Output;
     }
 
     /// <summary>A lossless RGBA clip of FFmpeg's testsrc2 (with the research's noise, alls=12 temporal, when asked), <paramref name="frames"/> frames at 25 fps.</summary>

@@ -6,6 +6,7 @@ using System.Security.Principal;
 using PlayMap.Core.Machine;
 using PlayMap.Supervisor.Install;
 using PlayMap.Supervisor.Windows;
+using PlayMap.Tests;
 
 namespace PlayMap.Supervisor.Tests.Windows;
 
@@ -266,9 +267,7 @@ public sealed class EngineIdentityWindowsTests
 
         public void Dispose()
         {
-            if (!_process.HasExited)
-                _process.Kill();
-            _process.WaitForExit();
+            ChildProcess.Stop(_process);
             _process.Dispose();
         }
     }

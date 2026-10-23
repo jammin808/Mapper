@@ -99,4 +99,9 @@
     <Compile Include="..\Shared\ToolProbe.cs" Link="Shared\ToolProbe.cs" />
   </ItemGroup>
 
+  <!-- The one way the tests run a child process and end one they started: bounded by a deadline, never by the end of its pipes. -->
+  <ItemGroup Label="fix-w1-followups">
+    <Compile Include="..\Shared\ChildProcess.cs" Link="Shared\ChildProcess.cs" />
+  </ItemGroup>
+
 </Project>

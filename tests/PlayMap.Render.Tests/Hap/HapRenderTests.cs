@@ -9,6 +9,7 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Render.Hap;
 using PlayMap.Render.Video;
+using PlayMap.Tests;
 
 namespace PlayMap.Render.Tests.Hap;
 
@@ -214,14 +215,8 @@ public class HapRenderTests(BackendFixture backends)
 
     private static void Run(params string[] args)
     {
-        var psi = new ProcessStartInfo(Tool()) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false };
-        foreach (var a in (string[])["-hide_banner", "-loglevel", "error", "-y", .. args])
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var err = p.StandardError.ReadToEndAsync();
-        p.StandardOutput.ReadToEnd();
-        p.WaitForExit();
-        Assert.True(p.ExitCode == 0, "ffmpeg failed: " + err.Result);
+        var ran = ChildProcess.Run(Tool(), ["-hide_banner", "-loglevel", "error", "-y", .. args], ChildProcess.Deadline);
+        Assert.True(ran.Ok, "ffmpeg failed: " + ran.Words);
     }
 
     public static TheoryData<string, PixelLayout, int, double> FfmpegFamilies() => new()

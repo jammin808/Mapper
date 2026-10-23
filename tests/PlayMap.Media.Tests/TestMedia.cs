@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using PlayMap.Core.Media;
 using PlayMap.Media.Ffmpeg;
+using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests;
 
@@ -93,45 +94,20 @@ public static class TestMedia
     /// <summary>Runs the ffmpeg tool; throws with its output when it fails.</summary>
     public static void Run(params string[] args)
     {
-        var psi = new ProcessStartInfo(Tool())
-        {
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
-        psi.ArgumentList.Add("-hide_banner");
-        psi.ArgumentList.Add("-loglevel");
-        psi.ArgumentList.Add("error");
-        psi.ArgumentList.Add("-y");
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var err = p.StandardError.ReadToEndAsync();
-        p.StandardOutput.ReadToEnd();
-        p.WaitForExit();
-        if (p.ExitCode != 0)
-            throw new InvalidOperationException("ffmpeg " + string.Join(' ', args) + " failed: " + err.Result);
+        var ran = ChildProcess.Run(Tool(), ["-hide_banner", "-loglevel", "error", "-y", .. args], ChildProcess.Deadline);
+        if (!ran.Ok)
+            throw new InvalidOperationException("ffmpeg " + string.Join(' ', args) + " failed: " + ran.Words);
     }
 
     /// <summary>The picture types of a clip's video frames in display order ("IBBP…"), read by the ffprobe tool beside ffmpeg.</summary>
     public static string FrameTypes(string path)
     {
         var tool = Path.Combine(Path.GetDirectoryName(Tool())!, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
-        var psi = new ProcessStartInfo(tool)
-        {
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
-        foreach (var a in new[] { "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pict_type", "-of", "csv=p=0", path })
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var err = p.StandardError.ReadToEndAsync();
-        var types = p.StandardOutput.ReadToEnd();
-        p.WaitForExit();
-        if (p.ExitCode != 0)
-            throw new InvalidOperationException("ffprobe " + path + " failed: " + err.Result);
-        return string.Concat(types.Where(char.IsAsciiLetterUpper));
+        var ran = ChildProcess.Run(tool, ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pict_type", "-of", "csv=p=0", path],
+            ChildProcess.Deadline);
+        if (!ran.Ok)
+            throw new InvalidOperationException("ffprobe " + path + " failed: " + ran.Words);
+        return string.Concat(ran.Text.Where(char.IsAsciiLetterUpper));
     }
 
     private static string Src(string size, string rate, string seconds) =>

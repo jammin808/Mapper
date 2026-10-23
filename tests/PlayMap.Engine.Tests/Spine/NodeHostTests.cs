@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using PlayMap.Core.Bus;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Host;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Spine;
 
@@ -82,8 +83,7 @@ public sealed partial class NodeHostTests
             }
             finally
             {
-                node.Kill(entireProcessTree: true);
-                await node.WaitForExitAsync();
+                await ChildProcess.StopAsync(node);
             }
         }
         finally
@@ -157,8 +157,11 @@ public sealed partial class NodeHostTests
     public async Task AnUnknownEntryExitsTwoWithWords(string word)
     {
         using var node = word.Length == 0 ? NodeExe.Start() : NodeExe.Start(word);
-        var said = await node.StandardError.ReadToEndAsync();
-        await node.WaitForExitAsync();
+        var errors = node.StandardError.ReadToEndAsync();
+        var output = node.StandardOutput.ReadToEndAsync();
+        Assert.True(await ChildProcess.EndAsync(node, ChildProcess.Deadline, errors, output), "the node did not exit and was stopped");
+        Assert.True(errors.IsCompletedSuccessfully, "the node's words were held open by a process it started");
+        var said = await errors;
 
         Assert.Equal(EngineEntry.BadArguments, node.ExitCode);
         Assert.Contains("engine [headless]", said, StringComparison.Ordinal);

@@ -13,6 +13,7 @@ using PlayMap.Engine.Host;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Net.Bus;
 using PlayMap.Net.Media;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests.Host;
 
@@ -353,13 +354,9 @@ internal sealed class FfmpegFactAttribute : FactAttribute
     public static async Task<string> MakeClipAsync(string folder)
     {
         var path = Path.Combine(folder, "clip.mp4");
-        var psi = new ProcessStartInfo(Tool()!) { UseShellExecute = false, RedirectStandardError = true };
-        foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-t", "2", "-pix_fmt", "yuv420p", "-c:v", "mpeg4", path })
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var errors = await p.StandardError.ReadToEndAsync();
-        await p.WaitForExitAsync();
-        Assert.True(p.ExitCode == 0, "ffmpeg could not make the clip: " + errors);
+        var ran = await ChildProcess.RunAsync(Tool()!, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-t", "2",
+            "-pix_fmt", "yuv420p", "-c:v", "mpeg4", path], ChildProcess.Deadline);
+        Assert.True(ran.Ok, "ffmpeg could not make the clip: " + ran.Words);
         return path;
     }
 }

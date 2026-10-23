@@ -351,19 +351,14 @@ internal sealed class LoopPhone : IAsyncDisposable
     {
         await _process.StandardInput.WriteLineAsync("quit");
         await _process.StandardInput.FlushAsync();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        await _process.WaitForExitAsync(cts.Token);
-        await Task.WhenAll(_errors, _rest);
+        if (!await ChildProcess.EndAsync(_process, TimeSpan.FromSeconds(60), _errors, _rest))
+            throw new TimeoutException("the browser's driver did not quit within 60 s and was stopped: " + (_errors.IsCompletedSuccessfully ? _errors.Result : ""));
         return JsonDocument.Parse(await File.ReadAllTextAsync(_out)).RootElement.Clone();
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (!_process.HasExited)
-        {
-            _process.Kill(entireProcessTree: true);
-            await _process.WaitForExitAsync();
-        }
+        await ChildProcess.StopAsync(_process, _errors, _rest);
         _process.Dispose();
     }
 }
