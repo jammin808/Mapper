@@ -130,7 +130,7 @@ public sealed class DeviceEngineTests
             Assert.False((await rig.Run($"SET {id} projectorId \"pj99999999\"")).Ok);
             Assert.Contains("\"devices\":[{", rig.Engine.ProjectJson().Json, StringComparison.Ordinal);
             var saved = Path.Combine(rig.Folder, "show.playmap");
-            await rig.Ok("PROJECT SAVE " + saved);
+            await rig.Ok("PROJECT SAVE " + WireGrammar.Quote(saved));
             Assert.Equal(rig.Engine.Store.Project.FindDevice(id), ProjectJson.Deserialize(PlayMap.Core.Storage.DurableFile.ReadAllText(saved)).FindDevice(id));
         }
         finally

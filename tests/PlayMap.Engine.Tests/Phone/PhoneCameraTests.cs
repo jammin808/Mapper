@@ -88,7 +88,7 @@ public sealed class PhoneCameraTests(ITestOutputHelper output)
     [Fact]
     public async Task AnUnansweredCueIsWaitedForUntilTheScansClockPassesThePatternTimeout()
     {
-        var time = new Fleet.ManualTime();
+        var time = new ManualTime();
         var patience = TimeSpan.FromMilliseconds(1);
         await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = patience, Time = time });
         await using var phone = await rig.JoinAsync();

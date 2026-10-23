@@ -70,9 +70,11 @@ public sealed class AnchorFeedLineTests
         stage.Lines.Clear();
         reader.Lines.Clear();
 
-        // Two lines sent one after the other reach the member in that order, numbered in that order.
-        var first = feed.SendAirAsync("show", "panic", "PANIC FADE 0", 10, TimeSpan.FromMilliseconds(200), CancellationToken.None);
-        var second = feed.SendAirAsync("show", "panic", "PANIC CLEAR FADE 0", 11, TimeSpan.FromMilliseconds(200), CancellationToken.None);
+        // Two lines sent one after the other reach the member in that order, numbered in that order. Their waits run on a clock
+        // only the test moves, so a receipt is never raced against a real deadline.
+        var time = new ManualTime();
+        var first = feed.SendAirAsync("show", "panic", "PANIC FADE 0", 10, TimeSpan.FromMilliseconds(200), CancellationToken.None, time);
+        var second = feed.SendAirAsync("show", "panic", "PANIC CLEAR FADE 0", 11, TimeSpan.FromMilliseconds(200), CancellationToken.None, time);
         Assert.Equal(2, stage.Lines.Count);
         var (f0, s0, l0) = Air(stage.Lines[0]);
         var (f1, s1, l1) = Air(stage.Lines[1]);
@@ -84,17 +86,21 @@ public sealed class AnchorFeedLineTests
 
         Assert.True(feed.Receipt("s1", s0, "applied", 10, ""));
         Assert.False(feed.Receipt("r1", s1, "applied", 11, ""));     // not a member's own line
-        Assert.Equal("applied", Assert.Single(await first).Stage);
-        Assert.Equal(("silent", "9f8e7d6c"), (Assert.Single(await second).Stage, (await second)[0].Node));
+        Assert.Equal("applied", Assert.Single(await first.WaitAsync(TimeSpan.FromSeconds(10))).Stage);
+        Assert.Equal(TaskStatus.WaitingForActivation, second.Status);
+        time.Advance(TimeSpan.FromMilliseconds(200));
+        Assert.Equal(("silent", "9f8e7d6c"), (Assert.Single(await second.WaitAsync(TimeSpan.FromSeconds(10))).Stage, (await second)[0].Node));
 
         // A line for a later instant: accepted within the wait, applied after it — the late receipt still reaches the leader.
         var late = new List<(string Line, AirReceipt Receipt)>();
         feed.LateReceipt += (l, r) => late.Add((l, r));
         stage.Lines.Clear();
-        var later = feed.SendAirAsync("show", null, "BLACKOUT OFF", 99, TimeSpan.FromMilliseconds(100), CancellationToken.None);
+        var later = feed.SendAirAsync("show", null, "BLACKOUT OFF", 99, TimeSpan.FromMilliseconds(100), CancellationToken.None, time);
         var (_, s2, _) = Air(stage.Lines.Single());
         Assert.True(feed.Receipt("s1", s2, "accepted", 99, ""));
-        Assert.Equal("accepted", Assert.Single(await later).Stage);
+        Assert.Equal(TaskStatus.WaitingForActivation, later.Status);
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal("accepted", Assert.Single(await later.WaitAsync(TimeSpan.FromSeconds(10))).Stage);
         Assert.True(feed.Receipt("s1", s2, "applied", 99, "blackout off"));
         Assert.Equal(("BLACKOUT OFF", "applied", 99L), (late.Single().Line, late.Single().Receipt.Stage, late.Single().Receipt.AppliedLeaderNs));
         Assert.False(feed.Receipt("s1", s2, "applied", 99, ""));    // once
@@ -108,12 +114,15 @@ public sealed class AnchorFeedLineTests
             Member("s" + i.ToString(System.Globalization.CultureInfo.InvariantCulture), (0x10000000 + i).ToString("x8", System.Globalization.CultureInfo.InvariantCulture)), new Sink())).ToList();
         try
         {
-            var took = System.Diagnostics.Stopwatch.StartNew();
-            var sent = feed.SendAirAsync("show", null, "BLACKOUT ON", 5, TimeSpan.FromMilliseconds(100), CancellationToken.None);
+            var time = new ManualTime();
+            var sent = feed.SendAirAsync("show", null, "BLACKOUT ON", 5, TimeSpan.FromMilliseconds(100), CancellationToken.None, time);
             Assert.True(feed.Receipt("s7", 1, "applied", 5, ""));
-            var receipts = await sent;
-            // Twenty silent members waited for one after another would take two seconds; together they take the one deadline.
-            Assert.True(took.ElapsedMilliseconds < 1_500, $"{took.ElapsedMilliseconds} ms");
+            // Twenty silent members waited for one after another would each want the clock moved again; together they end at the
+            // one deadline's one move.
+            Assert.Equal((TaskStatus.WaitingForActivation, 1), (sent.Status, time.Made));
+            time.Advance(TimeSpan.FromMilliseconds(100));
+            var receipts = await sent.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, time.Made);
             Assert.Equal(20, receipts.Count);
             Assert.Equal(19, receipts.Count(r => r.Stage == "silent"));
             Assert.Equal("applied", receipts[7].Stage);

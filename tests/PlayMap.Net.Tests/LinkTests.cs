@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Links;
 using PlayMap.Net.Wire;
@@ -149,7 +150,17 @@ public class LinkTests
     public async Task ThePatternsLinkPairsTracksTheClipAndFollowsTheBlackout()
     {
         await using var desk = new FakePatternsDesk(TestSettings.Token);
-        await using var link = new PatternsLink(new PatternsLinkOptions { Host = "127.0.0.1", Port = desk.Port, Token = TestSettings.Token, ContextEvery = TimeSpan.FromMilliseconds(200) }, TestSettings.Wall());
+        // The clip is counted, and the desk's silence too, on a clock only the test moves, so the count read is the one the test made
+        // however late its next step runs.
+        var clock = new ManualClock(1_000_000_000);
+        await using var link = new PatternsLink(new PatternsLinkOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            Token = TestSettings.Token,
+            ContextEvery = TimeSpan.FromMilliseconds(200),
+            Clock = clock,
+        }, TestSettings.Wall(), clock);
         var blackouts = new ConcurrentQueue<bool>();
         link.BlackoutChanged += blackouts.Enqueue;
         link.Start();
@@ -159,10 +170,9 @@ public class LinkTests
         Assert.DoesNotContain(desk.Heard, l => l.Contains(Pairing.Normalise(TestSettings.Token), StringComparison.Ordinal));
         Assert.True(await Eventually.TrueAsync(() => link.Video is not null));
         var first = link.Video!;
-        Assert.Equal("sponsor.mp4", first.File);
-        Assert.Equal(7, first.Seq);
-        await Task.Delay(300);
-        Assert.InRange(link.Video!.PositionMs, 62250, 64000);
+        Assert.Equal(("sponsor.mp4", 7L, 62000.0), (first.File, first.Seq, first.PositionMs));
+        clock.AdvanceMs(300);
+        Assert.Equal(62300, link.Video!.PositionMs, 6);
         Assert.False(link.Blackout);
 
         // A frame that agrees with the count (within a quarter second) keeps the anchor: no jump backwards.
@@ -170,11 +180,11 @@ public class LinkTests
         await desk.PushAsync(FakePatternsDesk.StateWith(counted - 120, 7, playing: true, blackout: true));
         Assert.True(await Eventually.TrueAsync(() => link.Blackout == true));
         Assert.Equal([false, true], blackouts);
-        Assert.True(link.Video!.PositionMs >= counted);
+        Assert.Equal(counted, link.Video!.PositionMs, 6);
 
         await desk.PushAsync(FakePatternsDesk.StateWith(10000, 8, playing: true, blackout: true));
         Assert.True(await Eventually.TrueAsync(() => link.Video is { Seq: 8 }));
-        Assert.InRange(link.Video!.PositionMs, 10000, 11000);   // a new seq re-anchors
+        Assert.Equal(10000, link.Video!.PositionMs, 6);   // a new seq re-anchors
 
         var reply = await link.SendAsync("VIDEO PAUSE");
         Assert.True(reply.Ok);
@@ -201,34 +211,102 @@ public class LinkTests
     public async Task ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown()
     {
         await using var desk = new FakePatternsDesk(TestSettings.Token);
+        // The desk's silence is counted on a clock the test moves: the link goes stale and drops when the clock passes those marks,
+        // whatever real time does (it says nothing between its pings, every 2 s, so on real time it would go stale and drop on its own).
+        var clock = new ManualClock(1_000_000_000);
         await using var link = new PatternsLink(new PatternsLinkOptions
         {
             Host = "127.0.0.1",
             Port = desk.Port,
             Token = TestSettings.Token,
+            ContextEvery = TimeSpan.FromHours(1),
+            StaleAfter = TimeSpan.FromMilliseconds(400),
+            DropAfter = TimeSpan.FromMilliseconds(900),
+            Clock = clock,
+        }, TestSettings.Wall());
+        var statuses = new ConcurrentQueue<LinkStatus>();
+        link.StatusChanged += statuses.Enqueue;
+        // At the silent link's move to down (before it dials again): a line sent then, whether it was answered at once, and the desk
+        // speaking again.
+        var whileDown = new TaskCompletionSource<(bool AtOnce, Task<WireReply> Reply)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        link.StatusChanged += s =>
+        {
+            if (s != LinkStatus.Down || !desk.Silent)
+                return;
+            var sent = link.SendAsync("VIDEO PLAY");
+            desk.Silent = false;
+            whileDown.TrySetResult((sent.IsCompleted, sent));
+        };
+        link.Start();
+        // Live and paired by its proof, its first ping answered: nothing more is due from the desk.
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live && link.Pairing == PairState.Paired && link.Clock.Samples > 0),
+            $"{link.Status}, {link.Pairing}");
+
+        // The desk falls silent and the clock passes the stale mark: stale on the same connection, its clip not trusted.
+        desk.Silent = true;
+        clock.AdvanceMs(500);
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Stale), link.Status.ToString());
+        Assert.Null(link.Video);
+        Assert.Equal((1L, 1), (link.Connections, desk.Accepted));
+
+        // Past the drop mark it drops: a line sent while it is down is refused at once, nothing queued.
+        clock.AdvanceMs(500);
+        var (atOnce, reply) = await whileDown.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var refused = await reply;
+        Assert.True(atOnce);
+        Assert.False(refused.Ok);
+        Assert.Contains("nothing is queued", refused.Text, StringComparison.Ordinal);
+
+        // It dials again and is live and paired on the new connection.
+        Assert.True(await Eventually.TrueAsync(() => statuses.Count >= 6 && link.Pairing == PairState.Paired, 8000), $"{string.Join(" ", statuses)}, {link.Pairing}");
+        Assert.Equal([LinkStatus.Connecting, LinkStatus.Live, LinkStatus.Stale, LinkStatus.Down, LinkStatus.Connecting, LinkStatus.Live], statuses);
+        Assert.Equal((LinkStatus.Live, 2L, 2), (link.Status, link.Connections, desk.Accepted));
+
+        // A cut connection is dialled again, and a line sent on the new one is answered.
+        desk.Cut();
+        Assert.True(await Eventually.TrueAsync(() => desk.Accepted == 3 && link.Connections == 3 && link.Status == LinkStatus.Live, 8000),
+            $"{link.Status} after {link.Connections} connections");
+        Assert.True((await link.SendAsync("VIDEO PLAY")).Ok);
+    }
+
+    [Fact]
+    public async Task ALinkCountsItsPeersSilenceOnItsClockAndIsLiveAgainWithTheNextLineOnTheSameConnection()
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token);
+        var clock = new ManualClock(1_000_000_000);
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            Clock = clock,
             StaleAfter = TimeSpan.FromMilliseconds(400),
             DropAfter = TimeSpan.FromMilliseconds(900),
         }, TestSettings.Wall());
         var statuses = new ConcurrentQueue<LinkStatus>();
         link.StatusChanged += statuses.Enqueue;
         link.Start();
-        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live && link.Paired));
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live && link.Pairing == PairState.Paired && link.Clock.Samples > 0));
 
+        // The peer falls silent for longer than the drop in real time while the link's clock stands still: nothing is counted.
         desk.Silent = true;
-        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Stale));
-        Assert.Null(link.Video);   // a stale link's clip is not trusted
-        Assert.True(await Eventually.TrueAsync(() => link.Status is LinkStatus.Down or LinkStatus.Connecting));
-        var refused = await link.SendAsync("VIDEO PLAY");
-        Assert.False(refused.Ok);
-        Assert.Contains("nothing is queued", refused.Text, StringComparison.Ordinal);
+        await Task.Delay(TimeSpan.FromMilliseconds(1200));
+        Assert.Equal((LinkStatus.Live, 1L, TimeSpan.Zero), (link.Status, link.Connections, link.Silence));
+        Assert.DoesNotContain(LinkStatus.Stale, statuses);
 
-        desk.Silent = false;
-        Assert.True(await Eventually.TrueAsync(() => desk.Accepted >= 2 && link.Status == LinkStatus.Live && link.Paired, 8000));
-        Assert.Contains(LinkStatus.Stale, statuses);
+        // Past the stale mark on the clock it is stale, on the same connection; the peer's next line makes it live there again.
+        clock.AdvanceMs(500);
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Stale), link.Status.ToString());
+        Assert.Equal((1L, TimeSpan.FromMilliseconds(500)), (link.Connections, link.Silence));
+        await desk.PushAsync(desk.State);
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Status.ToString());
+        Assert.Equal((1L, TimeSpan.Zero, 1), (link.Connections, link.Silence, desk.Accepted));
 
-        desk.Cut();
-        Assert.True(await Eventually.TrueAsync(() => desk.Accepted >= 3 && link.Status == LinkStatus.Live, 8000));
-        Assert.True((await link.SendAsync("VIDEO PLAY")).Ok);
+        // Past the drop mark on the clock it drops and dials again.
+        clock.AdvanceMs(1000);
+        Assert.True(await Eventually.TrueAsync(() => link.Connections == 2 && desk.Accepted == 2 && link.Status == LinkStatus.Live, 8000),
+            $"{link.Status} after {link.Connections} connections");
     }
 
     [Fact]

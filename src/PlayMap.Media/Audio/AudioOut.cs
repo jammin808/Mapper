@@ -1,5 +1,6 @@
 using PlayMap.Core.Machine;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 using Silk.NET.OpenAL;
 
@@ -89,7 +90,7 @@ public sealed unsafe class AudioOut : IDisposable
     /// <summary>How long the feeder waits after one service step before the next (ns, on its cadence clock).</summary>
     private const long FeedPeriodNs = 5_000_000;
 
-    private static readonly Lock GlobalContextGate = new();
+    private static readonly Lock GlobalContextGate = LockWaits.Prepared();
 
     private readonly Lock _gate = new();
     private readonly float[] _block = new float[BlockFrames * FfmpegAudioDecoder.Channels];
@@ -140,6 +141,8 @@ public sealed unsafe class AudioOut : IDisposable
         var paced = cadence ?? MonoClock.Instance;
         _cadence = paced;
         _timers = timers ?? (() => ThreadClaims.CreateTimer(paced));
+        // The feeder steps under the gate on its deadlines while readers take it too: a first wait allocates nothing.
+        LockWaits.Prepare(_gate);
         if (mode != AudioOutMode.Null)
         {
             var alc = OpenAlLibrary.Alc;

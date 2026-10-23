@@ -100,6 +100,35 @@ public class McpTests
     }
 
     [Fact]
+    public async Task APathQuotedWithSingleBackslashesIsRefusedWithItsSpellingAndNeverQueuedOrRun()
+    {
+        // The node's door would refuse the line, so it never waits for a person; the model is told the spelling that reads as typed,
+        // whether "AI may act" is off or on, and for a binding that carries such a path too.
+        var endpoint = new FakeEndpoint();
+        var queue = new FakeQueue();
+        var aiMayAct = false;
+        await using var host = await HttpHostTests.StartAsync(endpoint, TestSettings.Make(trustLoopback: true),
+            new HttpHostOptions { Approvals = new SwitchApprovalPolicy(() => aiMayAct, queue) });
+        await using var client = await ConnectAsync(host);
+        const string Refusal = @"PROJECT OPEN: inside quotes a backslash escapes the mark after it, so ""C:\shows\a.playmap"" reads as C:showsa.playmap — write the path bare, C:\shows\a.playmap, or with / in place of each \";
+
+        foreach (var (line, mayAct) in new[]
+        {
+            (@"PROJECT OPEN ""C:\shows\a.playmap""", false),
+            (@"PROJECT OPEN ""C:\shows\a.playmap""", true),
+            (@"BIND ADD MIDI NOTE 1 60 TO PROJECT OPEN ""C:\shows\a.playmap""", false),
+        })
+        {
+            aiMayAct = mayAct;
+            var refused = await client.CallToolAsync("run_command", new Dictionary<string, object?> { ["line"] = line, ["reason"] = "the operator's show file" });
+            Assert.True(refused.IsError, line);
+            Assert.Equal(Refusal, TextOf(refused));
+        }
+        Assert.Empty(queue.Proposed);
+        Assert.Empty(endpoint.Lines);
+    }
+
+    [Fact]
     public async Task AQueuedLineIsAnsweredWithoutItsSecretWordsButQueuedWhole()
     {
         var queue = new FakeQueue();

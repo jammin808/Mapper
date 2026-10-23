@@ -224,7 +224,7 @@ internal sealed class OptimiseSupervisor(OptimiseOptions options, ILogger log) :
             {
                 log.LogDebug(ex, "The optimise worker's input was closed already.");
             }
-            using var wait = new CancellationTokenSource(options.StopGrace);
+            using var wait = new CancellationTokenSource(options.StopGrace, options.Time);
             try
             {
                 await p.WaitForExitAsync(wait.Token);

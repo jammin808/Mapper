@@ -1,6 +1,7 @@
 using FFmpeg.AutoGen;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Frames;
@@ -28,6 +29,9 @@ public sealed unsafe class ImageSource : IVideoSource
     {
         _path = path;
         Key = key ?? path;
+        // The render thread acquires and lets go every frame while readers take the health and the decode hands its picture over: a
+        // first wait for the other allocates nothing.
+        LockWaits.Prepare(_gate, _leases.Gate);
         // On the pool, not the compute threads: the air waits for this picture, and a job queued on the compute threads waits behind
         // a solve that holds them all for its whole length (StillBesideComputeTests measures it).
         _ = Task.Run(Decode);

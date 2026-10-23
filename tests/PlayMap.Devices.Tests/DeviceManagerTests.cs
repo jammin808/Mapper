@@ -8,6 +8,7 @@ using PlayMap.Devices.Drivers.PjLink;
 using PlayMap.Devices.Manager;
 using PlayMap.Devices.Model;
 using PlayMap.Devices.Tests.Simulators;
+using PlayMap.Tests;
 
 namespace PlayMap.Devices.Tests;
 
@@ -162,9 +163,12 @@ public class DeviceManagerTests
     {
         using var projectorUdp = new PjLinkUdpSimulator("00:0a:1b:2c:3d:4e");
         await using var projectorTcp = new PjLinkSimulator { Power = "1" };
-        await using var udp = new PjLinkUdp(0, IPAddress.Loopback);
+        // The search's window is counted on a clock the test moves once the answer is in, so a slow answer is still in it.
+        var time = new ManualTime();
+        await using var udp = new PjLinkUdp(0, IPAddress.Loopback, time);
+        var answered = TestSupport.Answered(udp);
         var discovery = new ProjectorDiscovery(TestSupport.NoSecrets(), DeviceLog.None);
-        var found = await discovery.DiscoverAsync(udp, new DiscoveryOptions
+        var discovering = discovery.DiscoverAsync(udp, new DiscoveryOptions
         {
             SearchTarget = projectorUdp.EndPoint,
             Window = TimeSpan.FromMilliseconds(400),
@@ -172,6 +176,8 @@ public class DeviceManagerTests
             ProbeNativePort = false,
             Timings = DriverTimings.Fast,
         }, CancellationToken.None);
+        await TestSupport.EndSearchAsync(time, TimeSpan.FromMilliseconds(400), answered);
+        var found = await discovering.WaitAsync(TimeSpan.FromSeconds(30));
         var p = Assert.Single(found);
         Assert.Equal("127.0.0.1", p.Host);
         Assert.Equal("00:0a:1b:2c:3d:4e", p.Mac);

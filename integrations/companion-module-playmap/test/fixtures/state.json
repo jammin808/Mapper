@@ -152,7 +152,11 @@
         "name": "intro.mov",
         "progress": 0.25,
         "from": "Stage left",
+        "at": "10.0.0.11:9940",
         "state": "pulling",
+        "stage": "receiving",
+        "since": 1760000000000,
+        "note": "",
         "hash": "9f1c2ab07d3e4410",
         "bytesDone": 25000000,
         "size": 100000000

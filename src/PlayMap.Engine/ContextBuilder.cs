@@ -9,6 +9,10 @@ namespace PlayMap.Engine;
 /// grey.</summary>
 public static class ContextBuilder
 {
+    /// <summary>The journal's last rows the context carries as its "recent": the only window of the journal a reader outside the node
+    /// takes (MCP's get_context, Patterns, Stagewatch and the assistant).</summary>
+    public const int RecentRows = 20;
+
     public static ShowContext Build(EngineCore engine)
     {
         ArgumentNullException.ThrowIfNull(engine);
@@ -116,7 +120,7 @@ public static class ContextBuilder
             headline += $" · synced to {sync.Leader}";
         headline = engine.ModuleHeadline(headline);
 
-        var recent = engine.Journal.Recent(20).Select(r => new ContextRecent(r.AtUnixMs, r.Ok ? r.Text : "refused: " + r.Text)).ToList();
+        var recent = engine.Journal.Recent(RecentRows).Select(r => new ContextRecent(r.AtUnixMs, r.Ok ? r.Text : "refused: " + r.Text)).ToList();
         var peers = s.Network.Peers().Select(x => new ContextPeer(x.Kind, x.Id, x.Name, ShowContext.ParseLight(x.Light), x.Headline)).ToList();
         return new ShowContext(ShowBusConstants.KindPlayMap, s.Settings.NodeId, s.Settings.Name, s.Wall.UnixMs, headline,
             items, links, recent, ShowContext.CommandsFromCatalog(engine), peers);

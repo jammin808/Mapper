@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace PlayMap.Engine.Tests.Spine;
@@ -36,5 +37,34 @@ internal static class NodeExe
         foreach (var a in args)
             info.ArgumentList.Add(a);
         return Process.Start(info) ?? throw new InvalidOperationException("the node host did not start");
+    }
+}
+
+/// <summary>A node's output and errors read as they come, the last lines of both kept for a failing test's words. A redirected pipe
+/// nobody reads fills (on Windows its buffer is a few KiB), and a node thread that writes to it then waits for good.</summary>
+internal sealed class NodeOutput
+{
+    private const int Kept = 40;
+    private readonly ConcurrentQueue<string> _lines = new();
+
+    public NodeOutput(Process node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        node.OutputDataReceived += (_, e) => Keep("out", e.Data);
+        node.ErrorDataReceived += (_, e) => Keep("err", e.Data);
+        node.BeginOutputReadLine();
+        node.BeginErrorReadLine();
+    }
+
+    /// <summary>The last lines read, each marked with its stream.</summary>
+    public string Tail => string.Join("\n", _lines);
+
+    private void Keep(string stream, string? line)
+    {
+        if (line is null)
+            return;
+        _lines.Enqueue(stream + ": " + line);
+        while (_lines.Count > Kept)
+            _lines.TryDequeue(out _);
     }
 }

@@ -84,13 +84,14 @@ public sealed partial class EngineCore
         var solver = BlendSolver ?? DefaultBlendSolver;
         var ct = _solveStop.Token;
         var progress = new SolveProgress(this);
-        _ = Task.Run(() => solver(inputs, progress, ct), ct).ContinueWith(t =>
+        // The solve journals how it ended, and a small stage solves at once: begun behind the row of the line that asked for it.
+        AfterRow(() => _ = Task.Run(() => solver(inputs, progress, ct), ct).ContinueWith(t =>
         {
             _lane.Post(() => FinishSolve(run, inputs, t, end));
             // A lane that has stopped takes nothing more: the solve ends there, unapplied.
             if (ct.IsCancellationRequested)
                 end.TrySetResult(run with { State = "cancelled", Words = "the node stopped before the blend was applied" });
-        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         FactsChanged();
         var payload = JsonOut(w =>
         {

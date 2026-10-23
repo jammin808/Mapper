@@ -66,6 +66,10 @@ public sealed record PatternsLinkOptions
 
     public TimeSpan DropAfter { get; init; } = TimeSpan.FromMilliseconds(ShowBusConstants.GoneMs);
 
+    /// <summary>The clock the desk's silence is counted on (stale after <see cref="StaleAfter"/>, dropped after <see cref="DropAfter"/>)
+    /// and the beat's pings: the process's monotonic clock unless the owner hands its own.</summary>
+    public IMonoClock Clock { get; init; } = MonoClock.Instance;
+
     /// <summary>"host", "host:port" or "[v6]:port" as an operator types it (the port defaults to the wire's).</summary>
     public static (string Host, int Port)? ParseAddress(string? typed, int defaultPort = ShowBusConstants.PatternsWirePort)
     {
@@ -91,7 +95,8 @@ public sealed record PatternsLinkOptions
 /// PlayMap, AUTH-PROOF with the desk's token, PING every 2 s (the desk's clock offset), CONTEXT every 5 s. The desk's
 /// clip clock (STATE.video) is held as an anchor and counted on locally at its rate — re-anchored when its seq moves
 /// (a seek, a pause, a new clip) or when a frame strays from the count — and the desk's blackout is followed. Stale
-/// after 6 s of silence, dropped and redialled after 12 s; nothing is queued while the link is down.</summary>
+/// after 6 s of silence, dropped and redialled after 12 s, counted on its options' clock; nothing is queued while the link is
+/// down.</summary>
 public sealed class PatternsLink : IAsyncDisposable
 {
     private const double ResyncMs = 250;
@@ -124,6 +129,7 @@ public sealed class PatternsLink : IAsyncDisposable
             IdPrefix = "pm",
             StaleAfter = options.StaleAfter,
             DropAfter = options.DropAfter,
+            Clock = options.Clock,
             MaxLineBytes = 1024 * 1024,
         }, wall, log);
         _wire.Line += OnLine;

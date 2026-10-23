@@ -155,19 +155,133 @@ public class HttpHostTests
     [Fact]
     public async Task TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit()
     {
+        // The poll's limit is counted on a clock only the test moves, so nothing but a change or the test's own move of that clock
+        // ends a poll, however late the test's next step runs.
         var endpoint = new FakeEndpoint();
-        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = TimeSpan.FromMilliseconds(600) });
+        var time = new ManualTime();
+        var limit = TimeSpan.FromMilliseconds(600);
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = limit, Time = time });
         using var c = Client(host);
-        var waiting = c.GetStringAsync("/api/state?since=1");
-        await Task.Delay(150);
-        Assert.False(waiting.IsCompleted);
-        endpoint.Publish();
-        Assert.Contains("\"seq\":2,", await waiting.WaitAsync(TimeSpan.FromSeconds(5)), StringComparison.Ordinal);
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        Assert.Contains("\"seq\":2,", await c.GetStringAsync("/api/state?since=2"), StringComparison.Ordinal);
-        Assert.InRange(sw.ElapsedMilliseconds, 500, 5000);
-        Assert.Contains("\"seq\":2,", await c.GetStringAsync("/api/state?since=1"), StringComparison.Ordinal);
+        // Asked about an older STATE, it answers the one it holds at once, with no wait.
+        Assert.Contains("\"seq\":1,", await c.GetStringAsync("/api/state?since=0"), StringComparison.Ordinal);
+        Assert.Equal(0, time.Made);
+
+        // Asked about the one it holds, it waits: a wake that brings nothing newer is no answer, and the next change is.
+        var waiting = c.GetStringAsync("/api/state?since=1");
+        await WaitsOnItsLimitAsync(time, 1, waiting);
+        endpoint.Touch();
+        await WaitsOnItsLimitAsync(time, 2, waiting);
+        endpoint.Publish();
+        Assert.Contains("\"seq\":2,", await waiting.WaitAsync(TimeSpan.FromSeconds(10)), StringComparison.Ordinal);
+
+        // With nothing newer it answers the one it holds once its limit has passed since it took the request, and not a tick
+        // before: a wake on the way waits only what is left.
+        var quiet = c.GetStringAsync("/api/state?since=2");
+        await WaitsOnItsLimitAsync(time, 3, quiet);
+        time.Advance(limit / 2);
+        endpoint.Touch();
+        await WaitsOnItsLimitAsync(time, 4, quiet);
+        time.Advance(limit / 2 - TimeSpan.FromTicks(1));
+        Assert.Equal((TaskStatus.WaitingForActivation, 1), (quiet.Status, time.Waiting));
+        time.Advance(TimeSpan.FromTicks(1));
+        Assert.Contains("\"seq\":2,", await quiet.WaitAsync(TimeSpan.FromSeconds(10)), StringComparison.Ordinal);
+        Assert.Equal((4, 0), (time.Made, time.Waiting));
+    }
+
+    [Fact]
+    public async Task ALongPollWithUnderAMillisecondOfItsLimitLeftWaitsThatOutOnTheClock()
+    {
+        // A wake that brings nothing newer with a part of a millisecond of the limit left waits for that part on a timer, as for any
+        // rest of the limit, and the poll answers once the limit has passed.
+        var endpoint = new FakeEndpoint();
+        var time = new ManualTime();
+        var limit = TimeSpan.FromMilliseconds(600);
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = limit, Time = time });
+        using var c = Client(host);
+        var poll = c.GetStringAsync("/api/state?since=1");
+        await WaitsOnItsLimitAsync(time, 1, poll);
+        time.Advance(limit - TimeSpan.FromTicks(5_000));
+        endpoint.Touch();
+        await WaitsOnItsLimitAsync(time, 2, poll);
+        time.Advance(TimeSpan.FromTicks(4_999));
+        Assert.Equal((TaskStatus.WaitingForActivation, 1), (poll.Status, time.Waiting));
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Contains("\"seq\":1,", await poll.WaitAsync(TimeSpan.FromSeconds(10)), StringComparison.Ordinal);
+        Assert.Equal((2, 0), (time.Made, time.Waiting));
+    }
+
+    [Fact]
+    public async Task AWaitForAChangeEndsNoSoonerThanItsTimeThoughThatIsNotWholeMilliseconds()
+    {
+        // The runtime's timed wait counts whole milliseconds, dropping a part of one, and ends at once on less than one; the signal's
+        // wait is never shorter than it was asked for.
+        var time = new ManualTime();
+        var signal = new ChangeSignal();
+        foreach (var max in new[] { TimeSpan.FromTicks(5_000), TimeSpan.FromTicks(15_000) })
+        {
+            var wait = signal.WaitAsync(signal.Next, max, time, CancellationToken.None);
+            time.Advance(max - TimeSpan.FromTicks(1));
+            Assert.Equal((TaskStatus.WaitingForActivation, 1), (wait.Status, time.Waiting));
+            time.Advance(TimeSpan.FromMilliseconds(1));
+            Assert.False(await wait.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(0, time.Waiting);
+        }
+
+        // A change within the wait ends it with true, the clock unmoved.
+        var changed = signal.WaitAsync(signal.Next, TimeSpan.FromTicks(5_000), time, CancellationToken.None);
+        Assert.Equal((TaskStatus.WaitingForActivation, 1), (changed.Status, time.Waiting));
+        signal.Fire();
+        Assert.True(await changed.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(3, time.Made);
+    }
+
+    [Fact]
+    public async Task OnTheSystemClockALongPollWithNothingNewerAnswersNoSoonerThanItsLimit()
+    {
+        // The clock a node's web port counts on unless it is given another. The count starts before the request is sent, so the poll
+        // answers after it has counted its limit however the threads run, and the test reads no other bound of real time.
+        Assert.Same(TimeProvider.System, new HttpHostOptions().Time);
+        var endpoint = new FakeEndpoint();
+        var limit = TimeSpan.FromMilliseconds(50);
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = limit });
+        using var c = Client(host);
+        var asked = System.Diagnostics.Stopwatch.GetTimestamp();
+        var answer = await c.GetStringAsync("/api/state?since=1").WaitAsync(TimeSpan.FromSeconds(20));
+        var took = System.Diagnostics.Stopwatch.GetElapsedTime(asked);
+        Assert.Contains("\"seq\":1,", answer, StringComparison.Ordinal);
+        Assert.True(took >= limit, string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"answered {took.TotalMilliseconds:F3} ms after it was asked, inside its {limit.TotalMilliseconds} ms limit"));
+    }
+
+    [Fact]
+    public async Task ALongPollTheWebPortsStopCutsIsAnsweredThatItStopsNotWithAnEmptyState()
+    {
+        // A poll waiting when the node's web port stops has seen no newer STATE and has not reached its limit: it is refused with the
+        // reason, as a request the port cannot serve, never a 200 without a STATE in it.
+        var endpoint = new FakeEndpoint();
+        var time = new ManualTime();
+        await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { LongPollMax = TimeSpan.FromSeconds(25), Time = time });
+        using var c = Client(host);
+        var poll = c.GetAsync("/api/state?since=1");
+        await WaitsOnItsLimitAsync(time, 1, poll);
+        await host.DisposeAsync();
+        using var answer = await poll.WaitAsync(TimeSpan.FromSeconds(10));
+        var body = await answer.Content.ReadAsStringAsync();
+        Assert.Equal((HttpStatusCode.ServiceUnavailable, "application/json; charset=utf-8"), (answer.StatusCode, answer.Content.Headers.ContentType?.ToString()));
+        using var json = JsonDocument.Parse(body);
+        Assert.False(json.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(HttpHost.StoppingWords, json.RootElement.GetProperty("error").GetString());
+        Assert.Equal((1, 0), (time.Made, time.Waiting));
+    }
+
+    /// <summary>Waits until the poll has made its <paramref name="made"/>th wait on the clock and that wait alone stands, then holds that
+    /// the poll has not answered: from here only a change or a move of the clock ends it.</summary>
+    private static async Task WaitsOnItsLimitAsync(ManualTime time, int made, Task poll)
+    {
+        Assert.True(await Eventually.TrueAsync(() => (time.Made == made && time.Waiting == 1) || poll.IsCompleted, 20000),
+            $"the poll never waited on its limit: {time.Made} waits made, {time.Waiting} standing");
+        Assert.Equal(TaskStatus.WaitingForActivation, poll.Status);
     }
 
     [Fact]
@@ -227,8 +341,9 @@ public class HttpHostTests
     public async Task AFrameMayOvertakeTheReceiptOfTheCommandThatMovedIt()
     {
         // The node publishes its change before it answers the line, so the sender may put the frame on the socket
-        // first; holding the answer makes that order certain instead of a matter of thread scheduling.
-        var endpoint = new FakeEndpoint { HoldReply = TimeSpan.FromMilliseconds(300) };
+        // first; the answer is held until the test has the frame, so that order is certain however the threads run.
+        var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var endpoint = new FakeEndpoint { HoldReplyUntil = answer.Task };
         await using var host = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new HttpHostOptions { BeatEvery = TimeSpan.FromSeconds(30) });
         using var ws = new ClientWebSocket();
         await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + host.Port + "/ws"), CancellationToken.None);
@@ -238,6 +353,7 @@ public class HttpHostTests
         var frame = await ReceiveAsync(ws);
         Assert.Contains("\"seq\":2,", frame, StringComparison.Ordinal);
         Assert.Contains("\"blackout\":true", frame, StringComparison.Ordinal);
+        answer.SetResult();
         Assert.StartsWith("{\"type\":\"receipt\",\"id\":\"b7\",\"ok\":true,\"stage\":\"applied\"", await ReceiveAsync(ws), StringComparison.Ordinal);
         await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
     }
@@ -300,6 +416,69 @@ public class HttpHostTests
             Assert.Equal(bytes[1000..2000], await response.Content.ReadAsByteArrayAsync());
             Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/api/media/" + new string('0', 64))).StatusCode);
             Assert.Equal(HttpStatusCode.BadRequest, (await c.GetAsync("/api/media/..%2F..%2Fetc%2Fpasswd")).StatusCode);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(file)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AMediaFileAnswersOneRangeItsHashAsItsTagAndTheWholeFileForAnythingElse()
+    {
+        var file = Path.Combine(Directory.CreateTempSubdirectory("playmap-media-").FullName, "clip.bin");
+        var bytes = RandomNumberGenerator.GetBytes(100_000);
+        await File.WriteAllBytesAsync(file, bytes);
+        var store = new FakeMediaStore();
+        var hash = store.Add(file);
+        try
+        {
+            await using var host = await StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true), new HttpHostOptions { Media = store });
+            using var c = Client(host);
+            async Task<(HttpStatusCode Status, string? Range, byte[] Body, HttpResponseMessage Answer)> AskAsync(string range, string? ifRange = null)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, "/api/media/" + hash);
+                request.Headers.TryAddWithoutValidation("Range", range);
+                if (ifRange is not null)
+                    request.Headers.TryAddWithoutValidation("If-Range", ifRange);
+                var response = await c.SendAsync(request);
+                return (response.StatusCode, response.Content.Headers.ContentRange?.ToString(), await response.Content.ReadAsByteArrayAsync(), response);
+            }
+
+            var (status, range, body, answer) = await AskAsync("bytes=99900-");
+            using (answer)
+            {
+                Assert.Equal((HttpStatusCode.PartialContent, "bytes 99900-99999/100000"), (status, range));
+                Assert.Equal(bytes[99_900..], body);
+                Assert.Equal("\"" + hash + "\"", answer.Headers.ETag?.ToString());
+                Assert.Equal("bytes", Assert.Single(answer.Headers.AcceptRanges));
+            }
+            (status, range, body, answer) = await AskAsync("bytes=-100");
+            using (answer)
+            {
+                Assert.Equal((HttpStatusCode.PartialContent, "bytes 99900-99999/100000"), (status, range));
+                Assert.Equal(bytes[99_900..], body);
+            }
+            (status, range, body, answer) = await AskAsync("bytes=0-9", "\"" + hash + "\"");
+            using (answer)
+            {
+                Assert.Equal((HttpStatusCode.PartialContent, "bytes 0-9/100000"), (status, range));
+                Assert.Equal(bytes[..10], body);
+            }
+            // Past the end: none of it, and the file's length.
+            (status, range, body, answer) = await AskAsync("bytes=100000-");
+            using (answer)
+                Assert.Equal((HttpStatusCode.RequestedRangeNotSatisfiable, "bytes */100000", 0), (status, range, body.Length));
+            // Several ranges, or a range for another copy than this one: the whole file.
+            foreach (var (several, condition) in new[] { ("bytes=0-9,20-29", (string?)null), ("bytes=0-9", "\"another\"") })
+            {
+                (status, range, body, answer) = await AskAsync(several, condition);
+                using (answer)
+                {
+                    Assert.Equal((HttpStatusCode.OK, (string?)null), (status, range));
+                    Assert.Equal(bytes, body);
+                }
+            }
         }
         finally
         {

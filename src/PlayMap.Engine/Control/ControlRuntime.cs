@@ -129,18 +129,34 @@ public sealed class ControlRuntime
 
     // ---- learn ----
 
-    /// <summary>Starts learning. The learner is the control thread's: arming waits its turn behind the events already heard.</summary>
-    public Task ArmAsync(LearnSession session)
+    /// <summary>Starts learning. The learner is the control thread's: arming waits its turn behind the events already heard. What the
+    /// learn comes to (the binding it made, or that it stopped) is journalled once <paramref name="afterRow"/> has completed: the row
+    /// of the BIND LEARN that armed it, so the learn's row never comes before its verb's.</summary>
+    public Task ArmAsync(LearnSession session, Task? afterRow = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         return SerialAsync(() =>
         {
             _learner.Arm(session);
             _learnt = null;
+            _learnRow = afterRow ?? Task.CompletedTask;
             _learning = new LearnView(session.Target.Text, session.Words, session.UntilUnixMs, session.From);
             _engine.FactsChanged();
             return Task.FromResult(0);
         });
+    }
+
+    /// <summary>The row the armed learn's own row follows (<see cref="ArmAsync"/>). In turn with the events.</summary>
+    private Task _learnRow = Task.CompletedTask;
+
+    /// <summary>The learn's row, journalled behind the row of the verb that armed it (at once when that row is in, as it nearly
+    /// always is); the control thread never waits for it.</summary>
+    private void JournalLearn(string kind, string text)
+    {
+        var after = _learnRow;
+        _learnRow = Task.CompletedTask;
+        _ = after.ContinueWith(_ => _engine.Journal.Add(kind, text, "control"), CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     /// <summary>Stops learning (in turn with the events, like <see cref="ArmAsync"/>); answers whether it was learning.</summary>
@@ -186,7 +202,7 @@ public sealed class ControlRuntime
             if (_learner.Expire(nowNs))
             {
                 _learning = null;
-                _engine.Journal.Add("control", "learn stopped: no control moved in 30 s — nothing was bound", "control");
+                JournalLearn("control", "learn stopped: no control moved in 30 s — nothing was bound");
                 _engine.FactsChanged();
             }
             CloseGestures(nowNs, force: false);
@@ -290,7 +306,7 @@ public sealed class ControlRuntime
         var made = _engine.Store.Project.Control.Bindings.Find(id);
         var words = made is null ? input : _engine.BindingWords(_engine.Store.Project, made);
         _learnt = r.Changed ? words + (replaced.Count > 0 ? $" (was {string.Join(", ", replaced.Select(w => w[(w.IndexOf('→', StringComparison.Ordinal) + 1)..].Trim()))})" : "") : r.Effect;
-        _engine.Journal.Add(r.Changed ? "control" : "refused", r.Changed ? "learnt: " + _learnt : "learn refused: " + r.Effect, "control");
+        JournalLearn(r.Changed ? "control" : "refused", r.Changed ? "learnt: " + _learnt : "learn refused: " + r.Effect);
         _engine.FactsChanged();
     }
 

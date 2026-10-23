@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Fleet;
+using PlayMap.Net.Http;
 
 namespace PlayMap.Net.Fleet;
 
@@ -131,12 +132,16 @@ public sealed class MirrorWebModule(Func<(long Rev, string Json)> project, Func<
             context.Response.Headers["X-PlayMap-Rev"] = rev.ToString(CultureInfo.InvariantCulture);
             await FleetWeb.WriteJsonAsync(context, json);
         });
-        routes.MapMethods(MediaPath + "{hash}", ["GET", "HEAD"], (HttpContext context, string hash) =>
+        routes.MapMethods(MediaPath + "{hash}", ["GET", "HEAD"], async (HttpContext context, string hash) =>
         {
             var hex = hash.Trim().ToLowerInvariant();
             if (hex.Length != 64 || !hex.All(Uri.IsHexDigit) || fileForHash(hex) is not { } path || !File.Exists(path))
-                return Results.Text("this node holds no verified file with that SHA-256", "text/plain; charset=utf-8", statusCode: StatusCodes.Status404NotFound);
-            return Results.File(path, "application/octet-stream", enableRangeProcessing: true);
+            {
+                await Results.Text("this node holds no verified file with that SHA-256", "text/plain; charset=utf-8", statusCode: StatusCodes.Status404NotFound)
+                    .ExecuteAsync(context);
+                return;
+            }
+            await MediaFileResponse.WriteAsync(context, path, hex);
         });
         routes.MapMethods(FilePath + "{kind}/{id}", ["GET", "HEAD"], (HttpContext context, string kind, string id) =>
         {

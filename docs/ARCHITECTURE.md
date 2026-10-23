@@ -80,6 +80,15 @@ user effects the frame draws compile inside the engine, on a shared second conte
   the rights the show user — or, on an install that names none, every signed-in user — has on it, and kept only when SYSTEM or
   administrators made it): once it is set the engine stops as any asked stop does, during its start or once up, and journals that
   the supervisor asked.
+- A node writes STATE and CONTEXT once on its start's own thread, after its render host and extensions start and before its doors
+  open, so no reader's line pays their first build (every package's writer run for the first time), however soon after the wire
+  listens it dials: on a Debug build on Linux that write takes some hundreds of milliseconds, and a STATE asked the moment the wire
+  listens then some tens (docs/round2/CARRYOVER.md has the runs). The node then says it is up (its journal's row, its log's "is up:
+  wire …" line), each with how long that write took, its slowest part and how much of it its thread worked. A writer that faults
+  there does not stop the start: its fault is journalled under its own name (STATE or CONTEXT) as what happened then, never kept
+  standing. Every STATE write is timed part by part on the engine's clock (STATE's top-level parts, each package by its hook word)
+  beside its thread's own processor time, and one after the first of a second or more that is the longest since the first is
+  journalled with the part it went in, as a fact the context's recent rows carry as written (the first is said in the "is up" row).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
@@ -422,8 +431,16 @@ either; on every frame a slot whose kind the node's quarantine holds draws bypas
   as a screen (`cid`, `page=/playmap`), renders its timer as a source, handles `beat.live:false`, posts its
   context, collects approved proposals (§11).
 - **Media sync**: library items are identified by content hash; a node missing a file pulls it in 8 MiB chunks
-  from any peer that has it, resumable, throttled while a show runs; each node publishes readiness (present,
-  verified, decodable, first frame ready).
+  from a peer that has it, resumable, each chunk served and written in 1 MiB blocks; a chunk's body silent for 10 s on
+  the node's clock fails that try with words, while the peer's list and each answer wait the HTTP client's own timeout,
+  and a fetch journals at most 4 of its pulls' rows and one that counts the rest, a quarter of the context's 20 recent rows.
+  `MEDIA FETCH` runs one of two pulls.
+  With the fleet's part, which the exe composes, it pulls with the peer's proof over `/mirror/media` (docs/FLEET.md),
+  saying each file's end in the journal and writing no transfer row. Without it, the node's own pull reads each peer's
+  `/api/media` list once a fetch, is throttled while a show runs, and says each pull's stage, bytes, peer and last
+  failed try in STATE's transfer row, which the desk's Network drawer and PLAY show. Carrying the fleet's pulls to that
+  row and to the show's throttle is an open fix (docs/ROADMAP.md). Each node publishes readiness (present, verified,
+  decodable, first frame ready).
 - **Media versions**: an item may carry versions (`MediaVersion`, `mv…`): HAP files the optimise worker made from its
   source, each hashed into this node's media store and recorded on the item as one edit. At each open the media backend
   asks `VersionChoice` which file to play — under `use: auto` a version this GPU samples whose file is here, the best
@@ -450,6 +467,10 @@ the pool, and the stage's table builder runs on a thread of its own, its loops o
 and rings that skip rather than wait; no
 allocation on a warm frame (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh;
 every suite measures allocation through one helper, `tests/Shared/Allocations.cs`, whose windows begin after a gen0 collection,
-in Debug and Release); a faulting
+in Debug and Release), nor at a first wait: every lock the air's threads take beside another thread frame by frame (the render
+thread; the decode, capture and send threads that hand it frames or take them; the LED sender; each sound output's feeder; the
+lateness record every deadline wait writes) makes its wait event as it is made, and each of those threads has its own wait record
+before its first frame, a claimed thread from its claim (`LockWaits`; `tests/Shared/LockWaitProbe.cs` reads a lock's first wait);
+a reader holds the render thread's frame-time gate only for a copy; a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

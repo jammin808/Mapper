@@ -12,7 +12,7 @@ import { fakeChannels, settle } from './fake-channel.ts'
 import { boot, configFor, logs, type Booted } from './harness.ts'
 import { readFileSync } from 'node:fs'
 import { NodeModel } from '../src/state/model.ts'
-import { projectorScore, variablesOf, type ModuleFacts } from '../src/state/variables.ts'
+import { movingTransfers, projectorScore, variablesOf, type ModuleFacts } from '../src/state/variables.ts'
 
 const TOKEN = 'K7QM-3XWD-P9RA'
 /** The host's rule for a variable id. */
@@ -573,6 +573,40 @@ void test('every variable design 4.6 names is defined, positional banks to bank_
 		await m.stop()
 		await node.stop()
 	}
+})
+
+void test('a media pull that failed is not counted as running: only queued and pulling rows are transfers', () => {
+	const facts: ModuleFacts = {
+		link: 'live',
+		moduleBehind: false,
+		lastError: '',
+		lastRefusal: '',
+		lastReceipt: '',
+		eventLast: '',
+		eventLastKind: '',
+		eventSeq: 0,
+		liveRule: 'focused',
+		livePage: '',
+	}
+	const model = new NodeModel()
+	model.setState({
+		media: {
+			transfers: [
+				{ media: 'md1', progress: 0.5, state: 'pulling', stage: 'receiving' },
+				{ media: 'md2', progress: 0, state: 'queued', stage: '' },
+				{ media: 'md3', progress: 0, state: "failed: Stage left's media list could not be read: 503", stage: '' },
+			],
+		},
+	})
+	const v = variablesOf(model, Date.now(), facts, 8)
+	assert.deepEqual([v.transfers, v.transfer_progress], [2, 0.25])
+	const failedOnly = new NodeModel()
+	failedOnly.setState({
+		media: { transfers: [{ media: 'md3', progress: 0, state: 'failed: answered 503', stage: '' }] },
+	})
+	assert.deepEqual(movingTransfers(failedOnly.state), [])
+	const w = variablesOf(failedOnly, Date.now(), facts, 8)
+	assert.deepEqual([w.transfers, w.transfer_progress], [0, 0])
 })
 
 void test("a calibration score is read on its unit's scale: px, lower better, becomes points whose grades are the node's", () => {

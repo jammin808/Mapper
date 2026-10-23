@@ -198,16 +198,20 @@ public sealed class PlayViewModel : ObservableObject
         foreach (var pv in Previews)
             pv.OnState(s);
         var media = s.Media;
+        // A pull on its way marks its item fetching; one that failed is no copy, and its item stands where MEDIA LIST says.
+        var moving = media.Transfers.Count(t => t.Moving);
+        var failed = media.Transfers.Length - moving;
         MediaSummary = media.Items == 0
             ? "No media yet — drop files here"
-            : string.Create(CultureInfo.InvariantCulture, $"{media.Items} item(s){(media.Missing > 0 ? $" · {media.Missing} missing" : "")}{(media.Transfers.Length > 0 ? $" · {media.Transfers.Length} copying" : "")}");
-        var key = string.Create(CultureInfo.InvariantCulture, $"{media.Items}/{media.Missing}/{media.Transfers.Length}/{_session.ProjectRevision}");
+            : string.Create(CultureInfo.InvariantCulture,
+                $"{media.Items} item(s){(media.Missing > 0 ? $" · {media.Missing} missing" : "")}{(moving > 0 ? $" · {moving} copying" : "")}{(failed > 0 ? $" · {failed} could not be copied" : "")}");
+        var key = string.Create(CultureInfo.InvariantCulture, $"{media.Items}/{media.Missing}/{moving}/{failed}/{_session.ProjectRevision}");
         if (key != _availabilityKey)
         {
             _availabilityKey = key;
             _ = RefreshAvailabilityAsync();
         }
-        foreach (var t in media.Transfers)
+        foreach (var t in media.Transfers.Where(t => t.Moving))
             Media.FirstOrDefault(m => m.Id == t.MediaId)?.SetAvailability("fetching", t.Progress);
         FetchMissing.Refresh();
         NewPlaylist.Refresh();

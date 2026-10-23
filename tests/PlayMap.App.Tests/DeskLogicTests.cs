@@ -116,7 +116,7 @@ public class DeskLogicTests
     [Fact]
     public async Task ACommitDropsTheLineTheIntervalSentUnderItsKeyAndARefusedOneGoesAgain()
     {
-        var time = new PlayMap.App.Tests.Quad.ManualTime();
+        var time = new ManualTime();
         var sent = new List<string>();
         var refuse = false;
         using var throttle = new ThrottledSender((line, _) =>
@@ -331,7 +331,9 @@ public class DeskLogicTests
     public async Task ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt()
     {
         await using var link = new FakeEngineLink(clock: new PlayMap.Core.Time.ManualClock());
-        await using var session = new DeskSession(a => a());
+        // The toasts' ages run on a clock the test moves: the repeat below is within the fold's two seconds however late it runs.
+        var time = new ManualTime();
+        await using var session = new DeskSession(a => a(), time);
         session.Attach(link, "Demo");
         var r = await session.SendAsync("PLAYLIST GO pl_nope", Ct);
         Assert.False(r.Ok);
@@ -339,9 +341,19 @@ public class DeskLogicTests
         Assert.StartsWith("No playlist 'pl_nope'", session.LastToast.Text, StringComparison.Ordinal);
         Assert.Equal("PLAYLIST GO pl_nope", session.LastToast.Verb);
         Assert.Equal("Already playing", DeskSession.Plain("ERR already playing"));
-        // A drag's refusal repeated folds into the toast already up.
+        // A drag's refusal repeated folds into the toast already up; past the fold's two seconds it is said again.
+        time.Advance(TimeSpan.FromSeconds(1.9));
         await session.SendAsync("PLAYLIST GO pl_nope", Ct);
         Assert.Single(session.Toasts);
+        time.Advance(TimeSpan.FromSeconds(2.1));
+        await session.SendAsync("PLAYLIST GO pl_nope", Ct);
+        Assert.Equal(2, session.Toasts.Count);
+        // A refusal stays for twice the window's age; the session's clock says when it goes.
+        session.Expire(TimeSpan.FromSeconds(6));
+        Assert.Equal(2, session.Toasts.Count);
+        time.Advance(TimeSpan.FromSeconds(12.1));
+        session.Expire(TimeSpan.FromSeconds(6));
+        Assert.Empty(session.Toasts);
         link.SetStatus(PlayMap.Core.Wire.LinkStatus.Down);
         var down = await session.SendAsync("BLACKOUT ON", Ct);
         Assert.False(down.Ok);

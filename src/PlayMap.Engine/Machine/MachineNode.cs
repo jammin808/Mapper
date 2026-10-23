@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using PlayMap.Core.Machine;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 
 namespace PlayMap.Engine.Machine;
@@ -110,6 +111,9 @@ public sealed class RecordedPlatform : IMachinePlatform
         _inner = inner;
         _clock = clock;
         _runtimes = runtimes;
+        // Every deadline thread records each wait's lateness under the gate while STATE reads it and the claims: a first wait for the
+        // other allocates nothing.
+        LockWaits.Prepare(_gate);
     }
 
     /// <summary>The platform underneath.</summary>

@@ -41,8 +41,10 @@ public sealed record BackupOptions
 /// <summary>A takeover or a hand-back as STATE's <c>fleet.last</c> and the journal tell it.</summary>
 public sealed record TakeoverRecord(string Kind, string Id, long AtUnixMs, string Words);
 
-/// <summary>A backup's mirror of its primary, as STATE's <c>fleet.mirror</c> tells it.</summary>
-public sealed record MirrorView(string Of, string Name, string State, long Rev, long BehindRev, string Words);
+/// <summary>A backup's mirror of its primary, as STATE's <c>fleet.mirror</c> tells it, and the line that joins it anew
+/// (<c>FLEET BACKUP &lt;primary&gt;</c>, preflight's row's line) while it is lost and no subscription stands; null otherwise. The state,
+/// the words and the line are read from one look at the link.</summary>
+public sealed record MirrorView(string Of, string Name, string State, long Rev, long BehindRev, string Words, string? Rejoin = null);
 
 /// <summary>The hot backup (wp2-backup, fleet's continuation), network and runtime side:
 /// <list type="bullet">
@@ -226,10 +228,12 @@ public sealed class BackupNode : IAsyncDisposable
         if (_engine is not { } engine)
             return;
         // A node a backup joined is the show's primary, kept for the next start, with the backups it has had: only they may fence it.
+        // A role the settings could not keep is said once STATE holds it.
         var members = Feed.Members.Select(m => m.Node).ToList();
+        var kept = "";
         if (members.Count > 0 && (_settings.Role == FleetRoles.Solo || members.Any(n => !_settings.Backups.Contains(n))))
         {
-            Persist(s => s with
+            kept = Persist(s => s with
             {
                 Role = s.Role == FleetRoles.Solo ? FleetRoles.Primary : s.Role,
                 Of = s.Role == FleetRoles.Solo ? "" : s.Of,
@@ -237,6 +241,11 @@ public sealed class BackupNode : IAsyncDisposable
             });
         }
         engine.FactsChanged();
+        if (kept.Length > 0)
+        {
+            engine.Journal.Add("fault", $"{SelfName}'s role as the primary of {string.Join(", ", _settings.Backups.Select(Label))}{kept}: after a restart it "
+                + "would not wait to hear them before it sends, and none that took its show could fence it", ok: false);
+        }
     }
 
     private string HelloLine()
@@ -307,7 +316,7 @@ public sealed class BackupNode : IAsyncDisposable
                 return CommandReply.Fail($"no PlayMap node '{args[0]}' is heard on the show network — NODES lists the ones that are");
             if (peer.Id == SelfId)
                 return CommandReply.Fail("a node cannot back itself up — FLEET BACKUP <primary> runs on the machine that stands by");
-            if (_settings.Role == FleetRoles.Backup && _settings.Of == peer.Id && _link is not null && _subscribed)
+            if (_settings is { Role: FleetRoles.Backup } s && s.Of == peer.Id && SubscriptionStands)
                 return CommandReply.Fail($"already a hot backup of {peer.Name} ({peer.Id})");
             // A primary's backups go first; the node it hands its show back to (which mirrored it until now) is not one of them.
             var others = Feed.Members.Count(m => m.Node != peer.Id);
@@ -672,7 +681,7 @@ public sealed class BackupNode : IAsyncDisposable
         _subscribed = false;
         _mirrorWords = $"joining {peer.Name}";
         var answer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var link = new MirrorLink(peer.Address, wire, SelfName, token, SelfId, _setup.Wall, _log);
+        var link = new MirrorLink(peer.Address, wire, SelfName, token, SelfId, _setup.Wall, _setup.Mono, _log);
         var lines = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true });
         link.Line += l => lines.Writer.TryWrite(l);
         link.Subscribed += () =>
@@ -688,14 +697,20 @@ public sealed class BackupNode : IAsyncDisposable
             answer.TrySetResult(words);
             _engine?.FactsChanged();
         };
-        link.StatusChanged += _ =>
+        link.StatusChanged += status =>
         {
-            if (link.Status != LinkStatus.Live)
+            // A subscription lives as long as its connection: a quiet spell (stale) keeps it, so the primary's next line on the same
+            // connection finds the mirror followed again; a connection that ends takes it, and the next one subscribes anew.
+            if (status is LinkStatus.Connecting or LinkStatus.Down)
                 _subscribed = false;
+            else if (status == LinkStatus.Stale && _subscribed)
+                _log.LogInformation("{Primary} has said nothing on its mirror for over {Seconds} s: lost while it is quiet, still subscribed.", peer.Name, ShowBusConstants.StaleMs / 1000);
+            else if (status == LinkStatus.Stale)
+                _log.LogInformation("{Primary} has said nothing on its mirror for over {Seconds} s before taking its subscription: lost, not subscribed.", peer.Name, ShowBusConstants.StaleMs / 1000);
             _engine?.FactsChanged();
         };
         var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, http, peer.Hello.TlsFingerprint ?? "", token), _pins(),
-            () => _setup.Wall.UnixMs, _setup.Mono, _log);
+            () => _setup.Wall.UnixMs, _setup.Mono, _log, _setup.Network.PullOptions);
         if (puller.Refusal.Length > 0)
         {
             puller.Dispose();
@@ -820,13 +835,13 @@ public sealed class BackupNode : IAsyncDisposable
             case "HELLO":
                 return Hello(call.Line.RestAfter(2));
             case "PROJECT":
-                return await ProjectAsync(engine, call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
+                return await ProjectAsync(engine, call, call.Line.RestAfter(2)).ConfigureAwait(false);
             case "ANCHOR" when call.Args.Count >= 3:
                 return await engine.AdoptMirrorAnchorAsync(call.Args[1], call.Line.RestAfter(3)).ConfigureAwait(false);
             case "AIR":
                 return AirLine(call.Line.RestAfter(2));
             case "HANDBACK":
-                return await HandbackAsync(call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
+                return await HandbackAsync(call, call.Line.RestAfter(2)).ConfigureAwait(false);
             default:
                 return CommandReply.Fail("MIRROR HELLO|PROJECT|ANCHOR|AIR|HANDBACK <json>");
         }
@@ -855,9 +870,10 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>The primary's show moved: pulled (with proof, over pinned HTTPS) and applied as one mirror edit; then the files and
-    /// versions it names that are not here are pulled beside the mirror.</summary>
-    private async Task<CommandReply> ProjectAsync(EngineCore engine, string json, CancellationToken ct)
+    /// versions it names that are not here are pulled beside the mirror, behind this line's row (each pull journals how it ended).</summary>
+    private async Task<CommandReply> ProjectAsync(EngineCore engine, VerbCall call, string json)
     {
+        var ct = call.Ct;
         long rev;
         try
         {
@@ -891,7 +907,7 @@ public sealed class BackupNode : IAsyncDisposable
                 engine.ShowFilesLanded();
             Interlocked.Exchange(ref _appliedRev, Math.Max(servedRev, rev));
             _mirrorWords = string.Create(CultureInfo.InvariantCulture, $"{_primaryName}'s show at rev {Math.Max(servedRev, rev)}");
-            Background(PullFilesAsync(engine, _stop.Token));
+            call.AfterRow(() => Background(PullFilesAsync(engine, _stop.Token)));
             return CommandReply.Success(effect: label);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException && !(ex is OperationCanceledException && ct.IsCancellationRequested))
@@ -1047,7 +1063,9 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>MEDIA FETCH &lt;media&gt;|ALL [FROM &lt;node&gt;] on a node with the fleet's part: each missing file by its hash, from the node
-    /// named or else the first heard that holds it, with that peer's proof over its pinned HTTPS (never its token, never in clear).</summary>
+    /// named or else the first heard that holds it, with that peer's proof over its pinned HTTPS (never its token, never in clear). Each
+    /// file's end is a journal row, at most <see cref="FetchJournal.Most"/> a fetch and one that counts the rest when there were more;
+    /// these pulls write no <c>media.transfers</c> row.</summary>
     public CommandReply FetchMedia(IReadOnlyList<MediaItem> items, string? from)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -1081,7 +1099,10 @@ public sealed class BackupNode : IAsyncDisposable
             if (peers.Count == 0)
                 return CommandReply.Fail("no other PlayMap node is heard on the show network to fetch from");
         }
-        Background(Task.Run(async () =>
+        var source = peers.Count == 1 ? peers[0].Name : string.Join(", ", peers.Select(p => p.Name));
+        var rows = new FetchJournal(engine.Journal, _log, $"the fetch of {what} from {source}");
+        // The pulls journal each file's end, and a peer can end them at once: begun behind the MEDIA FETCH's own row.
+        engine.AfterRow(() => Background(Task.Run(async () =>
         {
             foreach (var f in files)
             {
@@ -1091,7 +1112,7 @@ public sealed class BackupNode : IAsyncDisposable
                 foreach (var peer in peers)
                 {
                     using var puller = new MirrorPuller(new MirrorSource(peer.Id, peer.Name, peer.Address, peer.Hello.Port("http"), peer.Hello.TlsFingerprint ?? "",
-                        Credential(peer.Id)), _pins(), () => _setup.Wall.UnixMs, _setup.Mono, _log);
+                        Credential(peer.Id)), _pins(), () => _setup.Wall.UnixMs, _setup.Mono, _log, _setup.Network.PullOptions);
                     try
                     {
                         var (ok, words) = await PullOneAsync(puller, peer.Name, store, f.Hash, f.Size, f.Name, _stop.Token).ConfigureAwait(false);
@@ -1105,12 +1126,14 @@ public sealed class BackupNode : IAsyncDisposable
                         said = $"{Path.GetFileName(f.Name)} could not be pulled from {peer.Name}: {ex.Message}";
                     }
                 }
-                var landed = store.PathForHash(f.Hash) is not null;
-                engine.Journal.Add(landed ? "media" : "refused", said, ok: landed);
+                if (store.PathForHash(f.Hash) is not null)
+                    rows.Landed(said);
+                else
+                    rows.Failed(said);
                 engine.FactsChanged();
             }
-        }, CancellationToken.None));
-        var source = peers.Count == 1 ? peers[0].Name : string.Join(", ", peers.Select(p => p.Name));
+            rows.End();
+        }, CancellationToken.None)));
         return CommandReply.Accepted($"fetching {what} from {source} by hash, with proof");
     }
 
@@ -1172,7 +1195,7 @@ public sealed class BackupNode : IAsyncDisposable
         }
     }
 
-    private async Task<CommandReply> HandbackAsync(string json, CancellationToken ct)
+    private async Task<CommandReply> HandbackAsync(VerbCall call, string json)
     {
         string from;
         try
@@ -1195,19 +1218,32 @@ public sealed class BackupNode : IAsyncDisposable
             _engine?.Journal.Add("refused", words, ok: false);
             return CommandReply.Fail(words);
         }
-        // The takeover runs beside the mirror's line (it closes the link this line came on).
-        Background(Task.Run(() => TakeOverAsync($"handed back by {Label(from)}", _stop.Token), CancellationToken.None));
+        // The takeover runs beside the mirror's line (it closes the link this line came on) and journals how it went: begun behind
+        // this line's own row.
+        call.AfterRow(() => Background(Task.Run(() => TakeOverAsync($"handed back by {Label(from)}", _stop.Token), CancellationToken.None)));
         await Task.CompletedTask.ConfigureAwait(false);
         return CommandReply.Accepted($"taking the show back from {Label(from)}");
     }
 
     /// <summary>A backup keeps the highest epoch its primary is heard to hold (its mirror's hello, its HEALTH) in its settings: a
     /// takeover after this node restarted, its primary silent by then, still commits an epoch above the primary's, so the primary
-    /// fences itself when it is heard again.</summary>
+    /// fences itself when it is heard again. STATE moves with the epoch; an epoch the settings could not keep is said once STATE
+    /// holds it, and once: the epoch is read and taken in one step under the settings' lock, so the hello and the watch, hearing the
+    /// same epoch at once, do not both take it.</summary>
     private void KeepPrimaryEpoch(long epoch)
     {
-        if (_settings.Role == FleetRoles.Backup && epoch > _settings.Epoch)
-            Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+        string kept;
+        lock (_settingsGate)
+        {
+            if (_settings.Role != FleetRoles.Backup || epoch <= _settings.Epoch)
+                return;
+            kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+        }
+        if (kept.Length > 0)
+        {
+            _engine?.Journal.Add("fault", string.Create(CultureInfo.InvariantCulture,
+                $"the epoch {epoch} {Label(_settings.Of)} holds{kept}: after a restart a takeover by {SelfName} could commit one not above it, which would not fence {Label(_settings.Of)}"), ok: false);
+        }
     }
 
     // ---- What this node hears ---------------------------------------------------------------------------------------------
@@ -1234,20 +1270,23 @@ public sealed class BackupNode : IAsyncDisposable
                     // taken only from a node that leads, so it is joined once that node's HEALTH says it does.
                     await LeadsGroupAsync(peer.Id, _stop.Token).ConfigureAwait(false);
                     var joined = await RunAsync(engine, $"FLEET BACKUP {peer.Id}", _stop.Token).ConfigureAwait(false);
+                    var kept = "";
                     if (joined.Ok)
                     {
                         // The epoch it took the show under is this node's to know as its backup.
-                        Persist(s => s with { Epoch = Math.Max(s.Epoch, f.Epoch) });
+                        kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, f.Epoch) });
                     }
                     else
                     {
                         // A node that handed its show back and cannot mirror it does not keep serving beside it: it is fenced.
                         await RunAsync(engine, string.Create(CultureInfo.InvariantCulture, $"FLEET FENCE {f.Epoch} {peer.Id}"), _stop.Token).ConfigureAwait(false);
                     }
-                    var words = joined.Ok ? $"{peer.Name} took the show back (epoch {f.Epoch}): {SelfName} is its hot backup again"
+                    var words = joined.Ok ? $"{peer.Name} took the show back (epoch {f.Epoch}): {SelfName} is its hot backup again{kept}"
                         : $"{peer.Name} took the show back, but {SelfName} could not mirror it ({joined.Payload}): fenced, its outputs held";
+                    // The record is STATE's before the row that says how the hand-back went, and whether its epoch was kept.
                     _last = new TakeoverRecord("failback", NewId(), _setup.Wall.UnixMs, words);
-                    engine.Journal.Add("fleet", words, ok: joined.Ok);
+                    engine.FactsChanged();
+                    engine.Journal.Add("fleet", words, ok: joined.Ok && kept.Length == 0);
                 }
                 else
                 {
@@ -1259,7 +1298,8 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>A follower whose leader is silent (its clock free-wheels) follows the peer that leads its group under a higher epoch
-    /// than any this node knows.</summary>
+    /// than any this node knows. The row of the follow says whether its epoch was kept for the next start, so it follows the settings
+    /// file, and STATE: a reader that has the row reads the epoch in STATE.</summary>
     private async Task RetargetAsync(EngineCore engine)
     {
         NoteGroup(engine);
@@ -1278,8 +1318,9 @@ public sealed class BackupNode : IAsyncDisposable
         var reply = await RunAsync(engine, $"SYNC FOLLOW {group} {next.Id}", _stop.Token).ConfigureAwait(false);
         if (reply.Ok)
         {
-            Persist(s => s with { Epoch = Math.Max(s.Epoch, nextEpoch) });
-            engine.Journal.Add("fleet", $"{Label(leader)} went quiet and {next.Name} leads {group} now (epoch {nextEpoch}): following it on the same time line");
+            var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, nextEpoch) });
+            engine.Journal.Add("fleet", $"{Label(leader)} went quiet and {next.Name} leads {group} now (epoch {nextEpoch}): following it on the same time line{kept}",
+                ok: kept.Length == 0);
         }
         else
         {
@@ -1323,7 +1364,8 @@ public sealed class BackupNode : IAsyncDisposable
     internal bool KnowsInGroup(string peerId) => _groupPeers.ContainsKey(peerId);
 
     /// <summary>A leader that hears a member of its group lead it under a higher epoch (a promotion or a takeover while this node was
-    /// away or cut off) steps down and follows it: a group has one clock.</summary>
+    /// away or cut off) steps down and follows it: a group has one clock. The row of the step-down says whether its epoch was kept for
+    /// the next start, so it follows the settings file, and STATE: a reader that has the row reads the epoch in STATE.</summary>
     private async Task StepDownAsync(EngineCore engine)
     {
         if (engine.Services.GroupSync is not { Role: "leader" } sync || _settings.Role is FleetRoles.Backup or FleetRoles.Fenced)
@@ -1339,8 +1381,9 @@ public sealed class BackupNode : IAsyncDisposable
         var reply = await RunAsync(engine, $"SYNC FOLLOW {group} {next.Id}", _stop.Token).ConfigureAwait(false);
         if (reply.Ok)
         {
-            Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
-            engine.Journal.Add("fleet", $"{next.Name} leads {group} under epoch {epoch}, above this node's: {SelfName} steps down and follows it");
+            var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+            engine.Journal.Add("fleet", $"{next.Name} leads {group} under epoch {epoch}, above this node's: {SelfName} steps down and follows it{kept}",
+                ok: kept.Length == 0);
         }
         else
         {
@@ -1444,12 +1487,13 @@ public sealed class BackupNode : IAsyncDisposable
         }
     }
 
-    /// <summary>A backup whose show is here and whose mirror is live but whose sync part does not follow the primary's group (a follow
-    /// that found no clock port yet, a group that moved, a clock port that moved since) follows it again, about once a second (the watch's
-    /// own task alone counts its turns).</summary>
+    /// <summary>A backup whose show is here and whose mirror's subscription stands (from the primary's answer to its connection's end, a
+    /// quiet spell included) but whose sync part does not follow the primary's group (a follow that found no clock port yet, a group
+    /// that moved, a clock port that moved since) follows it again, about once a second (the watch's own task alone counts its
+    /// turns).</summary>
     private async Task KeepFollowingAsync(EngineCore engine)
     {
-        if (_settings.Role != FleetRoles.Backup || !_subscribed || Interlocked.Read(ref _appliedRev) < 0 || _group.Length == 0
+        if (_settings.Role != FleetRoles.Backup || !SubscriptionStands || Interlocked.Read(ref _appliedRev) < 0 || _group.Length == 0
             || engine.Services.GroupSync is not { } sync)
             return;
         // Following the primary's group with the clock asking the port its hello names now: nothing to do. A clock that asks a port
@@ -1470,7 +1514,7 @@ public sealed class BackupNode : IAsyncDisposable
     private async Task RepullAsync(EngineCore engine)
     {
         var announced = Interlocked.Read(ref _announcedRev);
-        if (_link is null || !_subscribed || _pulling || announced < 0 || announced == Interlocked.Read(ref _appliedRev))
+        if (!SubscriptionStands || _pulling || announced < 0 || announced == Interlocked.Read(ref _appliedRev))
         {
             _projectTurns = 0;
             await RepullShowFilesAsync(engine).ConfigureAwait(false);
@@ -1484,11 +1528,12 @@ public sealed class BackupNode : IAsyncDisposable
             await engine.HandleAsync(line, FleetSession, _stop.Token).ConfigureAwait(false);
     }
 
-    /// <summary>Files the show names that could not be pulled are asked again about every two seconds while the mirror is live; any
-    /// that land are read at once (the show was applied without them).</summary>
+    /// <summary>Files the show names that could not be pulled are asked again about every two seconds while the mirror's subscription
+    /// stands (for its connection's life, a quiet spell included); any that land are read at once (the show was applied without
+    /// them).</summary>
     private async Task RepullShowFilesAsync(EngineCore engine)
     {
-        if (_showMissing.Length == 0 || _puller is not { } puller || !_subscribed || Interlocked.Read(ref _appliedRev) < 0)
+        if (_showMissing.Length == 0 || _puller is not { } puller || !SubscriptionStands || Interlocked.Read(ref _appliedRev) < 0)
         {
             _filesTurns = 0;
             return;
@@ -1540,22 +1585,38 @@ public sealed class BackupNode : IAsyncDisposable
 
     // ---- What STATE reads -------------------------------------------------------------------------------------------------
 
+    /// <summary>The link to the primary this backup mirrors (null while it mirrors none).</summary>
+    internal MirrorLink? Link => _link;
+
     /// <summary>The backup's mirror now (null on a node that mirrors none): identical once the primary's show is here at its revision,
     /// every file it names is here, the group's clock is followed and the feed is live.</summary>
     public MirrorView? Mirror()
     {
-        if (_settings.Role != FleetRoles.Backup)
+        if (_settings is not { Role: FleetRoles.Backup } settings)
             return null;
         var announced = Interlocked.Read(ref _announcedRev);
         var applied = Interlocked.Read(ref _appliedRev);
         var behind = announced < 0 || applied < 0 ? 0 : Math.Max(0, announced - applied);
         string state, words;
-        if (_link is not { } link)
+        string? rejoin = null;
+        // The link's status is read before the subscription (see Stands), once, and the state, words and line all come from that look.
+        var link = _link;
+        var status = link?.Status ?? LinkStatus.Down;
+        var subscribed = _subscribed;
+        if (link is null)
+        {
             (state, words) = ("joining", _mirrorWords);
-        else if (link.Status != LinkStatus.Live || !_subscribed)
-            (state, words) = (applied < 0 ? "joining" : "lost", _mirrorWords.Length > 0 && link.RefusedWords.Length > 0 ? _mirrorWords : $"{_primaryName}'s mirror is {(link.Status == LinkStatus.Live ? "not subscribed" : "down")} — the last show and air hold here");
+        }
+        else if (status != LinkStatus.Live || !subscribed)
+        {
+            var stands = Stands(status, subscribed);
+            (state, words) = (applied < 0 ? "joining" : "lost", _mirrorWords.Length > 0 && link.RefusedWords.Length > 0 ? _mirrorWords : LostWords(status, stands));
+            rejoin = state == "lost" && !stands ? "FLEET BACKUP " + settings.Of : null;
+        }
         else if (applied < 0)
+        {
             (state, words) = ("joining", _mirrorWords);
+        }
         else if (_pulling || behind > 0)
             (state, words) = ("resyncing", string.Create(CultureInfo.InvariantCulture, $"pulling {_primaryName}'s show (rev {announced})"));
         else if (MissingHere() is var missing && missing > 0)
@@ -1568,11 +1629,42 @@ public sealed class BackupNode : IAsyncDisposable
             (state, words) = ("joining", $"waiting for {_primaryName}'s group feed ({_engine?.Services.GroupSync?.FeedWord ?? "no sync part"})");
         else
             (state, words) = ("identical", string.Create(CultureInfo.InvariantCulture, $"same show (rev {applied}), clock, transports and air as {_primaryName}"));
-        return new MirrorView(_settings.Of, _primaryName, state, applied, behind, words);
+        return new MirrorView(settings.Of, _primaryName, state, applied, behind, words, rejoin);
     }
 
+    /// <summary>Whether a subscription stands on the mirror's link: the primary took this connection's <c>SUBSCRIBE MIRROR</c> and the
+    /// connection is up (live, or quiet past the stale mark). A connection that ends takes its subscription, so a link that reads down or
+    /// dialling holds none, whether or not the node's listener has cleared the flag yet. Read the status before the flag: the flag a
+    /// connection's end clears is cleared before the next connection reads live, so a live read never pairs with an earlier connection's
+    /// subscription.</summary>
+    private static bool Stands(LinkStatus status, bool subscribed) => subscribed && status is LinkStatus.Live or LinkStatus.Stale;
+
+    /// <summary>A subscription stands on the mirror now (<see cref="Stands"/>): FLEET BACKUP refuses then, preflight offers no line, and
+    /// the watch follows the primary's group and asks again for what it could not pull.</summary>
+    private bool SubscriptionStands => _link is { } link && Stands(link.Status, _subscribed);
+
+    /// <summary>Why the mirror is lost, by where its link stands: quiet with its subscription standing (the primary has said nothing on it
+    /// past the stale mark, on this node's clock), connected (live or quiet) with no subscription standing, or down (no connection).</summary>
+    private string LostWords(LinkStatus status, bool stands) => status switch
+    {
+        LinkStatus.Stale when stands => string.Create(CultureInfo.InvariantCulture,
+            $"{_primaryName} has said nothing on its mirror for over {ShowBusConstants.StaleMs / 1000} s — the last show and air hold here"),
+        LinkStatus.Live or LinkStatus.Stale => $"{_primaryName}'s mirror is not subscribed — the last show and air hold here",
+        _ => $"{_primaryName}'s mirror is down — the last show and air hold here",
+    };
+
+    /// <summary>The light a mirror's state is lit by wherever it is shown, on the backup or on its primary: green identical, red lost,
+    /// amber otherwise (joining, resyncing, different, or not heard).</summary>
+    internal static Light MirrorLight(string? state) => state switch
+    {
+        "identical" => Light.Green,
+        "lost" => Light.Red,
+        _ => Light.Amber,
+    };
+
     /// <summary>The files the show names beside its folder (meshes, measured maps, survey clouds) that could not be pulled from the
-    /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror is live.</summary>
+    /// primary when last asked, by their paths in the show; asked again about every two seconds while the mirror's subscription stands
+    /// (for its connection's life, a quiet spell included).</summary>
     public IReadOnlyList<string> MissingShowFiles => _showMissing;
 
     /// <summary>The files and optimised versions the show names that this node does not hold (verified, by hash).</summary>
@@ -1662,7 +1754,8 @@ public sealed class BackupNode : IAsyncDisposable
 
     /// <summary>Keeps a change of the fleet settings for the next start, through the network host (the settings file's one writer);
     /// answers "" or the words of a failure (the change holds for this run either way). A new role moves what the node sends beside its
-    /// outputs first (<see cref="Air"/>), then the role is the node's.</summary>
+    /// outputs first (<see cref="Air"/>), then the settings are the node's, which STATE reads; STATE is pushed before this answers, so
+    /// a row the caller writes with the answer is read beside a STATE that holds the change.</summary>
     private string Persist(Func<FleetSettings, FleetSettings> edit)
     {
         string failed;
@@ -1674,6 +1767,7 @@ public sealed class BackupNode : IAsyncDisposable
             _settings = next;
             failed = _setup.Network.PersistSettings(s => s with { Fleet = next });
         }
+        _engine?.FactsChanged();
         return failed.Length == 0 ? "" : " — not kept for the next start (" + failed + ")";
     }
 

@@ -4,6 +4,7 @@ using System.Text.Json;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Scanning;
 using Xunit.Abstractions;
 
@@ -44,7 +45,7 @@ public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposabl
         var obj = string.Create(CultureInfo.InvariantCulture,
             $"v {E0 - 6} {N0} {H0 - 6}\nv {E0 + 6} {N0} {H0 - 6}\nv {E0 + 6} {N0} {H0 + 6}\nv {E0 - 6} {N0} {H0 + 6}\nf 1 2 3\nf 1 3 4\n");
         await File.WriteAllTextAsync(rig.File("front.obj"), obj);
-        var job = await rig.Import($"{rig.File("front.obj")} CRS EPSG:25832 NAME Front");
+        var job = await rig.Import(rig.File("front.obj"), "CRS EPSG:25832 NAME Front");
         Assert.Equal("ready", job.State);
         var site = Stage(rig).GetProperty("site");
         Assert.Equal(("EPSG:25832", "ETRS89 / UTM zone 32N"), (site.GetProperty("crs").GetString(), site.GetProperty("name").GetString()));
@@ -64,7 +65,7 @@ public sealed class FacadeEndToEndTests(ITestOutputHelper log) : IAsyncDisposabl
             stagePoints.Add(new Vec3d(x, y, 0));
         }
         await File.WriteAllTextAsync(rig.File("points.csv"), points.ToString());
-        Assert.Equal(6, SiteRig.Json(await rig.Ok($"SITE POINTS {rig.File("points.csv")} ORDER PENZD")).GetProperty("added").GetInt32());
+        Assert.Equal(6, SiteRig.Json(await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))} ORDER PENZD")).GetProperty("added").GetInt32());
         Assert.Equal(6, Stage(rig).GetProperty("controls").GetInt32());
         Assert.Equal("pins", Next(rig));
 

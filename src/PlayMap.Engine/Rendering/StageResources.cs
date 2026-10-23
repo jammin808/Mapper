@@ -15,6 +15,10 @@ public sealed record StageResourceOptions
     /// <summary>The quiet time after the last stage change before the automatic 3D blend is solved again.</summary>
     public TimeSpan BlendDebounce { get; init; } = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>The clock <see cref="BlendDebounce"/> is counted on: no automatic solve starts before this clock has run that long
+    /// past the last stage change.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     /// <summary>A manual edge-blend map's size as a fraction of the output's raster (the GPU upsamples it).</summary>
     public double EdgeMapScale { get; init; } = 0.25;
 
@@ -41,8 +45,8 @@ public sealed record StageResourceOptions
 /// (one reference read) and, when the project snapshot moved, wakes the builder; the lookups read the tables
 /// in use with no lock and no allocation. A mesh still loading is null (its surfaces are not drawn) and its
 /// tables are published again once it is in. The automatic blend is solved when the stage has been quiet for
-/// <see cref="StageResourceOptions.BlendDebounce"/>, a solve under way is cancelled by a newer stage, and the
-/// last good maps stay up meanwhile; a solve BLEND SOLVE made for the same inputs is taken as it is.</summary>
+/// <see cref="StageResourceOptions.BlendDebounce"/> on <see cref="StageResourceOptions.Time"/>, a solve under way is cancelled by a
+/// newer stage, and the last good maps stay up meanwhile; a solve BLEND SOLVE made for the same inputs is taken as it is.</summary>
 public sealed class StageResources : IStageResources, IAsyncDisposable
 {
     /// <summary>An output's warp mesh and what it was built from: the operator's warp and the measured lattice under it.</summary>
@@ -107,6 +111,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
     private int _blendSignalled;
     private BlendInputs? _blendWanted;
     private long _blendWantedVersion;
+    private int _blendPasses;
     private BlendSolveResult? _solved;
     private BlendSolveResult? _offered;
     private CancellationTokenSource? _solving;
@@ -134,6 +139,11 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
     /// <summary>Automatic blend solves finished so far (a solve BLEND SOLVE handed over is not counted). A count, not a fact about the
     /// tables in use: the tables built with the latest solve reach the render thread after it (<see cref="BlendInUseFor"/>).</summary>
     public int BlendSolves { get; private set; }
+
+    /// <summary>The automatic blend's quiet times that have run out so far, each counted once what it led to is done: its inputs
+    /// solved (<see cref="BlendSolves"/> counted before it), found solved already or offered (nothing solved), or a solve cut short (by
+    /// a newer stage or the stop) or failed.</summary>
+    public int BlendPasses => Volatile.Read(ref _blendPasses);
 
     /// <summary>The automatic blend's last words (empty before the first), and the last fault a build hit.</summary>
     public string BlendWords { get; private set; } = "";
@@ -448,6 +458,7 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            var quietRanOut = false;
             try
             {
                 await _blendWake.WaitAsync(ct).ConfigureAwait(false);
@@ -457,9 +468,10 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                 do
                 {
                     seen = Interlocked.Read(ref _blendWantedVersion);
-                    await Task.Delay(_options.BlendDebounce, ct).ConfigureAwait(false);
+                    await Task.Delay(_options.BlendDebounce, _options.Time, ct).ConfigureAwait(false);
                 }
                 while (seen != Interlocked.Read(ref _blendWantedVersion));
+                quietRanOut = true;
                 var inputs = Volatile.Read(ref _blendWanted);
                 if (inputs is null || inputs.IsEmpty || (Volatile.Read(ref _solved) is { } done && done.Inputs.Equals(inputs)))
                     continue;
@@ -474,18 +486,20 @@ public sealed class StageResources : IStageResources, IAsyncDisposable
                 BlendWords = solution.Words;
                 Signal(ref _buildSignalled, _buildWake);
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                // A newer stage cancelled this solve; its own wake-up solves it after the quiet time.
-            }
             catch (OperationCanceledException)
             {
-                return;
+                // A newer stage cancelled this solve, and its own wake-up solves it after the quiet time; or the stop did, and the
+                // loop ends.
             }
             catch (Exception ex)
             {
                 // The last good blend stays up; the next stage change tries again.
                 LastProblem = $"blend: {ex.GetType().Name}: {ex.Message}";
+            }
+            finally
+            {
+                if (quietRanOut)
+                    Interlocked.Increment(ref _blendPasses);
             }
         }
     }

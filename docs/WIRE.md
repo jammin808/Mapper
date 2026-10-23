@@ -13,8 +13,24 @@ a secret ("type secrets in Network ▸ Links"); such a row is a menu entry that 
 
 Patterns' grammar: one UTF-8 line per command (≤ 64 KiB, `\n`, a trailing `\r` stripped); optional request id
 `@a1 ` ([A-Za-z0-9_-]{1,32}); words split on spaces, `"double quotes"` keep a phrase, a word starting `{` or `[`
-is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Replies: `OK`, `OK <payload>`, `ERR <reason>`, the id after the first word
-(`OK @a1 …`). A line that carries a request id is always answered: a verb that answers nothing otherwise (`CURSOR`, streamed on
+is JSON to the end of the line (so a word that starts so anywhere else is quoted: `DEVICE ADD "[L]" pjlink 10.0.0.20`). Inside quotes a
+backslash escapes the mark after it, as Patterns reads it: `\"` is a quote, `\\` a backslash, and any other mark is read alone, its
+backslash lost; a bare word keeps every backslash. A producer quotes a word so it reads back as itself, each backslash and quote in it
+escaped, by the one rule `WireGrammar.Quote` writes (the desk's `VerbText.Word`, the Companion module's `quote`, the node's own
+suggestions and preflight fixes): bare when it holds no white space or quote and opens with neither `{` nor `[`, else quoted; SET's
+value rides as a JSON string. So a Windows path rides bare (`MEDIA IMPORT C:\clips\a.mp4`) or, holding a space, quoted with its
+backslashes doubled (`MEDIA IMPORT "C:\\My clips\\a.mp4"`). A verb that takes a path as its first word (`MEDIA IMPORT`,
+`PROJECT SAVE`, `PROJECT OPEN`, `FX IMPORT`, `LED IMPORT`, `SITE POINTS`, `SURVEY IMPORT`: `VerbSyntax.TakesPath`) refuses one quoted
+with a backslash before any other mark, as Explorer gives a path and a person or a model types it, before anything reads it: at the
+node's door, where a binding's target is read (`BIND ADD`, `BIND LEARN`, a binding's `target` set; a control fires its target later,
+rebuilt from the words read then), and in the assistant's gate and MCP's `run_command`, which read a binding's target too (such a
+line never waits for a person). The refusal says what it reads as and the spelling that reads as typed (`MEDIA IMPORT: inside quotes a backslash escapes
+the mark after it, so "C:\My clips\a.mp4" reads as C:My clipsa.mp4 — write the path "C:\\My clips\\a.mp4", each \ doubled inside
+the quotes, or with / in place of each \`), and repeats the phrase only when the line holds nothing the journal keeps back; quoted JSON
+to `FX IMPORT` is told that JSON rides bare. A phrase that does not close because a backslash escaped its closing quote, as a folder
+typed to end in `\` does, is refused with `a quote that does not close — inside quotes \" is a quote mark, never the phrase's end, so
+a phrase that ends in a backslash doubles it ("C:\\shows\\")`. Replies: `OK`, `OK <payload>`,
+`ERR <reason>`, the id after the first word (`OK @a1 …`). A line that carries a request id is always answered: a verb that answers nothing otherwise (`CURSOR`, streamed on
 every move) answers `OK @a1`. A refused verb says why; a verb that would change nothing is refused ("already playing").
 
 Receipts (Show Bus §3) ride the reply: `OK @a1` for applied; an accepted-but-not-yet-applied verb (a scan, a
@@ -113,7 +129,8 @@ as raw substrings):
    "height":1080,"refreshHz":60,"enabled":true,"open":true,"fps":60.0,"dropped":0,"frameMsP95":4.1,"pattern":null,
    "projector":"pj…","light":"green"}],
  "media":{"items":12,"missing":0,"ready":true,"transfers":[{"media":"md…","name":"Intro","progress":0.42,
-   "from":"Stage right","state":"pulling","hash":"5e3f…","bytesDone":220200960,"size":524288000}]},
+   "from":"Stage right","at":"10.0.0.12:9940","state":"pulling","stage":"receiving","since":1760000000000,"note":"",
+   "hash":"5e3f…","bytesDone":220200960,"size":524288000}]},
  "stage":{"surfaces":6,"meshes":2,"projectors":[{"id":"pj…","name":"Left","solved":true,"residualPx":0.6,"pins":12}],"scans":1},
  "scan":{"id":"sc1a2b3c4d","state":"running","stage":"scanning","pattern":31,"patterns":60,"progress":0.44,"quality":0.97,
    "qualityWords":"","message":"Left: pattern 31 of 30 (rows bit 3)","projectors":[{"id":"pj…","name":"Left","progress":1,
@@ -163,8 +180,22 @@ These are the keys every node writes; the packages' keys follow at the end of th
   leader's from its board, a follower's from its feed and clock, grey in no group), the context item's light (docs/wire/sync.md).
 - `links.patterns.clip` is the desk's clip as this node counts it on ("VT 2:28"), or why there is none;
   `links.stagewatch.timer.text` is `?` whenever the time is not a fact (no frame, the link quiet, Stagewatch stuck).
-- `media.transfers` lists pulls on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the
-  next fetch of that file); a verified pull leaves the list and its item turns ready.
+- `media.transfers` lists the pulls of a node's own `MEDIA FETCH` (over a peer's `/api/media`, on a node without the fleet's part)
+  on their way (`queued`, `pulling`) and the ones that failed (`failed: …`, until the next fetch of that file); a verified pull
+  leaves the list and its item turns ready. On a node with the fleet's part, which the exe composes, `MEDIA FETCH` pulls with the
+  peer's proof instead (docs/FLEET.md) and writes no row here (an open fix, docs/ROADMAP.md). `at` is the peer's address the pull
+  asks, `stage` where a pull on its way stands (`asking` while a peer's list is read, the state still `queued` until a peer's pull
+  of the file has started; `receiving` while the bytes come; `verifying` while the whole file is hashed and put in place; `""`
+  before a peer is asked and once failed), `since` when the state, the stage or the peer asked last changed (Unix ms), and `note`
+  the last failed try's words while the pull tries again. `bytesDone` is the file's bytes in place: a peer's pull says it as it
+  starts (the chunks the part file keeps whole), as each 1 MiB block lands with bytes no try of its chunk had, at each chunk's
+  end and once every byte is in, so it steps back only when the pull moves on to another peer, to those kept chunks; a failed
+  row says 0. A chunk's body that sends nothing for 10 s on the node's clock (a chosen bound) fails that try; the peer's list and
+  each answer's headers wait as long as the node's HTTP client allows (60 s). A chunk has three tries; a pull journals its first
+  failed try at each peer and its end, the tries between are its `note` and the log's, and the last try's words are the refused
+  row's. A fetch journals at most 4 of its pulls' rows and, when it had more, one row at its end that counts how it ended (five
+  rows, a quarter of the 20 recent rows the context carries); the rest are in the node's log. A peer's list is asked once a
+  fetch; when it could not be read, each file of the fetch that no other peer gives ends with its words.
 - `faults` lists what the node is running without, each `{"part","words"}`: a door whose port was refused (`wire`,
   `web`, `hello`, `sync`), a control input or the announcement that could not open (`osc`, `artnet`, `sacn`, `midi`,
   `mdns`), no certificate (`tls`), the render host, the scanner, an extension, the node's settings (`settings`; `settings-flush`
@@ -266,7 +297,8 @@ These are the keys every node writes; the packages' keys follow at the end of th
 
 ## HTTP (9940)
 
-`GET /api/state` (`?since=<seq>` long-polls ≤ 25 s), `GET /api/context`, `GET /api/project`, `GET /api/verbs`,
+`GET /api/state` (`?since=<seq>` long-polls ≤ 25 s; a poll the node's own stop cuts is answered 503 with the reason, never an
+empty 200), `GET /api/context`, `GET /api/project`, `GET /api/verbs`,
 `POST /api/cmd` (body = one line; `X-Request-Id` → receipt JSON), `GET /api/media/<sha256>` (range requests,
 between nodes), `GET /api/media` (manifest), `GET /api/thumb?ref=<media:…|generator:…|playlist:…|color:#RRGGBB>&w=&h=&fmt=jpeg|png`
 (a key's picture, with an ETag), `GET /ws` (state frames `{"type":"state",…}`, beats every 2 s, `{"cmd":"…","id":"…"}`
@@ -346,7 +378,20 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   node's own: `ERR <VERB>: this line is node-to-node only`. Then the fleet's door (a hot backup or a fenced node refuses a
   client's line that would change the show it mirrors, with the way out, the words `fleet.door` carries in STATE — docs/wire/backup.md), then the show's gate (Show Mode
   and the GO fence, docs/SHOW.md), then the handler; locks are checked as an edit applies. An ephemeral verb (a cursor, a focus) is never journalled; a
-  gesture (a drag, a nudge) is journalled once per gesture by its owner. `CURSOR` runs off the control lane: its line goes on
+  gesture (a drag, a nudge) is journalled once per gesture by its owner. A verb's row is written once its handler has answered,
+  and the work the handler or the show's gate leaves running — a fetch's pulls (the node's own, whose row of what it queued comes
+  before any of theirs, and the fleet's), a scan's run, a survey's import, a blend solve (`BLEND SOLVE`, and the one a calibration
+  accept, fallback or re-solve runs), a preflight's run, an optimise job, what a learn comes to, a panic's shutter and effect lines,
+  a link change (and a sync change on a node without the sync part; with it, `SYNC LEAD|FOLLOW` await their change inside the
+  handler) and the follow-blackout switch's write, a media import (what it finds and how it ends), the hooks a
+  leader's `SHOW ARM|DISARM` runs behind its answer and a hook any arm leaves running past its deadline, a mirrored show's file
+  pulls, a hand-back's takeover, an armed assistant's proposal offered to an approval desk — begins, or journals, only after that
+  row and before the line is answered, so in the journal and the context's recent rows every row of that work follows the row of
+  the verb that began it, however soon the work ends; a refused or faulted line's work begins after its refused or fault row.
+  Rows the handler writes while it answers (a `PREFLIGHT WAIT`'s run, the lines a `CONTROL INJECT` fires) come before its row. A
+  part that sees the verb's change on a turn of its own (the lane's ticks, the video I/O hub, the Stagewatch, sync and backup
+  links, a backup's mirror lines, the projector links, the optimise service's automatic queue, the render host) journals what it sees
+  when it sees it (an open fix, docs/ROADMAP.md). `CURSOR` runs off the control lane: its line goes on
   the wall's cursor board as it arrives, stamped then, never queued behind edits.
 - **Topics.** `SUBSCRIBE <TOPIC> [<words>…]` opens a package's push topic (INDEX, EVENTS, THUMBS — companion; HEALTH —
   fleet; MIRROR <node> — backup, a primary's show to its hot backup, paired only; ANCHORS — sync, the group's feed, whose members answer each air line with `SYNC RECEIPT` on the same connection,

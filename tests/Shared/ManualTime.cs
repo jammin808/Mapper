@@ -1,14 +1,16 @@
-namespace PlayMap.Engine.Tests.Fleet;
+namespace PlayMap.Tests;
 
 /// <summary>A clock a test moves by hand: timestamps, UTC and timers. <see cref="Advance"/> steps through the timers due in order,
 /// firing each on the caller's thread at its own instant (a periodic timer as often as its period fits); a timer created due now
-/// fires on the next advance, never inside its creation.</summary>
+/// fires on the next advance, never inside its creation. Nothing on it moves while the test does not, however slowly the test runs.</summary>
 internal sealed class ManualTime(DateTimeOffset? start = null) : TimeProvider
 {
     private readonly Lock _gate = new();
     private readonly List<ManualTimer> _timers = [];
     private readonly DateTimeOffset _start = start ?? new DateTimeOffset(2026, 10, 15, 20, 0, 0, TimeSpan.Zero);
     private long _ticks;
+    private long _order;
+    private int _made;
 
     public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
@@ -24,6 +26,8 @@ internal sealed class ManualTime(DateTimeOffset? start = null) : TimeProvider
     {
         var timer = new ManualTimer(this, callback, state);
         timer.Change(dueTime, period);
+        lock (_gate)
+            _made++;
         return timer;
     }
 
@@ -34,6 +38,16 @@ internal sealed class ManualTime(DateTimeOffset? start = null) : TimeProvider
         {
             lock (_gate)
                 return _timers.Count;
+        }
+    }
+
+    /// <summary>Timers made on this clock so far.</summary>
+    public int Made
+    {
+        get
+        {
+            lock (_gate)
+                return _made;
         }
     }
 
@@ -50,7 +64,8 @@ internal sealed class ManualTime(DateTimeOffset? start = null) : TimeProvider
                 next = _timers.Where(t => t.DueTicks <= target).OrderBy(t => t.DueTicks).ThenBy(t => t.Order).FirstOrDefault();
                 if (next is null)
                 {
-                    _ticks = target;
+                    // Never back: an advance from another thread may have gone further while this one fired a timer.
+                    _ticks = Math.Max(_ticks, target);
                     return;
                 }
                 _ticks = Math.Max(_ticks, next.DueTicks);
@@ -62,8 +77,6 @@ internal sealed class ManualTime(DateTimeOffset? start = null) : TimeProvider
             next.Fire();
         }
     }
-
-    private long _order;
 
     private void Schedule(ManualTimer timer, TimeSpan due, TimeSpan period)
     {

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
 using PlayMap.Net.Phone;
 
@@ -86,7 +87,8 @@ internal sealed class PhonePreflight : IPreflightCheck
         foreach (var rig in engine.Store.Project.Stage.Cameras.Where(c => c.SourceKind == CameraSourceKind.Phone))
         {
             var facts = hub?.Phones().FirstOrDefault(p => string.Equals(p.Id, rig.Source, StringComparison.Ordinal));
-            var invite = string.Create(CultureInfo.InvariantCulture, $"PHONE INVITE {Quote(rig.Name)}");
+            // PHONE INVITE pairs the rig of the very name it is given again, so the name rides as one word that reads back as itself.
+            var invite = "PHONE INVITE " + WireGrammar.Quote(rig.Name);
             rows.Add(facts is { Connected: true }
                 ? new PreflightRow("phone:" + rig.Id, node, Section, rig.Name, Light.Green, "connected", facts.Words, null)
                 // A phone the node refused says what to do in its own words (the show's lock); an invite would be refused the same way.
@@ -101,8 +103,6 @@ internal sealed class PhonePreflight : IPreflightCheck
             rows.Add(new PreflightRow("phone", node, Section, "Phones", Light.Green, "none", "no phone is a camera of this project", null));
         return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
     }
-
-    private static string Quote(string name) => name.Contains(' ', StringComparison.Ordinal) ? "\"" + name.Replace("\"", "", StringComparison.Ordinal) + "\"" : name;
 }
 
 /// <summary>Preflight's scan-data rows (wp2-multiscan): each scan the stage depends on — its mesh on the stage, or a projector's current

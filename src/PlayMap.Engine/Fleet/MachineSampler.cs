@@ -37,7 +37,9 @@ public interface IMachineSampler
 }
 
 /// <summary>Samples the machine once a second on its own timer (never on the control lane or the render thread) and keeps the latest
-/// numbers; the first sample's CPU and network read −1 until a second read gives a delta.</summary>
+/// numbers; the first sample's CPU and network read −1 until a second read gives a delta. A tick that finds the last reading still
+/// being read takes none, so a reading that stalls (a counter's collect that does not return) holds one pool thread, not one more
+/// each second.</summary>
 public sealed class MachineSampler : IMachineSampler, IDisposable
 {
     private readonly IMachineReader _reader;
@@ -48,6 +50,7 @@ public sealed class MachineSampler : IMachineSampler, IDisposable
     private MachineReading? _last;
     private long _lastTs;
     private MachineSample _latest = MachineSample.Unknown;
+    private int _sampling;
 
     public MachineSampler(IMachineReader reader, TimeProvider time, TimeSpan? every = null)
     {
@@ -78,7 +81,22 @@ public sealed class MachineSampler : IMachineSampler, IDisposable
     public void Start()
     {
         lock (_gate)
-            _timer ??= _time.CreateTimer(_ => Sample(), null, TimeSpan.Zero, _every);
+            _timer ??= _time.CreateTimer(_ => Tick(), null, TimeSpan.Zero, _every);
+    }
+
+    /// <summary>The timer's sample, none while the last is still being read.</summary>
+    private void Tick()
+    {
+        if (Interlocked.Exchange(ref _sampling, 1) != 0)
+            return;
+        try
+        {
+            Sample();
+        }
+        finally
+        {
+            Volatile.Write(ref _sampling, 0);
+        }
     }
 
     /// <summary>Takes one sample now (the timer calls this; a test calls it to step).</summary>

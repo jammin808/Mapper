@@ -97,13 +97,16 @@ internal sealed class ControlRig : IAsyncDisposable
     public JsonElement State() => JsonDocument.Parse(Engine.State().Json).RootElement.Clone();
 
     /// <summary>Waits until a condition on the engine holds (real-time work: sockets, the control loop), or fails after 10 s.</summary>
-    public static async Task Until(Func<bool> condition, string what)
+    public static Task Until(Func<bool> condition, string what) => Until(condition, what, null);
+
+    /// <summary>Waits until a condition on the engine holds, or fails after 10 s with what <paramref name="saw"/> reads then.</summary>
+    public static async Task Until(Func<bool> condition, string what, Func<string>? saw)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (!condition())
         {
             if (DateTime.UtcNow > deadline)
-                Assert.Fail("timed out waiting for " + what);
+                Assert.Fail("timed out waiting for " + what + (saw is null ? "" : ": " + saw()));
             await Task.Delay(10);
         }
     }

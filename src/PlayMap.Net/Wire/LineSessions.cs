@@ -47,8 +47,8 @@ internal sealed class LineSessions : IAsyncDisposable
         _prefix = prefix;
         _runner = new CommandRunner(endpoint, wall, log);
         _isAnimating = options.IsAnimating ?? (() => endpoint is INodeActivity { IsAnimating: true });
-        _stateThrottle = new TrailingThrottle(options.PushThrottle, PushState, log, _stop.Token);
-        _projectThrottle = new TrailingThrottle(options.PushThrottle, PushProject, log, _stop.Token);
+        _stateThrottle = new TrailingThrottle(options.PushThrottle, PushState, log, options.Time, _stop.Token);
+        _projectThrottle = new TrailingThrottle(options.PushThrottle, PushProject, log, options.Time, _stop.Token);
     }
 
     public NodeSettings Settings => _settings();

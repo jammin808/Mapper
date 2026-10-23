@@ -64,13 +64,14 @@ public sealed partial class EngineCore
             _preflightRunning = id;
         }
         FactsChanged();
-        var run = RunPreflightAsync(id, c.Session.ClientName, all);
         if (wait)
         {
             // The group's leader asks each member this way: the member's receipt carries its finished report.
-            var report = await run.ConfigureAwait(false);
+            var report = await RunPreflightAsync(id, c.Session.ClientName, all).ConfigureAwait(false);
             return CommandReply.Success(JsonOut(w => PreflightReports.Write(w, report)), $"preflight {id} by {c.Session.ClientName}");
         }
+        // Answered with the id at once: the run, which journals how it ended, begins behind this line's row.
+        c.AfterRow(() => _ = RunPreflightAsync(id, c.Session.ClientName, all));
         var payload = JsonOut(w =>
         {
             w.WriteStartObject();

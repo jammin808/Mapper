@@ -59,8 +59,10 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
   show instant. The leader's `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` ride the same feed, each answered with a
   member's receipt, and members report their vblanks to the leader's board (docs/SYNC.md).
 - **Media**: library items are identified by SHA-256; a node that lacks a file pulls it from any peer that has it
-  (`MEDIA FETCH ALL`), in resumable 8 MiB ranges, throttled while a show plays; STATE says which files are
-  present, verified and decodable on each node.
+  (`MEDIA FETCH ALL`), in resumable 8 MiB ranges, verified by its hash before it lands. On the exe, which composes the
+  fleet's part, the pull goes with the peer's proof over `/mirror/media` and is not throttled while a show plays (an open
+  fix, docs/ROADMAP.md); a node without that part pulls over the peer's `/api/media`, throttled while a show plays
+  (docs/WIRE.md). STATE says which files are present, verified and decodable on each node.
 
 ## 5. Proposed for Show Bus 1.3 (changes to Patterns and Stagewatch, not made by PlayMap)
 

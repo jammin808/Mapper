@@ -30,4 +30,11 @@
     <ProjectReference Include="..\..\src\PlayMap.App\PlayMap.App.csproj" />
   </ItemGroup>
 
+  <!-- The clock a test moves by hand, shared by the Engine, App and Net suites rather than copied; its namespace is imported in every
+       file. -->
+  <ItemGroup Label="fix-longpoll-win">
+    <Compile Include="..\Shared\ManualTime.cs" Link="Shared\ManualTime.cs" />
+    <Using Include="PlayMap.Tests" />
+  </ItemGroup>
+
 </Project>

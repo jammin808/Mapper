@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
@@ -126,9 +125,9 @@ public sealed class FocalLockProvenanceTests
 
 /// <summary>PROJECTOR SOLVE holds the control lane only to read the projector and to apply its result: the solve and its score (one
 /// uncertainty analysis, the long-throw solve's, which the score takes as it is) run off it. The lane's 10 ms slice is a budget on real
-/// work, measured as the longest a line waits for the lane while solves run beside it: the regular test records it and holds it to its
-/// 4× ceiling; the Perf twin, run with the Perf tests at integration, holds it to 10 ms. Both run in the serial collection, after the
-/// parallel tests. A projector changed while it is solved is not overwritten.</summary>
+/// work, measured as the longest a line waits for the lane while solves run beside it, on the lane itself (<see cref="LaneTimes"/>):
+/// the regular test records it and holds it to its 4× ceiling; the Perf twin, run with the Perf tests at integration, holds it to
+/// 10 ms. Both run in the serial collection, after the parallel tests. A projector changed while it is solved is not overwritten.</summary>
 [Collection(SurveyPerfCollection.Name)]
 public sealed class ProjectorSolveLaneTests(ITestOutputHelper log)
 {
@@ -136,7 +135,8 @@ public sealed class ProjectorSolveLaneTests(ITestOutputHelper log)
     internal const double LaneSliceBudgetMs = 10;
 
     /// <summary>The longest the lane kept a line waiting during each of seven PROJECTOR SOLVEs of a far projector with fifteen pins and
-    /// its lens prior (after one that warms the code): their median and the worst (ms).</summary>
+    /// its lens prior (after one that warms the code): their median and the worst (ms), each wait read on the lane
+    /// (<see cref="LaneProbe"/>), never with the test's own continuation in it.</summary>
     internal static async Task<(double Median, double Worst)> LaneTimes(ITestOutputHelper log)
     {
         await using var rig = new SiteRig(FarProjector.Project(FarProjector.Truth with { Fx = FarProjector.Truth.Fx * 1.02, Fy = FarProjector.Truth.Fy * 1.02 }, deep: true));
@@ -145,14 +145,11 @@ public sealed class ProjectorSolveLaneTests(ITestOutputHelper log)
         var held = new List<double>();
         for (var i = 0; i < 7; i++)
         {
+            var probe = new LaneProbe(rig.Engine.Lane);
             var solve = rig.Ok($"PROJECTOR SOLVE {FarProjector.Id}");
             var worst = 0.0;
             while (!solve.IsCompleted)
-            {
-                var wait = Stopwatch.StartNew();
-                await rig.Engine.Lane.RunAsync(() => { });
-                worst = Math.Max(worst, wait.Elapsed.TotalMilliseconds);
-            }
+                worst = Math.Max(worst, await probe.WaitedMsAsync());
             await solve;
             held.Add(worst);
         }

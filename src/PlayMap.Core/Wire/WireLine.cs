@@ -14,6 +14,10 @@ public sealed record WireLine(string? RequestId, IReadOnlyList<string> Words, st
 
     public int Count => Words.Count;
 
+    /// <summary>Word <paramref name="i"/> as the line spells it between its quotes, its escapes not undone; null when that word is not a
+    /// quoted phrase (<see cref="WireGrammar.QuotedText"/>).</summary>
+    public string? QuotedText(int i) => WireGrammar.QuotedText(Raw, i);
+
     /// <summary>The raw text after the first <paramref name="skip"/> words (JSON arguments ride here).</summary>
     public string RestAfter(int skip)
     {
@@ -45,7 +49,8 @@ public sealed record WireParseError(string? RequestId, string Reason);
 
 /// <summary>The line grammar Patterns' wire speaks, which PlayMap's wire speaks too: one UTF-8 line per
 /// command; an optional "@id " prefix ([A-Za-z0-9_-]{1,32}); words split on spaces with "double quotes"
-/// keeping a phrase whole (backslash escapes a quote); replies are "OK …" / "ERR …" with the id after the
+/// keeping a phrase whole, a backslash in it escaping the mark after it (\" a quote, \\ a backslash, and any
+/// other mark read alone); a bare word keeps every backslash; replies are "OK …" / "ERR …" with the id after the
 /// first word.</summary>
 public static class WireGrammar
 {
@@ -104,58 +109,127 @@ public static class WireGrammar
 
     public static bool TrySplit(string text, out List<string> words, out string why)
     {
+        ArgumentNullException.ThrowIfNull(text);
         words = [];
         why = "";
         var sb = new StringBuilder();
         var i = 0;
-        while (i < text.Length)
+        while (SkipSpace(text, ref i))
         {
-            while (i < text.Length && char.IsWhiteSpace(text[i]))
-                i++;
-            if (i >= text.Length)
-                break;
             sb.Clear();
-            if (text[i] == '"')
+            var start = i;
+            if (!ReadWord(text, ref i, sb, out _))
             {
-                i++;
-                var closed = false;
-                while (i < text.Length)
-                {
-                    var c = text[i];
-                    if (c == '\\' && i + 1 < text.Length)
-                    {
-                        sb.Append(text[i + 1]);
-                        i += 2;
-                        continue;
-                    }
-                    if (c == '"')
-                    {
-                        closed = true;
-                        i++;
-                        break;
-                    }
-                    sb.Append(c);
-                    i++;
-                }
-                if (!closed)
-                {
-                    why = "a quote that does not close";
-                    return false;
-                }
-            }
-            else if (text[i] is '{' or '[')
-            {
-                // A JSON argument is one word to the end of the line.
-                sb.Append(text, i, text.Length - i);
-                i = text.Length;
-            }
-            else
-            {
-                while (i < text.Length && !char.IsWhiteSpace(text[i]))
-                    sb.Append(text[i++]);
+                why = EscapesAQuote(text, start + 1) ? UnclosedAfterEscapedQuote : "a quote that does not close";
+                return false;
             }
             words.Add(sb.ToString());
         }
+        return true;
+    }
+
+    /// <summary>Why a phrase that does not close holds a backslash before a quote: that quote is a mark of the phrase, so a phrase typed
+    /// to end in a backslash, as Explorer gives a folder, runs on to the end of the line.</summary>
+    private const string UnclosedAfterEscapedQuote =
+        @"a quote that does not close — inside quotes \"" is a quote mark, never the phrase's end, so a phrase that ends in a backslash doubles it (""C:\\shows\\"")";
+
+    /// <summary>Whether the open phrase from <paramref name="from"/> holds a backslash escaping a quote, read as <see cref="ReadWord"/>
+    /// reads it.</summary>
+    private static bool EscapesAQuote(string text, int from)
+    {
+        for (var i = from; i + 1 < text.Length; i++)
+        {
+            if (text[i] != '\\')
+                continue;
+            if (text[i + 1] == '"')
+                return true;
+            i++;
+        }
+        return false;
+    }
+
+    /// <summary>Word <paramref name="index"/> of a line as the line spells it between its quotes, its escapes not undone ("C:\\clips"
+    /// for the word C:\clips); null when that word is not a quoted phrase (a bare word, JSON, past the last word) or the line does not
+    /// split.</summary>
+    public static string? QuotedText(string text, int index)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var sb = new StringBuilder();
+        var i = 0;
+        for (var w = 0; SkipSpace(text, ref i); w++)
+        {
+            sb.Clear();
+            if (!ReadWord(text, ref i, sb, out var quoted))
+                return null;
+            if (w == index)
+                return quoted is { } phrase ? text[phrase] : null;
+        }
+        return null;
+    }
+
+    /// <summary>Whether a quoted phrase, as the line spells it between its quotes, holds a backslash before a mark other than a quote or a
+    /// backslash. A backslash in a quoted phrase escapes the mark after it, as Patterns reads it, so that mark is read alone and the
+    /// backslash is lost: the phrase C:\clips\a.mp4 reads as C:clipsa.mp4. <see cref="Quote"/> writes no such phrase.</summary>
+    public static bool DropsBackslash(string quoted)
+    {
+        ArgumentNullException.ThrowIfNull(quoted);
+        for (var i = 0; i + 1 < quoted.Length; i++)
+        {
+            if (quoted[i] != '\\')
+                continue;
+            if (quoted[i + 1] is not ('"' or '\\'))
+                return true;
+            i++;
+        }
+        return false;
+    }
+
+    /// <summary>Moves past white space; false at the end of the text.</summary>
+    private static bool SkipSpace(string text, ref int i)
+    {
+        while (i < text.Length && char.IsWhiteSpace(text[i]))
+            i++;
+        return i < text.Length;
+    }
+
+    /// <summary>Reads the word that starts at <paramref name="i"/> into <paramref name="word"/> and moves past it: a quoted phrase to its
+    /// closing quote, a backslash in it taking the mark after it as it stands (<paramref name="quoted"/> is the phrase as the line spells
+    /// it between its quotes); a word that opens with "{" or "[" to the end of the line (JSON); any other word to the next white space.
+    /// False when a quote does not close.</summary>
+    private static bool ReadWord(string text, ref int i, StringBuilder word, out Range? quoted)
+    {
+        quoted = null;
+        if (text[i] == '"')
+        {
+            var from = ++i;
+            while (i < text.Length)
+            {
+                var c = text[i];
+                if (c == '\\' && i + 1 < text.Length)
+                {
+                    word.Append(text[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                if (c == '"')
+                {
+                    quoted = from..i;
+                    i++;
+                    return true;
+                }
+                word.Append(c);
+                i++;
+            }
+            return false;
+        }
+        if (text[i] is '{' or '[')
+        {
+            word.Append(text, i, text.Length - i);
+            i = text.Length;
+            return true;
+        }
+        while (i < text.Length && !char.IsWhiteSpace(text[i]))
+            word.Append(text[i++]);
         return true;
     }
 
