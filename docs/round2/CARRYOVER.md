@@ -1525,17 +1525,23 @@ Round 2 W1 notes:
   whose backup restarts after the primary has run its back-up on the Windows runner, failed once there at its line 194
   (fix-w1-followups 1fb97b03, CI run 456, the test 1 min 24 s): its mirror stayed `joining`, every pull refused 403 "the pull's nonce
   is not from now". A host now takes its wall's start from its options (`EngineHostOptions.UnixMs`; the system's time when none is
-  given), and the rig gives the nodes on one moved clock one wall, to the millisecond: the system's time as the first of them
-  started, moved as the clock under any offset moves (`HostRig.SharedWall`; `OffsetClock` and `MovableClock` name the clock under
-  them), an offset being another machine's boot, not its time. Held 61 s of real time before its restart, the test failed so on the
+  given), and the rig starts the nodes on one moved clock on one wall, within a millisecond: the system's time as the first of them
+  started, moved as the clock under any offset moves (`HostRig.MovedWallOf`; `OffsetClock` and `MovableClock` name the clock under
+  them), an offset at the start being another machine's boot, not its time (a `MovableClock` moved later steps that node's wall
+  alone, as a machine's clock stepping). Held 61 s of real time before its restart, the test failed so on the
   old wall, its five pulls refused with those words, and passes on the shared one;
   `HostWallTests.TwoNodesOnOneMovedClockStartedApartInRealTimeReadOneWall` starts a second node 250 ms of real time after the first on
   the same clock, 5 h ahead: against the old wall it failed (the walls 1.5 s apart), and they read one wall now, before and after the
-  clock moves 90 s, 3 runs of 3. A node started again on a moved clock that has not moved starts a millisecond after its last start,
-  as a machine's clock moves on while it restarts, so its views' rings, whose generations count from its start (`PreviewViews`),
-  never take its last run's names: `HostWallTests.ANodeStartedAgainOnAClockThatHasNotMovedStartsAMillisecondAfterItsLastStart`
-  read its last start's wall again against the first shared wall, and reads a millisecond after it now, a node new on that clock
-  reading the clock's wall, 3 of 3. A node on the process's clock, wrapped in an offset or not, reads the system's time as before; no test
+  clock moves 90 s, 3 runs of 3. A node started again on a moved clock that has not moved since it stopped starts a millisecond
+  after the wall it stopped at (the rig keeps each folder's last wall, at its start and at its stop), as a machine's clock moves on
+  while it restarts, so its views' rings, whose generations count from the wall a run read as it first made its views
+  (`EngineCore.MakePreviews`, `PreviewViews`), never take its last run's names while that run made fewer than a thousand rings:
+  `HostWallTests.ANodeStartedAgainOnAClockThatHasNotMovedSinceItStoppedStartsAMillisecondAfterItsStop`, its clock moved 2 s during
+  the first run, read the wall it stopped at again on a rig that kept only its start, and reads a millisecond after it now, a node
+  new on that clock reading the clock's wall, 3 of 3. A node started again after its clock was moved back reads the clock's wall,
+  as its peers do: `HostWallTests.ANodeStartedAgainAfterItsClockWasMovedBackReadsTheClocksWall`, the clock moved back 90 s, read
+  90 s ahead of its peer on that rig and reads its peer's wall now, 3 of 3; its rings may then take a name of its last run's, which
+  `PreviewViews.NewRing` deletes and steps past. A node on the process's clock, wrapped in an offset or not, reads the system's time as before; no test
   tells the two apart, as they part only when the system's clock is slewed or stepped during a run. The pid record keeps the
   system's time whatever the wall starts from, the supervisor reading it against the process's start:
   `PidRecordHostTests.TheRecordsStartIsTheSystemsTimeWhereverTheNodesWallStarts`, a node whose wall starts a day behind, failed
