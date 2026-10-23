@@ -152,6 +152,14 @@ The lab checks still to do:
   racing the stage builder's first tables, not proven; it now waits for them),
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (its 125 ms spin counted 61.49 ms of 127.56 ms by the
   stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
+  `PromoteTests`' one Windows read of a follower's journal before the row of its follow of the group's new leader (consistent with
+  a slow settings write, or the watch's thread held, between the epoch's move, which STATE shows, and the row, not proven; the test
+  now waits for the row, which says whether the epoch was kept, and the follow raises STATE's push before it; a step-down, a backup's
+  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them, and every change of the
+  fleet's settings, a fence's and a takeover's too, pushes STATE before its row; the same read of a row
+  before it is written, not seen failing, is gone from `ClockSlewTests` and `MemberCommitTests` (a blind commit's landing),
+  `AnchorFeedTests` (a rejoin after a restart, and a follower now says it free-wheels in STATE before its row) and
+  `BackupRestartTests` (a primary that goes out without hearing its backup)),
   `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
   (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
   now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent
