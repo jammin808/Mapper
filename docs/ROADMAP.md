@@ -208,15 +208,13 @@ The lab checks still to do:
   words and the heap).
 - Watched, short real-time windows a sweep of the tests found and none has failed on yet (each keeps its bar; the fix named is
   the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
-  measure of the work rather than the stopwatch): the real-time throughput bars the Windows job runs at 1×
-  (`PerformanceTests.A1080pH264DecodesFasterThanRealTimeInSoftware`,
-  `SelfCalibrationTests.SelfCalibrationRecoversFocalAndRotationFromNoisyRoomPairsWithinASecond`,
-  `FirstMapTests.TheFirstMapTakesUnderFiveSecondsOfMachineTime`, `LightPlanPerfTests.TwelveProjectorsPlanInThreeSeconds`; a reading
-  of the same runner, or the bar kept as a lab line, closes them) and the desk's hold button timed on the stopwatch
-  (600 ms; its ring's timer runs in the headless tests only when a test yields to the dispatcher, which no test that holds a button
-  does while it holds, so none races it now; the desk's clock closes it). The optimise worker's stop graces, the clip loop's
-  playback, the anchor feed's adoption, the clock sync's round trip, the folder camera's settle and Art-Net's timecode now run on
-  what the test holds, or are logged (docs/round2/CARRYOVER.md).
+  measure of the work rather than the stopwatch): the desk's hold button timed on the stopwatch (600 ms; its ring's timer runs in
+  the headless tests only when a test yields to the dispatcher, which no test that holds a button does while it holds, so none
+  races it now; the desk's clock closes it). The optimise worker's stop graces, the clip loop's playback, the anchor feed's
+  adoption, the clock sync's round trip, the folder camera's settle and Art-Net's timecode now run on what the test holds, or are
+  logged, and the real-time throughput bars run in CI's serial Perf step after the suites (docs/round2/CARRYOVER.md).
+- The integration gate's script, which is not in this tree, runs the `Category=Perf` tests inside the suites, beside the parallel
+  test classes. Running them after the suites, one project and one test collection at a time, as CI's Perf step does, closes it.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.

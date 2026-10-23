@@ -103,11 +103,12 @@ jobs:
         run: |
           # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
           # reads, written by the runtime: tens of megabytes, never the heap), read into the log below, and the next project runs.
+          # The Category=Perf tests run after the suites, in a step of their own.
           failed=""
           for project in tests/*/*.csproj; do
             name=$(basename "$project" .csproj)
             echo "::group::$name"
-            dotnet test "$project" -c Release --no-build --logger "trx;LogFileName=$name.trx" \
+            dotnet test "$project" -c Release --no-build --filter "Category!=Perf" --logger "trx;LogFileName=$name.trx" \
               --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini || failed="$failed $name"
             echo "::endgroup::"
           done
@@ -122,6 +123,24 @@ jobs:
           dotnet test tests/PlayMap.Render.Tests/PlayMap.Render.Tests.csproj -c Release --no-build \
             --logger "trx;LogFileName=PlayMap.Render.Tests.es300.trx" \
             --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+      - name: The Perf bars, serially, after the suites
+        # Every project's Category=Perf tests, one project and one test collection at a time, so a bar times its own work and not the
+        # suites' beside it; their results are kept as <project>.perf.trx. A project that fails is named with the machine's load
+        # average before and after its run and the cores it had. It runs whatever the steps above said.
+        if: ${{ !cancelled() }}
+        run: |
+          failed=""
+          for project in tests/*/*.csproj; do
+            name=$(basename "$project" .csproj)
+            echo "::group::$name (Perf)"
+            before=$(cut -d' ' -f1-3 /proc/loadavg)
+            if ! dotnet test "$project" -c Release --no-build --filter "Category=Perf" --logger "trx;LogFileName=$name.perf.trx" \
+                --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini -- xUnit.ParallelizeTestCollections=false; then
+              failed="$failed $name (load average $before before, $(cut -d' ' -f1-3 /proc/loadavg) after, $(nproc) cores);"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then echo "::error::Perf failed:$failed"; exit 1; fi
       # A test host that --blame-hang stopped: every managed thread's stack from each hang dump in a project's TestResults (dotnet-dump's
       # clrstack -all), so the log says where the host stood — in a test, in a fixture, or before any test while the suite was
       # discovered. dotnet-dump 10.0.750501 from nuget.org, the .nupkg held to its SHA-256 and run from the package itself; the dumps
@@ -336,14 +355,14 @@ jobs:
           # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
           # reads: tens of megabytes, never the heap), read into the log after the Direct3D 12 leg, and the next project runs. No test
           # project fails the step, and so does a suite that answers 0 but leaves no results file. The Backend=D3D12 tests run in the
-          # Direct3D 12 leg below, so each result is counted once.
+          # Direct3D 12 leg below, so each result is counted once, and the Category=Perf tests in the Perf step after this one.
           $failed = @()
           $projects = @(Get-ChildItem tests/*/*.csproj)
           if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
           foreach ($project in $projects) {
             $name = $project.BaseName
             Write-Host "::group::$name"
-            dotnet test $project.FullName -c Release --no-build --filter "Backend!=D3D12" --logger "trx;LogFileName=$name.trx" `
+            dotnet test $project.FullName -c Release --no-build --filter "Backend!=D3D12&Category!=Perf" --logger "trx;LogFileName=$name.trx" `
               --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
             if ($LASTEXITCODE -ne 0) { $failed += $name }
             elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
@@ -358,6 +377,33 @@ jobs:
             }
           }
           if ($failed.Count -gt 0) { Write-Host "::error::failed: $($failed -join ' ')"; exit 1 }
+          exit 0
+      - name: The Perf bars, serially, after the suites
+        # As on Linux: every project's Category=Perf tests (the Direct3D 12 leg's apart), one project and one test collection at a time,
+        # before Direct3D 12 is put beside the hosts, so they run on what the suites ran on; results as <project>.perf.trx. A project
+        # that fails is named with the processors' load before and after its run and the cores it had. It runs whatever the suites said.
+        if: ${{ !cancelled() && !inputs.d3d12 }}
+        shell: pwsh
+        run: |
+          function Load { '{0:0} %' -f (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average }
+          $failed = @()
+          foreach ($project in @(Get-ChildItem tests/*/*.csproj)) {
+            $name = $project.BaseName
+            Write-Host "::group::$name (Perf)"
+            $before = Load
+            dotnet test $project.FullName -c Release --no-build --filter "Category=Perf&Backend!=D3D12" --logger "trx;LogFileName=$name.perf.trx" `
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini -- xUnit.ParallelizeTestCollections=false
+            if ($LASTEXITCODE -ne 0) { $failed += "$name (processors $before loaded before, $(Load) after, $([Environment]::ProcessorCount) cores)" }
+            Write-Host "::endgroup::"
+          }
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          foreach ($trx in Get-ChildItem tests/*/TestResults/*.perf.trx) {
+            foreach ($hit in Select-Xml -Path $trx.FullName -XPath "//t:UnitTestResult[@outcome='Failed']" -Namespace $ns) {
+              $message = ($hit.Node.Output.ErrorInfo.Message -split "`n" | Select-Object -First 4) -join ' | '
+              Write-Host "FAILED $($trx.BaseName): $($hit.Node.testName) :: $message"
+            }
+          }
+          if ($failed.Count -gt 0) { Write-Host "::error::Perf failed: $($failed -join '; ')"; exit 1 }
           exit 0
       - name: Direct3D 12 beside the test hosts
         # After the suites above, so they ran on Windows' own WARP as before: d3d10warp.dll beside every test project's Release
