@@ -1256,9 +1256,9 @@ Round 2 W1 notes:
   Windows dumper writes thread information alone, which no managed stack walk reads), and on a failed job prints every managed
   thread's stack from each dump (dotnet-dump 10.0.750501, the package held to its SHA-256), so a stall before the first test is
   named as a test's is. Shown on Linux only: the Linux step's reading of a stalled discovery's dump stood in the build under the
-  attribute's constructor. On Windows the dump through `VSTEST_DUMP_FORCENETDUMP`, the Windows stacks step and the Windows forms of
-  `NativeBuildTests` and `ToolProbeTests` (a batch file whose helper is started with `start /b`, `ping.exe`) have not yet run (no
-  Windows runner was at hand): the Windows job's next run is their first.
+  attribute's constructor. On Windows the forms of `NativeBuildTests` and `ToolProbeTests` (a batch file whose helper is started
+  with `start /b`, `ping.exe`) passed at 1fb97b03 (CI run 456), and the Windows stacks step ran there and found no dump, no host
+  having hung; the dump through `VSTEST_DUMP_FORCENETDUMP`, and the step's reading of one, have not been shown on Windows.
 - Done: the phone scan rig's hub runs on a clock the test holds (`PhoneScanRig.PhoneTime`), the phone bridge test's scan waits for
   each answer on a held clock too, and the hub counts a hello's wait on its own clock, its words going before the socket is let go.
   A session ends "stopped sending: nothing for 10 s" when the node has read nothing from the phone for `QuietTimeout` on the hub's
@@ -1525,13 +1525,21 @@ Round 2 W1 notes:
   whose backup restarts after the primary has run its back-up on the Windows runner, failed once there at its line 194
   (fix-w1-followups 1fb97b03, CI run 456, the test 1 min 24 s): its mirror stayed `joining`, every pull refused 403 "the pull's nonce
   is not from now". A host now takes its wall's start from its options (`EngineHostOptions.UnixMs`; the system's time when none is
-  given), and the rig gives the nodes on one moved clock one wall: the system's time as the first of them started, moved as the clock
-  under any offset moves (`HostRig.SharedWall`; `OffsetClock` and `MovableClock` name the clock under them), an offset being
-  another machine's boot, not its time. Held 61 s of real time before its restart, the test failed so on the old wall, its five pulls
-  refused with those words, and passes on the shared one; `HostWallTests.TwoNodesOnOneMovedClockStartedApartInRealTimeReadOneWall`
-  starts a second node 250 ms of real time after the first on the same clock, 5 h ahead: against the old wall it failed (the walls
-  1.5 s apart), and they read one wall now, before and after the clock moves 90 s. A node on the process's clock reads the system's
-  time as before.
+  given), and the rig gives the nodes on one moved clock one wall, to the millisecond: the system's time as the first of them
+  started, moved as the clock under any offset moves (`HostRig.SharedWall`; `OffsetClock` and `MovableClock` name the clock under
+  them), an offset being another machine's boot, not its time. Held 61 s of real time before its restart, the test failed so on the
+  old wall, its five pulls refused with those words, and passes on the shared one;
+  `HostWallTests.TwoNodesOnOneMovedClockStartedApartInRealTimeReadOneWall` starts a second node 250 ms of real time after the first on
+  the same clock, 5 h ahead: against the old wall it failed (the walls 1.5 s apart), and they read one wall now, before and after the
+  clock moves 90 s, 3 runs of 3. A node started again on a moved clock that has not moved starts a millisecond after its last start,
+  as a machine's clock moves on while it restarts, so its views' rings, whose generations count from its start (`PreviewViews`),
+  never take its last run's names: `HostWallTests.ANodeStartedAgainOnAClockThatHasNotMovedStartsAMillisecondAfterItsLastStart`
+  read its last start's wall again against the first shared wall, and reads a millisecond after it now, a node new on that clock
+  reading the clock's wall, 3 of 3. A node on the process's clock, wrapped in an offset or not, reads the system's time as before; no test
+  tells the two apart, as they part only when the system's clock is slewed or stepped during a run. The pid record keeps the
+  system's time whatever the wall starts from, the supervisor reading it against the process's start:
+  `PidRecordHostTests.TheRecordsStartIsTheSystemsTimeWhereverTheNodesWallStarts`, a node whose wall starts a day behind, failed
+  with the wall's start in its record and passes 3 of 3 now.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
