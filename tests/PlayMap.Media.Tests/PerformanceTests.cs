@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using PlayMap.Core.Media;
 using PlayMap.Core.Time;
 using PlayMap.Media.Frames;
 using PlayMap.Media.Hap;
@@ -188,11 +189,39 @@ public class PerformanceTests(ITestOutputHelper output)
         Assert.Equal(0, after - before);
     }
 
+    /// <summary>Every frame of a 1080p H.264 clip decoded in software and handed out at its time; the rate is logged. The real-time
+    /// bar is the Perf twin's (<see cref="A1080pH264DecodesFasterThanRealTimeInSoftware"/>).</summary>
     [Fact]
+    public async Task A1080pH264DecodesEveryFrameInSoftware()
+    {
+        var (frames, fps, health) = await Decode1080pAsync();
+        output.WriteLine($"1080p H.264, {frames} frames, {Environment.ProcessorCount} cores: source {fps:0.0} fps " +
+            $"(decode p95 {health.DecodeMsP95:0.00} ms/frame, {health.Decoder})");
+        Assert.False(health.Hardware, health.Status);
+    }
+
+    /// <summary>The decode's pace against real time, beside FFmpeg's own decode-only rate of the same file: run serially in the Perf
+    /// step after the suites.</summary>
+    [Fact]
+    [Trait("Category", "Perf")]
     public async Task A1080pH264DecodesFasterThanRealTimeInSoftware()
     {
-        var clip = TestMedia.Clip("h264_1080.mp4");
-        using var source = new FfmpegVideoSource(clip, new VideoSourceOptions { Decoder = new Ffmpeg.DecoderOptions { AllowHardware = false } });
+        var (frames, fps, health) = await Decode1080pAsync();
+
+        // FFmpeg's own decode-only rate of the same file, for scale.
+        var tool = Stopwatch.StartNew();
+        TestMedia.Run("-threads", "0", "-i", TestMedia.Clip("h264_1080.mp4"), "-f", "null", "-");
+        var toolFps = frames / tool.Elapsed.TotalSeconds;
+        output.WriteLine($"1080p H.264, {frames} frames, {Environment.ProcessorCount} cores: source {fps:0.0} fps " +
+            $"(decode p95 {health.DecodeMsP95:0.00} ms/frame, {health.Decoder}); ffmpeg decode-only {toolFps:0.0} fps");
+        Assert.True(fps > 25, $"{fps:0.0} fps is slower than real time");
+    }
+
+    /// <summary>Plays the 1080p clip frame by frame in software, each frame waited for and acquired at its time: the frames, the rate
+    /// by the stopwatch and the source's health after.</summary>
+    private static async Task<(int Frames, double Fps, SourceHealth Health)> Decode1080pAsync()
+    {
+        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_1080.mp4"), new VideoSourceOptions { Decoder = new Ffmpeg.DecoderOptions { AllowHardware = false } });
         Assert.True(await source.Opened, source.Health.Status);
         var rate = FrameRate.Fps25;
         var frames = (int)rate.FrameAt(source.Info.DurationNs - 1) + 1;
@@ -205,16 +234,7 @@ public class PerformanceTests(ITestOutputHelper output)
             using var lease = source.Acquire(t);
             Assert.NotNull(lease);
         }
-        var fps = frames / clock.Elapsed.TotalSeconds;
-
-        // FFmpeg's own decode-only rate of the same file, for scale.
-        var tool = Stopwatch.StartNew();
-        TestMedia.Run("-threads", "0", "-i", clip, "-f", "null", "-");
-        var toolFps = frames / tool.Elapsed.TotalSeconds;
-        var health = source.Health;
-        output.WriteLine($"1080p H.264, {frames} frames, {Environment.ProcessorCount} cores: source {fps:0.0} fps " +
-            $"(decode p95 {health.DecodeMsP95:0.00} ms/frame, {health.Decoder}); ffmpeg decode-only {toolFps:0.0} fps");
-        Assert.True(fps > 25, $"{fps:0.0} fps is slower than real time");
+        return (frames, frames / clock.Elapsed.TotalSeconds, source.Health);
     }
 
     [Fact]

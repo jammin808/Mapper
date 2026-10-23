@@ -132,13 +132,18 @@ public sealed class ClockSlewTests
         var master = node.Engine.AirGain("op_1", node.Engine.LeaderNowNs);
         Assert.Equal(0.875, master, 1e-6);   // a quarter of the way from 1 to 0.5
 
-        // The leader's clock jumps 5 ms (its machine stepped): the member steps with it.
+        // The leader's clock jumps 5 ms (its machine stepped): the member steps with it. Each check after the step says, when it fails,
+        // what the node held then: each lane's anchors, the clock's steps and the journal.
         leaderClock.OffsetNs = 7 * Second + 5_000_000;
-        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(node).GetProperty("steps").GetInt64() == 2), node.Journal());
-        Assert.Equal(5_000_000, node.Engine.Services.Clock.LastStepNs);
-        Assert.Equal(leader.Engine.AnchorJson("pl_show"), node.Engine.AnchorJson("pl_show"));   // already on the leader's line
-        Assert.Equal(local, Position(node, "pl_local"));                                         // moved with the step
-        Assert.Equal(master, node.Engine.AirGain("op_1", node.Engine.LeaderNowNs), 1e-6);         // the master's fade too
+        Assert.True(await Eventually.TrueAsync(() => SyncRig.Sync(node).GetProperty("steps").GetInt64() == 2), Why(node));
+        var step = node.Engine.Services.Clock.LastStepNs;
+        Assert.True(step == 5_000_000, $"last step {step} ns; {Why(node)}");
+        var (theirs, ours) = (leader.Engine.AnchorJson("pl_show"), node.Engine.AnchorJson("pl_show"));
+        Assert.True(theirs == ours, $"leader {theirs}, member {ours}; {Why(node)}");                       // already on the leader's line
+        var moved = Position(node, "pl_local");
+        Assert.True(moved == local, $"{moved - local} ns; {Why(node)}");                                     // moved with the step
+        var gain = node.Engine.AirGain("op_1", node.Engine.LeaderNowNs);
+        Assert.True(Math.Abs(gain - master) <= 1e-6, $"master {gain} against {master}; {Why(node)}");     // the master's fade too
     }
 
     /// <summary>A leader's anchor and the group's record that its playlist is on the leader's time line are one action on the member's

@@ -197,6 +197,11 @@ The lab checks still to do:
   its stop whatever it meets, letting the desk go throws nothing, and the services an engine built without the host owns are all
   let go when one of them fails to stop; the same shape is gone from the fleet monitor's health dial, a backup's pulls from its
   primary and a node's own `MEDIA FETCH`, which a late refusal no longer logs as a fault at a stop),
+  `ClockSlewTests.AStepAfterAdoptionLeavesTheLeadersAnchorAndMovesTheRest`' one failure in a loaded gate run beside the light
+  plan's budget and the survey import's 2 M-triangle bars (its message was not kept; its one message on record, the master's fade
+  read on its old instants after the step, was fixed when a step came to be counted once taken in full; pinned to one core beside
+  4, 8 and 16 busy loops it passed 9 runs of 9, and the Sync tests on two cores beside four passed twice; each check after its step
+  now names every lane's anchors, the clock's steps and the journal),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's

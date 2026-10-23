@@ -1420,6 +1420,18 @@ Round 2 W1 notes:
   runs on the node's clock, moved 40 ms a frame once the source has read the last: with 120 ms between each send and its read, the
   real clock read dropout 3 of 3 and the node's clock reads rolling 3 of 3. The throughput bars ride with the serial Perf step
   and the hold button with the desk's clock (`docs/ROADMAP.md`).
+- Done: the three tests one loaded gate failed together (2026-10-22, the Core suite 5 min and the Engine suite 28 min 39 s long)
+  no longer time the machine's load, or say what the node held. The light plan's budget (`LightPlanBudgetTests`) times the plan by
+  the process's CPU time across it, its collection running alone, against 4× the 3 s budget on each core, the stopwatch's time
+  logged beside it: pinned to one core beside two busy loops, the stopwatch's 12 s ceiling failed 3 runs of 3 (25.0 to 27.8 s) and
+  the CPU time held 3 of 3 (10.1 to 10.9 s against 12 s, a Debug build); the Perf twin keeps the 3 s of the stopwatch. The
+  self-calibration's and the 1080p decode's tests log their times and keep every other assertion, their bars (a second; faster than
+  real time) in Perf twins (`SelfCalibrationTests.SelfCalibrationSolvesNoisyRoomPairsWithinASecond`,
+  `PerformanceTests.A1080pH264DecodesFasterThanRealTimeInSoftware`): pinned to one core beside 8 and 12 busy loops the old bars
+  failed 3 of 3 (1691 to 1759 ms; 16.4 to 18.4 fps) and the tests pass 3 of 3.
+  `ClockSlewTests.AStepAfterAdoptionLeavesTheLeadersAnchorAndMovesTheRest`' checks after its step each name every lane's anchors,
+  the clock's steps and the journal; its failure kept no message and has not been reproduced (`docs/ROADMAP.md`).
+  `SurveyImportPerfTests`' bars are unchanged.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

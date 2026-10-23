@@ -3,6 +3,7 @@ using PlayMap.Core.Calibration;
 using PlayMap.Core.Geometry;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using Xunit.Abstractions;
 
 namespace PlayMap.Core.Tests.Calibration;
 
@@ -10,7 +11,7 @@ namespace PlayMap.Core.Tests.Calibration;
 /// wall, side wall, a box): the epipolar start, the Schur-complement bundle adjustment's accuracy and speed,
 /// the scale from one known distance, multi-projector scale linking, and triangulation from the result.</summary>
 [Collection(TimedSolves.Name)]
-public class SelfCalibrationTests
+public class SelfCalibrationTests(ITestOutputHelper log)
 {
     private static readonly MeshRaycaster Room = new(Synthetic.Room());
 
@@ -49,30 +50,38 @@ public class SelfCalibrationTests
         Assert.True(Vec3d.Distance(tTrue, rel.Value.Translation) < 0.01);
     }
 
-    [Fact]
-    public void SelfCalibrationRecoversFocalAndRotationFromNoisyRoomPairsWithinASecond()
+    /// <summary>The noisy room's 5000 pairs solved from rough priors, the code paths warmed first so the time is the solve's, not the
+    /// first call's compilation: the truths, the pairs and their world points, the result and its milliseconds by the stopwatch.</summary>
+    private static (Intrinsics CamK, Intrinsics ProjK, List<Vec2d> Cam, List<Vec2d> Proj, List<Vec3d> World, SelfCalibrationResult R, long Ms) SolveNoisyRoom()
     {
         var camK = Synthetic.Camera(62);
         var projK = Synthetic.Projector(-0.5);
         var (cam, proj, world) = Synthetic.RoomPairs(Room, camK, Synthetic.CameraPose, projK, Synthetic.ProjectorPose, 5000, 1, 0.3, 0.01);
         var camPrior = Intrinsics.FromFieldOfView(1280, 720, 68);
         var projPrior = Intrinsics.FromThrowRatio(1920, 1080, 1.38, 0, -0.5);
-        // Warm the code paths so the timing measures the solve, not the first-call compilation.
         SelfCalibration.Solve(camPrior, LensDistortion.None, [new ProjectorObservations(projPrior, LensDistortion.None, cam.Take(400).ToList(), proj.Take(400).ToList())]);
         var clock = Stopwatch.StartNew();
         var r = SelfCalibration.Solve(camPrior, LensDistortion.None, [new ProjectorObservations(projPrior, LensDistortion.None, cam, proj)]);
-        clock.Stop();
+        return (camK, projK, cam, proj, world, r, clock.ElapsedMilliseconds);
+    }
+
+    /// <summary>The solve's accuracy and what it says; its time is logged. The second it is held to is the Perf twin's
+    /// (<see cref="SelfCalibrationSolvesNoisyRoomPairsWithinASecond"/>).</summary>
+    [Fact]
+    public void SelfCalibrationRecoversFocalAndRotationFromNoisyRoomPairs()
+    {
+        var (camK, projK, cam, proj, world, r, ms) = SolveNoisyRoom();
         var p = r.Projectors[0];
         var truth = InCameraFrame(Synthetic.CameraPose, Synthetic.ProjectorPose);
-        var info = $"{r.Words} | {clock.ElapsedMilliseconds} ms, {r.Iterations} iterations, f {p.Intrinsics.Fx:0.0} vs {projK.Fx:0.0}, " +
+        var info = $"{r.Words} | {ms} ms, {r.Iterations} iterations, f {p.Intrinsics.Fx:0.0} vs {projK.Fx:0.0}, " +
             $"cam f {r.Camera.Fx:0.0} vs {camK.Fx:0.0}, rot {Synthetic.AngleDegrees(truth, p.Pose):0.000}°";
+        log.WriteLine(info);
         Assert.True(p.Solved, info);
         Assert.True(Math.Abs(p.Intrinsics.Fx / projK.Fx - 1) < 0.02, info);
         Assert.True(Synthetic.AngleDegrees(truth, p.Pose) < 0.3, info);
         Assert.True(Vec3d.Distance(truth.Position.Normalized(), p.Pose.Position.Normalized()) < 0.01, info);
         Assert.True(p.RmsPx < 0.45, info);
         Assert.True(p.InlierCount > 4800, info);
-        Assert.True(clock.ElapsedMilliseconds < 1000, info);
         Assert.False(r.Metric);
         // The geometry fixes both focal lengths, and the solve says how well.
         Assert.True(p.FocalUncertainty < 0.005 && r.CameraFocalUncertainty < 0.005, info);
@@ -98,6 +107,18 @@ public class SelfCalibrationTests
         var triErr = Enumerable.Range(0, cam.Count).Where(i => sp.Inliers[i] && tri[i].Valid)
             .Select(i => Vec3d.Distance(tri[i].Point, trueCam[i]) / trueCam[i].Length).OrderBy(x => x).ToArray();
         Assert.True(triErr[triErr.Length / 2] < 0.005, $"triangulated median {triErr[triErr.Length / 2]:P2}");
+    }
+
+    /// <summary>The noisy room's solve within a second of the stopwatch, run serially in the Perf step after the suites.</summary>
+    [Fact]
+    [Trait("Category", "Perf")]
+    public void SelfCalibrationSolvesNoisyRoomPairsWithinASecond()
+    {
+        var (_, _, _, _, _, r, ms) = SolveNoisyRoom();
+        var info = $"{r.Words} | {ms} ms, {r.Iterations} iterations";
+        log.WriteLine(info);
+        Assert.True(r.Projectors[0].Solved, info);
+        Assert.True(ms < 1000, info);
     }
 
     private static (int A, int B) FarApart(bool[] inliers, Vec3d[] pts)

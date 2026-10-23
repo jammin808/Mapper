@@ -62,30 +62,39 @@ public sealed class LightPlanTests(ITestOutputHelper log)
     }
 }
 
-/// <summary>The light plan's budget (twelve projectors over a 60 × 40 m wall sampled every 0.12 m in 3 s), timed alone — a time
-/// measured beside the parallel test classes measures them. Here the time is recorded against the 4× ceiling; the Perf twin holds the
-/// 3 s.</summary>
+/// <summary>The light plan's budget (twelve projectors over a 60 × 40 m wall sampled every 0.12 m in 3 s), its work timed by the
+/// process's CPU time across the plan: the collection runs alone, so that time is the plan's, and other processes loading the machine
+/// do not stretch it as they stretch the stopwatch's, which is logged beside it. The ceiling is 4× the budget on each core the plan
+/// may run on; the Perf twin holds the 3 s of the stopwatch.</summary>
 [Collection(TimedSolves.Name)]
 public sealed class LightPlanBudgetTests(ITestOutputHelper log)
 {
     internal const double BudgetSeconds = 3;
 
-    /// <summary>Twelve 30 000 lm projectors side by side 100 m from the wall, planned at 0.12 m: the plan and its seconds.</summary>
-    internal static (LightPlanReport Plan, double Seconds) TwelveProjectors()
+    /// <summary>Twelve 30 000 lm projectors side by side 100 m from the wall, planned at 0.12 m: the plan, its seconds by the stopwatch
+    /// and the process's CPU seconds across it.</summary>
+    internal static (LightPlanReport Plan, double Seconds, double CpuSeconds) TwelveProjectors()
     {
         var projectors = Enumerable.Range(0, 12).Select(i => LightPlanTests.Projector($"pj{i}", new Vec3d(-22 + 4 * i, 0, 100), new Vec3d(-22 + 4 * i, 0, 0))).ToArray();
         var (scene, stage) = LightPlanTests.Wall(projectors);
+        var cpu = Environment.CpuUsage.TotalTime;
         var watch = Stopwatch.StartNew();
         var plan = LightPlan.Analyse(scene, stage, null, LightPlanOptions.Default with { SampleSpacing = 0.12 });
-        return (plan, watch.Elapsed.TotalSeconds);
+        var seconds = watch.Elapsed.TotalSeconds;
+        return (plan, seconds, (Environment.CpuUsage.TotalTime - cpu).TotalSeconds);
     }
 
     [Fact]
     public void TwelveProjectorsPlanWithinTheBudget()
     {
-        var (plan, seconds) = TwelveProjectors();
-        log.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{plan.Words} in {seconds:0.00} s (budget {BudgetSeconds:0} s, ceiling {4 * BudgetSeconds:0} s)"));
-        Assert.True(seconds <= 4 * BudgetSeconds, string.Create(CultureInfo.InvariantCulture, $"{seconds:0.00} s against the 4 × {BudgetSeconds:0} s ceiling"));
+        var (plan, seconds, cpu) = TwelveProjectors();
+        var cores = Environment.ProcessorCount;
+        var ceiling = 4 * BudgetSeconds * cores;
+        var on = cores == 1 ? "1 core" : cores.ToString(CultureInfo.InvariantCulture) + " cores";
+        log.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"{plan.Words} in {cpu:0.00} s of the process's CPU time on {on}, {seconds:0.00} s by the stopwatch (budget {BudgetSeconds:0} s a core, ceiling {ceiling:0} s)"));
+        Assert.True(cpu <= ceiling, string.Create(CultureInfo.InvariantCulture,
+            $"{cpu:0.00} s of CPU time against the ceiling of 4 × {BudgetSeconds:0} s on each of {on} ({seconds:0.00} s by the stopwatch)"));
         Assert.True(Assert.Single(plan.Surfaces).Coverage > 0.4);
     }
 }
@@ -99,7 +108,7 @@ public sealed class LightPlanPerfTests(ITestOutputHelper log)
     [Fact]
     public void TwelveProjectorsPlanInThreeSeconds()
     {
-        var (plan, seconds) = LightPlanBudgetTests.TwelveProjectors();
+        var (plan, seconds, _) = LightPlanBudgetTests.TwelveProjectors();
         var optimised = typeof(LightPlan).Assembly.GetCustomAttributes(typeof(DebuggableAttribute), false)
             .OfType<DebuggableAttribute>().All(a => !a.IsJITOptimizerDisabled);
         var bar = optimised ? LightPlanBudgetTests.BudgetSeconds : 4 * LightPlanBudgetTests.BudgetSeconds;
