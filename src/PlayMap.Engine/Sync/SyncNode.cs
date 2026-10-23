@@ -1097,7 +1097,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         var wire = peer.Hello.Port("wire");
         if (wire > 0)
         {
-            var link = new AnchorFollower(peer.Address, wire, me.Name, string.Join(' ', new[] { me.NodeId }.Concat(outputs)), _wall, _log);
+            var link = new AnchorFollower(peer.Address, wire, me.Name, string.Join(' ', new[] { me.NodeId }.Concat(outputs)), _wall, _log, Clock.Local);
             var lines = Channel.CreateBounded<(string Group, string Key, string Json)>(new BoundedChannelOptions(LinesHeld)
             {
                 SingleReader = true,

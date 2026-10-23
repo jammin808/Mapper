@@ -385,9 +385,9 @@ Round 2 W1 notes:
   (`BackupMirrorLinkTests.APrimaryLightsABackupWhoseMirrorIsLostRedInStateOnItsKeyAndInPreflightAlike`). The link counted that
   silence (stale at 6 s, dropped at 12 s) on the process's clock, while the rig counts on hand-moved clocks the fleet monitor's,
   the pulls' and the sync part's watch of its leader's clock; it counts it on the node's clock now (`WireClientOptions.Clock`,
-  which `MirrorLink` takes from the node). Every other link keeps the process's clock, the sync part's anchor follower among them
-  (`AnchorFollower`, on `WireClient`'s default options): it counts its leader's silence in real time, its feed reads `connecting`
-  while that link is stale, and an otherwise identical mirror reads `joining` then.
+  which `MirrorLink` takes from the node). The engine's Patterns link and the sync part's anchor follower (`AnchorFollower`) count
+  on the node's clock too (below); a follower's feed reads `connecting` while its anchor link is stale, and an otherwise identical
+  mirror reads `joining` then.
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows failure at its line 95
   (wp3-installer c92e3c2a, run 39653186869, the test 22 s: INDEX's `FAILOVER` red `lost` where it waited amber `different`, after
   the backup's preflight had read the mirror `different`) is consistent with the mirror link's real-time silence, not proven: its
@@ -408,8 +408,8 @@ Round 2 W1 notes:
   mirror's state and words, the link's status, connection and silence on the node's clock, and when the fleet monitor last heard
   the primary.
 - Done: `LinkTests.ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown` counts the desk's silence on a
-  hand-moved clock (`PatternsLinkOptions.Clock`, which `PatternsLink` hands its link; the engine's Patterns link keeps the
-  process's clock). Stale at 400 ms and dropped at 900 ms of real time, with a ping every 2 s, its link went stale and dropped on its
+  hand-moved clock (`PatternsLinkOptions.Clock`, which `PatternsLink` hands its link; the engine's Patterns link is given the
+  node's, below). Stale at 400 ms and dropped at 900 ms of real time, with a ping every 2 s, its link went stale and dropped on its
   own about a second into every connection whether the desk answered or not (live at 25 ms, stale at 499 ms, down at 1014 ms, live
   again at 1935 ms), and each of the test's polls raced a window of a few hundred milliseconds. Its one failure in 18 loaded Linux
   Net-suite runs on fix-backup-preflight (about 5 s, its line not kept), and its one in 9 full Net runs on fix-longpoll-win at a
@@ -1332,6 +1332,19 @@ Round 2 W1 notes:
   that asks for its frames alone passed 3 of 3, and this one failed 3 of 3 (its shortest take 500.1 to 500.2 ms), as it did 3 of 3
   with `FrameBoundMs` itself 500; with the render threads frozen 1.5 s inside a take (the longest take read 1504 to 1505 ms, the
   hold 1.57 s) it passed 3 of 3, its shortest take 4.1 to 4.3 ms. No failure of it has been seen.
+- Done: the engine's Patterns link and a follower's anchor link count their peer's silence on the node's clock. `NetworkHost` made
+  the Patterns link's options with no clock and `SyncNode` made its `AnchorFollower` on `WireClient`'s default options, so each
+  counted the desk's or the leader's silence (stale at 6 s, dropped and dialled again at 12 s) and paced its pings on the process's
+  clock, while the node, and every rig that holds the node's clock, counts on the node's: of the Patterns link only the clip's trust
+  did. The Patterns link now takes the node's clock (`PatternsLinkOptions.Clock`), and `AnchorFollower` takes a clock, `SyncNode`
+  handing it the node's (`NetworkClock.Local`; the process's when none is given).
+  `HostNetworkTests.ThePatternsLinkCountsTheDesksSilenceOnTheNodesClock` and
+  `AnchorLinkClockTests.AFollowersAnchorLinkCountsItsLeadersSilenceOnTheNodesClock` hold the node's clock while the desk (the fake
+  desk's `Silent`) or a leader's wire that says nothing stays quiet for 6.5 s of real time, then move it past the stale mark and
+  past the drop mark: against the old links both failed 3 runs of 3 at their first check (the link `stale`, the feed `connecting`,
+  6 s of real time into the silence); now the link reads live on its first connection through that real-time silence, stale (the
+  feed `connecting`) on the same connection once the node's clock passes 6 s, and dials again once it passes 12 s, 3 of 3. No
+  failure of either has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

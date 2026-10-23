@@ -119,7 +119,8 @@ The lab checks still to do:
   not proven: its message gave only `("red", "lost")`, which a dropped connection fits too; its reads now name what the backup
   saw), `LinkTests`' two loaded Linux failures of the Patterns link's stale test (one on fix-backup-preflight, its line not kept;
   one on fix-longpoll-win, its last send not answered ok once the link was live again; consistent with its polls racing the link's
-  own stale-and-drop cycle in real time, which the test no longer counts on, not proven), `AnchorFeedLineTests`' one failure of its
+  own stale-and-drop cycle in real time, which the test no longer counts on, not proven; the engine's own Patterns link, and a
+  follower's anchor link, count it on the node's clock now), `AnchorFeedLineTests`' one failure of its
   one-deadline test beside ten busy loops on Linux (twenty members silent where nineteen were due; consistent with its 100 ms
   real-time deadline passing before the test handed in the one answer it gives after the send, not proven; its deadlines now run
   on a clock the test moves once the receipts are in), `HostNetworkTests`' one Windows wait for a fetched file (its

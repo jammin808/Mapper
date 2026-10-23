@@ -683,7 +683,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     {
         var (h, port) = PatternsLinkOptions.ParseAddress(host)
             ?? throw new ArgumentException($"the Patterns address '{host}' in the node's settings is not an address — LINK PATTERNS <host>[:<port>]");
-        var link = new PatternsLink(new PatternsLinkOptions { Host = h, Port = port, Token = token }, _o.Wall, _o.Mono, _o.Logs.CreateLogger("PlayMap.Net.Patterns"));
+        var link = new PatternsLink(new PatternsLinkOptions { Host = h, Port = port, Token = token, Clock = _o.Mono }, _o.Wall, _o.Mono, _o.Logs.CreateLogger("PlayMap.Net.Patterns"));
         link.BlackoutChanged += OnPatternsBlackout;
         link.VideoChanged += _ => Facts();
         link.StatusChanged += _ => Facts();

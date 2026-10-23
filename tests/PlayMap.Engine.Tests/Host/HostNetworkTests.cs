@@ -419,4 +419,32 @@ public sealed class HostNetworkTests
         Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("state").GetString() == "off"));
         Assert.True(await Eventually.TrueAsync(() => rig.Home.LoadSettings("unused") is { PatternsHost: "", PatternsToken: "" }));
     }
+
+    /// <summary>The Patterns link counts the desk's silence on the node's clock. A desk silent for longer than the stale mark of real time
+    /// while that clock stands still leaves the link live on its first connection; past the stale mark on the clock it is stale on the
+    /// same connection, and past the drop mark it drops and dials the desk again.</summary>
+    [Fact]
+    public async Task ThePatternsLinkCountsTheDesksSilenceOnTheNodesClock()
+    {
+        const string deskToken = "AAAA-BBBB-CCCC";
+        await using var desk = new FakePatternsDesk(deskToken);
+        var clock = new ManualClock(Base);
+        await using var rig = await HostRig.StartAsync(mono: clock);
+        await using var c = await rig.WireAsync();
+        Assert.StartsWith("OK @l {\"stage\":\"accepted\"", await c.AskAsync($"@l LINK PATTERNS 127.0.0.1:{desk.Port} {deskToken}"), StringComparison.Ordinal);
+        JsonElement Patterns() => rig.State().GetProperty("links").GetProperty("patterns");
+        string Word() => Patterns().GetProperty("state").GetString() ?? "";
+        Assert.True(await Eventually.TrueAsync(() => Word() == "live" && Patterns().GetProperty("paired").GetBoolean()), Word());
+
+        desk.Silent = true;
+        await Task.Delay(TimeSpan.FromMilliseconds(ShowBusConstants.StaleMs + 500));
+        Assert.Equal(("live", 1), (Word(), desk.Accepted));
+
+        clock.AdvanceMs(ShowBusConstants.StaleMs + 500);
+        Assert.True(await Eventually.TrueAsync(() => Word() == "stale"), Word());
+        Assert.Equal(1, desk.Accepted);
+
+        clock.AdvanceMs(ShowBusConstants.GoneMs - ShowBusConstants.StaleMs);
+        Assert.True(await Eventually.TrueAsync(() => desk.Accepted == 2, 30000), $"{Word()} after {desk.Accepted} connections");
+    }
 }

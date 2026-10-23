@@ -17,7 +17,9 @@ public sealed class AnchorFollower : IAsyncDisposable
     private readonly ILogger _log;
 
     /// <param name="subscribe">The words after SUBSCRIBE ANCHORS: this node's id and its output ids.</param>
-    public AnchorFollower(string host, int port, string clientName, string subscribe, ShowWallClock wall, ILogger? log = null)
+    /// <param name="clock">The clock the leader's silence is counted on (stale, then dropped and dialled again) and the link's pings
+    /// paced by: the node's; the process's when none is given.</param>
+    public AnchorFollower(string host, int port, string clientName, string subscribe, ShowWallClock wall, ILogger? log = null, IMonoClock? clock = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
         ArgumentNullException.ThrowIfNull(subscribe);
@@ -28,6 +30,7 @@ public sealed class AnchorFollower : IAsyncDisposable
             Port = port,
             ClientName = clientName,
             IdPrefix = "s",
+            Clock = clock ?? MonoClock.Instance,
             OnConnected = async ct =>
             {
                 Subscribing?.Invoke();

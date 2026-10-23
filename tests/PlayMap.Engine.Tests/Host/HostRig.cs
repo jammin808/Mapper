@@ -364,7 +364,8 @@ internal sealed class FfmpegFactAttribute : FactAttribute
 }
 
 /// <summary>A Patterns desk as the tests play it (the Net tests' fake): STATE then NONCE on connect, HELLO answered,
-/// AUTH-PROOF checked against the nonce and the HELLO name, PING and CONTEXT answered — and a test can push a STATE.</summary>
+/// AUTH-PROOF checked against the nonce and the HELLO name, PING and CONTEXT answered — and a test can push a STATE, or make the
+/// desk fall silent (it reads every line and answers none, and says nothing on a new connection).</summary>
 internal sealed class FakePatternsDesk : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
@@ -372,6 +373,7 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
     private readonly ConcurrentBag<TcpClient> _clients = [];
     private readonly Task _accept;
     private volatile StreamWriter? _current;
+    private int _accepted;
 
     public FakePatternsDesk(string token)
     {
@@ -385,6 +387,18 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
 
     public ConcurrentQueue<string> Heard { get; } = new();
+
+    /// <summary>Connections accepted so far.</summary>
+    public int Accepted => Volatile.Read(ref _accepted);
+
+    /// <summary>While set the desk writes nothing: no answer, no STATE, no NONCE.</summary>
+    public bool Silent
+    {
+        get => Volatile.Read(ref _silent);
+        set => Volatile.Write(ref _silent, value);
+    }
+
+    private bool _silent;
 
     public string State { get; set; } = StateWith(blackout: false);
 
@@ -412,6 +426,7 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
                 return;
             }
             _clients.Add(client);
+            Interlocked.Increment(ref _accepted);
             _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
         }
     }
@@ -426,11 +441,16 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             _current = writer;
             var nonce = Pairing.NewNonce();
             var name = "";
-            await writer.WriteLineAsync("STATE " + State);
-            await writer.WriteLineAsync("NONCE " + nonce);
+            if (!Silent)
+            {
+                await writer.WriteLineAsync("STATE " + State);
+                await writer.WriteLineAsync("NONCE " + nonce);
+            }
             while (await reader.ReadLineAsync() is { } line)
             {
                 Heard.Enqueue(line);
+                if (Silent)
+                    continue;
                 var (id, rest) = line.StartsWith('@') ? (line[1..line.IndexOf(' ', StringComparison.Ordinal)], line[(line.IndexOf(' ', StringComparison.Ordinal) + 1)..]) : ("", line);
                 var tag = id.Length > 0 ? " @" + id : "";
                 var words = rest.Split(' ');
