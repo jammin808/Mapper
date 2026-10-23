@@ -928,6 +928,15 @@ Round 2 W1 notes:
   running in the test host. With a part that throws, `OpsServicesTests` failed 3 of 3 against the dispose as it was (only the
   failing part and the one after it went; several failures came out as the first alone); they passed 5 runs of 5, and the rig now lets
   its engine go whatever its services' dispose meets. A node's host lets each part go on its own (`EngineHost`'s quiet stop).
+- Done: a fleet monitor's dial to a peer's health ends as the monitor's stop whatever it meets once the stop is taken. The dial
+  (`HealthFeedClient`) took a refused or reset dial in only while the stop was not taken (`… && !ct.IsCancellationRequested`), so a
+  failure raised once it was, before the stop reached the dial's own token (the stop is taken with `CancelAsync`, as the approval
+  desk's above), came out of the dial as a `WebSocketException`, which the monitor (`FleetMonitor`) writes to the engine's log as a
+  feed that faulted, with its trace, on a plain stop; on Windows a dial to a peer that went away is refused about 2 s late. With the
+  peer resetting the dial in a callback on the stop registered after the dial linked its token, the new
+  `HealthFeedsTests.ADialThePeerFailsAsTheStopIsTakenEndsAsTheStop` failed 3 of 3 against the dial as it was (the
+  `WebSocketException` over the reset); it now ends as the stop's cancel, and a dial failed before the stop still ends with its
+  words. It passed 5 runs of 5 with the fleet's Net tests. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
