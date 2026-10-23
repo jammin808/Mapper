@@ -795,9 +795,13 @@ Round 2 W1 notes:
   "did not finish … and was stopped"), reads the words for 5 s more, and says a failed build's exit code; it passed 3 of 3 under the
   same wrapper. `NativeBuildTests` runs a "compiler" whose helper holds its pipes until the test lets it go (`PipeHolder`): the
   unchanged build failed 3 of 3 ("the build was still waiting for the end of the compiler's pipes", after 60 s), the new one passed
-  3 of 3, with a compiler stopped at its deadline and one that fails with its words. The node probe a phone test's attribute runs in
-  the Net suite's discovery (`NodeTools`, npm's global root) read its tool's output to its end before its 30 s bound could apply; it
-  now ends with the tool (its test failed 3 of 3 against the old probe's logic, passed 3 of 3). CI now stops a hung test host with a
+  3 of 3, with a compiler stopped at its deadline and one that fails with its words. The probe of npm's global root that the phone
+  tests' attributes run in discovery, the Net suite's node facts and the Engine suite's browser facts alike (`ToolProbe`, shared by
+  both), read its tool's output to its end before its 30 s bound could apply (the Engine suite's with no bound at all, once per
+  test); it now ends with the tool, asked once per suite (its test failed 3 of 3 against the old probe's logic, passed 3 of 3). With
+  npm standing in for one whose helper holds its output 10 minutes and `PLAYMAP_E2E=1`, the Engine host with the old browser fact
+  stalled in discovery 3 of 3 until a 1-minute blame limit stopped it ("The active test run was aborted"), and with the shared probe
+  skipped its two browser tests in 8 s 3 of 3. CI now stops a hung test host with a
   mini dump the runtime writes (`--blame-hang-dump-type mini`; on Windows `VSTEST_DUMP_FORCENETDUMP`, since the collector's own
   Windows dumper writes thread information alone, which no managed stack walk reads), and on a failed job prints every managed
   thread's stack from each dump (dotnet-dump 10.0.750501, the package held to its SHA-256), so a stall before the first test is
