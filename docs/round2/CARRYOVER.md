@@ -563,6 +563,114 @@ Round 2 W1 notes:
   it landed 250 ms or more after the last word, so whether it could pass there hung on how far apart the blocks landed (the pace is
   gone now). The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both
   nodes' journals and log tails, so a recurrence names its stage.
+- Done: a verb's own journal row comes before every row of the work its handler leaves running. The dispatcher writes a verb's row
+  once its handler has answered, on the thread that awaited the answer (for a lane verb, a pool thread after the lane's turn), and
+  work the handler had begun ran beside that write. `MEDIA FETCH`'s handler began `NetworkHost.FetchAsync`, which yields to the pool
+  and starts the pulls, so a peer whose list is refused at once could end the whole fetch (its first four refused rows and the row
+  that counts the rest) before the verb's row was written: the journal and the context said the fetch ended before the verb that
+  began it. That is `HostNetworkTests.AFetchOfMoreFilesThanTheJournalHoldsFromAPeerWhoseListFailsLeavesTheNodesOwnRows`' one Windows
+  failure, at its line 231 (run 420, job 119506902541, at fix-backup-preflight 93f05df9, which touches none of this code; run 419,
+  green on both jobs, passed it on Windows, and it passes on Linux): the context's last row was "fetching 250 files", the verb's own
+  row, where the test reads the fetch's end row, which it had waited for and found. So the log shows the verb's row written after the
+  end of every pull, 1 min 34 s into an Engine suite of 8 min 19 s (1 172 passed, 1 failed), the test itself taking 1 s. It does not
+  show why the dispatcher's write came so late: a busy thread pool on the runner is consistent with it, not proven. On Linux, holding
+  the verb's row 3 s before the dispatcher writes it (a local edit, not kept) failed the unchanged test at line 231 with the same
+  words; holds of 0, 5, 15, 40, 55, 70 and 85 ms passed it three runs of three each and 100 ms failed it three of three (Debug, one
+  machine), so there the pulls ended between 85 and 100 ms after the handler answered. Now a handler hands the work it leaves running
+  to `EngineCore.AfterRow` on the lane (`VerbCall.AfterRow` off it, `ForLine` for a lane part of a line answered off it), and the
+  dispatcher begins it once it has written the line's row, whatever that row says, or at once when the line writes none, before the
+  line is answered; with the same 3 s hold the test passes three runs of three. The fetch's own accepted row was the same order one
+  level down: `NetworkHost.FetchAsync` began the pulls and only then answered what it had queued, which `MEDIA FETCH` journalled as
+  the `media` row "fetching 250 files from Dead list" once the call had answered, so a stall of that one thread between the two
+  statements put that row after the fetch's end row. The Windows run's last row was the verb's own ("fetching 250 files"), so there
+  it was the dispatcher's write that came late, not this one. The review that found it held the thread there 80 to 140 ms on Linux
+  and failed the unchanged test at line 231 with "fetching 250 files from Dead list" as the last row (reported, not rerun here);
+  `HostNetworkTests.AFetchsRowsFollowTheVerbAndWhatWasQueuedWhenItsPeerEndsEveryPullInsideTheFetch` ends every pull inside the call
+  and, with that order put back, finds the edge's row after the end row three runs of three. Now the edge journals what it queued
+  before it begins the pulls (`INetworkControl.FetchAsync`'s contract), and `MEDIA FETCH` journals only a fetch that could not
+  start. The sweep of the work a line leaves running that journals, each now begun, or journalled, behind the line's row: `MEDIA
+  FETCH` (the node's own pull and the fleet's, `BackupNode.Fetch`), `LINK PATTERNS`, `LINK STAGEWATCH` and a node's own `SYNC
+  LEAD|FOLLOW` without the sync part (the change's end row, journalled inside the handler when the edge answered at once), `LINK
+  PATTERNS FOLLOW-BLACKOUT` with the sync part (the switch's write beside the lane, a fault row when it fails), `SCAN START` (the
+  runner's run and the scan's end), `SURVEY IMPORT` (the worker: a file that cannot be read ends the import with a refusal at its
+  first read, so the worker begins behind the row and a stop waits for it from the answer on), `MEDIA IMPORT` (the import itself,
+  whose own row says a file will not play here or FFmpeg is missing, and how it ends), `BLEND SOLVE` and the blend solved again by
+  `CALIBRATION ACCEPT|FALLBACK|RESOLVE`, `PANIC` (its shutter and effect lines, each a line of its own with its own row, sent from
+  the panic's dispatcher with no further hop, and from a pool thread when begun on the lane; so the panic is answered once its
+  dispatcher has begun each line, one after another, up to that line's first wait: the show's gate, the projector link's lookup
+  and as much of its command as runs before it waits, or an effect line's post to the lane. That is work in the panic's answer
+  that a pool hop per line would take out of it, at the cost of a hop before each shutter; the air change is made before it, in
+  the panic's own turn, and the group's fan-out goes with the panic's row), `PREFLIGHT` without `WAIT` (its run),
+  `MEDIA OPTIMISE` (its jobs stay queued, handed to no worker, until the row: a job whose item is not on the node ends failed at its
+  first step, which the service's loop could take before the row), `BIND LEARN` (the learnt and stopped rows wait for its row; the
+  learn is armed before the answer), `SHOW ARM|DISARM` (the hooks the sync leader's line runs behind its answer, and a hook any arm
+  leaves running past its deadline, whose fault is journalled when it ends), `MIRROR PROJECT` (the pulls of the files the mirrored
+  show names that are not here), `MIRROR HANDBACK` (the takeover) and an assistant's line the armed show holds for a person (its
+  offer to an approval desk, whose refusal names the proposal the line's own refusal gave its id: `ProposalQueue.Add`, then
+  `OfferAsync` behind the row). `PROJECTOR SOLVE` and `SCAN SURFACE` leave nothing running (their solves and edits are awaited
+  inside the handler); the operations dispatcher hands each its own `VerbCall` and takes it after the row, as the other dispatchers
+  do. Rows a handler writes while it answers (a panic's playlists, a reconnect's words, `FAILBACK`'s, a `PREFLIGHT WAIT`'s run, the
+  lines a `CONTROL INJECT` fires, the keep-awake hold Windows refuses, which `MACHINE SET AWAKE ON`'s save and an edit that
+  enables a display output each journal as they ask for it) come before its row, as they always did, in a fixed order.
+  Every dispatcher begins the held work
+  in a `finally` after the row, so a row that throws, or a test's hold on it, loses none of it. Parts that see a verb's change on a
+  turn of their own are an open fix (below). Tests: each makes the work end as early as it can, inside the edge's own call or with
+  the line's row held back (`EngineCore.RowHeldForTests`, which each dispatcher but a member's air line's awaits just before the
+  row, inside the `try` of that `finally`, told whether the line holds work behind it) until
+  the work's first row is in, and each of these failed three runs of three with the order before it put back (a local edit, not
+  kept) and passes now: `VerbRowTests`' `AFetchsRowComesBeforeEveryRowOfItsPullsWhenTheyAllEndBeforeTheFetchIsAnswered` (its edge
+  journals what it queued, as the contract now says), `AnImportsOwnRowsComeAfterTheRowOfTheVerbThatBeganIt`,
+  `ASurveyThatCannotBeReadIsRefusedAfterTheRowOfTheImportThatBeganIt`, `APreflightsRunIsJournalledAfterTheRowOfTheVerbThatStartedIt`
+  (unforced at first, it failed 3 of 13 runs against the product before the fix; held, it fails every run),
+  `ABlendSolveIsJournalledAfterTheRowOfTheLineThatAskedForIt`, `AHookLeftRunningPastItsDeadlineFaultsAfterTheRowOfTheArmThatLeftIt`,
+  `TheSyncLeadersArmRunsItsHooksBehindItsRow`, `APanicsOwnLinesAreJournalledAfterThePanicsRow` and
+  `AProposalADeskDoesNotTakeIsSaidAfterTheRefusalThatNamesIt`; the `HostNetworkTests` test above;
+  `BackupTests.AMirroredShowsFilePullsAreJournalledAfterTheRowOfTheMirrorLineThatBeganThem`;
+  `SettingsWriterTests.AFollowSwitchTheFileCannotKeepIsSaidAfterTheRowOfTheLineThatSetIt`.
+  `VerbRowTests.ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` failed three runs of three against the product
+  before the fix and passes now; `WorkHandedToALineIsHeldUntilItsDispatcherTakesItAndBegunAtOnceAfter` holds `VerbCall`'s hand-over.
+  A package's lane handler's `VerbCall` goes to the line's dispatcher with the lane's turn, and the dispatcher takes what was
+  handed over through it once it has written the row, so work the handler left running that hands its row over through the call
+  after the handler has answered still follows the row: `WorkALaneHandlerLeftRunningHandsOverThroughItsCallAfterTheAnswerStillFollowsTheLinesRow`
+  failed three runs of three when the router took the call's work at the handler's answer (the work's row first) and passes now.
+  No handler does that today. `VerbCall` is a class, one per line, so no copy of it holds work its dispatcher never takes.
+  `WorkALaneHandlerHandsOverThroughItsCallFollowsTheLinesRowOnEveryLaneDispatcher` runs such a line from the wire, from a binding
+  and as a member's air line, each with a start its handler hands over through the call while it answers and one handed over after
+  the answer, at the last moment before the dispatcher takes the call (in the row's hold; on an air line, which has no hold, as its
+  row is written): both follow the row, in that order. With the binding's or the air line's dispatcher not taking the call (its
+  line's own held work begun in place of `TakeWork()`) those legs lose the call's work; with `HoldsWork` blind to the call the row's
+  hold is told the wire's and the binding's lines hold none; with the router's old take every leg puts the late start before the
+  row or before the earlier one. Each leg named failed with its order put back (a local edit, not kept: one run for each dropped
+  part, three of three for the old take), and all three legs pass three runs of three.
+  These failed three runs of three with the order before them put back (a local edit, not kept) and pass now, each with the line's
+  row held until the work's first row is in: `VerbRowTests.AScansEndIsJournalledAfterTheRowOfTheStartThatBeganIt` (a scan backend
+  whose scan has ended when it answers), `AnOptimiseJobThatCannotRunIsJournalledAfterTheRowOfTheVerbThatQueuedIt` (a margin of free
+  disk no disk holds: the job fails at its first step, before any worker starts) and
+  `ALearnsRowIsJournalledAfterTheRowOfTheBindLearnThatArmedIt` (the control moves just before the row is written: the binding is
+  made then, its row after); `BackupTests.AFleetFetchsRowsFollowTheRowOfTheVerbThatBeganThem` and
+  `AHandBacksTakeoverIsJournalledAfterTheRowOfTheMirrorLineThatAskedForIt` (the takeover's `SYNC LEAD` and its own row);
+  `ResolveTests.AReSolvesBlendIsJournalledAfterTheRowOfTheResolveThatSolvedIt` (the blend a `CALIBRATION RESOLVE` solves again, its
+  lane part through `ForLine`). `LINK STAGEWATCH`, and `SYNC LEAD|FOLLOW` on a node without the sync part, take the link test's
+  path (with the sync part, which the exe composes, `SYNC LEAD|FOLLOW` await their change inside the handler and say it in their
+  own row; the leader's feed a follow then reads is open, below); `CALIBRATION ACCEPT|FALLBACK`
+  solve the blend in their line's own turn on the lane, as `BLEND SOLVE` does; the scan runner's own row (a camera latency below
+  zero, journalled by its run, which begins behind the row) has no forcing test. The 250-file tests, the node's own and the fleet's
+  (`BackupTests.AFetchOfMoreFilesThanTheJournalHoldsWithTheFleetsPartLeavesTheNodesOwnRows`), read the fetch's end row as the last.
+  The runs first reported as three of three kept a log of one run, cut off at its last test, for the first twelve forcing tests
+  above and none for the six after them. Run again at b93f06ff with every one of those orders put back at once (each start begun
+  at once where it is handed over, the seams kept) and the link change's too, the eighteen forcing tests and
+  `ALinksRowComesBeforeTheRowThatSaysHowTheChangeEndedWhenItEndsAtOnce` failed three runs of three, each with the work's row ahead
+  of the line's (the mirrored show's pull and the hand-back's takeover before their `MIRROR` rows), and all nineteen passed three
+  runs of three as committed.
+- Open: a part that sees a verb's change on a turn of its own journals what it sees then, which can be before the verb's own row,
+  since the dispatcher writes a lane verb's row once the lane's turn is over, on another thread. A lane tick that runs first (a
+  timecode chase's first step, a blind commit landing at its instant, the sound input the tick opens) and a part on a thread of its
+  own (the video I/O hub's word of a reconnected input's first frame, the sync node's rows of a leader's feed after `SYNC FOLLOW`, a
+  backup's watch and its mirror link's own lines after `FLEET BACKUP`, a Stagewatch operator's word on the link after `LINK
+  STAGEWATCH`, a projector link set up again when an edit moved the project, the optimise service's automatic queue when an edit
+  lands a hashed item, the render host's frame lock falling out after `SYNC APPLY`) can
+  each write first. None is measured and no test covers them. Writing a lane verb's row in the lane's own turn would order the ticks
+  behind it; the other parts would need to hold a line's rows until its row.
 - Done: a long-poll counts its limit on the web port's clock (`HttpHostOptions.Time`, the system's in a node), so
   `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit` moves that clock by hand and no longer races its own pace.
   What was seen: its one failure on the Windows job (run 417, job 119488722915, wp3-installer e03befea, which touches neither
@@ -746,9 +854,25 @@ Round 2 W1 notes:
   new tests (`BackupRigTests`: the same stray hello sent in the process, and a first subscription that ends unheard). The monitor
   now counts the subscriptions waiting out their backoff (`FleetMonitor.Redialling`, each counted once its wait's timer stands) and
   says what it last said of a machine it keeps, heard or not (`WordsOf`); the meeting moves every node's fleet clock 50 ms at each
-  20 ms look while the node lacks the peer's health and its monitor waits so (never while a dial is under way or once the health is
-  held), and a meeting that fails names the hello's address and port, the peer's own port and the monitor's counts and words. The
-  new tests passed 3 of 3, the render test 3 of 3 with the stray hello, and the 54 Fleet tests all passed.
+  20 ms look while the node lacks the peer's health and its monitor waits to dial any machine again (`FleetWait.UntilAsync`; no look
+  moves it once the health is held or while that monitor waits to dial none, but a step moves every node's clock, so it also moves a
+  dial another node has under way, whose connect timeout runs on that clock, and ages the records the nodes hold), and a meeting
+  that fails names the hello's address and port, the peer's own port and the monitor's counts and words. The new tests passed 3 of
+  3, the render test 3 of 3 with the stray hello, and the 54 Fleet tests all passed.
+- Done: `FleetMonitorTests.APeerAppearsWhenItsHealthArrivesAndGoesStaleThenGoneOnTheMonitorsClock` moves A's fleet clock while A
+  lacks B live and A's fleet monitor waits to dial again, through the hot-backup meeting's wait (`FleetWait.UntilAsync`). Its nodes
+  run the fleet on a `ManualTime` the test did not move before B read live, so a first subscription to B that ended without a
+  record (refused or cut) left A's monitor waiting out its backoff for good, and the 10 s wait for B live ran out at its line 52
+  with only the journal in its message. With a hello under B's id (read from B's settings file as B started) naming a closed web
+  port, sent to the test host's UDP ports for 0.4 s before the two met, the unchanged test failed 3 of 3 at that line after 11 s.
+  The wait's steps are the monitor's sweep (250 ms): the sweep ages liveness every 250 ms from the clock's zero, so a record heard
+  between two sweeps would be read stale or gone up to 250 ms after the test's advances cross 3 s and 6 s (with 50 ms steps the
+  test failed 2 runs of 3 so, at its stale read); heard at a sweep's instant, as on the unmoved clock, it is read at them. Every
+  assertion is kept: A's clock reads exactly what the wait moved it (zero when the first subscription is heard), and a wait that
+  fails names what A's hello and monitor hold of B. Under the same stray hello it passed 3 of 3 (A's clock moved 8 s on a probed
+  run), and 3 of 3 without it (0 s); the 54 Fleet tests all passed. The watched "peer not live" below is consistent with this, not
+  proven: the failing runs kept only the journal, and in this rig, whose node ids are random, a stray hello under B's id is not the
+  likely way in; a dial refused or cut is.
 - Done: `OptimiseJobTests.CancelStopsTheRunningJobAndLeavesNoPartialFile` holds its worker after the first frame
   (`OptimiseRig.HeldAtFirstFrame`), so its cancel lands mid-job. The job's partial file is on disk only while the clip encodes and
   until the service takes the end in (a few seconds here), and the test looked for it every 50 ms before it cancelled, so a test
@@ -918,7 +1042,9 @@ Round 2 W1 notes:
   `pl_local`'s clamped anchor, so the failure is probably read wrongly; not reproduced); the one `FanoutTests` failure in a gate
   run (its test and line were not recorded, so the runner's misread above is its most likely cause, not a proven one);
   `FleetMonitorTests`' 10 s wait for the peer to read live (the test now waits until the headline and the context match the record
-  the monitor holds; the 10 s "peer not live" is not reproduced); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
+  the monitor holds; the 10 s "peer not live" is consistent with A's monitor's first subscription to B ending unheard and its next
+  dial waiting on A's fleet clock, which the test did not move before B read live, not proven; the wait now moves that clock while
+  the monitor waits, and names what A holds of B, above); `OscServerTests.ASenderNotHeardForTenMinutesNoLongerCounts`' one
   Windows failure (consistent with the control tick's order fixed above, not proven; its wait now names what it saw);
   `BackupPreflightTests.TheBackupsFilesAndTheRoutesAreCheckedWithTheLineThatFixesThem`' one Windows read of the mirror as lost
   (consistent with the mirror link's real-time silence above — a stale spell, or its latch, both now on the node's clock or fixed

@@ -138,7 +138,10 @@ public sealed class ProposalQueue
 
     /// <summary>Queues a line for a person. When a bus approval desk is set the proposal is offered there
     /// first; a desk that does not take it (or fails) leaves it on this node's list.</summary>
-    public async Task<Proposal> EnqueueAsync(ProposalDraft draft, CancellationToken ct)
+    public Task<Proposal> EnqueueAsync(ProposalDraft draft, CancellationToken ct) => OfferAsync(Add(draft), ct);
+
+    /// <summary>Lists a line for a person on this node's list, offered to no desk yet (<see cref="OfferAsync"/> offers it).</summary>
+    public Proposal Add(ProposalDraft draft)
     {
         ArgumentNullException.ThrowIfNull(draft);
         Proposal proposal;
@@ -152,6 +155,14 @@ public sealed class ProposalQueue
             _items.Add(proposal);
         }
         Raise(proposal);
+        return proposal;
+    }
+
+    /// <summary>Offers a listed proposal to the bus approval desk when one is set; a desk that does not take it (or fails) leaves it
+    /// on this node's list, and says so through <see cref="Logged"/>. Answers the proposal as it stands then.</summary>
+    public async Task<Proposal> OfferAsync(Proposal proposal, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(proposal);
         if (Sink is not { } sink)
             return proposal;
         string? remoteId = null;

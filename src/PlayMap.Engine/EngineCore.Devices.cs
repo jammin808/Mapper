@@ -5,6 +5,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Wire;
 using PlayMap.Devices.Commands;
 using PlayMap.Devices.Drivers;
+using PlayMap.Devices.Manager;
 using PlayMap.Devices.Model;
 using PlayMap.Devices.Workflows;
 using PlayMap.Engine.Devices;
@@ -302,12 +303,21 @@ public sealed partial class EngineCore
                     w.WriteBoolean("nativePortOpen", open);
                 w.WriteString("problem", d.Problem);
                 w.WriteString("linked", Store.Project.Stage.Devices.FirstOrDefault(x => x.Host == d.Host)?.Id ?? "");
-                w.WriteString("add", $"DEVICE ADD \"{(d.Name is { Length: > 0 } n ? n : d.Model ?? d.Host)}\" {ProjectorProtocols.Word(d.Suggested)} {d.Host}");
+                w.WriteString("add", DiscoveredAddLine(d));
                 w.WriteEndObject();
             }
             w.WriteEndArray();
         });
         return CommandReply.Success(payload, $"found {found.Count} projector{(found.Count == 1 ? "" : "s")}");
+    }
+
+    /// <summary>The line that links a discovered projector under the name it gives (else its model, else its host), its protocol and host:
+    /// the name rides as one word that reads back as itself (<see cref="WireGrammar.Quote"/>).</summary>
+    internal static string DiscoveredAddLine(DiscoveredProjector d)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        var name = d.Name is { Length: > 0 } n ? n : d.Model is { Length: > 0 } m ? m : d.Host;
+        return $"DEVICE ADD {WireGrammar.Quote(name)} {ProjectorProtocols.Word(d.Suggested)} {d.Host}";
     }
 
     /// <summary>"KEY value" anywhere in the words: the value, both removed from the list.</summary>

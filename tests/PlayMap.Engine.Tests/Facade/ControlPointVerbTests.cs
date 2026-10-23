@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.Engine.Tests.Facade;
 
@@ -20,7 +21,7 @@ public sealed class ControlPointVerbTests
         var obj = string.Create(CultureInfo.InvariantCulture,
             $"v 512310 {North:0.000} 100\nv 512370 {North:0.000} 100\nv 512370 {North:0.000} 130\nv 512310 {North:0.000} 130\nf 1 2 3\nf 1 3 4\n");
         await File.WriteAllTextAsync(rig.File("front.obj"), obj);
-        var job = await rig.Import($"{rig.File("front.obj")} CRS EPSG:25832");
+        var job = await rig.Import(rig.File("front.obj"), "CRS EPSG:25832");
         Assert.Equal("ready", job.State);
         await File.WriteAllTextAsync(rig.File("points.csv"), Points(0));
         return rig;
@@ -38,7 +39,7 @@ public sealed class ControlPointVerbTests
     public async Task FourteenPointsComeInAndTheModelIsCheckedAgainstThem()
     {
         await using var rig = await Surveyed();
-        var reply = SiteRig.Json(await rig.Ok($"SITE POINTS {rig.File("points.csv")}"));
+        var reply = SiteRig.Json(await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}"));
         Assert.Equal(14, reply.GetProperty("added").GetInt32());
         Assert.Equal(14, reply.GetProperty("ids").GetArrayLength());
         Assert.Equal("PNEZD", reply.GetProperty("order").GetString());
@@ -47,7 +48,7 @@ public sealed class ControlPointVerbTests
         Assert.Equal(512_315.123, p.Stage.Controls[0].Grid.X);
         Assert.Equal(North, p.Stage.Controls[0].Grid.Y);
         Assert.Equal(14, rig.State().GetProperty("stage").GetProperty("controls").GetInt32());
-        Assert.Contains("would change nothing", await rig.Refused($"SITE POINTS {rig.File("points.csv")}"), StringComparison.Ordinal);
+        Assert.Contains("would change nothing", await rig.Refused($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}"), StringComparison.Ordinal);
 
         var good = SiteRig.Json(await rig.Ok("SITE CHECK"));
         Assert.Equal("green", good.GetProperty("light").GetString());
@@ -84,7 +85,7 @@ public sealed class ControlPointVerbTests
         await using var rig = await Surveyed();
         var draft = new ProjectStore(rig.Engine.Store.Project);
         rig.Engine.DraftForTests = s => s.SessionId == SiteRig.Desk.SessionId ? draft : null;
-        var staged = SiteRig.Json(await rig.Ok($"SITE POINTS {rig.File("points.csv")}"));
+        var staged = SiteRig.Json(await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}"));
         Assert.True(staged.GetProperty("staged").GetBoolean());
         Assert.Equal(14, draft.Project.Stage.Controls.Length);
         Assert.Empty(rig.Engine.Store.Project.Stage.Controls);
@@ -103,7 +104,7 @@ public sealed class ControlPointVerbTests
     public async Task ABoundPinAndPriorFollowTheirPoint()
     {
         await using var rig = await Surveyed();
-        var ids = SiteRig.Json(await rig.Ok($"SITE POINTS {rig.File("points.csv")}")).GetProperty("ids");
+        var ids = SiteRig.Json(await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points.csv"))}")).GetProperty("ids");
         var cp1 = ids[0].GetString()!;
         await rig.Ok("ADD projector {\"name\":\"P1\"}");
         var pj = rig.Engine.Store.Project.Stage.Projectors[0].Id;
@@ -126,7 +127,7 @@ public sealed class ControlPointVerbTests
 
         // Re-surveyed one metre east: the pin and the prior follow in the same edit.
         await File.WriteAllTextAsync(rig.File("points2.csv"), Points(1.0));
-        var moved = SiteRig.Json(await rig.Ok($"SITE POINTS {rig.File("points2.csv")}"));
+        var moved = SiteRig.Json(await rig.Ok($"SITE POINTS {WireGrammar.Quote(rig.File("points2.csv"))}"));
         Assert.Equal(0, moved.GetProperty("added").GetInt32());
         Assert.Equal(1, moved.GetProperty("updated").GetInt32());
         var p = rig.Engine.Store.Project;

@@ -25,7 +25,7 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
 
     private static readonly JsonElement RunArguments = Schema("""
         {"type":"object","properties":{
-          "line":{"type":"string","description":"One line of PlayMap's vocabulary exactly as on the wire, e.g. \"VIDEO SEEK 83\" or \"PLAYLIST GO Show #2\" (list_verbs has every verb with its syntax and risk)"},
+          "line":{"type":"string","description":"One line of PlayMap's vocabulary exactly as on the wire, e.g. \"VIDEO SEEK 83\" or \"PLAYLIST GO Show #2\" (list_verbs has every verb with its syntax and risk). Words with spaces go in double quotes, where a backslash escapes the mark after it: a Windows path rides bare (MEDIA IMPORT C:\\clips\\a.mp4) or, holding a space, quoted with each backslash doubled (MEDIA IMPORT \"C:\\\\My clips\\\\a.mp4\")"},
           "reason":{"type":"string","description":"Why, in a sentence: shown to the operator and journalled with the result"}},
          "required":["line","reason"]}
         """);
@@ -110,6 +110,10 @@ public sealed class McpTools(CommandRunner runner, IApprovalPolicy policy, ILogg
         // A row the node does not answer is refused here, so nothing waits for a person that could only be refused.
         if (verb is not null && runner.Endpoint is IVerbAvailability availability && !availability.IsAvailable(verb))
             return Text($"{verb.Name} is not available on this node yet", error: true);
+        // So is a quoted path that would name another file (the node's door and a binding's target refuse it), with the spelling that
+        // reads as typed, whatever the line's risk.
+        if (VerbSyntax.DroppedBackslash(line) is { } dropped)
+            return Text(dropped, error: true);
         var address = user?.FindFirst(AddressClaim)?.Value ?? "?";
         var loopback = user?.FindFirst(LoopbackClaim)?.Value == "1";
         var session = new SessionInfo("m" + Interlocked.Increment(ref _sessions).ToString(System.Globalization.CultureInfo.InvariantCulture),

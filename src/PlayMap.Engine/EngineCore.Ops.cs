@@ -52,14 +52,16 @@ public sealed partial class EngineCore
     {
         var shown = OpsShown(spec, line);
         CommandReply reply;
+        Exception? fault = null;
+        var call = new VerbCall(spec, args, line, session, ct);
         try
         {
-            reply = Admission(spec, session) ?? Gate(spec, line, session) ?? spec.Category switch
+            reply = Admission(spec, line, line.Count - args.Count, session) ?? Gate(spec, line, session, call) ?? spec.Category switch
                 {
                     VerbCategory.Device => await DeviceVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
                     VerbCategory.Assistant => await AssistantVerbAsync(spec, args, line, session, ct).ConfigureAwait(false),
-                    _ when spec.Name == "PROJECTOR SOLVE" => await ProjectorSolveAsync(new VerbCall(spec, args, line, session, ct)).ConfigureAwait(false),
-                    _ => await ScanSurfaceAsync(args, line, session, ct).ConfigureAwait(false),
+                    _ when spec.Name == "PROJECTOR SOLVE" => await ProjectorSolveAsync(call).ConfigureAwait(false),
+                    _ => await ScanSurfaceAsync(call).ConfigureAwait(false),
                 };
         }
         catch (EditRefusedException refused)
@@ -72,12 +74,23 @@ public sealed partial class EngineCore
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Journal.Add("fault", $"{spec.Name}: {Redact(Journal.Describe(ex))}", session.ClientName, shown, false);
-            return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
+            fault = ex;
+            reply = CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
         }
-        if (!reply.Silent && IsJournalled(spec))
-            Journal.Add(reply.Ok ? "verb" : "refused", Redact(reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : line.Raw) : reply.Payload ?? "refused"),
-                session.ClientName, shown, reply.Ok);
+        try
+        {
+            if (RowHeldForTests is { } hold)
+                await hold(line, call.HoldsAfterRow).ConfigureAwait(false);
+            if (fault is not null)
+                Journal.Add("fault", $"{spec.Name}: {Redact(Journal.Describe(fault))}", session.ClientName, shown, false);
+            else if (!reply.Silent && IsJournalled(spec))
+                Journal.Add(reply.Ok ? "verb" : "refused", Redact(reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : line.Raw) : reply.Payload ?? "refused"),
+                    session.ClientName, shown, reply.Ok);
+        }
+        finally
+        {
+            BeginAfterRow(call.TakeAfterRow());
+        }
         return reply;
     }
 

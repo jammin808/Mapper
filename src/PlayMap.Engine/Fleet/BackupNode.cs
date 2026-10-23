@@ -828,13 +828,13 @@ public sealed class BackupNode : IAsyncDisposable
             case "HELLO":
                 return Hello(call.Line.RestAfter(2));
             case "PROJECT":
-                return await ProjectAsync(engine, call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
+                return await ProjectAsync(engine, call, call.Line.RestAfter(2)).ConfigureAwait(false);
             case "ANCHOR" when call.Args.Count >= 3:
                 return await engine.AdoptMirrorAnchorAsync(call.Args[1], call.Line.RestAfter(3)).ConfigureAwait(false);
             case "AIR":
                 return AirLine(call.Line.RestAfter(2));
             case "HANDBACK":
-                return await HandbackAsync(call.Line.RestAfter(2), call.Ct).ConfigureAwait(false);
+                return await HandbackAsync(call, call.Line.RestAfter(2)).ConfigureAwait(false);
             default:
                 return CommandReply.Fail("MIRROR HELLO|PROJECT|ANCHOR|AIR|HANDBACK <json>");
         }
@@ -863,9 +863,10 @@ public sealed class BackupNode : IAsyncDisposable
     }
 
     /// <summary>The primary's show moved: pulled (with proof, over pinned HTTPS) and applied as one mirror edit; then the files and
-    /// versions it names that are not here are pulled beside the mirror.</summary>
-    private async Task<CommandReply> ProjectAsync(EngineCore engine, string json, CancellationToken ct)
+    /// versions it names that are not here are pulled beside the mirror, behind this line's row (each pull journals how it ended).</summary>
+    private async Task<CommandReply> ProjectAsync(EngineCore engine, VerbCall call, string json)
     {
+        var ct = call.Ct;
         long rev;
         try
         {
@@ -899,7 +900,7 @@ public sealed class BackupNode : IAsyncDisposable
                 engine.ShowFilesLanded();
             Interlocked.Exchange(ref _appliedRev, Math.Max(servedRev, rev));
             _mirrorWords = string.Create(CultureInfo.InvariantCulture, $"{_primaryName}'s show at rev {Math.Max(servedRev, rev)}");
-            Background(PullFilesAsync(engine, _stop.Token));
+            call.AfterRow(() => Background(PullFilesAsync(engine, _stop.Token)));
             return CommandReply.Success(effect: label);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException && !(ex is OperationCanceledException && ct.IsCancellationRequested))
@@ -1093,7 +1094,8 @@ public sealed class BackupNode : IAsyncDisposable
         }
         var source = peers.Count == 1 ? peers[0].Name : string.Join(", ", peers.Select(p => p.Name));
         var rows = new FetchJournal(engine.Journal, _log, $"the fetch of {what} from {source}");
-        Background(Task.Run(async () =>
+        // The pulls journal each file's end, and a peer can end them at once: begun behind the MEDIA FETCH's own row.
+        engine.AfterRow(() => Background(Task.Run(async () =>
         {
             foreach (var f in files)
             {
@@ -1124,7 +1126,7 @@ public sealed class BackupNode : IAsyncDisposable
                 engine.FactsChanged();
             }
             rows.End();
-        }, CancellationToken.None));
+        }, CancellationToken.None)));
         return CommandReply.Accepted($"fetching {what} from {source} by hash, with proof");
     }
 
@@ -1186,7 +1188,7 @@ public sealed class BackupNode : IAsyncDisposable
         }
     }
 
-    private async Task<CommandReply> HandbackAsync(string json, CancellationToken ct)
+    private async Task<CommandReply> HandbackAsync(VerbCall call, string json)
     {
         string from;
         try
@@ -1209,8 +1211,9 @@ public sealed class BackupNode : IAsyncDisposable
             _engine?.Journal.Add("refused", words, ok: false);
             return CommandReply.Fail(words);
         }
-        // The takeover runs beside the mirror's line (it closes the link this line came on).
-        Background(Task.Run(() => TakeOverAsync($"handed back by {Label(from)}", _stop.Token), CancellationToken.None));
+        // The takeover runs beside the mirror's line (it closes the link this line came on) and journals how it went: begun behind
+        // this line's own row.
+        call.AfterRow(() => Background(Task.Run(() => TakeOverAsync($"handed back by {Label(from)}", _stop.Token), CancellationToken.None)));
         await Task.CompletedTask.ConfigureAwait(false);
         return CommandReply.Accepted($"taking the show back from {Label(from)}");
     }

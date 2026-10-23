@@ -14,6 +14,7 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Scan;
 using PlayMap.Core.Time;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Phone;
 using PlayMap.Engine.Rendering;
@@ -423,7 +424,7 @@ public sealed class PhoneScanE2ETests(ITestOutputHelper output)
             var folder = Directory.CreateDirectory(Path.Combine(node.Dir.FullName, "show")).FullName;
             var path = Path.Combine(folder, "show.playmap");
             await File.WriteAllTextAsync(path, ProjectJson.Serialize(project));
-            await node.OkAsync("PROJECT OPEN " + path);
+            await node.OkAsync("PROJECT OPEN " + WireGrammar.Quote(path));
 
             bridge = new CameraBridge(() => render, "op00000001", scene, hunting: profile == "ios");
             await bridge.StartAsync();
