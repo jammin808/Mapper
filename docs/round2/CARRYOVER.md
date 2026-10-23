@@ -911,6 +911,9 @@ Round 2 W1 notes:
   sink) after 2 s, its refused connect thrown from the sink's collect (its line 139) through the sink's, the assistant's, the
   operations services' and the rig's dispose to the test's `finally`, no assertion failed: consistent with the connect to the
   closed port the test names, refused only after about 2 s on Windows (at once on Linux), landing as the stop was taken, not proven.
+  The exception shows only that the client handed the refusal on before the stop reached the request's token and that the pull's
+  filter ran once the stop was marked: the refusal raised just after the stop was marked, or just before it with the stop marked
+  before the filter ran. The held refusal below forces the first; the pull now ends quietly on either.
   With the sink's third collect held by a handler the test gives it and refused in a callback on the pull's stop, registered after
   the client linked the request's token so it runs before the stop reaches that token (a token's callbacks run newest first), the
   new `ARefusalThatLandsAsTheStopIsTakenEndsThePullAndIsNotThrownAtWhoeverLetsTheDeskGo` failed 6 of 6 against the sink as it was,
@@ -931,7 +934,9 @@ Round 2 W1 notes:
   old desk's collect held past its stop and a callback on the request's token throwing,
   `AChangeOfDeskWhoseOldStopMeetsAThrowingCallbackCompletesOnceTheOldPullHasEnded` failed 3 of 3 (the change thrown at once, with
   the callback's exception). The dispose now writes that fault with its trace to the engine's log and waits for the pull, and the
-  test passes (5 runs of 5, with the sink's other tests and `OpsServicesTests`).
+  test passes (5 runs of 5, with the sink's other tests and `OpsServicesTests`). The node as shipped does not switch the approval
+  desk on (nothing outside the tests calls `UseApprovalDeskAsync` with a desk; round 2 §9, decision 7), so every path in this entry
+  is reached from the tests today, and from a node once the desk is switched on.
 - Done: the operations services an engine built without the host owns (`OpsServices.Attach`: the scan runner, projector control
   and the assistant, each with its attachment) are all let go when one of them fails to stop, and what failed is thrown once they
   are (itself when one part failed, together when several did). Their dispose stopped at the first part that threw and runs once,
@@ -968,6 +973,19 @@ Round 2 W1 notes:
   failed 3 of 3 against the fetch as it was (the `HttpRequestException` over the reset); it now ends as the stop's cancel, as the
   stop's own cancelling always did (no row, the node going), and a fetch failed before the stop still ends with the file's row and
   its words. It passed 5 runs of 5, and `HostNetworkTests` passed. No failure of it has been seen.
+- Open: whether a lane's failure raised once its stop is taken is the stop's, as the done entries above make it for the
+  approval desk, the fleet monitor's health dial, a backup's pulls and a node's own `MEDIA FETCH`, is the owner's to make the house
+  rule. Settled once, it decides the sites the sweep behind those fixes judged low and left as they are: the Patterns link's context
+  loop (`PatternsLink.ContextAsync`, its line 279: a line's write that fails as the link's stop is taken passes
+  `WireClient.WriteAsync`'s filter, its line 187, and the link's dispose takes in only a cancel), `MediaTransfer.ChunkAsync` (its
+  line 330: an `ObjectDisposedException` when the puller is let go mid-pull), `HelloService.SayAsync` (its line 189: a send that
+  fails as the stop is taken is logged as a hello that could not be made), `PhoneSession.OnTextAsync`'s catch (its line 591),
+  `OptimiseService.RecordAsync` (its line 880: a failure other than the cancel as the node stops fails the job rather than leaving
+  it to be queued again) and `BackupNode.MirrorProjectAsync`'s "could not pull" words during a stop. The same filter
+  (`… && !ct.IsCancellationRequested`) also stands where the sweep named nothing: `WireClient.WriteAsync` (above; inside the link,
+  the connection's own catches take its escape in), `StagewatchLink.PostContextAsync` (its line 515: the beat's catch takes its
+  escape in, as it takes in `ApprovalsAsync`'s at its line 555), and the model store's download (`ModelStore`, its line 460) and
+  `CuedCapture.PictureOrNullAsync` (its line 349), not read for where an escape goes.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
