@@ -101,4 +101,33 @@ public sealed class PreviewRingFileTests
                 File.Delete(f);
         }
     }
+
+    /// <summary>A ring another engine of the node's id is making as this one makes its views stays: its writer makes the file, then
+    /// takes its lock, then gives it its length, so between the making and the lock (a second step on Linux and macOS) the file is
+    /// open to no lock, and its want of a length is what says it is being made. A ring of the node that nothing holds and that has its
+    /// length goes beside it.</summary>
+    [Fact]
+    public async Task ARingAnotherEngineOfTheNodeIsStillMakingStays()
+    {
+        var node = Guid.NewGuid().ToString("N")[..8];
+        var making = PreviewRing.PathFor(node, "cam1", 21);
+        var gone = PreviewRing.PathFor(node, "cam2", 22);
+        string[] all = [making, gone];
+        try
+        {
+            await File.WriteAllBytesAsync(making, []);
+            await File.WriteAllBytesAsync(gone, new byte[PreviewRing.HeaderBytes]);
+            var services = EngineServices.ForTests(new ManualClock(5_000_000_000));
+            await using var engine = new EngineCore(services with { Settings = services.Settings with { NodeId = node } }, Project.CreateDefault("Show"));
+
+            Assert.NotNull(engine.Previews);
+
+            Assert.Equal([making], all.Where(File.Exists));
+        }
+        finally
+        {
+            foreach (var f in all.Where(File.Exists))
+                File.Delete(f);
+        }
+    }
 }

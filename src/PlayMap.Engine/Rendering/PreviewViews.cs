@@ -347,12 +347,20 @@ public sealed class PreviewViews : IDisposable
         }
     }
 
-    /// <summary>Deletes a file only when it can open it alone: a writer or a reader that has it open makes that open fail (a sharing
-    /// violation on Windows, the advisory lock every open takes on Linux and macOS), and the file stays.</summary>
+    /// <summary>Deletes a file only when it can open it alone and it has its length: a writer or a reader that has it open makes that
+    /// open fail (a sharing violation on Windows, the advisory lock every open takes on Linux and macOS), and the file stays. A writer
+    /// makes its file, then takes its lock, then gives it its length, so on Linux and macOS a ring another engine of this node id is
+    /// making can be opened alone between its making and its lock; it has no length then, and stays (a file a writer left with no
+    /// length goes when that name's next ring is made).</summary>
     private static void TryDeleteUnheld(string path)
     {
         try
         {
+            using (var look = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None, 1))
+            {
+                if (look.Length == 0)
+                    return;
+            }
             var alone = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
             alone.Dispose();
         }

@@ -1358,6 +1358,20 @@ Round 2 W1 notes:
   `ANodeMakingItsViewsTakesAwayItsOwnEarlierRingsThatNothingHolds` (two leftovers taken; one held open as a reader holds it, one
   named without a generation and another node's kept) failed 3 runs of 3 against the old engine (the draft view's ring left; every
   leftover kept) and pass 3 of 3.
+- Done: a node making its views leaves a ring another engine of its id is still making. A ring's writer makes its file new, then
+  takes its lock, then gives it its length (`PreviewRingWriter`: a `FileStream` made `CreateNew`, which on Linux and macOS is an
+  open and then an advisory lock, then `SetLength`), and the sweep of a node's leftover rings (`PreviewViews.SweepLeftovers`) took
+  any file of the node it could open alone, so on Linux and macOS a sweep that ran between another engine's open and its lock took
+  that new ring away: its writer then wrote a file no reader could open by its name, or, its lock refused on a file already gone,
+  failed the view.
+  Two engines of one node id on one machine and user start together only in tests (the hot-backup and sync rigs share their nodes'
+  ids). The sweep now takes a file only when it holds a ring's length too; one with none stays (a writer that left a file with no
+  length has it taken when that name's next ring is made, as before), and a writer whose lock meets the sweep's look at a length
+  takes its next generation, as it does a name an earlier run left. On Windows a writer's open is its lock, and nothing changes.
+  `PreviewRingFileTests.ARingAnotherEngineOfTheNodeIsStillMakingStays` leaves a file of the node with no length, as a ring between
+  its making and its lock is, beside one with a ring's length, then makes an engine of that node's id and its views: against the
+  old sweep it failed 3 runs of 3 (both taken), and it passes 3 of 3 (the one being made kept, the other taken). The race itself is
+  not forced: its window lies inside the runtime's open.
 - Done: a node's phone hub runs on the node's clocks. The phone part made the hub with neither of its clocks
   (`PhoneHubOptions.Time`, `MonoNs`), so in a node it counted on `TimeProvider.System` and the process's monotonic clock: its hello
   wait (10 s), a phone's silence (10 s), a ticket's expiry and the wrong-ticket minute ran on the system's time whatever the
