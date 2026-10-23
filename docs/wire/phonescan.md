@@ -46,7 +46,7 @@ else under `/scan` is served, and the module maps nothing outside it. Every answ
 
 Fail closed: a message type a phone does not send closes the socket with 1008 "unknown message"; anything before `hello` with
 1008 "hello first"; no hello within ten seconds of the hub's clock with 1008 "no hello" (the words go before the socket is let
-go); a missing field with 1008; text over 64 KiB or binary over 16 MiB with 1009; a PMF1 frame that is not whole
+go, the phone given at most 2 s of real time to close its side); a missing field with 1008; text over 64 KiB or binary over 16 MiB with 1009; a PMF1 frame that is not whole
 (size, ROI, CRC-32, header) or not the camera's raster (the hello's, at most 16 Mpx) with 1007; a picture kind that was not asked
 for with 1008. A picture no cue waits for any more (cancelled, timed out, shown again) is acknowledged and dropped unread (nothing
 is inflated for it); one a cue waits for is read whole. Refusal words name a bad field, never echo the phone's value. Five
