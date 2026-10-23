@@ -1495,6 +1495,12 @@ Round 2 W1 notes:
   `ClockSlewTests.AStepAfterAdoptionLeavesTheLeadersAnchorAndMovesTheRest`' checks after its step each name every lane's anchors,
   the clock's steps and the journal; its failure kept no message and has not been reproduced (`docs/ROADMAP.md`).
   `SurveyImportPerfTests`' bars are unchanged.
+- Open, watched: the CI tests of three Perf bars still hold a 4× ceiling on the stopwatch, and the papers named none of them once
+  the bars' own twins left the watched list for the serial step: the first map's 20 s
+  (`FirstMapTests.TheScriptedFirstMapReachesContentWithItsFourInstants`), the survey import's 60 s and its SITE answers' 200 ms
+  (`SurveyImportTests`) and the projector solve's 40 ms wait for the lane (`ProjectorSolveLaneTests.ASolveHoldsTheLaneWithinFourTimesItsSlice`).
+  Each runs in a collection of its own run alone after the parallel ones, and none has failed; they are on `docs/ROADMAP.md`'s
+  watched list, closed by a measure of the work or by the time logged with the bar left to its twin.
 - Written, not yet run: CI runs the `Category=Perf` tests in a step of their own after the suites, on both jobs, so a bar times its
   own work and not the suites' beside it. The suites leave them out (`Category!=Perf`; on Windows beside `Backend!=D3D12`), and the
   Perf step runs each project's, one project and one test collection at a time (`xUnit.ParallelizeTestCollections=false`), its

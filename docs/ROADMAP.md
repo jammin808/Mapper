@@ -212,7 +212,12 @@ The lab checks still to do:
   the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
   measure of the work rather than the stopwatch): the desk's hold button timed on the stopwatch (600 ms; its ring's timer runs in
   the headless tests only when a test yields to the dispatcher, which no test that holds a button does while it holds, so none
-  races it now; the desk's clock closes it). The optimise worker's stop graces, the clip loop's playback, the anchor feed's
+  races it now; the desk's clock closes it), and the 4× ceilings the Perf bars' CI tests keep on the stopwatch, each in a collection
+  run alone after the parallel ones, so the machine's own load alone stretches it: the first map's 20 s
+  (`FirstMapTests.TheScriptedFirstMapReachesContentWithItsFourInstants`), the survey import's 60 s and its SITE answers' 200 ms
+  (`SurveyImportTests`) and the projector solve's 40 ms wait for the lane (`ProjectorSolveLaneTests.ASolveHoldsTheLaneWithinFourTimesItsSlice`);
+  their bars are the Perf twins', and a measure of the work, or the time logged with the bar left to its twin, closes them. The
+  optimise worker's stop graces, the clip loop's playback, the anchor feed's
   adoption, the clock sync's round trip, the folder camera's settle and Art-Net's timecode now run on what the test holds, or are
   logged with their bars in Perf twins (the adoption's 800 ms, the round trip's 20 ms), and the real-time throughput bars are left
   out of the suites for CI's serial Perf step after them, which neither job has run yet (docs/round2/CARRYOVER.md).
