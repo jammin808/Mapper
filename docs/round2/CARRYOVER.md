@@ -1706,6 +1706,14 @@ Round 2 W1 notes:
   them to within the 10% the tests and a 10 ms budget need. Counting a slice's stretches would not close it: a thread's context
   switches are read from the system's process list (`NtQuerySystemInformation`), which lists every thread on the machine, too heavy
   a read for the lane, and a tick an interrupt or a DPC takes is lost inside one stretch.
+  The twin's first Windows failure: CI run 459 (fix-w1-followups dee21f84), in the serial Perf step on an Intel Xeon 6973P-C guest
+  of 4 logical processors, 11 % loaded before the step and 6 % after: one of the import's 2 slices read 189.46 ms by the stopwatch
+  and no tick of the lane thread's time, no collection pausing the process in it, the warming import's slices 2.53 ms. A lane
+  thread that ran through 189 ms would have been charged about twelve ticks, so it ran for little of that slice: it waited inside
+  it, or the guest was not run. Neither slice reads or writes a file's contents: the verb asks only whether the file exists, and
+  the apply makes one edit and a journal row, which only queues. The readings do not say which slice it was, nor whether the process's other threads ran across it;
+  a slice that also records the process's processor time across it, and which slice it was, would tell a wait of the lane from the
+  machine stopping. The run after it (460, 80e9fd90) passed.
 - Open, lab: a precise Windows thread time needs the time-stamp counter's frequency from the platform, not a rate measured against
   the stopwatch. It is measured in the lab, with a thread's cycles at that frequency against its work, on bare metal and on a
   Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), and the ticks' step checked under the

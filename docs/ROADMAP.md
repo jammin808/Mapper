@@ -207,7 +207,8 @@ The lab checks still to do:
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
-  words and the heap).
+  words and the heap), and its one Windows failure (CI run 459: a slice of 189 ms by the stopwatch and no tick of the lane
+  thread's time, a wait in the slice or the guest not run; the twin's 10 ms rests on the stopwatch there, docs/round2/CARRYOVER.md).
 - The light plan's first plan in a process (3.5 to 3.8 s here, its code compiled and run at the runtime's first tier) runs past
   the 3 s its Perf twin now holds for a plan made after it (docs/round2/CARRYOVER.md). An operator's first PLAN LIGHT after the engine
   starts is such a plan, and the reply already answers one past 2 s with accepted and posts its result; holding the first plan to
