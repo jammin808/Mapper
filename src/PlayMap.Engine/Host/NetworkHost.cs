@@ -824,9 +824,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
 
     /// <summary>Each file in turn from the peers that offer it, until one lands verified. Every pull ends in its fact or in a row
     /// that says why not: a pull that fails any other way than the stop's own cancelling still ends failed with its words, so its
-    /// transfer never stays on its way and a later fetch of the file is taken. The fetch's journal rows are bounded
-    /// (<see cref="FetchJournal"/>).</summary>
-    private async Task PullAllAsync(List<(MediaItem Item, string Hex)> wanted, List<ShowBusPeer> peers, FetchJournal rows, CancellationToken ct)
+    /// transfer never stays on its way and a later fetch of the file is taken; once <paramref name="ct"/> is cancelled, whatever a
+    /// pull met ends the fetch as that cancel. The fetch's journal rows are bounded (<see cref="FetchJournal"/>).</summary>
+    internal async Task PullAllAsync(List<(MediaItem Item, string Hex)> wanted, List<ShowBusPeer> peers, FetchJournal rows, CancellationToken ct)
     {
         var offers = new Dictionary<string, PeerOffer>(StringComparer.Ordinal);
         foreach (var (item, hex) in wanted)
@@ -836,8 +836,11 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             {
                 why = await PullOneAsync(item, hex, peers, offers, rows, ct);
             }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
+            catch (Exception ex)
             {
+                // Once the stop is taken, whatever the pull met is the stop's (a refusal, a reset or a list cut short as well as the
+                // cancel): the fetch ends with the node, as its cancel.
+                ct.ThrowIfCancellationRequested();
                 // Not one of a pull's own failures (those are words already): logged with its trace, and said as the pull's end.
                 _log.LogWarning(ex, "The pull of {Name} faulted.", item.Name);
                 why = ex.Message;
@@ -889,8 +892,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                     foreach (var entry in await _transfer.ManifestAsync(uri, ct))
                         files.TryAdd(entry.Hash, entry);
                 }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or IOException or System.Text.Json.JsonException && !ct.IsCancellationRequested)
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or IOException or System.Text.Json.JsonException)
                 {
+                    // Once the stop is taken, whatever the ask met is the stop's: it ends the fetch as the stop's cancel.
+                    ct.ThrowIfCancellationRequested();
                     _log.LogInformation(ex, "{Peer}'s media list could not be read.", peer.Name);
                     unread = $"{peer.Name}'s media list could not be read: {ex.Message}";
                 }
@@ -919,8 +924,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             {
                 result = await _transfer.PullAsync(uri, hex, offer.Size, destination, ct);
             }
-            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException && !ct.IsCancellationRequested)
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
             {
+                // Once the stop is taken, whatever the pull met is the stop's: it ends the fetch as the stop's cancel.
+                ct.ThrowIfCancellationRequested();
                 why = $"{peer.Name}: {ex.Message}";
                 continue;
             }

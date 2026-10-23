@@ -152,8 +152,8 @@ The lab checks still to do:
   thrown from the approval desk's dispose after 2 s (consistent with the refusal, which Windows gives a closed loopback port about
   2 s late, landing as the pull's stop was taken, before the stop reached the request's own token, not proven; the pull now ends on
   its stop whatever it meets, letting the desk go throws nothing, and the services an engine built without the host owns are all
-  let go when one of them fails to stop; the same shape is gone from the fleet monitor's health dial and a backup's pulls from its
-  primary, which a late refusal no longer logs as a fault at a stop),
+  let go when one of them fails to stop; the same shape is gone from the fleet monitor's health dial, a backup's pulls from its
+  primary and a node's own `MEDIA FETCH`, which a late refusal no longer logs as a fault at a stop),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
