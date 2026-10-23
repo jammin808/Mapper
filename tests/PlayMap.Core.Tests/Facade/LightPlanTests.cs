@@ -99,8 +99,9 @@ public sealed class LightPlanBudgetTests(ITestOutputHelper log)
     }
 }
 
-/// <summary>The light plan's 3 s, run serially at integration. It is a budget for optimised code: a Debug build (the JIT's optimiser
-/// off) records its time against the 4× ceiling.</summary>
+/// <summary>The light plan's 3 s, run serially at integration. It is a budget for optimised code: it times a plan made after a first one
+/// in the process, which compiles the plan's code and runs it unoptimised until the runtime's tiers promote it, and logs that first
+/// plan's time beside it; a Debug build (the JIT's optimiser off) records its time against the 4× ceiling.</summary>
 [Trait("Category", "Perf")]
 [Collection(TimedSolves.Name)]
 public sealed class LightPlanPerfTests(ITestOutputHelper log)
@@ -108,12 +109,13 @@ public sealed class LightPlanPerfTests(ITestOutputHelper log)
     [Fact]
     public void TwelveProjectorsPlanInThreeSeconds()
     {
+        var (_, first, _) = LightPlanBudgetTests.TwelveProjectors();
         var (plan, seconds, _) = LightPlanBudgetTests.TwelveProjectors();
         var optimised = typeof(LightPlan).Assembly.GetCustomAttributes(typeof(DebuggableAttribute), false)
             .OfType<DebuggableAttribute>().All(a => !a.IsJITOptimizerDisabled);
         var bar = optimised ? LightPlanBudgetTests.BudgetSeconds : 4 * LightPlanBudgetTests.BudgetSeconds;
         log.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"{plan.Words} in {seconds:0.00} s — {(optimised ? "optimised build: the 3 s budget" : "Debug build: recorded against the 4× ceiling")} ({bar:0} s)"));
+            $"{plan.Words} in {seconds:0.00} s, the process's first plan {first:0.00} s — {(optimised ? "optimised build: the 3 s budget" : "Debug build: recorded against the 4× ceiling")} ({bar:0} s)"));
         Assert.True(seconds <= bar, string.Create(CultureInfo.InvariantCulture, $"{seconds:0.00} s against {bar:0} s"));
         Assert.True(Assert.Single(plan.Surfaces).Coverage > 0.4);
     }
