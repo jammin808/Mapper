@@ -852,10 +852,15 @@ Round 2 W1 notes:
   them has been seen.
 - Done: the survey import's lane tests (`SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds` and
   the regular `SurveyImportTests.ATwoMillionTrianglePlyComesInAsOneEditWithinItsDeviationAndNeverHoldsTheLane`) read how long the
-  lane keeps a line waiting on the lane itself (`LaneProbe`, before each SITE, which must still be answered), not by the test's
-  stopwatch around SITE's whole round trip, which held the test's own continuation. With that continuation 210 ms late once (a delay
-  in a scratch copy) both unchanged tests failed 3 of 3 (a worst of 210.2 to 210.5 ms against the Debug build's 200 ms ceiling); read
-  on the lane they passed 3 of 3 under the same delay (a worst of 1 to 10 ms). No failure of them has been seen.
+  lane takes to answer each SITE on the lane itself (`LaneProbe.AnsweredMsAsync`: how long an empty line posted just before SITE
+  waited, and the lane's turn from that line's end to the start of one posted just behind SITE, the line before holding the lane until
+  both are posted), not by the test's stopwatch around SITE's whole round trip, which held the test's own continuation. With that
+  continuation 210 ms late once (a delay in a scratch copy) both unchanged tests failed 3 of 3 (a worst of 210.2 to 210.5 ms against
+  the Debug build's 200 ms ceiling); read on the lane they passed 3 of 3 under the same delay (a worst of 1 to 10 ms). SITE's own turn
+  is in the reading: with SITE held 300 ms on the lane (a scratch copy), a reading of the lane's wait before each SITE alone passed
+  3 of 3 (a worst of 4.3 ms), and this one failed 3 of 3 (306 to 342 ms); with the test's thread stopped 210 ms between posting SITE
+  and the line behind it once, and 210 ms after an answer once, it passed 3 of 3 (a worst of 5 to 20 ms). No failure of them has
+  been seen.
 - Done: `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` holds the device until the loop has drawn its
   five frames inside the hold (`HoldUntilDrawn`, within the rig's patience), not for 400 ms of real time, and its decoder takes its
   brackets until the loop has drawn a frame among them, not for sixty brackets' few hundred milliseconds. Both asked a number of
