@@ -25,8 +25,8 @@ internal sealed class HostRig : IAsyncDisposable
 {
     public const string Token = "K7QM-3XWD-P9RA";
 
-    // Each moved clock's wall at its zero, taken as the first node on it starts.
-    private static readonly ConditionalWeakTable<IMonoClock, StrongBox<long>> Walls = new();
+    // Each moved clock's wall, taken as the first node on it starts.
+    private static readonly ConditionalWeakTable<IMonoClock, MovedWall> Walls = new();
 
     private readonly ILoggerFactory _logs;
     private readonly NodeLogProvider _log;
@@ -83,7 +83,7 @@ internal sealed class HostRig : IAsyncDisposable
         {
             Parts = parts ?? EngineParts.Bare,
             Mono = mono,
-            UnixMs = SharedWall(mono),
+            UnixMs = SharedWall(mono, dir.FullName),
             Time = time,
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             Logs = logs,
@@ -102,18 +102,35 @@ internal sealed class HostRig : IAsyncDisposable
         return rig;
     }
 
-    /// <summary>The wall the nodes on one moved clock share, as machines on one time server do: the system's time as the first of
-    /// them started, moved as the clock under any offset moves (an offset is another machine's boot, not its time). Null on the
-    /// process's clock, whose nodes read the system's time.</summary>
-    private static Func<long>? SharedWall(IMonoClock? mono)
+    /// <summary>Where a node's wall starts. The nodes on one moved clock share its wall, as machines on one time server do: the
+    /// system's time as the first of them started, moved as the clock under any offset moves (an offset is another machine's boot,
+    /// not its time), so they read one wall to the millisecond. Null on the process's clock, wrapped or not, whose nodes read the
+    /// system's time.</summary>
+    private static Func<long>? SharedWall(IMonoClock? mono, string folder)
     {
-        if (mono is null)
-            return null;
         var root = mono;
         while (root is IClockOver over)
             root = over.Inner;
-        var zero = Walls.GetValue(root, r => new StrongBox<long>(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - r.NowNs / Durations.NsPerMs)).Value;
-        return () => zero + root.NowNs / Durations.NsPerMs;
+        if (root is null or MonoClock)
+            return null;
+        var wall = Walls.GetValue(root, r => new MovedWall(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - r.NowNs / Durations.NsPerMs));
+        var clock = root;
+        return () => wall.StartFor(folder, clock);
+    }
+
+    /// <summary>A moved clock's wall: what it reads at the clock's zero, and where each node's folder last started on it.</summary>
+    private sealed class MovedWall(long zeroUnixMs)
+    {
+        private readonly ConcurrentDictionary<string, long> _starts = new(StringComparer.Ordinal);
+
+        /// <summary>The clock's wall now, or for a node started again before the clock has moved a millisecond after its last start, as
+        /// a machine's clock moves on while it restarts: its views' rings, whose generations count from its start, never take its last
+        /// run's names.</summary>
+        public long StartFor(string folder, IMonoClock clock)
+        {
+            var now = zeroUnixMs + clock.NowNs / Durations.NsPerMs;
+            return _starts.AddOrUpdate(folder, now, (_, last) => Math.Max(now, last + 1));
+        }
     }
 
     /// <summary>Headless, this rig's folder, nothing put back.</summary>

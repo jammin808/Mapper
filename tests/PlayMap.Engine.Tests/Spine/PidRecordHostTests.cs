@@ -11,7 +11,7 @@ namespace PlayMap.Engine.Tests.Spine;
 /// its record, the supervisor's above it for the status it reads — so no other run takes the supervised engine's record.</summary>
 public sealed class PidRecordHostTests
 {
-    private static async Task<EngineHost> StartAsync(DirectoryInfo dir, string? supervisor)
+    private static async Task<EngineHost> StartAsync(DirectoryInfo dir, string? supervisor, Func<long>? unixMs = null)
     {
         var home = new NodeHome(Path.Combine(dir.FullName, "node"));
         home.SaveSettings(NodeSettings.CreateDefault("Pid") with
@@ -24,6 +24,7 @@ public sealed class PidRecordHostTests
         {
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             SupervisorFolder = supervisor,
+            UnixMs = unixMs,
         });
         await host.StartAsync();
         return host;
@@ -54,6 +55,36 @@ public sealed class PidRecordHostTests
                 await host.DisposeAsync();
             }
             Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>The record names this process to the supervisor, which reads its start against the system's: a node whose wall starts
+    /// elsewhere (a test node's, a day behind) still writes the system's time.</summary>
+    [Fact]
+    public async Task TheRecordsStartIsTheSystemsTimeWhereverTheNodesWallStarts()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-pid-host-");
+        try
+        {
+            var supervisor = Directory.CreateDirectory(Path.Combine(dir.FullName, "supervisor")).FullName;
+            var before = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            const long Day = 86_400_000;
+            var host = await StartAsync(dir, supervisor, unixMs: () => before - Day);
+            try
+            {
+                var record = EnginePidRecord.Parse(File.ReadAllText(Path.Combine(supervisor, EnginePidRecord.FileName)));
+                Assert.NotNull(record);
+                Assert.InRange(record.StartedUnixMs, before, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                Assert.InRange(host.Engine.Services.Wall.UnixMs, before - Day, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - Day);
+            }
+            finally
+            {
+                await host.DisposeAsync();
+            }
         }
         finally
         {
