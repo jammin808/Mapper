@@ -31,6 +31,33 @@ public sealed class ToolProbeTests
         Assert.Equal("the-global-root", ToolProbe.Run(tool, args, ToolProbe.Deadline));
     }
 
+    /// <summary>The probes' tools are found by their absolute path: on Windows a tool's .exe, else its .cmd (npm is a batch file there),
+    /// folder by folder; elsewhere its bare name; never in a PATH entry that is not an absolute folder.</summary>
+    [Fact]
+    public void AToolIsFoundByItsAbsolutePathAsItsExeThenItsCmdOnWindowsAndByItsNameElsewhere()
+    {
+        var first = Directory.CreateTempSubdirectory("playmap-find-");
+        var second = Directory.CreateTempSubdirectory("playmap-find-");
+        try
+        {
+            foreach (var (dir, file) in new[] { (first, "npm.cmd"), (first, "node.cmd"), (second, "node.exe"), (second, "npm"), (second, "tool.cmd"), (first, "tool.exe") })
+                File.WriteAllText(Path.Combine(dir.FullName, file), "");
+            var path = string.Join(Path.PathSeparator, "relative-folder", first.FullName, second.FullName);
+
+            Assert.Equal(Path.Combine(first.FullName, "npm.cmd"), ToolProbe.Find("npm", path, windows: true));
+            Assert.Equal(Path.Combine(first.FullName, "node.cmd"), ToolProbe.Find("node", path, windows: true));
+            Assert.Equal(Path.Combine(first.FullName, "tool.exe"), ToolProbe.Find("tool", path, windows: true));
+            Assert.Equal(Path.Combine(second.FullName, "npm"), ToolProbe.Find("npm", path, windows: false));
+            Assert.Null(ToolProbe.Find("node", path, windows: false));
+            Assert.Null(ToolProbe.Find("npm", "relative-folder", windows: true));
+        }
+        finally
+        {
+            first.Delete(recursive: true);
+            second.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void AToolThatDoesNotFinishIsStoppedAndAnswersNothing()
     {

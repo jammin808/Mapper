@@ -25,24 +25,10 @@ internal static class NodeTools
         Directory.Exists(Path.Combine(E2e, "node_modules", module))
         || (GlobalRoot.Value is { Length: > 0 } root && Directory.Exists(Path.Combine(root, module)));
 
-    private static string? Find(string name)
-    {
-        var exe = OperatingSystem.IsWindows() ? name + ".exe" : name;
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(dir, exe);
-            if (File.Exists(candidate))
-                return candidate;
-        }
-        return null;
-    }
+    private static string? Find(string name) => ToolProbe.Find(name);
 
     /// <summary>What a tool on PATH wrote, read once it has exited (<see cref="ToolProbe"/>), or null.</summary>
-    private static string? Output(string tool, string[] args)
-    {
-        var path = Find(tool) ?? (OperatingSystem.IsWindows() ? Find(tool + ".cmd") : null);
-        return path is null ? null : ToolProbe.Run(path, args, ToolProbe.Deadline);
-    }
+    private static string? Output(string tool, string[] args) => Find(tool) is { } path ? ToolProbe.Run(path, args, ToolProbe.Deadline) : null;
 
     /// <summary>Runs a script of tests/e2e/phonescan to its end; answers its exit code and what it wrote.</summary>
     public static async Task<(int Code, string Output)> RunAsync(string script, TimeSpan timeout, params string[] args)

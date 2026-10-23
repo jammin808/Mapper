@@ -1392,6 +1392,14 @@ Round 2 W1 notes:
   exit waited for) all three failed 3 runs of 3, still waiting after 60 s, and they pass 3 of 3; beside them a tool past its
   deadline is stopped with its words, a tool's input, output, errors and exit code are its own, and one that cannot start says
   so. Two sites are wave-2 package files and stay open (below).
+- Done: the phone tests find their tools as Windows names them. The phone loop's lookup (`LoopPhone.Find`) and the node scripts'
+  (`NodeTools.Find`) each took `name.exe` alone on Windows, so npm, a batch file there (`npm.cmd`), was never found, and the node
+  scripts' fallback asked for `npm.cmd.exe`; each also looked in every PATH entry, a relative one (the current directory's) too.
+  One lookup in the shared test files (`ToolProbe.Find`) now takes, folder by folder, `name.exe` then `name.cmd` on Windows and
+  `name` elsewhere, by its absolute path, never in an entry that is not an absolute folder, and both use it.
+  `ToolProbeTests.AToolIsFoundByItsAbsolutePathAsItsExeThenItsCmdOnWindowsAndByItsNameElsewhere` reads folders of stand-in files
+  Windows' way and not: against the old lookup it failed 3 runs of 3 (no `npm.cmd`), and it passes 3 of 3. The Windows job runs the
+  lookup for real; until then it is shown on Linux only.
 - Open: two tests' clip makers still read ffmpeg's errors to their end and then wait for its exit with no bound:
   `tests/PlayMap.Engine.Tests/Rendering/HostRig.cs` (d3d12-passes' file in wave 2) and
   `tests/PlayMap.Engine.Tests/Fleet/BackupRenderTests.cs` (stability's hunk in wave 2). Moving each to the tests' runner

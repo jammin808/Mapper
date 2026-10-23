@@ -294,16 +294,7 @@ internal sealed class LoopPhone : IAsyncDisposable
     /// npm, never with its output pipe (<see cref="ToolProbe"/>).</summary>
     private static readonly Lazy<string?> GlobalRoot = new(() => Find("npm") is { } npm ? ToolProbe.Run(npm, ["root", "-g"], ToolProbe.Deadline) : null);
 
-    private static string? Find(string name)
-    {
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(dir, OperatingSystem.IsWindows() ? name + ".exe" : name);
-            if (File.Exists(candidate))
-                return candidate;
-        }
-        return null;
-    }
+    private static string? Find(string name) => ToolProbe.Find(name);
 
     /// <summary>Opens the page and taps Allow; answers once the page says it is ready (the phone has joined).</summary>
     public static async Task<LoopPhone> OpenAsync(string pageUrl, string bridgeUrl, string profile, string folder)
