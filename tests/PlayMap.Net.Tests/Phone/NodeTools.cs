@@ -38,6 +38,16 @@ internal static class NodeTools
             start.WorkingDirectory = E2e;
             start.Environment["PLAYWRIGHT_BROWSERS_PATH"] = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH") ?? "/opt/pw-browsers";
         });
+        return Ended(ran, script, timeout);
+    }
+
+    /// <summary>A script's run as its test reads it: its exit code and what it wrote; a run that could not start, that was stopped at
+    /// its deadline or whose words a process it started held open throws, saying which.</summary>
+    internal static (int Code, string Output) Ended(ChildRun ran, string script, TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(ran);
+        if (!ran.Started)
+            throw new InvalidOperationException($"{script}: {ran.Words}");
         if (!ran.Finished)
             throw new TimeoutException($"{script} ran past {timeout.TotalSeconds} s and was stopped: {ran.Errors}");
         if (!ran.WordsIn)

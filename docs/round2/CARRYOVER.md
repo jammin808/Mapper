@@ -1423,6 +1423,13 @@ Round 2 W1 notes:
   and `RunAsync`, and reads every word in within the drain, which only a stop that took the helper too lets in. With the stop
   taking the tool alone (a scratch switch) it failed 3 runs of 3 (its words held open), and it passes 3 of 3 as the runner stands,
   no helper left behind. Shown on Linux; the Windows job runs its batch file and `start /b` helper first.
+- Done: a camera page script that could not start says so. The Net suite's node scripts (`NodeTools.RunAsync`) took every run that
+  did not finish for one that ran past its deadline, so node missing or not runnable read "ran past … s and was stopped" with no
+  reason. A run is now read in one place (`NodeTools.Ended`): one that could not start throws with the runner's words and the reason,
+  one stopped at its deadline and one whose words a process it started holds open say so as before.
+  `NodeToolsTests.AScriptThatCouldNotStartSaysSoWithTheReason` hands it a run that could not start: read as `RunAsync` read it, it
+  failed 3 runs of 3 (a `TimeoutException`, "ran past 30 s and was stopped: "), and it passes 3 of 3 beside a stopped and a
+  finished run.
 - Done: the phone tests find their tools as Windows names them. The phone loop's lookup (`LoopPhone.Find`) and the node scripts'
   (`NodeTools.Find`) each took `name.exe` alone on Windows, so npm, a batch file there (`npm.cmd`), was never found, and the node
   scripts' fallback asked for `npm.cmd.exe`; each also looked in every PATH entry, a relative one (the current directory's) too.
