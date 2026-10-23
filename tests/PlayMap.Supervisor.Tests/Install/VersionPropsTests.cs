@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Text.Json;
+using PlayMap.Tests;
 
 namespace PlayMap.Supervisor.Tests.Install;
 
@@ -65,28 +65,19 @@ public sealed class VersionPropsTests
     {
         var root = RepoRoot();
         var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } h && File.Exists(h) ? h : "dotnet";
-        var start = new ProcessStartInfo(host)
+        var ran = await ChildProcess.RunAsync(host, ["msbuild", Path.Combine(root, "src", "PlayMap.Core", "PlayMap.Core.csproj"), "-nologo", "-nodeReuse:false",
+            "-getProperty:PlayMapMsiVersion", "-getProperty:InformationalVersion", .. properties], ChildProcess.Deadline, start =>
         {
-            WorkingDirectory = root,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (var a in (string[])["msbuild", Path.Combine(root, "src", "PlayMap.Core", "PlayMap.Core.csproj"), "-nologo", "-nodeReuse:false",
-                     "-getProperty:PlayMapMsiVersion", "-getProperty:InformationalVersion", .. properties])
-            start.ArgumentList.Add(a);
-        foreach (var name in new[] { "PlayMapRun", "PlayMapRunBase", "PlayMapCommit", "PlayMapVersion", "MSBuildExtensionsPath", "MSBuildSDKsPath", "MSBUILD_EXE_PATH" })
-            start.Environment.Remove(name);
-        start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
-        start.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
-        start.Environment["DOTNET_NOLOGO"] = "1";
-        using var process = Process.Start(start)!;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-        var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
-        var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
-        await process.WaitForExitAsync(timeout.Token);
-        var text = await stdout;
-        var output = text + await stderr;
+            start.WorkingDirectory = root;
+            foreach (var name in new[] { "PlayMapRun", "PlayMapRunBase", "PlayMapCommit", "PlayMapVersion", "MSBuildExtensionsPath", "MSBuildSDKsPath", "MSBUILD_EXE_PATH" })
+                start.Environment.Remove(name);
+            start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+            start.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+            start.Environment["DOTNET_NOLOGO"] = "1";
+        });
+        Assert.True(ran.Started && ran.Finished && ran.WordsIn, ran.Words);
+        var text = ran.Text;
+        var output = text + ran.Errors;
         // The properties are one JSON object, after any error lines.
         var at = text.IndexOf("\n{", StringComparison.Ordinal) + 1;
         if (at == 0 && text.StartsWith('{'))
@@ -96,6 +87,6 @@ public sealed class VersionPropsTests
         using var doc = JsonDocument.Parse(text[at..]);
         var values = doc.RootElement.GetProperty("Properties").EnumerateObject()
             .ToDictionary(p => p.Name, p => p.Value.GetString() ?? "", StringComparer.Ordinal);
-        return new Evaluated(process.ExitCode, output, values);
+        return new Evaluated(ran.ExitCode, output, values);
     }
 }

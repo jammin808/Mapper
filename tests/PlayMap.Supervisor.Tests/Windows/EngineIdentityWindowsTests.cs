@@ -88,8 +88,7 @@ public sealed class EngineIdentityWindowsTests
         }
         finally
         {
-            if (!engine.HasExited)
-                engine.Kill();
+            ChildProcess.Stop(engine);
         }
     }
 

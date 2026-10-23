@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Tests.Model;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Versions;
 
@@ -237,26 +237,17 @@ public sealed class BuildStampTests
     private static async Task<(int Exit, string Output, string Errors)> Dotnet(string folder, params string[] args)
     {
         var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } h && File.Exists(h) ? h : "dotnet";
-        var start = new ProcessStartInfo(host)
+        var ran = await ChildProcess.RunAsync(host, args, ChildProcess.Deadline, start =>
         {
-            WorkingDirectory = folder,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (var a in args)
-            start.ArgumentList.Add(a);
-        foreach (var name in new[] { "PlayMapRun", "PlayMapRunBase", "PlayMapCommit", "PlayMapVersion", "MSBuildExtensionsPath", "MSBuildSDKsPath", "MSBUILD_EXE_PATH",
-                     "MSBuildLoadMicrosoftTargetsReadOnly" })
-            start.Environment.Remove(name);
-        start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
-        start.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
-        start.Environment["DOTNET_NOLOGO"] = "1";
-        using var process = Process.Start(start)!;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-        var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
-        var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
-        await process.WaitForExitAsync(timeout.Token);
-        return (process.ExitCode, await stdout, await stderr);
+            start.WorkingDirectory = folder;
+            foreach (var name in new[] { "PlayMapRun", "PlayMapRunBase", "PlayMapCommit", "PlayMapVersion", "MSBuildExtensionsPath", "MSBuildSDKsPath", "MSBUILD_EXE_PATH",
+                         "MSBuildLoadMicrosoftTargetsReadOnly" })
+                start.Environment.Remove(name);
+            start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+            start.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+            start.Environment["DOTNET_NOLOGO"] = "1";
+        });
+        Assert.True(ran.Started && ran.Finished && ran.WordsIn, ran.Words);
+        return (ran.ExitCode, ran.Text, ran.Errors);
     }
 }

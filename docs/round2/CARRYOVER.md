@@ -1391,7 +1391,24 @@ Round 2 W1 notes:
   (`PipeHolder`) through `Run`, `RunAsync` and `EndAsync`: against the sites' old pattern (every word read to its end, then the
   exit waited for) all three failed 3 runs of 3, still waiting after 60 s, and they pass 3 of 3; beside them a tool past its
   deadline is stopped with its words, a tool's input, output, errors and exit code are its own, and one that cannot start says
-  so. Two sites are wave-2 package files and stay open (below).
+  so. The tests that triage did not list follow in the next entry, and two wave-2 package files stay open (below).
+- Done: the tests the runner had not yet reached run through it too, the installer's and the supervisor's among them. The installer
+  tests' Windows tools (`InstallerTests.Tool`: `net.exe`, `netsh.exe`, `sc.exe`, `tasklist.exe`, `cmd.exe` and the supervisor's own
+  commands) read their output to its end, then their errors, then waited for the exit with no bound (and a tool that filled its
+  error pipe before its output ended could never finish); the notices script (`LicenceTests.RunNotices`), the version tests' MSBuild
+  (`VersionPropsTests`) and the build stamp's builds (`BuildStampTests`) waited for the exit under a deadline of their own, then
+  read the words to their end, and left a tool past that deadline running; and the processes the installer's, the supervisor's and
+  the shader worker's tests start and end themselves (the fake engine, ping, the engine run as a standard user, the worker) were
+  each ended by a kill of the test's own, then waited for with no bound or not at all. Each runs through the runner now, or ends there
+  (`Run`, `RunAsync`, `Stop`, `StopAsync`), and the installer's own run (`InstallerTests.Wait`) is stopped with every process it
+  started past its 10 minutes; the installer's tests, outside the solution, link the runner as the suites do. A tool that does not
+  finish, or whose words a process it started holds open, fails its test with how it ended. Forced with a stand-in for dotnet whose
+  helper holds its output pipes for 400 s after it has exited, handed to the test host through the run settings' environment:
+  `VersionPropsTests.ANumberedBuildSetsTheInstallersVersion` against the old helper waited 181 to 182 s, 3 runs of 3, until its own
+  deadline cancelled the read; now it ends in about 5 s, 3 of 3, its message the stand-in's words held open, and on the real dotnet it
+  passes (the Core suite's build stamp tests 16, the supervisor's suite 95 with its 33 Windows tests skipped here, the shader
+  worker's 12). The installer's tests build here and run only on the elevated installer job, and the supervisor's Windows tests only
+  on the Windows job: neither job has run them with this change yet.
 - Done: the phone tests find their tools as Windows names them. The phone loop's lookup (`LoopPhone.Find`) and the node scripts'
   (`NodeTools.Find`) each took `name.exe` alone on Windows, so npm, a batch file there (`npm.cmd`), was never found, and the node
   scripts' fallback asked for `npm.cmd.exe`; each also looked in every PATH entry, a relative one (the current directory's) too.

@@ -402,8 +402,7 @@ public sealed class ShaderWorkerTests
         }
         finally
         {
-            if (!worker.HasExited)
-                worker.Kill(entireProcessTree: true);
+            ChildProcess.Stop(worker);
         }
     }
 

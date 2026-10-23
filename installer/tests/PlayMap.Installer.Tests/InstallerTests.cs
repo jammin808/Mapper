@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using PlayMap.Core.Machine;
 using PlayMap.Engine.ShaderWorker;
+using PlayMap.Tests;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
@@ -369,9 +370,7 @@ public sealed class InstallerTests
         {
             if (engine is not null)
             {
-                if (!engine.HasExited)
-                    engine.Kill(entireProcessTree: true);
-                await engine.WaitForExitAsync();
+                await ChildProcess.StopAsync(engine);
                 engine.Dispose();
             }
             Tool("net.exe", "user", account, "/delete");
@@ -905,20 +904,22 @@ public sealed class InstallerTests
         foreach (var a in args)
             start.ArgumentList.Add(a);
         using var p = Process.Start(start)!;
-        Assert.True(p.WaitForExit(TimeSpan.FromMinutes(10)), exe + " did not finish within 10 minutes");
+        var finished = p.WaitForExit(TimeSpan.FromMinutes(10));
+        if (!finished)
+            ChildProcess.Stop(p);
+        Assert.True(finished, exe + " did not finish within 10 minutes and was stopped");
         return p.ExitCode;
     }
 
+    /// <summary>A Windows tool (by its name in System32, or its path) run to its end through the tests' runner: its exit code and every
+    /// word it wrote, on either stream. One that does not finish within the runner's deadline, or whose words a process it started
+    /// holds open, fails the test with how it ended.</summary>
     private static (int Exit, string Output) Tool(string exe, params string[] args)
     {
         var path = Path.IsPathRooted(exe) ? exe : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), exe);
-        var start = new ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in args)
-            start.ArgumentList.Add(a);
-        using var p = Process.Start(start)!;
-        var output = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        return (p.ExitCode, output);
+        var ran = ChildProcess.Run(path, args, ChildProcess.Deadline, start => start.CreateNoWindow = true);
+        Assert.True(ran.Started && ran.Finished && ran.WordsIn, ran.Words);
+        return (ran.ExitCode, ran.Text + ran.Errors);
     }
 
     private static string Sha256(string path)
@@ -967,9 +968,7 @@ public sealed class InstallerTests
 
         public void Dispose()
         {
-            if (!_process.HasExited)
-                _process.Kill();
-            _process.WaitForExit();
+            ChildProcess.Stop(_process);
             _process.Dispose();
             if (_copy is not null)
                 File.Delete(_copy);

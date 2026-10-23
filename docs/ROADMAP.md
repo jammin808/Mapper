@@ -112,8 +112,9 @@ The lab checks still to do:
   row (docs/WIRE.md "The door"); these parts are not measured and no test covers them. Writing a lane verb's row in the lane's own
   turn would order the ticks behind it; the other parts would need to hold a line's rows until its row.
 - Two tests' clip makers still read ffmpeg's errors to their end and then wait for its exit with no bound (`Rendering/HostRig.cs`,
-  d3d12-passes' file in wave 2, and `Fleet/BackupRenderTests.cs`, stability's hunk); every other site runs its child processes
-  through the tests' bounded runner (`tests/Shared/ChildProcess.cs`), and moving these two to it closes it.
+  d3d12-passes' file in wave 2, and `Fleet/BackupRenderTests.cs`, stability's hunk); every other test that starts a child process,
+  the installer's and the supervisor's among them, runs it through the tests' bounded runner (`tests/Shared/ChildProcess.cs`) or ends
+  it there, and moving these two to it closes it.
 - Watched, not reproduced or not explained (none is changed to pass): `ClockSlewTests`' 3 h 12 min step, round 2's one
   `FanoutTests` failure in a gate run (its test was not recorded; most likely the preflight runner's misread of a check that had
   returned, which is fixed), `OscServerTests`' one Windows wait for a sender forgotten (consistent with the control tick's order,

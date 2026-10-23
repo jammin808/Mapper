@@ -28,6 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The one way the tests run a child process and end one they started: bounded by a deadline, never by the end of its pipes. -->
+    <Compile Include="..\..\..\tests\Shared\ChildProcess.cs" Link="Shared\ChildProcess.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The shader worker's pins, from the one file the worker reads them from: the installed natives and the shipped folders are
          held to the hashes the worker loads them by. -->
     <Compile Include="..\..\..\src\PlayMap.Engine\ShaderWorker\CompilerNatives.cs" Link="Engine\CompilerNatives.cs" />

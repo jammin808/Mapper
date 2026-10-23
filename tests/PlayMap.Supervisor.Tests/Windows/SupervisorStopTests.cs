@@ -6,6 +6,7 @@ using System.Security.Principal;
 using PlayMap.Core.Machine;
 using PlayMap.Supervisor.Install;
 using PlayMap.Supervisor.Windows;
+using PlayMap.Tests;
 
 namespace PlayMap.Supervisor.Tests.Windows;
 
@@ -80,9 +81,11 @@ public sealed class SupervisorStopTests
         }
         finally
         {
-            if (started is { HasExited: false })
-                started.Kill();
-            started?.Dispose();
+            if (started is not null)
+            {
+                ChildProcess.Stop(started);
+                started.Dispose();
+            }
             await stop.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => serving);
         }
@@ -254,9 +257,7 @@ public sealed class SupervisorStopTests
             }
             finally
             {
-                if (!engine.HasExited)
-                    engine.Kill();
-                engine.WaitForExit(Patience);
+                ChildProcess.Stop(engine);
                 await stop.CancelAsync();
                 await Assert.ThrowsAnyAsync<OperationCanceledException>(() => serving);
                 File.Delete(Path.Combine(place.Folder, "supervisor.log"));
@@ -298,9 +299,7 @@ public sealed class SupervisorStopTests
             }
             finally
             {
-                if (!engine.HasExited)
-                    engine.Kill();
-                engine.WaitForExit(Patience);
+                ChildProcess.Stop(engine);
                 File.Delete(Path.Combine(place.EngineFolder, EnginePidRecord.FileName));
             }
         }

@@ -1,11 +1,10 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using PlayMap.Engine.ShaderWorker;
+using PlayMap.Tests;
 
 namespace PlayMap.Installer.Tests;
 
@@ -318,28 +317,18 @@ public sealed partial class LicenceTests
     /// exit code, and what it wrote.</summary>
     private static async Task<(int Exit, string Output)> RunNotices(string folder, string cache, string assets)
     {
-        var start = new ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "-NoProfile", "-NonInteractive", "-File", Path.Combine(Repository, "installer", "notices.ps1"), "-Folder", folder, "-Assets", assets })
-            start.ArgumentList.Add(a);
-        start.Environment["NUGET_PACKAGES"] = cache;
-        start.Environment["NO_COLOR"] = "1";
-        Process process;
-        try
-        {
-            process = Process.Start(start) ?? throw new InvalidOperationException("pwsh did not start");
-        }
-        catch (Win32Exception e)
-        {
-            throw new InvalidOperationException("PowerShell 7 (pwsh) is not on PATH: it runs installer/notices.ps1", e);
-        }
-        using (process)
-        {
-            using var limit = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-            var output = process.StandardOutput.ReadToEndAsync(limit.Token);
-            var error = process.StandardError.ReadToEndAsync(limit.Token);
-            await process.WaitForExitAsync(limit.Token);
-            return (process.ExitCode, await output + await error);
-        }
+        var ran = await ChildProcess.RunAsync("pwsh",
+            ["-NoProfile", "-NonInteractive", "-File", Path.Combine(Repository, "installer", "notices.ps1"), "-Folder", folder, "-Assets", assets],
+            TimeSpan.FromMinutes(5), start =>
+            {
+                start.CreateNoWindow = true;
+                start.Environment["NUGET_PACKAGES"] = cache;
+                start.Environment["NO_COLOR"] = "1";
+            });
+        if (!ran.Started)
+            throw new InvalidOperationException($"PowerShell 7 (pwsh) is not on PATH: it runs installer/notices.ps1 ({ran.Why})");
+        Assert.True(ran.Finished && ran.WordsIn, ran.Words);
+        return (ran.ExitCode, ran.Text + ran.Errors);
     }
 
     /// <summary>A self-contained win-x64 publish's PlayMap.deps.json with libraries the repository's notices name: PlayMap's own file,

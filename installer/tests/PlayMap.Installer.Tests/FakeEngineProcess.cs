@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using PlayMap.Tests;
 
 namespace PlayMap.Installer.Tests;
 
@@ -59,9 +60,7 @@ internal sealed class FakeEngineProcess : IDisposable
 
     public void Dispose()
     {
-        if (!_process.HasExited)
-            _process.Kill();
-        _process.WaitForExit();
+        ChildProcess.Stop(_process);
         _process.Dispose();
         Directory.Delete(_folder, true);
     }
