@@ -208,6 +208,11 @@ The lab checks still to do:
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's
   words and the heap).
+- The light plan's first plan in a process (3.5 to 3.8 s here, its code compiled and run at the runtime's first tier) runs past
+  the 3 s its Perf twin now holds for a plan made after it (docs/round2/CARRYOVER.md). An operator's first PLAN LIGHT after the engine
+  starts is such a plan, and the reply already answers one past 2 s with accepted and posts its result; holding the first plan to
+  3 s too would take the planner compiled ahead of time (ReadyToRun) or a plan made as the engine starts. The design's 3 s does not
+  say which plan it means: the owner's call.
 - Watched, short real-time windows a sweep of the tests found and none has failed on yet (each keeps its bar; the fix named is
   the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
   measure of the work rather than the stopwatch): the desk's hold button timed on the stopwatch (600 ms; its ring's timer runs in

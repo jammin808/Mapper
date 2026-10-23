@@ -1518,6 +1518,18 @@ Round 2 W1 notes:
   a project with none answers that no test matches and passes); the Windows step's script, run here under PowerShell 7.6 in Debug
   with a stand-in for its processor reading (`Get-CimInstance Win32_Processor`, which only Windows answers), passed every project in
   turn too (Core 2, Engine 6, Media 4, Net 1), its `--` reaching `dotnet test` with the run setting; and the workflow parses.
+- Done: the light plan's Perf twin times a plan made after the process's first, and logs the first beside it. In CI's serial Perf
+  step `LightPlanPerfTests.TwelveProjectorsPlanInThreeSeconds` failed once on Linux (fix-w1-followups e1bdf0bf, CI run 458: 3.02 s
+  against its 3 s, the load 1.78 on 4 cores). The step runs the Perf tests alone, so the twin's plan was the process's first, which
+  compiles the plan's code and runs it at the runtime's first tier until its tiers promote it. Within the suites the budget test
+  (`LightPlanBudgetTests`, in the same collection) runs the same plan before it in the same process. Here, in Release on 4 cores of
+  a 2.1 GHz Xeon: the twin alone took 3.29 to 3.95 s (5 runs of 5 past its bar); after the budget test, 2.39 to 2.50 s (5 of 5); alone
+  with tiered compilation off, 2.96 to 3.02 s (3 runs). It now makes a plan, then times a second: 2.39 to 2.56 s in 5 fresh processes
+  of 5, the first plan, logged beside it, 3.48 to 3.84 s. That the twin ran after the budget test on main's CI is consistent with
+  the order seen here, not proven: a passing test's times are only in CI's results files, which could not be fetched here, so how
+  near its bar the twin ran in runs 456 and 457 is not known either. An operator's first PLAN LIGHT after the engine starts is such
+  a first plan; the design answers a plan still running at 2 s with accepted and posts its result (docs/round2/design/facade.md
+  §3.10), and whether §3.11's 3 s holds that first plan too is open (`docs/ROADMAP.md`).
 - Done: nodes on one moved clock read one wall. A host anchored its wall clock (`ShowWallClock`) at the system's time as it started
   and ran it on the node's monotonic clock, so two rig nodes on one hand-moved clock read walls as far apart as the real time between
   their starts, less the clock's moves. A pull's nonce is the puller's wall and the primary refuses one more than a minute from its
