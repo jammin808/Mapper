@@ -8,7 +8,8 @@ namespace PlayMap.Net.Tests;
 
 /// <summary>PlayMap's fine clock sync on loopback: two clocks that agree converge to an offset of about zero, within a millisecond
 /// and half the best round trip, a leader five seconds ahead is found to the same bound, and anything that is not a well-formed
-/// packet answering one of ours is refused. The round trip is recorded: how small it is on a show network is the lab's.</summary>
+/// packet answering one of ours is refused. The round trip is recorded beside the parallel suites; its bar over loopback is the Perf
+/// twin's, run serially after them.</summary>
 public class ClockSyncTests(ITestOutputHelper output)
 {
     /// <summary>A monotonic clock moved by a fixed amount (another machine's clock).</summary>
@@ -70,6 +71,21 @@ public class ClockSyncTests(ITestOutputHelper output)
             // One local instant read through the follower's clock: no time passes between the two sides of the comparison.
             var local = MonoClock.Instance.NowNs;
             Assert.InRange(Math.Abs(follower.Clock.ToLeader(local) - local) / 1e6, 0, 3 + s.RoundTripMs);
+        }
+    }
+
+    /// <summary>The round trip's bar: the best within 20 ms over this machine's loopback. A Perf test, run serially after the suites, so
+    /// the parallel suites' work is not timed with it.</summary>
+    [Fact]
+    [Trait("Category", "Perf")]
+    public async Task TheBestRoundTripOverLoopbackIsWithinTwentyMilliseconds()
+    {
+        var (leader, follower) = await PairAsync(0);
+        await using (follower)
+        {
+            var s = await ConvergeThenQuietAsync(leader, follower);
+            output.WriteLine($"best round trip {s.RoundTripMs:0.000} ms over {s.Samples} samples");
+            Assert.InRange(s.RoundTripMs, 0, 20);
         }
     }
 

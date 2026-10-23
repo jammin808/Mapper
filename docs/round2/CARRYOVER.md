@@ -1450,14 +1450,22 @@ Round 2 W1 notes:
   (`VideoSourceTests.OnAHandMovedPositionTheLoopAnswersEveryRequestWithItsFrame`), its stopwatch twin a `Category=Perf` test:
   with the decoder's queue held 400 ms one second in, the stopwatch test failed 3 runs of 3 and the hand-moved one passes 3 of 3.
   `AnchorFeedTests` keeps every fact and logs the adoption's time, its 800 ms ceiling gone (900 ms inside the window failed it 3
-  of 3), the design's 200 ms bar the show network's. `ClockSyncTests` logs the best round trip and holds the offset within a
+  of 3), the bar a Perf twin's (below). `ClockSyncTests` logs the best round trip and holds the offset within a
   millisecond and half of it (under a leader whose clock takes 25 ms to read, the 20 ms ceiling failed 3 of 3 and the bound held 3
-  of 3). A folder camera's settle runs on the clock its options give (`FolderCameraOptions.Time`, the system's on a node), and
+  of 3), the ceiling a Perf twin's (below). A folder camera's settle runs on the clock its options give (`FolderCameraOptions.Time`, the system's on a node), and
   `FolderCameraWriteTests` moves it once the file is whole: with the file written in place in two halves 60 ms apart, the real
   20 ms settle took the half file 3 of 3 (no frame), and the test's clock waits for the whole one 3 of 3. Art-Net's timecode test
   runs on the node's clock, moved 40 ms a frame once the source has read the last: with 120 ms between each send and its read, the
   real clock read dropout 3 of 3 and the node's clock reads rolling 3 of 3. The throughput bars ride with the serial Perf step
   and the hold button with the desk's clock (`docs/ROADMAP.md`).
+- Done: the anchor feed's adoption and the clock sync's round trip keep their bars, in Perf twins run serially after the suites.
+  Their CI tests had come to log the time alone, and neither bar was held anywhere: no lab line names it and no Perf test held it.
+  `AnchorFeedTests.AFollowerAdoptsTheLeadersGoWithinFourTimesTheDesignsBar` holds a follower's adoption of its leader's GO, item and
+  anchor, to 800 ms of the GO's send on loopback, 4× the design's 200 ms for two nodes in one process
+  (docs/round2/design/framelock.md F1), and `ClockSyncTests.TheBestRoundTripOverLoopbackIsWithinTwentyMilliseconds` the best round
+  trip to 20 ms; both are `Category=Perf`. With 900 ms inside the adoption's window the first failed 3 runs of 3 (911 to 915 ms),
+  and under a leader whose clock takes 25 ms to read the second failed 3 of 3 (28.7 to 29.1 ms); unforced both pass 3 of 3 (about
+  210 ms, beside 3 to 263 ms in the CI test, and 0.17 to 0.23 ms).
 - Done: the three tests one loaded gate failed together (2026-10-22, the Core suite 5 min and the Engine suite 28 min 39 s long)
   no longer time the machine's load, or say what the node held. The light plan's budget (`LightPlanBudgetTests`) times the plan by
   the process's CPU time across it, its collection running alone, against 4× the 3 s budget on each core, the stopwatch's time
@@ -1477,7 +1485,7 @@ Round 2 W1 notes:
   load averages before and after, and the cores; Windows: the processors' load before and after, and the cores) and, on Windows,
   each failed test with its message. Every bar is unchanged: the survey import's 15 s, 50 ms and 10 ms slice, the light plan's
   3 s, the first map's 5 s, the HAP and 1080p decode throughput, the clip loop's two real-time seconds, the self-calibration's
-  second and the projector solve's slice. The integration gate's own script is not in this tree and still runs them inside the
+  second, the projector solve's slice, and the anchor feed's 800 ms and the clock sync's 20 ms round trip (above). The integration gate's own script is not in this tree and still runs them inside the
   suites (`docs/ROADMAP.md`).
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the

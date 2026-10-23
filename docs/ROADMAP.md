@@ -213,7 +213,8 @@ The lab checks still to do:
   the headless tests only when a test yields to the dispatcher, which no test that holds a button does while it holds, so none
   races it now; the desk's clock closes it). The optimise worker's stop graces, the clip loop's playback, the anchor feed's
   adoption, the clock sync's round trip, the folder camera's settle and Art-Net's timecode now run on what the test holds, or are
-  logged, and the real-time throughput bars run in CI's serial Perf step after the suites (docs/round2/CARRYOVER.md).
+  logged with their bars in Perf twins (the adoption's 800 ms, the round trip's 20 ms), and the real-time throughput bars run in
+  CI's serial Perf step after the suites (docs/round2/CARRYOVER.md).
 - The integration gate's script, which is not in this tree, runs the `Category=Perf` tests inside the suites, beside the parallel
   test classes. Running them after the suites, one project and one test collection at a time, as CI's Perf step does, closes it.
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes

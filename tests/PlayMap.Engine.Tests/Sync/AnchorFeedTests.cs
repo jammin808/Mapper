@@ -38,8 +38,8 @@ public sealed class AnchorFeedTests(ITestOutputHelper output)
         var anchor = leader.Engine.AnchorJson("pl_show");
         Assert.NotNull(anchor);
         Assert.True(await Eventually.TrueAsync(() => follower.Engine.AnchorJson("pl_show") == anchor, stepMs: 1), $"{follower.Engine.AnchorJson("pl_show")} != {anchor}");
-        // The design's bar is 200 ms on a show network, which only a show network measures: on this machine's loopback the adoption
-        // is the fact asserted and its time is recorded, never a ceiling.
+        // The adoption is the fact asserted here, beside the parallel suites, and its time is recorded: its bar is the Perf twin's,
+        // run serially after the suites (AFollowerAdoptsTheLeadersGoWithinFourTimesTheDesignsBar).
         output.WriteLine($"the follower adopted the leader's GO in {took.Elapsed.TotalMilliseconds:0.0} ms");
         Assert.Equal(leader.Engine.Snapshot.Playback.Playlists["pl_show"].SwitchAtLeaderNs, follower.Engine.Snapshot.Playback.Playlists["pl_show"].SwitchAtLeaderNs);
         Assert.Contains("Sync test", follower.State().GetProperty("project").GetProperty("name").GetString(), StringComparison.Ordinal);
@@ -79,6 +79,28 @@ public sealed class AnchorFeedTests(ITestOutputHelper output)
         Assert.Equal(0.5, leader.Engine.AirGain("op_1", t2 + 2 * Second), Tolerance);
         Assert.Equal(leader.State().GetProperty("air").GetProperty("master").GetProperty("untilLeaderNs").GetInt64(),
             follower.State().GetProperty("air").GetProperty("master").GetProperty("untilLeaderNs").GetInt64());
+    }
+
+    /// <summary>The adoption's bar: a follower takes its leader's GO, its item and anchor, within 800 ms of the GO's send on this
+    /// machine's loopback, 4× the design's 200 ms for two nodes in one process (docs/round2/design/framelock.md F1). A Perf test, run
+    /// serially after the suites, so the parallel suites' work is not timed with it.</summary>
+    [Fact]
+    [Trait("Category", "Perf")]
+    public async Task AFollowerAdoptsTheLeadersGoWithinFourTimesTheDesignsBar()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var leader = await SyncRig.StartAsync("FOH", SyncRig.LeaderId, new OffsetClock(clock, Ahead));
+        await using var follower = await SyncRig.StartAsync("Stage", SyncRig.FollowerId, clock);
+        await SyncRig.OpenShowAsync(leader);
+        await SyncRig.OpenShowAsync(follower);
+        await SyncRig.GroupAsync(leader, follower);
+        var took = System.Diagnostics.Stopwatch.StartNew();
+        await leader.OkAsync("PLAYLIST GO pl_show");
+        var anchor = leader.Engine.AnchorJson("pl_show");
+        Assert.NotNull(anchor);
+        Assert.True(await Eventually.TrueAsync(() => follower.Engine.AnchorJson("pl_show") == anchor, stepMs: 1), $"{follower.Engine.AnchorJson("pl_show")} != {anchor}");
+        output.WriteLine($"the follower adopted the leader's GO in {took.Elapsed.TotalMilliseconds:0.0} ms");
+        Assert.True(took.ElapsedMilliseconds <= 800, $"adopted in {took.ElapsedMilliseconds} ms (4× the design's 200 ms)");
     }
 
     [Fact]
