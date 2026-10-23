@@ -30,15 +30,17 @@ internal sealed class HostRig : IAsyncDisposable
 
     private readonly ILoggerFactory _logs;
     private readonly NodeLogProvider _log;
+    private readonly (MovedWall Wall, IMonoClock Clock)? _moved;
     private int _stopped;
 
-    private HostRig(DirectoryInfo dir, NodeHome home, EngineHost host, ILoggerFactory logs, NodeLogProvider log)
+    private HostRig(DirectoryInfo dir, NodeHome home, EngineHost host, ILoggerFactory logs, NodeLogProvider log, (MovedWall, IMonoClock)? moved)
     {
         Dir = dir;
         Home = home;
         Host = host;
         _logs = logs;
         _log = log;
+        _moved = moved;
     }
 
     public DirectoryInfo Dir { get; }
@@ -79,17 +81,19 @@ internal sealed class HostRig : IAsyncDisposable
         // entry does, so the file is let go when the node stops.
         var log = NodeLogProvider.For(home);
         var logs = LoggerFactory.Create(b => b.AddProvider(log));
+        var moved = MovedWallOf(mono);
+        var folder = dir.FullName;
         var host = new EngineHost((options ?? Options)(dir.FullName), home, new EngineHostOptions
         {
             Parts = parts ?? EngineParts.Bare,
             Mono = mono,
-            UnixMs = SharedWall(mono, dir.FullName),
+            UnixMs = moved is var (wall, clock) ? () => wall.StartFor(folder, clock) : null,
             Time = time,
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             Logs = logs,
             Pulls = pulls,
         });
-        var rig = new HostRig(dir, home, host, logs, log);
+        var rig = new HostRig(dir, home, host, logs, log, moved);
         try
         {
             await host.StartAsync();
@@ -102,35 +106,41 @@ internal sealed class HostRig : IAsyncDisposable
         return rig;
     }
 
-    /// <summary>Where a node's wall starts. The nodes on one moved clock share its wall, as machines on one time server do: the
-    /// system's time as the first of them started, moved as the clock under any offset moves (an offset is another machine's boot,
-    /// not its time), so they read one wall to the millisecond. Null on the process's clock, wrapped or not, whose nodes read the
-    /// system's time.</summary>
-    private static Func<long>? SharedWall(IMonoClock? mono, string folder)
+    /// <summary>The wall a node on a moved clock starts from, with the clock under any offset it reads. The nodes on one moved clock
+    /// share its wall, as machines on one time server do: the system's time as the first of them started, moved as the clock under any
+    /// offset moves (an offset at the start is another machine's boot, not its time), so they start on one wall, within a millisecond.
+    /// Null on the process's clock, wrapped or not, whose nodes read the system's time.</summary>
+    private static (MovedWall Wall, IMonoClock Clock)? MovedWallOf(IMonoClock? mono)
     {
         var root = mono;
         while (root is IClockOver over)
             root = over.Inner;
         if (root is null or MonoClock)
             return null;
-        var wall = Walls.GetValue(root, r => new MovedWall(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - r.NowNs / Durations.NsPerMs));
-        var clock = root;
-        return () => wall.StartFor(folder, clock);
+        return (Walls.GetValue(root, r => new MovedWall(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - r.NowNs / Durations.NsPerMs)), root);
     }
 
-    /// <summary>A moved clock's wall: what it reads at the clock's zero, and where each node's folder last started on it.</summary>
+    /// <summary>A moved clock's wall: what it reads at the clock's zero, and the wall each node's folder last read on it, at its start or
+    /// at its stop, with where the clock stood then.</summary>
     private sealed class MovedWall(long zeroUnixMs)
     {
-        private readonly ConcurrentDictionary<string, long> _starts = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, (long WallUnixMs, long ClockNs)> _last = new(StringComparer.Ordinal);
 
-        /// <summary>The clock's wall now, or for a node started again before the clock has moved a millisecond after its last start, as
-        /// a machine's clock moves on while it restarts: its views' rings, whose generations count from its start, never take its last
-        /// run's names.</summary>
+        /// <summary>The clock's wall now. A node started again before its clock has moved on from where it last stood starts a
+        /// millisecond after the wall it last read, as a machine's clock moves on while it restarts: its views' rings, whose
+        /// generations count from a wall its last run read (fewer than a thousand rings a run), never take that run's names. After its
+        /// clock was moved back it reads the clock's wall, as its peers on that clock do.</summary>
         public long StartFor(string folder, IMonoClock clock)
         {
-            var now = zeroUnixMs + clock.NowNs / Durations.NsPerMs;
-            return _starts.AddOrUpdate(folder, now, (_, last) => Math.Max(now, last + 1));
+            var clockNs = clock.NowNs;
+            var now = zeroUnixMs + clockNs / Durations.NsPerMs;
+            var start = _last.TryGetValue(folder, out var last) && clockNs >= last.ClockNs ? Math.Max(now, last.WallUnixMs + 1) : now;
+            _last[folder] = (start, clockNs);
+            return start;
         }
+
+        /// <summary>The wall the node read as it stopped, where its clock stood then.</summary>
+        public void Stopped(string folder, IMonoClock clock, long wallUnixMs) => _last[folder] = (wallUnixMs, clock.NowNs);
     }
 
     /// <summary>Headless, this rig's folder, nothing put back.</summary>
@@ -199,6 +209,8 @@ internal sealed class HostRig : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _stopped, 1) != 0)
             return;
+        if (_moved is var (wall, clock) && Host.Made is { } engine)
+            wall.Stopped(Dir.FullName, clock, engine.Services.Wall.UnixMs);
         await Host.DisposeAsync();
         _logs.Dispose();
         _log.Dispose();

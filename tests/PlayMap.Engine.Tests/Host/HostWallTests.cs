@@ -2,7 +2,7 @@ using PlayMap.Core.Time;
 
 namespace PlayMap.Engine.Tests.Host;
 
-/// <summary>Nodes on one moved clock stand for machines on one time server: they read one wall, to the millisecond, however far apart
+/// <summary>Nodes on one moved clock stand for machines on one time server: they read one wall, within a millisecond, however far apart
 /// in real time they start, an offset on a node's clock being another machine's boot and not its time, and the wall moves as the clock
 /// does.</summary>
 public sealed class HostWallTests
@@ -23,27 +23,51 @@ public sealed class HostWallTests
         Assert.Equal(first.Engine.Services.Wall.UnixMs, second.Engine.Services.Wall.UnixMs);
     }
 
-    /// <summary>A machine's clock moves on while it restarts: a node started again on a moved clock that has not moved starts a
-    /// millisecond after its last start, so its views' rings, whose generations count from its start, never take its last run's
-    /// names, while a node new on that clock reads the clock's wall.</summary>
+    /// <summary>A machine's clock moves on while it restarts: a node started again on a moved clock that has not moved since it stopped
+    /// starts a millisecond after the wall it stopped at, so its views' rings, whose generations count from a wall it read during its
+    /// last run, never take that run's names, while a node new on that clock reads the clock's wall.</summary>
     [Fact]
-    public async Task ANodeStartedAgainOnAClockThatHasNotMovedStartsAMillisecondAfterItsLastStart()
+    public async Task ANodeStartedAgainOnAClockThatHasNotMovedSinceItStoppedStartsAMillisecondAfterItsStop()
     {
         var clock = new ManualClock(1_000 * Second);
         var first = await HostRig.StartAsync("FOH-A", mono: clock);
         try
         {
-            var wall = first.Engine.Services.Wall.UnixMs;
+            // The clock moves during the run: a view shown now takes its rings' generations from this wall, not the start's.
+            clock.Advance(2 * Second);
+            var stopped = first.Engine.Services.Wall.UnixMs;
             await first.StopAsync();
             await using var again = await HostRig.StartAsync("FOH-A", mono: clock, dir: first.Dir);
             await using var other = await HostRig.StartAsync("FOH-B", mono: clock);
 
-            Assert.Equal(wall + 1, again.Engine.Services.Wall.UnixMs);
-            Assert.Equal(wall, other.Engine.Services.Wall.UnixMs);
+            Assert.Equal(stopped + 1, again.Engine.Services.Wall.UnixMs);
+            Assert.Equal(stopped, other.Engine.Services.Wall.UnixMs);
         }
         finally
         {
             await first.DisposeAsync();
+        }
+    }
+
+    /// <summary>A node started again after its clock was moved back reads the clock's wall, the one its peers on that clock read, and
+    /// not one ahead of theirs by the step.</summary>
+    [Fact]
+    public async Task ANodeStartedAgainAfterItsClockWasMovedBackReadsTheClocksWall()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        await using var peer = await HostRig.StartAsync("FOH-A", mono: clock);
+        var node = await HostRig.StartAsync("FOH-B", mono: clock);
+        try
+        {
+            await node.StopAsync();
+            clock.Advance(-90 * Second);
+            await using var again = await HostRig.StartAsync("FOH-B", mono: clock, dir: node.Dir);
+
+            Assert.Equal(peer.Engine.Services.Wall.UnixMs, again.Engine.Services.Wall.UnixMs);
+        }
+        finally
+        {
+            await node.DisposeAsync();
         }
     }
 }
