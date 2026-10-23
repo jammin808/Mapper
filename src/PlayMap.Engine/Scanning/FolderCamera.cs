@@ -22,6 +22,10 @@ public sealed record FolderCameraOptions
 
     /// <summary>Reads a still (null: FFmpeg's, <see cref="StillImageReader"/>).</summary>
     public Func<string, StillImage>? Read { get; init; }
+
+    /// <summary>The clock a file's settle time is counted on: the system's on a node; a test moves its own, so a file it writes in
+    /// place is taken only once the test says it is whole.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
 }
 
 /// <summary>
@@ -199,7 +203,7 @@ public sealed class FolderCamera : ICuedScanCamera
                 // Waiting before it says so: a SCAN NEXT answering these words always finds the camera waiting.
                 Say?.Invoke($"{_rig.Name}: shoot {Describe(cue)}, then SCAN NEXT");
                 await next.Task.WaitAsync(ct).ConfigureAwait(false);
-                await Task.Delay(_settle, ct).ConfigureAwait(false);
+                await Task.Delay(_settle, _options.Time, ct).ConfigureAwait(false);
                 HashSet<string> before;
                 lock (_gate)
                     before = _seen;
@@ -261,7 +265,7 @@ public sealed class FolderCamera : ICuedScanCamera
             var (fresh, size) = Files().Where(f => !seen.Contains(f)).Order(StringComparer.Ordinal).Select(f => (f, Size(f))).FirstOrDefault(x => x.Item2 > 0);
             if (fresh is not null)
             {
-                await Task.Delay(_settle, ct).ConfigureAwait(false);
+                await Task.Delay(_settle, _options.Time, ct).ConfigureAwait(false);
                 if (Size(fresh) == size)
                 {
                     lock (_gate)

@@ -1404,6 +1404,22 @@ Round 2 W1 notes:
   `tests/PlayMap.Engine.Tests/Rendering/HostRig.cs` (d3d12-passes' file in wave 2) and
   `tests/PlayMap.Engine.Tests/Fleet/BackupRenderTests.cs` (stability's hunk in wave 2). Moving each to the tests' runner
   (`ChildProcess.Run`) in its package closes it.
+- Done: six of the short real-time windows the sweep watched run on what the test holds, or log what they measured. The optimise
+  worker's stop graces in `OptimiseWorkerEndTests` run on `OptimiseOptions.Time`, a clock the test moves: the tests that stop no
+  worker assert that no grace stood, and the two that stop a running one wait for the stop's grace to stand, find the stop still
+  under way, then move the clock (no assertion of theirs read the grace's passing, so no failure of the old tests could be forced).
+  The clip loop plays on a hand-moved position, 5 ms a request through two seconds and three loop points
+  (`VideoSourceTests.OnAHandMovedPositionTheLoopAnswersEveryRequestWithItsFrame`), its stopwatch twin a `Category=Perf` test:
+  with the decoder's queue held 400 ms one second in, the stopwatch test failed 3 runs of 3 and the hand-moved one passes 3 of 3.
+  `AnchorFeedTests` keeps every fact and logs the adoption's time, its 800 ms ceiling gone (900 ms inside the window failed it 3
+  of 3), the design's 200 ms bar the show network's. `ClockSyncTests` logs the best round trip and holds the offset within a
+  millisecond and half of it (under a leader whose clock takes 25 ms to read, the 20 ms ceiling failed 3 of 3 and the bound held 3
+  of 3). A folder camera's settle runs on the clock its options give (`FolderCameraOptions.Time`, the system's on a node), and
+  `FolderCameraWriteTests` moves it once the file is whole: with the file written in place in two halves 60 ms apart, the real
+  20 ms settle took the half file 3 of 3 (no frame), and the test's clock waits for the whole one 3 of 3. Art-Net's timecode test
+  runs on the node's clock, moved 40 ms a frame once the source has read the last: with 120 ms between each send and its read, the
+  real clock read dropout 3 of 3 and the node's clock reads rolling 3 of 3. The throughput bars ride with the serial Perf step
+  and the hold button with the desk's clock (`docs/ROADMAP.md`).
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

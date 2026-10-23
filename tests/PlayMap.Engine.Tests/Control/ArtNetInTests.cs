@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -190,7 +189,9 @@ public sealed class ArtNetInTests
     public async Task ATimecodeConsumerOpensTheSocketArtTimeCodeRollsAndDmxFiresNoBinding()
     {
         var node = ControlRig.Address(45);
-        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), service: true, artNetAddress: node, settings: s => s with { ArtNetInterface = node });
+        var clock = new ManualClock(1_000_000_000);
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), service: true, artNetAddress: node, clock: clock,
+            settings: s => s with { ArtNetInterface = node });
         await rig.Ok("BIND ADD ARTNET 0 1 TO SET sf_lobby opacity *");
         Assert.False(rig.ArtNet!.IsOpen);
         await rig.Ok("TIMECODE SOURCE ADD Desk ARTNET");
@@ -198,25 +199,23 @@ public sealed class ArtNetInTests
         using var desk = ControlRig.Udp(ControlRig.Address(46), ArtNet.Port);
         var dmx = new byte[530];
         Send(desk, node, dmx.AsSpan(0, ArtNet.WriteDmx(dmx, 0, 0, [77, 0])));
-        // The code runs at 25 fps against the real clock (frame n at 40n ms, sent as its frame begins) for as long as it takes the
-        // source to read rolling: code that stops reads dropout 2.5 frames later, so the state is read while the code still runs.
+        // The code runs at 25 fps on the node's clock, which the test moves: frame n arrives at 40n ms, and the clock moves on only once
+        // the source has read it, so no gap between frames is longer than one frame however the machine is paced, and the state read
+        // is that of code that still runs (code that stops reads dropout 2.5 frames after its last frame).
         var tc = new byte[ArtNet.TimeCodeLength];
         string? state = null;
         JsonElement source = default;
-        var run = Stopwatch.StartNew();
-        var last = -1L;
-        while (state != "rolling" && run.Elapsed < TimeSpan.FromSeconds(10))
+        string Text() => rig.State().GetProperty("timecode").GetProperty("sources")[0].GetProperty("text").GetString() ?? "";
+        for (var n = 0; n < 250 && state != "rolling"; n++)
         {
-            var n = run.ElapsedMilliseconds / 40;
-            if (n != last)
-            {
-                last = n;
-                ArtNet.WriteTimeCode(tc, new ArtTimeCode((int)(n % 25), 30 + (int)(n / 25), 2, 1, 1, 0));
-                Send(desk, node, tc);
-                source = rig.State().GetProperty("timecode").GetProperty("sources")[0];
-                state = source.GetProperty("state").GetString();
-            }
-            await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, 40 - (run.ElapsedMilliseconds % 40))));
+            if (n > 0)
+                clock.AdvanceMs(40);
+            var before = Text();
+            ArtNet.WriteTimeCode(tc, new ArtTimeCode(n % 25, 30 + n / 25, 2, 1, 1, 0));
+            Send(desk, node, tc);
+            await ControlRig.Until(() => Text() != before, $"frame {n} read by the source", Text);
+            source = rig.State().GetProperty("timecode").GetProperty("sources")[0];
+            state = source.GetProperty("state").GetString();
         }
         Assert.True(state == "rolling", source.ToString());
         Assert.StartsWith("01:02:", source.GetProperty("text").GetString(), StringComparison.Ordinal);

@@ -2,13 +2,14 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Time;
 using PlayMap.Media.Frames;
 using PlayMap.Media.Sources;
+using Xunit.Abstractions;
 
 namespace PlayMap.Media.Tests;
 
 /// <summary>The clip source: frame-exact acquire on the media timeline, seeks, preroll, the gapless loop, rate,
 /// colour metadata and a clean close while decoding. Every check reads the frame index painted into the
 /// picture, so "the right frame" is a fact about pixels, not about timestamps.</summary>
-public class VideoSourceTests
+public class VideoSourceTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
@@ -278,7 +279,52 @@ public class VideoSourceTests
         }
     }
 
+    /// <summary>The loop on a position the test moves by hand, 5 ms a request as a fast render loop asks, through two seconds of
+    /// playback (three loop points): each request is answered, once the source says it is ready, with the frame at its position, and
+    /// the frames' times run on across every loop point. How many requests found their frame ready before any wait is logged; the
+    /// real-time pace is the Perf twin's (<see cref="InRealTimeTheLoopNeverRunsDry"/>).</summary>
     [Fact]
+    public async Task OnAHandMovedPositionTheLoopAnswersEveryRequestWithItsFrame()
+    {
+        var options = new VideoSourceOptions { Loop = true, InNs = Durations.FromSeconds(0.2), OutNs = Durations.FromSeconds(0.84) };
+        using var source = new FfmpegVideoSource(TestMedia.Clip("h264_25.mp4"), options);
+        Assert.True(await source.Opened);
+        var rate = FrameRate.Fps25;
+        var len = options.OutNs - options.InNs;
+        source.Prepare(options.InNs, playing: false, 1);
+        Assert.True(source.WaitUntilReady(options.InNs, Wait));
+        var misses = new List<string>();
+        var samples = 0;
+        var ready = 0;
+        long lastPts = -1;
+        for (var ms = 0L; ms < 2000; ms += 5)
+        {
+            var continuous = options.InNs + ms * 1_000_000;
+            var wrapped = options.InNs + (continuous - options.InNs) % len;
+            source.Prepare(wrapped, playing: true, 1);
+            if (source.IsReadyAt(wrapped))
+                ready++;
+            Assert.True(source.WaitUntilReady(wrapped, Wait), $"not ready at {wrapped} ns: {source.Health.Status}");
+            using var lease = source.Acquire(wrapped);
+            samples++;
+            if (lease is null || TestMedia.ReadIndex(lease) != rate.FrameAt(wrapped))
+                misses.Add($"at {wrapped} ns wanted frame {rate.FrameAt(wrapped)}, got {(lease is null ? "none" : TestMedia.ReadIndex(lease))}");
+            else
+            {
+                Assert.True(lease.PtsNs >= lastPts, "time went backwards across the loop point");
+                lastPts = lease.PtsNs;
+            }
+        }
+        output.WriteLine($"{ready} of {samples} requests found their frame ready before any wait");
+        Assert.True(samples > 100);
+        Assert.True(misses.Count == 0, string.Join("; ", misses));
+        Assert.True(lastPts > len * 2, "the times did not continue across the loop points");
+    }
+
+    /// <summary>The loop in real time, two seconds of the stopwatch with no miss: the decoder's pace against the clock, run serially
+    /// in the Perf step after the suites.</summary>
+    [Fact]
+    [Trait("Category", "Perf")]
     public async Task InRealTimeTheLoopNeverRunsDry()
     {
         var options = new VideoSourceOptions { Loop = true, InNs = Durations.FromSeconds(0.2), OutNs = Durations.FromSeconds(0.84) };

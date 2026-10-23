@@ -190,6 +190,7 @@ public sealed class OptimiseWorkerEndTests
         var home = new NodeHome(Path.Combine(dir.FullName, "node"));
         new JobStore(Path.Combine(home.Folder, "optimise"), NullLogger.Instance).Save([Job("ojfirst1", 1, paused: false), Job("ojnext01", 2, paused: true)]);
         var kills = new ConcurrentQueue<int>();
+        var time = new ManualTime();
         var options = new OptimiseOptions
         {
             Worker = Sleeper(),
@@ -197,6 +198,7 @@ public sealed class OptimiseWorkerEndTests
             StopGrace = TimeSpan.FromMilliseconds(500),
             KillWait = TimeSpan.FromMilliseconds(500),
             Kill = p => kills.Enqueue(p.Id),
+            Time = time,
         };
         var project = Project.CreateDefault("Optimise") with { Media = [Clip(dir)] };
         await using var rig = OptimiseRig.Start(project, options: options, dir: dir);
@@ -223,6 +225,8 @@ public sealed class OptimiseWorkerEndTests
             Assert.Equal((second, JobStates.Encoding), (rig.Service.View.Pid, rig.Job("ojnext01").State));
             Assert.DoesNotContain(second, kills);
             Assert.Equal(0, rig.Service.View.Restarts);
+            // No stop's grace passed on the way: nothing here waited for one.
+            Assert.Equal(0, time.Made);
         }
         finally
         {
@@ -244,11 +248,13 @@ public sealed class OptimiseWorkerEndTests
         var order = new ConcurrentQueue<string>();
         using var inside = new SemaphoreSlim(0);
         using var letGo = new SemaphoreSlim(0);
+        var time = new ManualTime();
         var options = new OptimiseOptions
         {
             Worker = Sleeper(),
             Step = TimeSpan.FromMilliseconds(100),
             StopGrace = TimeSpan.FromMilliseconds(500),
+            Time = time,
             Kill = p =>
             {
                 order.Enqueue("killed");
@@ -275,7 +281,12 @@ public sealed class OptimiseWorkerEndTests
         // The worker's end, as its reader reports it, is under way: its write is made, and it is held where it says so.
         var heard = Task.Run(() => rig.Service.OnExited(1, expected: false));
         Assert.True(await inside.WaitAsync(Patience));
-        await rig.Service.DisposeAsync().AsTask().WaitAsync(Patience);
+        var stopping = rig.Service.DisposeAsync().AsTask();
+        // The stop's grace stands on the test's clock once the worker has been asked to end; it passes when the test moves the clock.
+        await Until(() => time.Made == 1, "the stop's wait for its grace");
+        Assert.False(stopping.IsCompleted);
+        time.Advance(options.StopGrace);
+        await stopping.WaitAsync(Patience);
         order.Enqueue("stopped");
         await heard.WaitAsync(Patience);
 
@@ -300,11 +311,13 @@ public sealed class OptimiseWorkerEndTests
         var store = new JobStore(Path.Combine(home.Folder, "optimise"), NullLogger.Instance);
         store.Save([Job("ojwait01", 1, paused: true)]);
         var kills = new ConcurrentQueue<int>();
+        var time = new ManualTime();
         var options = new OptimiseOptions
         {
             Worker = Sleeper(),
             Step = TimeSpan.FromMilliseconds(100),
             StopGrace = TimeSpan.FromMilliseconds(500),
+            Time = time,
             Kill = p =>
             {
                 kills.Enqueue(p.Id);
@@ -322,6 +335,8 @@ public sealed class OptimiseWorkerEndTests
         await stop.WaitAsync(Patience);
 
         Assert.Empty(kills);
+        // No worker was there to wait for: the stop's grace never stood.
+        Assert.Equal(0, time.Made);
         var kept = rig.Job("ojwait01");
         Assert.Equal((JobStates.Queued, false), (kept.State, kept.Paused));
         var job = Assert.Single(new JobStore(store.Folder, NullLogger.Instance).Load());
@@ -334,12 +349,14 @@ public sealed class OptimiseWorkerEndTests
     public async Task AClosedSupervisorStartsNoWorkerAndKillsNoneToStartOne()
     {
         var kills = new ConcurrentQueue<int>();
+        var time = new ManualTime();
         var options = new OptimiseOptions
         {
             Worker = Sleeper(),
             StopGrace = TimeSpan.FromMilliseconds(500),
             KillWait = TimeSpan.FromMilliseconds(500),
             Kill = p => kills.Enqueue(p.Id),
+            Time = time,
         };
         var none = new OptimiseSupervisor(options, NullLogger.Instance);
         none.Close();
@@ -359,6 +376,7 @@ public sealed class OptimiseWorkerEndTests
             Assert.False(supervisor.EnsureStarted());
             Assert.Equal(pid, supervisor.Pid);
             Assert.Equal(new[] { pid }, kills.ToArray());
+            Assert.Equal(0, time.Made);
         }
         finally
         {
@@ -377,7 +395,8 @@ public sealed class OptimiseWorkerEndTests
         var home = new NodeHome(Path.Combine(dir.FullName, "node"));
         var store = new JobStore(Path.Combine(home.Folder, "optimise"), NullLogger.Instance);
         store.Save([Job("ojfirst1", 1, paused: false), Job("ojnext01", 2, paused: false)]);
-        var options = new OptimiseOptions { Worker = Sleeper(), Step = TimeSpan.FromMilliseconds(100), StopGrace = TimeSpan.FromMilliseconds(500) };
+        var time = new ManualTime();
+        var options = new OptimiseOptions { Worker = Sleeper(), Step = TimeSpan.FromMilliseconds(100), StopGrace = TimeSpan.FromMilliseconds(500), Time = time };
         var clip = Clip(dir);
         await using var rig = OptimiseRig.Start(Project.CreateDefault("Optimise") with { Media = [clip] }, options: options, dir: dir);
         await rig.Until(() => rig.Job("ojfirst1").State == JobStates.Encoding && rig.Service.View.Pid is not null, "the first job on its worker");
@@ -386,7 +405,11 @@ public sealed class OptimiseWorkerEndTests
         Directory.CreateDirectory(store.Work);
         await File.WriteAllBytesAsync(partial, [1]);
 
-        await rig.Service.DisposeAsync();
+        // The stop asks the running worker to end and waits its grace on the test's clock; the test moves it, and the worker is killed.
+        var stopping = rig.Service.DisposeAsync().AsTask();
+        await Until(() => time.Made == 1, "the stop's wait for its grace");
+        time.Advance(options.StopGrace);
+        await stopping.WaitAsync(Patience);
         var stopped = await File.ReadAllBytesAsync(store.Path);
         var jobs = rig.Service.Jobs;
 

@@ -7,8 +7,9 @@ namespace PlayMap.Engine.Tests.Phone;
 
 /// <summary>
 /// A folder camera and pictures that are not yet, or not the right, picture: a file a tethering tool has made but not yet filled (no bytes)
-/// is not a picture — the camera waits for its bytes, then takes it once its size stands still; photos of another size than the camera
-/// rig's fail the scan at the first one with the size to shoot, before anything is solved or recorded.
+/// is not a picture — the camera waits for its bytes, then takes it once its size stands still for the settle time, counted on the clock
+/// the test holds, so a file written in place is taken only once it is whole; photos of another size than the camera rig's fail the scan
+/// at the first one with the size to shoot, before anything is solved or recorded.
 /// </summary>
 public sealed class FolderCameraWriteTests
 {
@@ -23,7 +24,8 @@ public sealed class FolderCameraWriteTests
             {
                 Folder = new FolderCapture(folder, FolderAdvance.NewFile, 20),
             };
-            using var camera = new FolderCamera(rig, new FolderCameraOptions { Poll = TimeSpan.FromMilliseconds(10) });
+            var time = new ManualTime();
+            using var camera = new FolderCamera(rig, new FolderCameraOptions { Poll = TimeSpan.FromMilliseconds(10), Time = time });
             Assert.True(await camera.OpenAsync(CancellationToken.None), camera.Problem);
 
             // The tool makes the file, and fills it a while later (far longer than the settle time).
@@ -35,6 +37,14 @@ public sealed class FolderCameraWriteTests
             var samples = Enumerable.Range(0, 64 * 48).Select(i => (ushort)(i % 251)).ToArray();
             await File.WriteAllBytesAsync(path, FolderCameraTests.Tiff(64, 48, samples, 8));
 
+            // The file is whole: the settle time passes on the test's clock, as often as the camera begins one, until it takes it.
+            var settle = TimeSpan.FromMilliseconds(20);
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            while (!next.IsCompleted && waited.Elapsed < TimeSpan.FromSeconds(20))
+            {
+                time.Advance(settle);
+                await Task.WhenAny(next, Task.Delay(10));
+            }
             var frame = await next;
             Assert.NotNull(frame);
             Assert.Equal((64, 48), (frame.Width, frame.Height));
