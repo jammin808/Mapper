@@ -163,6 +163,46 @@ public sealed class BackupRestartTests
         Assert.Equal(2, backup.Home.LoadSettings("x").Fleet.Epoch);
     }
 
+    /// <summary>A backup that restarts under an epoch below its primary's hears the primary's epoch twice over, in the hello of the mirror
+    /// it joins again and in the primary's HEALTH, its settings file refusing the write: it takes the epoch, and says once that the file
+    /// could not keep it.</summary>
+    [Fact]
+    public async Task ABackupThatHearsItsPrimarysEpochOnItsMirrorAndInItsHealthSaysOnceThatItCannotKeepIt()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await HostRig.StartAsync("FOH-A", network: true, mono: new OffsetClock(clock, 2 * Second), parts: BackupRig.Parts(time),
+            settings: s => s with { NodeId = BackupRig.PrimaryId, TrustLoopback = false, Fleet = s.Fleet with { Epoch = 5 } });
+        var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        try
+        {
+            await SyncRig.OpenShowAsync(primary);
+            await primary.OkAsync("SYNC LEAD show");
+            await BackupRig.MeetAsync(primary, backup);
+            await BackupRig.BackUpAsync(primary, backup);
+            // The backup stops, its file holding the role, the primary's token and an epoch below the one the primary holds.
+            await backup.StopAsync();
+            var kept = backup.Home.LoadSettings("x");
+            backup.Home.SaveSettings(kept with { Fleet = kept.Fleet with { Epoch = 2 } });
+            await using var again = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time, backup.Dir);
+            again.Home.WriteFile = (_, _) => throw new IOException("disk full");
+            const string Words = "the epoch 5 FOH-A holds — not kept for the next start";
+
+            await BackupRig.MeetAsync(primary, again);
+            Assert.True(await Eventually.TrueAsync(() => again.Journal().Contains(Words, StringComparison.Ordinal), 15000), again.Journal());
+            // The mirror is identical once its hello has been read; the watch has read the primary's HEALTH many times by then.
+            Assert.True(await Eventually.TrueAsync(() => BackupRig.MirrorState(again) == "identical", 15000), BackupRig.Fleet(again) + "\n" + again.Journal());
+
+            Assert.Single(again.Journal().Split('\n'), r => r.Contains(Words, StringComparison.Ordinal));
+            Assert.Equal(("backup", 5L), (BackupRig.Role(again), BackupRig.Fleet(again).GetProperty("epoch").GetInt64()));
+            Assert.Equal(2, again.Home.LoadSettings("x").Fleet.Epoch);
+        }
+        finally
+        {
+            await backup.DisposeAsync();
+        }
+    }
+
     private static Task<HostRig> StartAsync(string name, string id, IMonoClock mono, ManualTime time, RecordingLed led, FakeVideoProvider ndi, DirectoryInfo? dir = null) =>
         HostRig.StartAsync(name, network: true, mono: mono, parts: NetworkEdges.With(BackupRig.Parts(time), led, ndi),
             settings: s => s with { NodeId = id, TrustLoopback = false, Led = s.Led with { Output = true } }, dir: dir);

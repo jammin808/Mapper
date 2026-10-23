@@ -1228,12 +1228,17 @@ public sealed class BackupNode : IAsyncDisposable
     /// <summary>A backup keeps the highest epoch its primary is heard to hold (its mirror's hello, its HEALTH) in its settings: a
     /// takeover after this node restarted, its primary silent by then, still commits an epoch above the primary's, so the primary
     /// fences itself when it is heard again. STATE moves with the epoch; an epoch the settings could not keep is said once STATE
-    /// holds it (once: the epoch is this node's from then on).</summary>
+    /// holds it, and once: the epoch is read and taken in one step under the settings' lock, so the hello and the watch, hearing the
+    /// same epoch at once, do not both take it.</summary>
     private void KeepPrimaryEpoch(long epoch)
     {
-        if (_settings.Role != FleetRoles.Backup || epoch <= _settings.Epoch)
-            return;
-        var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+        string kept;
+        lock (_settingsGate)
+        {
+            if (_settings.Role != FleetRoles.Backup || epoch <= _settings.Epoch)
+                return;
+            kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
+        }
         if (kept.Length > 0)
         {
             _engine?.Journal.Add("fault", string.Create(CultureInfo.InvariantCulture,

@@ -874,6 +874,15 @@ Round 2 W1 notes:
   nodes' files refusing every write, asks the backup's fault row and the old primary's fence row for their words, not ok, STATE read
   as each is written for the role, the node it names and epoch 1, a push by the row's writer before it, and each file as it was;
   against the product before this change it failed 3 of 3 at the takeover's push, and with it it passed 3 of 3.
+- Done, not seen failing: a backup that hears its primary's epoch in the hello of its mirror and in the primary's HEALTH at once
+  (`KeepPrimaryEpoch`, from the mirror's line and from the watch) takes it once and says once that its settings file could not keep
+  it. The epoch was read outside the settings' lock and taken inside it, so both callers could pass the read and both write the fault
+  row (before the fleet-words change above, only a second write of the same epoch). It is now read and taken in one step under the
+  lock. `ABackupThatHearsItsPrimarysEpochOnItsMirrorAndInItsHealthSaysOnceThatItCannotKeepIt`, a backup restarted under epoch 2 whose
+  primary holds 5, its file refusing every write, waits for the row and for its mirror to be identical (its hello read; the watch has
+  read the primary's HEALTH many times by then) and asks for one row, STATE at epoch 5 and the file at 2. With the first caller past
+  the read held until a second passed it (in a scratch copy) it failed 3 of 3 against the two steps, with two rows, and passed
+  unheld; with one step it passed 3 of 3 under the same hold (the second caller waits on the lock, then finds the epoch taken).
 - Done, not seen failing: `ClockSlewTests.AWaitingBlindCommitMovesWithTheStepSoItLandsNeitherEarlyNorLate` reads the landing's
   journal row once the lane's tick that landed the commit is over (`Ticked`, as `BlindTests` reads it), not at its first sight of
   the landed show. A commit lands on the lane's tick: the store publishes the show and runs its listeners, and then the row ("blind
