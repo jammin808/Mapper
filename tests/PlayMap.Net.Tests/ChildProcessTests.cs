@@ -70,6 +70,42 @@ public sealed class ChildProcessTests
         Assert.Equal($"{tool} did not finish within 3 s and was stopped: waiting", awaited.Words.TrimEnd());
     }
 
+    /// <summary>A tool past its deadline is stopped with every process it started: here its helper holds the tool's pipes for ten
+    /// minutes, so the tool's words are all in within the drain only once the stop has taken the helper too.</summary>
+    [Fact]
+    public async Task AToolPastItsDeadlineIsStoppedWithEveryProcessItStarted()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-childprocess-");
+        try
+        {
+            string tool;
+            string[] args;
+            if (OperatingSystem.IsWindows())
+            {
+                tool = Path.Combine(dir.FullName, "tool.cmd");
+                await File.WriteAllTextAsync(tool,
+                    "@echo off\r\nstart \"\" /b cmd /d /c \"ping -n 600 127.0.0.1 >nul\"\r\necho said\r\nping -n 600 127.0.0.1 >nul\r\n");
+                args = [];
+            }
+            else
+            {
+                tool = "/bin/sh";
+                args = ["-c", "sleep 600 & echo said; sleep 600"];
+            }
+            // The tool says its word once its helper runs, so a run that read it was stopped with the helper started.
+            var ran = ChildProcess.Run(tool, args, TimeSpan.FromSeconds(3));
+            Assert.Equal((true, false, true), (ran.Started, ran.Finished, ran.WordsIn));
+            Assert.Equal("said", ran.Text.Trim());
+            var awaited = await ChildProcess.RunAsync(tool, args, TimeSpan.FromSeconds(3));
+            Assert.Equal((true, false, true), (awaited.Started, awaited.Finished, awaited.WordsIn));
+            Assert.Equal("said", awaited.Text.Trim());
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public async Task AToolsInputOutputErrorsAndExitCodeAreItsOwn()
     {

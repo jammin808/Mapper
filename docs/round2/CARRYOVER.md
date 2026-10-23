@@ -1416,6 +1416,13 @@ Round 2 W1 notes:
   `ChildProcessTests.AToolPastItsDeadlineIsStoppedAndSaysSoWithWhatItWrote` runs a tool that writes "waiting" on its errors and then
   waits ten minutes, under a 3 s deadline, through `Run` and `RunAsync`: against the old words it failed 3 runs of 3 (they ended at
   "was stopped"), and it passes 3 of 3.
+- Done: a test holds the runner's deadline stop to every process the tool started. The runner stops a tool past its deadline with
+  its whole tree (`Kill(entireProcessTree: true)`), and no test read it: the deadline test's tool, `sh -c 'sleep 600'` (or ping on
+  Windows), started no process of its own to outlive it. `ChildProcessTests.AToolPastItsDeadlineIsStoppedWithEveryProcessItStarted`
+  runs a tool that starts a helper holding its pipes for ten minutes, says its word and waits, under a 3 s deadline, through `Run`
+  and `RunAsync`, and reads every word in within the drain, which only a stop that took the helper too lets in. With the stop
+  taking the tool alone (a scratch switch) it failed 3 runs of 3 (its words held open), and it passes 3 of 3 as the runner stands,
+  no helper left behind. Shown on Linux; the Windows job runs its batch file and `start /b` helper first.
 - Done: the phone tests find their tools as Windows names them. The phone loop's lookup (`LoopPhone.Find`) and the node scripts'
   (`NodeTools.Find`) each took `name.exe` alone on Windows, so npm, a batch file there (`npm.cmd`), was never found, and the node
   scripts' fallback asked for `npm.cmd.exe`; each also looked in every PATH entry, a relative one (the current directory's) too.
