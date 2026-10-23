@@ -1483,7 +1483,10 @@ Round 2 W1 notes:
   runs each project's, one project and one test collection at a time (`xUnit.ParallelizeTestCollections=false`), its results as
   `<project>.perf.trx`, whatever the suites said; a project that fails is named with the machine's load around its run (Linux: the
   load averages before and after, and the cores; Windows: the processors' load before and after, and the cores) and, on Windows,
-  each failed test with its message. Every bar is unchanged: the survey import's 15 s, 50 ms and 10 ms slice, the light plan's
+  each failed test with its message, and there, as in its suites step, a project that answers 0 but leaves no results file is named
+  too (a project with no Perf test leaves one that counts none: run here, the Vision suite's did; and the Windows step's script,
+  run here under PowerShell 7.6 with a stand-in for its processor reading and each run's results file named otherwise, named the
+  project "(no results)" 3 runs of 3, where without the check it passed 3 of 3). Every bar is unchanged: the survey import's 15 s, 50 ms and 10 ms slice, the light plan's
   3 s, the first map's 5 s, the HAP and 1080p decode throughput, the clip loop's two real-time seconds, the self-calibration's
   second, the projector solve's slice, and the anchor feed's 800 ms and the clock sync's 20 ms round trip (above). The integration gate's own script is not in this tree and still runs them inside the
   suites (`docs/ROADMAP.md`).

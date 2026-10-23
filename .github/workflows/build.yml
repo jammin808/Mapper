@@ -381,7 +381,8 @@ jobs:
       - name: The Perf bars, serially, after the suites
         # As on Linux: every project's Category=Perf tests (the Direct3D 12 leg's apart), one project and one test collection at a time,
         # before Direct3D 12 is put beside the hosts, so they run on what the suites ran on; results as <project>.perf.trx. A project
-        # that fails is named with the processors' load before and after its run and the cores it had. It runs whatever the suites said.
+        # that fails is named with the processors' load before and after its run and the cores it had, and one that answers 0 but leaves
+        # no results file is named too (a project with no Perf test leaves one that counts none). It runs whatever the suites said.
         if: ${{ !cancelled() && !inputs.d3d12 }}
         shell: pwsh
         run: |
@@ -394,6 +395,7 @@ jobs:
             dotnet test $project.FullName -c Release --no-build --filter "Category=Perf&Backend!=D3D12" --logger "trx;LogFileName=$name.perf.trx" `
               --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini -- xUnit.ParallelizeTestCollections=false
             if ($LASTEXITCODE -ne 0) { $failed += "$name (processors $before loaded before, $(Load) after, $([Environment]::ProcessorCount) cores)" }
+            elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.perf.trx"))) { $failed += "$name (no results)" }
             Write-Host "::endgroup::"
           }
           $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
