@@ -1234,7 +1234,6 @@ public sealed class BackupNode : IAsyncDisposable
         if (_settings.Role != FleetRoles.Backup || epoch <= _settings.Epoch)
             return;
         var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
-        _engine?.FactsChanged();
         if (kept.Length > 0)
         {
             _engine?.Journal.Add("fault", string.Create(CultureInfo.InvariantCulture,
@@ -1315,7 +1314,6 @@ public sealed class BackupNode : IAsyncDisposable
         if (reply.Ok)
         {
             var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, nextEpoch) });
-            engine.FactsChanged();
             engine.Journal.Add("fleet", $"{Label(leader)} went quiet and {next.Name} leads {group} now (epoch {nextEpoch}): following it on the same time line{kept}",
                 ok: kept.Length == 0);
         }
@@ -1379,7 +1377,6 @@ public sealed class BackupNode : IAsyncDisposable
         if (reply.Ok)
         {
             var kept = Persist(s => s with { Epoch = Math.Max(s.Epoch, epoch) });
-            engine.FactsChanged();
             engine.Journal.Add("fleet", $"{next.Name} leads {group} under epoch {epoch}, above this node's: {SelfName} steps down and follows it{kept}",
                 ok: kept.Length == 0);
         }
@@ -1752,7 +1749,8 @@ public sealed class BackupNode : IAsyncDisposable
 
     /// <summary>Keeps a change of the fleet settings for the next start, through the network host (the settings file's one writer);
     /// answers "" or the words of a failure (the change holds for this run either way). A new role moves what the node sends beside its
-    /// outputs first (<see cref="Air"/>), then the role is the node's.</summary>
+    /// outputs first (<see cref="Air"/>), then the settings are the node's, which STATE reads; STATE is pushed before this answers, so
+    /// a row the caller writes with the answer is read beside a STATE that holds the change.</summary>
     private string Persist(Func<FleetSettings, FleetSettings> edit)
     {
         string failed;
@@ -1764,6 +1762,7 @@ public sealed class BackupNode : IAsyncDisposable
             _settings = next;
             failed = _setup.Network.PersistSettings(s => s with { Fleet = next });
         }
+        _engine?.FactsChanged();
         return failed.Length == 0 ? "" : " — not kept for the next start (" + failed + ")";
     }
 

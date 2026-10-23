@@ -433,6 +433,51 @@ public sealed class BackupTests
         Assert.Contains("(handed back by FOH-A", rows[takeover].Text, StringComparison.Ordinal);
     }
 
+    /// <summary>A FAILOVER between two nodes whose settings files refuse every write moves both for this run and says so on each: the
+    /// backup's fault row says its takeover's epoch is not kept, the old primary's fence row says its fence is not, and each node's STATE
+    /// holds what its row reports, and has been pushed, by the time that row is written.</summary>
+    [Fact]
+    public async Task AFailoverWhoseSettingsCannotBeKeptOnEitherNodeSaysSoInEachRowOnceStateHoldsIt()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
+        await using var backup = await BackupRig.StartAsync("FOH-B", BackupRig.BackupId, clock, time);
+        await SyncRig.OpenShowAsync(primary);
+        await primary.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(primary, backup);
+        await BackupRig.BackUpAsync(primary, backup);
+        Assert.True(await Eventually.TrueAsync(() => BackupRig.Fleet(primary).GetProperty("backups").EnumerateArray()
+            .Any(b => b.GetProperty("node").GetString() == backup.Id && b.GetProperty("state").GetString() == "identical")), BackupRig.Fleet(primary).ToString());
+
+        primary.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        backup.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        var taken = new RowWatch(backup, "fault", "the takeover's epoch 1", () => backup.Engine.Services.Backup!.Role == FleetRoles.Primary);
+        var fenced = new RowWatch(primary, "fleet", "fenced: FOH-B has the show since", () => primary.Engine.Services.Backup!.Role == FleetRoles.Fenced);
+        var takeover = await backup.RunAsync("FAILOVER");
+        Assert.True(takeover.Ok, takeover.Payload);
+
+        var (row, state, pushedBefore) = await taken.SeenAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal("the takeover's epoch 1 — not kept for the next start (the node's settings could not be written: disk full): after a "
+            + "restart this node would not know it took the show", row.Text);
+        Assert.False(row.Ok);
+        var fleet = state.GetProperty("fleet");
+        Assert.Equal(("primary", primary.Id, 1L), (fleet.GetProperty("role").GetString(), fleet.GetProperty("of").GetString(), fleet.GetProperty("epoch").GetInt64()));
+        Assert.True(pushedBefore, "no push of STATE was raised between the takeover's role and epoch and its fault row");
+        Assert.Equal((FleetRoles.Backup, 0L), (backup.Home.LoadSettings("x").Fleet.Role, backup.Home.LoadSettings("x").Fleet.Epoch));
+
+        var (fence, fenceState, fencePushedBefore) = await fenced.SeenAsync(TimeSpan.FromSeconds(15));
+        Assert.StartsWith("fenced: FOH-B has the show since ", fence.Text, StringComparison.Ordinal);
+        Assert.EndsWith("(epoch 1) — outputs held black; FLEET BACKUP FOH-B to mirror it — not kept for the next start (the node's settings "
+            + "could not be written: disk full)", fence.Text, StringComparison.Ordinal);
+        Assert.False(fence.Ok);
+        var fenceFleet = fenceState.GetProperty("fleet");
+        Assert.Equal(("fenced", backup.Id, 1L), (fenceFleet.GetProperty("role").GetString(), fenceFleet.GetProperty("of").GetString(),
+            fenceFleet.GetProperty("epoch").GetInt64()));
+        Assert.True(fencePushedBefore, "no push of STATE was raised between the fence's role and epoch and its row");
+        Assert.Equal((FleetRoles.Primary, 0L), (primary.Home.LoadSettings("x").Fleet.Role, primary.Home.LoadSettings("x").Fleet.Epoch));
+    }
+
     /// <summary>A node a backup joins is the show's primary, with that backup, for this run though its settings file refuses the write,
     /// and says so: STATE names it the primary, and has been pushed, by the time that row is written.</summary>
     [Fact]

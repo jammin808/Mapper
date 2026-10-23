@@ -134,7 +134,8 @@ The lab checks still to do:
   `PromoteTests`' one Windows read of a follower's journal before the row of its follow of the group's new leader (consistent with
   a slow settings write, or the watch's thread held, between the epoch's move, which STATE shows, and the row, not proven; the test
   now waits for the row, which says whether the epoch was kept, and the follow raises STATE's push before it; a step-down, a backup's
-  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them; the same read of a row
+  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them, and every change of the
+  fleet's settings, a fence's and a takeover's too, pushes STATE before its row; the same read of a row
   before it is written, not seen failing, is gone from `ClockSlewTests` and `MemberCommitTests` (a blind commit's landing),
   `AnchorFeedTests` (a rejoin after a restart, and a follower now says it free-wheels in STATE before its row) and
   `BackupRestartTests` (a primary that goes out without hearing its backup)),

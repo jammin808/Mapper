@@ -111,7 +111,7 @@ public sealed class PromoteTests
             Assert.Equal(1, Sync(two).GetProperty("epoch").GetInt64());
             Assert.Null(Item(two, "fleet:leader"));
             // The row of follower 2's follow says whether its epoch was kept for the next start: it is written once the settings file
-            // holds the epoch, after STATE shows it.
+            // has taken the epoch or refused it, after STATE shows it.
             Assert.True(await Eventually.TrueAsync(() => two.Journal().Contains("leads show now (epoch 1)", StringComparison.Ordinal), 15000), two.Journal());
             Assert.Contains("leads show now (epoch 1)", two.Journal(), StringComparison.Ordinal);
             // A promotion of a node that leads already says so.

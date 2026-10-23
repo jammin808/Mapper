@@ -845,15 +845,16 @@ Round 2 W1 notes:
   failed 3 of 3 on the words against the old product; with the words carried and no push, 2 of 5 on the push (in the other three
   another fact's push fell in that window, so the missing push cannot be made to fail every time); with both, it passed 3 of 3
   under the hold and 3 of 3 without.
-- Done: every change of the fleet's settings says when the settings file could not keep it, once STATE holds it. A leader that steps
-  down to a member leading its group under a higher epoch (`StepDownAsync`) did as the follow above did: it dropped `Persist`'s words
-  and raised no push; it now pushes STATE, then writes its row with the words, not ok when the epoch was not kept. A backup that
-  takes the higher epoch its primary is heard to hold (`KeepPrimaryEpoch`), a node a backup joins becoming its primary with that
-  backup (`OnMembersChanged`) and a node that handed its show back taking the epoch it was taken back under (the hand-back in
-  `LookAsync`) dropped the words too, so a node whose file could not keep them would, after a restart, take over under an epoch
-  that fences no one, go out without waiting to hear its backups, or be fenced by none of them, having said nothing. The first two
-  now say so in a fault row and the hand-back in its own row, each after STATE moved and was pushed (the epoch's move raised none
-  before). With the settings refusing every write, `ALeaderWhoseSettingsCannotKeepTheEpochItStepsDownUnderSaysSoInTheRowOfItsStepDown`,
+- Done: a step-down, a backup's kept epoch, a primary's role and a hand-back say when the settings file could not keep them, once
+  STATE holds them. A leader that steps down to a member leading its group under a higher epoch (`StepDownAsync`) did as the follow
+  above did: it dropped `Persist`'s words and raised no push; it now pushes STATE, then writes its row with the words, not ok when
+  the epoch was not kept. A backup that takes the higher epoch its primary is heard to hold (`KeepPrimaryEpoch`), a node a backup
+  joins becoming its primary with that backup (`OnMembersChanged`) and a node that handed its show back taking the epoch it was taken
+  back under (the hand-back in `LookAsync`) dropped the words too, so a node whose file could not keep them would, after a restart,
+  take over under an epoch that fences no one, go out without waiting to hear its backups, or be fenced by none of them, having said
+  nothing. The first two now say so in a fault row and the hand-back in its own row, each after STATE moved and was pushed (the
+  epoch's move raised none before). With the settings refusing every write,
+  `ALeaderWhoseSettingsCannotKeepTheEpochItStepsDownUnderSaysSoInTheRowOfItsStepDown`,
   `ABackupWhoseSettingsCannotKeepItsPrimarysEpochSaysSo`, `APrimaryWhoseSettingsCannotKeepItsRoleSaysSo` and
   `ANodeWhoseSettingsCannotKeepTheEpochOfItsHandBackSaysSoInItsRow` ask each row for its words, not ok, STATE read as it is written
   for what it reports, a push raised before it, and the file as it was; against the product before this change each failed 2 of 2
@@ -863,6 +864,16 @@ Round 2 W1 notes:
   push pass. Counting any push, the product built without the follow's, the step-down's, the kept epoch's and the hand-back's pushes
   failed their push assertions 3, 2, 2 and 1 of 3 runs; counting the writer's, each failed 3 of 3, and with the pushes each passed 3
   of 3.
+- Done: `BackupNode.Persist` pushes STATE once the fleet's settings are the node's, before it answers, so every change of them writes
+  its row, or answers its verb, beside a STATE that holds it (the follow's, the step-down's and the kept epoch's own pushes, above,
+  are now that one). FLEET FENCE and the takeover wrote theirs before any push of the role and epoch they set: a new role's only push
+  was the network air's (`MoveAir`), which moves before the settings are the node's so that STATE never names a role whose air has
+  not moved, and STATE is cached on its revision, so a reader holding the fence's row, or the takeover's fault row for an epoch the
+  file could not keep, could read the role and epoch from before (the fence's next push came after `LeadsHeardAsync` and a `SYNC
+  FOLLOW`, the takeover's after its routes). `AFailoverWhoseSettingsCannotBeKeptOnEitherNodeSaysSoInEachRowOnceStateHoldsIt`, both
+  nodes' files refusing every write, asks the backup's fault row and the old primary's fence row for their words, not ok, STATE read
+  as each is written for the role, the node it names and epoch 1, a push by the row's writer before it, and each file as it was;
+  against the product before this change it failed 3 of 3 at the takeover's push, and with it it passed 3 of 3.
 - Done, not seen failing: `ClockSlewTests.AWaitingBlindCommitMovesWithTheStepSoItLandsNeitherEarlyNorLate` reads the landing's
   journal row once the lane's tick that landed the commit is over (`Ticked`, as `BlindTests` reads it), not at its first sight of
   the landed show. A commit lands on the lane's tick: the store publishes the show and runs its listeners, and then the row ("blind
