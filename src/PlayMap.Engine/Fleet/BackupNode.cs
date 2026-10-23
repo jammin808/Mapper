@@ -1021,7 +1021,9 @@ public sealed class BackupNode : IAsyncDisposable
         return true;
     }
 
-    private static async Task<(bool Ok, string Words)> PullOneAsync(MirrorPuller puller, string from, MediaBackend store, string hash, long size, string name, CancellationToken ct)
+    /// <summary>One file by its hash from <paramref name="puller"/>'s source into the store: whether it landed verified, and the
+    /// words for its journal row. A pull that ends once <paramref name="ct"/> is cancelled ends as that cancel, whatever it met.</summary>
+    internal static async Task<(bool Ok, string Words)> PullOneAsync(MirrorPuller puller, string from, MediaBackend store, string hash, long size, string name, CancellationToken ct)
     {
         var hex = MediaBackend.Hex(hash);
         var destination = store.StorePath(hex, name);
@@ -1035,8 +1037,11 @@ public sealed class BackupNode : IAsyncDisposable
             }
             return (false, $"{Path.GetFileName(name)} could not be pulled from {from}: {result.Words}");
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException)
         {
+            // Once the stop is taken, whatever the pull ends on is the stop's (a refusal, a reset or a body cut short as well as the
+            // cancel): it ends as the stop, never as the primary's failure.
+            ct.ThrowIfCancellationRequested();
             return (false, $"{Path.GetFileName(name)} could not be pulled from {from}: {(puller.PinWords.Length > 0 ? puller.PinWords : ex.Message)}");
         }
     }
@@ -1515,13 +1520,16 @@ public sealed class BackupNode : IAsyncDisposable
         if (++_filesTurns < Math.Max(1, (int)(TimeSpan.FromSeconds(2) / _o.WatchEvery)))
             return;
         _filesTurns = 0;
+        var stop = _stop.Token;
         try
         {
-            if (await PullShowFilesAsync(engine, puller, engine.Store.Project, _stop.Token).ConfigureAwait(false) > 0)
+            if (await PullShowFilesAsync(engine, puller, engine.Store.Project, stop).ConfigureAwait(false) > 0)
                 engine.ShowFilesLanded();
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException && !_stop.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or TaskCanceledException)
         {
+            // Once the stop is taken, whatever the pull ends on is the stop's: the watch ends with it, and says nothing.
+            stop.ThrowIfCancellationRequested();
             // The primary or the disk did not answer this time: the files stay counted missing and are asked again.
             _log.LogInformation(ex, "The show's files could not be pulled this time.");
         }

@@ -937,6 +937,16 @@ Round 2 W1 notes:
   `HealthFeedsTests.ADialThePeerFailsAsTheStopIsTakenEndsAsTheStop` failed 3 of 3 against the dial as it was (the
   `WebSocketException` over the reset); it now ends as the stop's cancel, and a dial failed before the stop still ends with its
   words. It passed 5 runs of 5 with the fleet's Net tests. No failure of it has been seen.
+- Done: a backup's pulls from its primary end as the node's stop whatever they meet once the stop is taken. A file's pull
+  (`BackupNode.PullOneAsync`, behind the mirror's run of pulls and `MEDIA FETCH`) and the watch's second ask for the show's files
+  took a refused, reset or cut-short pull in only while the stop was not taken (`… && !ct.IsCancellationRequested`), so a failure
+  raised once it was, before the stop reached the request's own token (as the approval desk's above), came out as itself: the
+  mirror's run of pulls faulted ("A backup task faulted." in the engine's log, with its trace) and the watch logged "The backup watch
+  faulted." on a plain stop. With the primary resetting the pull's first ask in a callback on the stop registered after the client
+  linked the request's token, the new `BackupPullTests.APullThePrimaryFailsAsTheStopIsTakenEndsAsTheStop` failed 3 of 3 against the
+  pull as it was (the `HttpRequestException` over the reset); it now ends as the stop's cancel, and a pull failed before the stop
+  still ends with its row's words. It passed 5 runs of 5, and the 28 backup tests passed. The watch's ask has the same two lines
+  and is not forced: its token is the node's own stop, which no test reaches. No failure of either has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
