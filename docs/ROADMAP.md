@@ -6,7 +6,8 @@
 
 **Round 3 is the round under way.** Its spine is on main, and its packages build on it in four waves: the installed,
 Windows-native node on Direct3D 12 and the desk's guided workflows (Round 3, below; docs/round3/PLAN.md). Today PlayMap is one
-portable exe that draws through a rendering hardware interface with OpenGL behind it.
+exe, run from a folder or installed per machine under a supervising service, that draws through a rendering hardware interface
+with OpenGL behind it.
 
 **Round 2 is merged.** Every package of its plan (docs/round2/PLAN.md) is on main, built and tested on CI's Linux and Windows
 jobs. What it does is below and in each item's **Built** note; what only real hardware or a real show can prove is under **Lab
@@ -25,7 +26,7 @@ only** note what waits for real hardware. Camera auto-align and the content pack
 
 **Not on the desk:** wire-only — the effects browser and inspector, modulation sockets, tempo, bindings and learn, timecode, LED fixture placement and patching, optimise jobs, live inputs and sends, the phone scan path, align, the facade guide, the sync and framelock tab, the present path chips (`PRESENT PATH`), the per-output panic plans (`PANIC SET`), Companion decks, the content library, the machine platform's claims, identity and driver lock (`MACHINE SET`, `MACHINE LOCK`) and the effect quarantine (`FX RELEASE`): their STATE shows on the desk's cards, their verbs run from the cards, the generated right-click entries and over the wire, HTTP, MCP and bindings. The blind draft's ON GO and AT commits run over the wire. The desk has no console yet, so the facade's lines that take the operator's values (`SITE ORIGIN`, `SITE POINTS`, `SURVEY IMPORT`, a `PROJECTOR PRIOR` with a value, `STACK NEW`, `STACK ALIGN`, `STACK MATCH`) and `PLAN LIGHT`, which have no desk control, go over the wire, HTTP, MCP, Companion and bindings; a stack's card holds its list, its failover and its REMOVE. A card's `APPROVE`, pressed twice on a Companion key, is pressed once on the desk (the owner's call). A Recall the node refuses because the target stands as that result already (just after it was recalled) is offered: CALIBRATION HISTORY does not say which result a target stands as. The desk has no PANIC pulse and no master level bar; Simple hides nothing; the PLAY bin is not a panel of its own; a drag the gate refuses still moves on screen while its steps are not sent. The direction is a typed console beside the menu bar and the right-click menus, with every command and feature reached from the menus and never only by typing (wp3-desk-shell, `MenuCoverageTests`).
 
-**CI:** every push builds the whole solution in Release, the desk included, with the analyzers on and runs every test project to its end on Linux (Mesa llvmpipe under Xvfb, FFmpeg 9.0.2 from one build pinned by its hash, no libva and no system OpenAL, as on a bare machine) and on Windows (OpenGL 3.3 from a hash-pinned Mesa llvmpipe beside every test host, since the runner has no GPU; the same FFmpeg build; no audio endpoint; the Windows-only render and media code on WARP: the DXGI presenter, Spout's round trip, the D3D11VA device). The native test doubles — the fake NDI runtime and libvmx, which OMT loads — are compiled on both jobs (on Windows with the runner's LLVM clang), and a double that does not build fails its tests with the compiler's words instead of skipping them (`PLAYMAP_NATIVE_REQUIRED`). The tests' media are made at test time with LGPL-compatible encoders (R0.7). A test whose subject exists on one platform only carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Spout and D3D11VA on Windows). After the .NET suites the Linux job runs the Companion module's type check, lint and tests — its end-to-end test against the job's own engine — and Companion's module check. Each project's result is counted on its own, so one failure hides no other; the Windows job also publishes the portable exe, as the artifact `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64`. Every CI build is numbered from its run number, less `PlayMapRunBase`, and its commit (README, "Versions"); each job reads the stamp back from what it built straight after the build (and the Windows job again from the published exe's version resource), refuses one that is not this run's, and writes it to its summary (`tools/ci-stamp.ps1`).
+**CI:** every push builds the whole solution in Release, the desk included, with the analyzers on and runs every test project to its end on Linux (Mesa llvmpipe under Xvfb, FFmpeg 9.0.2's LGPL shared build (`lgpl-shared`, the one the installer carries) pinned by its hash under every decode test, its GPL command-line build on the path only to encode test media, no libva and no system OpenAL, as on a bare machine) and on Windows (OpenGL 3.3 from a hash-pinned Mesa llvmpipe beside every test host, since the runner has no GPU; the same FFmpeg build; no audio endpoint; the Windows-only render and media code on WARP: the DXGI presenter, Spout's round trip, the D3D11VA device). The native test doubles — the fake NDI runtime and libvmx, which OMT loads — are compiled on both jobs (on Windows with the runner's LLVM clang), and a double that does not build fails its tests with the compiler's words instead of skipping them (`PLAYMAP_NATIVE_REQUIRED`); a build ends with its compiler, never with the compiler's pipes, which a process it starts can hold, and one past 3 minutes is stopped with its words. A test host that hangs is stopped after 5 minutes with a mini dump the runtime writes, and a failed job prints every managed thread's stack from it (dotnet-dump, pinned by its hash), so a stall before the first test, in discovery or a fixture, is named as a hung test is; shown on Linux (a stalled discovery's dump read to the build under the attribute's constructor), not yet run on Windows, where the dump comes through `VSTEST_DUMP_FORCENETDUMP` and neither it, the Windows stacks step nor the Windows forms of `NativeBuildTests` and `ToolProbeTests` (a batch file's `start /b` helper, `ping.exe`) has run: the Windows job's next run is their first. The tests' media are made at test time with LGPL-compatible encoders (R0.7). A test whose subject exists on one platform only carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Spout and D3D11VA on Windows). After the .NET suites the Linux job runs the Companion module's type check, lint and tests — its end-to-end test against the job's own engine — and Companion's module check. Each project's result is counted on its own, so one failure hides no other; the Windows job also publishes the portable exe, as the artifact `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned` with its notices and `SHA256SUMS`, held by `LicenceTests` to its licences. A third job, on `windows-2025` and elevated, builds the unsigned Inno Setup installer and the one numbered before it and proves its life cycle on the runner (`InstallerTests`: the licence page, install, upgrade from the build before, a downgrade refused, the armed and silent refusals, uninstall), uploaded as `PlayMap-<MAJOR.MINOR.PATCH>.<build>-win-x64-unsigned-installer` with its `SHA256SUMS` and `SHA256SUMS.payload`; it is a hard gate for every merge (docs/round3/PLAN.md §5.4 item 5). Every CI build is numbered from its run number, less `PlayMapRunBase`, and its commit (README, "Versions"); each job reads the stamp back from what it built straight after the build (and the Windows job again from the published exe's version resource), refuses one that is not this run's, and writes it to its summary (`tools/ci-stamp.ps1`).
 
 **Lab only** (built in code and tested on CI, not yet proven on real hardware or a real show). No lab exists yet (the rule
 below), so none of these has run; each is reported not run, never passed. The tests run on Mesa llvmpipe
@@ -43,6 +44,11 @@ The lab checks still to do:
   claims (L22; until it passes, a Windows thread time is its clock ticks, and the survey slice's budget there is proven by the
   stopwatch and shown, not proven, by the ticks, docs/FACADE.md); the machine platform's claims against frame time on NVIDIA, AMD
   and Intel nodes, a hybrid Intel CPU and a dual-CCD CPU (L10), and its edition rows and claims on a clean Home node (L23).
+- The installed node: on IoT Enterprise LTSC 2024, auto-logon, the supervisor starting the engine in the show user's session after
+  a cold boot (M9), Shell Launcher and an upgrade refused while armed (L11); the unsigned installer on clean Home and Pro as a
+  person meets it — SmartScreen, UAC and Smart App Control (L18); ReadyToRun's first ten minutes (L21); the local show account,
+  auto-logon and the supervisor on a clean Home node (L23's install part, docs/round3/lab/L23.md); whether the show account's right
+  reaches the engine's token after its next sign-in (docs/INSTALL.md).
 - Runtimes and SDKs loaded at run time: a real NDI runtime (the user's own install); the NVAPI tier on a sync board.
 - Devices: a real projector, and a Panasonic's answers to the double-correction guard's reads; a real camera scan (from one place
   or many, through a capture camera, a phone or a tethered camera's folder), a camera re-solve and a colour match through a real
@@ -89,6 +95,10 @@ The lab checks still to do:
   the watch (its fence, its follow of a group's new leader, the mirror state's publish) up to the quiet, 10 s, for each missing show
   file every time it asks for them again. Pulling them off the watch's own turn, with a test of the watch's pace while a show file
   is silent, closes it.
+- The context's recent rows say "refused: " in front of every journal row that is not ok (`ContextBuilder.Build`), so a fault, a
+  sync warning or a claim Windows refused (whose own words already say "was refused") reads there as a refusal of a line, to MCP's
+  get_context, Patterns, Stagewatch and the assistant. Prefixing a row by what it is (its kind), with a test that reads the context,
+  closes it.
 - A fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended, so a peer heard again
   at another address, port or certificate is dialled up to about 9.6 s late; and STATE and the board leave out a machine the
   monitor never heard, so nothing a person reads says why a peer whose hello is heard has no health. Cutting the wait short when
@@ -129,12 +139,29 @@ The lab checks still to do:
   which holds the thread xunit starts for that check, made the unchanged test fail so; the poll's limit now runs on a clock the
   test moves, and the Net tests that raced real time beside it, a frame's hold, the anchor feed's deadlines, the Stagewatch
   countdown, the Patterns link's clip count and the hello test's grace, no longer do),
+  `DeviceLockHostTests`' one Windows frame path that allocated 280 bytes across a sharer's hold (consistent with the render
+  thread's first wait on a gate a preempted reader held, the frame-time gate's `Stats` reader or the health gate's, not proven: on
+  Linux a reader held inside the frame-time gate made the unchanged test fail by exactly 280 bytes; every lock the air's threads
+  share frame by frame is made with its wait event now, each of those threads has its wait record before its first frame, and a
+  reader or writer holding the frame-time gate or the sting channel across a frame costs the frame path nothing),
+  `BackupMirrorLinkTests`' one Windows read of a mirror quiet before its new connection subscribed with no stale move at all (its
+  actual was the default tuple; consistent with the primary's STATE pushes, 200 ms after each move of the clock, landing before the
+  link's 250 ms beat looked, not proven: on Linux the unchanged test, stopped 100 ms from 205 ms after the redial, failed so in six
+  runs of eight; the test now holds the new connection's reader as well as its greeting, so nothing is heard while the clock moves),
   `FleetMonitorTests`' 10 s wait for the peer to read live (consistent with A's fleet monitor's first subscription to B ending
   unheard and its next dial waiting on A's fleet clock, which the test did not move before B read live, not proven; the wait now
   moves that clock while the monitor waits, and names what A holds of B), `HostNetworkTests`' wait for the Patterns link's first
   clip (consistent with the clip's 3 s of trust on the node's real clock running out before the test read it, not proven; the node
   now runs on a clock the test holds),
-  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `StageResourcesTests`' one Windows read of a solved blend just after
+  `DeskIdentityTests.ANewTokenUnpairsAClientInTheTableAtOnce`, `NodeHostTests`' one Windows wait for a fresh node's first STATE
+  (its PING answered; its cause is not shown, the job's log showing nothing of the node: STATE's first build as measured on Linux
+  is 0.13 to 0.33 of the start's time, which for that node's start predicts about 1 to 2 s, not 10, a ratio not measured on
+  Windows, so a wait only STATE meets there, a frozen or starved process or a starved test host is not ruled out; the node now
+  writes STATE and CONTEXT before its doors open and says how long the first write took where it says it is up, journals a later
+  STATE write of 1 s or more that is the longest since the first with the part it went in and whether its thread worked or
+  waited, and the test's unanswered line says when it was answered, whether a second connection's PING and CONTEXT were, and the
+  node's journal, log and output, so a recurrence names its stage; the Windows job passed it at fix-nodehost-win 39caa04c, its
+  one run there since), `StageResourcesTests`' one Windows read of a solved blend just after
   the stage settled (consistent with the test's next step, or the stage builder between its signal to the blender and its tables,
   running later than the blend's 150 ms real-time quiet time, not proven; the quiet time now runs on a clock the test moves),
   `PanicTests.RewindCuesTheItemAtItsInPointAtTheFadesEnd`' two gate failures (consistent with its read of the panic's journal row
@@ -143,6 +170,21 @@ The lab checks still to do:
   racing the stage builder's first tables, not proven; it now waits for them),
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (its 125 ms spin counted 61.49 ms of 127.56 ms by the
   stopwatch; consistent with the thread given under half a processor, not proven; its lower bound is now on the time the spin ran),
+  the Engine test host's one Windows stall before its first test (run 435: no result and no sequence file before blame's 5 minutes;
+  consistent with libvmx's build in the OMT tests' attribute, run while the suite is discovered, waiting for the end of its
+  compiler's pipes, which a process the compiler starts can hold, not proven; the build now ends with its compiler, and a hung
+  host's every managed stack is printed in the job's log),
+  `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced`' one Windows "stopped sending: nothing for 10 s" (run 436;
+  consistent with the test host leaving the fake phone's pings unsent for the hub's 10 s of real time, not proven; the phone rig's
+  hub and the test's scan now run on clocks the test holds, and a hello's limit on the hub's own clock tells the phone why),
+  `PromoteTests`' one Windows read of a follower's journal before the row of its follow of the group's new leader (consistent with
+  a slow settings write, or the watch's thread held, between the epoch's move, which STATE shows, and the row, not proven; the test
+  now waits for the row, which says whether the epoch was kept, and the follow raises STATE's push before it; a step-down, a backup's
+  kept epoch, a primary's role and a hand-back now say so too when the settings file could not keep them, and every change of the
+  fleet's settings, a fence's and a takeover's too, pushes STATE before its row; the same read of a row
+  before it is written, not seen failing, is gone from `ClockSlewTests` and `MemberCommitTests` (a blind commit's landing),
+  `AnchorFeedTests` (a rejoin after a restart, and a follower now says it free-wheels in STATE before its row) and
+  `BackupRestartTests` (a primary that goes out without hearing its backup)),
   `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack`' one Windows wait for the scan's "scanning" stage
   (consistent with its 20 ms samples missing the few hundred milliseconds the simulated scan's patterns take, not proven; the scan is
   now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent
@@ -160,30 +202,20 @@ The lab checks still to do:
   words and the heap).
 - Watched, short real-time windows a sweep of the tests found and none has failed on yet (each keeps its bar; the fix named is
   the one the batch's fixes used, a clock the test moves, a hold the test lets go, a wait for the writer's own count, or a
-  measure of the work rather than the stopwatch): `SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds`
-  (the worst SITE round trip within 50 ms by the test's stopwatch, its own continuation included, at the 1× bar the Windows job's
-  Release build holds; the lane's own measure of an answer, as the slices are read, closes it),
-  `ProjectorSolveLanePerfTests.ASolveHoldsTheLaneWithinItsSlice` and its 4× twin (an empty lane turn's stopwatch round trip within
-  10 ms; the same), `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they wait for facts, not for the kill's
-  order; `OptimiseOptions.Time` now lets them move it), `PjLinkDriverTests.ASearchFindsAClass2ProjectorOnLoopbackUdp` and
-  `DeviceManagerTests.DiscoveryFindsAProjectorIdentifiesItAndSuggestsItsNativeDriver` (a 400 ms real search window across the
-  simulator's and the search's own receive loops; the window on a clock the test moves once the answer is counted closes it),
+  measure of the work rather than the stopwatch): `OptimiseWorkerEndTests`' other tests on a 500 ms real stop grace (they
+  wait for facts, not for the kill's order; `OptimiseOptions.Time` now lets them move it),
   `VideoSourceTests.InRealTimeTheLoopNeverRunsDry` (2 s of wall-clock playback with no miss; a hand-moved position, as its 4× twin
-  steps, closes it), `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` (five frames inside a 400 ms real
-  hold; a hold until the loop has drawn them closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`
+  steps, closes it), `AnchorFeedTests.AGoOnTheLeaderPutsTheFollowerOnTheSameItemAndAnchorAndTheGroupsAirLandsOnBothAtOneInstant`
   (the follower's adoption within 800 ms by the stopwatch, a 4× ceiling on a lab bar; the facts kept and the time logged closes it),
   `ClockSyncTests`' best round trip within 20 ms over real loopback, the real-time throughput bars the Windows job runs at 1×
   (`PerformanceTests.A1080pH264DecodesFasterThanRealTimeInSoftware`,
   `SelfCalibrationTests.SelfCalibrationRecoversFocalAndRotationFromNoisyRoomPairsWithinASecond`,
   `FirstMapTests.TheFirstMapTakesUnderFiveSecondsOfMachineTime`, `LightPlanPerfTests.TwelveProjectorsPlanInThreeSeconds`; a reading
   of the same runner, or the bar kept as a lab line, closes them), the desk's hold button timed on the stopwatch
-  (`DeskSpineTests.AHoldButtonActsOnlyWhenHeldItsTimeAndADropGoesToTheHandlerOfItsFormat` and `DeskHarness.Hold`, 600 ms; the desk's
-  clock closes it), `DeskLogicTests.ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt` (a repeat folded within 2 s of the
-  stopwatch), `MediaTransferTests.TheBandwidthBucketHoldsItsRateAndCanBeLoweredAndLifted` (100 takes within 200 ms),
-  `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
+  (600 ms; its ring's timer runs in the headless tests only when a test yields to the dispatcher, which no test that holds a button
+  does while it holds, so none races it now; the desk's clock closes it), `FolderCameraWriteTests` (the folder's 20 ms real settle against a file written in place) and
   `ArtNetInTests.ATimecodeConsumerOpensTheSocketArtTimeCodeRollsAndDmxFiresNoBinding` (dropout after 100 ms of the real clock; it
-  heals within its wait). `GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound` is no window but its
-  last count holds from the bounded take before it alone (`TryEnter` counts a wait), so it does not show the sharer waited.
+  heals within its wait).
 - The NDI runtime's loader and OMT's libvmx loader end with a search of the system's loader by bare name, which on Windows takes
   in the current directory and `PATH` (`NdiRuntime.Candidates` and `Load`; `OmtSetup`'s resolver, in its `Load`). Loading every
   candidate by its absolute path, as FFmpeg's loader does, closes it.
@@ -250,17 +282,18 @@ every command and feature reachable from the menus and right-click menus (§9). 
 256 of a node's commands where it keeps a cap, and that the Show Bus contract state the cap, is in docs/round2/CARRYOVER.md
 (call 11).
 
-**Today.** PlayMap is one portable exe. It draws through the rendering hardware interface (below) with OpenGL 3.3 core or ES 3.00
-behind it, on GLFW windows, EGL or a surfaceless context; on Windows the Direct3D 11 flip model through ANGLE is an explicit,
-experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that no evidence yet marks as in Independent Flip. The NVAPI frame-lock tier
-reads a sync board and joins no output. A lost device stops the drawing after 30 faulting frames while the engine plays on. On Windows
-the engine claims what a real-time process needs through its machine platform and reads each claim back into STATE (below). Previews
-reach the desk through four CPU copies. CI publishes a self-contained folder that nothing installs, signs or supervises; every build
-carries its version, build number and commit from one source (`Version.props`; README, Versions). On the desk a half-drawn quad
-stays as its projector's draft when the person looks away, and a quad's corners and a pin are dragged, typed and nudged by one
-pixel (docs/DESK.md, MAP's quad tool); no output says what it shows, Simple hides nothing, the panels are fixed columns and about a
-third of the catalogue's rows are sent by a desk control of their own; a capture card is read through FFmpeg, outside the video I/O
-hub, with three CPU copies (docs/round3/research/desk-today.md and video-today.md).
+**Today.** PlayMap is one exe, run from a folder or installed per machine under its supervising service (below). It draws through
+the rendering hardware interface (below) with OpenGL 3.3 core or ES 3.00 behind it, on GLFW windows, EGL or a surfaceless context;
+on Windows the Direct3D 11 flip model through ANGLE is an explicit, experimental path (`PRESENT PATH DXGI`; AUTO is OpenGL) that
+no evidence yet marks as in Independent Flip. The NVAPI frame-lock tier reads a sync board and joins no output. A lost device
+stops the drawing after 30 faulting frames while the engine plays on. On Windows the engine claims what a real-time process needs
+through its machine platform and reads each claim back into STATE (below). Previews reach the desk through four CPU copies. CI
+publishes the portable folder and a per-machine installer that lays it down under the supervising service, both unsigned and named
+so, each with its `SHA256SUMS`; every build carries its version, build number and commit from one source (`Version.props`; README,
+Versions). On the desk a half-drawn quad stays as its projector's draft when the person looks away, and a quad's corners and a pin
+are dragged, typed and nudged by one pixel (docs/DESK.md, MAP's quad tool); no output says what it shows, Simple hides nothing,
+the panels are fixed columns and about a third of the catalogue's rows are sent by a desk control of their own; a capture card is
+read through FFmpeg, outside the video I/O hub, with three CPU copies (docs/round3/research/desk-today.md and video-today.md).
 
 **Built: the spine (W0, `wp3-spine`).** The spine holds the contracts every package of the round builds on. Every lab line
 still waits: nothing in it claims a hardware fact.
@@ -281,10 +314,10 @@ still waits: nothing in it claims a hardware fact.
   read unchanged but for γ, and the load note names each output moved.
 - **Seams packages need.** `UNDO TO` with its store and gate, HEALTH's shown and observed frames and GPU phase (−1 and unknown
   until filled), the engine's pid record for the supervisor, and arm hooks with deadlines that `SHOW ARM` names in its answer.
-- **Tree.** The spine makes the Direct3D 12, Windows platform and supervisor projects with their folders and placeholders, which their
-  packages fill (wp3-shaders the Direct3D 12 backend's shaders folder, wp3-platform the Windows platform; below). Each hook word has
-  its stubs. Round 3's STATE keys have their places, absent until written. Each package has a fixture and a wire page, placeholders
-  until it fills them.
+- **Tree.** The spine makes the Direct3D 12, Windows platform and supervisor projects with their folders and placeholders, which
+  their packages fill (wp3-shaders the Direct3D 12 backend's shaders folder, wp3-platform the Windows platform, wp3-installer the
+  supervisor; below). Each hook word has its stubs. Round 3's STATE keys have their places, absent until written. Each package has
+  a fixture and a wire page, placeholders until it fills them.
 - **CI.** The Windows job runs on `windows-2025`. It has WARP and the Agility SDK pinned beside the test hosts. The
   `Backend=D3D12` tests are a leg listed apart, with a dispatch input that runs one filtered leg and uploads its evidence.
   The one Direct3D 12 test makes a WARP device through TerraFX and says its feature level. The runner's answers to M7 and M14
@@ -439,6 +472,76 @@ docs/wire/undo.md), each proven headless on both CI jobs; no operator has met th
   regularly but late is not called stale.
 - **Not proven.** L19, the formative dark-room session with three operators (docs/round3/lab/L19.md), is not run.
 
+**Built: the installer, the supervisor and the version rules (W1, `wp3-installer`).** A per-machine installer built with Inno Setup
+this round, the owner's choice (an MSI is revisited next round), and the supervising service that keeps the engine running in the
+show user's session (docs/INSTALL.md, docs/wire/install.md); proven elevated on the Windows runner and on no clean machine yet.
+
+- **The installer.** `installer/PlayMap.iss`, an EXE built by Inno Setup 7.1, into `C:\Program Files\PlayMap` only: the ReadyToRun
+  publish with the shader worker's natives (of DXC its compiler alone, `dxcompiler.dll`, with its licence and notices in
+  `licenses\DXC\`), FFmpeg 9.0.2's LGPL shared libraries as replaceable files in `ffmpeg\` with their licence texts, the Agility
+  SDK's `D3D12Core.dll` in `D3D12\`, libvmx, the supervisor, the notices beside the files (except the texts of the libraries linked
+  into FFmpeg's DLLs and of glslang inside shaderc, named there by their licences and laid down at the integration pass, the "Not
+  built" bullet below), and the `SHA256SUMS` of every file laid
+  down. A Windows build below 26100, an older build over a newer one and the same build again are refused with words; while Smart
+  App Control evaluates, one warning page says what Windows does once it enforces.
+- **The licence page.** It shows `installer/licence.txt` before anything is laid down, and the install keeps it: a section for
+  PlayMap's own terms, none named yet; the pinned Agility SDK package's `LICENSE.txt` verbatim as the terms a person agrees to for
+  `D3D12Core.dll`, the owner accepting Microsoft's distribution terms, the indemnity included; and where the other components'
+  notices are. A quiet install shows no page and lays nothing down without `/ACCEPTTERMS=yes`. `InstallerTermsTests` hold the page
+  to the pinned package on both jobs.
+- **Machine-level actions, by the supervisor's commands.** Once the files are laid, `PlayMap.Supervisor.exe install` (elevated) makes
+  `%ProgramData%\PlayMap` owned by administrators with its own access (SYSTEM and administrators change it, every account reads it),
+  the show user's write access on `dumps` and the engine's folder `supervisor\engine` alone (a folder that is a link, or one another
+  account made before the install, refused), WER's LocalDumps, the event source, the firewall rules by `netsh` (TCP 9940 and 9941,
+  UDP 9928, 9942, 9943, 6454, 5568 and 5353, on the private and domain profiles scoped to the local subnet, Public too with
+  `/PUBLICFIREWALL=1`), `SeIncreaseBasePriorityPrivilege` for the account `/SHOWUSER=` names, and the service with its recovery
+  actions, and marks the machine supervised last, once the service runs; the uninstall takes each back, the show user's write access
+  among them, and leaves the folders. No URL reservation is made: a standard account serves 9940.
+- **The armed check.** Before an install, before an upgrade replaces anything and before an uninstall, `preinstall-check` asks the
+  engine and fails closed: an engine answering armed refuses with the node's words, and one that does not answer within 5 s, or
+  answers with an error, refuses too; a program other than the supervised engine running from the folder refuses an upgrade or an
+  uninstall.
+- **The supervisor.** The `PlayMapSupervisor` service (LocalSystem) starts `PlayMap.exe engine --supervised` in the show user's
+  console session, never session 0, suspended until its status file names it (or until that write has failed, which `supervisor.log`
+  records, so a write that could not be made leaves the engine neither suspended nor without a trace), restarts it with backoff (1 s doubling to 30 s),
+  stops trying after five restarts in ten minutes, adopts a running engine only by the identity rule
+  (`Core/Machine/EngineIdentity.cs`) and only reads the engine's pid record, and writes its status file and log in a folder the show
+  user cannot change, which STATE's `machine.install`, preflight's `install` section and the desk's Connect read; `status`, `stop`
+  and `resume` ask it on its pipe. Every stop sets the engine's stop event, on which a supervised engine stops as any asked stop
+  does, during its start or once up, journalling that the supervisor asked; the next engine journals the cause of the stop before
+  it; an engine still running 5 s after the event is terminated. On a supervised machine the desk attaches to that engine and starts
+  none, and says the supervisor's state, cause and resume line when that engine does not answer.
+- **The version rules.** `Version.props` refuses a MAJOR or MINOR above 255; the installer's version is MAJOR.MINOR.BUILD
+  (`BuildInfo.MsiVersion`), from numbered builds only; the installer job's release order refuses a version not above the last
+  release's ("raise MINOR").
+- **Unsigned.** The portable folder and the installer are named `-unsigned`, each with its `SHA256SUMS` (the installer's artifact
+  with `SHA256SUMS.payload` too), and docs/INSTALL.md says, before the download, what SmartScreen, UAC and Smart App Control do with
+  them.
+- **The spine's part.** Through the amendment lane (docs/round3/PLAN.md §5.7), each a "Spine: " commit before the fill that uses it:
+  the `Install` hook in the exe's composition, which carries preflight's `install` section; a supervised engine's wait on the stop
+  event its `--stop-event` names (`SupervisorNames`: a name drawn for each start, opened with Synchronize and ReadPermissions and kept
+  only when SYSTEM or administrators made it), journalled when it ends a start too; the supervisor's status
+  record in Core (`SupervisorStatus`) in the supervisor's folder, and the engine's pid record in the engine's folder inside it; the
+  identity rule in Core, which every reader of the engine's pid record and `EnginePidRecord.TryWrite` hold a record to; and the
+  connection manager's seams for a supervised machine and the supervisor's status, with Connect's supervised sentence.
+- **As built, against the plan's words.** An EXE, not the MSI of docs/round3/PLAN.md §3.5 items 3 and 4 (M17; §9 decision 3): it
+  gives up the automatic undo of service and registry changes, repair and `msiexec`, the order docs/INSTALL.md gives an upgrade and
+  an uninstall standing in for the undo; the account right is granted by `PlayMap.Supervisor.exe install --show-user` once the
+  files are laid, not by a deferred custom action, and only to an account the install names; the installer goes into Program Files
+  only, a `/DIR=` elsewhere refused; STATE's `machine.install` carries no `policies` block (the design's STATE example has one) and
+  no edition of its own (the machine platform's `machine.identity.os` has it), and preflight's `install:policies` row says this build
+  writes no update policy and names machine preflight's row that says what the edition honours and what holds updates back.
+- **Not built.** The freeze rule's stop: it waits for HEALTH's shown frames, which no engine reports until wp3-stability fills them,
+  so the supervisor restarts the engine after an exit alone (`SupervisorHeartbeatTests` and `SupervisorRebuildTests` come with
+  wp3-stability's and wp3-stability-2's merges, docs/round3/PLAN.md §5.5); the stretches — the show machine's update and
+  notification policies, a manifest beside each dump, `DnsServiceRegister`, an SBOM; the rest of docs/round3/PLAN.md §5.6 item 4's
+  `LicenceTests` (no NDI, Aftermath, WARP, AMD or capture-card binary, FFmpeg reporting no `--enable-gpl`, nothing of WiX, and every
+  notice present: the notices of the libraries linked into the FFmpeg DLLs and of glslang inside shaderc), at the integration pass.
+- **Not proven.** L11 (the installed node on IoT Enterprise LTSC: auto-logon, M9 after a cold boot, Shell Launcher, an upgrade
+  refused while armed), L18 (the unsigned installer on clean Home and Pro), L21 (ReadyToRun's first ten minutes) and L23's install
+  part (the show account and the supervisor on a clean Home node) are not run; that the show account's right reaches the engine's
+  token from its next sign-in is Windows' documented rule, read by no test.
+
 **Next** (the plan's packages build these in four waves on the spine — the fifteen of the Windows move and the five for the
 owner's requirements; GL stays the reference backend through the round and retires once the pixel and timing evidence agrees; at
 the round's end the integration pass updates the statuses of the items in the last column):
@@ -457,7 +560,7 @@ the round's end the integration pass updates the statuses of the items in the la
 | A watermark read back by an independent observer; the shown-frame heartbeat; `LATENCY STEP`; one rebuild path for a lost device, rehearsed in CI | wp3-stability, -2 | R1.11 |
 | Shared-texture previews into the desk; the desk's UI-stall watchdog and push budget | wp3-desk-gpu | — |
 | The GO guard, blind in grey, the Oops history, dark-room and daylight themes, status by shape and word, preview age. **Built** (above), with the closing question while armed and Map anything; L19 not run | wp3-desk-ux | M20 (the night theme) |
-| A per-machine installer on every Windows 11 edition, built with Inno Setup this round (an MSI next round), unsigned with a SHA-256 list, the Direct3D 12 runtime inside it under a licence page, with a supervising service, the engine in an auto-logged-on show user's session (never as administrator, never in session 0, every machine-level action done once by the installer), the installer's version rules, an install refused while the show is armed | wp3-installer | R0.7, R4.5 (boot to show), R4.6 (in part: never updating an armed node) |
+| A per-machine installer on every Windows 11 edition, built with Inno Setup this round (an MSI next round), unsigned with a SHA-256 list, the Direct3D 12 runtime inside it under a licence page, with a supervising service, the engine in an auto-logged-on show user's session (never as administrator, never in session 0, every machine-level action done once by the installer), the installer's version rules, an install refused while the show is armed. **Built** (above): the installer with its licence page, the supervisor, every machine-level action by its commands, the version rules, the armed check that fails closed and STATE `machine.install`, proven on the Windows runner; not the freeze rule's stop (it waits for wp3-stability's shown frames) or the stretches; L11, L18, L21 and L23's install part not run | wp3-installer | R0.7, R4.5 (boot to show), R4.6 (in part: never updating an armed node) |
 | The four-click quad that stays when the person looks away, its corners dragged, typed and nudged, a pin typed and nudged. **Built** (above); L19 not run | wp3-desk-ux | — |
 | Docked, floating and collapsible panes; a menu bar, a palette and a typed console, with every command and feature reached from the menu bar and right-click menus, never only by typing; right-click menus generated from the catalogue; colour for status, identity and stage, never the only cue; the assistant's pane | wp3-desk-shell | R3.11 (the palette) |
 | Every corner, pin and warp handle dragged, typed and nudged by one pixel; what each screen shows; the advanced panes (effects chains, modulation and bindings, an area pane per STATE block) | wp3-desk-map | — |
@@ -491,7 +594,7 @@ Decisions where the lenses disagreed are in docs/COMPETITIVE.md §8. In short: f
 | R0.4 | Self-hosted Windows CI runner with NVIDIA and AMD GPUs and FFmpeg; nightly soak counts missed vblanks. **Built in part:** the hosted Windows job runs every test project on WARP and Mesa llvmpipe with the pinned FFmpeg, and builds the native test doubles (the fake NDI runtime, libvmx) with the runner's clang, so the NDI and OMT suites run there as on Linux; no GPU runner and no soak | ★★★ | M | R0.1 |
 | R0.5 | Hardware lab: three projectors from different makers (one DLP, one 3LCD or LCoS, one short-throw; at least one install model with internal warp); two nodes (RTX PRO with a sync card, GeForce); two UVC webcams (one with manual exposure, one without); an iPhone and an Android phone; a white box, a curved flat, a textured sculpture; material samples (scrim, glossy, black, glass). **Not yet:** no lab exists (docs/round3/PLAN.md D15; the rule in §0) | ★★★ | M + purchase | — |
 | R0.6 | Missed vblanks, present mode and p95 frame time per output in STATE. **Built:** `outputs[].present` (missed vblanks, `missed60s`, the late share), `outputs[].frameMsP95`, `machine.present` (path and dialect), `OUTPUT STATS`, `PRESENT RESET` | ★★ | S | R0.3 |
-| R0.7 | Release builds, unsigned this round and named `-unsigned`, each with a `SHA256SUMS` file; a SmartScreen and antivirus false-positive check; the firewall rules written once by the installer; FFmpeg as the LGPL build's replaceable libraries, with notices. Signing is next round's, with an identity the owner chooses (docs/round3/PLAN.md §9 decision 2). **Built in part:** the tests' media are made with LGPL-compatible encoders (OpenH264, Kvazaar, FFmpeg's own MPEG-4 part 2 and FFV1, ProRes, HAP, PCM, AAC), checked for any GPL encoder's mark; the one exception is a 10-bit HEVC clip made by libx265 at test time and never committed, kept by the owner's decision, since no LGPL-compatible encoder here writes 10-bit HEVC. Next (wp3-installer): the unsigned Inno Setup installer with its `SHA256SUMS`, its firewall rules, and the LGPL FFmpeg under every decode test and inside the installer; `LicenceTests` on the installer at the round's integration pass. The SmartScreen and antivirus check waits for a lab (SmartScreen is the plan's L18) | ★★★ | S | R0.1 |
+| R0.7 | Release builds, unsigned this round and named `-unsigned`, each with a `SHA256SUMS` file; a SmartScreen and antivirus false-positive check; the firewall rules written once by the installer; FFmpeg as the LGPL build's replaceable libraries, with notices. Signing is next round's, with an identity the owner chooses (docs/round3/PLAN.md §9 decision 2). **Built in part:** the tests' media are made with LGPL-compatible encoders (OpenH264, Kvazaar, FFmpeg's own MPEG-4 part 2 and FFV1, ProRes, HAP, PCM, AAC), checked for any GPL encoder's mark; the one exception is a 10-bit HEVC clip made by libx265 at test time and never committed, kept by the owner's decision, since no LGPL-compatible encoder here writes 10-bit HEVC. Also built (wp3-installer): the unsigned Inno Setup installer with its `SHA256SUMS`, its licence page and a quiet install's `/ACCEPTTERMS=yes`, its firewall rules, the notices beside the files in it and in the portable folder (except the texts of the libraries linked into FFmpeg's DLLs and of glslang inside shaderc, named by their licences and laid down at the integration pass), and the LGPL FFmpeg under every decode test and inside the installer, with its licence texts; `LicenceTests` on the installer's payload and the portable folder (DXC's compiler alone with its licence and notices, and the notices naming every package and native library each carries), the rest of docs/round3/PLAN.md §5.6 item 4 at the round's integration pass. The SmartScreen and antivirus check waits for a lab (SmartScreen is the plan's L18) | ★★★ | S | R0.1 |
 
 **Exit:** a fresh Windows PC plays a looped clip on a projector from the real desk for 24 hours with the missed-vblank count published (it need not be zero yet).
 
@@ -563,8 +666,8 @@ Decisions where the lenses disagreed are in docs/COMPETITIVE.md §8. In short: f
 | R4.2 | Hardware frame lock where the hardware allows it; a per-output chip (house-locked, framelocked or grouped, else free with its tier "software" and its measured phase); counter-wrap handling; sync-card firmware caveats in preflight. **Built in part:** the per-output lock machine, `SYNC APPLY/LEAVE/REJOIN`, wrap-safe counters, a sync group's members joining and leaving the leader's lock with its counter anchor through the anchor feed; the NVAPI tier is compile-only and locks no output yet. Next (wp3-framelock): on professional GPUs with RTX PRO Sync, NVAPI's present barrier on Direct3D 12 and the `WGL_NV_swap_group` swap group on OpenGL, each output locked only by its own evidence. The DXGI path (`PRESENT PATH DXGI`) has no hardware tier: a node with a board there is to be amber, with `PRESENT PATH D3D12` or `GL` as the fix; every other output is to run the software lock and report its measured phase, never a locked state (docs/round3/PLAN.md D5). **Lab only:** a sync board | ★★★ | M | R2.1 |
 | R4.3 | Fleet view in the Network drawer with 24 h history; `/metrics`, syslog, webhooks; one-click diagnostics bundle. **Built in part:** `HEALTH`, the fleet board (`FLEET`) and the `/health` and `/fleet` feeds on the web port (docs/FLEET.md); not the drawer, the history, `/metrics`, syslog, webhooks or the bundle | ★★ | M | R2.6 |
 | R4.4 | Audio device seam (WASAPI exclusive, ASIO), per-playlist channel matrix, LTC out, audio clock as master. **Built in part:** the input side, one capture per input shared by the analyser and the LTC reader (docs/AUDIO.md); the air's sound — the on-air item through one OpenAL Soft output slaved to its anchor, its gain the master × the darkest panic × the playlist's volume, on the picture's show clock (docs/SHOW.md); not WASAPI exclusive, ASIO, the channel matrix, LTC out or the audio clock as master | ★★ | M | R3.7 |
-| R4.5 | Scheduler (time of day, holidays, sunset-relative, evaluated by the leader), projector power sequencing with warm-up, boot-to-show service | ★★ | S | R1.3 |
-| R4.6 | Versioned wire (capabilities in HELLO) and project format with migrations; N-1 interop in CI; LTS show-safe channel with pinned FFmpeg and a driver matrix; never auto-update an armed node | ★★★ | M | — |
+| R4.5 | Scheduler (time of day, holidays, sunset-relative, evaluated by the leader), projector power sequencing with warm-up, boot-to-show service. **Built in part** (round 3's wp3-installer): the supervising service starts the engine in the auto-logged-on show user's session after a boot and restarts it after an exit; no scheduler and no projector power sequencing; L11 not run | ★★ | S | R1.3 |
+| R4.6 | Versioned wire (capabilities in HELLO) and project format with migrations; N-1 interop in CI; LTS show-safe channel with pinned FFmpeg and a driver matrix; never auto-update an armed node. **Built in part** (round 3's wp3-installer): an install, an upgrade or an uninstall is refused while the node answers armed or while a live engine does not answer; there is no updater | ★★★ | M | — |
 | R4.7 | Rescan retargeting when the mesh changes: NRICP mesh deform with crease stiffness; deviation and lattice-residual heat maps | ★★★ | L | R1.4 |
 | R4.8 | Calibration as a service: `CALIB PLAN/CHECK/RESOLVE/ACCEPT/REVERT` on the Show Bus and MCP; reference gate; history of the last 100 results. **Built in large part** as `CALIBRATION` and `ALIGN` on the wire and MCP with a gate; the history keeps 20 results beyond the current, fallback, staged and pinned ones; `CALIBRATION RESOLVE … CAMERA` checks a re-solved pose on the wall, and `ALIGN SCORE` answers a run's score with every term, its seams measured by the run's verify pass. Next: `ALIGN PLAN` (the dry run) | ★★★ | M | R1.4, R4.7 |
 | R4.9 | Reference hardware list (GPUs, capture cards, mini-PCs, cameras, projectors known to work) and a venue network guide (wired show network, multicast/IGMP, VLANs, Wi-Fi limits for phones and glasses); mDNS discovery. **Built:** the node announces itself as `_playmap._tcp`; not the list or the guide | ★★ | S | R2.6 |
@@ -647,7 +750,7 @@ These are the biggest adoption risks and no code fixes them. Rental houses and i
 
 ## 7. Summary by group
 
-**Parity gaps that block real shows (must-have):** R0 integration and the release build (R0.1–R0.7; unsigned this round, named so, each with its SHA-256 list); scan runner and solves (R1.1, R1.2); projector verbs (R1.3); scan preflight and fallbacks (R1.13, R1.14); flip-model presenters on Direct3D 12 (R2.1); GPU HAP (R2.3); preflight (R2.6); frame-rate handling (R2.10); Show Mode (R3.5); bindings and OSC/MIDI (R3.1, R3.2); Spout/OMT/NDI (R3.3); timecode chase (R3.7); security posture (R3.14); redundancy (R4.1); framelock (R4.2); format versioning (R4.6); multi-camera capture (M3) for large rigs; the facade workflow (M23) for commercial mapping. Main has R0.1, R1.1, R1.2, R1.3, R2.3, R3.1, R3.2, R3.3, R3.5 and R3.7 in code (each but what its row names), and R0.4 (the hosted Windows job, no GPU runner), R0.7 (the tests' media, not the unsigned installer), R2.1, R2.6, R2.10, R3.14, R4.1 (a manual takeover), R4.2 and M3 in part, and M23 in part (the site frame, survey import of PLY, OBJ, glTF, LAS and E57 with decimation and thinning, control points, long-throw priors, geodesy, stacks, the light plan and the facade guide; not LAZ, the night profile, photometry or glass masks); what they lack is proof on real hardware.
+**Parity gaps that block real shows (must-have):** R0 integration and the release build (R0.1–R0.7; unsigned this round, named so, each with its SHA-256 list); scan runner and solves (R1.1, R1.2); projector verbs (R1.3); scan preflight and fallbacks (R1.13, R1.14); flip-model presenters on Direct3D 12 (R2.1); GPU HAP (R2.3); preflight (R2.6); frame-rate handling (R2.10); Show Mode (R3.5); bindings and OSC/MIDI (R3.1, R3.2); Spout/OMT/NDI (R3.3); timecode chase (R3.7); security posture (R3.14); redundancy (R4.1); framelock (R4.2); format versioning (R4.6); multi-camera capture (M3) for large rigs; the facade workflow (M23) for commercial mapping. Main has R0.1, R1.1, R1.2, R1.3, R2.3, R3.1, R3.2, R3.3, R3.5 and R3.7 in code (each but what its row names), and R0.4 (the hosted Windows job, no GPU runner), R0.7 (the tests' media and the unsigned installer, not the SmartScreen and antivirus check), R2.1, R2.6, R2.10, R3.14, R4.1 (a manual takeover), R4.2 and M3 in part, and M23 in part (the site frame, survey import of PLY, OBJ, glTF, LAS and E57 with decimation and thinning, control points, long-throw priors, geodesy, stacks, the light plan and the facade guide; not LAZ, the night profile, photometry or glass masks); what they lack is proof on real hardware.
 
 **Differentiators where PlayMap can lead:** commodity-camera calibration with an explainable score (R1.4, R4.8); the edit overlay drawn on the wall (R1.5); pick-and-highlight verbs (R1.12); click-to-surface (R1.7, M30); optimise to HAP R/HDR (R2.4); measured sync and latency (R2.7, R1.11); laser and phone pointing (R3.10, R3.9); importers and designer templates (R3.12, R3.13); live-mirror redundancy for deterministic content (R4.1); rework-free recalibration (R1.2, R4.7); drift watch (M2); LED auto-locate (M5); geometry-aware instruments (M8); staged AI on a live show (R3.5 + assistant); camera glasses and headsets (M29, M10). Main has R1.4, R1.5 and R4.8 in large part, R1.2's rework-free re-solve of a moved projector from a camera (its pixel quads re-seated; not R4.7's retargeting to a changed mesh), R2.4 in part (HAP and HAP Q, not HAP R or HDR), R2.7 in part (the vblank board and the group's air latency, not the camera's certificate), R1.11 in part (each output's input lag held to the slowest display, not the camera's measure), R4.1 for a manual takeover, and camera auto-align of flat screens, with its white match, beside them.
 

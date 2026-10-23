@@ -37,6 +37,13 @@ public sealed partial record BuildInfo(string Version, int Build, string Commit)
     /// <summary>Windows' four-part file version: MAJOR.MINOR.PATCH.BUILD.</summary>
     public string FileVersion => string.Create(CultureInfo.InvariantCulture, $"{Version}.{Build}");
 
+    /// <summary>The installer's ProductVersion: MAJOR.MINOR.BUILD ("0.2.17"); "" for a local build, which makes no installer, and for
+    /// a major or minor above 255, which no installer holds.</summary>
+    public string MsiVersion =>
+        IsLocal || !System.Version.TryParse(Version, out var v) || v.Major > 255 || v.Minor > 255
+            ? ""
+            : string.Create(CultureInfo.InvariantCulture, $"{v.Major}.{v.Minor}.{Build}");
+
     /// <summary>The words a person reads: "PlayMap 0.2.0 (build 17, abc1234)", "PlayMap 0.2.0-dev (local build, abc1234)".</summary>
     public string Display =>
         IsLocal

@@ -28,12 +28,14 @@ it, is moving to Direct3D 12 behind that interface, OpenGL kept as the reference
 the hardware allows it and say how far apart they are everywhere else (§4). Its desk is to open on guided workflows beside
 advanced panes and the typed console, every command reachable from the menu bar, and from an object's right-click menu where it
 acts on one, its panes docking, floating and collapsing (docs/round3/design/desk-workflows.md). Until then the node is the
-portable exe on OpenGL this paper describes.
+exe on OpenGL this paper describes, run from a folder or installed per machine under the supervising service (§1, docs/INSTALL.md).
 
 ## 1. Processes — one exe, four roles
 
 ```
-PlayMap.exe                 the desk (Avalonia). Starts and watches its engine; or attaches to any node's engine
+PlayMap.exe                 the desk (Avalonia). Starts and watches its engine (on a supervised machine it starts
+                            none, attaches to the engine the supervisor keeps, and says the supervisor's status when that
+                            engine does not answer); or attaches to any node's engine
                             on the network (operate a rack render node from a laptop).
 PlayMap.exe engine          the node: project, playback, decode, render, outputs, network, scan. Owns its main
                             thread (output windows + GL context live there). Headless: `engine headless`.
@@ -48,22 +50,45 @@ PlayMap.exe shader-worker   the compilers' process: a user's ISF effect to valid
 ```
 
 Round 3 adds a service above the engine and the fourth role beside it (docs/round3/design/installer.md,
-docs/round3/design/shaders.md). On an installed node `PlayMap.Supervisor`, a LocalSystem service, is to start
-`PlayMap.exe engine --supervised` in the show user's session, restart it, and stop one whose shown frames have stopped while
-HEALTH says they should move. The engine never runs as administrator and never in session 0. User ISF effects compile for the
-Direct3D 12 road in `PlayMap.exe shader-worker`, so no compiler loads into the engine; no device draws that DXIL yet
-(wp3-shaders-2). Today the supervisor's exe does nothing and says so (§2), and the user effects the frame draws compile inside the
-engine, on a shared second context (§5).
+docs/round3/design/shaders.md). On an installed node `PlayMap.Supervisor`, a LocalSystem service, starts
+`PlayMap.exe engine --supervised` in the show user's console session, restarts it after an exit with backoff, and stops trying
+after five restarts in ten minutes, saying so in its status file, which STATE's `machine.install` and preflight's `install` section
+read (docs/INSTALL.md). Its rule that stops an engine whose shown frames have stopped while HEALTH says they should move waits for
+HEALTH's shown-frame count, which no engine fills yet (wp3-stability). Every stop it makes sets the engine's stop event, on which
+the engine stops as any asked stop does (below), and terminates the engine 5 s later only if it still runs. It starts the engine
+suspended and lets it run once its status file names it. The engine never runs in session 0 and never needs to run as
+administrator: it runs as the user of the show user's console session — the account the install names with `/SHOWUSER=` (meant to be
+a standard account), or, on an install that names none, whoever is signed in at the console (docs/INSTALL.md) — and so with an
+administrator's rights only where that account is an administrator whose token Windows does not filter. The supervisor itself writes only in a folder the show user cannot change. User ISF effects compile for the Direct3D
+12 road in `PlayMap.exe shader-worker`, so no compiler loads into the engine; no device draws that DXIL yet (wp3-shaders-2). Today the
+user effects the frame draws compile inside the engine, on a shared second context (§5).
 
 - A desk that faults or closes never blanks a projector: the engine keeps playing. The desk restarts and
   re-attaches; the engine restarts (watchdog) and puts back the recovery record (project, playlists' transports,
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
 - Once its doors are open the engine the supervisor started (`engine --supervised`) writes its pid record (`engine.pid`: its
-  process, the line wire's port, when it started) into the supervisor's folder, `%ProgramData%\PlayMap\supervisor`, where that
-  folder exists — no installer makes it yet (round 3's installer is to, docs/round3/design/installer.md §2), and the engine never
-  does — never over a record that names another engine still running (that is a fault in STATE, with the other engine's
-  pid), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a test) writes none. It holds what a supervisor needs to adopt a running engine and an
-  installer's armed check needs to ask it on loopback, and no secret.
+  process, the line wire's port, the host's start) into the engine's folder, `%ProgramData%\PlayMap\supervisor\engine`, where
+  that folder exists — the installer makes it, the one folder there the show user may write (docs/INSTALL.md), which the
+  supervisor only reads, and the engine never makes it; the supervisor's status file and log lie in `supervisor\` itself, which
+  only SYSTEM and administrators may change — never over a record that names another PlayMap engine still running (that is a fault in
+  STATE, with the other engine's pid), by the identity rule every reader of the record holds (`Core/Machine/EngineIdentity.cs`:
+  PlayMap.exe run as the engine, started when its record was written, so a pid another process took after a power cut keeps no record
+  in place), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a
+  test) writes none. It holds what a supervisor needs to adopt a running engine and an installer's armed check needs to ask it on
+  loopback, and no secret. That engine also waits on the stop event the supervisor made for it and named on its command
+  line (`--stop-event Global\PlayMap-Engine-Stop-<32 hex digits drawn for that start>`, opened with Synchronize and ReadPermissions,
+  the rights the show user — or, on an install that names none, every signed-in user — has on it, and kept only when SYSTEM or
+  administrators made it): once it is set the engine stops as any asked stop does, during its start or once up, and journals that
+  the supervisor asked.
+- A node writes STATE and CONTEXT once on its start's own thread, after its render host and extensions start and before its doors
+  open, so no reader's line pays their first build (every package's writer run for the first time), however soon after the wire
+  listens it dials: on a Debug build on Linux that write takes some hundreds of milliseconds, and a STATE asked the moment the wire
+  listens then some tens (docs/round2/CARRYOVER.md has the runs). The node then says it is up (its journal's row, its log's "is up:
+  wire …" line), each with how long that write took, its slowest part and how much of it its thread worked. A writer that faults
+  there does not stop the start: its fault is journalled under its own name (STATE or CONTEXT) as what happened then, never kept
+  standing. Every STATE write is timed part by part on the engine's clock (STATE's top-level parts, each package by its hook word)
+  beside its thread's own processor time, and one after the first of a second or more that is the longest since the first is
+  journalled with the part it went in, as a fact the context's recent rows carry as written (the first is said in the "is up" row).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
@@ -99,9 +124,9 @@ engine, on a shared second context (§5).
 | `PlayMap.Assistant` | Core, a provider's client library | plain words → verbs, the proposals list, secret redaction |
 | `PlayMap.Render.D3D12` | Core, TerraFX.Interop.Windows; Microsoft.Direct3D.DXC at build time only (every asset excluded and private: the build runs its `dxc.exe` on Windows, and nothing of it reaches the output or a project that references this one) | the Direct3D 12 backend, Windows only (docs/round3/design/d3d12.md): one folder each for the device, queues, memory, descriptors, commands, pipelines, shaders, the exporter, the platform, raw interop, the flip presenters, video, user effects, bindless records, the present barrier and the rebuild path, each holding a placeholder but `Shaders/`, which holds the HLSL library of PlayMap's programs and the build step that writes their headers from Core's program table and embeds the library and, on Windows, its DXIL (§5); nothing renders through it yet, and neither the engine nor the desk references it. It never references `PlayMap.Render`: the two backends meet only in Core's contracts |
 | `PlayMap.Platform.Windows` | Core | what a show node claims from Windows, Windows only (docs/PLATFORM.md, docs/round3/design/platform.md): `WindowsMachinePlatform` behind Core's `IMachinePlatform` — the process's claims and each thread's by its role, every one read back, the high-resolution deadline timer, keep-awake as a power request, the node's identity and capabilities and the machine's facts for preflight — by Win32 calls (`LibraryImport`) and its own DXGI and NVAPI declarations, each structure pinned by a layout golden, NVAPI loaded from the system directory by its absolute path; every type is Windows only. The engine composes it on Windows, and Core's null machine platform, which claims nothing and says so, elsewhere |
-| `PlayMap.Supervisor` | Core | the supervising service's exe (docs/round3/design/installer.md §5): it does nothing yet, says so on its standard error and exits 1 whatever its command line |
-| `PlayMap.Engine` | Core, Render, Media, Net, Devices, Vision, Assistant, Platform.Windows (not Render.D3D12 or Supervisor); the shader worker's compiler natives (Silk.NET.Shaderc.Native, Silk.NET.SPIRV.Cross.Native; DXC's compiler alone, `dxcompiler.dll` from Microsoft.Direct3D.DXC, downloaded and never referenced, on Windows and `libdxcompiler.so` from DXC's pinned Linux release through `PLAYMAP_DXC_DIR` on Linux, with its licence and DXC's third-party notices in `licenses/DXC/` beside it and no `dxil.dll` or `libdxil.so`), loaded only in the worker | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, the video I/O hub (each live input received once and lent to its consumers, its tally and loss policy, each send's sender and the plan the render thread packs), output windows, preview shared memory, scan runner, survey import (read, thinned and decimated on its own thread, applied on the lane as one edit), the site's verbs, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), the shader worker (the same exe as `PlayMap shader-worker`, started with the first source: a user's ISF effect to DXIL for FX CHECK's Direct3D 12 stages, its compilers each held to its SHA-256) and the effect quarantine kept in the node's home (`playmap.quarantine.json`, lifted by `FX RELEASE`), the machine part (`Machine/`: the machine platform composed for this machine — Windows' on Windows, Core's null platform elsewhere — its process claims made as it composes, each thread's role claimed through it once the host has pointed the thread claims at it, before it starts the render host or any part (the render thread's once the engine is attached), every saved `MACHINE SET` handed to it before anything acts on it, keep-awake held while the project has an enabled display output and `AWAKE` is on, the machine's settings and `MACHINE LOCK`'s driver set in the node's settings, the machine preflight, the GC's show mode as an arm hook), journal, recovery record, watchdog heartbeat |
-| `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk: the workspaces, the show strip, the attention bar, the drawers, the generic STATE cards and the generated menu entries, composed of modules over one spine (docs/DESK.md); the engine link, the demo engine (`FakeEngineLink`); the desk's own preferences (Simple or Pro, the look, each unfinished quad) in the user's desk.json, never in the project |
+| `PlayMap.Supervisor` | Core, System.ServiceProcess.ServiceController | the supervising service's exe (docs/INSTALL.md, docs/round3/design/installer.md §5): the `PlayMapSupervisor` service (`run`), whose pure policy (`Policy/`: the backoff, the five restarts in ten minutes, the freeze rule) runs on every OS, starting the engine in the show user's console session (`WTSQueryUserToken`, `CreateProcessAsUser`), adopting a running engine only by the identity rule, stopping it on its stop event and writing its status file (Core's `SupervisorStatus`); its pipe for `status`, `stop` and `resume`; and the installer's commands — the armed check (`preinstall-check`), every machine-level action of the install and its undo (`install`, `uninstall`, `upgrade-stop`, `grant`, `revoke`, `rights`) and the version rules (`version-check`, `previous-build`) — each answering in words and an exit code; its Windows calls carry their platform |
+| `PlayMap.Engine` | Core, Render, Media, Net, Devices, Vision, Assistant, Platform.Windows (not Render.D3D12 or Supervisor); the shader worker's compiler natives (Silk.NET.Shaderc.Native, Silk.NET.SPIRV.Cross.Native; DXC's compiler alone, `dxcompiler.dll` from Microsoft.Direct3D.DXC, downloaded and never referenced, on Windows and `libdxcompiler.so` from DXC's pinned Linux release through `PLAYMAP_DXC_DIR` on Linux, with its licence and DXC's third-party notices in `licenses/DXC/` beside it and no `dxil.dll` or `libdxil.so`), loaded only in the worker | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, the video I/O hub (each live input received once and lent to its consumers, its tally and loss policy, each send's sender and the plan the render thread packs), output windows, preview shared memory, scan runner, survey import (read, thinned and decimated on its own thread, applied on the lane as one edit), the site's verbs, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), the shader worker (the same exe as `PlayMap shader-worker`, started with the first source: a user's ISF effect to DXIL for FX CHECK's Direct3D 12 stages, its compilers each held to its SHA-256) and the effect quarantine kept in the node's home (`playmap.quarantine.json`, lifted by `FX RELEASE`), the machine part (`Machine/`: the machine platform composed for this machine — Windows' on Windows, Core's null platform elsewhere — its process claims made as it composes, each thread's role claimed through it once the host has pointed the thread claims at it, before it starts the render host or any part (the render thread's once the engine is attached), every saved `MACHINE SET` handed to it before anything acts on it, keep-awake held while the project has an enabled display output and `AWAKE` is on, the machine's settings and `MACHINE LOCK`'s driver set in the node's settings, the machine preflight, the GC's show mode as an arm hook), the install part (`Install/`: STATE `machine.install` read at most every two seconds from the install's registry key, Winlogon's auto-logon user and the supervisor's status file through Core's `SupervisorStatus`, preflight's `install` section through the `Install` hook, and the cause of the stop before it journalled by a supervised engine as it starts), journal, recovery record, watchdog heartbeat |
+| `PlayMap.App` | Core, Engine (for `engine` mode, and the install's supervised mark the desk reads before it starts an engine), Avalonia 12 | the desk: the workspaces, the show strip, the attention bar, the drawers, the generic STATE cards and the generated menu entries, composed of modules over one spine (docs/DESK.md); the engine link, the demo engine (`FakeEngineLink`); the desk's own preferences (Simple or Pro, the look, each unfinished quad) in the user's desk.json, never in the project |
 
 Core references only the runtime; each edge references Core and its own native library, and never another edge except
 through Core's contracts (Render does not know FFmpeg; Media does not know GL). Only App references Avalonia.
@@ -442,6 +467,10 @@ the pool, and the stage's table builder runs on a thread of its own, its loops o
 and rings that skip rather than wait; no
 allocation on a warm frame (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh;
 every suite measures allocation through one helper, `tests/Shared/Allocations.cs`, whose windows begin after a gen0 collection,
-in Debug and Release); a faulting
+in Debug and Release), nor at a first wait: every lock the air's threads take beside another thread frame by frame (the render
+thread; the decode, capture and send threads that hand it frames or take them; the LED sender; each sound output's feeder; the
+lateness record every deadline wait writes) makes its wait event as it is made, and each of those threads has its own wait record
+before its first frame, a claimed thread from its claim (`LockWaits`; `tests/Shared/LockWaitProbe.cs` reads a lock's first wait);
+a reader holds the render thread's frame-time gate only for a copy; a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

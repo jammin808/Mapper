@@ -14,7 +14,7 @@
             <StackPanel Spacing="6">
               <PathIcon Data="{StaticResource Icon.projector}" HorizontalAlignment="Left" />
               <TextBlock Text="This machine" FontWeight="SemiBold" FontSize="15" />
-              <TextBlock Classes="faint" Text="Start and watch this machine's engine." TextWrapping="Wrap" />
+              <TextBlock Classes="faint" Text="{Binding OwnCaption}" TextWrapping="Wrap" />
             </StackPanel>
           </RadioButton>
           <RadioButton GroupName="connect" Grid.Column="1" Classes="choice" IsChecked="{Binding IsNetwork}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" VerticalContentAlignment="Top">

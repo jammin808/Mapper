@@ -114,7 +114,7 @@ if ($Leg) {
         $name = $project.BaseName
         Write-Host "::group::$name (Direct3D 12)"
         dotnet test $project.FullName -c $Configuration --no-build --filter $expression --logger "trx;LogFileName=$name.d3d12.trx" `
-            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
+            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
         if ($LASTEXITCODE -ne 0) { $failed += $name }
         Write-Host '::endgroup::'
     }

@@ -153,8 +153,8 @@ decisions (`docs/round3/PLAN.md` §1.2). What they found, in short:
   least as much as this agreement" and to indemnify Microsoft, with its Distribution Restrictions beside them. So the installer
   shows a licence page that carries Microsoft's own licence for `D3D12Core.dll` verbatim, PlayMap's own terms being the owner's to
   name, and the owner accepts Microsoft's distribution terms, the indemnity included (docs/round3/PLAN.md §9 decisions 3 and 23,
-  which quotes the terms whole). Session 0 cannot drive displays, so the engine is to run in the show user's session under a
-  supervising service.
+  which quotes the terms whole). Session 0 cannot drive displays, so the engine runs in the show user's session under a
+  supervising service (docs/INSTALL.md).
 - **What games and medical devices teach.** Nothing compiled, allocated or waited on during the show; the render graph compiled
   when the show changes; an observer, independent of the engine, of what the audience saw; device loss rehearsed; every hazard
   traced to a fault test.

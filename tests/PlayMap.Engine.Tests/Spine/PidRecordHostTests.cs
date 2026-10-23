@@ -5,10 +5,10 @@ using PlayMap.Net.Bus;
 
 namespace PlayMap.Engine.Tests.Spine;
 
-/// <summary>The engine's pid record as a node comes up: written into the supervisor's folder where it exists, with this process, the
-/// line wire's port as it listens and the start, and taken back on a clean stop; nothing written, and no folder made, where it does
-/// not exist or the host names none; only an engine the supervisor started (--supervised) names the machine's folder, so no other run
-/// takes the supervised engine's record.</summary>
+/// <summary>The engine's pid record as a node comes up: written into the engine's folder where it exists, with this process, the line
+/// wire's port as it listens and the start, and taken back on a clean stop; nothing written, and no folder made, where it does not
+/// exist or the host names none; only an engine the supervisor started (--supervised) names the machine's folders — the engine's for
+/// its record, the supervisor's above it for the status it reads — so no other run takes the supervised engine's record.</summary>
 public sealed class PidRecordHostTests
 {
     private static async Task<EngineHost> StartAsync(DirectoryInfo dir, string? supervisor)
@@ -90,11 +90,14 @@ public sealed class PidRecordHostTests
         Assert.Null(error);
         Assert.False(plain.Supervised);
         Assert.Null(EngineEntry.SupervisorFolderFor(plain));
+        Assert.Null(EngineEntry.StatusFolderFor(plain));
 
         var supervised = EngineOptions.Parse(["engine", "headless", "--supervised"], out error);
         Assert.Null(error);
         Assert.True(supervised.Supervised);
         Assert.Equal(EnginePidRecord.MachineFolder(), EngineEntry.SupervisorFolderFor(supervised));
+        // The status is read from the supervisor's folder, the record written into the engine's folder inside it.
+        Assert.Equal(SupervisorStatus.MachineFolder(), EngineEntry.StatusFolderFor(supervised));
         Assert.Contains("[--supervised]", EngineEntry.Usage, StringComparison.Ordinal);
     }
 }

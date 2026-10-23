@@ -19,7 +19,9 @@ off the air by an independent reader, and for the GPU device's epoch and phase (
 (the phase `unknown`) until round 3's stability work fills it (docs/round3/PLAN.md §3.9). The direction (docs/round3/PLAN.md D6):
 a supervising service, `PlayMap.Supervisor`, starts the engine in the show user's session and restarts it, and stops an engine whose
 shown frames stop while its GPU phase is `running` — never during a start or a device rebuild, and never while the count is −1. The
-engine never runs as administrator or in session 0.
+engine never runs in session 0 and never needs administrator rights: it runs as the user of the console session — the account
+`/SHOWUSER=` names (meant to be a standard account), or, on an install that names none, whoever is signed in at the console
+(docs/INSTALL.md).
 
 Eleven categories, always present, in this order — outputs, render, cpu, memory, disk, gpu, network, sync, devices, media, watchdog
 — each with a light and words. The light table (`HealthLights`):
@@ -42,7 +44,8 @@ The machine's light is the worst known category (red over amber over green; grey
 that moves while all is well: "FOH-A · primary · all green · 2 unknown", "FOH-B · backup · 1 amber: outputs — Left: 4 dropped, 1
 missed in a minute".
 
-The numbers come from the **machine sampler**, on its own one-second timer (never the control lane, never the render thread):
+The numbers come from the **machine sampler**, on its own one-second timer (never the control lane, never the render thread; a
+tick that finds the last reading still being read takes none, so a reading that stalls holds one pool thread, never one a second):
 Linux reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `/proc/uptime`, the home volume's free space, and the GPU from
 `/sys/class/drm/card*/device` (`gpu_busy_percent`, a hwmon `temp1_input`) where the driver gives it; Windows reads system times,
 `GlobalMemoryStatusEx`, `GetTickCount64`, the interfaces' bytes and the PDH counter `\GPU Engine(*engtype_3D)\Utilization Percentage`

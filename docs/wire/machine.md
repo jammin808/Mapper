@@ -109,8 +109,9 @@ helper and the network servers run unclaimed). L10, L22 and L23 are not run. The
 (`Use`, `AwakeClaim`, `TimerMode`, `Power`), answered by their defaults on a platform that claims nothing; the exe's LED part and air's
 sound as the factories its composition holds (`LedExtension.Factory`, `EngineParts.AirSound`).
 
-For wp3-installer's merge, which brings `docs/INSTALL.md`: its sentence on the GPU support tiers reads as built, `machine.identity`
-carrying each adapter's `tier` and `support` and the OS's support tier (`os.tier`: `ltsc` for IoT Enterprise LTSC, `managed` for Pro,
-Pro for Workstations, Enterprise and Education, `home`, or `unsupported` for a build below 24H2 or a server, `unknown` for an edition
-the table does not know), the three tiers its OS paragraph names; and the show account's `SeIncreaseBasePriorityPrivilege` it grants
-is the privilege `MACHINE SET GPU-PRIORITY REALTIME` needs, refused without it in words that name it and say the installer grants it.
+`docs/INSTALL.md`, which wp3-installer's merge brings, carries the GPU support tiers as built, `machine.identity` carrying each
+adapter's `tier` and `support` and the OS's support tier (`os.tier`: `ltsc` for IoT Enterprise LTSC, `managed` for Pro, Pro for
+Workstations, Enterprise and Education, `home`, or `unsupported` for a build below 24H2 or a server, `unknown` for an edition the
+table does not know), the three tiers its OS paragraph names; and the `SeIncreaseBasePriorityPrivilege` the installer grants to the
+account `/SHOWUSER=` names is the privilege `MACHINE SET GPU-PRIORITY REALTIME` needs, refused without it in words that name it and
+say the installer grants it.

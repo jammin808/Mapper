@@ -242,7 +242,11 @@ Round 2 W1 notes:
   stands as (a `standsAs` per row) so the desk greys them with the node's words; the desk does not repeat the node's comparison over
   its own mirror.
 - The HoldButton's ring times its hold on the machine's stopwatch; the menus' second press and the leases run on the desk's injected
-  clock.
+  clock. In the desk's headless tests the ring's timer runs only when a test yields to the dispatcher (a pump runs the dispatcher's
+  jobs, not its timers), and no test that holds a button yields while it holds, so none races the hold's 600 ms now: with the press
+  pumped 650 ms late (a delay in a scratch copy) `DeskSpineTests`' hold test and the tests that hold through `DeskHarness.Hold`
+  (`BlindChipTests`, `OnWallTests`) passed 3 of 3, and a scratch test that then yielded 100 ms saw the press complete on its own. A
+  test that awaits while a press is held would race it; the desk's clock for the ring closes that.
 
 ## Integrator notes from the round-2 fix batch (fix-tests3)
 
@@ -370,8 +374,9 @@ Round 2 W1 notes:
   connection's subscription is taken holds none: the mirror reads `lost` "FOH-A's mirror is not subscribed" then and is offered
   the line, and the node's log says it is not subscribed
   (`BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
-  holds the new connection's greeting before it subscribes while the clock passes the stale mark; against the old words it failed
-  three runs of three with the quiet words). The mirror's state, words and line are read from one look at the link, and a link
+  holds the new connection's reader on the primary's answer to its proof and its greeting before it subscribes, so nothing more is
+  heard on it while the clock passes the stale mark; against the old words it failed three runs of three with the quiet words).
+  The mirror's state, words and line are read from one look at the link, and a link
   that reads down or dialling holds no subscription whether or not the node's listener has cleared it yet: a preflight run between
   the link's move to down and that listener read `lost` "down" with no line (a listener ahead of the node's holding the link's
   thread 300 ms on that move failed the dropped row's assertion three runs of three; it passes now). FLEET BACKUP's refusal, the
@@ -559,6 +564,82 @@ Round 2 W1 notes:
   it landed 250 ms or more after the last word, so whether it could pass there hung on how far apart the blocks landed (the pace is
   gone now). The fetch test's wait fails with the transfer's row, the time since the fetch, the thread pool's counts and both
   nodes' journals and log tails, so a recurrence names its stage.
+- Done: a node writes STATE and CONTEXT before its doors open and says how long that took, a slow STATE names the part it went in,
+  and a line the node host test is not answered names its stage; the cause of
+  `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing`' one Windows failure is open. What the job shows (fix-backup-preflight
+  5ae2c481, run 39676825957, job 119488748563; the test 16 s, 91 s into an 8 min 22 s Engine suite of 1 175 tests): its line 44,
+  the `@s STATE` ask, timed out, "no line within 10000 ms" from `LineClient.ReadAsync` (`HostRig.cs` 216, through 228 and 243),
+  and its `PING` at line 43 was answered; nothing of the node (its log is not printed, and the job's test results were not
+  fetched). So the node answered `PING` and wrote no STATE line within 10 s, and why is not shown. The branch's changes
+  (`WireClient`'s clock, `MirrorLink`, `BackupNode`'s mirror) are not on that path: a solo node dials no link and
+  `BackupNode.Mirror` answers null off a backup.
+  5f6436d8 read it as STATE's first build (every package's writer run for the first time) paid on the reader's line, and its
+  papers called that cause fixed; as measured, that build does not reach 10 s. On Linux (Debug, the node tool, llvmpipe) the first
+  write took 253 to 268 ms, its thread working 248 to 260 ms of it (work, not a wait), 609 to 629 ms with the node on one core, and
+  2 031 ms on one core beside four spinning loops (its thread working about 300 ms of it, the rest waiting for the processor), the
+  node then up at 11.5 s; runs at d205f792 (unloaded, and pinned to one core beside 4 and 12 spinning loops: up at 11.0 and 23.3 s,
+  the first STATE 2 074 and 4 607 ms) put the first STATE at 0.13 to 0.33 of the start's time. The CI node
+  answered `PING` within about 6 s of its launch (16 s less the 10 s wait), which predicts a first build of 1 to 2 s. A wait of
+  10 s or more that only STATE meets on that runner (a lock; a native or Windows-only call on STATE's path, such as Spout's memory
+  share read from the registry on every write there, `StateVideoIo` → `WriteSpout` → `SpoutProvider.Status` →
+  `Win32SpoutKernel.MemoryShare`, which no Linux forcing reaches), the node's process frozen or starved, or the test host's own read
+  starved are not ruled out. 5f6436d8's forced runs stand: the first build held 12 s failed the unchanged test at line 44 with those
+  words and that stack, its `PING` answered; the control lane, the render thread's first frame and every machine reading held
+  (under the reader's lock, as the Windows reader holds its lock around PDH's collect) left STATE under 2 s.
+  The host now writes STATE and CONTEXT on its start's own thread after the render host and the extensions start and before the
+  network host opens the wire, the web port and the rest (`EngineHost.WriteFactsOnce`). 5f6436d8 wrote them after the doors and
+  before the "is up" row, so a reader that dialled the moment the wire listened (the supervisor adopting from the pid record, a desk
+  that redials) still paid the build under STATE's gate: probed as the log said the wire listened, that STATE took 284 to 349 ms
+  then and 15 to 17 ms now, five runs each. A review's re-run (eight starts of the node tool, llvmpipe on one thread) put the first
+  write at 268 to 323 ms, and a client of its own that sent `@s STATE` the moment the log said the wire listened was answered in 37
+  to 46 ms (three runs): some hundreds of milliseconds and some tens, the spread the machine's. The "is up" row and log line say how
+  long the write took, its slowest part and how much of it its thread worked (`EngineHost.FirstFacts`); every STATE write is timed
+  part by part on the engine's clock (`StateParts`: STATE's top-level parts, each package by its hook word) beside its thread's own
+  processor time, and a write after the first of 1 s or more that is the longest since the first is journalled as an ok row
+  ("STATE took … ms (… ms in videoio, its thread working … ms) to write, the longest since its first"). Journalled first as not ok,
+  that row reached the context's recent rows as "refused: STATE took …" (`ContextBuilder` prefixes every row not ok so), a refusal
+  that never happened, and the first write, which the "is up" row already says, was journalled too whenever it took a second (the
+  review's start pinned to one core beside eight spinning loops: 2 713 ms) and was the measure every later write had to pass, so a
+  slow reader's STATE after a slower first build went unjournalled. A writer
+  that faults there is journalled and logged once under its own name (STATE or CONTEXT); 5f6436d8 kept it as a standing host fault,
+  which STATE's faults and the context's red items went on claiming after STATE wrote cleanly, and named a CONTEXT fault STATE's.
+  The test reads the node's output and errors as they come (a redirected pipe nobody reads fills, on Windows at the system's
+  default of a few KiB, and holds a node thread that writes to it; the headless node writes about 0.7 KiB there on Linux, ALSA's
+  lines, and what it writes on the runner is not shown), asserts STATE's id and name are those its fresh folder's settings hold
+  (the `PING`'s stamp is a constant other tests share, so its echo shows no node in particular; the port, read from that node's
+  own log in its fresh temp folder, does), and when a line is not answered within 10 s says whether it was answered within 50 s
+  more and when, whether a second connection's `PING` (with the node's read and write stamps) and `CONTEXT` were answered, whether
+  the process lives, and the ends of its journal, log and output. Forced on Linux (a hook kept out of the tree holding each STATE
+  after the first in its videoio part): held 12 s, it said "answered 12.0 s after it was asked", the second `PING` in 0 ms and
+  `CONTEXT` in 2 ms, and the journal's "STATE took 12010 ms (12001 ms in videoio, its thread working 10 ms) to write, the longest
+  yet" (the row's words then); held 120 s, "not answered within 60 s" with that `PING` and `CONTEXT` answered and no such row (a
+  write stuck in STATE in a live node, its part not named: the node's thread stacks would name it); the node stopped (SIGSTOP) at
+  that write, "a second connection's PING not answered within 10 s; the node runs" (a frozen process). `HostLifecycleTests`'
+  `TheHostWritesStateBeforeItsWireListensAndSaysHowLongItTook` (the write after the doors: the wire had listened on 44363 at
+  STATE's first write), `ANodeWhoseStateFaultsAsItStartsIsUpAndSaysWhy` (the fault kept standing: the host's faults not empty)
+  and `ASlowStateWriteIsJournalledWithThePartItWentIn` (a part's proposal count moves the node's clock inside STATE's "ai" part:
+  the start's write two minutes, said in the "is up" row and journalled nowhere else, then a minute, half a minute and two minutes,
+  the minute and the two minutes journalled, ok, each naming "ai", the minute in the context's recent rows as written; it failed
+  with no slow row before 4e18f961, on the start's row under 4e18f961's rule, and with the row journalled not ok on its ok) each
+  fail with only its behaviour reverted and pass now, the last also three runs of three pinned to one core beside eight spinning
+  loops;
+  `AStateWriteAfterTheFirstIsJournalledFromASecondWhenItIsTheLongestSince` runs the rule on a manual clock only STATE's writes move
+  (a first of 5 s not journalled, 999 ms not, 1 000 ms journalled, 1 000 and 999 ms again not, 1 500 ms journalled), so the bound is
+  pinned at a second exactly (with it set to 0 the 999 ms write is journalled and the test fails);
+  `ANodeWhoseContextFaultsAsItStartsIsUpAndSaysWhy` holds the CONTEXT half (a part whose faults fault once, on the thread that has
+  just written STATE's "ai" part, so only the start's CONTEXT faults: its row is CONTEXT's, before "is up", which says STATE's time
+  and "CONTEXT not written"; no fault stays; it fails with that fault named STATE's); 5f6436d8's
+  `TheHostSaysItIsUpOnlyOnceItsStateHasBeenWritten` passes as before. The Windows job passed the node host test at 39caa04c (run
+  39727116245), its one run there since; one pass shows nothing of the cause.
+  In the same review, `MachineSampler`'s 1 Hz timer took a reading on every tick with no guard while the Windows reader holds its
+  lock around PDH's collect, so a stalled reading parked one more pool thread each second without bound; a tick now takes none while
+  a reading is in flight (`MachineSamplerTests.TicksWhileAReadingStallsTakeNoneOfTheirOwn`: without the guard its second advance
+  parked in the reader and its 10 s wait ran out; now one reading in all until the held one returns). It is not on STATE's path.
+- Open: the context's recent rows put "refused: " in front of every journal row that is not ok (`ContextBuilder.Build`: `r.Ok ?
+  r.Text : "refused: " + r.Text`), and not ok is how a fault, a sync warning ("… went quiet: free-wheeling …"), a decode or media
+  word and a claim Windows refused ("… was refused: …", so "refused: " twice) are journalled, so each reads there as a refusal of a
+  line to MCP's get_context, Patterns, Stagewatch and the assistant (`BackupTests` asserts the prefix as it is). Prefixing a row by
+  its kind (a refusal's "refused: ", a fault's its own), with a test that reads the context's recent rows, closes it.
 - Done: a verb's own journal row comes before every row of the work its handler leaves running. The dispatcher writes a verb's row
   once its handler has answered, on the thread that awaited the answer (for a lane verb, a pool thread after the lane's turn), and
   work the handler had begun ran beside that write. `MEDIA FETCH`'s handler began `NetworkHost.FetchAsync`, which yields to the pool
@@ -823,6 +904,162 @@ Round 2 W1 notes:
   test began, so what would hold some 0.7 GB in the gate's host is not found, and its failure stays watched (below). `ThreadTime`'s
   summary says what its reads count: never a stop the thread waited out (another thread's collection, a page read in from disk), but
   a collection the thread runs itself and the kernel's work on its own page faults, which a slice's 10 ms therefore holds.
+- Done: every lock the air's threads take beside another thread frame by frame makes its wait event as it is made, and each of
+  those threads has its own wait record before its first frame, so no first wait allocates on a show path. A `Lock` makes its wait
+  event (an `AutoResetEvent` and its `SafeWaitHandle`, 56 bytes, or 280 when a collection has dropped the runtime's cache of the
+  handle's type) on the first thread that has to wait for it, and a thread makes its wait record (160 bytes on Linux) on its own
+  first wait. The render host's gates were made bare, so the frame that first met a reader holding one paid for it, at whatever
+  frame that came. Two gates every frame takes inside its counted span are read from other threads: the frame-time gate, under which
+  `Stats` and the present view copied and sorted the frame-time rings, and the health gate, under which `Health`, `Present` and
+  `Machine` build their lists for the fleet sampler and STATE while each frame writes every output's numbers.
+  `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound`' one Windows failure at its line 234 (main
+  2724ccd1, run 427, job 119670930217: `Expected: 212744`, `Actual: 213024`, 280 bytes on the warm frame path across its 100 ms
+  hold and 30 frames; the same commit passed in runs 424 and 430 and on Linux) is consistent with either, not proven: the hold's
+  sharer reads `Stats` as it starts and ends, STATE reads the health gate meanwhile, and a reader preempted inside either makes the
+  frame's write its first wait. On Linux a scratch build that kept the window's sharer read inside the frame-time gate for 20 ms
+  failed the unchanged test at that line by exactly 280 bytes in four runs of four, and a dump of the render thread stopped just
+  after that write held the event, its handle and the two cache objects (24 + 32 + 168 + 56 bytes); the device lock's own timed-out
+  takes allocate nothing after its first.
+  Core's `LockWaits` (moved from Media, whose decode threads' queue, pool and counters already used it) prepares, as each is made:
+  the render host's five gates (frame times, health, frame waiters, views, draft views), the frame lock host's, the sources' busy
+  gate and lease pool's, the device lock, the upload arena's ranges and the GL arena's own lock, the sting channel every frame reads
+  its sting from, the LED frame pool and the LED sender's gate, a sound output's gate and the process-wide OpenAL context gate, a
+  capture input's lock, frame pool, lease pool and counters, a still's lock and lease pool, a live input's lease pool, a sender's
+  offer and stats gates, a HAP clip's packet ring and arena gate and the shared HAP workers' job ring, the composed platform's
+  record of every deadline wait's lateness and of the claims (`RecordedPlatform`, on every platform), and on Windows the platform's
+  own lateness window. A thread that claims its role (render, decode, sound, LED, control) makes its wait record with the claim
+  (`ThreadClaims.Claim`); HAP's read and decode threads, an image sequence's and a capture input's make theirs as they start, and a
+  send worker's first act is a wait. `Stats` and the present view hold the frame-time gate only for the copy and sort on their own
+  stack. Preparing waits, where the lock is made, for one timed take of each lock (a millisecond, up to a timer tick on Windows): off
+  the frame for every lock but the GL upload arena's two, which the render thread makes with the context's first frame with an
+  engine (and again after a lost context), never on a warm frame.
+  `RenderHostLockTests.AReaderHoldingTheFrameGateAcrossAFrameCostsTheFramePathNothing` takes that gate between two frames and holds
+  it until the next frame waits on it: against the old host it failed six runs of six by 280 bytes (`Expected: 213360`, `Actual:
+  213640`). `AWriterHoldingTheStingChannelAcrossAFrameCostsTheFramePathNothing` does the same with the sting channel, which the frame
+  reaches as it composes, once its sources have begun it: against the old channel it failed three runs of three by 280 bytes
+  (`Expected: 213872`, `Actual: 214152`). `EveryLockTheRenderThreadTakesBesideOtherThreadsHasItsWaitEventBeforeItsFirstFrame` reads
+  each such lock's first wait, the sting channel's among them, through `tests/Shared/LockWaitProbe.cs` (a prepared waiter thread,
+  the lock held by the test): nine runs of nine failed against the old host, 280 bytes on six to eight of its eight locks, and one
+  run of three against the old channel; a lock the render thread takes every frame can read 0 on old code, as the render thread can
+  be the one that waits first during the probe's hold. `LockWaitsTests` (the device lock, its first timed-out take behind a sharer,
+  the arena's ranges, the LED pool, the sting channel), `LedSenderTests`, Media's `PerformanceTests` (a sound output; the capture
+  input's, still's, live input's and HAP locks, 280 bytes on each of ten), `SendSinkTests.ASendersLocksAreMadeWithTheirWaitEvents`,
+  `DeadlineThreadTests.TheLatenessRecordEveryDeadlineWaitWritesIsMadeWithItsWaitEvent` and `GlUploadArenaTests` failed three runs
+  of three each against the old code at 280 bytes a lock; `LockWaitsTests.AClaimedThreadsFirstWaitOnAPreparedLockAllocatesNothing`
+  failed three runs of three at 160 bytes, the thread's record; on Windows `LatenessTests` reads the lateness window (not run here).
+  All pass now. Read and left: the stage resources', stage meshes' and timer view's locks, which the frame path does not take (the
+  timer view's only as its poller starts); the runtime deadline timer's, which only its own thread takes; a preview sink's, which
+  the render thread takes drawing a draft view between frames, outside the counted span; the GL share's and the dmabuf importer's
+  books of import failures, which a frame writes only when an import has failed; the NVIDIA frame lock driver's, which only its
+  once-a-second read of the board and its dispose take; and a live input's tally, set by the video hub's thread. The render thread can still wait a moment
+  behind a reader holding the health gate or the frame lock host's: that wait allocates nothing.
+- Done: the mirror test that moves the backup's clock before a new connection subscribes hears nothing on that connection meanwhile.
+  `BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
+  holds the new connection's reader on the primary's answer to its proof (`MirrorLink.PairingChanged`, which hands on the link's
+  pairing moves) as well as its greeting before it subscribes, and moves the clock past the stale mark once. Holding the greeting
+  alone left the reader free: the mirror link says HELLO, which makes it a STATE listener on the primary, and the primary pushes
+  STATE to every listener 200 ms of real time after any change (`WireServerOptions.PushThrottle`): after the new connection's own
+  HELLO, and after each move of the clock, which moves the primary's peer table and fleet monitor on the same hand-moved clock. The
+  link drops those pushes but its reader counts each as heard (rightly: the primary spoke), and its beat looks every 250 ms of real
+  time, so a move went stale only if a look fell between it and the next push. The test moved the clock at most twice, and when both
+  moves were absorbed it read no stale move and line 172 compared against `FirstOrDefault`'s default, `(Connecting, null, null,
+  null)`; the link had neither read Connecting nor dropped. That is the test's one Windows failure (branch fix-fetchrow-win
+  d3df7fb5, run 431, job 119794922607, after 7 s, on a branch that touches neither the backup nor its links), whose actual is
+  exactly that default: consistent with a push landing before the beat's look on the loaded runner, not proven. On Linux the
+  unchanged test, its process stopped for 100 ms from 205 ms after the redial, failed at line 172 with that tuple in six runs of
+  eight, and passed three of three with the same stop from 400 ms; a traced copy made while diagnosing it, not run again since, saw
+  the pushes land 222 ms after the first move and 209 ms after the second, each before the beat's next look. The test now passes
+  eight runs of eight under the 205 ms stop, four of four with it pinned to one CPU as well, and one each under stops of 150 ms from
+  0, 40, 120, 250 and 300 ms; the class passes. It keeps every assertion, its wait for the stale move now for `Stale` alone. No
+  product behaviour changes; that the mirror link and the anchor follower are STATE listeners that drop every STATE line is an
+  efficiency question, open below.
+- Done: a follower that takes its clock from its group's new leader (`BackupNode.RetargetAsync`) raises STATE's push once the epoch
+  is the node's and writes the row of the follow after that, with `Persist`'s words when the settings file could not keep the
+  epoch, as the fleet's other changes carry them; `PromoteTests` waits for that row before it reads it.
+  `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt` waited for follower 2's STATE to show the new leader,
+  a live feed, no hold and epoch 1, then read its journal once for "leads show now (epoch 1)". The follow publishes the epoch
+  (which `STATE.sync.epoch` reads), then writes the settings file durably (read fresh, flushed, renamed into place), and only then
+  writes the row, which says whether the epoch was kept: a reader can see the epoch while the file is still being written, and read
+  the journal before the row. It failed so on the Windows job (run 439, job 120079075197, fix-win-batch2 4f38560e, which does not
+  touch the fleet) at its line 113 (`Assert.Contains()`, `Not found: "leads show now (epoch 1)"`), every assertion before it
+  passing, consistent with a slow settings write or the watch's thread held between the epoch and the row on the loaded runner, not
+  proven: the log times neither. With the row held 1 s before it is written (the test unchanged, the hold in a copy of the journal)
+  the unchanged test failed 5 of 5 at that line with those words, and passed 2 of 2 unheld; every settings write held 250 ms did not
+  make it fail in 4 runs (the test's own steps then wait longer). The test now waits for the row, as `BackupTests` waits for the
+  fence's, and keeps every assertion; it passed 3 of 3 under the same hold against the old product and against the new.
+  The follow also dropped `Persist`'s words, so a follower whose settings file refused the write said nothing of it, and it raised
+  no push, so STATE showed the old epoch until another fact moved (0.3 to 0.96 s in traces while the test read it every 20 ms).
+  `AFollowerWhoseSettingsCannotKeepItsNewLeadersEpochSaysSoInTheRowOfItsFollow`, its settings refusing every write, asks the row for
+  " — not kept for the next start (the node's settings could not be written: disk full)" and not ok, STATE read as the row is
+  written for the new leader and epoch 1, a push raised between the epoch's move and the row, and the file still at epoch 0. It
+  failed 3 of 3 on the words against the old product; with the words carried and no push, 2 of 5 on the push (in the other three
+  another fact's push fell in that window; the watch now counts only the push of the row's own writer, below, and so fails every
+  run without it); with both, it passed 3 of 3 under the hold and 3 of 3 without.
+- Done: a step-down, a backup's kept epoch, a primary's role and a hand-back say when the settings file could not keep them, once
+  STATE holds them. A leader that steps down to a member leading its group under a higher epoch (`StepDownAsync`) did as the follow
+  above did: it dropped `Persist`'s words and raised no push; it now pushes STATE, then writes its row with the words, not ok when
+  the epoch was not kept. A backup that takes the higher epoch its primary is heard to hold (`KeepPrimaryEpoch`), a node a backup
+  joins becoming its primary with that backup (`OnMembersChanged`) and a node that handed its show back taking the epoch it was taken
+  back under (the hand-back in `LookAsync`) dropped the words too, so a node whose file could not keep them would, after a restart,
+  take over under an epoch that fences no one, go out without waiting to hear its backups, or be fenced by none of them, having said
+  nothing. The first two now say so in a fault row and the hand-back in its own row, each after STATE moved and was pushed (the
+  epoch's move raised none before). With the settings refusing every write,
+  `ALeaderWhoseSettingsCannotKeepTheEpochItStepsDownUnderSaysSoInTheRowOfItsStepDown`,
+  `ABackupWhoseSettingsCannotKeepItsPrimarysEpochSaysSo`, `APrimaryWhoseSettingsCannotKeepItsRoleSaysSo` and
+  `ANodeWhoseSettingsCannotKeepTheEpochOfItsHandBackSaysSoInItsRow` ask each row for its words, not ok, STATE read as it is written
+  for what it reports, a push raised before it, and the file as it was; against the product before this change each failed 2 of 2
+  (the step-down's and the hand-back's rows without the words, no row at all for the other two), and with it each passed 3 of 3.
+  Their watch (`RowWatch`, as the follow's above) counts only a push the row's own writer raised: the fact moves and its row is
+  written on one thread with no wait between, and a push another thread raised in that span, for a fact of its own, let a missing
+  push pass. Counting any push, the product built without the follow's, the step-down's, the kept epoch's and the hand-back's pushes
+  failed their push assertions 3, 2, 2 and 1 of 3 runs; counting the writer's, each failed 3 of 3, and with the pushes each passed 3
+  of 3.
+- Done: `BackupNode.Persist` pushes STATE once the fleet's settings are the node's, before it answers, so every change of them writes
+  its row, or answers its verb, beside a STATE that holds it (the follow's, the step-down's and the kept epoch's own pushes, above,
+  are now that one). FLEET FENCE and the takeover wrote theirs before any push of the role and epoch they set: a new role's only push
+  was the network air's (`MoveAir`), which moves before the settings are the node's so that STATE never names a role whose air has
+  not moved, and STATE is cached on its revision, so a reader holding the fence's row, or the takeover's fault row for an epoch the
+  file could not keep, could read the role and epoch from before (the fence's next push came after `LeadsHeardAsync` and a
+  `SYNC FOLLOW`, the takeover's after its routes). `AFailoverWhoseSettingsCannotBeKeptOnEitherNodeSaysSoInEachRowOnceStateHoldsIt`,
+  both nodes' files refusing every write, asks the backup's fault row and the old primary's fence row for their words, not ok, STATE
+  read as each is written for the role, the node it names and epoch 1, a push by the row's writer before it, and each file as it was;
+  against the product before this change it failed 3 of 3 at the takeover's push, and with it it passed 3 of 3.
+- Done, not seen failing: a backup that hears its primary's epoch in the hello of its mirror and in the primary's HEALTH at once
+  (`KeepPrimaryEpoch`, from the mirror's line and from the watch) takes it once and says once that its settings file could not keep
+  it. The epoch was read outside the settings' lock and taken inside it, so both callers could pass the read and both write the fault
+  row (before the fleet-words change above, only a second write of the same epoch). It is now read and taken in one step under the
+  lock. `ABackupThatHearsItsPrimarysEpochOnItsMirrorAndInItsHealthSaysOnceThatItCannotKeepIt`, a backup restarted under epoch 2 whose
+  primary holds 5, its file refusing every write, waits for the row and for its mirror to be identical (its hello read; the watch has
+  read the primary's HEALTH many times by then) and asks for one row, STATE at epoch 5 and the file at 2. With the first caller past
+  the read held until a second passed it (in a scratch copy) it failed 3 of 3 against the two steps, with two rows, and passed
+  unheld; with one step it passed 3 of 3 under the same hold (the second caller waits on the lock, then finds the epoch taken).
+- Done, not seen failing: `ClockSlewTests.AWaitingBlindCommitMovesWithTheStepSoItLandsNeitherEarlyNorLate` reads the landing's
+  journal row once the lane's tick that landed the commit is over (`Ticked`, as `BlindTests` reads it), not at its first sight of
+  the landed show. A commit lands on the lane's tick: the store publishes the show and runs its listeners, and then the row ("blind
+  commit: 1 change landed (at) by Desk") says it landed, so it rightly follows; a reader that saw the show could read the journal
+  before the row. With the row held 1 s before the journal took it (in a copy of the journal), the unchanged test failed 3 of 3 at
+  its line 102 with the row not found, and passed unheld; it passed 3 of 3 under the hold now.
+- Done, not seen failing: `MemberCommitTests.AMembersCommitWaitingForAGoLandsWithTheLeadersGoAndANextCommitWithItsEarlyNext` reads
+  its landing row ("blind commit: 1 change landed (on go) by Desk") once the member's lane tick that landed the commit is over, for
+  the reason above. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 40, and passed unheld; it
+  passed 3 of 3 under the hold now.
+- Done, not seen failing: a follower whose leader goes quiet says it free-wheels in STATE (its words, pushed) before its row and its
+  `sync.leader.lost` event, and that it follows again before the row that its leader is heard again (`SyncNode.WatchLeader`). It
+  wrote the row and raised the event first, so `AnchorFeedTests.AFollowerWhoseLeaderDiesFreeWheelsAndSwitchesItsNextItemAtTheAnchoredInstant`,
+  which waits for the row and then reads STATE's words, could read the follow's words: with the lane held 1 s just after the row,
+  the unchanged test failed 3 of 3 at its line 107 (`"following FOH (0badc0de) for show — …"`), and passed unheld. The test now also
+  reads STATE's words as the row is written; against the old order that failed 3 of 3 with no hold (the words were set after the
+  row, on the same thread), and with the new order it passed 3 of 3 held and 3 of 3 unheld.
+- Done, not seen failing: `AnchorFeedTests.ARestartedFollowerFollowsItsLeaderAgainRejoinsTheShowWhereItIsAndKeepsItsSwitch` waits
+  for the rejoin's row ("… (kept from before the restart)") before it reads it. The rejoin (`SyncNode.RestoreAsync`) follows through
+  the network host, which names the role STATE reads, starts its feed, and then writes the row; the role, the clock and the live
+  feed the test waited for come first. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 156,
+  and passed unheld; it passed 3 of 3 under the hold now.
+- Done, not seen failing: `BackupRestartTests.APrimaryWhoseBackupIsNotHeardGoesOutOnceItsClockHasWaitedForIt` waits for the row
+  ("… did not hear its hot backup …") before it reads it. `BackupNode.Hear` moves the node's network air under the settings' lock
+  (live, the LED sender's master, the sends reconciled, a push) and writes the row after the lock; the air and the LED, which the
+  test waited for, come first. Held 1 s before the journal took the row, the unchanged test failed 3 of 3 at its line 128, and
+  passed unheld; it passed 3 of 3 under the hold now.
 - Done: `ScanEngineTests.AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack` holds the simulated scan at its first pattern
   until its cancel is in. A simulated scan reads "scanning" only while its patterns render, the FAST plan's 34 back to back in one
   work item on a compute thread (`ScanRunner.CaptureSimulated`; 0.3 to 0.7 s here in Debug), and goes on to its decode, its solve
@@ -986,6 +1223,109 @@ Round 2 W1 notes:
   the connection's own catches take its escape in), `StagewatchLink.PostContextAsync` (its line 515: the beat's catch takes its
   escape in, as it takes in `ApprovalsAsync`'s at its line 555), and the model store's download (`ModelStore`, its line 460) and
   `CuedCapture.PictureOrNullAsync` (its line 349), not read for where an escape goes.
+- Done: a native double's build ends with its compiler, never with the compiler's pipes (`NativeBuild.Run`), and a hung test host's
+  stacks reach the CI log. The OMT tests' attribute builds libvmx with clang++ while the suite is discovered (`OmtFactAttribute`,
+  `VmxBuild.Ensure`; the fake NDI runtime's attribute the same way), and the build read the compiler's output to its end and then
+  waited for its exit, neither bounded; the end of a pipe comes only once every process holding its write end has let go, and a
+  process the compiler starts inherits it (on Windows clang++ links through Visual Studio's link.exe, whose helpers are known to
+  linger on build machines), so one that held on stalled the whole test host in discovery, where blame has no test to name. The
+  Engine test host on the Windows job stalled so (run 435, at main cf9699d8, which passed on Windows in run 434 and on Linux): "A total
+  of 1 test files matched" and nothing more until blame's 5 minutes ran out, no test result and no sequence file; consistent with
+  that, not proven: blame's dump was off and the runner's processes cannot be seen from here. With clang++ wrapped so a helper it
+  starts holds its stdout and stderr, and a fresh temp folder, the unchanged Engine host failed 3 of 3 with run 435's lines word for
+  word under a 1-minute blame limit (the library built, never moved into place); the dump of one such run, read with dotnet-dump,
+  stood in `NativeBuild.Run`'s read under `OmtFactAttribute`'s constructor in xunit's discovery. A build now reads the compiler's
+  words while it waits for the compiler alone, up to 3 minutes (then it and every process it started are stopped, with the words
+  "did not finish … and was stopped"), reads the words for 5 s more, and says a failed build's exit code; it passed 3 of 3 under the
+  same wrapper. `NativeBuildTests` runs a "compiler" whose helper holds its pipes until the test lets it go (`PipeHolder`): the
+  unchanged build failed 3 of 3 ("the build was still waiting for the end of the compiler's pipes", after 60 s), the new one passed
+  3 of 3, with a compiler stopped at its deadline and one that fails with its words. The probe of npm's global root that the phone
+  tests' attributes run in discovery, the Net suite's node facts and the Engine suite's browser facts alike (`ToolProbe`, shared by
+  both), read its tool's output to its end before its 30 s bound could apply (the Engine suite's with no bound at all, once per
+  test); it now ends with the tool, asked once per suite (its test failed 3 of 3 against the old probe's logic, passed 3 of 3). With
+  npm standing in for one whose helper holds its output 10 minutes and `PLAYMAP_E2E=1`, the Engine host with the old browser fact
+  stalled in discovery 3 of 3 until a 1-minute blame limit stopped it ("The active test run was aborted"), and with the shared probe
+  skipped its two browser tests in 8 s 3 of 3. CI now stops a hung test host with a
+  mini dump the runtime writes (`--blame-hang-dump-type mini`; on Windows `VSTEST_DUMP_FORCENETDUMP`, since the collector's own
+  Windows dumper writes thread information alone, which no managed stack walk reads), and on a failed job prints every managed
+  thread's stack from each dump (dotnet-dump 10.0.750501, the package held to its SHA-256), so a stall before the first test is
+  named as a test's is. Shown on Linux only: the Linux step's reading of a stalled discovery's dump stood in the build under the
+  attribute's constructor. On Windows the dump through `VSTEST_DUMP_FORCENETDUMP`, the Windows stacks step and the Windows forms of
+  `NativeBuildTests` and `ToolProbeTests` (a batch file whose helper is started with `start /b`, `ping.exe`) have not yet run (no
+  Windows runner was at hand): the Windows job's next run is their first.
+- Done: the phone scan rig's hub runs on a clock the test holds (`PhoneScanRig.PhoneTime`), the phone bridge test's scan waits for
+  each answer on a held clock too, and the hub counts a hello's wait on its own clock, its words going before the socket is let go.
+  A session ends "stopped sending: nothing for 10 s" when the node has read nothing from the phone for `QuietTimeout` on the hub's
+  clock (`PhoneSession.ReceiveLoopAsync`), and the rig left that clock the system's while the fake phone in the same process pings
+  every second of real time: a test host that ran neither the phone's ping nor the node's read of it for 10 s ended the session, and
+  the scan's next cue failed. `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced` failed so on the Windows job (run 436, at
+  fix-nodehost-win f7d3645b, which does not touch the phone hub or the bridge) at its line 45 after 1 m 12 s, consistent with that,
+  not proven. With the test host stopped 11 s mid-scan the unchanged test failed 4 of 5 with the same words at the same line, and
+  passed 2 of 2 stopped 8 s; with the host stopped 2.6 s of every 2.75 s it failed 3 of 3 the second way the rig raced real time,
+  "could not take locate frame N: it said nothing for 2 s" (the scan's `PatternTimeout`, `MaxRetakes` 2). Both clocks held, it
+  passed 3 of 3 under each, and the 74 Engine tests of the phone, the folder camera and the camera resolve passed. The hello's wait (`HelloTimeout`) was a `CancelAfter` of real
+  time, and a cancelled read aborts a web socket before any close can go, so a phone that said no hello never heard "no hello":
+  with a 300 ms limit on the system's clock the unchanged hub closed nothing (status null) 3 of 3. The limit now runs on the hub's
+  clock and, once it has run out, sends the close with its words while the read stands, letting the socket go 2 s later if the phone
+  never answers (`PhoneHubOptions.Time`); the new Net tests (the held clock moved through the limit, and the system's clock) failed
+  3 of 3 against the old hub and passed 3 of 3. The rig's invite test reads the invite's expiry against the hub's clock. No assertion
+  of the old tests is changed; scans in the rig that keep the default real-time patience still count it so (`PhoneCameraTests`).
+- Done: `GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound` lets the holder go only once the sharer's
+  own wait is counted. It let go 100 ms after the sharer's thread said it had started, and its last count held from the bounded take
+  before it alone (`TryEnter` counts a wait), so a sharer that reached its take after the holder had let go took the lock unopposed
+  and the test passed without showing the sharer waited. With the sharer's thread 150 ms late to its take (a delay in a scratch
+  copy) the unchanged test passed 3 of 3 with the lock's waits at 1, the bounded take's alone; it now waits for the sharer's wait to
+  be counted, asserts the sharer took nothing while the holder held, and that the waits rose by exactly that one, and passed 3 of 3
+  under the same delay. No failure of it has been seen.
+- Done: `MediaTransferTests.TheBandwidthBucketHoldsItsRateAndCanBeLoweredAndLifted` asks that a bucket with no limit answer each of
+  its hundred takes as it is asked (each take complete as it returns, none waiting in the bucket), not that the hundred fit in 200 ms
+  of the stopwatch, which measured only the machine's pace around the loop. With the loop's thread stopped 250 ms half way (a delay
+  in a scratch copy) the unchanged test failed 3 of 3 at its range; it passed 3 of 3 under it. The rate half is unchanged. No
+  failure of it has been seen.
+- Done: a PJLink search counts its window on the clock its socket is given (`PjLinkUdp`'s `time`; a node's is the system's), and
+  `PjLinkDriverTests.ASearchFindsAClass2ProjectorOnLoopbackUdp` and `DeviceManagerTests.DiscoveryFindsAProjectorIdentifiesItAndSuggestsItsNativeDriver`
+  move that clock through the window once the simulator's answer has been heard and the window's wait stands. The search collected
+  answers for 400 ms of real time across two receive loops (the simulator's and its own), so an answer later than that was dropped.
+  With the simulator's answer 500 ms late (a delay in a scratch copy) both unchanged tests failed 3 of 3 ("The collection was
+  empty"); both passed 3 of 3 under it, and the 112 Devices tests passed. No failure of them has been seen.
+- Done: the desk's toasts are aged on the session's clock (`DeskSession`'s `time`, which its throttle already ran on; the desk's is
+  the system's), and `DeskLogicTests.ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt` moves it. A repeated refusal folds into
+  the toast already up when the same words come within two seconds, which `Notify` read on the stopwatch, so a repeat the test sent
+  more than 2 s after the first stacked a second toast. With the test's repeat 2.1 s late (a delay in a scratch copy) the unchanged
+  test failed 3 of 3 ("The collection contained 2 items"); on the moved clock it passed 3 of 3 under the same delay, and now also
+  shows a repeat past the two seconds stacking and a refusal's toast going at twice the window's age. No failure of it has been seen.
+- Done: PROJECTOR SOLVE's lane tests (`ProjectorSolveLaneTests.ASolveHoldsTheLaneWithinFourTimesItsSlice` and its Perf twin) read how
+  long the lane keeps a line waiting on the lane itself, from the line's post to its start (`LaneProbe`), not by the test's
+  stopwatch around the whole round trip, which held the test's own continuation after the lane had answered. With that
+  continuation 45 ms late each time (a delay in a scratch copy) both unchanged tests failed 3 of 3 (a median of 45.3 ms against 40
+  and 10); read on the lane they passed 3 of 3 under the same delay, and the probe still reads the solve's slices (a median of about
+  1 ms, a worst of 2 to 6 ms, here). A wait inside a slice and a stop of the lane thread are still in the reading. No failure of
+  them has been seen.
+- Done: the survey import's lane tests (`SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds` and
+  the regular `SurveyImportTests.ATwoMillionTrianglePlyComesInAsOneEditWithinItsDeviationAndNeverHoldsTheLane`) read how long the
+  lane takes to answer each SITE on the lane itself (`LaneProbe.AnsweredMsAsync`: how long an empty line posted just before SITE
+  waited, and the lane's turn from that line's end to the start of one posted just behind SITE, the line before holding the lane until
+  both are posted), not by the test's stopwatch around SITE's whole round trip, which held the test's own continuation. With that
+  continuation 210 ms late once (a delay in a scratch copy) both unchanged tests failed 3 of 3 (a worst of 210.2 to 210.5 ms against
+  the Debug build's 200 ms ceiling); read on the lane they passed 3 of 3 under the same delay (a worst of 1 to 10 ms). SITE's own turn
+  is in the reading: with SITE held 300 ms on the lane (a scratch copy), a reading of the lane's wait before each SITE alone passed
+  3 of 3 (a worst of 4.3 ms), and this one failed 3 of 3 (306 to 342 ms); with the test's thread stopped 210 ms between posting SITE
+  and the line behind it once, and 210 ms after an answer once, it passed 3 of 3 (a worst of 5 to 20 ms). No failure of them has
+  been seen.
+- Done: `DeviceLockHostTests.TheLoopDrawsInsideTheDeviceLockAndNeverWaitsPastItsBound` holds the device until the loop has drawn its
+  five frames inside the hold (`HoldUntilDrawn`, within the rig's patience), not for 400 ms of real time, and its decoder takes its
+  brackets until the loop has drawn a frame among them, not for sixty brackets' few hundred milliseconds. Both asked a number of
+  frames of a span of real time, so a render thread the machine left unrun for that span failed them. With the test host's render
+  threads alone frozen 1.5 s (a cgroup freezer of their own) just before the hold the unchanged test failed 3 of 3 ("the loop drew 0
+  frames while a sharer held the device for 400 ms"), and frozen as the hold began it failed 3 of 3 at the decoder's ("the loop drew
+  nothing while a decoder took the device bracket by bracket"); it passed 3 of 3 under the first. The loop's take is still held to
+  its bound, read on the render thread: the lock says how long its latest bounded take that gave up waited
+  (`GpuDeviceLock.LastTimedOutWaitNs`, written before `TimedOut` counts it), the sharer reads it each time the count moves, and the
+  shortest of the hold's takes must be within 80 ms (twenty times the 4 ms bound; a render thread left unrun only lengthens a wait,
+  so the shortest is the bound's measure however the machine is paced). With the loop's take given 125 times its bound a hold
+  that asks for its frames alone passed 3 of 3, and this one failed 3 of 3 (its shortest take 500.1 to 500.2 ms), as it did 3 of 3
+  with `FrameBoundMs` itself 500; with the render threads frozen 1.5 s inside a take (the longest take read 1504 to 1505 ms, the
+  hold 1.57 s) it passed 3 of 3, its shortest take 4.1 to 4.3 ms. No failure of it has been seen.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -1007,6 +1347,12 @@ Round 2 W1 notes:
   state's publish, up to the quiet (10 s) for each missing show file every time it asks for them again, and an answer whose headers
   never come for the client's 60 s. Pulling the show files off the watch's own turn, with a test of the watch's pace while a show
   file is silent, closes it.
+- Open (efficiency, not measured as the cause of anything): a backup's mirror link (`MirrorLink`) and a follower's anchor link
+  (`AnchorFollower`) say HELLO, which makes each a STATE listener on its primary or leader (`WireSession`'s HELLO), and each drops
+  every STATE line it is sent: every change there (coalesced to one push per 200 ms, and at least one a second while anything
+  plays; about 7.5 KB in the backup rig) crosses to every backup and follower, which reads and discards it. The pushes count as the
+  peer speaking on those links, which is right. Saying `SUBSCRIBE OFF` before their own subscription (OFF also ends topics, so it
+  goes first), or a HELLO that is no listener, closes it; either is a wire change with its catalogue row and papers.
 - Open: a fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended
   (`FleetMonitor.Consider` returns while the peer's feed runs), so a peer heard again at another address, port or certificate is
   dialled up to about 9.6 s late; and the monitor's peers (`Peers()`, which STATE and the board read) leave out a machine never
@@ -1042,7 +1388,14 @@ Round 2 W1 notes:
   node's real clock running out before the test read it, not proven; the node now runs on a clock the test holds, above);
   `HttpHostTests.TheLongPollWaitsForTheNextChangeAndGivesUpAtItsLimit`' one Windows long-poll answered before its check
   (consistent with the check's thread running late, above, not proven, a request that faulted not ruled out; the poll's limit now
-  runs on a clock the test moves); `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
+  runs on a clock the test moves);
+  `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing`' one Windows wait for its first STATE (its `PING` answered; its cause
+  open, above: STATE's first build as measured does not reach 10 s, and a wait only STATE meets, a frozen or starved process, or a starved test host is not ruled out; an unanswered line now
+  names its stage: when it came, a second connection's `PING` and `CONTEXT`, a STATE write's slowest part, the node's output; the
+  Windows job passed it at 39caa04c, its one run there since). On that runner the fresh node also draws its default project's
+  display output (1920 × 1080 at 60 Hz, offscreen, on Mesa's llvmpipe) in a process the machine part claims HIGH, beside a test
+  host at normal priority on four cores; whether a node with no display draws an output nobody sees is the owner's call;
+  `StageResourcesTests.TheAutomaticBlendWaitsForAQuietStageAndKeepsItsLastGoodMaps`' one Windows
   read of a solved blend just after its first settle (consistent with its continuation, or the stage builder between its signal to
   the blender and its tables, running later than the blend's real-time quiet time, above, not proven; the quiet time now runs on a
   clock the test moves);
@@ -1052,6 +1405,9 @@ Round 2 W1 notes:
   consistent with its read racing the stage's builder, above, which the test now waits for, not proven);
   `ThreadTimeTests.AThreadsTimeCountsItsWorkNotItsWait`' loaded Linux failures (consistent with a thread given under half a
   processor, above, which its lower bound no longer asks of the machine, not proven);
+  `PromoteTests.AFollowerPromotedLeadsOnTheSameTimeLineAndTheOtherFollowsIt`' one Windows read of the follow's row before it was
+  written (consistent with a slow settings write, or the watch's thread held, between the epoch's move and the row, above, which
+  the test now waits for, not proven);
   `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's heap limit fails its ready check, above, but what would hold
   that much of the heap in the gate's host is not found; its ready checks now say the import's words and the heap);
@@ -1060,7 +1416,13 @@ Round 2 W1 notes:
   cancel is in, above); `BackupRenderTests.TheBackupPlaysTheSameVersionAndItsPictureIsTheSameBytesAtTheSameInstants`' one Windows
   wait for the backup's health from its line 141 (consistent with the primary's fleet monitor's first subscription ending unheard
   and its next dial waiting on a fleet clock the hot-backup tests never moved, not proven; the meeting now moves that clock while
-  the monitor waits, and names what the node holds of its peer, above);
+  the monitor waits, and names what the node holds of its peer, above); the Engine test host's one Windows stall before its first
+  test (run 435: no result and no sequence file before blame's 5 minutes; consistent with libvmx's build in the OMT tests' attribute
+  waiting, while the suite was discovered, for the end of its compiler's pipes, not proven; the build now ends with its compiler,
+  and the next hang prints every managed thread's stack in the job's log, above);
+  `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced`' one Windows "stopped sending: nothing for 10 s" at its line 45 (run
+  436; consistent with the test host leaving the fake phone's pings unsent for the hub's 10 s of real time, not proven; the rig's hub
+  now runs on a clock the test holds, above);
   `StagewatchSinkTests.ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList`' one Windows failure from the sink's dispose after
   2 s (consistent with its refused connect landing as the pull's stop was taken, above, not proven; the pull now ends on its stop
   whatever it meets, and its dispose throws nothing).

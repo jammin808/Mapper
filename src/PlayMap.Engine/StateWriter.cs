@@ -3,22 +3,69 @@ using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
+using PlayMap.Core.Time;
 using PlayMap.Engine.Playback;
 
 namespace PlayMap.Engine;
+
+/// <summary>How long one STATE write took on the engine's clock (ms), the part of it that took longest (STATE's top-level part, or the
+/// package by its hook word) and that part's ms, and how much of the write its thread spent working (its own processor time, ms): the
+/// rest it waited, on a lock or a call, or was not given a processor.</summary>
+public readonly record struct StateWriteTime(double Ms, string Slowest, double SlowestMs, double WorkMs)
+{
+    /// <summary>"412 ms (120 ms in videoio, its thread working 400 ms)".</summary>
+    public string Words => string.Create(CultureInfo.InvariantCulture,
+        $"{Ms:0} ms ({SlowestMs:0} ms in {Slowest}, its thread working {WorkMs:0} ms)");
+}
+
+/// <summary>Times a STATE write part by part on the engine's clock. It times one write at a time: STATE is written under its gate.</summary>
+internal sealed class StateParts(IMonoClock clock)
+{
+    private long _startNs;
+    private long _atNs;
+    private long _workNs;
+    private long _slowestNs;
+    private string _slowest = "";
+
+    public void Begin()
+    {
+        _workNs = ThreadTime.NowNs();
+        _startNs = _atNs = clock.NowNs;
+        _slowestNs = -1;
+        _slowest = "";
+    }
+
+    /// <summary>The part just written.</summary>
+    public void Wrote(string part)
+    {
+        var now = clock.NowNs;
+        if (now - _atNs > _slowestNs)
+        {
+            _slowestNs = now - _atNs;
+            _slowest = part;
+        }
+        _atNs = now;
+    }
+
+    public StateWriteTime End() =>
+        new((clock.NowNs - _startNs) / 1e6, _slowest, Math.Max(0, _slowestNs) / 1e6, (ThreadTime.NowNs() - _workNs) / 1e6);
+}
 
 /// <summary>STATE: the whole node as one compact JSON object, keys in docs/WIRE.md's order (new keys go at the
 /// end of their object — some readers match raw substrings). The "video" row is Patterns' own, for the
 /// focused playlist, so Stagewatch's VT link and countdown work unchanged.</summary>
 public static class StateWriter
 {
-    public static string Write(EngineCore engine)
+    /// <summary>STATE now, each of its parts timed by <paramref name="parts"/> (its <see cref="StateParts.End"/> reads the write's
+    /// time).</summary>
+    internal static string Write(EngineCore engine, StateParts parts)
     {
         ArgumentNullException.ThrowIfNull(engine);
-        return EngineCore.JsonOut(w => WriteState(w, engine));
+        parts.Begin();
+        return EngineCore.JsonOut(w => WriteState(w, engine, parts));
     }
 
-    private static void WriteState(Utf8JsonWriter w, EngineCore e)
+    private static void WriteState(Utf8JsonWriter w, EngineCore e, StateParts parts)
     {
         var s = e.Services;
         var project = e.Store.Current;
@@ -34,6 +81,7 @@ public static class StateWriter
         var ctx = ContextBuilder.Build(e);
         w.WriteString("light", ShowContext.LightWord(ctx.Light));
         w.WriteString("headline", ctx.Headline);
+        parts.Wrote("context");
 
         var air = e.Air;
         w.WriteStartObject("air");
@@ -56,18 +104,22 @@ public static class StateWriter
         w.WriteBoolean("followPatternsBlackout", air.FollowPatternsBlackout);
         e.WriteAirExtras(w);
         w.WriteEndObject();
+        parts.Wrote("air");
 
         WriteVideo(w, e, project.Project, now);
+        parts.Wrote("video");
 
         w.WriteStartArray("playlists");
         foreach (var l in project.Project.Playlists)
             WritePlaylist(w, e, l);
         w.WriteEndArray();
+        parts.Wrote("playlists");
 
         w.WriteStartArray("outputs");
         foreach (var o in project.Project.Outputs)
             WriteOutput(w, e, o);
         w.WriteEndArray();
+        parts.Wrote("outputs");
 
         var media = project.Project.Media;
         var missing = media.Count(m => m.IsFile && s.Media?.Readiness(m) is not { Present: true });
@@ -96,6 +148,7 @@ public static class StateWriter
         w.WriteEndArray();
         e.WriteMediaExtras(w);
         w.WriteEndObject();
+        parts.Wrote("media");
 
         var stage = project.Project.Stage;
         w.WriteStartObject("stage");
@@ -117,22 +170,27 @@ public static class StateWriter
         w.WriteNumber("scans", stage.Scans.Length);
         e.WriteStageExtras(w);
         w.WriteEndObject();
+        parts.Wrote("stage");
 
         w.WritePropertyName("scan");
         e.WriteScanState(w);
+        parts.Wrote("scan");
 
         w.WritePropertyName("sync");
         WriteSync(w, e);
+        parts.Wrote("sync");
 
         w.WriteStartObject("links");
         WriteLink(w, "patterns", s.Network.Patterns(), null);
         WriteLink(w, "stagewatch", s.Network.Stagewatch(), s.Network.StagewatchTimerJson());
         w.WriteEndObject();
+        parts.Wrote("links");
 
         w.WriteStartArray("peers");
         foreach (var p in s.Network.Peers())
             WritePeer(w, p);
         w.WriteEndArray();
+        parts.Wrote("peers");
 
         w.WriteStartObject("machine");
         w.WriteString("renderer", s.Outputs.RendererName);
@@ -140,6 +198,7 @@ public static class StateWriter
         w.WriteNumber("gcPauseMsTotal", Math.Round(GC.GetTotalPauseDuration().TotalMilliseconds, 1));
         e.WriteMachineExtras(w);
         w.WriteEndObject();
+        parts.Wrote("machine");
 
         w.WriteStartObject("project");
         w.WriteString("id", project.Project.Id);
@@ -152,6 +211,7 @@ public static class StateWriter
         w.WriteBoolean("dirty", e.Dirty);
         e.WriteProjectExtras(w);
         w.WriteEndObject();
+        parts.Wrote("project");
 
         w.WriteStartArray("faults");
         foreach (var f in s.Faults?.Faults() ?? [])
@@ -162,6 +222,7 @@ public static class StateWriter
             w.WriteEndObject();
         }
         w.WriteEndArray();
+        parts.Wrote("faults");
 
         // The assistant's door: MCP served, who is on the web port, proposals waiting for a person.
         w.WriteStartObject("ai");
@@ -179,17 +240,21 @@ public static class StateWriter
             w.WriteNull("assistant");
         }
         w.WriteEndObject();
+        parts.Wrote("ai");
 
         e.WriteOpsState(w);
+        parts.Wrote("ops");
 
         w.WritePropertyName("solve");
         e.WriteSolveState(w);
+        parts.Wrote("solve");
 
         w.WritePropertyName("cameras");
         e.WriteCamerasState(w);
+        parts.Wrote("cameras");
 
         // Round 2's keys, each package's own, in the fixed order (docs/WIRE.md "Round 2").
-        e.WriteModuleState(w);
+        e.WriteModuleState(w, parts);
 
         w.WriteEndObject();
     }

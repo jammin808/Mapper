@@ -1,3 +1,6 @@
+using PlayMap.Core.Threading;
+using PlayMap.Core.Time;
+
 namespace PlayMap.Core.Media;
 
 /// <summary>The renderer's device lock (<see cref="IGpuShare.Enter"/>, <see cref="IGpuShare.Exit"/>): one recursive lock that every
@@ -8,12 +11,13 @@ namespace PlayMap.Core.Media;
 /// <item><b>Sharers wait.</b> <see cref="Enter"/> waits as long as the holder takes: a decode or control thread may wait for a frame.</item>
 /// <item><b>The frame never waits past its bound.</b> The render thread takes the lock with <see cref="TryEnter"/> and
 /// <see cref="FrameBoundMs"/>: a sharer holds it for a handful of driver calls, well inside the bound; past it the frame is drawn on
-/// the device's own per-call ordering (the device is multithread-protected) and <see cref="TimedOut"/> counts it.</item>
+/// the device's own per-call ordering (the device is multithread-protected), <see cref="TimedOut"/> counts it and
+/// <see cref="LastTimedOutWaitNs"/> says how long it waited, read on the taker's thread.</item>
 /// <item><b>The frame lets go while it waits.</b> Before a wait on the display (a swap chain's waitable object) the render thread lets
 /// go of every hold (<see cref="ExitAll"/>) and takes them back after (<see cref="Reenter"/>, bounded), so sharers get the device
 /// between frames and during the vertical-blank wait.</item>
 /// </list>
-/// Nothing allocates once warm (the underlying <see cref="Lock"/> makes its wait event once, at its first contention).</summary>
+/// Nothing allocates on a take: the lock's wait event is made with it.</summary>
 public sealed class GpuDeviceLock
 {
     /// <summary>The longest the render thread waits for a sharer to let go (a quarter of a 60 Hz frame).</summary>
@@ -21,10 +25,16 @@ public sealed class GpuDeviceLock
 
     private readonly Lock _lock = new();
 
+    // Taken as the lock is made, so a take's first read of the clock makes nothing.
+    private readonly MonoClock _clock = MonoClock.Instance;
+
     // The holder's recursion; read and written only by the thread that holds the lock.
     private int _depth;
     private long _waits;
     private long _timedOut;
+    private long _lastTimedOutWaitNs;
+
+    public GpuDeviceLock() => LockWaits.Prepare(_lock);
 
     /// <summary>The calling thread holds the lock.</summary>
     public bool IsHeldByCurrentThread => _lock.IsHeldByCurrentThread;
@@ -34,6 +44,12 @@ public sealed class GpuDeviceLock
 
     /// <summary>Times a bounded take gave up (the work it guarded ran on the device's own per-call ordering).</summary>
     public long TimedOut => Interlocked.Read(ref _timedOut);
+
+    /// <summary>How long the latest bounded take that gave up waited (ns of the monotonic clock, from the start of its wait to its
+    /// giving up, read on the taker's thread): its bound, and whatever more the machine kept that thread from running. It is written
+    /// before <see cref="TimedOut"/> counts the take, so a reader that has seen the count move reads this take's wait or a later
+    /// one's.</summary>
+    public long LastTimedOutWaitNs => Interlocked.Read(ref _lastTimedOutWaitNs);
 
     /// <summary>Takes one hold, waiting as long as another thread holds it (a sharer's thread; never the render thread's frame).</summary>
     public void Enter()
@@ -53,8 +69,10 @@ public sealed class GpuDeviceLock
         if (!_lock.TryEnter())
         {
             Interlocked.Increment(ref _waits);
+            var from = _clock.NowNs;
             if (!_lock.TryEnter(timeoutMs))
             {
+                Interlocked.Exchange(ref _lastTimedOutWaitNs, _clock.NowNs - from);
                 Interlocked.Increment(ref _timedOut);
                 return false;
             }

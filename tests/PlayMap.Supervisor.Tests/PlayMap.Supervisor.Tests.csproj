@@ -23,4 +23,16 @@
     <ProjectReference Include="..\..\src\PlayMap.Supervisor\PlayMap.Supervisor.csproj" />
   </ItemGroup>
 
+  <ItemGroup Label="wp3-installer">
+    <!-- The installer's fake engine, built beside these tests and copied by the Windows tests as PlayMap.exe. -->
+    <ProjectReference Include="..\..\installer\tests\PlayMap.FakeEngine\PlayMap.FakeEngine.csproj" ReferenceOutputAssembly="false" />
+    <!-- The Agility SDK package tools/ci-d3d12.ps1 pins, downloaded by the restore and referenced by nothing: InstallerTermsTests
+         checks its hash against the pin and the installer's terms against its LICENSE.txt. -->
+    <PackageDownload Include="Microsoft.Direct3D.D3D12" Version="[1.619.6]" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NuGetPackageRoot</_Parameter1>
+      <_Parameter2>$(NuGetPackageRoot)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

@@ -155,9 +155,11 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         .OfType<DebuggableAttribute>().All(a => !a.IsJITOptimizerDisabled);
 
     /// <summary>Imports the 2 M-triangle front while the lane is asked SITE every 20 ms: the job, the import's time, the worst answer
-    /// and how many were asked.</summary>
+    /// and how many were asked. An answer's time is the lane's, read on the lane (<see cref="LaneProbe.AnsweredMsAsync"/>): how long
+    /// SITE waited for the lane and SITE's own turn on it, never the test's own pace or continuation. Each SITE must be answered.</summary>
     internal static async Task<(SurveyJobView Job, double Seconds, double WorstMs, int Asked)> ImportWhileAsking(SiteRig rig, string file)
     {
+        var probe = new LaneProbe(rig.Engine.Lane);
         var watch = Stopwatch.StartNew();
         var accepted = SiteRig.Json(await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL UP Z DECIMATE 300000 NAME North front"));
         Assert.Equal("accepted", accepted.GetProperty("stage").GetString());
@@ -165,9 +167,7 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
         var asked = 0;
         while (!rig.Engine.WhenSurveyed.IsCompleted)
         {
-            var ask = Stopwatch.StartNew();
-            await rig.Ok("SITE");
-            worst = Math.Max(worst, ask.Elapsed.TotalMilliseconds);
+            worst = Math.Max(worst, await probe.AnsweredMsAsync(() => rig.Ok("SITE")));
             asked++;
             await Task.Delay(20);
         }
@@ -189,8 +189,8 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
             $"2 M triangles imported in {seconds:0.0} s; {Slices(job)}; {asked} lane queries, worst {answer:0.0} ms; {job.Words}"));
         AssertReady(job);
         Assert.True(seconds <= 15 * 4, $"{seconds:0.0} s");
-        // The lane answers SITE throughout: held here to the 4× ceiling of its 50 ms budget (the Perf twin holds an optimised build
-        // to the budget).
+        // The lane answers SITE throughout, SITE's wait for the lane and its own turn read on the lane: held here to the 4× ceiling of
+        // its 50 ms budget (the Perf twin holds an optimised build to the budget).
         Assert.True(asked >= 2, $"{asked}");
         Assert.True(answer <= 4 * LaneAnswerBudgetMs, string.Create(CultureInfo.InvariantCulture, $"{answer:0.0} ms"));
         Assert.Equal(2, job.LaneSlices);
@@ -454,7 +454,8 @@ public sealed class SurveyImportTests(ITestOutputHelper log)
 }
 
 /// <summary>The import's budgets, measured on this machine and run serially at integration: 2 M triangles in 15 s, and the control lane
-/// answering within 50 ms throughout (PING is the transport's own word, so the lane is probed with SITE, a query it answers). Both are
+/// answering within 50 ms throughout (PING is the transport's own word, so the lane is asked SITE, a query it answers, and how long it
+/// takes to answer is read on the lane, <see cref="LaneProbe"/>). Both are
 /// budgets for optimised code: a Debug build of the solvers (the JIT's optimiser off) records its times against their 4× ceilings.
 /// The import never holds the lane for more than 10 ms of work in a slice once the lane has compiled the import's path (a small
 /// import first compiles it here; a node's first import compiles it in its slices, which this budget does not cover), by the lesser

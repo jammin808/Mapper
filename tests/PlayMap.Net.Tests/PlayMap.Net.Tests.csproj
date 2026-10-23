@@ -24,9 +24,10 @@
     <ProjectReference Include="..\..\src\PlayMap.Net\PlayMap.Net.csproj" />
   </ItemGroup>
 
-  <!-- The one way the suites measure allocation, shared rather than copied. -->
+  <!-- The one way the suites measure allocation, and what a lock's first wait makes, shared rather than copied. -->
   <ItemGroup Label="fix-tests3">
     <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
+    <Compile Include="..\Shared\LockWaitProbe.cs" Link="Shared\LockWaitProbe.cs" />
   </ItemGroup>
 
   <!-- A peer's media routes with the faults a real node does not make on purpose, shared by the Net and Engine suites. -->
@@ -39,6 +40,13 @@
   <ItemGroup Label="fix-longpoll-win">
     <Compile Include="..\Shared\ManualTime.cs" Link="Shared\ManualTime.cs" />
     <Using Include="PlayMap.Tests" />
+  </ItemGroup>
+
+  <!-- A tool whose helper holds its pipes after it exits, shared by the native doubles' build test and the tool probe's; the probe
+       of a tool a test attribute asks while the suite is discovered, shared by the Net and Engine suites. -->
+  <ItemGroup Label="fix-win-batch4">
+    <Compile Include="..\Shared\PipeHolder.cs" Link="Shared\PipeHolder.cs" />
+    <Compile Include="..\Shared\ToolProbe.cs" Link="Shared\ToolProbe.cs" />
   </ItemGroup>
 
 </Project>

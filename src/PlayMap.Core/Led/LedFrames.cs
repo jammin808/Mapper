@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Net;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Core.Led;
 
@@ -48,6 +49,9 @@ public sealed class LedFramePool : ILedFrameSink
     private int _highWater;
     private long _dropped;
     private long _skipped;
+
+    /// <summary>A pool whose lock has its wait event: the render thread's first wait for the sender allocates nothing.</summary>
+    public LedFramePool() => LockWaits.Prepare(_gate);
 
     /// <summary>Called after each submit (the sender's wake-up); must not block.</summary>
     public Action? Submitted { get; set; }

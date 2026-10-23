@@ -264,12 +264,15 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     /// guides). STATE is written on whichever thread asks for it and cached by <see cref="StateKey"/>: every State, Air, Output …
     /// hook reads published state only (never the lane's working fields), a package whose facts move outside the project, the
     /// playback and the air calls <see cref="FactsChanged"/>, and one whose shown values move with time on their own calls
-    /// <see cref="Moved"/> when they move.</summary>
-    internal void WriteModuleState(Utf8JsonWriter w)
+    /// <see cref="Moved"/> when they move. Each package's part is timed by its hook word.</summary>
+    internal void WriteModuleState(Utf8JsonWriter w, StateParts parts)
     {
-        StateShow(w); StateFleet(w); StateDecode(w); StateVideoIo(w); StateControl(w); StateCompanion(w); StateFx(w);
-        StateAudio(w); StateContent(w); StateLed(w); StateWall(w); StateAlign(w); StatePhone(w);
-        StateGpu(w); StateObserve(w); StatePreview(w); StateGuide(w);
+        StateShow(w); parts.Wrote("show"); StateFleet(w); parts.Wrote("fleet"); StateDecode(w); parts.Wrote("decode");
+        StateVideoIo(w); parts.Wrote("videoio"); StateControl(w); parts.Wrote("control"); StateCompanion(w); parts.Wrote("companion");
+        StateFx(w); parts.Wrote("fx"); StateAudio(w); parts.Wrote("audio"); StateContent(w); parts.Wrote("content");
+        StateLed(w); parts.Wrote("led"); StateWall(w); parts.Wrote("wall"); StateAlign(w); parts.Wrote("align");
+        StatePhone(w); parts.Wrote("phone"); StateGpu(w); parts.Wrote("gpu"); StateObserve(w); parts.Wrote("observe");
+        StatePreview(w); parts.Wrote("preview"); StateGuide(w); parts.Wrote("guide");
     }
 
     /// <summary>Keys added at the end of existing STATE objects, in package order (round 2's, then round 3's).</summary>

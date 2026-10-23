@@ -40,13 +40,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libegl1 libgles2 libgl1 libglx-mesa0 libglfw3 libfontconfig1 fonts-dejavu-core
           Xvfb :99 -screen 0 1920x1080x24 &
-      - name: FFmpeg 9.0 shared libraries
+      - name: FFmpeg 9.0 shared libraries (LGPL, as the installer carries them)
         run: |
-          # The Windows job's FFmpeg 9.0.2 build for linux64, pinned by its hash the same way (see there).
-          mkdir -p .ffmpeg
-          curl -sSfL -o ff.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-shared-9.0.tar.xz"
-          echo "01a9764d0b5364b66cfeb4617557c64321b0e232e172ec73f0a701c5f7694326  ff.tar.xz" | sha256sum -c -
-          tar -xJf ff.tar.xz -C .ffmpeg --strip-components=1
+          # wp3-installer: FFmpeg 9.0.2's LGPL shared libraries (FFmpeg-Builds' lgpl-shared build of the same month as the Windows
+          # job's, pinned by hash) are the ones every decode test loads, as the installer ships them; the GPL command-line build
+          # (static, no libraries) is on the path only to encode test media with libx264 and libx265, in .ffmpeg/bin, never beside the
+          # libraries or a test host.
+          mkdir -p .ffmpeg/lib .ffmpeg/bin lgpl gpl
+          curl -sSfL -o lgpl.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-lgpl-shared-9.0.tar.xz"
+          echo "7a1ba2af36e5beeb98151e766a903b1d115f2206a86571f17f873cd7292c424f  lgpl.tar.xz" | sha256sum -c -
+          curl -sSfL -o gpl.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz"
+          echo "68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269  gpl.tar.xz" | sha256sum -c -
+          tar -xJf lgpl.tar.xz -C lgpl --strip-components=1
+          tar -xJf gpl.tar.xz -C gpl --strip-components=1
+          cp -a lgpl/lib/*.so* .ffmpeg/lib/
+          cp gpl/bin/ffmpeg gpl/bin/ffprobe .ffmpeg/bin/
+          rm -rf lgpl gpl lgpl.tar.xz gpl.tar.xz
           echo "$GITHUB_WORKSPACE/.ffmpeg/bin" >> "$GITHUB_PATH"
       # wp3-shaders: the shader worker's pinned compiler natives. glslang (in shaderc) and SPIRV-Cross come from NuGet at the versions
       # the engine's project pins, and each file is held to its SHA-256 when the worker loads it
@@ -92,14 +101,14 @@ jobs:
           if [ -n "$present" ]; then echo "::error::the runner has $present; run the suites through tools/without-libs.sh"; exit 1; fi
       - name: Test (every project to its end; one crash hides no other result)
         run: |
-          # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
-          # project runs.
+          # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
+          # reads, written by the runtime: tens of megabytes, never the heap), read into the log below, and the next project runs.
           failed=""
           for project in tests/*/*.csproj; do
             name=$(basename "$project" .csproj)
             echo "::group::$name"
             dotnet test "$project" -c Release --no-build --logger "trx;LogFileName=$name.trx" \
-              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none || failed="$failed $name"
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini || failed="$failed $name"
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
@@ -112,7 +121,27 @@ jobs:
         run: |
           dotnet test tests/PlayMap.Render.Tests/PlayMap.Render.Tests.csproj -c Release --no-build \
             --logger "trx;LogFileName=PlayMap.Render.Tests.es300.trx" \
-            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
+            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+      # A test host that --blame-hang stopped: every managed thread's stack from each hang dump in a project's TestResults (dotnet-dump's
+      # clrstack -all), so the log says where the host stood — in a test, in a fixture, or before any test while the suite was
+      # discovered. dotnet-dump 10.0.750501 from nuget.org, the .nupkg held to its SHA-256 and run from the package itself; the dumps
+      # stay on the runner.
+      - name: The stacks of a hung test host (dotnet-dump, pinned)
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          mapfile -t dumps < <(find tests/*/TestResults -name '*_hangdump.dmp' 2>/dev/null | awk -F/ '!seen[$NF]++')
+          if [ ${#dumps[@]} -eq 0 ]; then echo "No hang dump was written, so there are no stacks to print; a host blame stopped without writing one says so in the test step's log."; exit 0; fi
+          curl -sSfL -o dotnet-dump.nupkg "https://api.nuget.org/v3-flatcontainer/dotnet-dump/10.0.750501/dotnet-dump.10.0.750501.nupkg"
+          echo "ae70c9f37548e1e006467893e21ae41a005fefaf2270e29642b415df053324a7  dotnet-dump.nupkg" | sha256sum -c -
+          mkdir -p .tools/dotnet-dump
+          unzip -q dotnet-dump.nupkg -d .tools/dotnet-dump
+          for dump in "${dumps[@]}"; do
+            echo "::group::$(basename "$dump")"
+            dotnet .tools/dotnet-dump/tools/net8.0/any/dotnet-dump.dll analyze "$dump" -c "clrstack -all" -c "exit" \
+              || echo "::warning::dotnet-dump could not read $dump"
+            echo "::endgroup::"
+          done
       # The Companion module (integrations/companion-module-playmap): its type check, lint and tests — the e2e test against this
       # job's Release engine — then Companion's own module check. It runs whatever the .NET suites said.
       - name: Node for the Companion module
@@ -148,29 +177,45 @@ jobs:
   windows:
     runs-on: windows-2025
     env:
-      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\bin
+      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
       GALLIUM_DRIVER: llvmpipe
       # Where a Direct3D 12 test leaves its diff images, its info queue's messages and DRED's output (uploaded below).
       PLAYMAP_D3D12_EVIDENCE: ${{ github.workspace }}\d3d12-evidence
       # The dispatched leg's filter, read by the leg's script from the environment, never pasted into a command.
       D3D12_FILTER: ${{ inputs.d3d12 }}
+      # A hung test host's dump is written by the runtime through its diagnostics port, as on Linux, so it carries what a managed stack
+      # walk reads; the blame collector's own Windows dumper writes a mini dump of thread information alone, which no stack walk reads.
+      VSTEST_DUMP_FORCENETDUMP: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
-      - name: FFmpeg 9.0 shared libraries
+      - name: FFmpeg 9.0 shared libraries (LGPL, as the installer carries them)
         shell: pwsh
         run: |
-          # FFmpeg 9.0.2 (GPL, shared libraries) as built by FFmpeg-Builds (https://github.com/BtbN/FFmpeg-Builds), pinned by its
-          # hash. The release is a month's last build, which that project keeps for two years; a daily build is kept for 14 days
-          # and "latest" is rebuilt every day, so neither can carry a hash.
+          # wp3-installer: FFmpeg 9.0.2 as built by FFmpeg-Builds (https://github.com/BtbN/FFmpeg-Builds), pinned by hash. The LGPL
+          # shared libraries (lgpl-shared) are the ones every decode test loads and the installer ships (.ffmpeg\lib); the GPL
+          # command-line build (static, no DLLs) is on the path only to encode test media with libx264 and libx265 (.ffmpeg\bin),
+          # never beside the libraries or a test host. The release is a month's last build, which that project keeps for two years.
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-shared-9.0.zip" -OutFile ff.zip
-          $hash = (Get-FileHash ff.zip -Algorithm SHA256).Hash
-          if ($hash -ne '3DA6C7B60BB9CCD73EC5B5E815BA804A0879EB362BA0E3BEEBCE50174C022696') { throw "ff.zip is not the pinned build ($hash)" }
-          Expand-Archive ff.zip -DestinationPath ff
-          Move-Item (Get-ChildItem ff -Directory | Select-Object -First 1).FullName .ffmpeg
+          $base = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068'
+          $pins = [ordered]@{
+            'win64-lgpl-shared-9.0.zip' = '7157177B8A6CB2174C1650BA8C71B363F2C78CBA5330F88C4C02CF5B2B880646'
+            'win64-gpl-9.0.zip' = 'A0E45723C72141975F51D8666302E614711745F3102B704CA3F82C897A58D278'
+          }
+          foreach ($name in $pins.Keys) {
+            Invoke-WebRequest -Uri "$base-$name" -OutFile $name
+            $hash = (Get-FileHash $name -Algorithm SHA256).Hash
+            if ($hash -ne $pins[$name]) { throw "$name is not the pinned build ($hash)" }
+            Expand-Archive $name -DestinationPath ($name -replace '\.zip$', '')
+          }
+          New-Item -ItemType Directory -Force -Path .ffmpeg\lib, .ffmpeg\bin | Out-Null
+          $lgpl = (Get-ChildItem 'win64-lgpl-shared-9.0' -Directory | Select-Object -First 1).FullName
+          $gpl = (Get-ChildItem 'win64-gpl-9.0' -Directory | Select-Object -First 1).FullName
+          Copy-Item (Join-Path $lgpl 'bin\*.dll') .ffmpeg\lib
+          Copy-Item (Join-Path $gpl 'bin\ffmpeg.exe'), (Join-Path $gpl 'bin\ffprobe.exe') .ffmpeg\bin
+          Get-ChildItem .ffmpeg -Recurse | Select-Object FullName, Length
       - name: OpenGL 3.3 in software (Mesa llvmpipe)
         shell: pwsh
         run: |
@@ -288,9 +333,10 @@ jobs:
         if: ${{ !inputs.d3d12 }}
         shell: pwsh
         run: |
-          # A test that hangs is stopped after 5 minutes and named (no dump: a test host's dump is gigabytes), and the next
-          # project runs. No test project fails the step, and so does a suite that answers 0 but leaves no results file. The
-          # Backend=D3D12 tests run in the Direct3D 12 leg below, so each result is counted once.
+          # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
+          # reads: tens of megabytes, never the heap), read into the log after the Direct3D 12 leg, and the next project runs. No test
+          # project fails the step, and so does a suite that answers 0 but leaves no results file. The Backend=D3D12 tests run in the
+          # Direct3D 12 leg below, so each result is counted once.
           $failed = @()
           $projects = @(Get-ChildItem tests/*/*.csproj)
           if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
@@ -298,7 +344,7 @@ jobs:
             $name = $project.BaseName
             Write-Host "::group::$name"
             dotnet test $project.FullName -c Release --no-build --filter "Backend!=D3D12" --logger "trx;LogFileName=$name.trx" `
-              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
+              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
             if ($LASTEXITCODE -ne 0) { $failed += $name }
             elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
             Write-Host "::endgroup::"
@@ -327,6 +373,26 @@ jobs:
         if: ${{ !cancelled() }}
         shell: pwsh
         run: ./tools/ci-d3d12.ps1 -Leg -Filter "$env:D3D12_FILTER"
+      # A test host that --blame-hang stopped, in the suites or the Direct3D 12 leg: as on Linux, every managed thread's stack from each
+      # hang dump (dotnet-dump 10.0.750501, the .nupkg held to its SHA-256, run from the package itself); the dumps stay on the runner.
+      - name: The stacks of a hung test host (dotnet-dump, pinned)
+        if: ${{ failure() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dumps = @(Get-ChildItem tests/*/TestResults -Recurse -Filter *_hangdump.dmp -ErrorAction SilentlyContinue | Sort-Object Name -Unique)
+          if ($dumps.Count -eq 0) { Write-Host "No hang dump was written, so there are no stacks to print; a host blame stopped without writing one says so in the test step's log."; exit 0 }
+          Invoke-WebRequest -Uri 'https://api.nuget.org/v3-flatcontainer/dotnet-dump/10.0.750501/dotnet-dump.10.0.750501.nupkg' -OutFile dotnet-dump.zip
+          $hash = (Get-FileHash dotnet-dump.zip -Algorithm SHA256).Hash
+          if ($hash -ne 'AE70C9F37548E1E006467893E21AE41A005FEFAF2270E29642B415DF053324A7') { throw "dotnet-dump.zip is not the pinned package ($hash)" }
+          Expand-Archive dotnet-dump.zip -DestinationPath .tools/dotnet-dump
+          $tool = (Resolve-Path .tools/dotnet-dump/tools/net8.0/any/dotnet-dump.dll).Path
+          foreach ($dump in $dumps) {
+            Write-Host "::group::$($dump.Name)"
+            dotnet $tool analyze $dump.FullName -c 'clrstack -all' -c 'exit'
+            if ($LASTEXITCODE -ne 0) { Write-Host "::warning::dotnet-dump could not read $($dump.Name) ($LASTEXITCODE)" }
+            Write-Host '::endgroup::'
+          }
       - name: The runner's answers (M7, M14)
         # bench/r3-probe asks Windows on this runner and writes each answer, yes or no, in the summary; it fails only when it
         # writes none. M9's session calls are asked again as LocalSystem, through a scheduled task, the way the supervisor asks.
@@ -422,10 +488,337 @@ jobs:
         id: version
         # The published exe's Windows version resource, checked against this run's build number and commit: it names the artifact.
         shell: pwsh
-        run: ./tools/ci-stamp.ps1 -File publish/PlayMap/PlayMap.exe -Label 'The published exe' -Artifact 'PlayMap-{0}-win-x64'
+        run: ./tools/ci-stamp.ps1 -File publish/PlayMap/PlayMap.exe -Label 'The published exe' -Artifact 'PlayMap-{0}-win-x64-unsigned'
+      - name: The portable folder's notices and SHA256SUMS (unsigned)
+        # wp3-installer: the build is unsigned (the owner's decision, docs/round3/PLAN.md §9 decision 2): its name says so, and a
+        # SHA256SUMS file of every shipped file rides beside them, which docs/INSTALL.md says how to check. The folder carries no file
+        # of the Agility SDK (D3D12Core.dll, d3d12SDKLayers.dll, d3dconfig.exe), whose terms ride with the installer's licence page
+        # alone: a folder that carries one stops the step, and the summary says what the folder carries. It carries the notices its
+        # third-party files ask for, as the installer lays them down (installer/notices.ps1: THIRD-PARTY-NOTICES.md, OpenAL Soft's
+        # licence beside soft_oal.dll, and licenses\ with every package's own licence and notice files), before the sums list them.
+        if: ${{ !inputs.d3d12 }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $agility = @(Get-ChildItem publish/PlayMap -Recurse -File | Where-Object { $_.Name -in 'D3D12Core.dll', 'd3d12SDKLayers.dll', 'd3dconfig.exe' })
+          if ($agility.Count -gt 0) { throw "the portable folder carries the Agility SDK's $(($agility | ForEach-Object { $_.Name }) -join ', '): its terms ride with the installer's licence page alone" }
+          '- the portable folder carries no file of the Agility SDK (D3D12Core.dll, d3d12SDKLayers.dll, d3dconfig.exe)' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          ./installer/notices.ps1 -Folder publish/PlayMap -Summary
+          ./installer/sums.ps1 -Folder publish/PlayMap -Notice
+      - name: The portable folder's licences (LicenceTests)
+        # wp3-installer: the portable folder held to its licences as the installer job holds the installer's payload
+        # (docs/round3/PLAN.md §5.6 item 4, its lines on DXC and on the notices), once its notices are laid down: of DXC its compiler
+        # alone, at the worker's pin, with its licence and notices in licenses\DXC\ and no other file of DXC's package, and
+        # THIRD-PARTY-NOTICES.md naming every package and every native library the folder carries, each package's own licence and
+        # notice files beside it. Every fact of LicenceTests runs and passes, none left out.
+        if: ${{ !inputs.d3d12 }}
+        shell: pwsh
+        env:
+          PLAYMAP_SHIPPED_DIR: ${{ github.workspace }}\publish\PlayMap
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet test installer/tests/PlayMap.Installer.Tests -c Release --filter 'FullyQualifiedName~PlayMap.Installer.Tests.LicenceTests' --logger 'trx;LogFileName=PlayMap.Installer.LicenceTests.trx' -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          $code = $LASTEXITCODE
+          $trx = 'installer/tests/PlayMap.Installer.Tests/TestResults/PlayMap.Installer.LicenceTests.trx'
+          if (-not (Test-Path $trx)) { throw "LicenceTests left no results ($trx; dotnet test answered $code)" }
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          $counters = (Select-Xml -Path $trx -XPath '//t:ResultSummary/t:Counters' -Namespace $ns).Node
+          $expected = @(Select-String -Path installer/tests/PlayMap.Installer.Tests/LicenceTests.cs -Pattern '^\s*\[Fact\]').Count
+          $counts = "$($counters.executed) of $expected executed, $($counters.passed) passed, $($counters.failed) failed, $($counters.notExecuted) not executed"
+          "- LicenceTests on the portable folder: $counts" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          if ($code -ne 0) { throw "LicenceTests failed on the portable folder ($code): $counts" }
+          if ([int]$counters.executed -ne $expected -or [int]$counters.passed -ne $expected -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0) {
+            throw "LicenceTests did not all run on the portable folder: $counts"
+          }
+      - name: Upload the portable folder's licence results
+        # The LicenceTests results file is written after the job's other results are uploaded: it goes up on its own, pass or fail.
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-windows-licences
+          path: installer/tests/PlayMap.Installer.Tests/TestResults/*.trx
+          if-no-files-found: ignore
       - name: Upload the exe
         if: ${{ !inputs.d3d12 }}
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.version.outputs.artifact }}
           path: publish/PlayMap
+
+  # wp3-installer: the installer's block (docs/round3/PLAN.md §3.5). installer builds PlayMap's installer with Inno Setup (the owner's
+  # choice for this round; an MSI is revisited next round), its licence page showing installer/licence.txt, proves its life cycle
+  # elevated on the runner, holds its payload to its licences, checks the release order, and publishes the unsigned installer with
+  # its SHA256SUMS.
+  installer:
+    if: ${{ !inputs.d3d12 }}
+    runs-on: windows-2025
+    env:
+      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - name: FFmpeg 9.0.2's LGPL shared libraries (the installer's)
+        shell: pwsh
+        run: |
+          # The same pinned lgpl-shared build both test jobs load (see the windows job).
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-win64-lgpl-shared-9.0.zip' -OutFile lgpl.zip
+          $hash = (Get-FileHash lgpl.zip -Algorithm SHA256).Hash
+          if ($hash -ne '7157177B8A6CB2174C1650BA8C71B363F2C78CBA5330F88C4C02CF5B2B880646') { throw "lgpl.zip is not the pinned build ($hash)" }
+          Expand-Archive lgpl.zip -DestinationPath lgpl
+          New-Item -ItemType Directory -Force -Path .ffmpeg\lib | Out-Null
+          Copy-Item ((Get-ChildItem lgpl -Directory | Select-Object -First 1).FullName + '\bin\*.dll') .ffmpeg\lib
+      - name: The Agility SDK (its runtime for the installer)
+        shell: pwsh
+        run: ./tools/ci-d3d12.ps1 -Restore -Into d3d12
+      - name: Inno Setup 7.1 (pinned)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Inno Setup 7.1.0 (Jordan Russell's licence: any use; a commercial user is asked, not required, to buy a licence), pinned
+          # by hash and installed for this job only. The pin is the release's own: on every run it equals the digest GitHub's release
+          # API gives the asset (computed by GitHub when the asset was uploaded), and the file carries a valid Authenticode signature
+          # by its publisher, Pyrsys B.V.; a pin that is not both is refused.
+          $ErrorActionPreference = 'Stop'
+          $pin = '0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F'
+          $asset = 'innosetup-7.1.0-x64.exe'
+          $url = "https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/$asset"
+          Invoke-WebRequest -Uri $url -OutFile is.exe
+          $hash = (Get-FileHash is.exe -Algorithm SHA256).Hash
+          if ($hash -ne $pin) { throw "$url is not the pinned build ($hash)" }
+          # The release read whole and its asset found here: no filter expression crosses PowerShell's quoting.
+          $release = gh api repos/jrsoftware/issrc/releases/tags/is-7_1_0
+          if ($LASTEXITCODE -ne 0) { throw "the release API could not be read ($LASTEXITCODE): $release" }
+          $digest = @((($release -join "`n") | ConvertFrom-Json).assets | Where-Object { $_.name -eq $asset } | ForEach-Object { $_.digest }) -join ' '
+          if ("$digest".Trim() -ne "sha256:$($pin.ToLowerInvariant())") { throw "the release API's digest of $asset is '$digest', not the pin's" }
+          $signature = Get-AuthenticodeSignature is.exe
+          if ($signature.Status -ne 'Valid') { throw "$asset carries no valid signature: $($signature.Status) $($signature.StatusMessage)" }
+          if ($signature.SignerCertificate.Subject -notmatch '(^|, )CN=Pyrsys B\.V\.(,|$)') { throw "$asset is signed by $($signature.SignerCertificate.Subject), not its publisher" }
+          "- Inno Setup 7.1.0: the pin equals the release API's digest; signed by $($signature.SignerCertificate.Subject)" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          $dir = Join-Path $env:RUNNER_TEMP 'inno'
+          Start-Process .\is.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$dir`"" -Wait
+          $iscc = Join-Path $dir 'ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "Inno Setup did not install ISCC.exe in $dir" }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8NoBOM
+      - name: libvmx (OMT's codec, beside the exe)
+        shell: pwsh
+        run: |
+          # Built from the vendored source with its upstream Windows command (src/ThirdParty/libvmx/build/buildwinx64clang.cmd).
+          $ErrorActionPreference = 'Stop'
+          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
+          if (-not $clang) {
+            $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+            $clang = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang++.exe'
+          }
+          New-Item -ItemType Directory -Force -Path vmx | Out-Null
+          $src = 'src/ThirdParty/libvmx'
+          & $clang -O3 -std=c++17 -fdeclspec -mlzcnt -mavx2 -mbmi -shared "-Wl,/DEF:$src/exports.def" "$src/src/vmxcodec_x86.cpp" "$src/src/vmxcodec_avx2.cpp" "$src/src/vmxcodec.cpp" -o vmx/libvmx.dll
+          if ($LASTEXITCODE -ne 0) { throw "libvmx did not build ($LASTEXITCODE)" }
+      # The shader worker's SPIR-V validator on Windows: the same pinned SPIRV-Tools build the windows job fetches (shaderc's Windows
+      # build exports no validator), cached by its hash and named to the publish through PLAYMAP_SPIRV_TOOLS_DIR, so the engine's
+      # publish lays SPIRV-Tools-shared.dll beside the exe with the worker's other natives (build-installer.ps1 refuses a payload
+      # without one of them).
+      - name: SPIRV-Tools for the shader worker (cached by its pin)
+        uses: actions/cache@v4
+        with:
+          path: .natives/spirv-tools
+          key: spirv-tools-c6be6878878df8b9cf799126824e19275f7751a62947b70c177a74bc65ddbc0a
+      - name: SPIRV-Tools for the shader worker (pinned)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE '.natives/spirv-tools'
+          $dll = Join-Path $dir 'SPIRV-Tools-shared.dll'
+          if (-not (Test-Path $dll)) {
+            Invoke-WebRequest -Uri 'https://storage.googleapis.com/spirv-tools/artifacts/prod/graphics_shader_compiler/spirv_tools/windows-vs2022-amd64-release/continuous/261/20261016-105527/install.zip' -OutFile spirv-tools.zip
+            $hash = (Get-FileHash spirv-tools.zip -Algorithm SHA256).Hash
+            if ($hash -ne 'C6BE6878878DF8B9CF799126824E19275F7751A62947B70C177A74BC65DDBC0A') { throw "spirv-tools.zip is not the pinned build ($hash)" }
+            Expand-Archive spirv-tools.zip -DestinationPath spirv-tools
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            Copy-Item spirv-tools/install/bin/SPIRV-Tools-shared.dll $dll
+          }
+          $pinned = '288DD59CBD1473B02927950B076016641B59E9E3AA7D5C029F7E0C896397C0BB'
+          $hash = (Get-FileHash $dll -Algorithm SHA256).Hash
+          if ($hash -ne $pinned) { throw "SPIRV-Tools-shared.dll is not the pinned build ($hash)" }
+          "PLAYMAP_SPIRV_TOOLS_DIR=$dir" >> $env:GITHUB_ENV
+      - name: Publish (ReadyToRun) and the supervisor
+        id: publish
+        shell: pwsh
+        run: |
+          # Each publish's exit code checked on its own line: a step answers only its last command's.
+          dotnet publish src/PlayMap.App -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o publish/PlayMap -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { throw "the app's publish failed ($LASTEXITCODE)" }
+          dotnet publish src/PlayMap.Supervisor -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/supervisor -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { throw "the supervisor's publish failed ($LASTEXITCODE)" }
+      - name: The installers (this build and the one before it)
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $run = [long]'${{ github.run_number }}'
+          # FFmpeg from the LGPL build's extracted folder (its DLLs and its LICENSE.txt), the same pinned build .ffmpeg\lib holds.
+          $ffmpeg = (Get-ChildItem lgpl -Directory | Select-Object -First 1).FullName
+          $common = @{ Commit = '${{ github.sha }}'; Publish = 'publish/PlayMap'; Supervisor = 'publish/supervisor'; Ffmpeg = $ffmpeg; D3D12 = 'd3d12/D3D12'; Vmx = 'vmx/libvmx.dll'; Iscc = $env:ISCC }
+          # This run's version and build number, as Version.props gives them, and the build before it, numbered lower to an
+          # installer (MsiVersionRule.Previous): one build lower, or at build 1 (a raised MAJOR or MINOR) build 1 of the line below.
+          $said = (& dotnet msbuild src/PlayMap.Core/PlayMap.Core.csproj -nologo "-p:PlayMapRun=$run" '-p:PlayMapCommit=${{ github.sha }}' '-getProperty:PlayMapVersion' '-getProperty:_PlayMapBuildNumber') -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "Version.props could not be read: $said" }
+          $props = ($said.Substring($said.IndexOf('{')) | ConvertFrom-Json).Properties
+          $build = [long]$props._PlayMapBuildNumber
+          $before = (& ./publish/supervisor/PlayMap.Supervisor.exe previous-build $props.PlayMapVersion $build) -join ' '
+          if ($LASTEXITCODE -ne 0) { throw "no build comes before this one: $before" }
+          $previousVersion, $previousBuild = $before.Trim() -split ' '
+          # The previous build: the same files under that version and build, which this build upgrades.
+          $GITHUB_OUTPUT_SAVED = $env:GITHUB_OUTPUT; $env:GITHUB_OUTPUT = Join-Path $env:RUNNER_TEMP 'previous.txt'
+          ./installer/build-installer.ps1 -Run ($run - $build + [long]$previousBuild) -Version $previousVersion -Out previous @common
+          $previous = @{}; Get-Content $env:GITHUB_OUTPUT | ForEach-Object { $k, $v = $_ -split '=', 2; $previous[$k] = $v }
+          $env:GITHUB_OUTPUT = $GITHUB_OUTPUT_SAVED
+          ./installer/build-installer.ps1 -Run $run -Out artifact @common
+          "previous=$($previous.installer)", "previousVersion=$($previous.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
+          # The artifact's sums cover the installer and, through the payload's own sums beside it, every file it lays down.
+          Copy-Item (Join-Path (Get-Content $env:GITHUB_OUTPUT | Where-Object { $_ -like 'payload=*' } | Select-Object -Last 1).Substring(8) 'SHA256SUMS') artifact/SHA256SUMS.payload
+      - name: The release order
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An installer's version is greater than the last release's, or nothing is released (docs/round3/PLAN.md §1.3, rule 3). The
+          # last release's version is read from its installer's name (PlayMap-<MAJOR.MINOR.PATCH>.<BUILD>-win-x64-unsigned.exe gives
+          # MAJOR.MINOR.BUILD). It fails closed: only "release not found" means there is none yet; a release whose version cannot be
+          # read, or gh failing for any other reason, stops the step with gh's words.
+          $ErrorActionPreference = 'Stop'
+          $errors = Join-Path $env:RUNNER_TEMP 'gh-release.txt'
+          $json = gh release view --repo '${{ github.repository }}' --json tagName,assets 2> $errors
+          $code = $LASTEXITCODE
+          $said = if (Test-Path $errors) { (Get-Content $errors -Raw) } else { '' }
+          $last = ''
+          if ($code -ne 0) {
+            if ("$said" -notmatch 'release not found') { throw "the last release could not be read (gh answered $code): $said" }
+          } else {
+            $release = ($json -join "`n") | ConvertFrom-Json
+            $found = @($release.assets | ForEach-Object { if ($_.name -match '^PlayMap-(\d+)\.(\d+)\.\d+\.(\d+)-win-x64-unsigned\.exe$') { "$($Matches[1]).$($Matches[2]).$($Matches[3])" } })
+            if ($found.Count -ne 1) { throw "the last release $($release.tagName) carries $($found.Count) installers named PlayMap-<version>.<build>-win-x64-unsigned.exe: its version cannot be read" }
+            $last = $found[0]
+          }
+          ./publish/supervisor/PlayMap.Supervisor.exe version-check '${{ steps.build.outputs.version }}' "$last" --out order.txt
+          $code = $LASTEXITCODE
+          $words = (Get-Content order.txt -Raw).Trim()
+          "#### The release order", '', "- $words", '' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          if ($code -ne 0) { throw $words }
+      - name: InstallerTests, UnsignedArtifactTests and LicenceTests (elevated)
+        shell: pwsh
+        env:
+          # LicenceTests read the payload, every file the installer lays down.
+          PLAYMAP_SHIPPED_DIR: ${{ steps.build.outputs.payload }}
+          PLAYMAP_INSTALLER: ${{ steps.build.outputs.installer }}
+          PLAYMAP_INSTALLER_VERSION: ${{ steps.build.outputs.version }}
+          PLAYMAP_INSTALLER_PREVIOUS: ${{ steps.build.outputs.previous }}
+          PLAYMAP_INSTALLER_PREVIOUS_VERSION: ${{ steps.build.outputs.previousVersion }}
+          PLAYMAP_ARTIFACT_DIR: ${{ github.workspace }}\artifact
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./installer/sums.ps1 -Folder artifact -Notice
+          dotnet test installer/tests/PlayMap.Installer.Tests -c Release --logger "trx;LogFileName=PlayMap.Installer.Tests.trx" --blame-hang --blame-hang-timeout 20m --blame-hang-dump-type none
+          $code = $LASTEXITCODE
+          # What ran, from the results: every test of the project executed and passed, none left out (a run that found no test
+          # answers 0 too).
+          $trx = 'installer/tests/PlayMap.Installer.Tests/TestResults/PlayMap.Installer.Tests.trx'
+          if (-not (Test-Path $trx)) { throw "the installer's tests left no results ($trx; dotnet test answered $code)" }
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          $counters = (Select-Xml -Path $trx -XPath '//t:ResultSummary/t:Counters' -Namespace $ns).Node
+          $expected = @(Select-String -Path installer/tests/PlayMap.Installer.Tests/*.cs -Pattern '^\s*\[Fact\]').Count
+          $counts = "$($counters.executed) of $expected executed, $($counters.passed) passed, $($counters.failed) failed, $($counters.notExecuted) not executed"
+          "- InstallerTests, UnsignedArtifactTests and LicenceTests: $counts" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          if ($code -ne 0) { throw "the installer's tests failed ($code): $counts" }
+          if ([int]$counters.executed -ne $expected -or [int]$counters.passed -ne $expected -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0) {
+            throw "the installer's tests did not all run: $counts"
+          }
+          "#### The installer", '', "- ``$(Split-Path $env:PLAYMAP_INSTALLER -Leaf)`` (installer version $env:PLAYMAP_INSTALLER_VERSION, $([math]::Round((Get-Item $env:PLAYMAP_INSTALLER).Length / 1MB, 1)) MB): installed, upgraded from $env:PLAYMAP_INSTALLER_PREVIOUS_VERSION, a downgrade refused, uninstalled, on windows-2025 (InstallerTests)", '' |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+      - name: mDNS beside Windows' own responder (a probe, not a gate)
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          # The published engine announces _playmap._tcp on 5353 beside Windows' own mDNS responder (docs/round3/PLAN.md §3.5 item 4).
+          # Asked twice, the answer of each in the summary: through Windows' resolver (Resolve-DnsName), and as a DNS-SD browser on
+          # the wire does (a PTR query to 224.0.0.251:5353, every answer for 3 s). A refusal is an answer too: it decides stretch 10.
+          $nodeHome = Join-Path $env:RUNNER_TEMP 'mdns-node'
+          New-Item -ItemType Directory -Force -Path $nodeHome | Out-Null
+          $engine = Start-Process (Resolve-Path publish/PlayMap/PlayMap.exe).Path -ArgumentList 'engine', 'headless', '--home', $nodeHome, '--name', 'mdns-probe', '--http', '19940', '--wire', '19941' -PassThru -WindowStyle Hidden
+          $lines = @("#### mDNS: _playmap._tcp beside Windows' own responder", '')
+          try {
+            Start-Sleep -Seconds 20
+            if ($engine.HasExited) { $lines += "- the engine ended before it was asked (exit $($engine.ExitCode)); its log: $nodeHome" }
+            try {
+              $found = @(Resolve-DnsName -Name '_playmap._tcp.local' -Type PTR -ErrorAction Stop | ForEach-Object { "$($_.Name) -> $($_.NameHost)" })
+              $lines += "- Windows' resolver (Resolve-DnsName PTR _playmap._tcp.local): $(if ($found) { $found -join '; ' } else { 'no record' })"
+            } catch { $lines += "- Windows' resolver (Resolve-DnsName PTR _playmap._tcp.local) refused: $($_.Exception.Message)" }
+            $query = [byte[]](0,0, 0,0, 0,1, 0,0, 0,0, 0,0) + [byte[]](8) + [Text.Encoding]::ASCII.GetBytes('_playmap') + [byte[]](4) + [Text.Encoding]::ASCII.GetBytes('_tcp') + [byte[]](5) + [Text.Encoding]::ASCII.GetBytes('local') + [byte[]](0, 0,12, 0,1)
+            $udp = [Net.Sockets.UdpClient]::new([Net.Sockets.AddressFamily]::InterNetwork)
+            try {
+              $udp.Client.SetSocketOption([Net.Sockets.SocketOptionLevel]::Socket, [Net.Sockets.SocketOptionName]::ReuseAddress, $true)
+              $udp.Client.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Any, 5353))
+              $udp.JoinMulticastGroup([Net.IPAddress]::Parse('224.0.0.251'))
+              $udp.Client.ReceiveTimeout = 500
+              [void]$udp.Send($query, $query.Length, '224.0.0.251', 5353)
+              $answers = @()
+              $deadline = [DateTime]::UtcNow.AddSeconds(3)
+              while ([DateTime]::UtcNow -lt $deadline) {
+                try {
+                  $from = [Net.IPEndPoint]::new([Net.IPAddress]::Any, 0)
+                  $packet = $udp.Receive([ref]$from)
+                  # Responses only (QR set), and only those that carry an answer naming the service.
+                  if ($packet.Length -gt 12 -and ($packet[2] -band 0x80) -and ((($packet[6] -shl 8) + $packet[7]) -gt 0)) {
+                    $text = [Text.Encoding]::ASCII.GetString($packet)
+                    if ($text.Contains('_playmap')) { $answers += "$($from.Address) ($(if ($text.Contains('mdns-probe')) { 'names the instance mdns-probe' } else { 'names another instance' }))" }
+                  }
+                } catch [Net.Sockets.SocketException] {
+                  # No packet within the half second: the next look, until the 3 s are up.
+                }
+              }
+              $lines += "- a DNS-SD browse on the wire (PTR _playmap._tcp.local to 224.0.0.251:5353, 3 s): $(if ($answers) { 'answered by ' + (($answers | Select-Object -Unique) -join ', ') } else { 'no answer' })"
+            } catch { $lines += "- a DNS-SD browse on the wire could not be asked: $($_.Exception.Message)" }
+            finally { $udp.Dispose() }
+          } finally {
+            if (-not $engine.HasExited) { Stop-Process -Id $engine.Id -Force }
+          }
+          $lines += ''
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          $lines | Write-Host
+      - name: M9 on the runner (a probe, not a gate)
+        if: ${{ !cancelled() && steps.publish.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          # The supervisor's session calls asked as LocalSystem through a scheduled task, as the service asks them; the answer, yes
+          # or no, goes to the summary. A task the runner refuses is an answer too.
+          $exe = (Resolve-Path publish/supervisor/PlayMap.Supervisor.exe).Path
+          $out = Join-Path $env:RUNNER_TEMP 'session-probe.md'
+          $task = 'PlayMap session probe'
+          try {
+            Register-ScheduledTask -TaskName $task -Action (New-ScheduledTaskAction -Execute $exe -Argument "session-probe --out `"$out`"") `
+              -Principal (New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest) -Force | Out-Null
+            Start-ScheduledTask -TaskName $task
+            $deadline = [DateTime]::UtcNow.AddSeconds(90)
+            while (-not (Test-Path $out) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 2 }
+            Unregister-ScheduledTask -TaskName $task -Confirm:$false
+          } catch { "#### M9: the supervisor's session calls", '', "- could not be asked: $($_.Exception.Message)", '' | Out-File -FilePath $out -Encoding utf8NoBOM }
+          if (-not (Test-Path $out)) { "#### M9: the supervisor's session calls", '', '- no answer within 90 s', '' | Out-File -FilePath $out -Encoding utf8NoBOM }
+          Get-Content $out | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+          Get-Content $out | Write-Host
+      - name: Upload the installer
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: PlayMap-${{ steps.build.outputs.file }}-win-x64-unsigned-installer
+          path: artifact
+      - name: Upload the installer's test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-installer
+          path: "installer/tests/**/TestResults/*.trx"
+          if-no-files-found: ignore

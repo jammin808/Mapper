@@ -7,7 +7,7 @@ namespace PlayMap.Net.Tests.Phone;
 internal static class NodeTools
 {
     private static readonly Lazy<string?> NodePath = new(() => Find("node"));
-    private static readonly Lazy<string?> GlobalRoot = new(() => Output("npm", "root -g"));
+    private static readonly Lazy<string?> GlobalRoot = new(() => Output("npm", ["root", "-g"]));
 
     public static string? Node => NodePath.Value;
 
@@ -37,24 +37,11 @@ internal static class NodeTools
         return null;
     }
 
-    private static string? Output(string tool, string args)
+    /// <summary>What a tool on PATH wrote, read once it has exited (<see cref="ToolProbe"/>), or null.</summary>
+    private static string? Output(string tool, string[] args)
     {
         var path = Find(tool) ?? (OperatingSystem.IsWindows() ? Find(tool + ".cmd") : null);
-        if (path is null)
-            return null;
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo(path, args) { RedirectStandardOutput = true, UseShellExecute = false });
-            if (p is null)
-                return null;
-            var text = p.StandardOutput.ReadToEnd().Trim();
-            p.WaitForExit(30_000);
-            return text;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return null;
-        }
+        return path is null ? null : ToolProbe.Run(path, args, ToolProbe.Deadline);
     }
 
     /// <summary>Runs a script of tests/e2e/phonescan to its end; answers its exit code and what it wrote.</summary>

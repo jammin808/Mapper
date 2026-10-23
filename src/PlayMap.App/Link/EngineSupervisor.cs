@@ -41,18 +41,22 @@ public interface IEngineProcess : IDisposable
 /// <summary>Starts this machine's engine ("PlayMap engine", the same exe in its own process) and restarts it
 /// when it stops, with <see cref="RestartBackoff"/>. Closing the desk stops the watching, never the engine:
 /// a desk that closes or faults never blanks a projector, and the next desk re-attaches on loopback. An
-/// engine that exits with 0 was asked to stop and is not restarted.</summary>
+/// engine that exits with 0 was asked to stop and is not restarted. On a supervised machine the desk starts no engine: the
+/// machine's supervisor keeps it.</summary>
 public sealed class EngineSupervisor : IAsyncDisposable
 {
     private readonly Func<IEngineProcess?> _start;
     private readonly TimeProvider _time;
     private readonly RestartBackoff _backoff;
     private readonly CancellationTokenSource _stop = new();
+    private readonly Func<bool> _supervised;
     private Task _loop = Task.CompletedTask;
 
-    public EngineSupervisor(Func<IEngineProcess?>? start = null, TimeProvider? time = null, RestartBackoff? backoff = null)
+    public EngineSupervisor(Func<IEngineProcess?>? start = null, TimeProvider? time = null, RestartBackoff? backoff = null,
+        Func<bool>? supervisedMachine = null)
     {
         _start = start ?? StartOwnEngine;
+        _supervised = supervisedMachine ?? Engine.Install.InstallFacts.SupervisedMachine;
         _time = time ?? TimeProvider.System;
         _backoff = backoff ?? new RestartBackoff();
     }
@@ -73,12 +77,21 @@ public sealed class EngineSupervisor : IAsyncDisposable
     /// <summary>The note a start makes, before the engine's first start of a watch.</summary>
     public const string StartingWords = "Starting this machine's engine…";
 
+    /// <summary>The note a start makes on a supervised machine, whose engine is its supervisor's, never the desk's to start.</summary>
+    public const string SupervisedWords = "This machine's engine is kept by its supervisor — the desk attaches to it.";
+
     /// <summary>Starts watching this machine's engine: true when this call began a watch (it notes <see cref="StartingWords"/>, then
-    /// starts the engine), false when one already runs and nothing was started.</summary>
+    /// starts the engine); false, with nothing started, when one already runs or when this machine's supervisor keeps its engine (it
+    /// notes <see cref="SupervisedWords"/>, and the desk attaches on loopback to the engine the supervisor runs).</summary>
     public bool Start()
     {
         if (IsWatching)
             return false;
+        if (_supervised())
+        {
+            Note?.Invoke(SupervisedWords);
+            return false;
+        }
         Note?.Invoke(StartingWords);
         _loop = WatchAsync(_stop.Token);
         return true;

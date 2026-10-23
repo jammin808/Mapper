@@ -250,7 +250,7 @@ Total ≤2 min from step 2. Everything stays local. **We film this storyboard as
 ### 5.2 First light (new user, laptop, one projector)
 
 1. Launch PlayMap. Builds are unsigned for now, so SmartScreen names an unknown publisher on a downloaded build, and so does UAC at round 3's installer; where Smart App Control enforces, it blocks an unsigned build outright until it is turned off (`docs/round3/design/installer.md` §6). A first-run card offers "Light a wall" and "Bring my setup".
-2. Round 3's installer adds the firewall rules once, so an installed node on a private or domain network meets no firewall prompt; on the Public profile preflight names the missing rule. A folder run, today's way, meets Windows Firewall's prompt; the desk explains in one sentence why (the engine and desk talk over the network) and that "Private networks only" is fine.
+2. Round 3's installer adds the firewall rules once, so an installed node on a private or domain network meets no firewall prompt; on the Public profile preflight names the missing rule. A folder run meets Windows Firewall's prompt; the desk explains in one sentence why (the engine and desk talk over the network) and that "Private networks only" is fine.
 3. Displays are listed by EDID name. Click the projector: it goes fullscreen with `pattern.identify`.
 4. Choose "Draw 4 corners" or "Scan with this camera".
 5. With 4 corners: click, nudge, done. Drop any clip; it loops with a 0.5 s fade.

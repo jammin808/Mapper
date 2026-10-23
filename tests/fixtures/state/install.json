@@ -1,1 +1,26 @@
-{}
+{
+  "machine": {
+    "install": {
+      "installed": true,
+      "msi": "0.2.17",
+      "dir": "C:\\Program Files\\PlayMap",
+      "supervised": true,
+      "showUser": "SHOWNODE\\show",
+      "supervisor": {
+        "state": "running",
+        "pid": 4120,
+        "restarts": 0,
+        "lastCause": "",
+        "freezeRule": "active: open outputs\u0027 shown frames may stand still 3 s while the GPU runs",
+        "at": 1760000000000
+      },
+      "autoLogon": {
+        "on": true,
+        "user": "show"
+      },
+      "signed": false,
+      "light": "green",
+      "words": "installed 0.2.17 in C:\\Program Files\\PlayMap, supervised (running, 0 restarts in ten minutes)"
+    }
+  }
+}

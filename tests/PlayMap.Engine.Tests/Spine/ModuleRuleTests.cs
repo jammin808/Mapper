@@ -5,7 +5,8 @@ namespace PlayMap.Engine.Tests.Spine;
 /// <summary>The module rules, read from the project files: Core references only the runtime; an edge references Core and its own
 /// packages, no other PlayMap project (vendored source under src/ThirdParty aside), so only the composition roots — the engine and
 /// the desk — put edges together; the Direct3D 12 backend never references the GL backend; only the desk references Avalonia; and
-/// the solution builds every project of the tree, the installer's project staying outside it (an MSI builds on Windows only).</summary>
+/// the solution builds every project under src, tests and tools and no installer project: the installer is Inno Setup's script, and
+/// it and its Windows-only tests (installer/) are built by the installer job alone.</summary>
 public sealed class ModuleRuleTests
 {
     /// <summary>A project file's references: the PlayMap projects by name, and the packages with the version each pins.</summary>

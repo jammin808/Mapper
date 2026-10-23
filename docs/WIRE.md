@@ -479,3 +479,7 @@ with no package code. No node answers one until its package routes it. Until the
   gated as `UNDO`: drafted for the blind owner, the operator's while armed, a remote's refused while armed) ([undo](wire/undo.md)).
   `STATE.show.lastGo` names each playlist's last accepted GO with its leader time, its wall time and its session, so every client
   sees a GO another made ([show](wire/show.md)).
+- **Written:** wp3-installer's key; the package has no rows. Every node the exe composes writes `machine.install` in STATE and
+  preflight's `install` section: on a folder run `installed` false and `supervisor` null; on an installed node the installer's
+  version (MAJOR.MINOR.BUILD), its folder, the supervised mark, the show user, the supervisor's status, auto-logon on and for whom
+  (never a password), the edition and `signed`, read at most every two seconds ([install](wire/install.md)).

@@ -110,6 +110,9 @@ public sealed class PromoteTests
             Assert.InRange(offsets.Max() - offsets.Min(), 0, 1_000_000);
             Assert.Equal(1, Sync(two).GetProperty("epoch").GetInt64());
             Assert.Null(Item(two, "fleet:leader"));
+            // The row of follower 2's follow says whether its epoch was kept for the next start: it is written once the settings file
+            // has taken the epoch or refused it, after STATE shows it.
+            Assert.True(await Eventually.TrueAsync(() => two.Journal().Contains("leads show now (epoch 1)", StringComparison.Ordinal), 15000), two.Journal());
             Assert.Contains("leads show now (epoch 1)", two.Journal(), StringComparison.Ordinal);
             // A promotion of a node that leads already says so.
             Assert.Contains("leads show already", (await one.RunAsync("FLEET PROMOTE")).Payload, StringComparison.Ordinal);
@@ -118,6 +121,92 @@ public sealed class PromoteTests
         {
             await leader.DisposeAsync();
         }
+    }
+
+    /// <summary>A follower whose settings file refuses every write follows its group's new leader all the same, under the epoch that
+    /// leader took, for this run: the row of its follow says the epoch is not kept for the next start, and STATE shows the new leader
+    /// and the epoch by the time that row is written.</summary>
+    [Fact]
+    public async Task AFollowerWhoseSettingsCannotKeepItsNewLeadersEpochSaysSoInTheRowOfItsFollow()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        var leader = await BackupRig.StartAsync("FOH", BackupRig.PrimaryId, new OffsetClock(clock, 3 * Second), time);
+        await using var one = await BackupRig.StartAsync("Stage 1", BackupRig.BackupId, clock, time);
+        await using var two = await BackupRig.StartAsync("Stage 2", BackupRig.ThirdId, clock, time);
+        try
+        {
+            foreach (var rig in new[] { leader, one, two })
+                await SyncRig.OpenShowAsync(rig);
+            await leader.OkAsync("SYNC LEAD show");
+            await BackupRig.MeetAsync(leader, one, two);
+            Assert.True(await Eventually.TrueAsync(() => one.Network.Hello!.Peers.Find(leader.Id)?.Hello.Port("sync") == leader.Network.SyncPort
+                && two.Network.Hello!.Peers.Find(leader.Id)?.Hello.Port("sync") == leader.Network.SyncPort));
+            await one.OkAsync("SYNC FOLLOW show " + leader.Id);
+            await two.OkAsync("SYNC FOLLOW show " + leader.Id);
+            await SyncRig.CaughtUpAsync(leader, one);
+            await SyncRig.CaughtUpAsync(leader, two);
+            Assert.True(await Eventually.TrueAsync(() => KnowsInGroup(two, one) && KnowsInGroup(one, two)), two.Journal());
+            await leader.StopAsync();
+            clock.Advance(3 * Second + Second / 2);
+            Assert.True(await Eventually.TrueAsync(() => one.Engine.Services.Clock.IsHolding && two.Engine.Services.Clock.IsHolding), Sync(two).ToString());
+
+            two.Home.WriteFile = (_, _) => throw new IOException("disk full");
+            var follow = new RowWatch(two, "fleet", "leads show now (epoch 1)", () => two.Engine.Services.Backup!.Epoch == 1);
+            var promoted = await one.RunAsync("FLEET PROMOTE");
+            Assert.True(promoted.Ok, promoted.Payload);
+            var (row, state, pushedBefore) = await follow.SeenAsync(TimeSpan.FromSeconds(15));
+            var atRow = state.GetProperty("sync");
+
+            Assert.EndsWith("following it on the same time line — not kept for the next start (the node's settings could not be written: disk full)",
+                row.Text, StringComparison.Ordinal);
+            Assert.False(row.Ok);
+            // By the time the row is written, STATE shows the new leader and the epoch, and a push of it has been raised.
+            Assert.Equal((one.Id, 1L), (atRow.GetProperty("leader").GetString(), atRow.GetProperty("epoch").GetInt64()));
+            Assert.True(pushedBefore, "no push of STATE was raised between the epoch's move and the row");
+            Assert.Equal(1, two.Engine.Services.Backup!.Epoch);
+            Assert.Equal(0, two.Home.LoadSettings("x").Fleet.Epoch);
+        }
+        finally
+        {
+            await leader.DisposeAsync();
+        }
+    }
+
+    /// <summary>A leader that hears a member of its group lead it under a higher epoch (the member was promoted while the leader was cut
+    /// off from it) steps down and follows it under that epoch, for this run though its settings file refuses the write: the row of its
+    /// step-down says the epoch is not kept for the next start, and STATE shows it following the new leader under that epoch, and has
+    /// been pushed, by the time that row is written.</summary>
+    [Fact]
+    public async Task ALeaderWhoseSettingsCannotKeepTheEpochItStepsDownUnderSaysSoInTheRowOfItsStepDown()
+    {
+        var clock = new ManualClock(1_000 * Second);
+        var time = new ManualTime();
+        await using var leader = await BackupRig.StartAsync("FOH", BackupRig.PrimaryId, new OffsetClock(clock, 3 * Second), time);
+        await using var member = await BackupRig.StartAsync("Stage 1", BackupRig.BackupId, clock, time);
+        foreach (var rig in new[] { leader, member })
+            await SyncRig.OpenShowAsync(rig);
+        await leader.OkAsync("SYNC LEAD show");
+        await BackupRig.MeetAsync(leader, member);
+        Assert.True(await Eventually.TrueAsync(() => member.Network.Hello!.Peers.Find(leader.Id)?.Hello.Port("sync") == leader.Network.SyncPort));
+        await member.OkAsync("SYNC FOLLOW show " + leader.Id);
+        await SyncRig.CaughtUpAsync(leader, member);
+        Assert.True(await Eventually.TrueAsync(() => KnowsInGroup(leader, member)), leader.Journal());
+
+        leader.Home.WriteFile = (_, _) => throw new IOException("disk full");
+        var stepDown = new RowWatch(leader, "fleet", "steps down and follows it", () => leader.Engine.Services.Backup!.Epoch == 1);
+        var promoted = await member.RunAsync("FLEET PROMOTE");
+        Assert.True(promoted.Ok, promoted.Payload);
+        var (row, state, pushedBefore) = await stepDown.SeenAsync(TimeSpan.FromSeconds(15));
+
+        Assert.Equal("Stage 1 leads show under epoch 1, above this node's: FOH steps down and follows it — not kept for the next start "
+            + "(the node's settings could not be written: disk full)", row.Text);
+        Assert.False(row.Ok);
+        var atRow = state.GetProperty("sync");
+        Assert.Equal(("follower", member.Id, 1L), (atRow.GetProperty("role").GetString(), atRow.GetProperty("leader").GetString(), atRow.GetProperty("epoch").GetInt64()));
+        Assert.True(pushedBefore, "no push of STATE was raised between the epoch's move and the row");
+        Assert.Equal(1, leader.Engine.Services.Backup!.Epoch);
+        Assert.Equal(0, leader.Home.LoadSettings("x").Fleet.Epoch);
     }
 
     /// <summary>The node knows the peer as a member of its group and heard it over its pinned certificate.</summary>

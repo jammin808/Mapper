@@ -211,7 +211,22 @@
       "latencyWords": ""
     },
     "views": [],
-    "gl": "glx"
+    "gl": "glx",
+    "install": {
+      "installed": false,
+      "msi": "",
+      "dir": "",
+      "supervised": false,
+      "showUser": "",
+      "supervisor": null,
+      "autoLogon": {
+        "on": false,
+        "user": ""
+      },
+      "signed": false,
+      "light": "grey",
+      "words": "not installed: a folder run, which nothing restarts if it stops"
+    }
   },
   "project": {
     "id": "pr_fixture",

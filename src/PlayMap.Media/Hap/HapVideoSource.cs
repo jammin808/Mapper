@@ -4,6 +4,7 @@ using FFmpeg.AutoGen;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Hap;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Frames;
@@ -163,7 +164,9 @@ public sealed unsafe class HapVideoSource : IVideoSource
         var wake = new Action(() => _wake.Set());
         _queue = new FrameQueue(queue, _stats, wake);
         _pool = new FramePool(_queue.Capacity + 4, wake);
-        LockWaits.Prepare(_queue.Gate, _queue.LeaseGate, _pool.Gate, _stats.Gate);
+        // The read and decode threads meet at the packet ring every frame, the decode thread writes into the renderer's arena under
+        // its gate, and the renderer and readers take the queue's, the pool's and the counters': a first wait allocates nothing.
+        LockWaits.Prepare(_queue.Gate, _queue.LeaseGate, _pool.Gate, _stats.Gate, _ringGate, _arenaGate);
         _queue.SetLoopInitial(_options.Loop, _options.InNs, _options.OutNs);
         _readThread = new Thread(ReadRun) { IsBackground = true, Name = "hap read " + System.IO.Path.GetFileName(path) };
         _readThread.Start();

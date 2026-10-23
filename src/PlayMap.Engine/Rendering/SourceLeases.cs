@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using PlayMap.Core.Media;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Engine.Rendering;
 
@@ -59,6 +60,9 @@ internal sealed class RemappedLeasePool
 {
     private readonly Lock _gate = new();
     private readonly Stack<RemappedLease> _free = new();
+
+    /// <summary>A pool whose lock has its wait event: a lease returned off the render thread as it wraps one allocates nothing.</summary>
+    public RemappedLeasePool() => LockWaits.Prepare(_gate);
 
     public VideoFrameLease? Wrap(VideoFrameLease? inner, long epoch)
     {
