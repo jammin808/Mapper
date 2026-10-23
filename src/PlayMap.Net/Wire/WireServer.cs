@@ -18,6 +18,10 @@ public sealed record WireServerOptions
     /// <summary>STATE pushes trail a change by this much; changes inside the window coalesce (latest wins).</summary>
     public TimeSpan PushThrottle { get; init; } = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>The clock <see cref="PushThrottle"/> is counted on: the system's on a node; a test moves its own, so the pushes a run of
+    /// changes makes do not hang on how fast the test makes them.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
+
     /// <summary>While the node animates, STATE is read at least this often for its listeners.</summary>
     public TimeSpan AnimatingPushEvery { get; init; } = TimeSpan.FromSeconds(1);
 

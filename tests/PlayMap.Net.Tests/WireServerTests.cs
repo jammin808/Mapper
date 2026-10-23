@@ -230,18 +230,24 @@ public class WireServerTests
         Assert.StartsWith("OK @p PONG 3 ", await c.AskAsync("@p PING 3"), StringComparison.Ordinal);
     }
 
+    /// <summary>The throttle's window runs on a clock the test moves once the window stands: the changes made inside it are one push,
+    /// however slowly the test makes them, and a push that would say what the last one said is skipped.</summary>
     [Fact]
     public async Task PushesAreThrottledLatestWinsAndNeverRepeated()
     {
         var endpoint = new FakeEndpoint();
-        await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true));
+        var time = new ManualTime();
+        var options = new WireServerOptions { PlainAuthOnLoopback = false, Time = time };
+        await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), options);
         await using var c = await LineClient.ConnectAsync(server.Port);
         Assert.Equal("OK", await c.AskAsync("HELLO Stagewatch"));
         Assert.Contains("\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
 
         for (var i = 0; i < 50; i++)
             endpoint.Publish();
-        var states = new List<string>();
+        Assert.True(await Eventually.TrueAsync(() => time.Waiting >= 1), "no push window stands");
+        time.Advance(options.PushThrottle);
+        var states = new List<string> { await c.ReadAsync() ?? "" };
         while (await c.TryReadAsync(700) is { } line)
             states.Add(line);
         Assert.InRange(states.Count, 1, 2);
@@ -249,8 +255,10 @@ public class WireServerTests
 
         endpoint.Touch();
         endpoint.Touch();
+        Assert.True(await Eventually.TrueAsync(() => time.Waiting >= 1), "no push window stands for the touches");
+        time.Advance(options.PushThrottle);
         Assert.Null(await c.TryReadAsync(600));
-        Assert.True(server.PushesSkipped >= 1);
+        Assert.True(await Eventually.TrueAsync(() => server.PushesSkipped >= 1), $"skipped {server.PushesSkipped}");
     }
 
     [Fact]

@@ -441,10 +441,12 @@ public sealed class OptimiseJobTests(ITestOutputHelper log)
         Assert.Equal(JobStates.Done, rig.Job(jobId).State);
     }
 
+    /// <summary>The job is cancelled while it runs: its partial file is on disk only while the clip encodes, so the worker is held after
+    /// its first frame (<see cref="OptimiseRig.HeldAtFirstFrame"/>) and the cancel lands mid-job however fast the encoder runs.</summary>
     [FfmpegFact]
     public async Task CancelStopsTheRunningJobAndLeavesNoPartialFile()
     {
-        await using var rig = OptimiseRig.Start();
+        await using var rig = OptimiseRig.Start(options: OptimiseRig.HeldAtFirstFrame());
         var id = await rig.ImportAsync(OptimiseClips.Mpeg4WithAudio(rig.Dir.FullName, 640, 360, 10), "Clip");
         using var reply = JsonDocument.Parse(await rig.Ok($"MEDIA OPTIMISE {id} TO hap-q"));
         var jobId = reply.RootElement.GetProperty("jobs")[0].GetProperty("id").GetString()!;

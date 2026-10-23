@@ -33,7 +33,8 @@ public class ClockSyncTests
         try
         {
             Assert.True(await Eventually.TrueAsync(() => follower.Snapshot.Samples >= 8));
-            Assert.True(leader.Answered >= 8);
+            // The responder counts an answer once its send has returned, which can be after the follower has taken that answer in.
+            Assert.True(await Eventually.TrueAsync(() => leader.Answered >= 8), $"answered {leader.Answered}");
         }
         finally
         {

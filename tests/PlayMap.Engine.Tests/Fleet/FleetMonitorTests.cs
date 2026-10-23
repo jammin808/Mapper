@@ -16,11 +16,15 @@ using PlayMap.Net.Fleet;
 namespace PlayMap.Engine.Tests.Fleet;
 
 /// <summary>Two nodes on loopback, each with the fleet's part on its own hand-moved clock: B appears in A's FLEET when B's first HEALTH
-/// arrives (the subscription is pushed, over TLS pinned by B's hello); B stopped is stale at 3 s and gone, red with words, at 6 s of
-/// A's clock, and stays on the board. The web port's /health and /fleet are open reads that change nothing.</summary>
+/// arrives (the subscription is pushed, over TLS pinned by B's hello; A's clock moves only while A's monitor waits to dial again); B
+/// stopped is stale at 3 s and gone, red with words, at 6 s of A's clock, and stays on the board. The web port's /health and /fleet are
+/// open reads that change nothing.</summary>
 public sealed class FleetMonitorTests
 {
     private static readonly string[] Reads = ["/health", "/fleet"];
+
+    /// <summary>How often the monitor ages liveness (<see cref="FleetMonitorOptions.SweepEvery"/>, which the fleet's part leaves as it is).</summary>
+    private static readonly TimeSpan SweepEvery = TimeSpan.FromMilliseconds(250);
 
     internal static EngineParts Parts(ManualTime time) => new()
     {
@@ -48,9 +52,15 @@ public sealed class FleetMonitorTests
             Assert.Null(Machine(a, b.Id));
             HostRig.Introduce(a, b);
 
-            // Event-driven: B's hello, the subscription, B's first record pushed at once — no clock moved.
-            Assert.True(await Eventually.TrueAsync(() => Machine(a, b.Id) is { } m && m.GetProperty("heard").GetString() == "live"), a.Journal());
-            Assert.Equal(0, timeA.GetTimestamp());
+            // Event-driven: B's hello, the subscription, B's first record pushed at once — no clock moved but by the steps the wait gives
+            // A's monitor while it waits on A's clock to dial again (none when its first subscription to B was heard; a first one that
+            // ended unheard, refused or cut, is dialled again only once its backoff has run out on that clock). Each step is the
+            // monitor's sweep (250 ms), so B's record is heard at an instant a sweep ages from, as on the unmoved clock, and the
+            // advances below cross 3 s and 6 s of its silence at a sweep.
+            var (live, redial) = await FleetWait.UntilAsync(() => Machine(a, b.Id) is { } m && m.GetProperty("heard").GetString() == "live",
+                a.Engine.Services.FleetPeers as FleetMonitor, [timeA], SweepEvery);
+            Assert.True(live, $"A does not hear B live: {FleetWait.Knows(a, b)}\n{a.Journal()}");
+            Assert.Equal(redial.Ticks, timeA.GetTimestamp());
             var peer = a.Engine.Services.FleetPeers!.Peers().Single(p => p.Id == b.Id);
             Assert.Equal("pinned", peer.Pin);   // B's hello offers TLS: the certificate is checked and pinned on its first record
             Assert.Equal("FOH-B", peer.Health!.Facts.Name);

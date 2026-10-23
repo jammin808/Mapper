@@ -407,24 +407,37 @@ public sealed class ScanEngineTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>A simulated scan is "scanning" only while its patterns render, back to back on its own thread, and goes on to its
+    /// decode without a pause: the scan is held at its first pattern, where its stage reads "scanning", until the cancel is in.</summary>
     [Fact]
     public async Task AScanIsRefusedWithoutACameraAndCancelGivesTheOutputsBack()
     {
+        using var hold = new ManualResetEventSlim(false);
+        var scanning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var rig = new OpsRig(project: TwoProjectors());
         try
         {
+            // Heard on the scan's own thread once the step is stored: the scan waits there until the test lets it go.
+            rig.Scanner.Progressed += v =>
+            {
+                if (v.Stage == "scanning" && scanning.TrySetResult())
+                    hold.Wait(TimeSpan.FromMinutes(2));
+            };
             var none = await rig.Run("SCAN START cm00000009");
             Assert.False(none.Ok);
             Assert.Contains("sim", none.Payload, StringComparison.Ordinal);
             Assert.True((await rig.Run("SCAN START sim pj00000001 MODE FAST")).Ok);
+            await scanning.Task.WaitAsync(TimeSpan.FromSeconds(30));
             Assert.True(await OpsRig.Eventually(() => rig.Scanner.View?.Stage == "scanning", 30_000));
             Assert.True((await rig.Run("SCAN CANCEL")).Ok);
+            hold.Set();
             Assert.True(await OpsRig.Eventually(() => rig.Scanner.Current?.State == "cancelled", 30_000), rig.Scanner.Current?.State);
             Assert.Empty(rig.Engine.Store.Project.Stage.Scans);
             Assert.False((await rig.Run("SCAN CANCEL")).Ok);
         }
         finally
         {
+            hold.Set();
             await rig.DisposeAsync();
             rig.DeleteFolder();
         }
