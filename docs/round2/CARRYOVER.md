@@ -597,7 +597,7 @@ Round 2 W1 notes:
   part by part on the engine's clock (`StateParts`: STATE's top-level parts, each package by its hook word) beside its thread's own
   processor time, and a write after the first of 1 s or more that is the longest since the first is journalled as an ok row
   ("STATE took … ms (… ms in videoio, its thread working … ms) to write, the longest since its first"). Journalled first as not ok,
-  that row reached the context's recent rows as "refused: STATE took …" (`ContextBuilder` prefixes every row not ok so), a refusal
+  that row reached the context's recent rows as "refused: STATE took …" (`ContextBuilder` then prefixed every row not ok so), a refusal
   that never happened, and the first write, which the "is up" row already says, was journalled too whenever it took a second (the
   review's start pinned to one core beside eight spinning loops: 2 713 ms) and was the measure every later write had to pass, so a
   slow reader's STATE after a slower first build went unjournalled. A writer
@@ -635,11 +635,17 @@ Round 2 W1 notes:
   lock around PDH's collect, so a stalled reading parked one more pool thread each second without bound; a tick now takes none while
   a reading is in flight (`MachineSamplerTests.TicksWhileAReadingStallsTakeNoneOfTheirOwn`: without the guard its second advance
   parked in the reader and its 10 s wait ran out; now one reading in all until the held one returns). It is not on STATE's path.
-- Open: the context's recent rows put "refused: " in front of every journal row that is not ok (`ContextBuilder.Build`: `r.Ok ?
-  r.Text : "refused: " + r.Text`), and not ok is how a fault, a sync warning ("… went quiet: free-wheeling …"), a decode or media
-  word and a claim Windows refused ("… was refused: …", so "refused: " twice) are journalled, so each reads there as a refusal of a
-  line to MCP's get_context, Patterns, Stagewatch and the assistant (`BackupTests` asserts the prefix as it is). Prefixing a row by
-  its kind (a refusal's "refused: ", a fault's its own), with a test that reads the context's recent rows, closes it.
+- Done, off the open list: the context's recent rows say what each row is. A row that is not ok is prefixed by its kind
+  (`ContextBuilder.Build`: `r.Ok ? r.Text : r.Kind + ": " + r.Text`), so a refusal still reads "refused: …", a fault "fault: …", a
+  sync warning "sync: … went quiet: free-wheeling …", a decode or media word "decode: …" or "media: …" and a claim Windows refused
+  "machine: … was refused: …"; an ok row reads as written. Every row that was not ok read "refused: " before, so to MCP's
+  get_context, Patterns, Stagewatch and the assistant a fault or a warning was a refusal of a line (and a claim Windows refused said
+  "refused: " twice). `ContextRecentTests.ARowThatIsNotOkSaysItsKindAndAnOkRowReadsAsWritten` reads a fault, a sync warning, a
+  machine claim refused, a refusal and two ok rows (a verb's and a sync row) in the context's window: against the old prefix it
+  failed 3 runs of 3 (every row that is not ok "refused: "), and it passes 3 of 3 now.
+  `VerbRowTests.AnImportsOwnRowsComeAfterTheRowOfTheVerbThatBeganIt` reads its media word as "media: …" (3 of 3 failed against the
+  old prefix); the fetches' rows that `VerbRowTests`, `HostNetworkTests` and `BackupTests` read there are refused rows and read as
+  before, their expectations now made from each row's kind.
 - Done: a verb's own journal row comes before every row of the work its handler leaves running. The dispatcher writes a verb's row
   once its handler has answered, on the thread that awaited the answer (for a lane verb, a pool thread after the lane's turn), and
   work the handler had begun ran beside that write. `MEDIA FETCH`'s handler began `NetworkHost.FetchAsync`, which yields to the pool

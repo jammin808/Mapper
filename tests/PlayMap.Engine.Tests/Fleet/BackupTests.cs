@@ -342,7 +342,7 @@ public sealed class BackupTests
         // row written last before the fetch: the fetch's rows there are its verb's own, its pulls' first few and the one that counts the
         // rest.
         var context = ContextBuilder.Build(b.Engine).Recent.Select(r => r.Text).ToList();
-        Assert.Contains(before.Ok ? before.Text : "refused: " + before.Text, context);
+        Assert.Contains(before.Ok ? before.Text : before.Kind + ": " + before.Text, context);
         Assert.Equal(FetchJournal.Most, context.Count(r => r.Contains("could not be pulled from FOH-A", StringComparison.Ordinal)));
         Assert.Equal(ended, context[^1]);
     }

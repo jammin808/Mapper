@@ -120,7 +120,9 @@ public static class ContextBuilder
             headline += $" · synced to {sync.Leader}";
         headline = engine.ModuleHeadline(headline);
 
-        var recent = engine.Journal.Recent(RecentRows).Select(r => new ContextRecent(r.AtUnixMs, r.Ok ? r.Text : "refused: " + r.Text)).ToList();
+        // A row that is not ok says what it is (a refusal "refused: ", a fault "fault: ", a sync warning "sync: "), so a reader never takes a
+        // fault or a warning for a line that was refused; an ok row reads as written.
+        var recent = engine.Journal.Recent(RecentRows).Select(r => new ContextRecent(r.AtUnixMs, r.Ok ? r.Text : r.Kind + ": " + r.Text)).ToList();
         var peers = s.Network.Peers().Select(x => new ContextPeer(x.Kind, x.Id, x.Name, ShowContext.ParseLight(x.Light), x.Headline)).ToList();
         return new ShowContext(ShowBusConstants.KindPlayMap, s.Settings.NodeId, s.Settings.Name, s.Wall.UnixMs, headline,
             items, links, recent, ShowContext.CommandsFromCatalog(engine), peers);

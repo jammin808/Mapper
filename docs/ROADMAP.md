@@ -95,10 +95,6 @@ The lab checks still to do:
   the watch (its fence, its follow of a group's new leader, the mirror state's publish) up to the quiet, 10 s, for each missing show
   file every time it asks for them again. Pulling them off the watch's own turn, with a test of the watch's pace while a show file
   is silent, closes it.
-- The context's recent rows say "refused: " in front of every journal row that is not ok (`ContextBuilder.Build`), so a fault, a
-  sync warning or a claim Windows refused (whose own words already say "was refused") reads there as a refusal of a line, to MCP's
-  get_context, Patterns, Stagewatch and the assistant. Prefixing a row by what it is (its kind), with a test that reads the context,
-  closes it.
 - A fleet monitor takes no newer hello of a peer while it waits out its backoff after a subscription ended, so a peer heard again
   at another address, port or certificate is dialled up to about 9.6 s late; and STATE and the board leave out a machine the
   monitor never heard, so nothing a person reads says why a peer whose hello is heard has no health. Cutting the wait short when

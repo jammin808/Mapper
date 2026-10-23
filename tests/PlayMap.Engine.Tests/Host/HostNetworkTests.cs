@@ -266,7 +266,7 @@ public sealed class HostNetworkTests
         Assert.Equal(expected, rows.Select(r => (r.Kind, r.Text)));
         Assert.Equal("MEDIA FETCH ALL FROM a0d0e55e", rows[0].Line);
         // The context's recent rows say them in the same order.
-        Assert.Equal([.. expected.Select(e => e.Kind == "refused" ? "refused: " + e.Text : e.Text)],
+        Assert.Equal([.. expected.Select(e => e.Kind == "refused" ? e.Kind + ": " + e.Text : e.Text)],
             ContextRows(fetcher).Where(t => OfTheFetch(t.StartsWith("refused: ", StringComparison.Ordinal) ? t["refused: ".Length..] : t)));
         Assert.Equal(Files, fetcher.State().GetProperty("media").GetProperty("transfers").EnumerateArray()
             .Count(t => Str(t, "state") == "failed: no heard node holds it"));

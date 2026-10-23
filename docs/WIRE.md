@@ -388,6 +388,8 @@ Round 2's packages add their verbs, topics and STATE keys through the engine's h
   pulls, a hand-back's takeover, an armed assistant's proposal offered to an approval desk — begins, or journals, only after that
   row and before the line is answered, so in the journal and the context's recent rows every row of that work follows the row of
   the verb that began it, however soon the work ends; a refused or faulted line's work begins after its refused or fault row.
+  The context's recent rows are the journal's last 20, an ok row as written and one that is not ok after its kind (`refused: `,
+  `fault: `, `sync: `, `machine: `, `media: `…), so a fault or a warning never reads there as a line that was refused.
   Rows the handler writes while it answers (a `PREFLIGHT WAIT`'s run, the lines a `CONTROL INJECT` fires) come before its row. A
   part that sees the verb's change on a turn of its own (the lane's ticks, the video I/O hub, the Stagewatch, sync and backup
   links, a backup's mirror lines, the projector links, the optimise service's automatic queue, the render host) journals what it sees

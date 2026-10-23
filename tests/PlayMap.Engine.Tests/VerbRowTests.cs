@@ -62,7 +62,7 @@ public sealed class VerbRowTests
         Assert.Equal(("Desk", "MEDIA FETCH ALL"), (rows[0].Who, rows[0].Line));
         // The context's recent rows, the window MCP's get_context, Patterns and the assistant read, say them in the same order.
         var context = ContextBuilder.Build(engine).Recent.Select(r => r.Text).ToList();
-        Assert.Equal([$"fetching {Files} files", .. work.Select(w => w.Ok ? w.Text : "refused: " + w.Text)], context.TakeLast(work.Count + 1));
+        Assert.Equal([$"fetching {Files} files", .. work.Select(w => w.Ok ? w.Text : w.Kind + ": " + w.Text)], context.TakeLast(work.Count + 1));
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public sealed class VerbRowTests
             var rows = engine.Journal.Recent(200).Skip(before).ToList();
             Assert.Equal([("verb", "importing Garbage", true), ("media", SaysAtOnce.Words, false)], rows.Select(r => (r.Kind, r.Text, r.Ok)));
             var context = ContextBuilder.Build(engine).Recent.Select(r => r.Text).ToList();
-            Assert.Equal(["importing Garbage", "refused: " + SaysAtOnce.Words], context.TakeLast(2));
+            Assert.Equal(["importing Garbage", "media: " + SaysAtOnce.Words], context.TakeLast(2));
         }
         finally
         {
