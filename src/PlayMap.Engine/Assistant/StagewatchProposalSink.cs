@@ -322,15 +322,25 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
 
     private static string JsonOut(Action<Utf8JsonWriter> write) => EngineCore.JsonOut(write);
 
-    /// <summary>Lets the desk go, once: the stop is taken, the pull ends on it, and the sink's client and stop go with it. The
-    /// pull ends without throwing, so nothing reaches whoever lets the desk go.</summary>
+    /// <summary>Lets the desk go, once: the stop is taken, the pull ends on it, and the sink's client and stop go once it has.
+    /// Nothing reaches whoever lets the desk go: the pull ends without throwing, and a callback on its stop that throws is written
+    /// with its trace to the engine's log.</summary>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
         try
         {
-            await _stop.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await _stop.CancelAsync().ConfigureAwait(false);
+            }
+            catch (AggregateException ex)
+            {
+                // A callback on the stop that throws is its registrant's fault, not the desk's: every callback still runs and the
+                // stop stands, so the pull is waited for as on any stop.
+                _engineLog.LogWarning(ex, "A callback on the stop of the approval desk's pull from {Desk} faulted.", Name);
+            }
             Task? loop;
             lock (_gate)
                 loop = _loop;

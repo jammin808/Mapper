@@ -262,6 +262,58 @@ internal sealed class BrokenClientDesk : HttpMessageHandler
     }
 }
 
+/// <summary>An approval desk whose first collect is held past the pull's stop. A callback on the request's token throws when the stop
+/// reaches it (a fault of whoever registered it, which the stop's cancel carries once every callback has run), and the request ends
+/// only once the test opens its gate. Every other request is answered with an empty list.</summary>
+internal sealed class ThrowingStopDesk : HttpMessageHandler
+{
+    public const string Words = "a callback on the pull's stop is in no state to run";
+
+    private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _collects;
+    private int _ended;
+
+    /// <summary>Completes once the first collect is held, its callbacks on the request's token registered.</summary>
+    public Task Held => _held.Task;
+
+    /// <summary>The held collect has ended (as the stop's cancel).</summary>
+    public bool Ended => Volatile.Read(ref _ended) == 1;
+
+    /// <summary>Lets the held collect end once its request is cancelled.</summary>
+    public void Open() => _gate.TrySetResult();
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method == HttpMethod.Get && Interlocked.Increment(ref _collects) == 1)
+            return HeldAsync(cancellationToken);
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"proposals\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            RequestMessage = request,
+        });
+    }
+
+    private async Task<HttpResponseMessage> HeldAsync(CancellationToken request)
+    {
+        try
+        {
+            var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var onCancel = request.Register(() => cancelled.TrySetResult());
+            // Registered last, so it runs first when the stop reaches the request (a token's callbacks run newest first); the
+            // others still run.
+            using var faulty = request.Register(() => throw new InvalidOperationException(Words));
+            _held.TrySetResult();
+            await Task.WhenAll(cancelled.Task, _gate.Task).ConfigureAwait(false);
+            throw new OperationCanceledException(request);
+        }
+        finally
+        {
+            Volatile.Write(ref _ended, 1);
+        }
+    }
+}
+
 /// <summary>An engine log that keeps what it is given, the fault with its words.</summary>
 internal sealed class KeptFaults : ILogger
 {
@@ -560,4 +612,70 @@ public sealed class StagewatchSinkTests
             rig.DeleteFolder();
         }
     }
+
+    /// <summary>A change of desk whose old desk's stop meets a callback that throws completes once the old desk's pull has ended: the
+    /// fault is written with its trace to the engine's log, nothing is thrown at whoever changed the desk, the old desk names nothing,
+    /// and the new desk is the one read.</summary>
+    [Fact]
+    public async Task AChangeOfDeskWhoseOldStopMeetsAThrowingCallbackCompletesOnceTheOldPullHasEnded()
+    {
+        var log = new KeptFaults();
+        var rig = new OpsRig(assistantLog: log);
+        using var desk = new ThrowingStopDesk();
+        using var next = new QuietDesk();
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = desk,
+            });
+            var old = rig.Assistant.ApprovalDesk!;
+            await desk.Held.WaitAsync(TimeSpan.FromSeconds(30));
+
+            var change = rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:10/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = next,
+            });
+            // The old desk's collect is held past its stop, so the change waits for it.
+            await Task.WhenAny(change, Task.Delay(500));
+            Assert.False(change.IsCompleted, $"the change ended before the old desk's pull: {change.Exception?.GetBaseException().Message}");
+            Assert.False(desk.Ended);
+            desk.Open();
+            await change.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.True(desk.Ended);
+            Assert.Equal("", old.Problem);
+            var used = rig.Assistant.ApprovalDesk;
+            Assert.NotNull(used);
+            Assert.Equal("Stagewatch at 127.0.0.1:10", used.Name);
+            Assert.True(await OpsRig.Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
+            var (level, words, fault) = Assert.Single(log.Entries);
+            Assert.Equal(LogLevel.Warning, level);
+            Assert.Contains(old.Name, words, StringComparison.Ordinal);
+            var thrown = Assert.IsType<InvalidOperationException>(Assert.Single(Leaves(fault)));
+            Assert.Equal(ThrowingStopDesk.Words, thrown.Message);
+            Assert.Contains(typeof(ThrowingStopDesk).FullName!, thrown.StackTrace ?? "", StringComparison.Ordinal);
+        }
+        finally
+        {
+            desk.Open();
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>The exceptions an aggregate carries, however deep.</summary>
+    private static IEnumerable<Exception> Leaves(Exception? e) => e switch
+    {
+        null => [],
+        AggregateException a => a.InnerExceptions.SelectMany(Leaves),
+        _ => [e],
+    };
 }

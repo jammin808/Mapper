@@ -926,6 +926,12 @@ Round 2 W1 notes:
   changed the desk once the change was made, and skipped telling STATE; with the same held refusal,
   `AChangeOfDeskWhileTheOldDesksCallIsRefusedAsItsStopIsTakenCompletes` failed 3 of 3 against the sink as it was, the refusal thrown
   from the change, and passes now (5 runs of 5, with the sink's other tests): the new desk is the one read, the old names nothing new.
+  A callback on the pull's stop that threw (its registrant's fault, which the stop's `CancelAsync` carries once every callback has
+  run) still made the sink's dispose throw before it waited for the pull, letting the client go under a pull still running: with the
+  old desk's collect held past its stop and a callback on the request's token throwing,
+  `AChangeOfDeskWhoseOldStopMeetsAThrowingCallbackCompletesOnceTheOldPullHasEnded` failed 3 of 3 (the change thrown at once, with
+  the callback's exception). The dispose now writes that fault with its trace to the engine's log and waits for the pull, and the
+  test passes (5 runs of 5, with the sink's other tests and `OpsServicesTests`).
 - Done: the operations services an engine built without the host owns (`OpsServices.Attach`: the scan runner, projector control
   and the assistant, each with its attachment) are all let go when one of them fails to stop, and what failed is thrown once they
   are (itself when one part failed, together when several did). Their dispose stopped at the first part that threw and runs once,
