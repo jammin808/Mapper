@@ -805,7 +805,10 @@ Round 2 W1 notes:
   mini dump the runtime writes (`--blame-hang-dump-type mini`; on Windows `VSTEST_DUMP_FORCENETDUMP`, since the collector's own
   Windows dumper writes thread information alone, which no managed stack walk reads), and on a failed job prints every managed
   thread's stack from each dump (dotnet-dump 10.0.750501, the package held to its SHA-256), so a stall before the first test is
-  named as a test's is.
+  named as a test's is. Shown on Linux only: the Linux step's reading of a stalled discovery's dump stood in the build under the
+  attribute's constructor. On Windows the dump through `VSTEST_DUMP_FORCENETDUMP`, the Windows stacks step and the Windows forms of
+  `NativeBuildTests` and `ToolProbeTests` (a batch file whose helper is started with `start /b`, `ping.exe`) have not yet run (no
+  Windows runner was at hand): the Windows job's next run is their first.
 - Done: the phone scan rig's hub runs on a clock the test holds (`PhoneScanRig.PhoneTime`), the phone bridge test's scan waits for
   each answer on a held clock too, and the hub counts a hello's wait on its own clock, its words going before the socket is let go.
   A session ends "stopped sending: nothing for 10 s" when the node has read nothing from the phone for `QuietTimeout` on the hub's
