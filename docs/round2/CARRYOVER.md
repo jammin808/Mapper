@@ -1425,7 +1425,7 @@ Round 2 W1 notes:
   deadline cancelled the read; now it ends in about 5 s, 3 of 3, its message the stand-in's words held open, and on the real dotnet it
   passes (the Core suite's build stamp tests 16, the supervisor's suite 95 with its 33 Windows tests skipped here, the shader
   worker's 12). The installer's tests build here and run only on the elevated installer job, and the supervisor's Windows tests only
-  on the Windows job: neither job has run them with this change yet.
+  on the Windows job: both passed there at 1fb97b03 (CI run 456: the installer's 28, the supervisor's 126 with 2 skipped).
 - Done: a tool the runner stops at its deadline says what it wrote by then. A stopped run's words (`ChildRun.Words`) said only that it
   did not finish and was stopped, though the stop, which takes every process holding its pipes, lets what it wrote in: a hung
   ffmpeg, compiler or Windows tool failed its test with none of its own words (`TestMedia`, `HostRig.MakeClipAsync`,
@@ -1501,7 +1501,7 @@ Round 2 W1 notes:
   (`SurveyImportTests`) and the projector solve's 40 ms wait for the lane (`ProjectorSolveLaneTests.ASolveHoldsTheLaneWithinFourTimesItsSlice`).
   Each runs in a collection of its own run alone after the parallel ones, and none has failed; they are on `docs/ROADMAP.md`'s
   watched list, closed by a measure of the work or by the time logged with the bar left to its twin.
-- Written, not yet run: CI runs the `Category=Perf` tests in a step of their own after the suites, on both jobs, so a bar times its
+- Done: CI runs the `Category=Perf` tests in a step of their own after the suites, on both jobs, so a bar times its
   own work and not the suites' beside it. The suites leave them out (`Category!=Perf`; on Windows beside `Backend!=D3D12`), and the
   Perf step runs each project's, one project and one test collection at a time (`xUnit.ParallelizeTestCollections=false`), its
   results as `<project>.perf.trx`, whatever the suites said; a project that fails is named with the machine's load around its run
@@ -1513,11 +1513,25 @@ Round 2 W1 notes:
   s, 50 ms and 10 ms slice, the light plan's 3 s, the first map's 5 s, the HAP and 1080p decode throughput, the clip loop's two
   real-time seconds, the self-calibration's second, the projector solve's slice, and the anchor feed's 800 ms and the clock sync's
   20 ms round trip (above). The integration gate's own script is not in this tree and still runs them inside the suites
-  (`docs/ROADMAP.md`). Neither job has run the step: the next push is its first, and until then nothing says it holds there. Shown
-  here only: the Linux step's loop, run as written but in Debug, passed every project in turn (Core 2, Engine 5, Media 4 Perf tests;
+  (`docs/ROADMAP.md`). Both jobs ran the step first at 1fb97b03 (CI run 456), and it passed on each: Core 2, Engine 6, Media 4 and
+  Net 1 Perf tests, every other project answering that no test matches and leaving its results file. Shown here before then: the Linux step's loop, run as written but in Debug, passed every project in turn (Core 2, Engine 5, Media 4 Perf tests;
   a project with none answers that no test matches and passes); the Windows step's script, run here under PowerShell 7.6 in Debug
   with a stand-in for its processor reading (`Get-CimInstance Win32_Processor`, which only Windows answers), passed every project in
   turn too (Core 2, Engine 6, Media 4, Net 1), its `--` reaching `dotnet test` with the run setting; and the workflow parses.
+- Done: nodes on one moved clock read one wall. A host anchored its wall clock (`ShowWallClock`) at the system's time as it started
+  and ran it on the node's monotonic clock, so two rig nodes on one hand-moved clock read walls as far apart as the real time between
+  their starts, less the clock's moves. A pull's nonce is the puller's wall and the primary refuses one more than a minute from its
+  own (`PullProof.WindowMs`), so `BackupRestartTests.ABackupThatHearsItsPrimarysEpochOnItsMirrorAndInItsHealthSaysOnceThatItCannotKeepIt`,
+  whose backup restarts after the primary has run its back-up on the Windows runner, failed once there at its line 194
+  (fix-w1-followups 1fb97b03, CI run 456, the test 1 min 24 s): its mirror stayed `joining`, every pull refused 403 "the pull's nonce
+  is not from now". A host now takes its wall's start from its options (`EngineHostOptions.UnixMs`; the system's time when none is
+  given), and the rig gives the nodes on one moved clock one wall: the system's time as the first of them started, moved as the clock
+  under any offset moves (`HostRig.SharedWall`; `OffsetClock` and `MovableClock` name the clock under them), an offset being
+  another machine's boot, not its time. Held 61 s of real time before its restart, the test failed so on the old wall, its five pulls
+  refused with those words, and passes on the shared one; `HostWallTests.TwoNodesOnOneMovedClockStartedApartInRealTimeReadOneWall`
+  starts a second node 250 ms of real time after the first on the same clock, 5 h ahead: against the old wall it failed (the walls
+  1.5 s apart), and they read one wall now, before and after the clock moves 90 s. A node on the process's clock reads the system's
+  time as before.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
