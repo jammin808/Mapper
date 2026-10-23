@@ -1358,6 +1358,17 @@ Round 2 W1 notes:
   `ANodeMakingItsViewsTakesAwayItsOwnEarlierRingsThatNothingHolds` (two leftovers taken; one held open as a reader holds it, one
   named without a generation and another node's kept) failed 3 runs of 3 against the old engine (the draft view's ring left; every
   leftover kept) and pass 3 of 3.
+- Done: a node's phone hub runs on the node's clocks. The phone part made the hub with neither of its clocks
+  (`PhoneHubOptions.Time`, `MonoNs`), so in a node it counted on `TimeProvider.System` and the process's monotonic clock: its hello
+  wait (10 s), a phone's silence (10 s), a ticket's expiry and the wrong-ticket minute ran on the system's time whatever the
+  node's, and its clock exchange answered on the process's monotonic clock where presents are stamped on the node's (one clock in
+  a node, two under a test's). The hub now takes the node's monotonic clock (`ExtensionSetup.Mono`) and the node's time, a
+  `TimeProvider` the host carries to its extensions (`EngineHostOptions.Time`, `ExtensionSetup.Time`; unset, as in a node, it is
+  the system's). `PhoneNodeClockTests.TheNodesPhoneHubRunsOnTheNodesClocks` starts a node with the phone part on a held time and
+  a manual monotonic clock: an invite expires 5 minutes after the node's time, a socket that says nothing is told "no hello" once
+  that time passes 10 s, and a phone's ping is answered at the node's monotonic instant. Built against the old part it failed 3
+  runs of 3 (the invite's expiry the system's time), and it passes 3 of 3. The phone loop (`PhoneScanE2ETests`) runs its node's
+  hub on a time it holds, so the browser's pings, paced by the real clock, never race the hub's 10 s waits.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled

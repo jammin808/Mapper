@@ -52,7 +52,7 @@ internal sealed class HostRig : IAsyncDisposable
     /// other); otherwise it binds loopback only and stays quiet.</summary>
     public static async Task<HostRig> StartAsync(string name = "Stage left", bool network = false, IMonoClock? mono = null, EngineParts? parts = null,
         Func<NodeSettings, NodeSettings>? settings = null, Func<string, EngineOptions>? options = null, DirectoryInfo? dir = null,
-        MediaTransferOptions? pulls = null)
+        MediaTransferOptions? pulls = null, TimeProvider? time = null)
     {
         dir ??= Directory.CreateTempSubdirectory("playmap-host-");
         var home = new NodeHome(dir.FullName);
@@ -78,6 +78,7 @@ internal sealed class HostRig : IAsyncDisposable
         {
             Parts = parts ?? EngineParts.Bare,
             Mono = mono,
+            Time = time,
             Hello = new HelloOptions { ListenPort = 0, Targets = [], Every = TimeSpan.FromMilliseconds(200), SweepEvery = TimeSpan.FromMilliseconds(200) },
             Logs = logs,
             Pulls = pulls,

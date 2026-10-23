@@ -25,6 +25,10 @@ public sealed record EngineHostOptions
     /// <summary>The node's monotonic clock; null = the process's.</summary>
     public IMonoClock? Mono { get; init; }
 
+    /// <summary>The node's time for the parts that count waits, expiries and timers on a <see cref="TimeProvider"/> (the phone hub);
+    /// null = the system's.</summary>
+    public TimeProvider? Time { get; init; }
+
     /// <summary>The hello's ports and pace; null = the contract's (UDP 9928, every 2 s).</summary>
     public HelloOptions? Hello { get; init; }
 
@@ -160,6 +164,7 @@ public sealed class EngineHost : IAsyncDisposable
         var setup = new ExtensionSetup(_options, _home, running, mono, wall, logs, _media, _network, outputs, display, _scan, approvals)
         {
             AddFaults = _faults.AddSource,
+            Time = _host.Time ?? TimeProvider.System,
         };
         foreach (var factory in _host.Parts.Extensions)
         {

@@ -55,6 +55,10 @@ public sealed record ExtensionSetup(
     /// <summary>Hands the host a faults source (a control port refused, a runtime absent, a page's port in use): STATE's faults
     /// and the context list its faults beside the host's own for the node's life.</summary>
     public Action<INodeFaults>? AddFaults { get; init; }
+
+    /// <summary>The node's time (<see cref="EngineHostOptions.Time"/>; the system's in a node) for an extension that counts waits,
+    /// expiries and timers on a <see cref="TimeProvider"/>.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
 }
 
 /// <summary>Extensions made from a function, for parts that need nothing before the engine exists.</summary>

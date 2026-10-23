@@ -20,6 +20,7 @@ using PlayMap.Engine.Phone;
 using PlayMap.Engine.Rendering;
 using PlayMap.Engine.Scanning;
 using PlayMap.Engine.Tests.Host;
+using PlayMap.Tests;
 using Xunit.Abstractions;
 using NodeRig = PlayMap.Engine.Tests.Host.HostRig;
 
@@ -406,7 +407,9 @@ public sealed class PhoneScanE2ETests(ITestOutputHelper output)
         RenderHost? render = null;
         var parts = OpsParts.With(EngineParts.Bare with { RenderHost = RenderHost.ForNode, Extensions = [PhoneExtension.Factory] },
             OpsHostTests.Quick(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(6) }));
-        var node = await NodeRig.StartAsync("Loop node", parts: parts);
+        // The node's phone hub runs on a time the loop holds, so the browser's pings, paced by the real clock, are never raced against the
+        // hub's hello wait and its 10 s of silence; the scan's own patience still counts real time.
+        var node = await NodeRig.StartAsync("Loop node", parts: parts, time: new ManualTime());
         CameraBridge? bridge = null;
         LoopPhone? phone = null;
         try

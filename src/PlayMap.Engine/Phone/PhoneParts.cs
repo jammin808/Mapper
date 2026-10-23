@@ -30,11 +30,14 @@ internal sealed class PhoneExtension : IEngineExtension
         _settings = setup.Settings;
         _network = setup.Network;
         var phone = setup.Settings.Phone;
+        var mono = setup.Mono;
         _hub = new PhoneHub(new PhoneHubOptions
         {
             KeysPath = Path.Combine(setup.Home.Folder, "phones.json"),
             NodeId = setup.Settings.NodeId,
             NodeName = setup.Settings.Name,
+            Time = setup.Time,
+            MonoNs = () => mono.NowNs,
             MaxConnected = Math.Clamp(phone.MaxConnected, 1, 16),
             Enabled = () => phone.Enabled,
             Log = setup.Logs.CreateLogger("PlayMap.Phone"),

@@ -173,7 +173,8 @@ The lab checks still to do:
   host's every managed stack is printed in the job's log),
   `PhoneBridgeTests.APhoneScanBridgesIntoTheModelAsItIsPlaced`' one Windows "stopped sending: nothing for 10 s" (run 436;
   consistent with the test host leaving the fake phone's pings unsent for the hub's 10 s of real time, not proven; the phone rig's
-  hub and the test's scan now run on clocks the test holds, and a hello's limit on the hub's own clock tells the phone why),
+  hub and the test's scan now run on clocks the test holds, a hello's limit on the hub's own clock tells the phone why, and a
+  node's own hub runs on the node's clocks),
   `PromoteTests`' one Windows read of a follower's journal before the row of its follow of the group's new leader (consistent with
   a slow settings write, or the watch's thread held, between the epoch's move, which STATE shows, and the row, not proven; the test
   now waits for the row, which says whether the epoch was kept, and the follow raises STATE's push before it; a step-down, a backup's
