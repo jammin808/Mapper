@@ -858,6 +858,11 @@ Round 2 W1 notes:
   `ANodeWhoseSettingsCannotKeepTheEpochOfItsHandBackSaysSoInItsRow` ask each row for its words, not ok, STATE read as it is written
   for what it reports, a push raised before it, and the file as it was; against the product before this change each failed 2 of 2
   (the step-down's and the hand-back's rows without the words, no row at all for the other two), and with it each passed 3 of 3.
+  Their watch (`RowWatch`, as the follow's above) counts only a push the row's own writer raised: the fact moves and its row is
+  written on one thread with no wait between, and a push another thread raised in that span, for a fact of its own, let a missing
+  push pass. Counting any push, the product built without the follow's, the step-down's, the kept epoch's and the hand-back's pushes
+  failed their push assertions 3, 2, 2 and 1 of 3 runs; counting the writer's, each failed 3 of 3, and with the pushes each passed 3
+  of 3.
 - Done, not seen failing: `ClockSlewTests.AWaitingBlindCommitMovesWithTheStepSoItLandsNeitherEarlyNorLate` reads the landing's
   journal row once the lane's tick that landed the commit is over (`Ticked`, as `BlindTests` reads it), not at its first sight of
   the landed show. A commit lands on the lane's tick: the store publishes the show and runs its listeners, and then the row ("blind

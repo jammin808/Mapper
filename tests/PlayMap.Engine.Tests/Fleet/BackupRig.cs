@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Fleet;
@@ -107,24 +108,26 @@ internal static class BackupRig
 }
 
 /// <summary>The node's first row of a kind whose text holds the words, written once this watch is made: the row, the node's STATE read
-/// as the row is written, and whether a push of STATE was raised, before the row, while <c>moved</c> read true (the fact the row
-/// reports is the node's by then).</summary>
+/// as the row is written, and whether the thread that wrote the row raised a push of STATE before it while <c>moved</c> read true (the
+/// fact the row reports was the node's by then). The fact moves and its row is written on one thread with no wait between, so only that
+/// thread's pushes count: a push another thread raises in that span, for a fact of its own, neither stands in for the product's push
+/// nor lets a missing one pass some runs.</summary>
 internal sealed class RowWatch
 {
     private readonly TaskCompletionSource<(JournalRow Row, JsonElement State, bool Pushed)> _seen = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private int _pushed;
+    private readonly ConcurrentDictionary<int, bool> _pushedOn = new();
 
     public RowWatch(HostRig rig, string kind, string words, Func<bool> moved)
     {
         rig.Engine.StateChanged += _ =>
         {
             if (moved())
-                Interlocked.Exchange(ref _pushed, 1);
+                _pushedOn.TryAdd(Environment.CurrentManagedThreadId, true);
         };
         rig.Engine.Journal.Written += r =>
         {
             if (r.Kind == kind && r.Text.Contains(words, StringComparison.Ordinal))
-                _seen.TrySetResult((r, rig.State(), Volatile.Read(ref _pushed) == 1));
+                _seen.TrySetResult((r, rig.State(), _pushedOn.ContainsKey(Environment.CurrentManagedThreadId)));
         };
     }
 
