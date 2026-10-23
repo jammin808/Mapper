@@ -148,7 +148,10 @@ The lab checks still to do:
   now held at its first pattern until the cancel is in), `BackupRenderTests`' one Windows wait for the backup's health (consistent
   with the primary's fleet monitor's first subscription ending unheard and its next dial waiting on a fleet clock the hot-backup
   tests never moved, not proven; the meeting now moves that clock while the monitor waits, and names what the node holds of its
-  peer),
+  peer), `StagewatchSinkTests.ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList`' one Windows failure, its refused connect
+  thrown from the approval desk's dispose after 2 s (consistent with the refusal, which Windows gives a closed loopback port about
+  2 s late, landing as the pull's stop was taken, before the stop reached the request's own token, not proven; the pull now ends on
+  its stop whatever it meets, and letting the desk go throws nothing),
   and `SurveyImportPerfTests.TheImportNeverHoldsTheLaneMoreThanTenMillisecondsInASlice`' two loaded Linux failures (which assertion
   failed was not kept; an import refused for memory under the gate's 1.5 GB heap limit fails its ready check so, which 800 MB held
   live in the test host reproduces, but nothing found holds that much in the gate's host; its ready checks now say the import's

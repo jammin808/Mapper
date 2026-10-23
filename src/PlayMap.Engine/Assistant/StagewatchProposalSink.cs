@@ -57,6 +57,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
+    private int _disposed;
 
     public StagewatchProposalSink(StagewatchSinkOptions options, ProposalQueue queue, IWireEndpoint endpoint, Action<string>? log = null)
     {
@@ -250,8 +251,18 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
                 await PollOnceAsync(ct).ConfigureAwait(false);
                 await Task.Delay(_options.PollEvery, ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            catch (Exception) when (ct.IsCancellationRequested)
             {
+                // Once the stop is taken, whatever the call in flight ends on is the stop's (a refusal, a reset or a body cut
+                // short as well as the cancel): the pull ends and names nothing.
+                return;
+            }
+            catch (Exception ex)
+            {
+                // A failure no pull expects ends the pull, said at once on the sink and in the journal, never thrown at whoever
+                // lets the desk go.
+                Problem = $"{Name} is no longer read: {ex.Message}";
+                _log("assistant: " + Problem);
                 return;
             }
         }
@@ -304,16 +315,26 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
 
     private static string JsonOut(Action<Utf8JsonWriter> write) => EngineCore.JsonOut(write);
 
+    /// <summary>Lets the desk go, once: the stop is taken, the pull ends on it, and the sink's client and stop go with it. The
+    /// pull ends without throwing, so nothing reaches whoever lets the desk go.</summary>
     public async ValueTask DisposeAsync()
     {
-        await _stop.CancelAsync().ConfigureAwait(false);
-        Task? loop;
-        lock (_gate)
-            loop = _loop;
-        if (loop is not null)
-            await loop.ConfigureAwait(false);
-        _http.Dispose();
-        _stop.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+        try
+        {
+            await _stop.CancelAsync().ConfigureAwait(false);
+            Task? loop;
+            lock (_gate)
+                loop = _loop;
+            if (loop is not null)
+                await loop.ConfigureAwait(false);
+        }
+        finally
+        {
+            _http.Dispose();
+            _stop.Dispose();
+        }
     }
 
     public override string ToString() => Name;

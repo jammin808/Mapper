@@ -899,6 +899,27 @@ Round 2 W1 notes:
   test that read STATE more than 3 s after that read no clip. With the test's read held 3.5 s once the link was live and paired (a
   delay in a scratch copy) the unchanged test failed 3 of 3 at its line 346; on the held clock it passed 3 of 3 under the same delay
   and 3 of 3 without it.
+- Done: the Stagewatch approval desk's pull ends on its stop whatever the call it has in flight then ends on, and letting the desk
+  go throws nothing. The sink's pull (`StagewatchProposalSink`) took a refused, reset or unreadable desk in only while its stop was
+  not taken (`… && !ct.IsCancellationRequested`) and ended only on a cancel, so a failure raised once the stop was taken faulted the
+  pull, and its dispose threw that failure at whoever let the desk go: the assistant's change of desk or its own dispose, and with
+  them the operations services' dispose (`OpsServices`); the sink's client and stop were then never disposed, and a second dispose
+  threw. The stop is taken with `CancelAsync`, which marks it at once and runs its callbacks on the pool after it returns; a
+  request's client sees the stop only through the token it linked to it, one of those callbacks, and hands a failure raised before
+  then on as itself (an `HttpRequestException`), not as a cancel. `StagewatchSinkTests.ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList`
+  failed so on the Windows job (run 442, job 120200285298, at fix-win-batch4 b52c28f4, which touches neither the assistant nor the
+  sink) after 2 s, its refused connect thrown from the sink's collect (its line 139) through the sink's, the assistant's, the
+  operations services' and the rig's dispose to the test's `finally`, no assertion failed: consistent with the connect to the
+  closed port the test names, refused only after about 2 s on Windows (at once on Linux), landing as the stop was taken, not proven.
+  With the sink's third collect held by a handler the test gives it and refused in a callback on the pull's stop, registered after
+  the client linked the request's token so it runs before the stop reaches that token (a token's callbacks run newest first), the
+  new `ARefusalThatLandsAsTheStopIsTakenEndsThePullAndIsNotThrownAtWhoeverLetsTheDeskGo` failed 6 of 6 against the sink as it was,
+  with the Windows job's exception and its stack from the sink's collect to the test; and with a client that fails as no pull
+  expects, `APullThatFailsAsNoPullExpectsEndsSaidAndIsNotThrownAtWhoeverLetsTheDeskGo` failed 3 of 3 (the pull faulted unsaid, and
+  the dispose threw it). The pull now ends quietly on whatever it meets once the stop is taken; a refusal before the stop is said on
+  the sink as before; a failure no pull expects ends the pull, said at once on the sink and in the journal; and the sink's dispose
+  runs once and lets its client and stop go whatever it meets. The two new tests and the three before them, every assertion kept,
+  passed 8 runs of 8. The unchanged test still cannot be made to fail on Linux on its own, where the refusal is immediate.
 - Open: with the fleet's part, which the exe composes, `MEDIA FETCH` runs `BackupNode.FetchMedia`, which writes no `media.transfers`
   row (so the desk's Network drawer and PLAY show none of its pulls), says no failed try while it tries again (its words reach the
   journal only as a file's end), makes its own unlimited bandwidth bucket for each pull (`MirrorPuller`), so it is not throttled
@@ -973,7 +994,10 @@ Round 2 W1 notes:
   cancel is in, above); `BackupRenderTests.TheBackupPlaysTheSameVersionAndItsPictureIsTheSameBytesAtTheSameInstants`' one Windows
   wait for the backup's health from its line 141 (consistent with the primary's fleet monitor's first subscription ending unheard
   and its next dial waiting on a fleet clock the hot-backup tests never moved, not proven; the meeting now moves that clock while
-  the monitor waits, and names what the node holds of its peer, above).
+  the monitor waits, and names what the node holds of its peer, above);
+  `StagewatchSinkTests.ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList`' one Windows failure from the sink's dispose after
+  2 s (consistent with its refused connect landing as the pull's stop was taken, above, not proven; the pull now ends on its stop
+  whatever it meets, and its dispose throws nothing).
 - Open: a pause asked while the governor's let-go of the job is on its way waits, as it should, for the worker's next held line; but
   when the pause's knobs reach the worker before its encode thread has woken for the let-go, that thread never wakes (its hold waits
   on a `ManualResetEventSlim`, and a reset before the waiter runs leaves it waiting), so it says neither that it goes on nor that it
