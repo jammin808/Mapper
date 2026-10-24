@@ -2,15 +2,15 @@ using System.Runtime.InteropServices;
 
 namespace PlayMap.Media;
 
-/// <summary>Where an optional native library is looked for: the absolute files, in the order they are tried, and the words for each
-/// value refused because it was not an absolute path.</summary>
-public sealed record NativeSearch(IReadOnlyList<string> Files, IReadOnlyList<string> Refused)
+/// <summary>Where an optional native library is looked for: the absolute candidates (its files, or the folders that hold a set of
+/// libraries), in the order they are tried, and the words for each value refused because it was not an absolute path.</summary>
+public sealed record NativeSearch(IReadOnlyList<string> Candidates, IReadOnlyList<string> Refused)
 {
     /// <summary>The refusals in one line ("" when there are none).</summary>
     public string RefusedWords => string.Join("; ", Refused);
 }
 
-/// <summary>The rule the node's optional native libraries are found by (NDI's runtime, OMT's libvmx): each candidate is an absolute
+/// <summary>The rule the node's native libraries are found by (FFmpeg's, NDI's runtime, OMT's libvmx): each candidate is an absolute
 /// path, loaded by that full path, so the system's search by bare name is never asked — on Windows that search takes in the current
 /// directory and PATH, and a copy planted in either would load into the engine. A relative value from a setting or a variable is
 /// refused with the words, never read against the current directory.</summary>

@@ -100,24 +100,33 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         QueueReindex();
     }
 
-    /// <summary>Whether the FFmpeg libraries load, and the words when they do not.</summary>
+    /// <summary>Whether the FFmpeg libraries load, and the words: why when they do not; when they do, a
+    /// <c>PLAYMAP_FFMPEG_DIR</c> refused on the way because it was not an absolute path ("" when none was).</summary>
     public static bool FfmpegReady(out string words)
     {
         if (FfmpegLoader.TryLoad(out var problem))
         {
-            words = "";
+            words = FfmpegLoader.Status?.Refused ?? "";
             return true;
         }
         words = FfmpegWords(problem);
         return false;
     }
 
-    /// <summary>The loader's reason in the operator's words: what is missing and every folder searched.</summary>
-    public static string FfmpegWords(string loaderProblem) =>
-        loaderProblem.Contains("were not found", StringComparison.Ordinal)
-            ? "FFmpeg 9 libraries not found: searched " + string.Join(", ", FfmpegLoader.CandidateFolders())
-              + $" (and their lib and bin folders) — set {FfmpegLoader.EnvironmentVariable} to the folder that holds them"
+    /// <summary>The loader's reason in the operator's words: what is missing, every folder searched and a variable
+    /// refused (<see cref="FfmpegLoader.Search"/>).</summary>
+    public static string FfmpegWords(string loaderProblem) => FfmpegWords(loaderProblem, FfmpegLoader.Search());
+
+    /// <summary>The loader's reason in the operator's words, for the search it made.</summary>
+    internal static string FfmpegWords(string loaderProblem, NativeSearch search)
+    {
+        ArgumentNullException.ThrowIfNull(search);
+        return loaderProblem.Contains("were not found", StringComparison.Ordinal)
+            ? "FFmpeg 9 libraries not found: searched " + string.Join(", ", search.Candidates)
+              + " (and their lib and bin folders)" + (search.Refused.Count > 0 ? "; " + search.RefusedWords : "")
+              + $" — set {FfmpegLoader.EnvironmentVariable} to the folder that holds them, an absolute path"
             : "FFmpeg 9 libraries could not be used: " + loaderProblem;
+    }
 
     public async Task<MediaImport> ImportAsync(string location, IProgress<double>? progress, CancellationToken ct)
     {
@@ -154,6 +163,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
             SayFfmpeg(words);
             return null;
         }
+        // Ready, from a folder the loader was not told to use: the refused variable is said once.
+        if (words.Length > 0)
+            SayFfmpeg(words);
         // wp2-optimise: the file this node plays — the version VersionChoice picks (use: auto), the one named, or the source. Taken at
         // each open, so a change reaches the air at the item's next open and never under a decoder already open.
         item = Core.Media.Optimise.VersionChoice.Played(item, Formats, h => Lookup(h) is not null);

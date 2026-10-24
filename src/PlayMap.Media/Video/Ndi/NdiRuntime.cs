@@ -77,7 +77,7 @@ public sealed unsafe partial class NdiRuntime
     public static string FileName => OperatingSystem.IsWindows() ? "Processing.NDI.Lib.x64.dll" : OperatingSystem.IsMacOS() ? "libndi.dylib" : "libndi.so.6";
 
     /// <summary>Where the runtime is looked for, in order: absolute files only, each loaded by that full path.</summary>
-    public static IReadOnlyList<string> Candidates(string configured) => Search(configured).Files;
+    public static IReadOnlyList<string> Candidates(string configured) => Search(configured).Candidates;
 
     /// <summary>The search for the runtime: the absolute files of <see cref="Candidates"/>, and the words for each of the setting and
     /// the two variables that was refused because it was not an absolute path.</summary>
@@ -122,7 +122,7 @@ public sealed unsafe partial class NdiRuntime
     {
         ArgumentNullException.ThrowIfNull(search);
         var refused = new List<string>(search.Refused);
-        foreach (var candidate in search.Files)
+        foreach (var candidate in search.Candidates)
         {
             lock (Gate)
             {
@@ -159,7 +159,7 @@ public sealed unsafe partial class NdiRuntime
             why = "";
             return runtime;
         }
-        why = $"the NDI runtime was not found (searched {string.Join(", ", search.Files)}"
+        why = $"the NDI runtime was not found (searched {string.Join(", ", search.Candidates)}"
             + (refused.Count > 0 ? "; " + string.Join("; ", refused) : "")
             + $") — install the NDI 6 runtime from {Link} ({RedistLink}) and set {DirVariable} to its folder, an absolute path";
         return null;

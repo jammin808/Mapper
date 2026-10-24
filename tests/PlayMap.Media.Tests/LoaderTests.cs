@@ -20,6 +20,9 @@ public class LoaderTests
         Assert.False(string.IsNullOrEmpty(status.Build));
         Assert.Equal(Path.GetFullPath(Environment.GetEnvironmentVariable(FfmpegLoader.EnvironmentVariable)!), status.Folder);
         Assert.Equal(status.Folder, FfmpegLoader.CandidateFolders()[0]);
+        Assert.True(Path.IsPathFullyQualified(status.Folder), status.Folder + " is not an absolute path");
+        // Found where the absolute PLAYMAP_FFMPEG_DIR the tests set points: nothing was refused on the way.
+        Assert.Equal("", status.Refused);
         Assert.True(FfmpegLoader.TryLoad(out var problem));
         Assert.Equal("", problem);
     }

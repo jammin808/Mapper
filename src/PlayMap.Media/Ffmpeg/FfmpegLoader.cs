@@ -21,8 +21,9 @@ public sealed class FfmpegUnavailableException : Exception
     }
 }
 
-/// <summary>What the loader found: the folder, the libraries' versions and build string, and which optional
-/// libraries (filters, devices) are missing.</summary>
+/// <summary>What the loader found: the folder, the libraries' versions and build string, which optional
+/// libraries (filters, devices) are missing, and the words for a <c>PLAYMAP_FFMPEG_DIR</c> refused on the way
+/// because it was not an absolute path ("" when none was).</summary>
 public sealed record FfmpegStatus(
     string Folder,
     string Build,
@@ -30,14 +31,18 @@ public sealed record FfmpegStatus(
     int AvFormatMajor,
     int AvUtilMajor,
     bool DevicesAvailable,
-    bool FiltersAvailable);
+    bool FiltersAvailable,
+    string Refused = "");
 
 /// <summary>Finds and loads FFmpeg's shared libraries once per process. The folder is, in order: the
 /// <c>PLAYMAP_FFMPEG_DIR</c> environment variable, the exe folder's <c>ffmpeg</c> subfolder, the exe folder
-/// (each may also hold the libraries in a <c>lib</c> or <c>bin</c> subfolder). The libraries are loaded by full
-/// path in dependency order (avutil, swresample, swscale, avcodec, avformat, avfilter, avdevice) so no search
-/// path is consulted and a dependency always resolves to the copy beside it. The binding's structs change
-/// layout between majors, so a library whose major differs from the binding's is refused, never used.</summary>
+/// (each may also hold the libraries in a <c>lib</c> or <c>bin</c> subfolder). Every folder is an absolute path:
+/// a relative <c>PLAYMAP_FFMPEG_DIR</c> is refused with the words (in the not-found words, and in
+/// <see cref="FfmpegStatus.Refused"/> when the libraries are found elsewhere), never read against the current
+/// directory. The libraries are loaded by full path in dependency order (avutil, swresample, swscale, avcodec,
+/// avformat, avfilter, avdevice) so no search path is consulted and a dependency always resolves to the copy
+/// beside it; the binding is pointed at the same folder. The binding's structs change layout between majors, so
+/// a library whose major differs from the binding's is refused, never used.</summary>
 public static class FfmpegLoader
 {
     public const string EnvironmentVariable = "PLAYMAP_FFMPEG_DIR";
@@ -113,17 +118,21 @@ public static class FfmpegLoader
         }
     }
 
-    /// <summary>The folders searched, in order (existing or not).</summary>
-    public static IReadOnlyList<string> CandidateFolders()
+    /// <summary>The folders searched, in order (existing or not): absolute paths only.</summary>
+    public static IReadOnlyList<string> CandidateFolders() => Search().Candidates;
+
+    /// <summary>The search: the folders of <see cref="CandidateFolders"/>, and the words for a
+    /// <c>PLAYMAP_FFMPEG_DIR</c> refused because it was not an absolute path.</summary>
+    public static NativeSearch Search()
     {
+        var refused = new List<string>();
         var list = new List<string>();
-        var env = Environment.GetEnvironmentVariable(EnvironmentVariable);
-        if (!string.IsNullOrWhiteSpace(env))
-            list.Add(Path.GetFullPath(env.Trim()));
-        var exe = AppContext.BaseDirectory;
-        list.Add(Path.GetFullPath(Path.Combine(exe, "ffmpeg")));
-        list.Add(Path.GetFullPath(exe));
-        return list;
+        if (NativePaths.Absolute(Environment.GetEnvironmentVariable(EnvironmentVariable), EnvironmentVariable, refused) is { } env)
+            list.Add(env);
+        var exe = Path.GetFullPath(AppContext.BaseDirectory);
+        list.Add(Path.Combine(exe, "ffmpeg"));
+        list.Add(exe);
+        return new NativeSearch(list, refused);
     }
 
     /// <summary>The platform's file name of a library at a major version: avcodec-63.dll, libavcodec.so.63,
@@ -146,29 +155,9 @@ public static class FfmpegLoader
 
     private static FfmpegStatus Load()
     {
+        var search = Search();
         var problems = new List<string>();
-        string? folder = null;
-        foreach (var candidate in CandidateFolders())
-        {
-            foreach (var dir in new[] { candidate, Path.Combine(candidate, "lib"), Path.Combine(candidate, "bin") })
-            {
-                var why = InspectFolder(dir);
-                if (why is null)
-                {
-                    folder = dir;
-                    break;
-                }
-                problems.Add(dir + ": " + why);
-            }
-            if (folder is not null)
-                break;
-        }
-        if (folder is null)
-        {
-            throw new FfmpegUnavailableException(
-                string.Create(CultureInfo.InvariantCulture, $"FFmpeg {ExpectedMajor("avcodec")}.x shared libraries (avcodec {ExpectedMajor("avcodec")}, avformat {ExpectedMajor("avformat")}, avutil {ExpectedMajor("avutil")}) were not found. Set {EnvironmentVariable} to their folder, or put them in the exe's ffmpeg folder. Searched: ")
-                + string.Join("; ", problems));
-        }
+        var folder = FindFolder(search, problems) ?? throw new FfmpegUnavailableException(NotFound(search, problems));
 
         var optionalMissing = new List<string>();
         foreach (var (name, required) in Libraries)
@@ -217,7 +206,39 @@ public static class FfmpegLoader
         if (devices)
             ffmpeg.avdevice_register_all();
         FfmpegLog.Install();
-        return new FfmpegStatus(folder, build, codecMajor, formatMajor, utilMajor, devices, !optionalMissing.Contains("avfilter"));
+        return new FfmpegStatus(folder, build, codecMajor, formatMajor, utilMajor, devices, !optionalMissing.Contains("avfilter"), search.RefusedWords);
+    }
+
+    /// <summary>The first of the search's folders, or its <c>lib</c> or <c>bin</c> subfolder, that holds the required
+    /// libraries at the binding's majors; null, with what was wrong in each added to <paramref name="problems"/>, when
+    /// none does.</summary>
+    internal static string? FindFolder(NativeSearch search, List<string> problems)
+    {
+        ArgumentNullException.ThrowIfNull(search);
+        ArgumentNullException.ThrowIfNull(problems);
+        foreach (var candidate in search.Candidates)
+        {
+            foreach (var dir in new[] { candidate, Path.Combine(candidate, "lib"), Path.Combine(candidate, "bin") })
+            {
+                var why = InspectFolder(dir);
+                if (why is null)
+                    return dir;
+                problems.Add(dir + ": " + why);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The words for libraries found in none of the search's folders: what is needed, the refusals, what to
+    /// set, and what was wrong in each folder searched.</summary>
+    internal static string NotFound(NativeSearch search, IReadOnlyList<string> problems)
+    {
+        ArgumentNullException.ThrowIfNull(search);
+        ArgumentNullException.ThrowIfNull(problems);
+        return string.Create(CultureInfo.InvariantCulture, $"FFmpeg {ExpectedMajor("avcodec")}.x shared libraries (avcodec {ExpectedMajor("avcodec")}, avformat {ExpectedMajor("avformat")}, avutil {ExpectedMajor("avutil")}) were not found. ")
+            + (search.Refused.Count > 0 ? search.RefusedWords + ". " : "")
+            + $"Set {EnvironmentVariable} to their folder, an absolute path, or put them in the exe's ffmpeg folder. Searched: "
+            + string.Join("; ", problems);
     }
 
     /// <summary>Null when the folder holds the required libraries at the binding's majors; otherwise what is

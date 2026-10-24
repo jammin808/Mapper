@@ -154,7 +154,7 @@ public static class OmtSetup
     {
         ArgumentNullException.ThrowIfNull(search);
         var refused = new List<string>(search.Refused);
-        foreach (var file in search.Files)
+        foreach (var file in search.Candidates)
         {
             if (!File.Exists(file))
                 continue;
@@ -167,7 +167,7 @@ public static class OmtSetup
             refused.Add($"{file} would not load");
         }
         loadedFrom = "";
-        why = $"libvmx (OMT's video codec) was not found: searched {string.Join(", ", search.Files)}"
+        why = $"libvmx (OMT's video codec) was not found: searched {string.Join(", ", search.Candidates)}"
             + (refused.Count > 0 ? " (" + string.Join("; ", refused) + ")" : "")
             + $" — build it from src/ThirdParty/libvmx (build/) and put it beside the exe or set {VmxDirVariable} to its folder, an absolute path";
         return 0;

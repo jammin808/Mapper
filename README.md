@@ -269,7 +269,7 @@ dotnet test tests/PlayMap.Core.Tests -c Debug --no-build
 ```
 
 GL tests need a display (`Xvfb :99 &` and `export DISPLAY=:99` on Linux). Media tests need FFmpeg 9.0 shared libraries: set
-`PLAYMAP_FFMPEG_DIR`. `PLAYMAP_GL_DIALECT=es300` runs the Render suite on an OpenGL ES 3.00 context.
+`PLAYMAP_FFMPEG_DIR` to their folder, an absolute path (a relative one is refused). `PLAYMAP_GL_DIALECT=es300` runs the Render suite on an OpenGL ES 3.00 context.
 
 The shader worker's DXC is its LLVM-licensed compiler alone, dxcompiler, whose built-in validator signs the DXIL; no `dxil.dll` or
 `libdxil.so` is used (`docs/round3/PLAN.md` §9 decision 24). On Windows `dxcompiler.dll` comes from Microsoft.Direct3D.DXC, which

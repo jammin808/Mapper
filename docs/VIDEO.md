@@ -124,17 +124,20 @@ NDI® is a registered trademark of Vizrt NDI AB.
 
 ## Native libraries
 
-NDI's runtime and OMT's libvmx are found under the rule round 3 sets for Aftermath (`round3/design/d3d12.md` §9): every candidate
-is an absolute path, loaded by that full path, and the system's loader is never asked by bare name — on Windows its search takes in
-the process's current directory and `PATH`, and a copy planted in either would load into the engine. FFmpeg's loader loads its
-libraries by full path the same way. The standard install folders are expanded to absolute paths: on Windows
-`%ProgramFiles%\NDI\NDI 6 Runtime\v6` (NDI only; no system folder is searched); on Linux `/usr/lib`, `/usr/local/lib` and the
-architecture's `/usr/lib/<triplet>`; on macOS `/usr/local/lib`, and for NDI `/Library/NDI SDK for Apple/lib/macOS`. A relative
-`videoio.ndiRuntimePath`, `PLAYMAP_NDI_DIR`, `NDI_RUNTIME_DIR_V6` or `PLAYMAP_VMX_DIR` is refused with the words, never read
-against the current directory, and the search goes on through the rest: the words are in `videoio.ndi.words` /
-`videoio.omt.words` (and the preflight row of a show that uses it) whether a library loaded or not. When libvmx is not loaded, OMT's import resolver refuses
-it with the words rather than hand the name to the runtime's own probing. `NdiFindTests` and `VmxFindTests` prove it with fake
-files: the order, the refusals, and a library present only in the current directory never loaded.
+FFmpeg's libraries, NDI's runtime and OMT's libvmx are found under the rule round 3 sets for Aftermath (`round3/design/d3d12.md`
+§9): every candidate is an absolute path, loaded by that full path, and the system's loader is never asked by bare name — on
+Windows its search takes in the process's current directory and `PATH`, and a copy planted in either would load into the engine.
+FFmpeg's folders are `PLAYMAP_FFMPEG_DIR`, the exe's `ffmpeg` folder and the exe's folder, each before its `lib` and `bin`; the
+binding is pointed at the folder the libraries were loaded from, and binds from it alone. The standard install folders are
+expanded to absolute paths: on Windows `%ProgramFiles%\NDI\NDI 6 Runtime\v6` (NDI only; no system folder is searched); on Linux
+`/usr/lib`, `/usr/local/lib` and the architecture's `/usr/lib/<triplet>`; on macOS `/usr/local/lib`, and for NDI `/Library/NDI
+SDK for Apple/lib/macOS`. A relative `PLAYMAP_FFMPEG_DIR`, `videoio.ndiRuntimePath`, `PLAYMAP_NDI_DIR`, `NDI_RUNTIME_DIR_V6` or
+`PLAYMAP_VMX_DIR` is refused with the words, never read against the current directory, and the search goes on through the rest.
+The words are said whether a library loaded or not: `videoio.ndi.words` / `videoio.omt.words` (and the preflight row of a show
+that uses it); for FFmpeg the media journal line, in the not-found words or, when the libraries were found elsewhere, on its own.
+When libvmx is not loaded, OMT's import resolver refuses it with the words rather than hand the name to the runtime's own
+probing. `FfmpegFindTests`, `NdiFindTests` and `VmxFindTests` prove it with fake files: the order, the refusals, and a library
+present only in the current directory never looked at or loaded.
 
 ## Spout
 
@@ -182,8 +185,8 @@ Verified on this machine: the GPU pack and unpack of every layout against the CP
 for real over loopback, lock-step at 1080p in UYVY, UYVA, BGRA, P216 and PA16, with tally, quality and the 1/8 preview; the engine
 sending an output and receiving it as an input; discovery with no avahi daemon; NDI against the fake runtime (loader, find with
 groups and the discovery server, receive, the async send ring, tally both ways, advertisers on 6.3 and not 6.2, colour info); the
-NDI and libvmx searches with fake files (the order, a relative setting or variable refused, a copy in the current directory never
-loaded); the loss policy and backups on a fake provider and a hand-moved clock; Spout's protocol against a fake kernel (the info map, the sender
+FFmpeg, NDI and libvmx searches with fake files (the order, a relative setting or variable refused, a copy in the current
+directory never loaded); the loss policy and backups on a fake provider and a hand-moved clock; Spout's protocol against a fake kernel (the info map, the sender
 list, Spout's order on both sides, the busy-mutex case, a failed copy, a read-back in flight read before the next copy, keyed
 textures, a sender that left, a frame that does not convert dropped and never counted sent) and a Spout send following the air on
 the real render host. On the Windows CI job (WARP): a sender and a receiver round-trip a 64×36

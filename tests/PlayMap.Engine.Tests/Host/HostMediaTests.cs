@@ -1,6 +1,7 @@
 using System.Text.Json;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Host;
+using PlayMap.Media;
 
 namespace PlayMap.Engine.Tests.Host;
 
@@ -56,6 +57,14 @@ public sealed class HostMediaTests
         Assert.StartsWith("FFmpeg 9 libraries not found: searched ", words, StringComparison.Ordinal);
         Assert.Contains("PLAYMAP_FFMPEG_DIR", words, StringComparison.Ordinal);
         Assert.StartsWith("FFmpeg 9 libraries could not be used: ", MediaBackend.FfmpegWords("libavcodec.so.63 exists but did not load"), StringComparison.Ordinal);
+
+        // A relative PLAYMAP_FFMPEG_DIR is refused on the way, and the operator's words say so beside the folders searched.
+        const string refusal = "PLAYMAP_FFMPEG_DIR \"ffmpeg\" is refused: it is not an absolute path, and a relative one would be read against the current directory";
+        var search = new NativeSearch(["/opt/playmap/ffmpeg", "/opt/playmap"], [refusal]);
+        Assert.Equal(
+            "FFmpeg 9 libraries not found: searched /opt/playmap/ffmpeg, /opt/playmap (and their lib and bin folders); " + refusal
+            + " — set PLAYMAP_FFMPEG_DIR to the folder that holds them, an absolute path",
+            MediaBackend.FfmpegWords("FFmpeg 63.x shared libraries were not found. Searched: …", search));
     }
 }
 
