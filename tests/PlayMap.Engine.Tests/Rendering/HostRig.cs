@@ -83,6 +83,10 @@ internal sealed class HostRig : IAsyncDisposable
         var node = Guid.NewGuid().ToString("N")[..8];
         services = services with { Settings = services.Settings with { NodeId = node }, Outputs = host, Media = media };
         var engine = new EngineCore(services, project);
+        // A folder run whatever the test machine holds: STATE's machine.install never reads the host's install key (the output fixture
+        // this rig writes carries the folder-run block).
+        engine.InstallSource = () => PlayMap.Engine.Install.InstallFacts.NotInstalled;
+        engine.InstallReadAgain();
         host.Start(engine);
         return new HostRig(clock, engine, host);
     }

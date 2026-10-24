@@ -25,14 +25,23 @@ one differ, that one is current.
 
 On `PLAYLIST GO|NEXT|PREV` and `VIDEO PLAY|RESTART` (spine rows): `EXPECT <item>|#<n>` refuses the GO when the item that would play
 is not the one named — "the next item on Show is now 'C', not 'B' — the key was out of date"; and the show's MinGo refuses a
-second GO on the same playlist inside the window — "double GO protection: 0.20 s since the last GO on Show (0.30 s armed)".
+second GO on the same playlist inside the window — "double GO protection: 0.20 s since the last GO on Show (0.30 s armed)". An
+accepted one is the playlist's row of `STATE.show.lastGo`.
 
 ## Replies
 
 - `SHOW` — the `STATE.show` object below.
 - `SHOW ARM` — `{"armed":true,"by":"Desk","since":<unix ms>}` (`"members":n` with `ALL` on a group's leader); refused "already armed
-  by … since HH:mm".
-- `SHOW DISARM` — `{"armed":false,"landed":0,"setAside":0}`; refused "not armed — the show is in rehearsal".
+  by … since HH:mm". On a node composed with arm hooks the answer comes once each hook has answered or passed its deadline (at most
+  five minutes), and adds `"hooks":[{"name","outcome":"done"|"cancelled"|"failed","words"}]` in the hooks' order; the effect names
+  each hook that said something ("armed by Desk · plans: 12 plans compiled; pipelines: missed its 2000 ms deadline and was
+  cancelled: the show is armed without it"). With `ALL` the members are sent the line before this node's hooks end; the reply's
+  `nodes[0].words` carry this node's effect with its hooks' words and `hooks` sits beside `nodes`. A line from the sync leader is
+  answered once the mode has changed, each hook `"outcome":"running"` with the words "runs behind this answer: its outcome is
+  journalled on this node", and each outcome is a `show` journal row ("SHOW ARM's arm hook pipelines: missed its 3000 ms deadline
+  …").
+- `SHOW DISARM` — `{"armed":false,"landed":0,"setAside":0}` (and `hooks`, as ARM's, from each hook's disarming half); refused "not
+  armed — the show is in rehearsal".
 - `PANIC` — `{"outcome":"black","hard":false,"since":…,"outputs":[{"id","outcome","fadeMs","until"}],"devices":[{"id","stage"}],
   "released":[{"playlist","done","atLeaderNs","words"}],"notes"?}` (`released`: each chased playlist whose chase the panic's step
   disengages — `done:true` when it already has, `false` while the step waits for its fade's end; its words are in `notes` too; a
@@ -75,17 +84,29 @@ Top-level `show` (after `cameras`):
   "refused":{"last60s":1,"last":"Companion: FOH deck — SET op_1 width 1280 — Not while armed: …"},
   "preflight":null|{"id":"pf…","at":…,"depth":"quick","light":"red","green":3,"amber":0,"red":1,"grey":2,"ready":"4/5",
                     "firstOpen":"outputs: Output 1 — this machine has no display for it","running":false},
-  "minGoMs":300}
+  "minGoMs":300,
+  "lastGo":[{"playlist":"pl_show","leaderNs":5000000000,"at":1760000000000,"session":"c1","transport":"companion",
+             "by":"Companion: FOH deck"}]}
 ```
+
+`lastGo` is the last accepted GO (`PLAYLIST GO|NEXT|PREV`, `VIDEO PLAY|RESTART`) on each playlist the project holds, newest first:
+its leader time (the one the GO fence counts from), its time on the node's wall clock (Unix ms, the clock of STATE's own `at`), and
+the session id, transport and client name of the line that made it. A GO the fence or the playback refuses changes nothing here;
+before the first GO it is `[]`. STATE's `at` is when the node wrote that STATE, and a node that stands still writes none, so the
+first STATE a client reads on a link (its greeting) may be far older than its arrival: a row's age against its push's `at` holds for
+a row first seen after that first STATE, and the desk takes the rows of its first push on a link, and again after the link was
+down, as seen.
 
 `blind` stays `null` until blind editing lands. The fixture is `tests/fixtures/state/show.json`, written by `ShowStateFixtureTest`.
 
 ## Cards
 
-`tests/fixtures/state/show.cards.json`: Show, Panic, Master, Locks and Preflight. A card is `{"title","path","light","words",
-"fields":[{"label","path"}],"actions":[line…]}`; `light` is a list of rules read in order — `{"if":<path>,"light":<word>}` (the
-path holds a value that is not null, false or 0), `{"from":<path>}` (the path holds a light word), `{"light":<word>}` (always);
-paths are relative to the card's path; `words` fills `{path}` holes.
+`tests/fixtures/state/show.cards.json`: Show, Panic, Master, Locks, Preflight, Blind, Sound and Last GO (one per playlist in
+`lastGo`, lit `info`: a record of an accepted GO, marked "i"). A card is `{"title","path","light","words","fields":[{"label","path"}],
+"actions":[line…]}`; `light` is a list of rules read in order — `{"if":<path>,"light":<word>}` (the path holds a value that is not
+null, false or 0), `{"from":<path>}` (the path holds a light word), `{"light":<word>}` (always), an `if` or a bare rule's word being
+`green`, `amber`, `red`, `grey` or `info` (information, drawn grey with the mark i); paths are relative to the card's path; `words`
+fills `{path}` holes.
 
 ## Context
 

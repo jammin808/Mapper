@@ -106,6 +106,23 @@
           <ComboBox Grid.Column="1" ItemsSource="{Binding ContentItems}" SelectedItem="{Binding ContentItem}" IsVisible="{Binding HasContentItems}" />
           <TextBox Grid.Column="1" Text="{Binding ColorHex}" IsVisible="{Binding IsColorContent}" />
         </Grid>
+        <!-- A quad's four corners, typed in the wall's pixels (Enter or leaving the field sends SURFACE CORNER … TO … PX); a mesh
+             surface's mapping and region. -->
+        <StackPanel IsVisible="{Binding IsQuad}" x:Name="QuadCorners">
+          <TextBlock Classes="label" Text="{Binding CornerUnits, StringFormat='Corners — {0}'}" />
+          <ItemsControl ItemsSource="{Binding Corners}" x:Name="QuadCornerRows">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:QuadCornerRow">
+                <Grid ColumnDefinitions="28,*,*" ColumnSpacing="6" Margin="0,1">
+                  <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  <TextBox Grid.Column="1" Classes="corner" Text="{Binding X, UpdateSourceTrigger=LostFocus}" ToolTip.Tip="{Binding Line}" />
+                  <TextBox Grid.Column="2" Classes="corner" Text="{Binding Y, UpdateSourceTrigger=LostFocus}" ToolTip.Tip="{Binding Line}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <StackPanel IsVisible="{Binding IsMeshSurface}" x:Name="MeshFields">
         <TextBlock Classes="label" Text="Mapping" />
         <ComboBox ItemsSource="{Binding MappingChoices}" SelectedItem="{Binding Mapping}" />
         <StackPanel IsVisible="{Binding IsProjection}">
@@ -114,6 +131,7 @@
         </StackPanel>
         <TextBlock Classes="label" Text="{Binding RegionHint, StringFormat='Region — {0}'}" />
         <TextBox Text="{Binding Region}" />
+        </StackPanel>
         <Grid ColumnDefinitions="*,Auto">
           <TextBlock Classes="label" Text="Opacity" />
           <TextBlock Grid.Column="1" Classes="label" Text="{Binding OpacityText}" />
@@ -129,8 +147,10 @@
           </StackPanel>
           <CheckBox Grid.Column="1" Content="Locked" IsChecked="{Binding Locked}" VerticalAlignment="Bottom" />
         </Grid>
-        <TextBlock Classes="label" Text="Position (m) — x, y, z" />
-        <TextBox Text="{Binding PositionText}" />
+        <StackPanel IsVisible="{Binding IsMeshSurface}">
+          <TextBlock Classes="label" Text="Position (m) — x, y, z" />
+          <TextBox Text="{Binding PositionText}" />
+        </StackPanel>
         <Grid ColumnDefinitions="*,Auto" Margin="0,12,0,4">
           <TextBlock Classes="h2" Text="MASKS" VerticalAlignment="Center" />
           <ContentControl Grid.Column="1" Content="{Binding AddMask}" ContentTemplate="{StaticResource ActionSmall}" />
@@ -207,11 +227,11 @@
           <StackPanel>
             <TextBlock Classes="h2" Text="PINS" />
             <StackPanel Orientation="Horizontal" Spacing="6">
-              <Ellipse Classes="light" Fill="{Binding ResidualLevel, Converter={StaticResource LightBrush}}" />
+              <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding ResidualLevel, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding ResidualLevel}" /></StackPanel>
               <TextBlock Classes="faint" Text="{Binding SolveText}" />
             </StackPanel>
           </StackPanel>
-          <Button Grid.Column="1" x:Name="SolveButton" Classes="primary" Command="{Binding Solve.Command}" ToolTip.Tip="{Binding Solve.Tip}" Content="Solve" />
+          <Button Grid.Column="1" x:Name="SolveButton" Classes="primary" Classes.bindable="{Binding Solve.IsBindable}" ui:MapAnythingTouch.Action="{Binding Solve}" Command="{Binding Solve.Command}" ToolTip.Tip="{Binding Solve.Tip}" Content="Solve" />
         </Grid>
         <Grid ColumnDefinitions="28,*,90,64,Auto" Margin="4,2">
           <TextBlock Classes="faint" Text="#" />
@@ -222,10 +242,16 @@
         <ItemsControl x:Name="PinTable" ItemsSource="{Binding Pins}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:PinRow">
-              <Grid ColumnDefinitions="28,*,90,64,Auto" Margin="4,1" Background="Transparent" ui:DeskMenu.Actions="{Binding Remove, Converter={x:Static vm:ActionLists.One}}">
+              <Grid ColumnDefinitions="28,*,96,64,Auto" Margin="4,1" Background="Transparent" ui:DeskMenu.Actions="{Binding Remove, Converter={x:Static vm:ActionLists.One}}">
                 <CheckBox IsChecked="{Binding Enabled}" MinWidth="0" Padding="0" ToolTip.Tip="Use this pin in the solve" />
-                <TextBlock Grid.Column="1" Text="{Binding World}" VerticalAlignment="Center" FontSize="12" />
-                <TextBlock Grid.Column="2" Text="{Binding Pixel}" VerticalAlignment="Center" FontSize="12" />
+                <Button Grid.Column="1" Classes="tool small" Classes.checked="{Binding IsSelected}" Command="{Binding SelectCommand}" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left" Focusable="False" ToolTip.Tip="Pick the pin: the arrows move it by one pixel (SET &lt;pin&gt; pixel)" x:Name="PinPick">
+                  <TextBlock Text="{Binding World}" FontSize="12" />
+                </Button>
+                <Grid Grid.Column="2" ColumnDefinitions="*,*" ColumnSpacing="2" x:Name="PinPixel">
+                  <TextBox Classes="corner" Text="{Binding PixelX, UpdateSourceTrigger=LostFocus}" FontSize="12" MinWidth="0" Padding="4,2" ToolTip.Tip="{Binding PixelLine}" />
+                  <TextBox Grid.Column="1" Classes="corner" Text="{Binding PixelY, UpdateSourceTrigger=LostFocus}" FontSize="12" MinWidth="0" Padding="4,2" ToolTip.Tip="{Binding PixelLine}" />
+                </Grid>
                 <Border Grid.Column="3" x:Name="Residual" CornerRadius="4" Padding="5,1" Background="{Binding Brush}" VerticalAlignment="Center" HorizontalAlignment="Left">
                   <TextBlock Text="{Binding ResidualText}" Foreground="#0B0D0F" FontSize="11.5" FontWeight="SemiBold" />
                 </Border>
@@ -338,6 +364,11 @@
     </DataTemplate>
   </UserControl.DataTemplates>
 
+  <Panel>
+  <Border Classes="blindTag" x:Name="BlindTag" ZIndex="10" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,2,0,0" IsHitTestVisible="False"
+          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsBlindMine, FallbackValue=False}">
+    <TextBlock Text="{Binding $parent[Window].((vm:MainViewModel)DataContext).BlindTag, FallbackValue=''}" />
+  </Border>
   <Grid RowDefinitions="Auto,*">
     <Border Padding="14,12" BorderBrush="{StaticResource DeskBorderBrush}" BorderThickness="0,0,0,1" Background="Transparent"
             ui:DeskMenu.Actions="{Binding Current.Actions, FallbackValue={x:Null}}">
@@ -372,4 +403,5 @@
       </StackPanel>
     </ScrollViewer>
   </Grid>
+  </Panel>
 </UserControl>

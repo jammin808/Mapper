@@ -1,5 +1,6 @@
 using System.Numerics;
-using PlayMap.Render.Gpu;
+using PlayMap.Core.Gpu;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Passes;
 
@@ -35,19 +36,21 @@ public sealed class MeasuredStage : IDisposable
     public bool Match => Gains != Vector4.One || MathF.Abs(Gamma - ContentGamma) > 1e-4f;
 
     /// <summary>A stage from float data: the grid (C × R nodes of u, v, valid) and the blend (W × H of weight, pedestal, gain), each
-    /// three floats a texel, row-major; either may be null.</summary>
-    public static MeasuredStage Upload(GlDevice device, (int Columns, int Rows, float[] Values)? grid, (int Width, int Height, float[] Values)? blend,
+    /// three floats a texel, row-major; either may be null. Its textures are filled in a frame of their own: made between the
+    /// renderer's frames.</summary>
+    public static MeasuredStage Upload(IGpuDevice device, (int Columns, int Rows, float[] Values)? grid, (int Width, int Height, float[] Values)? blend,
         Vector4 gains, float gamma, float pedestal)
     {
         ArgumentNullException.ThrowIfNull(device);
         GpuTexture? g = null;
         GpuTexture? b = null;
+        var list = device.BeginFrame(0);
         try
         {
             if (grid is { } gr)
-                g = Texture(device, gr.Columns, gr.Rows, gr.Values);
+                g = Texture(device, list, gr.Columns, gr.Rows, gr.Values);
             if (blend is { } bl)
-                b = Texture(device, bl.Width, bl.Height, bl.Values);
+                b = Texture(device, list, bl.Width, bl.Height, bl.Values);
             var stage = new MeasuredStage { WarpGrid = g, Blend = b, Gains = gains, Gamma = gamma > 0 ? gamma : ContentGamma, Pedestal = pedestal };
             g = null;
             b = null;
@@ -55,12 +58,13 @@ public sealed class MeasuredStage : IDisposable
         }
         finally
         {
+            device.Submit(list);
             g?.Dispose();
             b?.Dispose();
         }
     }
 
-    private static GpuTexture Texture(GlDevice device, int width, int height, float[] rgb)
+    private static GpuTexture Texture(IGpuDevice device, ICommandList list, int width, int height, float[] rgb)
     {
         if (width < 1 || height < 1 || rgb.Length != width * height * 3)
             throw new ArgumentException("three floats a texel");
@@ -71,11 +75,11 @@ public sealed class MeasuredStage : IDisposable
             rgba[4 * i + 1] = rgb[3 * i + 1];
             rgba[4 * i + 2] = rgb[3 * i + 2];
         }
-        var tex = device.CreateTexture(width, height, TextureFormat.Rgba32F, TextureFilter.Nearest);
+        var tex = device.CreateTexture(new TextureDesc(width, height, TextureFormat.Rgba32F, FrameLists.Uploaded, TextureFilter.Nearest));
         var uploaded = false;
         try
         {
-            device.Upload(tex, GlDevice.Bytes<float>(rgba), UploadFormat.Rgba32F);
+            list.Upload(tex, System.Runtime.InteropServices.MemoryMarshal.AsBytes<float>(rgba), UploadFormat.Rgba32F);
             uploaded = true;
             return tex;
         }

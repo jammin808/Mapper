@@ -128,7 +128,7 @@ public sealed partial class EngineCore
             return CommandReply.Fail($"{held.OwnerName} holds the blind draft ({Changes(held)} staged) — one draft per node: it commits or discards it first");
         }
         var live = Store.Current;
-        var draft = new ProjectStore(live.Project, () => Services.Mono.NowNs / 1_000_000);
+        var draft = new ProjectStore(live.Project, () => Services.Mono.NowNs / 1_000_000) { Who = EditorNow, WallMs = () => Services.Wall.UnixMs };
         // A draft may move what an armed show locks (mapping, layout): that is what it is for. The show's explicit locks hold on it as
         // they hold live, so a draft never stages what its commit would be refused for.
         draft.Guard = (before, after) => LockGuard.Check(WithLiveLocks(before), WithLiveLocks(after), armed: false);

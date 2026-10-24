@@ -15,7 +15,8 @@ public enum ToastKind
     Fault,
 }
 
-/// <summary>One line on the status strip: what happened, in plain words, and the verb that caused it.</summary>
+/// <summary>One line on the status strip: what happened, in plain words, and the verb that caused it; <see cref="At"/> is when it
+/// was last said, a timestamp of the session's clock.</summary>
 public sealed record Toast(ToastKind Kind, string Text, string Verb, long Id, long At)
 {
     public bool IsRefusal => Kind is ToastKind.Refused or ToastKind.Fault;
@@ -37,6 +38,7 @@ public sealed record GateRefusal(string Words, string Tag);
 public sealed class DeskSession : ObservableObject, IAsyncDisposable
 {
     private readonly Action<Action> _post;
+    private readonly TimeProvider _time;
     private readonly Lock _gate = new();
     private IEngineLink? _link;
     private bool _statePending;
@@ -53,20 +55,23 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     /// <param name="post">Runs an action on the UI thread later (the dispatcher's Post); tests pass the
     /// headless dispatcher's.</param>
-    public DeskSession(Action<Action> post)
+    /// <param name="time">The clock the throttle's interval and the toasts' ages run on (the machine's when null; tests pass a manual
+    /// one).</param>
+    public DeskSession(Action<Action> post, TimeProvider? time = null)
     {
         _post = post;
+        _time = time ?? TimeProvider.System;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
         // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said.
-        Throttle = new ThrottledSender((line, ct) =>
+        Throttle = new ThrottledSender(async (line, ct) =>
         {
             if (GateWords(line) is { } why)
             {
                 _post(() => Notify(ToastKind.Refused, why, line));
-                return Task.CompletedTask;
+                return false;
             }
-            return SendAsync(line, ct);
-        });
+            return (await SendAsync(line, ct)).Ok;
+        }, time: time);
     }
 
     /// <summary>The coalescing sender drags go through (≈ 60 Hz, latest wins per key).</summary>
@@ -349,9 +354,10 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         var link = _link;
         if (link is null || link.Status is not (LinkStatus.Live or LinkStatus.Stale))
             return new WireReply(false, "not connected to an engine — nothing was sent");
+        WireReply reply;
         try
         {
-            return await link.SendAsync(line, ct);
+            reply = await link.SendAsync(line, ct);
         }
         catch (OperationCanceledException)
         {
@@ -361,23 +367,52 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         {
             return new WireReply(false, "the link failed: " + ex.Message);
         }
+        Replied?.Invoke(line, reply);
+        return reply;
     }
+
+    /// <summary>Raised when the node answered a line this session sent (on the thread the reply came back on): what the node accepted
+    /// or refused, for the parts of the desk that show the node's answer (the GO guard).</summary>
+    public event Action<string, WireReply>? Replied;
+
+    private bool _mapAnything;
+
+    /// <summary>Map anything: while on, every control whose line can be bound is highlighted, and touching one sends BIND LEARN for its
+    /// line instead of the line (once: the mode ends with it). A desk mode, nothing on the node.</summary>
+    public bool MapAnything
+    {
+        get => _mapAnything;
+        set
+        {
+            if (Set(ref _mapAnything, value))
+            {
+                GateMoved();
+                MapAnythingChanged?.Invoke();
+            }
+        }
+    }
+
+    /// <summary>Raised when <see cref="MapAnything"/> moved (every control re-reads whether it is highlighted).</summary>
+    public event Action? MapAnythingChanged;
+
+    /// <summary>The GO guard every GO control draws (null until the desk's look module sets it).</summary>
+    public ViewModels.Ux.GoGuard? GoGuard { get; set; }
 
     /// <summary>Runs an action on the UI thread later (for notes that arrive from a worker).</summary>
     public void OnUi(Action action) => _post(action);
 
     /// <summary>Puts a line on the status strip (and keeps the last few as toasts). The same words again
-    /// within two seconds refresh the toast already up instead of stacking a copy. UI thread only.</summary>
+    /// within two seconds of the session's clock refresh the toast already up instead of stacking a copy. UI thread only.</summary>
     public void Notify(ToastKind kind, string text, string verb = "")
     {
         if (Toasts.Count > 0 && Toasts[^1] is { } last && last.Kind == kind && last.Text == text
-            && System.Diagnostics.Stopwatch.GetElapsedTime(last.At) < TimeSpan.FromSeconds(2))
+            && _time.GetElapsedTime(last.At) < TimeSpan.FromSeconds(2))
         {
-            Toasts[^1] = last with { Verb = verb, At = System.Diagnostics.Stopwatch.GetTimestamp() };
+            Toasts[^1] = last with { Verb = verb, At = _time.GetTimestamp() };
             LastToast = Toasts[^1];
             return;
         }
-        var toast = new Toast(kind, text, verb, Interlocked.Increment(ref _toastIds), System.Diagnostics.Stopwatch.GetTimestamp());
+        var toast = new Toast(kind, text, verb, Interlocked.Increment(ref _toastIds), _time.GetTimestamp());
         LastToast = toast;
         Toasts.Add(toast);
         while (Toasts.Count > 4)
@@ -386,13 +421,13 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     public void Dismiss(Toast toast) => Toasts.Remove(toast);
 
-    /// <summary>Takes away toasts older than the given age (the window's tick); refusals stay twice as long.</summary>
+    /// <summary>Takes away toasts older than the given age of the session's clock (the window's tick); refusals stay twice as long.</summary>
     public void Expire(TimeSpan age)
     {
         for (var i = Toasts.Count - 1; i >= 0; i--)
         {
             var t = Toasts[i];
-            if (System.Diagnostics.Stopwatch.GetElapsedTime(t.At) > (t.IsRefusal ? age * 2 : age))
+            if (_time.GetElapsedTime(t.At) > (t.IsRefusal ? age * 2 : age))
                 Toasts.RemoveAt(i);
         }
     }

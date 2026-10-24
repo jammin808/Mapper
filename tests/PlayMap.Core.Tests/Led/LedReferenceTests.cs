@@ -1,5 +1,6 @@
 using PlayMap.Core.Led;
 using PlayMap.Core.Model;
+using PlayMap.Tests;
 
 namespace PlayMap.Core.Tests.Led;
 
@@ -196,5 +197,62 @@ public sealed class LedReferenceTests
         }
         Assert.Equal([1L, 2, 3, 9], taken);
         Assert.Equal(0, pool.Skipped);
+    }
+
+    [Fact]
+    public void AFramePoolSizedByOneFrameAllocatesNothingForABurst()
+    {
+        var pool = new LedFramePool();
+        var burst = new LedFrame?[LedFramePool.Size];
+        // A steady frame: one read rents one frame, the sender takes and returns it.
+        pool.Submit(pool.Rent(3)!);
+        pool.Return(pool.Take()!);
+        // A burst: a GPU a frame or two behind hands several reads over in one collect, each renting a frame no steady frame took.
+        var before = Allocations.Start();
+        for (var i = 0; i < burst.Length; i++)
+            burst[i] = pool.Rent(3);
+        foreach (var f in burst)
+            pool.Submit(f!);
+        while (pool.Take() is { } t)
+            pool.Return(t);
+        Assert.Equal(0, Allocations.Since(before));
+        Assert.All(burst, f => Assert.Equal(3 * LedPlan.SlotsPerRow, f!.Slots.Length));
+        Assert.Equal(0, pool.Dropped);
+    }
+
+    [Fact]
+    public void AFrameTheSenderHeldWhileThePlanGrewIsGrownAsItComesBack()
+    {
+        var pool = new LedFramePool();
+        pool.Submit(pool.Rent(2)!);
+        var held = pool.Take()!;
+        held.Slots[5] = 7;
+        // The plan grows while the sender holds a frame: that rent is the plan's cold frame, and grows the frames the pool holds.
+        var queued = pool.Rent(5)!;
+        queued.Slots[9] = 3;
+        pool.Submit(queued);
+        var free = pool.Rent(5)!;
+        Assert.Equal(5 * LedPlan.SlotsPerRow, free.Slots.Length);
+        pool.Return(free);
+        // A smaller plan keeps the high water.
+        var small = pool.Rent(1)!;
+        Assert.Equal(1, small.Rows);
+        Assert.Equal(5 * LedPlan.SlotsPerRow, small.Slots.Length);
+        pool.Return(small);
+        // The held frame comes back grown, its slots kept; the queued one kept its slots.
+        pool.Return(held);
+        Assert.Equal(5 * LedPlan.SlotsPerRow, held.Slots.Length);
+        Assert.Equal(7, held.Slots[5]);
+        var first = pool.Take();
+        Assert.Same(queued, first);
+        Assert.Equal(3, queued.Slots[9]);
+        pool.Return(first!);
+        // Every frame is now at the high water: a burst of the grown plan rents and allocates nothing.
+        var burst = new LedFrame?[LedFramePool.Size];
+        var before = Allocations.Start();
+        for (var i = 0; i < burst.Length; i++)
+            burst[i] = pool.Rent(5);
+        Assert.Equal(0, Allocations.Since(before));
+        Assert.All(burst, f => Assert.True(f!.Slots.Length >= 5 * LedPlan.SlotsPerRow));
     }
 }

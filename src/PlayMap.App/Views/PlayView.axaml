@@ -5,6 +5,11 @@
              xmlns:views="using:PlayMap.App.Views"
              x:Class="PlayMap.App.Views.PlayView"
              x:DataType="vm:PlayViewModel">
+  <Panel>
+  <Border Classes="blindTag" x:Name="BlindTag" ZIndex="10" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,2,0,0" IsHitTestVisible="False"
+          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsBlindMine, FallbackValue=False}">
+    <TextBlock Text="{Binding $parent[Window].((vm:MainViewModel)DataContext).BlindTag, FallbackValue=''}" />
+  </Border>
   <Grid ColumnDefinitions="300,*,340" Margin="10" ColumnSpacing="10">
 
     <!-- The bin: files and generators. Drop files here to import them (MEDIA IMPORT). -->
@@ -40,7 +45,7 @@
                   </DockPanel>
                   <TextBlock Classes="faint" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
-                <Ellipse Grid.Column="2" Classes="light" Fill="{Binding Availability, Converter={StaticResource LightBrush}}" ToolTip.Tip="{Binding AvailabilityTip}" />
+                <StackPanel Orientation="Horizontal" Spacing="4" Grid.Column="2"><Ellipse Classes="light" Fill="{Binding Availability, Converter={StaticResource LightBrush}}" ToolTip.Tip="{Binding AvailabilityTip}" /><ui:StatusMark Light="{Binding Availability}" /></StackPanel>
               </Grid>
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -85,7 +90,7 @@
                   <ui:PreviewSurface Height="138" ViewId="{Binding ViewId}" Label="{Binding Name}" Aspect="{Binding Aspect}"
                                      NodeId="{Binding $parent[UserControl].((vm:PlayViewModel)DataContext).NodeId}" />
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="2,0">
-                    <Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" />
+                    <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
                     <DockPanel Grid.Column="1">
                       <ui:BadgeStrip DockPanel.Dock="Right" Margin="4,0,0,0" />
                       <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
@@ -163,7 +168,7 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <Button Classes="secondary" VerticalAlignment="Top" Command="{Binding NewPlaylist.Command}" ToolTip.Tip="{Binding NewPlaylist.Tip}" Height="56" Padding="18,0">
+          <Button Classes="secondary" Classes.bindable="{Binding NewPlaylist.IsBindable}" ui:MapAnythingTouch.Action="{Binding NewPlaylist}" VerticalAlignment="Top" Command="{Binding NewPlaylist.Command}" ToolTip.Tip="{Binding NewPlaylist.Tip}" Height="56" Padding="18,0">
             <StackPanel Orientation="Horizontal" Spacing="8">
               <PathIcon Data="{StaticResource Icon.plus}" Width="15" Height="15" />
               <TextBlock Text="New playlist" VerticalAlignment="Center" />
@@ -177,4 +182,5 @@
       <views:InspectorView DataContext="{Binding Inspector}" />
     </Border>
   </Grid>
+  </Panel>
 </UserControl>

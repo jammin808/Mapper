@@ -122,16 +122,16 @@ public sealed partial class EngineCore : IShowDecisions
     /// <summary>The door: the table's decision, then the network area's lock (the only area with no document to guard). A line
     /// an assistant may only propose waits on this node's list for a person; a draftable line from the blind draft's owner runs
     /// into its draft (<paramref name="draft"/>), refused while that draft is landing.</summary>
-    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
+    private CommandReply? ShowGateLine(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, out ProjectStore? draft)
     {
-        var refused = ShowGateDecide(spec, line, session, out draft);
+        var refused = ShowGateDecide(spec, line, session, call, out draft);
         // Off the lane the line's edits are applied later, through EditAsync on the lane: they keep this decision.
         if (refused is null && !_lane.IsOnLane)
             NoteOffLaneDecision(session, draft);
         return refused;
     }
 
-    private CommandReply? ShowGateDecide(VerbSpec spec, WireLine line, SessionInfo session, out ProjectStore? draft)
+    private CommandReply? ShowGateDecide(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, out ProjectStore? draft)
     {
         draft = null;
         // A row no package answers on this node is the router's to refuse ("not available"): nothing to decide or to queue.
@@ -153,7 +153,7 @@ public sealed partial class EngineCore : IShowDecisions
                 draft = DraftStoreFor(session);
                 return draft is null ? RefuseAtGate(spec, line, session, "this session holds no blind draft — BLIND ON first") : null;
             case ShowVerdict.Propose:
-                return ProposeAtGate(spec, line, session, d.Words ?? "this line waits for a person");
+                return ProposeAtGate(spec, line, session, d.Words ?? "this line waits for a person", call);
             default:
                 return RefuseAtGate(spec, line, session, d.Words ?? "refused by Show Mode");
         }
@@ -175,20 +175,26 @@ public sealed partial class EngineCore : IShowDecisions
     }
 
     /// <summary>An assistant's line the armed table holds for a person: queued on this node's own list (never run), answered with
-    /// the proposal's id so the assistant reads "waiting" rather than a bare refusal.</summary>
-    private CommandReply ProposeAtGate(VerbSpec spec, WireLine line, SessionInfo session, string words)
+    /// the proposal's id so the assistant reads "waiting" rather than a bare refusal. The approval desk elsewhere is offered it behind
+    /// the line's row (<paramref name="call"/> off the lane, <see cref="AfterRow"/> on it): a desk that does not take it is journalled,
+    /// and that row follows the refusal that names the proposal.</summary>
+    private CommandReply ProposeAtGate(VerbSpec spec, WireLine line, SessionInfo session, string words, VerbCall? call)
     {
         if (Services.Assistant is not { } assistant)
             return RefuseAtGate(spec, line, session, words + " — this node keeps no list of proposals, so a person runs it from the desk");
         var check = CommandGate.Check(line.Raw);
         var text = check.Ok ? check.Line : line.Raw;
         var from = session.Transport == "mcp" ? "an assistant over MCP" : "the assistant";
-        // The queue lists a proposal as soon as it is asked (an approval desk elsewhere is offered it after).
-        _ = assistant.Queue.EnqueueAsync(new ProposalDraft(text, spec, "proposed while the show is armed", from, session.SessionId,
-            session.SessionId + "/armed", 0), CancellationToken.None);
-        var id = assistant.Queue.All.LastOrDefault(p => p.SessionId == session.SessionId && p.Line == text)?.Id ?? "on this node's list";
+        var queue = assistant.Queue;
+        var proposal = queue.Add(new ProposalDraft(text, spec, "proposed while the show is armed", from, session.SessionId,
+            session.SessionId + "/armed", 0));
+        Action offer = () => _ = queue.OfferAsync(proposal, CancellationToken.None);
+        if (call is not null)
+            call.AfterRow(offer);
+        else
+            AfterRow(offer);
         FactsChanged();
-        return CommandReply.Fail($"{words} — queued for a person as proposal {id}");
+        return CommandReply.Fail($"{words} — queued for a person as proposal {proposal.Id}");
     }
 
     /// <summary>SHOW ARM [ALL] [words]: this node arms on the lane; ALL then sends the same line to every member of the group this
@@ -200,7 +206,7 @@ public sealed partial class EngineCore : IShowDecisions
             return Task.FromResult(CommandReply.Fail("no fleet fan-out on this node — SHOW ARM arms this node only"));
         var words = string.Join(' ', rest);
         return ShowGroupAsync(c, all, () => ShowArm(c.Session, words), words.Length > 0 ? "SHOW ARM " + Quote(words) : "SHOW ARM",
-            "already armed by ");
+            "already armed by ", arming: true);
     }
 
     /// <summary>SHOW DISARM [ALL], as ARM.</summary>
@@ -214,23 +220,36 @@ public sealed partial class EngineCore : IShowDecisions
         // The group's members run the line as a peer of this node, past their own remote rules: only an operator here may send it.
         if (all && ShowRoleOf(c.Session) is not (ShowRole.Operator or ShowRole.System))
             return Task.FromResult(RefuseAtGate(c.Spec, c.Line, c.Session, "SHOW DISARM ALL disarms every node of the group: the desk's (an operator's) only"));
-        return ShowGroupAsync(c, all, () => ShowDisarm(c.Session), "SHOW DISARM", "not armed");
+        return ShowGroupAsync(c, all, () => ShowDisarm(c.Session), "SHOW DISARM", "not armed", arming: false);
     }
 
-    /// <summary>This node's half on the lane, then (ALL) the group's at the leader instant this node's half ran: a node already in the
-    /// asked mode still sends the line on, so ALL brings every member to it. The reply lists this node and then each member with its
-    /// receipt. A line still waiting for the lane when the node began to stop is refused there, as every line is, and the group is
-    /// sent nothing.</summary>
-    private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords)
+    /// <summary>This node's half on the lane, then its arm hooks once its mode changed (<see cref="RunArmHooksAsync"/>: the answer names
+    /// what each did), and (ALL) the group's at the leader instant this node's half ran, sent as soon as the mode changed so no member
+    /// waits on this node's hooks: a node already in the asked mode still sends the line on, so ALL brings every member to it. The reply
+    /// lists this node (its words with its hooks') and then each member with its receipt, and beside them this node's hooks. A line from
+    /// the sync leader is answered once the mode has changed, its hooks running behind the answer, so the leader's receipt and this
+    /// node's feed (a PANIC behind the line) never wait on a hook. A line still waiting for the lane when the node began to stop is
+    /// refused there, as every line is, and the group is sent nothing.</summary>
+    private async Task<CommandReply> ShowGroupAsync(VerbCall c, bool all, Func<CommandReply> here, string line, string alreadyWords, bool arming)
     {
         var (local, at) = await _lane.RunAsync(() => RefusedAsStopping(c.Session) ? (CommandReply.Fail(StoppingWords), 0L) : (here(), LeaderNowNs))
             .ConfigureAwait(false);
+        // A mode a line changed is this line's to prepare: the hooks of a show that came back armed no longer run for it.
+        if (local.Ok)
+            Volatile.Write(ref _armAgain, 0);
+        if (!all && c.Session.Transport == LeaderTransport)
+            return WithArmHooksBehind(c, local, arming);
+        // The mode has changed already; the hooks prepare for it, each bounded by its own deadline, and no caller leaving cuts them short.
+        var hooks = local.Ok ? RunArmHooksAsync(arming, CancellationToken.None, c) : null;
         if (!all)
-            return local;
+            return hooks is null ? local : WithArmHooks(local, await hooks.ConfigureAwait(false));
         var already = !local.Ok && (local.Payload ?? "").StartsWith(alreadyWords, StringComparison.Ordinal);
         if (!local.Ok && !already)
             return local;
         var receipts = await FanOutAsync(line, at, c.Ct).ConfigureAwait(false);
+        var results = hooks is null ? [] : await hooks.ConfigureAwait(false);
+        if (local.Ok)
+            local = WithArmHooks(local, results);
         var mode = _showMode;
         var refused = receipts.Count(r => r.Stage != "applied");
         return new CommandReply(true, JsonOut(w =>
@@ -246,6 +265,19 @@ public sealed partial class EngineCore : IShowDecisions
             foreach (var r in receipts)
                 WriteReceipt(w, r);
             w.WriteEndArray();
+            if (!results.IsDefaultOrEmpty)
+            {
+                w.WriteStartArray("hooks");
+                foreach (var r in results)
+                {
+                    w.WriteStartObject();
+                    w.WriteString("name", r.Name);
+                    w.WriteString("outcome", r.Outcome);
+                    w.WriteString("words", r.Words);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
             w.WriteEndObject();
         }), $"{line} on this node and {receipts.Count} member{(receipts.Count == 1 ? "" : "s")}{(refused > 0 ? $" ({refused} did not apply it)" : "")}");
     }
@@ -440,7 +472,31 @@ public sealed partial class EngineCore : IShowDecisions
         w.WritePropertyName("sound");
         WriteSound(w);
         w.WriteNumber("minGoMs", mode.Armed ? rules.MinGoMsArmed : rules.MinGoMsRehearsal);
+        WriteLastGo(w, project);
         w.WriteEndObject();
+    }
+
+    /// <summary>STATE.show.lastGo (always written, empty before the first GO): the last accepted GO on each playlist the project holds,
+    /// newest first — its leader time (the one the GO fence counts from), its time on the node's wall clock (Unix ms, on the same clock
+    /// as STATE's <c>at</c>), and the session id, transport and client name of the line that made it. A GO the fence or the playback
+    /// refused writes nothing here.</summary>
+    private void WriteLastGo(Utf8JsonWriter w, Project project)
+    {
+        w.WriteStartArray("lastGo");
+        foreach (var (playlist, go) in _lastGo.OrderByDescending(p => p.Value.LeaderNs).ThenBy(p => p.Key, StringComparer.Ordinal))
+        {
+            if (project.Playlists.IndexOfId(playlist) < 0)
+                continue;
+            w.WriteStartObject();
+            w.WriteString("playlist", playlist);
+            w.WriteNumber("leaderNs", go.LeaderNs);
+            w.WriteNumber("at", go.AtUnixMs);
+            w.WriteString("session", go.Session);
+            w.WriteString("transport", go.Transport);
+            w.WriteString("by", go.By);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
     }
 
     /// <summary>The context's show item (always present, first), the preflight item, and the show's links: it controls every
@@ -540,8 +596,9 @@ public sealed partial class EngineCore : IShowDecisions
         w.WriteEndObject();
     });
 
-    /// <summary>Puts the show facts back after a restart: armed as it was, and a panic at its outcome at once (no fade: the air was
-    /// already dark when the node went away).</summary>
+    /// <summary>Puts the show facts back after a restart: armed as it was (its arming hooks then run once the node is up,
+    /// <see cref="ArmAgainAsync"/>), and a panic at its outcome at once (no fade: the air was already dark when the node went
+    /// away).</summary>
     private void LoadShowRecovery(string json)
     {
         try
@@ -553,6 +610,7 @@ public sealed partial class EngineCore : IShowDecisions
                 _showMode = new ShowMode(true, e.GetProperty("by").GetString() ?? "", e.GetProperty("since").GetInt64(),
                     e.TryGetProperty("words", out var words) ? words.GetString() ?? "" : "");
                 Journal.Add("recovery", $"armed again: the show was armed by {_showMode.By} when the node went away");
+                Volatile.Write(ref _armAgain, 1);
             }
             if (e.TryGetProperty("panic", out var p) && p.ValueKind == JsonValueKind.Object)
                 RestorePanic(p);

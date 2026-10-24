@@ -21,7 +21,11 @@ public sealed class VerbSyntaxTests
         Assert.Equal(["BIND ADD <input words> TO <target line>", "BIND ADD <json>"], Forms("BIND ADD"));
         Assert.Equal(["FX SET <slot> <param>|mix|blend|scale|name <value>", "FX SET <slot> <param> BY <delta>"], Forms("FX SET"));
         Assert.Equal(["ALIGN CORNERS <group> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4>", "ALIGN CORNERS <group> CLEAR"], Forms("ALIGN CORNERS"));
-        Assert.Equal(["HANDLE SELECT <surface> TL|TR|BR|BL|<col>,<row>", "HANDLE SELECT NONE"], Forms("HANDLE SELECT"));
+        Assert.Equal(
+        [
+            "HANDLE SELECT <surface> TL|TR|BR|BL|<col>,<row>", "HANDLE SELECT NONE", "HANDLE SELECT <pin>",
+            "HANDLE SELECT <output> WARP TL|TR|BR|BL|<c>,<r>", "HANDLE SELECT <output> MASK <i> <node>",
+        ], Forms("HANDLE SELECT"));
         Assert.Equal(
         [
             "SCAN SURFACE <scan> <x> <y> [ON <projector>] [<name>]", "SCAN SURFACE <scan> REGION <id> [ON <projector>] [<name>]",

@@ -3,11 +3,11 @@ using System.Globalization;
 using Microsoft.Extensions.Logging;
 using PlayMap.Core.Content;
 using PlayMap.Core.Model;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Time;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Presentation;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
 using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
 using PlayMap.Render.Timing;
@@ -24,14 +24,14 @@ public sealed record RenderHostOptions
     public bool Windows { get; init; } = true;
 
     /// <summary>The GPU device's checks (null: the build's default — error checks in debug builds only).</summary>
-    public GlDeviceOptions? Device { get; init; }
+    public GpuDeviceOptions? Device { get; init; }
 
     /// <summary>The platform asked for: the present path and the GL dialect (NodeSettings.Present), or no window system at all.</summary>
     public PlatformRequest Platform { get; init; } = PlatformRequest.Default;
 
     /// <summary>What a "dxgi" path is made by (null: this machine's — the flip-model platform on Windows, none elsewhere); tests hand
     /// in a platform of their own.</summary>
-    public Func<GlDeviceOptions, IGpuPlatform>? Dxgi { get; init; }
+    public Func<GpuDeviceOptions, IGpuPlatform>? Dxgi { get; init; }
 
     /// <summary>The present fuse this start armed (the DXGI path, explicit); the host deletes it once every display output reached its
     /// first settled frames (null: no fuse — a GL start, or a test).</summary>
@@ -141,19 +141,22 @@ public sealed partial class RenderHost : IRenderHost
     private readonly Lock _waiterGate = new();
     private readonly List<(long Frame, TaskCompletionSource Done)> _frameWaiters = [];
     private readonly double[] _frameMs = new double[FrameRing];
-    private readonly double[] _frameMsSorted = new double[FrameRing];
     private readonly Lock _frameMsGate = new();
     private FramePacer _loopPacer = new(60);
+#pragma warning disable CA2213 // Disposed by TearDown on the render thread, which made its deadline timer and waited on it.
     private readonly HeadlessPacing _headless = new();
+#pragma warning restore CA2213
     private readonly Func<string, long> _presentOf;
     private readonly double[] _presentMs = new double[FrameRing];
-    private readonly double[] _presentMsSorted = new double[FrameRing];
 #pragma warning disable CA2213 // Disposed by TearDown on the render thread (it leaves every joined output there).
     private readonly FrameLockHost _lock;
 #pragma warning restore CA2213
 
     private volatile bool _stopping;
     private volatile string? _startFailure;
+
+    /// <summary>What the pipeline warm-up left undone at start (its bound passed), journalled when the loop starts; null when it finished.</summary>
+    private string? _warmUpWords;
     private EngineCore? _engine;
     private FactsSignal? _facts;
     private int _started;
@@ -164,7 +167,6 @@ public sealed partial class RenderHost : IRenderHost
 
     // Render thread.
     private IGpuPlatform? _platform;
-    private RenderContext? _context;
     private RenderEngine? _renderer;
     private OutputWindows? _windows;
 #pragma warning restore CA2213
@@ -206,6 +208,9 @@ public sealed partial class RenderHost : IRenderHost
         _lock.Changed += OnLockChanged;
         _lock.FellOut += OnFellOut;
         _scan = new ScanFrames(() => Volatile.Read(ref _engine)?.Store.Project);
+        // Every gate the render thread takes beside other threads has its wait event before the first frame, so a first wait
+        // behind a reader allocates nothing at whatever frame it comes.
+        Core.Threading.LockWaits.Prepare(_frameMsGate, _healthGate, _waiterGate, _viewGate, _draftGate);
         _thread = new Thread(Main) { IsBackground = true, Name = "render", Priority = ThreadPriority.AboveNormal };
         _thread.Start();
     }
@@ -341,15 +346,16 @@ public sealed partial class RenderHost : IRenderHost
             double mean = 0, p95 = 0;
             if (n > 0)
             {
+                // The gate is held only for the copy: a reader never holds the render thread while it sorts.
+                Span<double> sorted = stackalloc double[FrameRing];
+                sorted = sorted[..n];
                 lock (_frameMsGate)
-                {
-                    Array.Copy(_frameMs, _frameMsSorted, n);
-                    Array.Sort(_frameMsSorted, 0, n);
-                    for (var i = 0; i < n; i++)
-                        mean += _frameMsSorted[i];
-                    mean /= n;
-                    p95 = _frameMsSorted[Math.Clamp((int)Math.Ceiling(0.95 * n) - 1, 0, n - 1)];
-                }
+                    _frameMs.AsSpan(0, n).CopyTo(sorted);
+                sorted.Sort();
+                foreach (var ms in sorted)
+                    mean += ms;
+                mean /= n;
+                p95 = sorted[Math.Clamp((int)Math.Ceiling(0.95 * n) - 1, 0, n - 1)];
             }
             return new RenderHostStats(frames, mean, p95, _loopPacer.Fps, Interlocked.Read(ref _framePathBytes), _openWindows, _sources?.OpenSources ?? 0);
         }
@@ -415,6 +421,9 @@ public sealed partial class RenderHost : IRenderHost
         ComposeVideoIo(engine, snap, ref inputs); ComposeFx(engine, snap, ref inputs); ComposeAudio(engine, snap, ref inputs);
         ComposeContent(engine, snap, ref inputs); ComposeLed(engine, snap, ref inputs); ComposeAlign(engine, snap, ref inputs);
         ComposeSite(engine, snap, ref inputs); ComposeWall(engine, snap, ref inputs);
+        // Round 3's, by hook word (docs/round3/PLAN.md §2.3).
+        ComposeGpu(engine, snap, ref inputs); ComposePlan(engine, snap, ref inputs); ComposePreview(engine, snap, ref inputs);
+        ComposeCanvas(engine, snap, ref inputs); ComposeCapture(engine, snap, ref inputs);
     }
 
     /// <summary>Once the context exists (render thread): each package makes its GPU objects.</summary>
@@ -423,6 +432,7 @@ public sealed partial class RenderHost : IRenderHost
         OnContextShow(renderer); OnContextOutput(renderer); OnContextDecode(renderer); OnContextVideoIo(renderer); OnContextFx(renderer);
         OnContextAudio(renderer); OnContextContent(renderer); OnContextLed(renderer); OnContextAlign(renderer); OnContextSite(renderer);
         OnContextWall(renderer);
+        OnContextGpu(renderer); OnContextPlan(renderer); OnContextPreview(renderer); OnContextCanvas(renderer); OnContextCapture(renderer);
     }
 
     /// <summary>When the context goes (render thread): each package lets its GPU objects go.</summary>
@@ -430,6 +440,7 @@ public sealed partial class RenderHost : IRenderHost
     {
         OnContextLostShow(); OnContextLostOutput(); OnContextLostDecode(); OnContextLostVideoIo(); OnContextLostFx(); OnContextLostAudio();
         OnContextLostContent(); OnContextLostLed(); OnContextLostAlign(); OnContextLostSite(); OnContextLostWall();
+        OnContextLostGpu(); OnContextLostPlan(); OnContextLostPreview(); OnContextLostCanvas(); OnContextLostCapture();
     }
 
     partial void ComposeShow(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
@@ -476,6 +487,27 @@ public sealed partial class RenderHost : IRenderHost
     partial void OnContextWall(RenderEngine renderer);
     partial void OnContextLostWall();
 
+    // Round 3's, each in its package's RenderHost.<Word>.cs.
+    partial void ComposeGpu(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextGpu(RenderEngine renderer);
+    partial void OnContextLostGpu();
+
+    partial void ComposePlan(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextPlan(RenderEngine renderer);
+    partial void OnContextLostPlan();
+
+    partial void ComposePreview(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextPreview(RenderEngine renderer);
+    partial void OnContextLostPreview();
+
+    partial void ComposeCanvas(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextCanvas(RenderEngine renderer);
+    partial void OnContextLostCanvas();
+
+    partial void ComposeCapture(EngineCore engine, EngineSnapshot snap, ref FrameInputs inputs);
+    partial void OnContextCapture(RenderEngine renderer);
+    partial void OnContextLostCapture();
+
     // ---- the render thread ------------------------------------------------------------------------------
 
     private void Main()
@@ -483,17 +515,18 @@ public sealed partial class RenderHost : IRenderHost
         try
         {
             _platform = _options.Dxgi is { } dxgi
-                ? GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default, dxgi)
-                : GpuPlatforms.Create(_options.Platform, _options.Device ?? GlDeviceOptions.Default);
+                ? GpuPlatforms.Create(_options.Platform, _options.Device ?? GpuDeviceOptions.Default, dxgi)
+                : GpuPlatforms.Create(_options.Platform, _options.Device ?? GpuDeviceOptions.Default);
             _dxgiUp = _platform.Path == PresentPath.DxgiFlip;
-            _context = _platform.Context;
-            _renderer = new RenderEngine(_context, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && _context.Device.HasTimerQuery });
-            _renderer.WarmUp();
+            var device = _platform.Device;
+            _renderer = new RenderEngine(device, _options.Engine with { GpuTiming = _options.Engine.GpuTiming && device.Features.Timers });
+            // A pipeline the device refuses fails the start here, with its words; a warm-up past its bound is said once the engine is
+            // there (the first draws make what it had not).
+            if (_renderer.WarmUp() is null)
+                _warmUpWords = string.Create(CultureInfo.InvariantCulture,
+                    $"render: the pipeline warm-up did not finish within {RenderEngine.WarmUpBound.TotalSeconds:0} s; the first draws make what it had not");
             ContextModules(_renderer);
-            var d = _context.Device;
-            _rendererName = d.Dialect == GlDialect.Es300
-                ? string.Create(CultureInfo.InvariantCulture, $"OpenGL ES {d.GlVersion / 10}.{d.GlVersion % 10} {d.Renderer}")
-                : string.Create(CultureInfo.InvariantCulture, $"OpenGL {d.GlVersion / 10}.{d.GlVersion % 10} {d.Renderer}");
+            _rendererName = string.Create(CultureInfo.InvariantCulture, $"{device.Adapter.Api} {device.Adapter.Name}");
             _windows = new OutputWindows(_platform, _renderer);
             RefreshDisplays();
         }
@@ -512,7 +545,12 @@ public sealed partial class RenderHost : IRenderHost
             while (!_stopping && Volatile.Read(ref _engine) is null)
                 _wake.WaitOne(TimeSpan.FromMilliseconds(250));
             if (!_stopping && Volatile.Read(ref _engine) is { } engine)
+            {
+                // The role is claimed once the engine is attached: the node's host points ThreadClaims at its platform before it starts
+                // the render host, which this thread waited for. The claim holds for the loop.
+                using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Render);
                 Loop(engine);
+            }
         }
         // A fault in the loop stops the drawing, not the node: the engine plays on, STATE shows the outputs closed.
         catch (Exception ex)
@@ -528,6 +566,8 @@ public sealed partial class RenderHost : IRenderHost
 
     private void Loop(EngineCore engine)
     {
+        if (_warmUpWords is { } warmUp)
+            engine.Journal.Add("fault", warmUp, ok: false);
         _deadlineNs = MonoClock.Instance.NowNs;
         var faults = 0;
         // A device other threads share (the DXGI path's, decoders on it): held around each frame and the work between frames, taken
@@ -545,13 +585,12 @@ public sealed partial class RenderHost : IRenderHost
                     Frame(engine);
                     faults = 0;
                 }
-                catch (Exception ex) when (ex is GlException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException)
+                catch (Exception ex) when (ex is GpuException or InvalidOperationException or ArgumentException or IOException or ObjectDisposedException)
                 {
-                    // One bad frame is journalled and the next is drawn; a fault every frame for a while (a lost
-                    // context) stops the loop, and the engine plays on with its outputs closed.
+                    // One bad frame is journalled and the next is drawn (the device forgot what it had bound when its call threw); a
+                    // fault every frame for a while (a lost context) stops the loop, and the engine plays on with its outputs closed.
                     if (faults++ == 0)
                         engine.Journal.Add("fault", $"render frame: {ex.GetType().Name}: {ex.Message}", ok: false);
-                    _context!.Device.InvalidateState();
                     if (faults >= FaultLimit)
                         throw;
                 }
@@ -660,7 +699,7 @@ public sealed partial class RenderHost : IRenderHost
             return window.LastSwapNs;
         if (_finishNs < 0)
         {
-            _context!.Device.Finish();
+            _renderer!.Device.WaitFor(_renderer.Submitted);
             _finishNs = MonoClock.Instance.NowNs;
         }
         return _finishNs;
@@ -710,7 +749,7 @@ public sealed partial class RenderHost : IRenderHost
 
     private void RefreshDisplays()
     {
-        var monitors = _context!.Monitors();
+        var monitors = _platform!.Monitors();
         _monitors = monitors;
         var list = new List<DisplayInfo>(monitors.Count);
         foreach (var m in monitors)
@@ -812,12 +851,15 @@ public sealed partial class RenderHost : IRenderHost
         var wait = _deadlineNs - now;
         var margin = _windows.Pacer is not null ? 2_000_000 : 500_000;
         if (wait > margin)
-            _wake.WaitOne(TimeSpan.FromTicks(wait / 100));
+            _headless.WaitUntil(_deadlineNs, _wake);
     }
 
-    /// <summary>Deletes everything GL on this thread (windows, renderer, context) and fails what still waits.</summary>
+    /// <summary>Deletes everything GL on this thread (windows, renderer, context) and the pacer's deadline timer, and fails what still
+    /// waits.</summary>
     private void TearDown()
     {
+        // The pacer's deadline timer goes with the thread that made it and waited on it: nothing waits on it after the loop.
+        _headless.Dispose();
         _scan.Dispose();
         // The GPU objects go under the shared device's lock as frames are drawn (taken within its bound; let go of before the device).
         var deviceLock = _platform?.DeviceLock;
@@ -839,12 +881,9 @@ public sealed partial class RenderHost : IRenderHost
             deviceLock?.ExitAll();
             // Every source has closed (or is said to be closing) before the device it decodes on goes.
             _sources?.Dispose();
-            if (_platform is not null)
-                _platform.Dispose();
-            else
-                _context?.Dispose();
+            _platform?.Dispose();
         }
-        catch (Exception ex) when (ex is GlException or InvalidOperationException or ObjectDisposedException)
+        catch (Exception ex) when (ex is GpuException or InvalidOperationException or ObjectDisposedException)
         {
             _startFailure ??= $"the render context did not close cleanly: {ex.Message}";
         }

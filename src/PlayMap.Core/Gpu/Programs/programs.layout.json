@@ -1,0 +1,752 @@
+{
+  "programs": [
+    {
+      "name": "present",
+      "constantBytes": 0,
+      "constants": [],
+      "textures": [
+        { "name": "uTex", "slot": 0, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "blit",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uSrc", "type": "float4", "offset": 0, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uTex", "slot": 0, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "solid",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uColor", "type": "float4", "offset": 0, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "quad",
+      "constantBytes": 80,
+      "constants": [
+        { "name": "uRect", "type": "float4", "offset": 0, "count": 1 },
+        { "name": "uTarget", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uUv", "type": "float4", "offset": 32, "count": 1 },
+        { "name": "uOpacity", "type": "float", "offset": 48, "count": 1 },
+        { "name": "uMode", "type": "int", "offset": 52, "count": 1 },
+        { "name": "uTint", "type": "float4", "offset": 64, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uTex", "slot": 0, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "mix",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uWeights", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uGamma", "type": "float", "offset": 8, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uFrom", "slot": 0, "sampled": true },
+        { "name": "uTo", "slot": 1, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "yuv",
+      "constantBytes": 64,
+      "constants": [
+        { "name": "uPlanes", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uCodeScale", "type": "float", "offset": 4, "count": 1 },
+        { "name": "uRange", "type": "float4", "offset": 16, "count": 1 },
+        { "name": "uMatrix", "type": "float2", "offset": 32, "count": 1 },
+        { "name": "uTransfer", "type": "int", "offset": 40, "count": 1 },
+        { "name": "uWide", "type": "int", "offset": 44, "count": 1 },
+        { "name": "uCrop", "type": "float2", "offset": 48, "count": 1 },
+        { "name": "uMaxUv", "type": "float2", "offset": 56, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uY", "slot": 0, "sampled": true },
+        { "name": "uU", "slot": 1, "sampled": true },
+        { "name": "uV", "slot": 2, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "stage",
+      "constantBytes": 384,
+      "constants": [
+        { "name": "uModel", "type": "float4x4", "offset": 0, "count": 1 },
+        { "name": "uViewProj", "type": "float4x4", "offset": 64, "count": 1 },
+        { "name": "uNormalMat", "type": "float3x3", "offset": 128, "count": 1 },
+        { "name": "uProjector", "type": "float4x4", "offset": 176, "count": 1 },
+        { "name": "uMode", "type": "int", "offset": 240, "count": 1 },
+        { "name": "uRegion", "type": "float4", "offset": 256, "count": 1 },
+        { "name": "uHasMask", "type": "int", "offset": 272, "count": 1 },
+        { "name": "uOpacity", "type": "float", "offset": 276, "count": 1 },
+        { "name": "uColorA", "type": "float4", "offset": 288, "count": 1 },
+        { "name": "uColorB", "type": "float4", "offset": 304, "count": 1 },
+        { "name": "uParams", "type": "float4", "offset": 320, "count": 1 },
+        { "name": "uTime", "type": "float", "offset": 336, "count": 1 },
+        { "name": "uBoundsMin", "type": "float3", "offset": 340, "count": 1 },
+        { "name": "uBoundsMax", "type": "float3", "offset": 352, "count": 1 },
+        { "name": "uEye", "type": "float3", "offset": 368, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uSource", "slot": 0, "sampled": true },
+        { "name": "uMask", "slot": 1, "sampled": true }
+      ],
+      "inputs": [
+        { "location": 0, "components": 3, "offset": 0, "stride": 32, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 3, "offset": 12, "stride": 32, "buffer": 0, "divisor": 0 },
+        { "location": 2, "components": 2, "offset": 24, "stride": 32, "buffer": 0, "divisor": 0 }
+      ]
+    },
+    {
+      "name": "output",
+      "constantBytes": 144,
+      "constants": [
+        { "name": "uRotation", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uSrc", "type": "float4", "offset": 16, "count": 1 },
+        { "name": "uHasLens", "type": "int", "offset": 32, "count": 1 },
+        { "name": "uHasMask", "type": "int", "offset": 36, "count": 1 },
+        { "name": "uHasBlend", "type": "int", "offset": 40, "count": 1 },
+        { "name": "uGain", "type": "float4", "offset": 48, "count": 1 },
+        { "name": "uTone", "type": "float4", "offset": 64, "count": 1 },
+        { "name": "uFrame", "type": "float", "offset": 80, "count": 1 },
+        { "name": "uAir", "type": "float", "offset": 84, "count": 1 },
+        { "name": "uHasMeasuredGrid", "type": "int", "offset": 88, "count": 1 },
+        { "name": "uHasMeasuredBlend", "type": "int", "offset": 92, "count": 1 },
+        { "name": "uMatch", "type": "int", "offset": 96, "count": 1 },
+        { "name": "uMeasuredGains", "type": "float4", "offset": 112, "count": 1 },
+        { "name": "uMeasuredGamma", "type": "float", "offset": 128, "count": 1 },
+        { "name": "uMeasuredPedestal", "type": "float", "offset": 132, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uPicture", "slot": 0, "sampled": true },
+        { "name": "uLens", "slot": 1, "sampled": true },
+        { "name": "uMask", "slot": 2, "sampled": true },
+        { "name": "uBlend", "slot": 3, "sampled": true },
+        { "name": "uMeasuredGrid", "slot": 4, "sampled": false },
+        { "name": "uMeasuredBlend", "slot": 5, "sampled": false }
+      ],
+      "inputs": [
+        { "location": 0, "components": 2, "offset": 0, "stride": 16, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 2, "offset": 8, "stride": 16, "buffer": 0, "divisor": 0 }
+      ]
+    },
+    {
+      "name": "sprite",
+      "constantBytes": 32,
+      "constants": [
+        { "name": "uTarget", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uAtlas", "type": "float2", "offset": 8, "count": 1 },
+        { "name": "uOffset", "type": "float2", "offset": 16, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uTex", "slot": 0, "sampled": true }
+      ],
+      "inputs": [
+        { "location": 0, "components": 4, "offset": 0, "stride": 32, "buffer": 1, "divisor": 1 },
+        { "location": 1, "components": 4, "offset": 16, "stride": 32, "buffer": 1, "divisor": 1 }
+      ]
+    },
+    {
+      "name": "lines",
+      "constantBytes": 64,
+      "constants": [
+        { "name": "uViewProj", "type": "float4x4", "offset": 0, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": [
+        { "location": 0, "components": 3, "offset": 0, "stride": 28, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 4, "offset": 12, "stride": 28, "buffer": 0, "divisor": 0 }
+      ]
+    },
+    {
+      "name": "checker",
+      "constantBytes": 64,
+      "constants": [
+        { "name": "uCell", "type": "float", "offset": 0, "count": 1 },
+        { "name": "uColorA", "type": "float4", "offset": 16, "count": 1 },
+        { "name": "uColorB", "type": "float4", "offset": 32, "count": 1 },
+        { "name": "uSwap", "type": "int", "offset": 48, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "motion",
+      "constantBytes": 64,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uVariant", "type": "int", "offset": 8, "count": 1 },
+        { "name": "uTime", "type": "float", "offset": 12, "count": 1 },
+        { "name": "uFrame", "type": "float", "offset": 16, "count": 1 },
+        { "name": "uSpeed", "type": "float", "offset": 20, "count": 1 },
+        { "name": "uPxPerFrame", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uVertical", "type": "int", "offset": 28, "count": 1 },
+        { "name": "uAccent", "type": "float4", "offset": 32, "count": 1 },
+        { "name": "uFlash", "type": "float", "offset": 48, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "colorcycle",
+      "constantBytes": 272,
+      "constants": [
+        { "name": "uColors", "type": "float3", "offset": 0, "count": 16 },
+        { "name": "uCount", "type": "int", "offset": 252, "count": 1 },
+        { "name": "uTime", "type": "float", "offset": 256, "count": 1 },
+        { "name": "uInterval", "type": "float", "offset": 260, "count": 1 },
+        { "name": "uFade", "type": "int", "offset": 264, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "syncmarks",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uLevel", "type": "float", "offset": 8, "count": 1 },
+        { "name": "uPhase", "type": "float", "offset": 12, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "fractal.mandelbrot",
+      "constantBytes": 144,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uCenter", "type": "float2", "offset": 8, "count": 1 },
+        { "name": "uUpp", "type": "float", "offset": 16, "count": 1 },
+        { "name": "uC", "type": "float2", "offset": 20, "count": 1 },
+        { "name": "uIters", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uOffset", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 124, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
+        { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "fractal.julia",
+      "constantBytes": 144,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uCenter", "type": "float2", "offset": 8, "count": 1 },
+        { "name": "uUpp", "type": "float", "offset": 16, "count": 1 },
+        { "name": "uC", "type": "float2", "offset": 20, "count": 1 },
+        { "name": "uIters", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uOffset", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 124, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
+        { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "fractal.burningship",
+      "constantBytes": 144,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uCenter", "type": "float2", "offset": 8, "count": 1 },
+        { "name": "uUpp", "type": "float", "offset": 16, "count": 1 },
+        { "name": "uC", "type": "float2", "offset": 20, "count": 1 },
+        { "name": "uIters", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uOffset", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 124, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
+        { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "fractal.newton",
+      "constantBytes": 144,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uCenter", "type": "float2", "offset": 8, "count": 1 },
+        { "name": "uUpp", "type": "float", "offset": 16, "count": 1 },
+        { "name": "uC", "type": "float2", "offset": 20, "count": 1 },
+        { "name": "uIters", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uOffset", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 124, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
+        { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "fractal.warp",
+      "constantBytes": 144,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uCenter", "type": "float2", "offset": 8, "count": 1 },
+        { "name": "uUpp", "type": "float", "offset": 16, "count": 1 },
+        { "name": "uC", "type": "float2", "offset": 20, "count": 1 },
+        { "name": "uIters", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uOffset", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 124, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 128, "count": 1 },
+        { "name": "uWarp", "type": "float", "offset": 136, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "reactive.plasma",
+      "constantBytes": 128,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 8, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uDepth", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uSym", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uLow", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uAmount", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 44, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "reactive.tunnel",
+      "constantBytes": 128,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 8, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uDepth", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uSym", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uLow", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uAmount", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 44, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "reactive.kaleidoscope",
+      "constantBytes": 128,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 8, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uDepth", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uSym", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uLow", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uAmount", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 44, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "reactive.pulse",
+      "constantBytes": 128,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 8, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uDepth", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uSym", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uLow", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uAmount", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 44, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "reactive.vortex",
+      "constantBytes": 128,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 8, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uDepth", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uSym", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uLow", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uAmount", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 44, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "reactive.starwarp",
+      "constantBytes": 128,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uT", "type": "float", "offset": 8, "count": 1 },
+        { "name": "uRot", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uDepth", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uSym", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uLow", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uAmount", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 40, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 44, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 112, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "content.psprite",
+      "constantBytes": 144,
+      "constants": [
+        { "name": "uSide", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uAspect", "type": "float", "offset": 4, "count": 1 },
+        { "name": "uTarget", "type": "float2", "offset": 8, "count": 1 },
+        { "name": "uSize", "type": "float2", "offset": 16, "count": 1 },
+        { "name": "uSizeOverLife", "type": "int", "offset": 24, "count": 1 },
+        { "name": "uColorBy", "type": "int", "offset": 28, "count": 1 },
+        { "name": "uSpeedRef", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uOpacity", "type": "float", "offset": 36, "count": 1 },
+        { "name": "uAtlas", "type": "float2", "offset": 40, "count": 1 },
+        { "name": "uGrow", "type": "float", "offset": 48, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 52, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 80, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 96, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 112, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 128, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uS0", "slot": 0, "sampled": false },
+        { "name": "uS1", "slot": 1, "sampled": false },
+        { "name": "uTex", "slot": 2, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "content.pstep",
+      "constantBytes": 208,
+      "constants": [
+        { "name": "uSide", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uCount", "type": "int", "offset": 4, "count": 1 },
+        { "name": "uStep", "type": "int", "offset": 8, "count": 1 },
+        { "name": "uSeedHash", "type": "int", "offset": 12, "count": 1 },
+        { "name": "uLifeMin", "type": "int", "offset": 16, "count": 1 },
+        { "name": "uLifeMax", "type": "int", "offset": 20, "count": 1 },
+        { "name": "uRate", "type": "float", "offset": 24, "count": 1 },
+        { "name": "uDt", "type": "float", "offset": 28, "count": 1 },
+        { "name": "uAspect", "type": "float", "offset": 32, "count": 1 },
+        { "name": "uEmitter", "type": "int", "offset": 36, "count": 1 },
+        { "name": "uEmit", "type": "float4", "offset": 48, "count": 1 },
+        { "name": "uBirth", "type": "float4", "offset": 64, "count": 1 },
+        { "name": "uThreshold", "type": "float", "offset": 80, "count": 1 },
+        { "name": "uHasPicture", "type": "int", "offset": 84, "count": 1 },
+        { "name": "uForces", "type": "float4", "offset": 96, "count": 1 },
+        { "name": "uCurl", "type": "float4", "offset": 112, "count": 1 },
+        { "name": "uVortex", "type": "float4", "offset": 128, "count": 1 },
+        { "name": "uAttract", "type": "float4", "offset": 144, "count": 1 },
+        { "name": "uSurge", "type": "float4", "offset": 160, "count": 1 },
+        { "name": "uEdges", "type": "int", "offset": 176, "count": 1 },
+        { "name": "uRestitution", "type": "float", "offset": 180, "count": 1 },
+        { "name": "uWeight", "type": "int", "offset": 184, "count": 1 },
+        { "name": "uInvert", "type": "int", "offset": 188, "count": 1 },
+        { "name": "uFlow", "type": "float2", "offset": 192, "count": 1 },
+        { "name": "uColorSource", "type": "int", "offset": 200, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uS0", "slot": 0, "sampled": false },
+        { "name": "uS1", "slot": 1, "sampled": false },
+        { "name": "uPicture", "slot": 2, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "content.raymarch",
+      "constantBytes": 256,
+      "constants": [
+        { "name": "uRes", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uEye", "type": "float3", "offset": 16, "count": 1 },
+        { "name": "uRight", "type": "float3", "offset": 32, "count": 1 },
+        { "name": "uUp", "type": "float3", "offset": 48, "count": 1 },
+        { "name": "uFwd", "type": "float3", "offset": 64, "count": 1 },
+        { "name": "uTanHalf", "type": "float", "offset": 76, "count": 1 },
+        { "name": "uKind", "type": "int", "offset": 80, "count": 1 },
+        { "name": "uIters", "type": "int", "offset": 84, "count": 1 },
+        { "name": "uPower", "type": "float", "offset": 88, "count": 1 },
+        { "name": "uScale", "type": "float", "offset": 92, "count": 1 },
+        { "name": "uFoldLimit", "type": "float", "offset": 96, "count": 1 },
+        { "name": "uMinR", "type": "float", "offset": 100, "count": 1 },
+        { "name": "uFixedR", "type": "float", "offset": 104, "count": 1 },
+        { "name": "uFold", "type": "int", "offset": 108, "count": 1 },
+        { "name": "uOffset", "type": "float3", "offset": 112, "count": 1 },
+        { "name": "uTwist", "type": "float", "offset": 124, "count": 1 },
+        { "name": "uSteps", "type": "int", "offset": 128, "count": 1 },
+        { "name": "uCone", "type": "float", "offset": 132, "count": 1 },
+        { "name": "uGlow", "type": "float", "offset": 136, "count": 1 },
+        { "name": "uAo", "type": "float", "offset": 140, "count": 1 },
+        { "name": "uFog", "type": "float", "offset": 144, "count": 1 },
+        { "name": "uBright", "type": "float", "offset": 148, "count": 1 },
+        { "name": "uPhase", "type": "float", "offset": 152, "count": 1 },
+        { "name": "uBg", "type": "float3", "offset": 160, "count": 1 },
+        { "name": "uMode", "type": "int", "offset": 172, "count": 1 },
+        { "name": "uNcol", "type": "float", "offset": 176, "count": 1 },
+        { "name": "uP0", "type": "float3", "offset": 180, "count": 1 },
+        { "name": "uP1", "type": "float3", "offset": 192, "count": 1 },
+        { "name": "uP2", "type": "float3", "offset": 208, "count": 1 },
+        { "name": "uP3", "type": "float3", "offset": 224, "count": 1 },
+        { "name": "uP4", "type": "float3", "offset": 240, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": []
+    },
+    {
+      "name": "fxmix",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uFxBottomUp", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uBlend", "type": "int", "offset": 4, "count": 1 },
+        { "name": "uMix", "type": "float", "offset": 8, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uInput", "slot": 0, "sampled": true },
+        { "name": "uFx", "slot": 1, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "hap",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uMode", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uHdr", "type": "float2", "offset": 4, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uTex0", "slot": 0, "sampled": false },
+        { "name": "uTex1", "slot": 1, "sampled": false }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "hapenc.bc1",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uSize", "type": "int2", "offset": 0, "count": 1 },
+        { "name": "uRefine", "type": "int", "offset": 8, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uSrc", "slot": 0, "sampled": false }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "hapenc.bc3",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uSize", "type": "int2", "offset": 0, "count": 1 },
+        { "name": "uRefine", "type": "int", "offset": 8, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uSrc", "slot": 0, "sampled": false }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "hapenc.bc4",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uSize", "type": "int2", "offset": 0, "count": 1 },
+        { "name": "uRefine", "type": "int", "offset": 8, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uSrc", "slot": 0, "sampled": false }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "hapenc.ycocg",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uSize", "type": "int2", "offset": 0, "count": 1 },
+        { "name": "uRefine", "type": "int", "offset": 8, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uSrc", "slot": 0, "sampled": false }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "led_patch",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uLevel", "type": "float", "offset": 0, "count": 1 },
+        { "name": "uTest", "type": "int", "offset": 4, "count": 1 },
+        { "name": "uStep", "type": "int", "offset": 8, "count": 1 },
+        { "name": "uFixtures", "type": "int", "offset": 12, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uColors", "slot": 0, "sampled": false },
+        { "name": "uPatch", "slot": 1, "sampled": false },
+        { "name": "uFix", "slot": 2, "sampled": false },
+        { "name": "uAir", "slot": 3, "sampled": false }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "led_sample",
+      "constantBytes": 32,
+      "constants": [
+        { "name": "uFirst", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uCount", "type": "int", "offset": 4, "count": 1 },
+        { "name": "uTaps", "type": "int", "offset": 8, "count": 1 },
+        { "name": "uGamma", "type": "float", "offset": 12, "count": 1 },
+        { "name": "uSpread", "type": "float", "offset": 16, "count": 1 },
+        { "name": "uTexSize", "type": "float2", "offset": 20, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uAttr", "slot": 0, "sampled": false },
+        { "name": "uTex", "slot": 1, "sampled": true }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "overlay.shapes",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uTarget", "type": "float2", "offset": 0, "count": 1 }
+      ],
+      "textures": [],
+      "inputs": [
+        { "location": 0, "components": 2, "offset": 0, "stride": 24, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 4, "offset": 8, "stride": 24, "buffer": 0, "divisor": 0 }
+      ]
+    },
+    {
+      "name": "pixelsurface",
+      "constantBytes": 48,
+      "constants": [
+        { "name": "uTarget", "type": "float2", "offset": 0, "count": 1 },
+        { "name": "uRegion", "type": "float4", "offset": 16, "count": 1 },
+        { "name": "uHasMask", "type": "int", "offset": 32, "count": 1 },
+        { "name": "uOpacity", "type": "float", "offset": 36, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uSource", "slot": 0, "sampled": true },
+        { "name": "uMask", "slot": 1, "sampled": true }
+      ],
+      "inputs": [
+        { "location": 0, "components": 2, "offset": 0, "stride": 20, "buffer": 0, "divisor": 0 },
+        { "location": 1, "components": 3, "offset": 8, "stride": 20, "buffer": 0, "divisor": 0 }
+      ]
+    },
+    {
+      "name": "video.pack",
+      "constantBytes": 16,
+      "constants": [
+        { "name": "uMode", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uWidth", "type": "int", "offset": 4, "count": 1 },
+        { "name": "uHeight", "type": "int", "offset": 8, "count": 1 },
+        { "name": "uGain", "type": "float", "offset": 12, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uPicture", "slot": 0, "sampled": false }
+      ],
+      "inputs": []
+    },
+    {
+      "name": "video.unpack",
+      "constantBytes": 32,
+      "constants": [
+        { "name": "uMode", "type": "int", "offset": 0, "count": 1 },
+        { "name": "uHasAlpha", "type": "int", "offset": 4, "count": 1 },
+        { "name": "uPairs", "type": "int", "offset": 8, "count": 1 },
+        { "name": "uCode", "type": "float", "offset": 12, "count": 1 },
+        { "name": "uMatrix", "type": "float2", "offset": 16, "count": 1 }
+      ],
+      "textures": [
+        { "name": "uLuma", "slot": 0, "sampled": false },
+        { "name": "uChroma", "slot": 1, "sampled": false },
+        { "name": "uAlpha", "slot": 2, "sampled": false }
+      ],
+      "inputs": []
+    }
+  ]
+}

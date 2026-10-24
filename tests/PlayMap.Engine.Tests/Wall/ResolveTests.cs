@@ -104,6 +104,38 @@ public sealed class ResolveTests(ITestOutputHelper output)
         Assert.Equal("done", rig.State().GetProperty("calibration").GetProperty("task").GetProperty("state").GetString());
     }
 
+    /// <summary>The re-solved projector blends automatically, so its blend is solved again behind the resolve: the solve's row follows
+    /// the CALIBRATION RESOLVE's own row, however late that row is written.</summary>
+    [Fact]
+    public async Task AReSolvesBlendIsJournalledAfterTheRowOfTheResolveThatSolvedIt()
+    {
+        await using var rig = await ThreeSolved();
+        var truth = new SimDevice(WallRig.TrueOptics, LensDistortion.None, WallRig.TruePose(1));
+        await DragPins(rig, "pj_test2", ScanSimulator.Bump(truth, Vec3d.Zero, new Vec3d(0.02, 0, 0)), 0.1, 7);
+        var solved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Engine.Journal.Written += r =>
+        {
+            if (r.Kind == "blend")
+                solved.TrySetResult();
+        };
+        rig.Engine.RowHeldForTests = (line, held) => !held && line.Raw.StartsWith("CALIBRATION RESOLVE", StringComparison.Ordinal)
+            ? solved.Task.WaitAsync(TimeSpan.FromSeconds(60))
+            : Task.CompletedTask;
+        var before = rig.Engine.Journal.Recent(200).Count;
+
+        var reply = WallRig.Json(await rig.Ok("CALIBRATION RESOLVE pj_test2"));
+        await solved.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.True(reply.GetProperty("projectors")[0].GetProperty("applied").GetBoolean());
+        Assert.StartsWith("solving the blend", reply.GetProperty("blend").GetString(), StringComparison.Ordinal);
+        Assert.Equal("done", (await rig.Engine.WhenSolved.WaitAsync(TimeSpan.FromSeconds(60)))!.State);
+        var rows = rig.Engine.Journal.Recent(200).Skip(before)
+            .Where(r => (r.Kind == "verb" && r.Line == "CALIBRATION RESOLVE pj_test2") || r.Kind == "blend").ToList();
+        Assert.Equal(["verb", "blend"], rows.Select(r => r.Kind));
+        Assert.EndsWith("; " + reply.GetProperty("blend").GetString(), rows[0].Text, StringComparison.Ordinal);
+        Assert.StartsWith("blend solved for ", rows[1].Text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ResolveBringsTheKnockedProjectorBackAndTouchesNothingElse()
     {

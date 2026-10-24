@@ -28,12 +28,16 @@ every machine, output and projector". `FLEET FOCUS self` names this node's own m
 ## Replies
 
 - `HEALTH` — `{"v":1,"node","name","at","role","of","epoch","mirror","build","light","headline","outputs":[{"id","name","light","open","fps",
-  "dropped","missed60s","path"}],"projectors":[{"id","name","light","words","output"}],"render":{"renderer","path","resets"},
+  "dropped","missed60s","path","shownFrames","observedFrames"}],"projectors":[{"id","name","light","words","output"}],
+  "render":{"renderer","path","resets"},"gpu":{"epoch","phase","since"},
   "cpuPct","memMb","memFreeMb","diskFreeGb","gpuPct","gpuTempC","netMbps","uptimeS","sync":{"role","leader","group","uncertaintyMs",
   "freewheelS"},"devices":{"total","green","amber","red"},"media":{"items","missing"},"watchdog":{"laneMs","renderMs"},"rev",
   "categories":[{"name","light","words"}]}`. `build` is the node's whole build identity in SemVer: `0.2.0+17.abc1234` for CI's
   build 17 of commit abc1234, `0.2.0-dev+abc1234` for a local build (README, "Versions"); STATE's `version` is the product
-  version alone. Categories, always all eleven in this order: outputs, render, cpu, memory, disk, gpu,
+  version alone. `shownFrames` is the frames an output's display has shown and `observedFrames` the frames its independent
+  observer decoded; `gpu` is the GPU device's epoch, its phase (`starting`, `running`, `rebuilding`, `unknown`) and since when (Unix
+  ms). Each is −1 (the phase `unknown`) until the node measures it, and a line from a node that sends none of them reads so. Categories,
+  always all eleven in this order: outputs, render, cpu, memory, disk, gpu,
   network, sync, devices, media, watchdog. A number not measured is −1 and its category grey with words that say why ("GPU load
   and temperature are not readable on this machine"). The machine's light is the worst known category (red over amber over green;
   grey says nothing). The light table is `HealthLights` (src/PlayMap.Core/Fleet/HealthRecord.cs): CPU 80/95 %, free memory

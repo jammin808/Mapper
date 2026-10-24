@@ -1,6 +1,5 @@
 using PlayMap.Core.Numerics;
-using PlayMap.Render.Platform;
-using PlayMap.Render.Timing;
+using PlayMap.Core.Presentation;
 
 namespace PlayMap.Render.Tests.Presentation;
 

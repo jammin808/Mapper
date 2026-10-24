@@ -32,41 +32,54 @@ public sealed partial class EngineCore
         if (match is null)
             return CommandReply.Fail($"unknown verb '{line.Word(0)}' — HELP lists the vocabulary");
         var (spec, used) = match.Value;
-        if (Admission(spec, session) is { } closed)
+        if (Admission(spec, line, used, session) is { } closed)
             return closed;
         var args = line.Words.Skip(used).ToList();
         CommandReply? refused = null;
         ProjectStore? lineStore = null;
         GateFleet(spec, line, session, ref refused);
         if (refused is null)
-            GateLine(spec, line, session, ref refused, ref lineStore);
+            GateLine(spec, line, session, null, ref refused, ref lineStore);
         if (refused is not null)
             return refused;
         _lineStore = lineStore ?? DraftForTests?.Invoke(session);
+        var outerWho = _lineWho;
+        _lineWho = session.ClientName;
         try
         {
             if (_routes.TryLane(spec.Name, out var handler))
-                return handler(new VerbCall(spec, args, line, session, ct));
+            {
+                // The line's turn hands its call to the line's dispatcher, which takes what was handed over through it (by the
+                // handler, or after the answer by work the handler left running) once it has written the line's row.
+                var call = new VerbCall(spec, args, line, session, ct);
+                _lineCall = call;
+                return handler(call);
+            }
             return RouteRoundOne(spec, args, line, session, ct);
         }
         finally
         {
             _lineStore = null;
+            _lineWho = outerWho;
         }
     }
 
-    /// <summary>The door before any handler: a verb that changes something or opens a stream needs pairing, and a node-to-node verb
-    /// runs only from a fleet peer or the node itself. Null lets the line on to the show's gate.</summary>
-    private static CommandReply? Admission(VerbSpec spec, SessionInfo session)
+    /// <summary>The door before any handler: a verb that changes something or opens a stream needs pairing, a node-to-node verb
+    /// runs only from a fleet peer or the node itself, and a path the line quotes reads as typed, never as another file its
+    /// backslashes were lost from (<see cref="VerbSyntax.DroppedBackslash"/>). <paramref name="verbWords"/> is how many words the
+    /// verb's name took. Null lets the line on to the show's gate.</summary>
+    private static CommandReply? Admission(VerbSpec spec, WireLine line, int verbWords, SessionInfo session)
     {
         if ((spec.Mutates || spec.PairedOnly) && !session.Paired)
             return CommandReply.Fail(PlayMap.Net.Commands.WireWords.NotPaired);
         if (spec.Internal && session.Transport is not ("fleet" or "system"))
             return CommandReply.Fail($"{spec.Name}: this line is node-to-node only");
+        if (VerbSyntax.DroppedBackslash(spec, line, verbWords) is { } dropped)
+            return CommandReply.Fail(dropped);
         return null;
     }
 
-    /// <summary>The first round's verbs, answered on the lane; a round-2 row no package routed is not available yet.</summary>
+    /// <summary>The first round's verbs, answered on the lane; a later round's row no package routed is not available yet.</summary>
     private CommandReply RouteRoundOne(VerbSpec spec, List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
     {
         return spec.Name switch
@@ -78,7 +91,7 @@ public sealed partial class EngineCore
             "HELLO" or "NONCE" or "AUTH" or "AUTH-PROOF" or "PING" or "SUBSCRIBE" =>
                 CommandReply.Fail($"{spec.Name} is the connection's own word — the transport answers it"),
 
-            "VIDEO PLAY" or "VIDEO PAUSE" or "VIDEO STOP" or "VIDEO RESTART" or "VIDEO SEEK" or "VIDEO END" or "VIDEO RATE" => Video(spec.Name, args),
+            "VIDEO PLAY" or "VIDEO PAUSE" or "VIDEO STOP" or "VIDEO RESTART" or "VIDEO SEEK" or "VIDEO END" or "VIDEO RATE" => Video(spec.Name, args, session),
 
             "PLAYLIST LIST" => CommandReply.Success(PlaylistsJson()),
             "PLAYLIST GET" => PlaylistGet(args),
@@ -87,10 +100,10 @@ public sealed partial class EngineCore
             "PLAYLIST REMOVE" => PlaylistRemove(args),
             "PLAYLIST MOVE" => PlaylistMove(args),
             "PLAYLIST DELETE" => PlaylistDelete(args),
-            "PLAYLIST GO" => PlaylistGo(args),
+            "PLAYLIST GO" => PlaylistGo(args, session),
             "PLAYLIST CUE" => PlaylistCue(args),
-            "PLAYLIST NEXT" => PlaylistStep(args, 1),
-            "PLAYLIST PREV" => PlaylistStep(args, -1),
+            "PLAYLIST NEXT" => PlaylistStep(args, 1, session),
+            "PLAYLIST PREV" => PlaylistStep(args, -1, session),
             "PLAYLIST LOOP" => PlaylistLoop(args),
             "PLAYLIST SYNC" => PlaylistSync(args),
             "PLAYLIST FOCUS" => PlaylistFocus(args),
@@ -153,7 +166,7 @@ public sealed partial class EngineCore
                 (nc, a) => nc.LinkStagewatchAsync(IsOff(a[0]) ? null : a[0], a.Count > 1 ? a[1] : null, ct)),
             "PAIRING NEW" => NewPairing(),
 
-            _ => CommandReply.Fail($"{spec.Name} is not available on this node yet"),
+            _ => CommandReply.Fail(VerbCatalog.NotAvailableYet(spec.Name)),
         };
     }
 
@@ -210,10 +223,10 @@ public sealed partial class EngineCore
             return CommandReply.Fail(syntax);
         if (Services.NetworkControl is not { } nc)
             return CommandReply.Fail("the network is not running on this node");
-        var task = action(nc, args);
-        _ = task.ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "network" : "refused",
+        // The change runs off the lane and journals how it ended (and any fault of the link it makes): begun behind this line's row.
+        AfterRow(() => _ = action(nc, args).ContinueWith(t => Journal.Add(t.IsCompletedSuccessfully ? "network" : "refused",
                 t.IsCompletedSuccessfully ? t.Result : t.Exception?.InnerException?.Message ?? "failed", ok: t.IsCompletedSuccessfully),
-            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
         return CommandReply.Accepted($"{syntax.Split(' ')[0]} {syntax.Split(' ')[1]} started");
     }
 

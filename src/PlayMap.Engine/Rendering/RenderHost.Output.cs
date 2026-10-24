@@ -1,11 +1,9 @@
+using PlayMap.Core.Model;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Engine.Presentation;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
-using PlayMap.Render.Timing;
-using PlayMap.Core.Model;
 
 namespace PlayMap.Engine.Rendering;
 
@@ -56,14 +54,15 @@ public sealed partial class RenderHost : IPresentBackend, IFrameLockBackend
         var frames = (int)Math.Min(Interlocked.Read(ref _frames), FrameRing);
         if (frames > 0)
         {
+            // As Stats: the gate is held only for the copy.
+            Span<double> sorted = stackalloc double[FrameRing];
+            sorted = sorted[..frames];
             lock (_frameMsGate)
-            {
-                Array.Copy(_presentMs, _presentMsSorted, frames);
-                Array.Sort(_presentMsSorted, 0, frames);
-                p95 = _presentMsSorted[Math.Clamp((int)Math.Ceiling(0.95 * frames) - 1, 0, frames - 1)];
-            }
+                _presentMs.AsSpan(0, frames).CopyTo(sorted);
+            sorted.Sort();
+            p95 = sorted[Math.Clamp((int)Math.Ceiling(0.95 * frames) - 1, 0, frames - 1)];
         }
-        var dialect = platform?.Context is { } c ? GlDialects.Word(c.Dialect) : "";
+        var dialect = platform?.Dialect ?? "";
         // A headless node, or a platform with no window system, presents nothing: its outputs are offscreen.
         var dxgi = platform?.Path == PresentPath.DxgiFlip;
         var path = dxgi ? "dxgi" : _options.Windows && platform?.Path == PresentPath.GlWindow ? "gl" : "offscreen";

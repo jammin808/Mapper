@@ -6,7 +6,8 @@ namespace PlayMap.Engine.Rendering;
 
 /// <summary>What the automatic 3D blend depends on, as a value two snapshots can be compared by: the stage's
 /// surfaces, meshes and projectors (by identity — an edit to any of them makes a new array, an untouched one
-/// is shared), its stacks (by members and master) and every output that blends automatically (by the fields the solve reads). Equal inputs give
+/// is shared), its stacks (by members and master) and every output that blends automatically (by the fields the solve reads: its blend
+/// settings and the γ its fades are drawn through, which its measured layer gives when the hand gives none). Equal inputs give
 /// the same blend, so a solve is never repeated for them and a solve's maps are installed only while the
 /// inputs they were solved for are still the project's.</summary>
 public sealed class BlendInputs : IEquatable<BlendInputs>
@@ -100,7 +101,7 @@ public sealed class BlendInputs : IEquatable<BlendInputs>
     private static bool SameForBlend(Output a, Output b) =>
         ReferenceEquals(a, b)
         || (a.Id == b.Id && a.Enabled == b.Enabled && a.Mode == b.Mode && a.ProjectorId == b.ProjectorId
-            && a.Width == b.Width && a.Height == b.Height && a.Blend == b.Blend);
+            && a.Width == b.Width && a.Height == b.Height && a.Blend == b.Blend && a.DrawnBlendGamma().Equals(b.DrawnBlendGamma()));
 }
 
 /// <summary>A 3D blend solved for a set of inputs at a project revision: what BLEND SOLVE answered, and what

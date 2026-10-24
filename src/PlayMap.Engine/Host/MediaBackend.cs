@@ -143,6 +143,9 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(item);
         if (item.Kind is MediaKind.Audio or MediaKind.Web or MediaKind.Embed)
             return null;   // no FFmpeg picture: audio is heard, pages and embeds are another renderer's
+        // A capture: location is the capture grammar's alone, never an FFmpeg location; this node opens none yet.
+        if (CaptureUri.Claims(item.Location))
+            return null;
         // NDI, OMT, Spout: a handle on the engine's one warm receiver for the input (wp2-videoio), never FFmpeg.
         if (item.Kind == MediaKind.Stream && LiveUri.TryParse(item.Location, out var live, out _, out _) && live != LiveProtocol.Ffmpeg)
             return _engine?.VideoIo.Open(item);
@@ -373,6 +376,8 @@ public sealed class MediaBackend : IMediaBackend, IMediaStore, IAsyncDisposable
     public MediaReadiness Readiness(MediaItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        if (CaptureUri.Claims(item.Location))
+            return new MediaReadiness(false, false, false, false, EngineCore.CaptureSourcesNotYetWords);
         if (!item.IsFile)
             return new MediaReadiness(true, true, item.Kind == MediaKind.Stream, false, "a URL — read from the network when it plays");
         var key = Key(item);

@@ -200,7 +200,7 @@ public sealed partial class PhoneStateFixtureTest
     {
         // The scan's patience runs on a clock this test owns and never moves: a phone slow on a loaded machine is waited for, never
         // shown its pattern again, so the retakes are the scenario's own (the false picture caught), one value on every run.
-        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(2), Time = new Fleet.ManualTime() });
+        await using var rig = await PhoneScanRig.StartAsync(new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(2), Time = new ManualTime() });
         await using var phone = await rig.JoinAsync();
         phone.Half.Add(6);
         phone.Lie.Add(9);

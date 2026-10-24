@@ -1,32 +1,45 @@
 using System.Globalization;
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
+using PlayMap.Render.Engine;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gpu;
 
 namespace PlayMap.Render.Generators;
 
-/// <summary>A generator drawn by a fragment shader into its own target, every frame or once per change.</summary>
+/// <summary>A generator drawn by a fragment shader into its own target, every frame or once per change: each draw a pass over the
+/// target (its old picture kept, every texel written) and one opaque fullscreen draw of the program, the overlays after it in passes
+/// of their own.</summary>
 internal abstract class ShaderGenerator : GeneratorRenderer
 {
+    /// <summary>The fill's state: opaque, no depth, no culling.</summary>
+    protected static readonly DrawState Filled = DrawState.Opaque;
+
+    /// <summary>The shader generators' fills: the test patterns in 8 bits, the 2D fractals and the reactive scenes in half float.</summary>
+    internal static void Pipelines(PipelineList keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        foreach (var program in (ReadOnlySpan<string>)["checker", "motion", "colorcycle", "syncmarks"])
+            keys.Add(program, Filled, TargetShape.Rgba8);
+        foreach (var kind in GeneratorCatalog.All)
+        {
+            if (kind.Family == "fractal" && !Fractal3DSettings.IsKind(kind.Id))
+                keys.Add(kind.Id, Filled, TargetShape.Rgba16F);
+        }
+        foreach (var scene in Enum.GetValues<ReactiveScene>())
+            keys.Add(ReactiveGenerator.ProgramFor(scene), Filled, TargetShape.Rgba16F);
+    }
+
     private readonly RenderTarget _target;
 
     protected ShaderGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context, TextureFormat format)
         : base(services, kind, width, height, context)
     {
-        _target = Device.CreateRenderTarget(width, height, format);
+        _target = Device.CreateTarget(new TargetDesc(width, height, format));
     }
 
     protected RenderTarget Target => _target;
 
     public override GpuTexture Output => _target.Color;
-
-    /// <summary>Binds the target and draws the program over it.</summary>
-    protected void Fill(ShaderProgram program)
-    {
-        Device.BindTarget(_target);
-        Device.SetBlend(BlendMode.Opaque);
-        Device.DrawFullscreen(program);
-    }
 
     protected override void Dispose(bool disposing)
     {
@@ -41,16 +54,20 @@ internal sealed class CheckerGenerator(RenderServices services, GeneratorKind ki
 {
     public override bool Animated => Flag("animate");
 
+    private readonly ProgramId _program = services.Device.Programs.Id("checker");
+
     protected override void Draw(in GeneratorFrame frame)
     {
-        var p = Device.Program("checker");
         var interval = Math.Max(0.05, Num("interval"));
         var swap = Flag("animate") && ((long)Math.Floor(Math.Max(0, frame.Seconds) / interval) & 1) == 1;
-        p.Set("uCell", Math.Max(1, Int("cell")));
-        p.Set("uColorA", 1, 1, 1, 1);
-        p.Set("uColorB", 0, 0, 0, 1);
-        p.SetInt("uSwap", swap ? 1 : 0);
-        Fill(p);
+        var list = List;
+        using (list.Pass(Target, PassDesc.Keep))
+            list.Draw(_program, Filled)
+                .Set("uCell", Math.Max(1, Int("cell")))
+                .Set("uColorA", 1, 1, 1, 1)
+                .Set("uColorB", 0, 0, 0, 1)
+                .SetInt("uSwap", swap ? 1 : 0)
+                .Fullscreen();
     }
 }
 
@@ -65,9 +82,12 @@ internal sealed class MotionGenerator : ShaderGenerator
     private readonly TextOverlay _counter;
     private readonly TextOverlay _caption;
 
+    private readonly ProgramId _program;
+
     public MotionGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
         : base(services, kind, width, height, context, TextureFormat.Rgba8)
     {
+        _program = services.Device.Programs.Id("motion");
         _label = new TextOverlay(services);
         _counter = new TextOverlay(services);
         _caption = new TextOverlay(services);
@@ -103,20 +123,22 @@ internal sealed class MotionGenerator : ShaderGenerator
             var allowed = _guard.Limit(odd ? 1f : 0f, frame.Seconds);
             flash = odd ? allowed : FlashGuard.MaxLevel;
         }
-        var p = Device.Program("motion");
-        p.Set("uRes", Width, Height);
-        p.SetInt("uVariant", variant);
-        p.Set("uTime", (float)frame.Seconds);
-        p.Set("uFrame", frame.ShowFrame % 1_000_000);
-        p.Set("uSpeed", (float)Num("speed"));
-        p.Set("uPxPerFrame", Int("pxPerFrame"));
-        p.SetInt("uVertical", Flag("vertical") ? 1 : 0);
-        if (variant == 1)
-            p.Set("uAccent", 0x3E / 255f, 0xC1 / 255f, 0xF3 / 255f, 1);
-        else
-            p.Set("uAccent", 1, 1, 1, 1);
-        p.Set("uFlash", Math.Min(1f, flash));
-        Fill(p);
+        var list = List;
+        using (list.Pass(Target, PassDesc.Keep))
+        {
+            var accent = variant == 1 ? new System.Numerics.Vector4(0x3E / 255f, 0xC1 / 255f, 0xF3 / 255f, 1) : System.Numerics.Vector4.One;
+            list.Draw(_program, Filled)
+                .Set("uRes", Width, Height)
+                .SetInt("uVariant", variant)
+                .Set("uTime", (float)frame.Seconds)
+                .Set("uFrame", frame.ShowFrame % 1_000_000)
+                .Set("uSpeed", (float)Num("speed"))
+                .Set("uPxPerFrame", Int("pxPerFrame"))
+                .SetInt("uVertical", Flag("vertical") ? 1 : 0)
+                .Set("uAccent", accent)
+                .Set("uFlash", Math.Min(1f, flash))
+                .Fullscreen();
+        }
 
         var chip = Px.ChipText(Height);
         var margin = Math.Max(6f, Height * 0.02f);
@@ -167,6 +189,7 @@ internal sealed class ColorCycleGenerator(RenderServices services, GeneratorKind
 {
     public const int MaxColors = 16;
     private static readonly string[] Slots = [.. Enumerable.Range(0, MaxColors).Select(i => "uColors[" + i.ToString(CultureInfo.InvariantCulture) + "]")];
+    private readonly ProgramId _program = services.Device.Programs.Id("colorcycle");
     private ColorRgb[] _colors = [ColorRgb.White];
 
     public override bool Animated => true;
@@ -183,14 +206,18 @@ internal sealed class ColorCycleGenerator(RenderServices services, GeneratorKind
 
     protected override void Draw(in GeneratorFrame frame)
     {
-        var p = Device.Program("colorcycle");
-        for (var i = 0; i < _colors.Length; i++)
-            p.Set(Slots[i], _colors[i].R, _colors[i].G, _colors[i].B);
-        p.SetInt("uCount", _colors.Length);
-        p.Set("uTime", (float)frame.Seconds);
-        p.Set("uInterval", (float)IntervalFor(Num("interval"), Flag("fade"), frame.FlashGuard));
-        p.SetInt("uFade", Flag("fade") ? 1 : 0);
-        Fill(p);
+        var list = List;
+        using (list.Pass(Target, PassDesc.Keep))
+        {
+            var draw = list.Draw(_program, Filled);
+            for (var i = 0; i < _colors.Length; i++)
+                draw.Set(Slots[i], _colors[i].R, _colors[i].G, _colors[i].B);
+            draw.SetInt("uCount", _colors.Length)
+                .Set("uTime", (float)frame.Seconds)
+                .Set("uInterval", (float)IntervalFor(Num("interval"), Flag("fade"), frame.FlashGuard))
+                .SetInt("uFade", Flag("fade") ? 1 : 0)
+                .Fullscreen();
+        }
     }
 }
 
@@ -202,9 +229,12 @@ internal sealed class SyncMarksGenerator : ShaderGenerator
     private readonly FlashGuard _guard = new();
     private readonly TextOverlay _label;
 
+    private readonly ProgramId _program;
+
     public SyncMarksGenerator(RenderServices services, GeneratorKind kind, int width, int height, GeneratorContext context)
         : base(services, kind, width, height, context, TextureFormat.Rgba8)
     {
+        _program = services.Device.Programs.Id("syncmarks");
         _label = new TextOverlay(services);
     }
 
@@ -228,11 +258,13 @@ internal sealed class SyncMarksGenerator : ShaderGenerator
         var flashSeconds = Int("flashMs") / 1000.0;
         var wanted = Level(frame.Seconds, period, flashSeconds);
         var level = frame.FlashGuard ? _guard.Limit(wanted, frame.Seconds) : wanted;
-        var p = Device.Program("syncmarks");
-        p.Set("uRes", Width, Height);
-        p.Set("uLevel", level);
-        p.Set("uPhase", (float)(SyncMarks.SinceMark(frame.Seconds, period) / period));
-        Fill(p);
+        var list = List;
+        using (list.Pass(Target, PassDesc.Keep))
+            list.Draw(_program, Filled)
+                .Set("uRes", Width, Height)
+                .Set("uLevel", level)
+                .Set("uPhase", (float)(SyncMarks.SinceMark(frame.Seconds, period) / period))
+                .Fullscreen();
         var size = Px.ChipText(Height);
         _label.Set(_labelText, size, chip: true);
         _label.Draw(Target, (Width - _label.Width) / 2f, Math.Max(6f, Height * 0.02f));
@@ -254,6 +286,7 @@ internal sealed class FractalGenerator(RenderServices services, GeneratorKind ki
     : ShaderGenerator(services, kind, width, height, context, TextureFormat.Rgba16F)
 {
     private readonly FlashGuard _guard = new();
+    private readonly ProgramId _program = services.Device.Programs.Id(kind.Id);
     private FractalSettings _settings = FractalSettings.Resolve("fractal.mandelbrot", Core.Model.ParamSet.Empty);
     private ColorRgb[] _palette = [ColorRgb.White];
 
@@ -299,37 +332,44 @@ internal sealed class FractalGenerator(RenderServices services, GeneratorKind ki
         var sound = Hear(frame, Num("sound"));
         if (sound.Amount > 0)
             view = view with { Brightness = FlashGuard.Brightness((float)view.Brightness, sound.Low, sound.Amount) };
-        Apply(Device.Program(Kind.Id), view, _palette, Width, Height);
-        Fill(Device.Program(Kind.Id));
+        var list = List;
+        using (list.Pass(Target, PassDesc.Keep))
+        {
+            var draw = list.Draw(_program, Filled);
+            Apply(draw, view, _palette, Width, Height);
+            draw.Fullscreen();
+        }
         var flash = frame.FlashGuard ? _guard.Limit(surge.Flash, frame.Seconds) : surge.Flash;
         Services.DrawFlash(Target, flash);
     }
 
-    /// <summary>Sets a fractal program's uniforms for a view at a size (the tests draw through this too).</summary>
-    public static void Apply(ShaderProgram p, in FractalView view, ColorRgb[] palette, int width, int height)
+    /// <summary>Sets a fractal program's constants for a view at a size into a draw (the tests draw through this too).</summary>
+    public static void Apply(DrawBuilder draw, in FractalView view, ColorRgb[] palette, int width, int height)
     {
-        p.Set("uRes", width, height);
-        p.Set("uCenter", (float)view.CenterX, (float)view.CenterY);
-        p.Set("uUpp", (float)view.UnitsPerPixel(height));
-        p.Set("uC", (float)view.JuliaRe, (float)view.JuliaIm);
-        p.Set("uIters", view.Iterations);
-        p.Set("uOffset", (float)view.PaletteOffset);
-        p.Set("uBright", (float)view.Brightness);
-        p.Set("uNcol", Math.Min(palette.Length, FractalSettings.PaletteColors));
-        SetPalette(p, palette);
-        p.Set("uT", (float)view.Time);
-        p.Set("uRot", (float)Math.Cos(view.Angle), (float)Math.Sin(view.Angle));
-        p.Set("uWarp", (float)view.Warp);
+        ArgumentNullException.ThrowIfNull(palette);
+        draw.Set("uRes", width, height)
+            .Set("uCenter", (float)view.CenterX, (float)view.CenterY)
+            .Set("uUpp", (float)view.UnitsPerPixel(height))
+            .Set("uC", (float)view.JuliaRe, (float)view.JuliaIm)
+            .Set("uIters", view.Iterations)
+            .Set("uOffset", (float)view.PaletteOffset)
+            .Set("uBright", (float)view.Brightness)
+            .Set("uNcol", Math.Min(palette.Length, FractalSettings.PaletteColors));
+        SetPalette(draw, palette);
+        draw.Set("uT", (float)view.Time)
+            .Set("uRot", (float)Math.Cos(view.Angle), (float)Math.Sin(view.Angle))
+            .Set("uWarp", (float)view.Warp);
     }
 
-    internal static void SetPalette(ShaderProgram p, ColorRgb[] palette)
+    /// <summary>The palette's five slots (the last colour repeated past the palette's end) into a draw.</summary>
+    internal static void SetPalette(DrawBuilder draw, ColorRgb[] palette)
     {
         static ColorRgb At(ColorRgb[] pal, int i) => pal[Math.Min(i, pal.Length - 1)];
-        p.Set("uP0", At(palette, 0).R, At(palette, 0).G, At(palette, 0).B);
-        p.Set("uP1", At(palette, 1).R, At(palette, 1).G, At(palette, 1).B);
-        p.Set("uP2", At(palette, 2).R, At(palette, 2).G, At(palette, 2).B);
-        p.Set("uP3", At(palette, 3).R, At(palette, 3).G, At(palette, 3).B);
-        p.Set("uP4", At(palette, 4).R, At(palette, 4).G, At(palette, 4).B);
+        draw.Set("uP0", At(palette, 0).R, At(palette, 0).G, At(palette, 0).B)
+            .Set("uP1", At(palette, 1).R, At(palette, 1).G, At(palette, 1).B)
+            .Set("uP2", At(palette, 2).R, At(palette, 2).G, At(palette, 2).B)
+            .Set("uP3", At(palette, 3).R, At(palette, 3).G, At(palette, 3).B)
+            .Set("uP4", At(palette, 4).R, At(palette, 4).G, At(palette, 4).B);
     }
 }
 
@@ -340,6 +380,7 @@ internal sealed class ReactiveGenerator(RenderServices services, GeneratorKind k
     private readonly FlashGuard _guard = new();
     private ReactiveSettings _settings = ReactiveSettings.Resolve(Core.Model.ParamSet.Empty);
     private ColorRgb[] _palette = [ColorRgb.White];
+    private ProgramId _program;
 
     public override bool Animated => true;
 
@@ -347,6 +388,7 @@ internal sealed class ReactiveGenerator(RenderServices services, GeneratorKind k
     {
         _settings = ReactiveSettings.Resolve(Params);
         _palette = _settings.Palette();
+        _program = Device.Programs.Id(ProgramFor(_settings.Scene));
         _guard.Reset();
     }
 
@@ -368,24 +410,30 @@ internal sealed class ReactiveGenerator(RenderServices services, GeneratorKind k
         var s = _settings;
         var numbers = new ReactiveNumbers(Num("speed", s.Speed), Num("depth", s.Depth), Num("rotation", s.Rotation), Num("brightness", s.Brightness));
         var view = ReactiveView.Of(s, numbers, frame.Seconds, surge, Hear(frame, Num("sound")));
-        var p = Device.Program(ProgramFor(_settings.Scene));
-        Apply(p, view, _palette, Width, Height);
-        Fill(p);
+        var list = List;
+        using (list.Pass(Target, PassDesc.Keep))
+        {
+            var draw = list.Draw(_program, Filled);
+            Apply(draw, view, _palette, Width, Height);
+            draw.Fullscreen();
+        }
         var flash = frame.FlashGuard ? _guard.Limit(surge.Flash, frame.Seconds) : surge.Flash;
         Services.DrawFlash(Target, flash);
     }
 
-    public static void Apply(ShaderProgram p, in ReactiveView view, ColorRgb[] palette, int width, int height)
+    /// <summary>Sets a reactive program's constants for a view at a size into a draw (the tests draw through this too).</summary>
+    public static void Apply(DrawBuilder draw, in ReactiveView view, ColorRgb[] palette, int width, int height)
     {
-        p.Set("uRes", width, height);
-        p.Set("uT", (float)view.Time);
-        p.Set("uRot", (float)Math.Cos(view.Angle), (float)Math.Sin(view.Angle));
-        p.Set("uDepth", (float)view.Depth);
-        p.Set("uSym", Math.Max(2, view.Symmetry));
-        p.Set("uLow", view.Low);
-        p.Set("uAmount", view.Amount);
-        p.Set("uBright", view.Brightness);
-        p.Set("uNcol", Math.Min(palette.Length, ReactiveSettings.PaletteColors));
-        FractalGenerator.SetPalette(p, palette);
+        ArgumentNullException.ThrowIfNull(palette);
+        draw.Set("uRes", width, height)
+            .Set("uT", (float)view.Time)
+            .Set("uRot", (float)Math.Cos(view.Angle), (float)Math.Sin(view.Angle))
+            .Set("uDepth", (float)view.Depth)
+            .Set("uSym", Math.Max(2, view.Symmetry))
+            .Set("uLow", view.Low)
+            .Set("uAmount", view.Amount)
+            .Set("uBright", view.Brightness)
+            .Set("uNcol", Math.Min(palette.Length, ReactiveSettings.PaletteColors));
+        FractalGenerator.SetPalette(draw, palette);
     }
 }

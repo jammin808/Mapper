@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The installer's life cycle on Windows, elevated (docs/round3/PLAN.md §3.5's InstallerTests and UnsignedArtifactTests): outside
+       PlayMap.sln because the installer is built on Windows only; the installer job runs it against the installers it built. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>PlayMap.Installer.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\PlayMap.Core\PlayMap.Core.csproj" />
+    <!-- Built beside the tests and copied by them as PlayMap.exe: an engine the supervisor's identity rule takes for one. -->
+    <ProjectReference Include="..\PlayMap.FakeEngine\PlayMap.FakeEngine.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The shader worker's pins, from the one file the worker reads them from: the installed natives and the shipped folders are
+         held to the hashes the worker loads them by. -->
+    <Compile Include="..\..\..\src\PlayMap.Engine\ShaderWorker\CompilerNatives.cs" Link="Engine\CompilerNatives.cs" />
+    <!-- The restore's package folder, where LicenceTests read DXC's package and every shipped package's own licence files. -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>NuGetPackageRoot</_Parameter1>
+      <_Parameter2>$(NuGetPackageRoot)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

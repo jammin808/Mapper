@@ -13,13 +13,17 @@ Every 2 s a hello to UDP 9928 (broadcast and loopback; never on Patterns' own be
 {"t":"playmap","v":1,"proto":1,"id":"a1b2c3d4","name":"Stage left","host":"RENDER-01","web":9940,"wire":9941,
  "ports":{"http":9940,"https":9940,"wire":9941,"ws":9940},
  "caps":["video","video.clock","video.transport","video.seek","video.end","state","context","receipts","clock","mcp",
-         "playlist","media","mapping","scan"],
- "clock":1760101234567,"inst":"0badc0de","tls":"sha256:…"}
+         "playlist","media","mapping","scan","eye","show"],
+ "clock":1760101234567,"inst":"0badc0de","tls":"sha256:…","build":"0.2.0+17.abc1234"}
 ```
 
 - `t` is neither `patterns` (Patterns hides other Patterns) nor `main` (Patterns would dial it as Stagewatch).
 - Stagewatch's strict reader is honoured: ≤ 2048 bytes, `v` 1, `t` ≤ 16 and `id` ≤ 40 characters, ≤ 16 caps.
 - Top-level `web` and `wire` ride beside `ports` for older readers.
+- `build` is the build the node runs, its whole identity in SemVer (`0.2.0+17.abc1234` from CI, `0.2.0-dev+abc1234` from a
+  local build), the same string as HEALTH's `build` and MCP's server info, so a peer tells builds apart before it connects.
+  A reader that knows no `build` ignores it; PlayMap's reader keeps at most 64 characters of SemVer's alphabet and drops any
+  other value, keeping the rest of the hello.
 - It shows up today as a grey "playmap" node on Stagewatch's Show network and on Patterns' Nodes page and Eye.
 
 PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and the Stagewatch it is pointed at
@@ -34,7 +38,7 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
 | **Stagewatch** | Triggers (HTTP GET/POST or OSC) | Any trigger can call `POST http://<node>:9940/api/cmd` with a verb line (`PLAYLIST GO show #3`). |
 | **Stagewatch approvals (§11)** | PlayMap posts its context and collects approved proposals aimed at its id | An AI anywhere on the bus proposes a PlayMap verb; the show caller approves it on Stagewatch; PlayMap runs it through its own checks and reports the result. |
 | **Patterns** | Interactive area → a *Lines* device at PlayMap's host:9941 (add PlayMap's address to its trusted list, or leave the node open) | Every cue step, the wire's `DEVICE PlayMap …`, OSC and Companion can send PlayMap verbs; Patterns' fact lines (`BLACKOUT 1`, `LIVE 0`…) are taken in silently and **PlayMap follows Patterns' blackout** by default. |
-| **Patterns' AI / any AI** | `CONTEXT` on the wire, `GET /api/context`, or MCP at `/mcp` | Reads everything PlayMap is doing (lights, headline, playlists, outputs, projectors, links, recent journal) and proposes verbs with their risk. |
+| **Patterns' AI / any AI** | `CONTEXT` on the wire, `GET /api/context` (behind the node's token), or MCP at `/mcp` | Reads everything PlayMap is doing (lights, headline, playlists, outputs, projectors, links, recent journal) and proposes verbs with their risk. The direction (docs/round3/PLAN.md D13): the guides (two projectors on a flat screen, a film mapped onto a wall so it reads undistorted from the audience, an object with one or two projectors) become steps in STATE and the context, and an AI proposes a step's lines through the same gate as a person's lines, which decides by the line's risk, the operator's settings and Show Mode what waits for a person. |
 | **Companion / any controller** | Companion: the PlayMap module (`integrations/companion-module-playmap`) on the web port's line channel (`/ws`, `playmap.lines.v1`), paired by proof; any controller: TCP 9941 lines, that channel, or HTTP | The full vocabulary; the module builds its keys from `VERBS`, STATE and every section of `INDEX` (docs/COMPANION.md). |
 
 ## 3. Following others
@@ -55,8 +59,10 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
   show instant. The leader's `PANIC`, `PANIC CLEAR`, `BLACKOUT` and `MASTER` ride the same feed, each answered with a
   member's receipt, and members report their vblanks to the leader's board (docs/SYNC.md).
 - **Media**: library items are identified by SHA-256; a node that lacks a file pulls it from any peer that has it
-  (`MEDIA FETCH ALL`), in resumable 8 MiB ranges, throttled while a show plays; STATE says which files are
-  present, verified and decodable on each node.
+  (`MEDIA FETCH ALL`), in resumable 8 MiB ranges, verified by its hash before it lands. On the exe, which composes the
+  fleet's part, the pull goes with the peer's proof over `/mirror/media` and is not throttled while a show plays (an open
+  fix, docs/ROADMAP.md); a node without that part pulls over the peer's `/api/media`, throttled while a show plays
+  (docs/WIRE.md). STATE says which files are present, verified and decodable on each node.
 
 ## 5. Proposed for Show Bus 1.3 (changes to Patterns and Stagewatch, not made by PlayMap)
 
@@ -65,8 +71,10 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
 2. **Patterns: hello → device.** A heard `playmap` node offers "Add as a device" on the Nodes page, filling the
    Lines profile with its wire port and pairing by proof (Patterns' device links speak the same `NONCE` /
    `AUTH-PROOF` the wire does).
-3. **Patterns: read third-party contexts.** Fetch `GET /api/context` from every heard node with the `context`
-   cap (today only Stagewatch's), so the Eye draws PlayMap's outputs, projectors and links.
+3. **Patterns: read third-party contexts.** Read the context of every heard node with the `context` cap (today
+   only Stagewatch's), so the Eye draws PlayMap's outputs, projectors and links. A PlayMap node's context is read
+   over its line wire (`CONTEXT`, or `SUBSCRIBE CONTEXT` for each change), since its `/api/context` stays behind
+   the node's token.
 4. **Patterns: a destination.** A screen in Patterns' plan whose picture is made by a PlayMap node: Patterns sends
    the content (an NDI feed it already makes, or a media id the node already has) and the node maps it; the
    node's output health comes back as that screen's light.
@@ -74,3 +82,8 @@ PlayMap listens on 9928 too: it lists every node, follows the Patterns desk and 
    top-level `wire`).
 6. **Timeline anchors on the bus.** A `video.anchor` cap and an `ANCHOR` push line (media time at a leader instant,
    rate, seq) so any node can follow a clip frame-accurately, not just within Patterns' 1.5 s re-sync window.
+7. **Patterns: the Eye's command cap.** Where the Eye keeps a cap on a context's commands, as a reader that feeds a
+   model's prompt does, the cap is at least 256, stated in the contract's §6. PlayMap's context lists every verb the
+   node answers that changes something, the panic, air, transport and Show Mode rows first. At today's 64 the Eye
+   keeps the air's verbs and drops the rest; 256 holds every command PlayMap lists, round 3's rows included
+   (docs/round3/PLAN.md §9 decision 18).

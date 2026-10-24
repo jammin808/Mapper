@@ -4,14 +4,21 @@ How a PlayMap node gets its outputs' pictures to the displays, how it knows what
 different input lags light the same picture at the same instant, and how outputs on one or many machines share one vblank. The
 wire's side is in `docs/wire/output.md` and `docs/wire/d3d11.md`.
 
+Today an output presents through OpenGL, or, on Windows when `PRESENT PATH DXGI` asks for it, through the experimental Direct3D 11
+flip path. The direction (`docs/round3/PLAN.md` D1, D2, D5) is Direct3D 12 behind a rendering hardware interface (the RHI), each
+output on its own flip-model swap chain. OpenGL stays the reference backend, its pixels unchanged, until pixel and timing parity is
+measured. Outputs are to lock where the hardware locks; everywhere else they are to run the honest software lock, the same frame with
+its phase measured and said. *Where it is going*, at the end, says the rest.
+
 ## The platform and the presenters
 
-The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Platform`) from the node's settings
+The render host starts its **platform** (`IGpuPlatform`, made by `GpuPlatforms` in `src/PlayMap.Render/Platform`) from the node's settings
 (`NodeSettings.Present`: `path` auto|gl|dxgi, `dialect` auto|core330|es300, `frameLock` auto|off, `swapGroup`, `swapBarrier`):
 
 - **GL** (what `auto` is on every platform this round): a hidden GL context through GLFW, and one **presenter** per output window
   (`IOutputPresenter`; the GL window, `OutputWindow`, is the first). The renderer draws every pass offscreen in the primary
-  context; a presenter only shows the output's finished picture and swaps.
+  context; a presenter only takes the output's finished picture into the frame's list (`Record`) and, after the list's submit,
+  shows it and swaps (`Present`).
 - **DXGI** (Windows, experimental, only on an explicit `PRESENT PATH DXGI`): see *The DXGI flip path* below. Off Windows `dxgi`
   is refused by the verb and, asked through the settings file, runs GL with `machine.present.why` saying "the DXGI path is
   Windows only".
@@ -23,9 +30,11 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
   which compiles `#version 300 es`).
 - **The per-dialect format table** (`GlFormatTable`): BGRA uploads on ES go up as RGBA with the texture's red/blue swizzle (core
   ES 3.00, no copy); 16-bit unsigned textures fall back to 16-bit float without `EXT_texture_norm16`; float render targets need
-  `EXT_color_buffer_float` (else 8-bit, with words); GPU timers need `EXT_disjoint_timer_query` (else GPU times read 0); wireframe
-  needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need `EXT_read_format_bgra` (else a
-  synchronous read swaps on the CPU and the streamed read-back refuses with words).
+  `EXT_color_buffer_float` (else 8-bit, with words); GPU times need timestamps — core 3.3, or ES with `EXT_disjoint_timer_query`
+  whose counter has bits; where the extension's counter has none (ANGLE's Direct3D 11 back end) each output's time is an
+  elapsed-time query and the generators' and effects' inside it read 0, and without the extension every GPU time reads 0;
+  wireframe needs `ANGLE_polygon_mode` (else the editor's outline is not drawn); BGRA read-backs need `EXT_read_format_bgra` (else
+  a synchronous read swaps on the CPU and the streamed read-back refuses with words).
 - **The alias loader** resolves `glFoo` through `glFooEXT`, `KHR`, `OES` and `ANGLE`, so an ES context reaches the debug, timer and
   polygon-mode calls by their extension names.
 - The platform hands decoders its **device share** (`IGpuShare`: OpenGL on the GL platform, Direct3D 11 with its LUID, its lock
@@ -38,7 +47,11 @@ The render host starts its **platform** (`IGpuPlatform`, `src/PlayMap.Render/Pla
 
 ## The DXGI flip path
 
-`AnglePlatform` (`src/PlayMap.Render/Platform/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
+The DXGI path is a bridge, not the direction. It retires with GL's other paths once Direct3D 12 reaches parity, and the Direct3D 12
+flip presenter takes its place on the same flip model; it gets no hardware lock tier (*The frame lock*, below; `docs/round3/PLAN.md`
+§9 decision 21).
+
+`AnglePlatform` (`src/PlayMap.Render/Gl/Windows`, `[SupportedOSPlatform("windows")]`) comes up in stages, and a start that
 stops names its stage (`adapter`, `device`, `angle`, `extensions`, `context`, `programs`) in `machine.present.why` while the node
 runs GL:
 
@@ -61,8 +74,9 @@ runs GL:
    waits on its swap chain (sharers submit during the vertical-blank wait); FFmpeg's D3D11VA decoders take it through their lock
    callbacks around each begin–submit–end bracket; Spout on this device takes it around each of its calls. A sharer waits as long as
    the frame takes; the frame waits at most `GpuDeviceLock.FrameBoundMs` (4 ms) for a sharer's bracket, and past it is drawn on the
-   device's multithread protection (each call ordered) and counted (`TimedOut`). Nothing allocates in the lock once warm. One
-   device and one immediate context are what let a decoded frame go as soon as the renderer's read of it is recorded.
+   device's multithread protection (each call ordered), counted (`TimedOut`) and its wait read on the render thread
+   (`LastTimedOutWaitNs`). Nothing allocates on a take: the lock's wait event is made with it. One device and one immediate
+   context are what let a decoded frame go as soon as the renderer's read of it is recorded.
 5. **One window and swap chain per display output** (`DxgiOutputWindow`): a borderless top-most popup over the monitor (transitions
    off, the cursor hidden), a waitable `FLIP_DISCARD` swap chain (three B8G8R8A8 buffers, no scaling, no tearing, frame latency 1),
    Alt+Enter and window changes left to PlayMap; a swap chain that lands on another display than its monitor is refused with words.
@@ -106,9 +120,12 @@ ring starts again: nothing from before the break is shown after it, and the dela
 `outputs[].present.delayFrames`, `latencyResidualMs` (|residual| ≤ half a frame), `machine.present.airLatencyMs`, `latencyWords`.
 At most six frames: an input lag that would need more is refused with the words.
 
+The direction for capture cards (`docs/round3/PLAN.md` D14): a pass-through output runs outside the delay ring with one frame in
+flight. It samples its input late, by its measured render time, and the input's time from arrival to shown is published.
+
 ## Vblank truth and the present ledger
 
-Every output keeps a **present clock** (`src/PlayMap.Render/Timing`):
+Every output keeps a **present clock** (`src/PlayMap.Core/Presentation`, pure, so any backend's presenter feeds it):
 
 - **`VblankClock`** fits `t = a + b·k` over its samples: the period from a long window (3 600 samples, 60 s at 60 Hz), the phase
   from a short one (240) with the period fixed; two-pass, centred, with samples more than a quarter period off refitted out.
@@ -126,6 +143,9 @@ Every output keeps a **present clock** (`src/PlayMap.Render/Timing`):
   refresh: amber only when more than 0.5 % of the last 10 s of refreshes came late; green again once the last 10 s are clean.
   `outputs[].dropped` is those late presents (0 within the budget). Totals stay in `present.missedVblanks`.
 - `PRESENT RESET` zeroes the counters and restarts the fit; the old totals go to the journal.
+- **The path's word** (`outputs[].present.path`): `offscreen`, `gl-window`, `dxgi-flip` (the DXGI flip path below) or
+  `d3d12-flip` (a Direct3D 12 flip presenter; no build presents through one yet). On the wire both flip paths report PMVB path 2,
+  `dxgi-flip`, the presentation model they share (docs/wire/sync.md).
 
 ## The frame lock
 
@@ -161,6 +181,16 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   the output runs free, measured; on the DXGI path the join is refused too ("this build joins no DXGI swap chain to a swap group
   yet") and the output runs free, measured. `none` elsewhere ("NVAPI is Windows only"). `fake` scripts a board for tests and rehearsals.
   The board is polled off the render thread once a second.
+- **Two more states.** The machine also names `grouped` (a swap group inside one node, with no barrier to other nodes) and
+  `soft-locked`. Nothing enters either today.
+
+**Where the lock is going** (`docs/round3/PLAN.md` D5, wp3-framelock): each output has a lock tier. The hardware tiers run on
+NVIDIA's professional GPUs with an RTX PRO Sync board: NVAPI's present barrier on Direct3D 12, and the `WGL_NV_swap_group` swap
+group and barrier on OpenGL. Each output counts as locked only by its own evidence, and an output the driver does not take runs free
+with its phase and words. Everywhere else the tier is `software`, with the words "software lock: same frame, phase +6.2 ms ±
+0.3 ms". No output is in a locked state (`framelocked`, `house-locked`, `grouped`) without its own tier's evidence, and
+`soft-locked` retires: software is a tier, not a state. The DXGI path gets no hardware tier: a node with a board whose outputs
+present there is amber, with `PRESENT PATH D3D12` or `GL` as the fix.
 
 ## Preflight, INDEX, context
 
@@ -176,16 +206,28 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
   from each output with the Eye's verbs (`follows` while locked, `hears` while free); a `machine:present` item (amber) when the
   platform is not what was asked.
 
-## Verified here, compile-only, next
+## Verified here, compile-only, and where it is going
 
 - **Here** (Mesa llvmpipe on Xvfb): every program on core 3.3 and on ES 3.00 (EGL surfaceless and GLFW); BGRA swizzle, float
   targets, an output through the whole frame on ES; the presenter seam with the GL window and a scripted presenter; vblank and
   ledger arithmetic on synthetic sequences (Xvfb's swaps are no real display); the lock machine, the counter and the verbs against
   the scripted board on the real render host (headless and windowed).
-- **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here). Every
-  test passes on it except the two spine tests that assert a desktop core context by name
-  (`GlCapsTests.OnTheTestsCoreContextEveryBlockFamilyReadsTrue`, `ShaderConventionTests.EveryProgramCompilesAndLinksOnCore33`);
-  the leg runs with those two filtered out until they read the fixture's dialect, and it is not yet a step of the CI workflow.
+- **The backend fixture**: every GPU test of the Render suite but the GL backend's own runs on `BackendFixture`, whose legs are the
+  backends the job has, each a device on a thread of its own — GL today, its hidden context in the run's dialect; a later backend
+  adds its leg to `BackendLegs.Makers`. A scene draws through the device a leg hands it (`IGpuDevice`, its frame list) and reads
+  back through `Pixels.Read(IGpuDevice, RenderTarget)`, so it names no backend; only the GL backend's own tests, listed by name in
+  `RhiFenceTests`, name a GL type, reach the GL leg's context or open a GL context of their own, and they leave with GL. The
+  goldens are the GL leg's, unedited. L20, the GL backend behind the render hardware interface on NVIDIA, AMD and Intel Windows
+  drivers, is not run (no lab): the GL backend runs on llvmpipe here and, on the Windows job, Mesa WGL only.
+- **The ES leg**: `PLAYMAP_GL_DIALECT=es300` runs the whole Render suite on an OpenGL ES 3.00 context (GLFW, on EGL here), and
+  the Linux CI job runs it as its own step after the core suites, its results in `PlayMap.Render.Tests.es300.trx`. Every test
+  passes on it whole. A test that names a dialect reads the GL leg's: the caps and every program in it
+  (`GlCapsTests.OnTheTestsContextEveryBlockFamilyReadsTrueInTheFixturesDialect`,
+  `ShaderConventionTests.EveryProgramCompilesAndLinksInTheFixturesDialect`), the binding the context was made through (EGL for the
+  ES context), and the GPU times of outputs, generators and effect slots, which come from timestamps: core in desktop GL, through
+  `EXT_disjoint_timer_query` on ES (Mesa's ES context has it, so both legs measure; a test reads `GpuFeatures.Timers`). A target read back as floats (`IGpuDevice.ReadNowFloat`, the tests' `Pixels.ReadFloat`) gives
+  the same values in both dialects: ES reads a fixed-point buffer only as its integer codes, so the device reads those and scales them
+  (`FloatReadTests`).
   On ES without a polygon-mode extension the editor's selection outline is not drawn (its filled pass would cover the surface).
 - **Here, for the DXGI path**: the stage faults with a fake platform (each stage's words, the GL fallback), the fuse and its words in
   STATE and preflight, the extension lists, QPC conversion, the one-wrapper cache, display-timed clocks on synthetic statistics, the
@@ -195,10 +237,17 @@ The lock is **per output** (`FrameLockMachine`, Core, pure): facts in once a fra
 - **On the Windows CI job (WARP, no GPU)**: the device on WARP, ANGLE's context with every program translated, a flip-model swap
   chain on a window, 120 presents with buffer 0 wrapped once, the frame statistics read, and the frame read back from buffer 0 top
   row first (`DxgiWarpPresenterTests`, Category=Windows: skipped with the words off Windows, never passed with nothing run).
+  In the job's Direct3D 12 leg (`Backend=D3D12`, listed apart), a Direct3D 12 device on the pinned WARP says its feature level
+  (`WarpDeviceTests`); no output presents through Direct3D 12 yet, and `PRESENT PATH D3D12` answers "not available on this node
+  yet".
 - **Compile-only**: the NVAPI tier. Its structure sizes and version words are checked against NVIDIA's header here; on the Windows
   CI job it says why it has no board ("no NVIDIA driver on this machine"). The DXGI path on a real GPU and display (lab).
-- **Next round**: DXGI as `auto` once proven in the lab; independent-flip evidence (the PresentMon proof, the media statistics hint);
-  10-bit output, device-lost rebuild (the DXGI path's included), the DRS stop-gap, scanline sampling; `SYNC MARKS`,
-  `SYNC CERTIFY`, `SYNC REPORT`, the frame code and certificate, `LATENCY MEASURE`; the IGCL and GLX swap-group tiers; the board
-  helper; the D3D12 present barrier; HDR; macOS. The ES leg as a CI step (once the two spine tests read the fixture's dialect), and
-  OML sync control on Linux.
+- **Where it is going** (`docs/round3/PLAN.md`): Direct3D 12 flip presenters behind the RHI (wp3-present). Each output has one
+  waitable swap chain, and STATE says whether it is in Independent Flip and how that is known. Outputs get HDR10 and 10-bit, and each
+  frame has one predicted display time. A lost device is rebuilt by the same path that started it, rehearsed in CI (wp3-stability-2).
+  An independent observer reads a watermark off the air, and `LATENCY STEP` measures glass to glass, with each stage's share
+  (wp3-stability). The lock takes the tiers of *Where the lock is going*, above. AUTO stays GL until a lab parity record exists for a
+  vendor tier, then becomes Direct3D 12 on that tier; GL, ANGLE and the DXGI path retire next round, once parity is measured. Show
+  nodes become Windows 11 machines: Linux keeps the development loop, and no macOS node is planned. Not in the plan: the DRS stop-gap,
+  scanline sampling, `SYNC MARKS`, `SYNC CERTIFY`, `SYNC REPORT`, the sync certificate, the IGCL and GLX swap-group tiers, the board
+  helper, and OML sync control on Linux. No lab exists this round, so every hardware line is reported not run, never passed.

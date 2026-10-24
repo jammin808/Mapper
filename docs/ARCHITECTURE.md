@@ -21,21 +21,74 @@ The UI hides the power: three workspaces (**Play**, **Map**, **Scan**), a show s
 **Health** and **Network** drawers; right-click menus on everything, in step with the desk's buttons and the wire's verbs.
 The desk as built is docs/DESK.md.
 
-## 1. Processes — one exe, three roles
+Where the design is going is round 3's plan (docs/round3/PLAN.md). PlayMap is becoming an installed, Windows-native show node on
+every edition of Windows 11 from build 26100, Home included: a per-machine installer, and a supervising service that starts the
+engine in the show user's session (§1). Its renderer, which draws through a rendering hardware interface (RHI) with OpenGL behind
+it, is moving to Direct3D 12 behind that interface, OpenGL kept as the reference (§5). Its outputs are to lock in hardware where
+the hardware allows it and say how far apart they are everywhere else (§4). Its desk is to open on guided workflows beside
+advanced panes and the typed console, every command reachable from the menu bar, and from an object's right-click menu where it
+acts on one, its panes docking, floating and collapsing (docs/round3/design/desk-workflows.md). Until then the node is the
+exe on OpenGL this paper describes, run from a folder or installed per machine under the supervising service (§1, docs/INSTALL.md).
+
+## 1. Processes — one exe, four roles
 
 ```
-PlayMap.exe                 the desk (Avalonia). Starts and watches its engine; or attaches to any node's engine
+PlayMap.exe                 the desk (Avalonia). Starts and watches its engine (on a supervised machine it starts
+                            none, attaches to the engine the supervisor keeps, and says the supervisor's status when that
+                            engine does not answer); or attaches to any node's engine
                             on the network (operate a rack render node from a laptop).
 PlayMap.exe engine          the node: project, playback, decode, render, outputs, network, scan. Owns its main
                             thread (output windows + GL context live there). Headless: `engine headless`.
 PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The engine starts and watches it; it lowers
                             its own CPU priority, makes its own GL context (hidden, or EGL surfaceless with no
                             display) and speaks one JSON object a line on its standard input and output.
+PlayMap.exe shader-worker   the compilers' process: a user's ISF effect to validated, signed DXIL for the Direct3D 12
+                            stages of FX CHECK and FX IMPORT (docs/round3/design/shaders.md). The engine starts it
+                            with the first source and watches it; it runs below normal priority, loads the pinned
+                            compilers the engine never loads, speaks one JSON object a line and ends when its input
+                            closes.
 ```
+
+Round 3 adds a service above the engine and the fourth role beside it (docs/round3/design/installer.md,
+docs/round3/design/shaders.md). On an installed node `PlayMap.Supervisor`, a LocalSystem service, starts
+`PlayMap.exe engine --supervised` in the show user's console session, restarts it after an exit with backoff, and stops trying
+after five restarts in ten minutes, saying so in its status file, which STATE's `machine.install` and preflight's `install` section
+read (docs/INSTALL.md). Its rule that stops an engine whose shown frames have stopped while HEALTH says they should move waits for
+HEALTH's shown-frame count, which no engine fills yet (wp3-stability). Every stop it makes sets the engine's stop event, on which
+the engine stops as any asked stop does (below), and terminates the engine 5 s later only if it still runs. It starts the engine
+suspended and lets it run once its status file names it. The engine never runs in session 0 and never needs to run as
+administrator: it runs as the user of the show user's console session — the account the install names with `/SHOWUSER=` (meant to be
+a standard account), or, on an install that names none, whoever is signed in at the console (docs/INSTALL.md) — and so with an
+administrator's rights only where that account is an administrator whose token Windows does not filter. The supervisor itself writes only in a folder the show user cannot change. User ISF effects compile for the Direct3D
+12 road in `PlayMap.exe shader-worker`, so no compiler loads into the engine; no device draws that DXIL yet (wp3-shaders-2). Today the
+user effects the frame draws compile inside the engine, on a shared second context (§5).
 
 - A desk that faults or closes never blanks a projector: the engine keeps playing. The desk restarts and
   re-attaches; the engine restarts (watchdog) and puts back the recovery record (project, playlists' transports,
   outputs) and "seeks to now" — trivial, because every frame is a pure function of show time (§4).
+- Once its doors are open the engine the supervisor started (`engine --supervised`) writes its pid record (`engine.pid`: its
+  process, the line wire's port, the host's start) into the engine's folder, `%ProgramData%\PlayMap\supervisor\engine`, where
+  that folder exists — the installer makes it, the one folder there the show user may write (docs/INSTALL.md), which the
+  supervisor only reads, and the engine never makes it; the supervisor's status file and log lie in `supervisor\` itself, which
+  only SYSTEM and administrators may change — never over a record that names another PlayMap engine still running (that is a fault in
+  STATE, with the other engine's pid), by the identity rule every reader of the record holds (`Core/Machine/EngineIdentity.cs`:
+  PlayMap.exe run as the engine, started when its record was written, so a pid another process took after a power cut keeps no record
+  in place), and takes it back on a clean stop while it still names this process. Any other run (the desk's engine, a portable exe, a
+  test) writes none. It holds what a supervisor needs to adopt a running engine and an installer's armed check needs to ask it on
+  loopback, and no secret. That engine also waits on the stop event the supervisor made for it and named on its command
+  line (`--stop-event Global\PlayMap-Engine-Stop-<32 hex digits drawn for that start>`, opened with Synchronize and ReadPermissions,
+  the rights the show user — or, on an install that names none, every signed-in user — has on it, and kept only when SYSTEM or
+  administrators made it): once it is set the engine stops as any asked stop does, during its start or once up, and journals that
+  the supervisor asked.
+- A node writes STATE and CONTEXT once on its start's own thread, after its render host and extensions start and before its doors
+  open, so no reader's line pays their first build (every package's writer run for the first time), however soon after the wire
+  listens it dials: on a Debug build on Linux that write takes some hundreds of milliseconds, and a STATE asked the moment the wire
+  listens then some tens (docs/round2/CARRYOVER.md has the runs). The node then says it is up (its journal's row, its log's "is up:
+  wire …" line), each with how long that write took, its slowest part and how much of it its thread worked. A writer that faults
+  there does not stop the start: its fault is journalled under its own name (STATE or CONTEXT) as what happened then, never kept
+  standing. Every STATE write is timed part by part on the engine's clock (STATE's top-level parts, each package by its hook word)
+  beside its thread's own processor time, and one after the first of a second or more that is the longest since the first is
+  journalled with the part it went in, as a fact the context's recent rows carry as written (the first is said in the "is up" row).
 - A node that stops takes no more lines from the moment it begins to: a line from any source (the wire, the web,
   OSC, MIDI and DMX bindings, the assistant, an approval) is refused with the words, so no source that closes late
   starts work on a part already closed, and an edit a line taken before still has waiting for the control lane is refused with
@@ -45,6 +98,10 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
   job starts again from its first frame; a clip that stops it three times fails with the words. It ends when its input
   closes, and after two minutes with nothing to do; every wait on it is bounded, so a killed worker that a driver holds is
   journalled and left, and the node's stop goes on without it (docs/OPTIMISE.md).
+  The shader worker is started again on the same backoff and given its source again, and holds one source at a time: a source it
+  does not answer (past the compile's 10 s, past an FX CHECK's bound, or abandoned) ends that worker and counts nothing, and a
+  source that stops it three times fails with the words and is not sent again until it changes, a memory the host keeps for the
+  node's run that writes no quarantine (docs/EFFECTS.md).
 - **The desk has no private API.** It drives the engine through the same verbs Patterns, Stagewatch and an AI
   use (docs/WIRE.md): the wire on loopback for commands, the state stream for facts, shared memory for preview
   pictures (the ring file each view's `VIEW … SHOW` reply and STATE `machine.views` name, read only when it is that node's ring for the
@@ -58,15 +115,18 @@ PlayMap.exe optimise-worker the node's HAP encoder for optimise on import. The e
 
 | Module | References | Holds |
 |---|---|---|
-| `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model, the survey readers — OBJ, PLY, glTF, XYZ, chunked LAS and a managed E57 reader — rebasing in double into the site frame, quadric decimation and voxel thinning), the site (`SiteFrame`, the stage move, control-point files, the site check, geodesy — Krüger's transverse Mercator, UTM, ECEF and ENU, the EPSG UTM families — the facade guide and the light plan), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver with stacks as one projector, pose solver with priors as residual rows, the long-throw solve and its uncertainty, a stack's residual lattice and colour match), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, colour match and verify pass, the calibration score, the camera re-solve's dot check, motion attribution and re-seating, the stage simulator, the ISF parser and translator, audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, LED layouts, patching and packets, fleet health and the Eye's graph, optimise's planner, recipe, governor, HAP packer (PlayMap's own Snappy compressor) and version choice, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`, `IHapBlockEncoder`) |
-| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows on GLX or EGL, or EGL surfaceless; on Windows the Direct3D 11 flip model through ANGLE, loaded at run time) with a presenter per output, its vblank clock and present ledger, each output's delay ring, the frame-lock tiers; the decoder-surface importers (dmabuf EGLImages, D3D11 textures through ANGLE) and the context's upload arena; GL device wrapper, render graph, shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains, the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, the send stage (network video packed on the GPU, read back through a fenced ring) and the unpack of packed network layouts, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
+| `PlayMap.Core` | the runtime only | numerics (SVD, LM, Pcg32), time (mono clock, offset estimator, network clock, timecode: LTC, MTC and the chase), the model (immutable `Project` tree, `ProjectStore` single writer with undo), playback logic (timeline anchor, clip transport, playlist cursor, frame selection), the wire grammar and verb catalogue, Show Bus models (hello, context, pairing, receipts), the show policy, locks and panic maths, preflight, the generator catalogue, its looks and the particle schedule, geometry (mesh, ray caster, camera model, the survey readers — OBJ, PLY, glTF, XYZ, chunked LAS and a managed E57 reader — rebasing in double into the site frame, quadric decimation and voxel thinning), the site (`SiteFrame`, the stage move, control-point files, the site check, geodesy — Krüger's transverse Mercator, UTM, ECEF and ENU, the EPSG UTM families — the facade guide and the light plan), **mapping maths** (warp mesh, pixel quads, Bézier masks, blend solver with stacks as one projector, pose solver with priors as residual rows, the long-throw solve and its uncertainty, a stack's residual lattice and colour match), **scan maths** (structured light encode/decode, calibration, triangulation, point clouds, segmentation, registration, the multi-view solve), align's fits, colour match and verify pass, the calibration score, the camera re-solve's dot check, motion attribution and re-seating, the stage simulator, the ISF parser and translator (GLSL 3.30, ES 3.00, and GLSL 4.50 for Vulkan's rules, the shader worker's first stage), the effect quarantine's record (`ShaderQuarantine`: the kinds a node will not draw, kept in its home), audio analysis, the beat clock, the modulation bus and plan, OSC/MIDI/DMX and binding maths, the frame-lock machine, the render hardware interface (`Core/Gpu`: the device, resources, programs and their layouts, pipelines, the frame's command list, fences, the upload, read-back, timer and import contracts every backend implements, the platform and presenter seams, the program table as data), the presentation words (`Core/Presentation`: the vblank clock, the present ledger and clock, the latency plan, the present path, which any backend's presenter feeds), the machine's records and policy (`Core/Machine`: the node's identity and capability probes, thread roles and `ThreadClaims` with each deadline thread's timer, the machine platform's seam with what a platform reads back and the null platform that claims nothing, the show doors, the machine's settings and locked driver set, MACHINE SET's words and each default with its cause, CPU-set placement, the edition, servicing and GPU vendor tables, the machine preflight's rows, the text Windows hands back parsed, and the engine's pid record), the capture grammar (`CaptureUri`), LED layouts, patching and packets, fleet health and the Eye's graph, optimise's planner, recipe, governor, HAP packer (PlayMap's own Snappy compressor) and version choice, contracts (`IVideoSource`, `WarpMeshGeometry`, `BlendMap`, `IHapBlockEncoder`) |
+| `PlayMap.Render` | Core, Silk.NET.OpenGL/Windowing, SkiaSharp | the GPU platform (OpenGL 3.3 core or ES 3.00; GLFW windows on GLX or EGL, or EGL surfaceless; on Windows the Direct3D 11 flip model through ANGLE, loaded at run time) with a presenter per output feeding Core's vblank clock and present ledger, each output's delay ring, the frame-lock tiers; the decoder-surface importers (dmabuf EGLImages, D3D11 textures through ANGLE) and the context's upload arena; the GL backend (`Render/Gl`: `GlBackend`, the GL device behind Core's `IGpuDevice` with one immediate command list, fences over GL syncs, the pixel-pack and unpack rings, timestamp queries, user programs linked on the compile lane and transients rented from a resource pool; the GL platforms, the importers, the upload arena and the HAP encoder named here live there too), render graph (every frame's drawing goes through the device's frame list — the render engine, the canvases and playlist mixes, the generators, the video conversions, the projector pass, the effect chains, the output stage, the edit overlay, LED sampling, the send stage and the HAP pass: a pass over each target, a program and one `DrawState` per draw, its constants set through the program's layout, by name or, in five passes, by generated id (`ProgramIds`), the windows' pictures recorded into the list and presented after its submit; the GPU times of outputs, generators and effect slots are spans between two timestamps in the list, read frames later, every span a frame asks for measured (on an ES context whose timer extension counts no timestamps, one elapsed-time query per output, the spans inside it unmeasured; a context with no timer queries measures none); the warm-up makes every pipeline the passes list through the device before the first frame, within `RenderEngine.WarmUpBound` (20 s; past it the render host starts with a journalled fault and the first draws make what the warm-up had not, counted in `IPipelineCache.RenderThreadMakes`), and a pipeline the device cannot make fails the render host's start with the device's words; no source under `src/` outside `src/PlayMap.Render/Gl` names a GL type or a type of Silk.NET's GL side (in Render, of any of Silk.NET; the sound's OpenAL binding is Media's), save the platform factory naming the GL platforms' maker — `RhiFenceTests` and `EngineFenceTests` hold the line by a scan of the sources and project files and a walk of the Render and Engine assemblies' signatures and IL; the lab's bench, `bench/r3-present`, drives the GL platforms directly and is outside the line), shader library, generators (Skia-drawn test patterns → textures; shader fractals, raymarched fractals, the GPU particle field, reactive, effects), video upload (YUV → RGB on the GPU; HAP blocks through the `hap` pass), ISF effect chains (each pass a user program the device makes through `CreateProgramAsync` — on GL compiled and linked on the compile lane, its uniforms and samplers read back into its layout — and lets go of once the last frame that drew it has completed; a slot whose kind the node's quarantine holds draws bypassed, its input unchanged and nothing of it drawn), the projector pass (stage meshes from the projector's pose, then pixel quads), warp, blend, black level, colour, align's measured stage, the edit overlay, LED sampling, the send stage (network video packed on the GPU, read back through a fenced ring) and the unpack of packed network layouts, preview read-back, the GPU HAP encoder (`GlHapEncoder`: fragment programs that write one texel per 4×4 block) |
 | `PlayMap.Media` | Core, FFmpeg.AutoGen 9.0, Silk.NET.OpenAL, NAudio.Wasapi, `PlayMap.ThirdParty.Omt` (libomtnet, vendored under `src/ThirdParty`, outside the analyzers' fences) | probe, decode on the decode-path ladder (VAAPI mapped to DRM PRIME on the renderer's render node, D3D11VA on the renderer's own device; copy-back from any other hardware device; software), the HAP parser and its Snappy stage on a worker pool writing into the renderer's upload arena, frame-accurate seek, preroll, gapless loop, stills and sequences, capture devices (avdevice), sound input (avdevice; WASAPI with loopback on Windows), sound out (`AudioOut`: OpenAL Soft, slaved to a timeline), content hashing, the HAP transcode (decode, encode through a frame encoder it is handed, mux with the source's audio stream-copied, read back), OMT and NDI receivers and senders (libomtnet and libvmx vendored; NDI's runtime loaded from the user's install), Spout's protocol over a kernel seam and its own Direct3D 11 device (Windows) |
 | `PlayMap.Net` | Core, ASP.NET Core (shared framework), ModelContextProtocol.AspNetCore | Show Bus hello (UDP 9928), the line wire (TCP 9941, Patterns' grammar; and over `/ws` as `playmap.lines.v1`), HTTP/WS/HTTPS on 9940 (TLS sniffed), MCP at `/mcp`, pairing and TLS pinning, fine clock sync and the members' vblank reports (UDP 9942), the sync group's anchor feed and its follower, the sync board, OSC (UDP 9943), Art-Net (UDP 6454) and sACN (UDP 5568) sockets, the LED sender (Art-Net, sACN, DDP), the mDNS responder, the fleet monitor and the `/health` and `/fleet` feeds, media transfer, the Patterns and Stagewatch links, the §11 approvals pull |
 | `PlayMap.Devices` | Core | projector control (PJLink and the makers' own protocols; docs/PROJECTORS.md), a read of a projector's own geometry and edge blend (`Native`), the machine's MIDI ports (ALSA sequencer, WinMM) |
 | `PlayMap.Vision` | Core, ONNX Runtime | segmentation (classical, and an optional ONNX model) for surfaces and regions on the smart scan; depth previs, pin suggestions and drift watch as library code |
 | `PlayMap.Assistant` | Core, a provider's client library | plain words → verbs, the proposals list, secret redaction |
-| `PlayMap.Engine` | all of the above | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, the video I/O hub (each live input received once and lent to its consumers, its tally and loss policy, each send's sender and the plan the render thread packs), output windows, preview shared memory, scan runner, survey import (read, thinned and decimated on its own thread, applied on the lane as one edit), the site's verbs, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), journal, recovery record, watchdog heartbeat |
-| `PlayMap.App` | Core, Engine (for `engine` mode only), Avalonia 12 | the desk: the workspaces, the show strip, the attention bar, the drawers, the generic STATE cards and the generated menu entries, composed of modules over one spine (docs/DESK.md); the engine link, the demo engine (`FakeEngineLink`) |
+| `PlayMap.Render.D3D12` | Core, TerraFX.Interop.Windows; Microsoft.Direct3D.DXC at build time only (every asset excluded and private: the build runs its `dxc.exe` on Windows, and nothing of it reaches the output or a project that references this one) | the Direct3D 12 backend, Windows only (docs/round3/design/d3d12.md): one folder each for the device, queues, memory, descriptors, commands, pipelines, shaders, the exporter, the platform, raw interop, the flip presenters, video, user effects, bindless records, the present barrier and the rebuild path, each holding a placeholder but `Shaders/`, which holds the HLSL library of PlayMap's programs and the build step that writes their headers from Core's program table and embeds the library and, on Windows, its DXIL (§5); nothing renders through it yet, and neither the engine nor the desk references it. It never references `PlayMap.Render`: the two backends meet only in Core's contracts |
+| `PlayMap.Platform.Windows` | Core | what a show node claims from Windows, Windows only (docs/PLATFORM.md, docs/round3/design/platform.md): `WindowsMachinePlatform` behind Core's `IMachinePlatform` — the process's claims and each thread's by its role, every one read back, the high-resolution deadline timer, keep-awake as a power request, the node's identity and capabilities and the machine's facts for preflight — by Win32 calls (`LibraryImport`) and its own DXGI and NVAPI declarations, each structure pinned by a layout golden, NVAPI loaded from the system directory by its absolute path; every type is Windows only. The engine composes it on Windows, and Core's null machine platform, which claims nothing and says so, elsewhere |
+| `PlayMap.Supervisor` | Core, System.ServiceProcess.ServiceController | the supervising service's exe (docs/INSTALL.md, docs/round3/design/installer.md §5): the `PlayMapSupervisor` service (`run`), whose pure policy (`Policy/`: the backoff, the five restarts in ten minutes, the freeze rule) runs on every OS, starting the engine in the show user's console session (`WTSQueryUserToken`, `CreateProcessAsUser`), adopting a running engine only by the identity rule, stopping it on its stop event and writing its status file (Core's `SupervisorStatus`); its pipe for `status`, `stop` and `resume`; and the installer's commands — the armed check (`preinstall-check`), every machine-level action of the install and its undo (`install`, `uninstall`, `upgrade-stop`, `grant`, `revoke`, `rights`) and the version rules (`version-check`, `previous-build`) — each answering in words and an exit code; its Windows calls carry their platform |
+| `PlayMap.Engine` | Core, Render, Media, Net, Devices, Vision, Assistant, Platform.Windows (not Render.D3D12 or Supervisor); the shader worker's compiler natives (Silk.NET.Shaderc.Native, Silk.NET.SPIRV.Cross.Native; DXC's compiler alone, `dxcompiler.dll` from Microsoft.Direct3D.DXC, downloaded and never referenced, on Windows and `libdxcompiler.so` from DXC's pinned Linux release through `PLAYMAP_DXC_DIR` on Linux, with its licence and DXC's third-party notices in `licenses/DXC/` beside it and no `dxil.dll` or `libdxil.so`), loaded only in the worker | composition root: the command router (verbs → edits/actions) and the packages' hooks, the show gate, the blind draft and its commit, the air's sound, playback lanes, timecode chase, the sync part (the role kept, the fan-out, a member's leader lines), control bindings, the video I/O hub (each live input received once and lent to its consumers, its tally and loss policy, each send's sender and the plan the render thread packs), output windows, preview shared memory, scan runner, survey import (read, thinned and decimated on its own thread, applied on the lane as one edit), the site's verbs, align runs and the double-correction guard, the calibration ledger and its re-solves, the optimise service (its queue, governor and worker process), the shader worker (the same exe as `PlayMap shader-worker`, started with the first source: a user's ISF effect to DXIL for FX CHECK's Direct3D 12 stages, its compilers each held to its SHA-256) and the effect quarantine kept in the node's home (`playmap.quarantine.json`, lifted by `FX RELEASE`), the machine part (`Machine/`: the machine platform composed for this machine — Windows' on Windows, Core's null platform elsewhere — its process claims made as it composes, each thread's role claimed through it once the host has pointed the thread claims at it, before it starts the render host or any part (the render thread's once the engine is attached), every saved `MACHINE SET` handed to it before anything acts on it, keep-awake held while the project has an enabled display output and `AWAKE` is on, the machine's settings and `MACHINE LOCK`'s driver set in the node's settings, the machine preflight, the GC's show mode as an arm hook), the install part (`Install/`: STATE `machine.install` read at most every two seconds from the install's registry key, Winlogon's auto-logon user and the supervisor's status file through Core's `SupervisorStatus`, preflight's `install` section through the `Install` hook, and the cause of the stop before it journalled by a supervised engine as it starts), journal, recovery record, watchdog heartbeat |
+| `PlayMap.App` | Core, Engine (for `engine` mode, and the install's supervised mark the desk reads before it starts an engine), Avalonia 12 | the desk: the workspaces, the show strip, the attention bar, the drawers, the generic STATE cards and the generated menu entries, composed of modules over one spine (docs/DESK.md); the engine link, the demo engine (`FakeEngineLink`); the desk's own preferences (Simple or Pro, the look, each unfinished quad) in the user's desk.json, never in the project |
 
 Core references only the runtime; each edge references Core and its own native library, and never another edge except
 through Core's contracts (Render does not know FFmpeg; Media does not know GL). Only App references Avalonia.
@@ -75,8 +135,15 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
 
 - `Project` is an immutable record tree (`System.Collections.Immutable`). An edit is `Func<Project, Project>`
   applied by `ProjectStore` — **one writer**, in the engine. The new root shares every untouched branch; undo is a
-  list of roots; drags coalesce into one undo step (edits of one field within 750 ms on the node's clock). Readers
-  (render thread, network, state writer) take the current root through a volatile reference and never lock.
+  list of roots; drags coalesce into one undo step (edits of one field within 750 ms on the node's clock). Each step
+  is numbered (a number is never another step's), with who made it (the line's session, else the node) and when on the
+  show's wall clock; `Steps` lists them newest first, and `UndoTo(n)` takes step n and every newer one back as one action:
+  one root, one revision, each step on the redo list as `Undo` puts it there. Readers (render thread, network, state
+  writer) take the current root through a volatile reference and never lock. The file form is schema 2: a schema-1
+  file is read by its rules (`ProjectJson.Read`), and the open names what they moved. An output's blend writes its γ twice:
+  `gamma` is the γ the fades are drawn through, what every earlier build reads, so a backup or a build that predates schema 2
+  draws the same fades from the file; `gammaOverride` beside it is the model's `Blend.Gamma` (0: the measured γ, else 2.2). A
+  line's `blend.gamma` sets the override, as `blend.gammaOverride` does.
 - Runtime state (transports, links, outputs' health, availability) is not in the document: each lane publishes
   its own immutable snapshot; STATE composes them.
 - Generic edits (`GET/SET/ADD/REMOVE/MOVE` by id and dotted field path) are how the desk edits anything and why an
@@ -124,8 +191,11 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
   every display lights the same picture together; while an output is frame-locked (`SYNC APPLY`) the instant is the
   lock anchor's time of the pacer's next count, the same integers on every node that holds the anchor. No node integrates a
   frame delta, so none drifts; a dropped render frame heals itself. Without genlock the honest ceiling is ±1 refresh between
-  machines; a sync board makes it the same vblank once outputs join a swap group, which this build's NVAPI tier
-  (compile-only) does not do yet (docs/OUTPUT.md).
+  machines. This build's NVAPI tier (compile-only) reads a sync board and joins no output to a swap group, so every output
+  presents free on its own vblank, measured once its clock settles (docs/OUTPUT.md). Round 3 brings machines to the same vblank where the hardware
+  locks: NVIDIA's present barrier on Direct3D 12 and the `WGL_NV_swap_group` swap group on OpenGL, on a professional GPU with
+  an RTX PRO Sync board, each output locked only by its own evidence. Everywhere else an output is to present free and say so:
+  "software lock: same frame, phase +x ms" (docs/round3/PLAN.md D5, docs/round3/design/present.md).
 - A generator counts its time from an origin on the show clock (stamped at `GENERATOR NEW`, moved by `GENERATOR RETIME`),
   or from its item's clip time while a playlist routes it; the particle field steps on a fixed 1/120 s grid from one
   particle life back, so a late joiner draws the same picture (docs/CONTENT.md). An effect's time is the leader's show time.
@@ -152,10 +222,15 @@ through Core's contracts (Render does not know FFmpeg; Media does not know GL). 
 - `Media/Audio/AudioOut` plays through the OpenAL Soft that ships beside PlayMap, found in the app's own native folders before
   the system's (`OpenAlLibrary`); where no OpenAL loads, its device output is the null one and `AudioOut.Status` says why,
   which STATE carries as `show.sound.status`.
+- A thread that waits for an instant — the headless render loop's pacer, the LED sender, each audio output's feeder — waits on
+  the machine platform's deadline timer, made on that thread (`ThreadClaims.CreateTimer`) and disposed at its end: on the machine's
+  monotonic clock the platform's (on Windows under `MACHINE SET TIMER HIGH`, the default, a high-resolution waitable timer that wakes
+  near its due time without raising the system's timer resolution), on any other clock the runtime's own wait on that clock. The
+  p99 lateness of their last 1 000 waits is in STATE (`machine.platform.timer`; docs/PLATFORM.md).
 
 ## 5. Rendering
 
-Per frame, on the engine's render thread (one GL context, all outputs). Blackout wins before any pass:
+Per frame, on the engine's render thread (one device, all outputs; on GL its one context). Blackout wins before any pass:
 
 1. **Sources**: upload the frame each visible video source has for its media time (planes → textures,
    YUV→RGB in the shader with the frame's matrix/range/transfer; a hardware decoder's surface imported where the renderer can
@@ -207,6 +282,48 @@ never reached its first frames. Decoders share that device under its one recursi
 it around each frame, taken within 4 ms (past that the frame draws on the device's own multithread protection and is counted),
 and lets go of it while a window waits for the vertical blank; a decoder or a texture sharer holds it only around its own
 immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
+
+Every pass draws through the render hardware interface (Core's `IGpuDevice` and the frame's `ICommandList`), never through an API:
+the frame code, the passes and the generators name no GL type, and the GL backend (`Render/Gl`) implements the contracts with its
+one immediate list. Five passes (the particle step, the output stage, the quad every canvas layer is drawn with, the projector
+pass's surfaces and the raymarcher) set their constants by the ids generated with the program table (`ProgramIds`: a constant's
+place in its program's layout), with no look-up by name; the others set theirs by name through the program's layout. Each pass
+lists the pipelines it can draw on a device (`FramePipelines`: every program it draws, in every state, into every target shape it
+draws into there), and the warm-up makes them all before the first frame within `RenderEngine.WarmUpBound` (20 s), so the scripted
+show's draws make none on the render thread; past the bound the render host starts with a journalled fault and the first draws make
+what the warm-up had not, counted (`IPipelineCache.RenderThreadMakes`). A pipeline the device cannot make fails the start with the
+device's words. The Render suite's GPU tests do the same: each but the GL backend's own runs on a leg of the backend fixture
+(`BackendFixture`, one device on a thread of its own per backend the job has — GL today, a later backend's leg added to
+`BackendLegs.Makers`), draws through the device the leg hands it and reads back through `Pixels.Read(IGpuDevice, RenderTarget)`;
+only the GL backend's own tests, listed by name in `RhiFenceTests` (and the engine suite's in `EngineFenceTests`), name a GL type,
+and some of them open GL contexts of their own. Every pixel golden is unedited and holds within its tolerance on llvmpipe in both
+dialects. With no lab, L20 (the GL backend behind the interface on NVIDIA, AMD and Intel Windows drivers) is not run: the GL
+backend runs on llvmpipe and, on the Windows job, Mesa WGL only.
+
+Where the backends are going (docs/round3/PLAN.md D1–D3; docs/round3/design/rhi.md, d3d12.md, present.md): Direct3D 12 is to be
+the primary backend behind the same interface, each output presenting through its own flip-model swap chain. OpenGL stays the
+reference backend, its pixels unchanged, until the pixel and timing evidence says the two agree; then it retires, and ANGLE and
+the Direct3D 11 present path with it. AUTO stays OpenGL until a vendor tier has its lab parity record. Vulkan is not carried.
+Today `PlayMap.Render.D3D12` holds placeholders and the HLSL library (§2, below), and `PRESENT PATH D3D12` answers that it is not
+available on this node yet.
+
+The HLSL library (docs/round3/design/shaders.md) sits under `src/PlayMap.Render.D3D12/Shaders`: PlayMap's 40 programs once more in
+HLSL, one file per family, listed in `programs.json` (each program's file and entries), with `Common.hlsli`'s conventions —
+positions in the render hardware interface's clip space and every vertex entry ending with `PmClip`, which is
+`ClipSpace.ToDirect3D`, so a draw lands on the GL backend's rows and depths; a `float4x4` constant read as `mul(v, M)` and the
+normal matrix's `float3x3` as `mul(M, v)`; the present drawing the picture unflipped into a back buffer that runs top row first;
+one root signature for every program, its constants at `b0` and the binding block at `b1` read through `ResourceDescriptorHeap`.
+The build step writes each program's header (`Layout.hlsli`: its block and texture slots) from the render hardware interface's
+program table (`src/PlayMap.Core/Gpu/Programs/programs.layout.json`, read as data, the one table both backends and the HLSL build
+read) and embeds the library and, on Windows, where DXC's executable runs, its validated, signed DXIL with each entry's reflection
+(compiled again when a source, the table or `programs.json` changes; each entry's PDB stays in `obj/`, and the Windows job keeps
+them). DXC's Linux build emits validated, signed DXIL too (M6), so every program compiles on both jobs, and `ShaderLayoutTests`
+hold each one's reflection to its `ProgramLayout` in the table there — the same programs on both sides, the block at `b0` with the
+table's constants, offsets, counts and size and its matrices `row_major`, the table's texture slots sampled exactly where the
+table says, and the vertex entry's input signature as the input layout the table's inputs make — while `HlslConventionTests` hold
+the clip conversion, the matrices' order and the vertex inputs in the source. No device draws the library yet: pixel parity with
+the GLSL is wp3-d3d12-core's. User effects reach DXIL in the shader worker (§1, docs/EFFECTS.md), and no device draws theirs yet
+either; on every frame a slot whose kind the node's quarantine holds draws bypassed, its input unchanged, until `FX RELEASE`.
 
 ## 6. Mapping pipeline
 
@@ -314,8 +431,16 @@ immediate-context work (docs/OUTPUT.md, docs/DECODE.md).
   as a screen (`cid`, `page=/playmap`), renders its timer as a source, handles `beat.live:false`, posts its
   context, collects approved proposals (§11).
 - **Media sync**: library items are identified by content hash; a node missing a file pulls it in 8 MiB chunks
-  from any peer that has it, resumable, throttled while a show runs; each node publishes readiness (present,
-  verified, decodable, first frame ready).
+  from a peer that has it, resumable, each chunk served and written in 1 MiB blocks; a chunk's body silent for 10 s on
+  the node's clock fails that try with words, while the peer's list and each answer wait the HTTP client's own timeout,
+  and a fetch journals at most 4 of its pulls' rows and one that counts the rest, a quarter of the context's 20 recent rows.
+  `MEDIA FETCH` runs one of two pulls.
+  With the fleet's part, which the exe composes, it pulls with the peer's proof over `/mirror/media` (docs/FLEET.md),
+  saying each file's end in the journal and writing no transfer row. Without it, the node's own pull reads each peer's
+  `/api/media` list once a fetch, is throttled while a show runs, and says each pull's stage, bytes, peer and last
+  failed try in STATE's transfer row, which the desk's Network drawer and PLAY show. Carrying the fleet's pulls to that
+  row and to the show's throttle is an open fix (docs/ROADMAP.md). Each node publishes readiness (present, verified,
+  decodable, first frame ready).
 - **Media versions**: an item may carry versions (`MediaVersion`, `mv…`): HAP files the optimise worker made from its
   source, each hashed into this node's media store and recorded on the item as one edit. At each open the media backend
   asks `VersionChoice` which file to play — under `use: auto` a version this GPU samples whose file is here, the best
@@ -342,6 +467,10 @@ the pool, and the stage's table builder runs on a thread of its own, its loops o
 and rings that skip rather than wait; no
 allocation on a warm frame (a frame whose layers, surfaces or effect slots are modulated still builds its drawn project afresh;
 every suite measures allocation through one helper, `tests/Shared/Allocations.cs`, whose windows begin after a gen0 collection,
-in Debug and Release); a faulting
+in Debug and Release), nor at a first wait: every lock the air's threads take beside another thread frame by frame (the render
+thread; the decode, capture and send threads that hand it frames or take them; the LED sender; each sound output's feeder; the
+lateness record every deadline wait writes) makes its wait event as it is made, and each of those threads has its own wait record
+before its first frame, a claimed thread from its claim (`LockWaits`; `tests/Shared/LockWaitProbe.cs` reads a lock's first wait);
+a reader holds the render thread's frame-time gate only for a copy; a faulting
 generator draws an error card and is disabled until its settings change; blackout is checked before any content code;
 FlashGuard limits flashes to three a second.

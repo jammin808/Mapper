@@ -143,6 +143,190 @@ internal sealed class FakeApprovalDesk : IAsyncDisposable
     }
 }
 
+/// <summary>A node's network control that keeps the token its first <c>SYNC LEAD</c> ran with: for a line the approval desk
+/// handed over, the token of the pull that collected it, which is the sink's own stop.</summary>
+internal sealed class PullTokenSpy : INetworkControl
+{
+    private readonly TaskCompletionSource<CancellationToken> _token = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Task<CancellationToken> Token => _token.Task;
+
+    public Task<string> LeadAsync(string group, CancellationToken ct)
+    {
+        _token.TrySetResult(ct);
+        return Task.FromResult("leading " + group);
+    }
+
+    public Task<string> LinkPatternsAsync(string? host, string? token, CancellationToken ct) => Task.FromResult("following Patterns at " + host);
+
+    public Task<string> LinkStagewatchAsync(string? host, string? key, CancellationToken ct) => Task.FromResult("following Stagewatch at " + host);
+
+    public Task<string> FollowAsync(string group, string nodeId, CancellationToken ct) => Task.FromResult("following " + nodeId);
+
+    public Task<string> FetchAsync(IReadOnlyList<PlayMap.Core.Model.MediaItem> items, string? fromNode, CancellationToken ct) => Task.FromResult("nothing to fetch");
+}
+
+/// <summary>An approval desk played request by request, whose refusal lands as the pull's stop is taken. Its first collect
+/// hands over a line another app proposed for this node (the node runs it with the pull's stop as its token, which the
+/// <see cref="PullTokenSpy"/> keeps); its second is refused at once; its third is held and refused once the stop is taken, in
+/// the stop's own callback, before the stop has reached the request's token: the order in which a connect to a closed port
+/// that is refused late (on Windows about 2 s on loopback) can meet a stop taken with <c>CancelAsync</c>, whose callbacks run
+/// after it returns. Results are taken with 200.</summary>
+internal sealed class LateRefusalDesk(PullTokenSpy spy) : HttpMessageHandler
+{
+    public const string EarlyWords = "the desk is not up yet";
+
+    public const string LateWords = "No connection could be made because the target machine actively refused it.";
+
+    private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _collects;
+
+    /// <summary>Completes once the third collect is held, its refusal waiting on the pull's stop.</summary>
+    public Task Held => _held.Task;
+
+    /// <summary>The pull's stop was taken when the late refusal was raised.</summary>
+    public bool RaisedAfterTheStop { get; private set; }
+
+    /// <summary>The request's own token was not cancelled yet when the late refusal was raised, so the client hands the
+    /// refusal on as it is rather than as a cancel.</summary>
+    public bool RaisedBeforeTheRequestsCancel { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method == HttpMethod.Post)
+            return Task.FromResult(Reply(request, "{\"ok\":true}"));
+        return Interlocked.Increment(ref _collects) switch
+        {
+            1 => Task.FromResult(Reply(request, "{\"proposals\":[{\"id\":\"p9\",\"line\":\"SYNC LEAD g1\",\"state\":\"approved\",\"decidedBy\":\"Caller\"}]}")),
+            2 => Task.FromException<HttpResponseMessage>(Refused(EarlyWords)),
+            _ => HeldAsync(cancellationToken),
+        };
+    }
+
+    private async Task<HttpResponseMessage> HeldAsync(CancellationToken request)
+    {
+        var stop = await spy.Token.WaitAsync(request).ConfigureAwait(false);
+        // Its continuations run where it is completed: the client and the pull see the refusal inside the stop's callback.
+        var refusal = new TaskCompletionSource<HttpResponseMessage>();
+        // Registered after the client linked the request's token to the stop, so it runs first when the stop is taken (a
+        // token's callbacks run newest first), before the stop reaches the request.
+        using var onStop = stop.Register(() =>
+        {
+            RaisedAfterTheStop = stop.IsCancellationRequested;
+            RaisedBeforeTheRequestsCancel = !request.IsCancellationRequested;
+            refusal.TrySetException(Refused(LateWords));
+        });
+        using var onRequest = request.Register(() => refusal.TrySetCanceled(request));
+        _held.TrySetResult();
+        return await refusal.Task.ConfigureAwait(false);
+    }
+
+    private static HttpResponseMessage Reply(HttpRequestMessage request, string json) =>
+        new(System.Net.HttpStatusCode.OK) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"), RequestMessage = request };
+
+    private static HttpRequestException Refused(string words) =>
+        new(HttpRequestError.ConnectionError, words, new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused));
+}
+
+/// <summary>An approval desk with nothing waiting: every pull is answered with an empty list.</summary>
+internal sealed class QuietDesk : HttpMessageHandler
+{
+    private int _asked;
+
+    public int Asked => Volatile.Read(ref _asked);
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _asked);
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"proposals\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            RequestMessage = request,
+        });
+    }
+}
+
+/// <summary>An approval desk whose client fails as no pull expects, at every request.</summary>
+internal sealed class BrokenClientDesk : HttpMessageHandler
+{
+    public const string Words = "the desk's client is in no state to send";
+
+    private int _asked;
+
+    public int Asked => Volatile.Read(ref _asked);
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _asked);
+        throw new InvalidOperationException(Words);
+    }
+}
+
+/// <summary>An approval desk whose first collect is held past the pull's stop. A callback on the request's token throws when the stop
+/// reaches it (a fault of whoever registered it, which the stop's cancel carries once every callback has run), and the request ends
+/// only once the test opens its gate. Every other request is answered with an empty list.</summary>
+internal sealed class ThrowingStopDesk : HttpMessageHandler
+{
+    public const string Words = "a callback on the pull's stop is in no state to run";
+
+    private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _collects;
+    private int _ended;
+
+    /// <summary>Completes once the first collect is held, its callbacks on the request's token registered.</summary>
+    public Task Held => _held.Task;
+
+    /// <summary>The held collect has ended (as the stop's cancel).</summary>
+    public bool Ended => Volatile.Read(ref _ended) == 1;
+
+    /// <summary>Lets the held collect end once its request is cancelled.</summary>
+    public void Open() => _gate.TrySetResult();
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method == HttpMethod.Get && Interlocked.Increment(ref _collects) == 1)
+            return HeldAsync(cancellationToken);
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"proposals\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            RequestMessage = request,
+        });
+    }
+
+    private async Task<HttpResponseMessage> HeldAsync(CancellationToken request)
+    {
+        try
+        {
+            var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var onCancel = request.Register(() => cancelled.TrySetResult());
+            // Registered last, so it runs first when the stop reaches the request (a token's callbacks run newest first); the
+            // others still run.
+            using var faulty = request.Register(() => throw new InvalidOperationException(Words));
+            _held.TrySetResult();
+            await Task.WhenAll(cancelled.Task, _gate.Task).ConfigureAwait(false);
+            throw new OperationCanceledException(request);
+        }
+        finally
+        {
+            Volatile.Write(ref _ended, 1);
+        }
+    }
+}
+
+/// <summary>An engine log that keeps what it is given, the fault with its words.</summary>
+internal sealed class KeptFaults : ILogger
+{
+    public ConcurrentQueue<(LogLevel Level, string Words, Exception? Fault)> Entries { get; } = new();
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Entries.Enqueue((logLevel, formatter(state, exception), exception));
+}
+
 /// <summary>The node's proposals on a Stagewatch approval desk: offered with the node as proposer and target and the
 /// key in the Authorization header only; what the show caller approves is collected, run through the node's own path
 /// and answered, and completes the node's proposal; what the caller rejects completes it as rejected and nothing runs;
@@ -297,4 +481,201 @@ public sealed class StagewatchSinkTests
             rig.DeleteFolder();
         }
     }
+
+    /// <summary>A refusal that lands as the stop is taken is the stop's: the pull ends without naming it, and letting the desk go
+    /// (with it the assistant and the node's services) throws nothing, once or twice. A refusal before the stop is the desk's and
+    /// is said.</summary>
+    [Fact]
+    public async Task ARefusalThatLandsAsTheStopIsTakenEndsThePullAndIsNotThrownAtWhoeverLetsTheDeskGo()
+    {
+        var spy = new PullTokenSpy();
+        var rig = new OpsRig(network: spy);
+        using var desk = new LateRefusalDesk(spy);
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = desk,
+            });
+            var sink = rig.Assistant.ApprovalDesk!;
+            await spy.Token.WaitAsync(TimeSpan.FromSeconds(30));
+            await desk.Held.WaitAsync(TimeSpan.FromSeconds(30));
+            var early = $"{sink.Name} could not be read: {LateRefusalDesk.EarlyWords}";
+            Assert.Equal(early, sink.Problem);
+
+            await rig.DisposeAsync();
+            Assert.True(desk.RaisedAfterTheStop && desk.RaisedBeforeTheRequestsCancel,
+                $"the late refusal was raised after the stop: {desk.RaisedAfterTheStop}, before the request's cancel: {desk.RaisedBeforeTheRequestsCancel}");
+            Assert.Equal(early, sink.Problem);
+            Assert.Null(rig.Assistant.ApprovalDesk);
+            await sink.DisposeAsync();
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A pull that fails as no pull expects ends, said at once on the sink and in the journal and written with its trace to
+    /// the engine's log, and letting the desk go throws nothing.</summary>
+    [Fact]
+    public async Task APullThatFailsAsNoPullExpectsEndsSaidAndIsNotThrownAtWhoeverLetsTheDeskGo()
+    {
+        var log = new KeptFaults();
+        var rig = new OpsRig(assistantLog: log);
+        using var desk = new BrokenClientDesk();
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = desk,
+            });
+            var sink = rig.Assistant.ApprovalDesk!;
+            // Said on the sink and written to the engine's log first, then in the journal: the journal's row is the last of the three.
+            Assert.True(await OpsRig.Eventually(() => rig.Engine.Journal.Recent(80).Any(r => r.Text.Contains(BrokenClientDesk.Words, StringComparison.Ordinal))),
+                $"the sink says \"{sink.Problem}\"");
+            Assert.Contains(BrokenClientDesk.Words, sink.Problem, StringComparison.Ordinal);
+            var (level, words, fault) = Assert.Single(log.Entries);
+            Assert.Equal(LogLevel.Warning, level);
+            Assert.Contains(sink.Name, words, StringComparison.Ordinal);
+            var thrown = Assert.IsType<InvalidOperationException>(fault);
+            Assert.Equal(BrokenClientDesk.Words, thrown.Message);
+            Assert.Contains(typeof(BrokenClientDesk).FullName!, thrown.StackTrace ?? "", StringComparison.Ordinal);
+            await Task.Delay(200);
+            Assert.Equal(1, desk.Asked);
+            Assert.Single(rig.Engine.Journal.Recent(80), r => r.Text.Contains(BrokenClientDesk.Words, StringComparison.Ordinal));
+
+            await rig.DisposeAsync();
+            Assert.Contains(BrokenClientDesk.Words, sink.Problem, StringComparison.Ordinal);
+            Assert.Null(rig.Assistant.ApprovalDesk);
+            Assert.Single(log.Entries);
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A change of desk while the old desk's call is refused as its stop is taken completes: the new desk is the one the node
+    /// reads, the old one names nothing new, and nothing is thrown at whoever changed the desk.</summary>
+    [Fact]
+    public async Task AChangeOfDeskWhileTheOldDesksCallIsRefusedAsItsStopIsTakenCompletes()
+    {
+        var spy = new PullTokenSpy();
+        var rig = new OpsRig(network: spy);
+        using var desk = new LateRefusalDesk(spy);
+        using var next = new QuietDesk();
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = desk,
+            });
+            var old = rig.Assistant.ApprovalDesk!;
+            await spy.Token.WaitAsync(TimeSpan.FromSeconds(30));
+            await desk.Held.WaitAsync(TimeSpan.FromSeconds(30));
+
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:10/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = next,
+            });
+            Assert.True(desk.RaisedAfterTheStop && desk.RaisedBeforeTheRequestsCancel,
+                $"the late refusal was raised after the stop: {desk.RaisedAfterTheStop}, before the request's cancel: {desk.RaisedBeforeTheRequestsCancel}");
+            Assert.Equal($"{old.Name} could not be read: {LateRefusalDesk.EarlyWords}", old.Problem);
+            var used = rig.Assistant.ApprovalDesk;
+            Assert.NotNull(used);
+            Assert.Equal("Stagewatch at 127.0.0.1:10", used.Name);
+            Assert.True(await OpsRig.Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
+            Assert.Equal("", used.Problem);
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A change of desk whose old desk's stop meets a callback that throws completes once the old desk's pull has ended: the
+    /// fault is written with its trace to the engine's log, nothing is thrown at whoever changed the desk, the old desk names nothing,
+    /// and the new desk is the one read.</summary>
+    [Fact]
+    public async Task AChangeOfDeskWhoseOldStopMeetsAThrowingCallbackCompletesOnceTheOldPullHasEnded()
+    {
+        var log = new KeptFaults();
+        var rig = new OpsRig(assistantLog: log);
+        using var desk = new ThrowingStopDesk();
+        using var next = new QuietDesk();
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = desk,
+            });
+            var old = rig.Assistant.ApprovalDesk!;
+            await desk.Held.WaitAsync(TimeSpan.FromSeconds(30));
+
+            var change = rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:10/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = next,
+            });
+            // The old desk's collect is held past its stop, so the change waits for it.
+            await Task.WhenAny(change, Task.Delay(500));
+            Assert.False(change.IsCompleted, $"the change ended before the old desk's pull: {change.Exception?.GetBaseException().Message}");
+            Assert.False(desk.Ended);
+            desk.Open();
+            await change.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.True(desk.Ended);
+            Assert.Equal("", old.Problem);
+            var used = rig.Assistant.ApprovalDesk;
+            Assert.NotNull(used);
+            Assert.Equal("Stagewatch at 127.0.0.1:10", used.Name);
+            Assert.True(await OpsRig.Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
+            var (level, words, fault) = Assert.Single(log.Entries);
+            Assert.Equal(LogLevel.Warning, level);
+            Assert.Contains(old.Name, words, StringComparison.Ordinal);
+            var thrown = Assert.IsType<InvalidOperationException>(Assert.Single(Leaves(fault)));
+            Assert.Equal(ThrowingStopDesk.Words, thrown.Message);
+            Assert.Contains(typeof(ThrowingStopDesk).FullName!, thrown.StackTrace ?? "", StringComparison.Ordinal);
+        }
+        finally
+        {
+            desk.Open();
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>The exceptions an aggregate carries, however deep.</summary>
+    private static IEnumerable<Exception> Leaves(Exception? e) => e switch
+    {
+        null => [],
+        AggregateException a => a.InnerExceptions.SelectMany(Leaves),
+        _ => [e],
+    };
 }

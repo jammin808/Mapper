@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
@@ -9,7 +11,9 @@ namespace PlayMap.Engine.Show;
 
 /// <summary>Runs a preflight's checks side by side, each under its own budget measured on the node's monotonic clock: a check
 /// past its budget is cancelled and reported as a grey row "did not finish in 5 s" (unknown stays grey), a check that throws as a
-/// grey row with its words, and the report is complete only when every check finished.</summary>
+/// grey row with its words, and the report is complete only when every check finished. A check's row comes from one look at it:
+/// a check that returned is its own rows however its return meets the runner's look, and one cut had not finished when the
+/// clock that cut it was read.</summary>
 public static class PreflightRunner
 {
     private const long NotStarted = long.MinValue;
@@ -50,16 +54,24 @@ public static class PreflightRunner
                     if (rows[i] is not null)
                         continue;
                     var (check, cts, task) = runs[i];
-                    if (task.IsCompletedSuccessfully)
+                    // The clock is read before the check is looked at: a check seen still running was still running at this
+                    // instant, so one cut below had truly not finished in its budget.
+                    var now = mono.NowNs;
+                    if (task.IsCompleted)
                     {
-                        rows[i] = await task.ConfigureAwait(false);
+                        // Completion is final, so how the check ended is read only once it is seen ended: a check that returned
+                        // is its own rows, never read as cancelled because it returned while the runner was looking.
+                        if (task.IsCompletedSuccessfully)
+                        {
+                            rows[i] = await task.ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            rows[i] = [Grey(node, check, "could not check: " + (task.Exception?.InnerException?.Message ?? "cancelled"))];
+                            complete = false;
+                        }
                     }
-                    else if (task.IsCompleted)
-                    {
-                        rows[i] = [Grey(node, check, "could not check: " + (task.Exception?.InnerException?.Message ?? "cancelled"))];
-                        complete = false;
-                    }
-                    else if (Volatile.Read(ref started[i]) is var at && at != NotStarted && mono.NowNs - at >= check.Budget.Ticks * 100)
+                    else if (Volatile.Read(ref started[i]) is var at && at != NotStarted && now - at >= check.Budget.Ticks * 100)
                     {
                         await cts.CancelAsync().ConfigureAwait(false);
                         rows[i] = [Grey(node, check, $"did not finish in {Seconds(check.Budget)}")];
@@ -129,7 +141,10 @@ public sealed class OutputsCheck : IPreflightCheck
                     string.Create(CultureInfo.InvariantCulture, $"{shown.Width}×{shown.Height} at {shown.RefreshHz:0.##} Hz"), null));
                 continue;
             }
-            var fix = displays.Count > 0 ? $"SET {o.Id} displayKey \"{displays[0].Key}\"" : $"OUTPUT ENABLE {o.Id} OFF";
+            // SET reads its value as JSON: the key rides as a JSON string, so it is set as the machine names it, whatever marks it holds.
+            var fix = displays.Count > 0
+                ? $"SET {o.Id} displayKey \"{JsonEncodedText.Encode(displays[0].Key, JavaScriptEncoder.UnsafeRelaxedJsonEscaping).Value}\""
+                : $"OUTPUT ENABLE {o.Id} OFF";
             rows.Add(new PreflightRow(id, node, Section, o.Name, Light.Red, o.DisplayKey,
                 $"its display {o.DisplayKey} is not connected{(displays.Count > 0 ? $" ({displays.Count} other{(displays.Count == 1 ? " is" : "s are")})" : "")}", fix));
         }

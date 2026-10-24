@@ -107,8 +107,8 @@ public sealed class PresentFuseTests
 /// 120 frames were drawn.</summary>
 public sealed class PresentFirstFramesTests
 {
-    private static PlayMap.Render.Timing.PresentSnapshot Snap(long presented, bool settled) =>
-        new(PlayMap.Render.Platform.PresentPath.DxgiFlip, PlayMap.Render.Timing.PresentMode.Unknown, PlayMap.Render.Timing.ModeEvidence.None,
+    private static PlayMap.Core.Presentation.PresentSnapshot Snap(long presented, bool settled) =>
+        new(PlayMap.Core.Presentation.PresentPath.DxgiFlip, PlayMap.Core.Presentation.PresentMode.Unknown, PlayMap.Core.Presentation.ModeEvidence.None,
             settled, 60, 60, 0, settled, presented, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     [Fact]

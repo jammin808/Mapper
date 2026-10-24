@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Storage;
@@ -54,6 +56,10 @@ public sealed record NetworkHostOptions
 
     /// <summary>Media pulls while a show plays (bytes a second); unlimited while none does.</summary>
     public long PullRateDuringShow { get; init; } = 20L * 1024 * 1024;
+
+    /// <summary>How the node's media pulls ask their peers (the quiet a chunk's body is given before its try is called stalled, the
+    /// tries per chunk), this host's and the fleet part's alike; null = the transfer's own.</summary>
+    public MediaTransferOptions? Pulls { get; init; }
 }
 
 /// <summary>The network edge as the engine sees it, over PlayMap.Net: the line wire and the web port (HTTP, HTTPS,
@@ -73,6 +79,11 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private readonly ClockSyncClient _sync;
     private readonly ConcurrentDictionary<string, NodeFault> _faults = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, MediaTransferView> _transfers = new(StringComparer.Ordinal);
+
+    /// <summary>Each pull on its way to a peer, by its file's hash: its fetch's journal rows, and whether a failed try of it at that peer
+    /// has been said yet. A pull says its first failed try at each peer and its end; the tries between are its row's note and the
+    /// log's.</summary>
+    private readonly ConcurrentDictionary<string, PullWords> _pulling = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _changes = new(1, 1);
     private readonly Lock _settingsGate = new();
     private readonly Lock _backgroundGate = new();
@@ -88,6 +99,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private HttpHost? _web;
     private volatile HelloService? _hello;
     private volatile ClockSyncResponder? _responder;
+    private volatile IPAddress? _wireAt;
+    private volatile IPAddress? _webAt;
+    private volatile IPAddress? _syncAt;
 #pragma warning disable CA2213 // Closed by StopPatternsAsync and StopStagewatchAsync, which a link change and DisposeAsync both call.
     private volatile PatternsLink? _patterns;
     private volatile StagewatchLink? _stagewatch;
@@ -109,9 +123,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         _log = options.Logs.CreateLogger("PlayMap.Engine.Network");
         _sync = new ClockSyncClient(options.Mono, options.SyncEvery, options.Logs.CreateLogger("PlayMap.Net.Sync"));
         _http = new HttpClient(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(5) }) { Timeout = TimeSpan.FromSeconds(60) };
-        _transfer = new MediaTransfer(_http, new TokenBucket(0, options.Mono), log: options.Logs.CreateLogger("PlayMap.Net.Media"));
+        _transfer = new MediaTransfer(_http, new TokenBucket(0, options.Mono), options.Pulls, options.Logs.CreateLogger("PlayMap.Net.Media"), options.Mono);
         _transfer.Progress += OnPullProgress;
+        _transfer.Trouble += OnPullTrouble;
     }
+
+    /// <summary>How the node's media pulls ask their peers (<see cref="NetworkHostOptions.Pulls"/>), for the fleet part's pulls.</summary>
+    internal MediaTransferOptions? PullOptions => _o.Pulls;
 
     /// <summary>The leader's clock as this node reads it — the engine's leader clock. It is the sync client's own: the
     /// client publishes each exchange's estimate into it, so a follower's offset reaches every reader of leader time
@@ -129,6 +147,29 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     public int SyncPort => _responder?.Port ?? 0;
 
     public int HelloPort => _hello?.ListenPort ?? 0;
+
+    /// <summary>The show doors open now, each with the address it is bound to: the line wire and the web port (the phone page and MCP
+    /// ride it), and the clock sync while this node leads. A door binds the settings' bind address as it opens, exactly, or stays
+    /// closed, so an open door is bound to the address the settings named then, and to every interface (<see cref="IPAddress.Any"/>)
+    /// where they named none. The hello, which hears every interface to find its peers, is not a show door.</summary>
+    public ImmutableArray<ShowDoor> Doors
+    {
+        get
+        {
+            var doors = ImmutableArray.CreateBuilder<ShowDoor>(3);
+            if (_wire is not null && _wireAt is { } wire)
+                doors.Add(new ShowDoor("wire", wire));
+            if (_web is not null && _webAt is { } web)
+                doors.Add(new ShowDoor("web", web));
+            if (_responder is not null && _syncAt is { } sync)
+                doors.Add(new ShowDoor("sync", sync));
+            return doors.ToImmutable();
+        }
+    }
+
+    /// <summary>The address a door opened with <paramref name="settings"/> is bound to: their bind address, or every interface.</summary>
+    private static IPAddress BoundTo(NodeSettings settings) =>
+        IPAddress.TryParse(settings.Bind.Trim(), out var address) ? NetAddress.Normal(address) : IPAddress.Any;
 
     /// <summary>The hello, once started: its peer table, and its targets (which a test points at another node).</summary>
     public HelloService? Hello => _hello;
@@ -157,10 +198,12 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         var logs = _o.Logs;
-        var wire = new WireServer(_running, engine, _o.Wall, new WireServerOptions(), logs.CreateLogger("PlayMap.Net.Wire"));
+        var running = _running;
+        var wire = new WireServer(running, engine, _o.Wall, new WireServerOptions(), logs.CreateLogger("PlayMap.Net.Wire"));
         try
         {
             wire.Start();
+            _wireAt = BoundTo(running);
             _wire = wire;
         }
         catch (BindRefusedException ex)
@@ -169,7 +212,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             Fault("wire", "the line wire stays closed: " + ex.Message);
         }
 
-        var web = new HttpHost(_running, engine, _o.Wall, new HttpHostOptions
+        var web = new HttpHost(running, engine, _o.Wall, new HttpHostOptions
         {
             Tls = _o.Tls,
             Media = _o.Media,
@@ -181,6 +224,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         try
         {
             await web.StartAsync(ct);
+            _webAt = BoundTo(running);
             _web = web;
         }
         catch (BindRefusedException ex)
@@ -400,10 +444,12 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             await _sync.StopAsync();
             if (_responder is null)
             {
-                var responder = new ClockSyncResponder(_running, _sync.Clock, _running.SyncPort, _o.Logs.CreateLogger("PlayMap.Net.Sync"));
+                var running = _running;
+                var responder = new ClockSyncResponder(running, _sync.Clock, running.SyncPort, _o.Logs.CreateLogger("PlayMap.Net.Sync"));
                 try
                 {
                     responder.Start();
+                    _syncAt = BoundTo(running);
                 }
                 catch (BindRefusedException ex)
                 {
@@ -475,8 +521,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     }
 
     /// <summary>Queues a pull of each item from the heard PlayMap nodes (only <paramref name="fromNode"/>, by id or name,
-    /// when given) and answers what was queued; the pulls run beside the engine — each verified against the item's
-    /// SHA-256 before it lands in the media store — and their outcome reaches the journal and STATE.</summary>
+    /// when given), journals what was queued (the fetch's accepted row, before any row of its pulls) and answers it; the pulls run
+    /// beside the engine — each verified against the item's SHA-256 before it lands in the media store. STATE's row says where each
+    /// stands (its stage, bytes and peer, its last failed try's words) and how it ended when it failed; the journal holds each pull's
+    /// first failed try at each peer and its end, at most
+    /// <see cref="FetchJournal.Most"/> rows a fetch, and one that counts the rest when there were more (<see cref="FetchJournal"/>).
+    /// This is the node's own pull, over a peer's <c>/api/media</c>; a node with the fleet's part pulls MEDIA FETCH's files with the
+    /// peer's proof instead (<c>BackupNode.FetchMedia</c>).</summary>
     public async Task<string> FetchAsync(IReadOnlyList<MediaItem> items, string? fromNode, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -490,21 +541,27 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             throw new InvalidOperationException(fromNode is null
                 ? "no other PlayMap node is heard on the show network to fetch from"
                 : $"no PlayMap node '{fromNode}' is heard on the show network — NODES lists the ones that are");
+        var engine = _engine ?? throw new InvalidOperationException("the engine is not running yet");
         var wanted = new List<(MediaItem Item, string Hex)>();
         foreach (var item in items)
         {
             var hex = MediaBackend.Hex(item.ContentHash);
             if (hex.Length == 0 || _transfers.TryGetValue(hex, out var t) && t.Moving)
                 continue;
-            _transfers[hex] = new MediaTransferView(hex, item.Id, item.Name, "", 0, item.SizeBytes, "queued");
+            _transfers[hex] = new MediaTransferView(hex, item.Id, item.Name, "", 0, item.SizeBytes, "queued") { SinceUnixMs = _o.Wall.UnixMs };
             wanted.Add((item, hex));
         }
         if (wanted.Count == 0)
             throw new InvalidOperationException("nothing to fetch: every file asked for is unhashed or already on its way");
         Facts();
-        Background(PullAllAsync(wanted, peers, _stop.Token));
         var from = string.Join(", ", peers.Select(p => p.Name));
-        return string.Create(CultureInfo.InvariantCulture, $"fetching {wanted.Count} file{(wanted.Count == 1 ? "" : "s")} from {from}");
+        var what = string.Create(CultureInfo.InvariantCulture, $"{wanted.Count} file{(wanted.Count == 1 ? "" : "s")} from {from}");
+        // What was queued is the fetch's accepted row, written before the pulls begin: a peer can end them all at once, and every
+        // row of theirs follows it.
+        var accepted = "fetching " + what;
+        engine.Journal.Add("media", accepted);
+        Background(PullAllAsync(wanted, peers, new FetchJournal(engine.Journal, _log, "the fetch of " + what), _stop.Token));
+        return accepted;
     }
 
     /// <summary>PAIRING NEW: a new token written to the node's settings first (a token that could not be kept is not
@@ -765,72 +822,166 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
 
     // ---- Media pulls. ----
 
-    private async Task PullAllAsync(List<(MediaItem Item, string Hex)> wanted, List<ShowBusPeer> peers, CancellationToken ct)
+    /// <summary>Each file in turn from the peers that offer it, until one lands verified. Every pull ends in its fact or in a row
+    /// that says why not: a pull that fails any other way than the stop's own cancelling still ends failed with its words, so its
+    /// transfer never stays on its way and a later fetch of the file is taken; once <paramref name="ct"/> is cancelled, whatever a
+    /// pull met ends the fetch as that cancel. The fetch's journal rows are bounded (<see cref="FetchJournal"/>).</summary>
+    internal async Task PullAllAsync(List<(MediaItem Item, string Hex)> wanted, List<ShowBusPeer> peers, FetchJournal rows, CancellationToken ct)
     {
-        var offers = new Dictionary<string, Dictionary<string, MediaManifestEntry>>(StringComparer.Ordinal);
+        var offers = new Dictionary<string, PeerOffer>(StringComparer.Ordinal);
         foreach (var (item, hex) in wanted)
         {
-            var landed = false;
-            var why = "no heard node holds it";
-            foreach (var peer in peers)
+            string why;
+            try
             {
-                if (PeerUri(peer) is not { } uri)
-                    continue;
-                if (!offers.TryGetValue(peer.Id, out var offered))
-                {
-                    try
-                    {
-                        offered = (await _transfer.ManifestAsync(uri, ct)).ToDictionary(e => e.Hash, StringComparer.Ordinal);
-                    }
-                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or System.Text.Json.JsonException && !ct.IsCancellationRequested)
-                    {
-                        _log.LogInformation(ex, "{Peer}'s media list could not be read.", peer.Name);
-                        offered = [];
-                    }
-                    offers[peer.Id] = offered;
-                }
-                if (!offered.TryGetValue(hex, out var entry))
-                    continue;
-                _transfers[hex] = new MediaTransferView(hex, item.Id, item.Name, peer.Name, 0, entry.Size, "pulling");
-                Facts();
-                var destination = _o.Media.StorePath(hex, item.Location.Length > 0 ? item.Location : item.Name);
-                MediaPullResult result;
-                try
-                {
-                    result = await _transfer.PullAsync(uri, hex, entry.Size, destination, ct);
-                }
-                catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException && !ct.IsCancellationRequested)
-                {
-                    why = $"{peer.Name}: {ex.Message}";
-                    continue;
-                }
-                if (result.Outcome is MediaPullOutcome.Verified or MediaPullOutcome.AlreadyHere)
-                {
-                    _o.Media.AddVerified(hex, destination, Path.GetFileName(item.Location.Length > 0 ? item.Location : item.Name));
-                    _transfers.TryRemove(hex, out _);
-                    Journal("media", string.Create(CultureInfo.InvariantCulture,
-                        $"{item.Name} pulled from {peer.Name} and verified ({result.BytesFetched / 1024 / 1024} MiB, {result.ChunksFetched} chunk{(result.ChunksFetched == 1 ? "" : "s")}{(result.ChunksResumed > 0 ? $", {result.ChunksResumed} resumed" : "")})"));
-                    landed = true;
-                    break;
-                }
-                why = $"{peer.Name}: {result.Words}";
+                why = await PullOneAsync(item, hex, peers, offers, rows, ct);
             }
-            if (!landed)
+            catch (Exception ex)
             {
-                _transfers[hex] = new MediaTransferView(hex, item.Id, item.Name, "", 0, item.SizeBytes, "failed: " + why);
-                Journal("refused", $"{item.Name} could not be fetched: {why}", ok: false);
+                // Once the stop is taken, whatever the pull met is the stop's (a refusal, a reset or a list cut short as well as the
+                // cancel): the fetch ends with the node, as its cancel.
+                ct.ThrowIfCancellationRequested();
+                // Not one of a pull's own failures (those are words already): logged with its trace, and said as the pull's end.
+                _log.LogWarning(ex, "The pull of {Name} faulted.", item.Name);
+                why = ex.Message;
+            }
+            if (why.Length > 0)
+            {
+                _transfers[hex] = new MediaTransferView(hex, item.Id, item.Name, "", 0, item.SizeBytes, "failed: " + why) { SinceUnixMs = _o.Wall.UnixMs };
+                rows.Failed($"{item.Name} could not be fetched: {why}");
             }
             Facts();
+        }
+        rows.End();
+    }
+
+    /// <summary>A pull on its way to a peer: its fetch's journal rows, and whether its first failed try there has been said.</summary>
+    private sealed class PullWords(FetchJournal rows)
+    {
+        private int _trySaid;
+
+        public FetchJournal Rows => rows;
+
+        /// <summary>True for the first failed try at this peer only.</summary>
+        public bool FirstTry() => Interlocked.Exchange(ref _trySaid, 1) == 0;
+    }
+
+    /// <summary>What one peer's list offered a fetch: its files by hash, or the words why the list could not be read (asked once a
+    /// fetch, so each later file of the fetch carries them).</summary>
+    private sealed record PeerOffer(Dictionary<string, MediaManifestEntry> Files, string Why);
+
+    /// <summary>One file from the first peer that offers it and gives it whole: "" once it landed verified, else why not. A pull at a
+    /// later peer keeps the row's bytes until its own start says the chunks the part file keeps.</summary>
+    private async Task<string> PullOneAsync(MediaItem item, string hex, List<ShowBusPeer> peers, Dictionary<string, PeerOffer> offers, FetchJournal rows,
+        CancellationToken ct)
+    {
+        var why = "no heard node holds it";
+        foreach (var peer in peers)
+        {
+            if (PeerUri(peer) is not { } uri)
+                continue;
+            if (!offers.TryGetValue(peer.Id, out var offered))
+            {
+                Update(hex, t => t with { From = peer.Name, At = uri.Authority, Stage = "asking", SinceUnixMs = _o.Wall.UnixMs });
+                Facts();
+                var files = new Dictionary<string, MediaManifestEntry>(StringComparer.Ordinal);
+                var unread = "";
+                try
+                {
+                    // A list that names a file twice offers its first row.
+                    foreach (var entry in await _transfer.ManifestAsync(uri, ct))
+                        files.TryAdd(entry.Hash, entry);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or IOException or System.Text.Json.JsonException)
+                {
+                    // Once the stop is taken, whatever the ask met is the stop's: it ends the fetch as the stop's cancel.
+                    ct.ThrowIfCancellationRequested();
+                    _log.LogInformation(ex, "{Peer}'s media list could not be read.", peer.Name);
+                    unread = $"{peer.Name}'s media list could not be read: {ex.Message}";
+                }
+                offered = new PeerOffer(files, unread);
+                offers[peer.Id] = offered;
+            }
+            if (offered.Why.Length > 0)
+            {
+                why = offered.Why;
+                continue;
+            }
+            if (!offered.Files.TryGetValue(hex, out var offer))
+                continue;
+            var now = _o.Wall.UnixMs;
+            Update(hex, t => new MediaTransferView(hex, item.Id, item.Name, peer.Name, t.BytesDone, offer.Size, "pulling")
+            {
+                At = uri.Authority,
+                Stage = "receiving",
+                SinceUnixMs = now,
+            });
+            Facts();
+            var destination = _o.Media.StorePath(hex, item.Location.Length > 0 ? item.Location : item.Name);
+            MediaPullResult result;
+            _pulling[hex] = new PullWords(rows);
+            try
+            {
+                result = await _transfer.PullAsync(uri, hex, offer.Size, destination, ct);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
+            {
+                // Once the stop is taken, whatever the pull met is the stop's: it ends the fetch as the stop's cancel.
+                ct.ThrowIfCancellationRequested();
+                why = $"{peer.Name}: {ex.Message}";
+                continue;
+            }
+            finally
+            {
+                _pulling.TryRemove(hex, out _);
+            }
+            if (result.Outcome is MediaPullOutcome.Verified or MediaPullOutcome.AlreadyHere)
+            {
+                _o.Media.AddVerified(hex, destination, Path.GetFileName(item.Location.Length > 0 ? item.Location : item.Name));
+                _transfers.TryRemove(hex, out _);
+                rows.Landed(string.Create(CultureInfo.InvariantCulture,
+                    $"{item.Name} pulled from {peer.Name} and verified ({result.BytesFetched / 1024 / 1024} MiB, {result.ChunksFetched} chunk{(result.ChunksFetched == 1 ? "" : "s")}{(result.ChunksResumed > 0 ? $", {result.ChunksResumed} resumed" : "")})"));
+                return "";
+            }
+            why = $"{peer.Name}: {result.Words}";
+        }
+        return why;
+    }
+
+    /// <summary>A transfer's row changed in place (a stage, its bytes, a try's words), whoever else changes it meanwhile.</summary>
+    private void Update(string hex, Func<MediaTransferView, MediaTransferView> change)
+    {
+        while (_transfers.TryGetValue(hex, out var t) && !_transfers.TryUpdate(hex, change(t), t))
+        {
+            // Another change came between the read and the write: this one is made again over it.
         }
     }
 
     private void OnPullProgress(MediaProgress progress)
     {
-        if (_transfers.TryGetValue(progress.Hash, out var t))
+        var stage = progress.Stage == MediaPullStage.Verifying ? "verifying" : "receiving";
+        Update(progress.Hash, t => t with
         {
-            _transfers[progress.Hash] = t with { BytesDone = progress.BytesDone, Size = progress.Size };
-            Facts();
-        }
+            BytesDone = progress.BytesDone,
+            Size = progress.Size,
+            Stage = stage,
+            SinceUnixMs = t.Stage == stage ? t.SinceUnixMs : _o.Wall.UnixMs,
+        });
+        Facts();
+    }
+
+    /// <summary>A try at a chunk failed: the row carries its words; the fetch's journal rows take the pull's first failed try at this
+    /// peer while the pull tries again, and the tries after it go to the row and the log only (the last try's words are the refused
+    /// row's).</summary>
+    private void OnPullTrouble(MediaTrouble trouble)
+    {
+        if (!_transfers.TryGetValue(trouble.Hash, out var t))
+            return;
+        Update(trouble.Hash, v => v with { Note = trouble.Words });
+        if (trouble.Attempt < trouble.Attempts && _pulling.TryGetValue(trouble.Hash, out var words) && words.FirstTry())
+            words.Rows.Try(string.Create(CultureInfo.InvariantCulture,
+                $"{t.Name} from {t.From}: {trouble.Words} — trying again ({trouble.Attempt + 1} of {trouble.Attempts})"));
+        Facts();
     }
 
     private static Uri? PeerUri(ShowBusPeer peer)
@@ -899,7 +1050,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             WirePort = _wire?.Port ?? 0,
             SyncPort = _responder?.Port ?? s.SyncPort,
         };
-        return HelloService.PlayMapHello(advertised, _o.Wall.UnixMs, _web is not null ? _o.Tls?.Fingerprint : null);
+        return HelloService.PlayMapHello(advertised, _o.Wall.UnixMs, _web is not null ? _o.Tls?.Fingerprint : null, build: _engine?.Services.Build);
     }
 
     private ShowBusPeer? FindPeer(string idOrName) =>

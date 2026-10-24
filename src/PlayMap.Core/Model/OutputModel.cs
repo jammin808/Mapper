@@ -105,13 +105,25 @@ public sealed record BlendSettings(
     bool Auto3D,
     EdgeBlend Edges,
     BlendCurve Curve,
+    /// <summary>The γ the fades are drawn through when above 0 — a person's, or the γ the output's current calibration result
+    /// recorded (ALIGN ACCEPT, CALIBRATION RECALL and ALIGN REVERT write it); 0 draws the output's measured γ
+    /// (<see cref="MeasuredColor.Gamma"/>) where it has one, else <see cref="AssumedGamma"/>. <see cref="DrawnGamma"/> is the γ every
+    /// renderer uses; <see cref="Output.HandGamma"/> tells a person's from a result's.</summary>
     double Gamma,
     /// <summary>The projector's black as a fraction of its white (0..0.25) for black-level matching.</summary>
     double BlackLevel,
     /// <summary>Compensate brightness for the angle of incidence and the distance to the surface.</summary>
     bool IntensityCompensation)
 {
-    public static readonly BlendSettings Default = new(true, EdgeBlend.None, BlendCurve.Cosine, 2.2, 0, false);
+    /// <summary>The γ a blend is drawn through when neither the hand nor a measurement gives one.</summary>
+    public const double AssumedGamma = 2.2;
+
+    public static readonly BlendSettings Default = new(true, EdgeBlend.None, BlendCurve.Cosine, 0, 0, false);
+
+    /// <summary>The γ the fades are drawn through: <see cref="Gamma"/> above 0, else the measured γ where <paramref name="measured"/>
+    /// has one above 0, else <see cref="AssumedGamma"/>.</summary>
+    public double DrawnGamma(MeasuredCorrection? measured) =>
+        Gamma > 0 ? Gamma : measured?.Color is { Gamma: > 0 } colour ? colour.Gamma : AssumedGamma;
 }
 
 /// <summary>Per-output colour correction applied last.</summary>
@@ -187,4 +199,65 @@ public sealed record Output(
 
     /// <summary>The ledger's staged result, waiting to be accepted (wp2-wall).</summary>
     public string? StagedId { get; init; }
+
+    /// <summary>Bits per colour channel the output presents: 8 or 10 (wp3-present).</summary>
+    public int ColorBits { get; init; } = 8;
+
+    /// <summary>The output's HDR signal, or <see cref="HdrMode.Off"/> (wp3-present).</summary>
+    public HdrMode Hdr { get; init; } = HdrMode.Off;
+
+    /// <summary>The luminance the content's white is shown at on an HDR10 output, cd/m² (wp3-present).</summary>
+    public double NitTarget { get; init; } = DefaultNitTarget;
+
+    /// <summary>Frames queued between the render and the display: 0 (the node decides: 1 for an output showing a live input, else 2),
+    /// 1 or 2 (wp3-present).</summary>
+    public int FramesInFlight { get; init; }
+
+    /// <summary>The frame marks drawn last on the air, or null for none (wp3-stability).</summary>
+    public OutputWatermark? Watermark { get; init; }
+
+    /// <summary>The output shows a live input as fast as it can: one frame in flight, outside the delay ring (wp3-capture).</summary>
+    public bool PassThrough { get; init; }
+
+    /// <summary>An HDR10 output's white with nothing typed: the reference white of ITU-R BT.2408, cd/m².</summary>
+    public const double DefaultNitTarget = 203;
+
+    /// <summary>The γ the output's blend fades are drawn through (<see cref="BlendSettings.DrawnGamma"/> with its measured layer).</summary>
+    public double DrawnBlendGamma() => Blend.DrawnGamma(Measured);
+
+    /// <summary>The γ the output's current calibration result recorded (an accept or a recall wrote it into the blend), or 0 when it
+    /// has no current result or the result recorded none.</summary>
+    public double RecordedBlendGamma(Project project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        return CalibrationId is { } id && project.FindCalibration(id) is { BlendGamma: > 0 } current ? current.BlendGamma : 0;
+    }
+
+    /// <summary>A person's γ for the blend's fades, or 0 when there is none: <see cref="BlendSettings.Gamma"/> unless it is 0 or the γ
+    /// the output's current calibration result recorded (<see cref="RecordedBlendGamma"/>), which a result wrote, not a hand. The one
+    /// test of a person's γ: the schema-1 reading rule and wp3-canvas' HAND read it here.</summary>
+    public double HandGamma(Project project)
+    {
+        var gamma = Blend.Gamma;
+        return gamma <= 0 || Math.Abs(gamma - RecordedBlendGamma(project)) < 1e-9 ? 0 : gamma;
+    }
 }
+
+/// <summary>The signal an HDR output sends: off (SDR), HDR10 (PQ in BT.2020), or scRGB (linear light, 1.0 = 80 cd/m²).</summary>
+public enum HdrMode
+{
+    Off,
+    Hdr10,
+    Scrgb,
+}
+
+/// <summary>Where an output's frame marks sit: along its top edge, its bottom edge, or both.</summary>
+public enum WatermarkPlace
+{
+    Top,
+    Bottom,
+    Both,
+}
+
+/// <summary>An output's frame marks: their edge, the first block's corner in output pixels, and the block size in pixels (4–32).</summary>
+public sealed record OutputWatermark(WatermarkPlace Place, int X, int Y, int Size);

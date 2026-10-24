@@ -341,7 +341,7 @@ public sealed partial class EngineCore
             w.WriteString("node", m.Node);
             w.WriteString("name", facts?.Name ?? m.Name);
             w.WriteString("state", state);
-            w.WriteString("light", state switch { "identical" => "green", "lost" => "red", _ => "amber" });
+            w.WriteString("light", ShowContext.LightWord(BackupNode.MirrorLight(state)));
             w.WriteString("words", state == "identical" ? $"{facts?.Name ?? m.Name} mirrors this node: identical" : $"{facts?.Name ?? m.Name} is {state}");
             w.WriteEndObject();
         }
@@ -429,7 +429,7 @@ public sealed partial class EngineCore
         var role = FleetRole;
         if (role.Role is FleetRoles.Backup or FleetRoles.Fenced && Services.Backup?.Mirror() is var mirror)
         {
-            var light = role.Role == FleetRoles.Fenced ? Light.Red : mirror?.State switch { "identical" => Light.Green, "lost" => Light.Red, _ => Light.Amber };
+            var light = role.Role == FleetRoles.Fenced ? Light.Red : BackupNode.MirrorLight(mirror?.State);
             var words = role.Role == FleetRoles.Fenced
                 ? string.Create(CultureInfo.InvariantCulture, $"fenced: {role.Of} has the show (epoch {role.Epoch}) — outputs held black")
                 : mirror?.Words ?? "";

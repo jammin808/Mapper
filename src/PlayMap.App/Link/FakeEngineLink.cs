@@ -67,6 +67,8 @@ public sealed partial class FakeEngineLink : IEngineLink
 
     partial void TryMapVerbs(WireLine line, ref WireReply? reply);
 
+    partial void TryUxVerbs(WireLine line, ref WireReply? reply);
+
     /// <summary>Lays a top-level STATE section over the fake's own (a test's fixture, as the node writes it) and
     /// publishes; objects merge key by key, arrays of objects by id. Null removes the section.</summary>
     public void SetSection(string key, string? json)
@@ -106,7 +108,8 @@ public sealed partial class FakeEngineLink : IEngineLink
     public FakeEngineLink(Project? project = null, IMonoClock? clock = null, bool autoTick = false)
     {
         _clock = clock ?? MonoClock.Instance;
-        _store = new ProjectStore(project ?? DemoProject.Create(), () => _clock.NowNs / 1_000_000);
+        // Each undo step records who made it and when, as the engine's do (UNDO LIST names them).
+        _store = new ProjectStore(project ?? DemoProject.Create(), () => _clock.NowNs / 1_000_000) { Who = () => ClientName, WallMs = () => UnixMs };
         // The engine's guard: an edit of a locked entity or area, or (armed) of the mapping or the layout, is refused with LockGuard's words.
         _store.Guard = (before, after) => LockGuard.Check(WithLocks(before), WithLocks(after), Armed && !_promoting);
         _savedRevision = _store.Current.Revision;
@@ -121,7 +124,8 @@ public sealed partial class FakeEngineLink : IEngineLink
 
     public string NodeName => "Demo node";
 
-    public string NodeId => "demo0001";
+    /// <summary>The demo node's id ("demo0001"; a test that attaches a desk to a second node gives it another).</summary>
+    public string NodeId { get; init; } = "demo0001";
 
     /// <summary>The pairing token this demo node shows (machine-local; never sent on a line).</summary>
     public string PairingToken
@@ -252,6 +256,25 @@ public sealed partial class FakeEngineLink : IEngineLink
     /// for tests. Null answers at once.</summary>
     public Func<string, Task>? ReplyAfter { get; set; }
 
+    /// <summary>While true the store's edits are applied and answered but the project is not pushed (its mirror and its push wait), as
+    /// a node whose trailing project push is late; <see cref="PushProject"/> pushes it. For tests.</summary>
+    public bool HoldsProject { get; set; }
+
+    /// <summary>Pushes the project as the store holds it now (the late trailing push), whether or not it is held.</summary>
+    public void PushProject()
+    {
+        long projectRev;
+        long stateRev;
+        lock (_gate)
+        {
+            Publish(projectMoved: true);
+            projectRev = _projectMirror.Revision;
+            stateRev = _stateSeq;
+        }
+        ProjectChanged?.Invoke(projectRev);
+        StateChanged?.Invoke(stateRev);
+    }
+
     /// <summary>Sends a line, as the wire client does: carried while the link is live or stale (quiet, still open).</summary>
     public Task<WireReply> SendAsync(string line, CancellationToken ct = default)
     {
@@ -291,6 +314,7 @@ public sealed partial class FakeEngineLink : IEngineLink
             var mutated = reply.Ok && (projectMoved || IsMutating(line) || _extraMoved || beforeAir != (_blackout, _frozen, _pattern));
             if (!mutated)
                 return Task.FromResult(reply);
+            projectMoved &= !HoldsProject;
             Publish(projectMoved);
             stateRev = _stateSeq;
             if (projectMoved)
@@ -323,7 +347,7 @@ public sealed partial class FakeEngineLink : IEngineLink
             }
             if (!moving)
                 return;
-            var projectMoved = _store.Current.Revision != before;
+            var projectMoved = _store.Current.Revision != before && !HoldsProject;
             Publish(projectMoved);
             stateRev = _stateSeq;
             if (projectMoved)
@@ -399,6 +423,9 @@ public sealed partial class FakeEngineLink : IEngineLink
     {
         if (!WireGrammar.TryParse(text, out var line, out var error))
             return Err(error?.Reason ?? "an unreadable line");
+        // A quoted path whose backslashes the grammar would drop is refused before any verb reads it, as the node's door refuses it.
+        if (VerbCatalog.Match(line) is { } door && VerbSyntax.DroppedBackslash(door.Spec, line, door.Words) is { } dropped)
+            return Err(dropped);
         // Verbs the desk needs that the catalogue does not name yet (proposed in the desk's report).
         switch (line.Verb)
         {
@@ -415,6 +442,8 @@ public sealed partial class FakeEngineLink : IEngineLink
             TryAssistantVerbs(line, ref extra);
         if (extra is null)
             TryContentVerbs(line, ref extra);
+        if (extra is null)
+            TryUxVerbs(line, ref extra);
         if (extra is null)
             TryMapVerbs(line, ref extra);
         if (extra is not null)
@@ -444,8 +473,8 @@ public sealed partial class FakeEngineLink : IEngineLink
                 "ADD" => Add(line),
                 "REMOVE" => line.Count < 2 ? Err("REMOVE <id>") : Edit("remove " + line.Word(1), p => ProjectEdits.Remove(p, line.Word(1))),
                 "MOVE" => Move(line),
-                "UNDO" => Undo(_store.Undo()),
-                "REDO" => Undo(_store.Redo()),
+                "UNDO" => Undo((_lineStore ?? _store).Undo()),
+                "REDO" => Undo((_lineStore ?? _store).Redo()),
                 "PROJECT SAVE" => Save(),
                 "PROJECT NEW" => NewProject(line),
                 "PLAYLIST NEW" => PlaylistNew(line),
@@ -507,7 +536,13 @@ public sealed partial class FakeEngineLink : IEngineLink
         }
     }
 
-    private static WireReply Undo(EditResult r) => r.Changed ? Ok(r.Effect) : Err(r.Effect);
+    /// <summary>An undo or redo's answer; one of the blind owner's draft moves the draft's STATE.</summary>
+    private WireReply Undo(EditResult r)
+    {
+        if (r.Changed && _lineStore is not null && !ReferenceEquals(_lineStore, _store))
+            DraftMoved();
+        return r.Changed ? Ok(r.Effect) : Err(r.Effect);
+    }
 
     private WireReply Set(WireLine line)
     {

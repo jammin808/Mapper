@@ -75,6 +75,14 @@ public sealed record ShowBusHello(
         "playlist", "media", "mapping", "scan",
     ];
 
+    /// <summary>The build the node runs, its whole identity in SemVer (<see cref="BuildInfo.Informational"/>: <c>0.2.0+17.abc1234</c>,
+    /// <c>0.2.0-dev+abc1234</c>), so a peer tells builds apart before it connects; null from a node that names none. A reader keeps at
+    /// most <see cref="MaxBuildChars"/> characters of SemVer's alphabet and drops any other value, keeping the rest of the hello.</summary>
+    public string? Build { get; init; }
+
+    /// <summary>The longest build a reader keeps.</summary>
+    public const int MaxBuildChars = 64;
+
     public int Port(string name) => Ports.TryGetValue(name, out var p) ? p : 0;
 
     /// <summary>The datagram: compact JSON. Top-level "web" and "wire" ride beside "ports" for older readers
@@ -109,6 +117,8 @@ public sealed record ShowBusHello(
                 w.WriteString("inst", Instance);
             if (TlsFingerprint is not null)
                 w.WriteString("tls", TlsFingerprint);
+            if (Build is not null)
+                w.WriteString("build", Build);
             w.WriteEndObject();
         }
         return buffer.WrittenSpan.ToArray();
@@ -163,7 +173,7 @@ public sealed record ShowBusHello(
             var proto = Int(root, "proto");
             var clock = root.TryGetProperty("clock", out var ck) && ck.ValueKind == JsonValueKind.Number && ck.TryGetInt64(out var ms) ? ms : 0;
             return new ShowBusHello(t!, 1, proto <= 0 ? 1 : proto, id!, Trim(Str(root, "name") ?? id!, 64), Trim(Str(root, "host") ?? Str(root, "machine") ?? "", 64),
-                ports, caps, clock, Str(root, "inst"), Str(root, "tls"));
+                ports, caps, clock, Str(root, "inst"), Str(root, "tls")) { Build = BuildOrNull(Str(root, "build")) };
         }
         catch (JsonException)
         {
@@ -185,6 +195,18 @@ public sealed record ShowBusHello(
             if (!(char.IsAsciiLetterOrDigit(c) || c == '-' || c == '_'))
                 return false;
         return true;
+    }
+
+    /// <summary>A build as a hello may carry one: 1–<see cref="MaxBuildChars"/> characters of SemVer's alphabet (letters, digits,
+    /// '.', '-' and '+'); null otherwise.</summary>
+    private static string? BuildOrNull(string? s)
+    {
+        if (string.IsNullOrEmpty(s) || s.Length > MaxBuildChars)
+            return null;
+        foreach (var c in s)
+            if (!(char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+'))
+                return null;
+        return s;
     }
 
     private static string Trim(string s, int max) => s.Length <= max ? s.Trim() : s[..max].Trim();

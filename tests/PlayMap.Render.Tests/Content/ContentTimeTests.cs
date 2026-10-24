@@ -1,3 +1,4 @@
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Engine;
 using PlayMap.Render.Generators;
@@ -8,8 +9,8 @@ namespace PlayMap.Render.Tests.Content;
 /// started three seconds apart draw the same pixels at the same leader instant; RETIME moves the picture by exactly the shift; a
 /// leader time seven days on draws as the same offset from zero does (no float32 drift); a routed generator reads its item's time;
 /// the sync marks keep the leader's grid.</summary>
-[Collection("gl")]
-public class ContentTimeTests(GlFixture gl)
+[Collection("gpu")]
+public class ContentTimeTests(BackendFixture backends)
 {
     private const int W = 96;
     private const int H = 54;
@@ -30,10 +31,10 @@ public class ContentTimeTests(GlFixture gl)
         var generators = Kinds(1_000_000_000);
         var outputs = generators.Select(g => Scene.SourceOutput("op_" + g.Id[3..], SourceRef.Generator(g.Id), W, H)).ToArray();
         var project = Scene.Project([.. generators], [.. outputs]);
-        var (a, b) = gl.Run(c =>
+        var (a, b) = backends.Run(leg =>
         {
-            using var first = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
-            using var late = new RenderEngine(c, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var first = new RenderEngine(leg.Device, new RenderEngineOptions(Dither: false, GpuTiming: false));
+            using var late = new RenderEngine(leg.Device, new RenderEngineOptions(Dither: false, GpuTiming: false));
             // The first engine plays from 1 s; the second starts at 4 s. Both draw 60 frames a second to 8 s.
             for (var f = 0; f <= 420; f++)
             {
@@ -58,9 +59,9 @@ public class ContentTimeTests(GlFixture gl)
     [Fact]
     public void RetimeShiftsThePictureByExactlyItsShift()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(leg.Device);
             using var retimed = new GeneratorHost(services);
             using var fresh = new GeneratorHost(services);
             var shifted = Kinds(5_000_000_000);
@@ -68,14 +69,14 @@ public class ContentTimeTests(GlFixture gl)
             for (var i = 0; i < shifted.Length; i++)
             {
                 // Leader 12 s from an origin at 5 s is 7 s of its own time: the picture a generator from the epoch draws at 7 s.
-                var f1 = ContentGl.Settle(retimed, shifted[i], 12, 1, W, H);
-                var f2 = ContentGl.Settle(fresh, zero[i], 7, 1, W, H);
-                var p1 = Scene.ReadTexture(c.Device, ContentGl.Draw(retimed, shifted[i], 12, f1, W, H));
-                var p2 = Scene.ReadTexture(c.Device, ContentGl.Draw(fresh, zero[i], 7, f2, W, H));
+                var f1 = ContentDraws.Settle(retimed, shifted[i], 12, 1, W, H);
+                var f2 = ContentDraws.Settle(fresh, zero[i], 7, 1, W, H);
+                var p1 = Scene.ReadTexture(leg.Device, ContentDraws.Draw(retimed, shifted[i], 12, f1, W, H));
+                var p2 = Scene.ReadTexture(leg.Device, ContentDraws.Draw(fresh, zero[i], 7, f2, W, H));
                 Assert.True(p1.AsSpan().SequenceEqual(p2), $"{shifted[i].Kind}: a retimed generator is not its picture shifted");
                 // And it is not the picture an un-retimed generator draws at 12 s.
-                var f3 = ContentGl.Settle(fresh, zero[i], 12, f2 + 1, W, H);
-                var p3 = Scene.ReadTexture(c.Device, ContentGl.Draw(fresh, zero[i], 12, f3, W, H));
+                var f3 = ContentDraws.Settle(fresh, zero[i], 12, f2 + 1, W, H);
+                var p3 = Scene.ReadTexture(leg.Device, ContentDraws.Draw(fresh, zero[i], 12, f3, W, H));
                 Assert.False(p1.AsSpan().SequenceEqual(p3), $"{shifted[i].Kind}: RETIME changed nothing");
             }
         });
@@ -85,19 +86,19 @@ public class ContentTimeTests(GlFixture gl)
     public void ALeaderTimeSevenDaysOnDrawsAsTheSameOffsetFromZero()
     {
         const long week = 7L * 86_400 * 1_000_000_000;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(leg.Device);
             using var late = new GeneratorHost(services);
             using var early = new GeneratorHost(services);
             var shifted = Kinds(week);
             var zero = Kinds(0);
             for (var i = 0; i < shifted.Length; i++)
             {
-                var f1 = ContentGl.Settle(late, shifted[i], week / 1e9 + 10.25, 1, W, H);
-                var f2 = ContentGl.Settle(early, zero[i], 10.25, 1, W, H);
-                var p1 = Scene.ReadTexture(c.Device, ContentGl.Draw(late, shifted[i], week / 1e9 + 10.25, f1, W, H));
-                var p2 = Scene.ReadTexture(c.Device, ContentGl.Draw(early, zero[i], 10.25, f2, W, H));
+                var f1 = ContentDraws.Settle(late, shifted[i], week / 1e9 + 10.25, 1, W, H);
+                var f2 = ContentDraws.Settle(early, zero[i], 10.25, 1, W, H);
+                var p1 = Scene.ReadTexture(leg.Device, ContentDraws.Draw(late, shifted[i], week / 1e9 + 10.25, f1, W, H));
+                var p2 = Scene.ReadTexture(leg.Device, ContentDraws.Draw(early, zero[i], 10.25, f2, W, H));
                 Assert.True(p1.AsSpan().SequenceEqual(p2), $"{shifted[i].Kind} drifts seven days on");
             }
         });
@@ -108,9 +109,9 @@ public class ContentTimeTests(GlFixture gl)
     {
         // An origin and a leader that are no whole number of anything: the leader minus the origin is still exactly 10.25 s.
         const long origin = 3L * 86_400 * 1_000_000_000 + 333_333_337;
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(leg.Device);
             using var odd = new GeneratorHost(services);
             using var zero = new GeneratorHost(services);
             var a = Scene.Gen("particles.flow", ParamSet.Empty.With("count", 4096).With("lifeMin", 0.5).With("lifeMax", 1), "gn_odd") with { OriginNs = origin };
@@ -119,16 +120,16 @@ public class ContentTimeTests(GlFixture gl)
             var fa = Settle(odd, a, origin + own);
             var fb = Settle(zero, b, own);
             Assert.Equal(1230, ((FlowGenerator)odd.RendererOf(a.Id, W, H)!).SimStep);
-            var pa = Scene.ReadTexture(c.Device, DrawAt(odd, a, origin + own, fa));
-            var pb = Scene.ReadTexture(c.Device, DrawAt(zero, b, own, fb));
+            var pa = Scene.ReadTexture(leg.Device, DrawAt(odd, a, origin + own, fa));
+            var pb = Scene.ReadTexture(leg.Device, DrawAt(zero, b, own, fb));
             Assert.True(pa.AsSpan().SequenceEqual(pb), "an odd origin days on draws another field");
         });
     }
 
-    private static Gpu.GpuTexture DrawAt(GeneratorHost host, Generator g, long leaderNs, long frame)
+    private static GpuTexture DrawAt(GeneratorHost host, Generator g, long leaderNs, long frame)
     {
         host.BeginFrame(frame);
-        var tex = host.Render(g, W, H, ContentGl.Context, GeneratorFrame.At(leaderNs / 1e9) with { LeaderNs = leaderNs });
+        var tex = host.Render(g, W, H, ContentDraws.Context, GeneratorFrame.At(leaderNs / 1e9) with { LeaderNs = leaderNs });
         host.EndFrame();
         return tex;
     }
@@ -147,9 +148,9 @@ public class ContentTimeTests(GlFixture gl)
     [Fact]
     public void AGeneratorAPlaylistRoutesReadsItsItemsClipTime()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(leg.Device);
             using var routed = new GeneratorHost(services);
             using var own = new GeneratorHost(services);
             var content = new ContentFrame();
@@ -158,10 +159,10 @@ public class ContentTimeTests(GlFixture gl)
                 // Leader 100 s, the item 10 s in: the picture the generator draws 10 s into its own time.
                 content.BeginItems();
                 content.SetItemTime(g.Id, 10_000_000_000);
-                var f1 = ContentGl.Settle(routed, g, 100, 1, W, H, content);
-                var f2 = ContentGl.Settle(own, g, 10, 1, W, H);
-                var p1 = Scene.ReadTexture(c.Device, ContentGl.Draw(routed, g, 100, f1, W, H, content));
-                var p2 = Scene.ReadTexture(c.Device, ContentGl.Draw(own, g, 10, f2, W, H));
+                var f1 = ContentDraws.Settle(routed, g, 100, 1, W, H, content);
+                var f2 = ContentDraws.Settle(own, g, 10, 1, W, H);
+                var p1 = Scene.ReadTexture(leg.Device, ContentDraws.Draw(routed, g, 100, f1, W, H, content));
+                var p2 = Scene.ReadTexture(leg.Device, ContentDraws.Draw(own, g, 10, f2, W, H));
                 Assert.True(p1.AsSpan().SequenceEqual(p2), $"{g.Kind} does not read its item's time");
                 Assert.True(content.Stats.TryGet(g.Id, out var live));
                 Assert.Equal(10_000_000_000, live.TimeNs);
@@ -172,9 +173,9 @@ public class ContentTimeTests(GlFixture gl)
     [Fact]
     public void TheSyncMarksKeepTheLeadersGridWhateverTheirOrigin()
     {
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var services = new RenderServices(c.Device);
+            using var services = new RenderServices(leg.Device);
             using var host = new GeneratorHost(services);
             var marks = Scene.Gen("pattern.syncmarks", null, "gn_marks") with { OriginNs = 1_000_000_000 };
             Assert.Equal(4_010_000_000, GeneratorHost.OwnNs(marks, GeneratorFrame.At(4.01), null, out var origin));

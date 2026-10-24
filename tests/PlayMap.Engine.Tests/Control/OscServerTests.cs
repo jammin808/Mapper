@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using PlayMap.Core.Control.Osc;
 using PlayMap.Core.Time;
 
@@ -80,18 +82,61 @@ public sealed class OscServerTests
         Assert.Equal(0.5, (await Receive(client, "/playmap/set/sf_stage/opacity")).Args[0].Float, 9);
     }
 
+    private static JsonElement OscState(ControlRig rig) => rig.State().GetProperty("control").GetProperty("osc");
+
+    private static int Senders(ControlRig rig) => OscState(rig).GetProperty("senders").GetInt32();
+
+    /// <summary>What a wait on the senders saw: STATE's counts beside the service's own senders and when each was last heard, the
+    /// node's clocks, and the control loop's ticks since <paramref name="ticksBefore"/>.</summary>
+    private static string SendersSeen(ControlRig rig, long ticksBefore)
+    {
+        var osc = OscState(rig);
+        var service = rig.Service!;
+        var wall = rig.Engine.Services.Wall.UnixMs;
+        var heard = service.OscSendersHeard();
+        var each = string.Join(", ", heard.Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.Key} heard {wall - s.Value} ms before")));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"STATE says {osc.GetProperty("senders").GetInt32()} senders ({osc.GetProperty("refused").GetInt32()} refused, {osc.GetProperty("malformed").GetInt32()} malformed); the service counts {heard.Length} [{each}]; the node's clock at {rig.Clock!.NowNs} ns, its wall at {wall} ms; {service.Ticks - ticksBefore} control ticks since the jump");
+    }
+
     [Fact]
     public async Task ASenderNotHeardForTenMinutesNoLongerCounts()
     {
         var clock = new ManualClock(1_000_000_000);
         await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), service: true, clock: clock);
-        static int Senders(ControlRig r) => r.State().GetProperty("control").GetProperty("osc").GetProperty("senders").GetInt32();
         using var client = Client();
         await client.SendToAsync(OscCodec.Write(OscMessage.Of("/playmap/ping")), SocketFlags.None, rig.Service!.OscLocal!);
         await Receive(client, "/playmap/pong");
         await ControlRig.Until(() => Senders(rig) == 1, "one sender");
+        var ticks = rig.Service.Ticks;
         clock.AdvanceMs(11 * 60_000);
-        await ControlRig.Until(() => Senders(rig) == 0, "the sender forgotten");
+        await ControlRig.Until(() => Senders(rig) == 0, "the sender forgotten", () => SendersSeen(rig, ticks));
+    }
+
+    [Fact]
+    public async Task TheTickThatForgetsASenderMovesStateAfterForgettingIt()
+    {
+        // The node's clock stands still but for one jump past 10 minutes, so only the first tick after the jump can move STATE. A
+        // reader that writes STATE the moment it moves (here on the loop's own thread, from StateChanged) stands where a reader woken
+        // on another thread can land: between a tick's publish and anything that tick does after it.
+        var clock = new ManualClock(1_000_000_000);
+        await using var rig = await ControlRig.StartAsync(BindingEngineTests.Show(), service: true, clock: clock);
+        rig.Engine.StateChanged += _ => rig.Engine.State();
+        var service = rig.Service!;
+        var node = service.OscLocal!;
+        using var client = Client();
+        await client.SendToAsync(OscCodec.Write(OscMessage.Of("/playmap/ping")), SocketFlags.None, node);
+        await Receive(client, "/playmap/pong");
+        // A tick has finished since the sender was heard: the counters moved STATE at this instant, so the refusal heard next is held
+        // for the clock (four times a second of it), and the jump's tick has a count of its own to publish as well as the forgetting.
+        var heard = service.Ticks;
+        await ControlRig.Until(() => service.Ticks > heard, "a tick after the sender was heard");
+        await client.SendToAsync(OscCodec.Write(OscMessage.Of("/playmap/frob")), SocketFlags.None, node);
+        Assert.Equal("ERR", (await Receive(client, "/playmap/reply")).Args[0].Text);
+        var ticks = service.Ticks;
+        clock.AdvanceMs(11 * 60_000);
+        await ControlRig.Until(() => Senders(rig) == 0, "the sender forgotten", () => SendersSeen(rig, ticks));
+        Assert.Equal(1, OscState(rig).GetProperty("refused").GetInt32());
     }
 
     [Fact]

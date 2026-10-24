@@ -11,6 +11,8 @@ M:System.GC.Collect(System.Int32,System.GCCollectionMode,System.Boolean,System.B
 M:System.Console.WriteLine(System.String); the desk has no console — the journal is the log
 M:System.Console.WriteLine(); the desk has no console — the journal is the log
 M:System.Console.Write(System.String); the desk has no console — the journal is the log
+P:System.Console.Out; the desk has no console — the journal is the log
+P:System.Console.Error; the desk has no console — the journal is the log
 M:System.Threading.Tasks.Task.Wait(); a blocking wait on the UI thread is a hang — await it, or hand the work to a worker
 M:System.Threading.Tasks.Task.Wait(System.Int32); a blocking wait on the UI thread is a hang — await it, or hand the work to a worker
 M:System.Threading.Tasks.Task.Wait(System.Threading.CancellationToken); a blocking wait on the UI thread is a hang — await it, or hand the work to a worker

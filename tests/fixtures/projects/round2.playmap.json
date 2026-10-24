@@ -1,0 +1,2641 @@
+{
+  "id": "pr0a0b0c01",
+  "name": "Round one show",
+  "schema": 1,
+  "media": [
+    {
+      "id": "md0a0b0c01",
+      "name": "Opening",
+      "kind": "video",
+      "location": "media/opening.mov",
+      "contentHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sizeBytes": 123456789,
+      "info": {
+        "durationNs": 30000000000,
+        "width": 1920,
+        "height": 1080,
+        "frameRate": "50",
+        "videoCodec": "prores",
+        "pixelFormat": "yuv422p10le",
+        "audioCodec": "pcm_s24le",
+        "audioChannels": 2,
+        "audioRate": 48000,
+        "hasAlpha": false,
+        "container": "mov"
+      },
+      "tags": [
+        "intro",
+        "act1"
+      ],
+      "color": {
+        "transfer": "pq",
+        "whiteNits": 203,
+        "range": "full",
+        "matrix": "bt2020"
+      },
+      "versions": [
+        {
+          "id": "mv0a0b0c01",
+          "to": "hap-q",
+          "recipe": "{\u0022to\u0022:\u0022hap-q\u0022}",
+          "key": "ok:cccccccccccccccccccccccccccccccc",
+          "contentHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "sizeBytes": 9999,
+          "info": {
+            "durationNs": 0,
+            "width": 0,
+            "height": 0,
+            "frameRate": "",
+            "videoCodec": "hap",
+            "pixelFormat": "",
+            "audioCodec": "",
+            "audioChannels": 0,
+            "audioRate": 0,
+            "hasAlpha": false,
+            "container": ""
+          },
+          "quality": {
+            "psnrAvg": 48.5,
+            "psnrMin": 41.2,
+            "sampled": 32,
+            "worstAtMs": 12000
+          },
+          "encoder": "playmap-hap 1",
+          "madeOn": "nd1",
+          "createdUnixMs": 1760000000001,
+          "review": true
+        }
+      ],
+      "use": "mv0a0b0c01",
+      "live": {
+        "pacing": "locked",
+        "proxy": false,
+        "depth": "auto",
+        "warm": true,
+        "backup": "ndi:B (Cam 2)",
+        "onLoss": "fallback",
+        "fallback": "color:#000000",
+        "staleMs": 0,
+        "lostMs": 1000,
+        "recoverMs": 2000,
+        "tally": true,
+        "quality": "default"
+      }
+    },
+    {
+      "id": "md0a0b0c02",
+      "name": "Logo",
+      "kind": "image",
+      "location": "media/logo.png",
+      "contentHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "sizeBytes": 4096,
+      "info": {
+        "durationNs": 0,
+        "width": 1024,
+        "height": 512,
+        "frameRate": "",
+        "videoCodec": "png",
+        "pixelFormat": "rgba",
+        "audioCodec": "",
+        "audioChannels": 0,
+        "audioRate": 0,
+        "hasAlpha": true,
+        "container": "png"
+      },
+      "tags": [],
+      "color": {
+        "transfer": "auto",
+        "whiteNits": 0,
+        "range": "auto",
+        "matrix": "auto"
+      },
+      "versions": [],
+      "use": "auto",
+      "live": null
+    }
+  ],
+  "playlists": [
+    {
+      "id": "pl0a0b0c01",
+      "name": "Show",
+      "items": [
+        {
+          "id": "it0a0b0c01",
+          "source": {
+            "kind": "media",
+            "id": "md0a0b0c01"
+          },
+          "label": "Opening",
+          "inNs": 1000000000,
+          "outNs": 29000000000,
+          "durationNs": 0,
+          "end": "next",
+          "gotoItemId": null,
+          "transition": "fade",
+          "transitionNs": 500000000,
+          "rate": 1,
+          "volume": 0.8,
+          "tcIn": "01:00:00:00",
+          "fx": {
+            "slots": [
+              {
+                "id": "fx0a0b0c01",
+                "kind": "fx.blur",
+                "name": "Blur fx0a0b0c01",
+                "params": {
+                  "values": {
+                    "radius": "4"
+                  }
+                },
+                "bypass": true,
+                "mix": 0.5,
+                "blend": "screen",
+                "scale": 0.5,
+                "originNs": 1000,
+                "bindings": [
+                  {
+                    "param": "opacity",
+                    "source": "audio:bass~10/250",
+                    "amount": 0.5,
+                    "offset": 0.1,
+                    "curve": "ease",
+                    "smoothSeconds": 0.2,
+                    "mode": "scale",
+                    "attackSeconds": 0.05,
+                    "releaseSeconds": 0.4,
+                    "rangeMin": 0.2,
+                    "rangeMax": 0.9,
+                    "invert": true,
+                    "steps": 4,
+                    "anchorNs": 77,
+                    "enabled": false
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "it0a0b0c02",
+          "source": {
+            "kind": "generator",
+            "id": "gn0a0b0c01"
+          },
+          "label": "Fractal",
+          "inNs": 0,
+          "outNs": 0,
+          "durationNs": 10000000000,
+          "end": "goto",
+          "gotoItemId": "it0a0b0c01",
+          "transition": "cut",
+          "transitionNs": 0,
+          "rate": 1.25,
+          "volume": 1,
+          "tcIn": null,
+          "fx": {
+            "slots": []
+          }
+        }
+      ],
+      "loop": true,
+      "syncGroup": "main",
+      "chase": {
+        "sources": [
+          "tc0a0b0c01"
+        ],
+        "mode": "locked",
+        "delayNs": 40000000,
+        "onLoss": "stop",
+        "freewheelNs": 1,
+        "jumpNs": 2,
+        "gap": "hold"
+      }
+    }
+  ],
+  "generators": [
+    {
+      "id": "gn_testcard",
+      "name": "Test card",
+      "kind": "pattern.testcard",
+      "params": {
+        "values": {}
+      },
+      "originNs": 0,
+      "bindings": [],
+      "morph": null,
+      "inputs": {}
+    },
+    {
+      "id": "gn0a0b0c01",
+      "name": "Julia",
+      "kind": "fractal.julia",
+      "params": {
+        "values": {
+          "speed": "0.5",
+          "zoom": "2"
+        }
+      },
+      "originNs": 5000000000,
+      "bindings": [
+        {
+          "param": "opacity",
+          "source": "audio:bass~10/250",
+          "amount": 0.5,
+          "offset": 0.1,
+          "curve": "ease",
+          "smoothSeconds": 0.2,
+          "mode": "scale",
+          "attackSeconds": 0.05,
+          "releaseSeconds": 0.4,
+          "rangeMin": 0.2,
+          "rangeMax": 0.9,
+          "invert": true,
+          "steps": 4,
+          "anchorNs": 77,
+          "enabled": false
+        }
+      ],
+      "morph": {
+        "from": {
+          "values": {
+            "zoom": "1"
+          }
+        },
+        "startNs": 10,
+        "lengthNs": 2000000000,
+        "curve": "ease"
+      },
+      "inputs": {
+        "source": {
+          "kind": "media",
+          "id": "md0a0b0c02"
+        }
+      }
+    }
+  ],
+  "canvases": [
+    {
+      "id": "cv_main",
+      "name": "Main canvas",
+      "width": 1920,
+      "height": 1080,
+      "background": "#101010",
+      "layers": [
+        {
+          "id": "ly_base",
+          "name": "Card",
+          "source": {
+            "kind": "generator",
+            "id": "gn_testcard"
+          },
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "opacity": 1,
+          "blend": "normal",
+          "visible": true,
+          "fx": {
+            "slots": []
+          },
+          "bindings": []
+        },
+        {
+          "id": "ly0a0b0c01",
+          "name": "Logo",
+          "source": {
+            "kind": "media",
+            "id": "md0a0b0c02"
+          },
+          "rect": {
+            "x": 100,
+            "y": 50,
+            "w": 400,
+            "h": 200
+          },
+          "opacity": 0.75,
+          "blend": "screen",
+          "visible": true,
+          "fx": {
+            "slots": [
+              {
+                "id": "fx0a0b0c03",
+                "kind": "fx.blur",
+                "name": "Blur fx0a0b0c03",
+                "params": {
+                  "values": {
+                    "radius": "4"
+                  }
+                },
+                "bypass": true,
+                "mix": 0.5,
+                "blend": "screen",
+                "scale": 0.5,
+                "originNs": 1000,
+                "bindings": [
+                  {
+                    "param": "opacity",
+                    "source": "audio:bass~10/250",
+                    "amount": 0.5,
+                    "offset": 0.1,
+                    "curve": "ease",
+                    "smoothSeconds": 0.2,
+                    "mode": "scale",
+                    "attackSeconds": 0.05,
+                    "releaseSeconds": 0.4,
+                    "rangeMin": 0.2,
+                    "rangeMax": 0.9,
+                    "invert": true,
+                    "steps": 4,
+                    "anchorNs": 77,
+                    "enabled": false
+                  }
+                ]
+              }
+            ]
+          },
+          "bindings": [
+            {
+              "param": "opacity",
+              "source": "audio:bass~10/250",
+              "amount": 0.5,
+              "offset": 0.1,
+              "curve": "ease",
+              "smoothSeconds": 0.2,
+              "mode": "scale",
+              "attackSeconds": 0.05,
+              "releaseSeconds": 0.4,
+              "rangeMin": 0.2,
+              "rangeMax": 0.9,
+              "invert": true,
+              "steps": 4,
+              "anchorNs": 77,
+              "enabled": false
+            }
+          ]
+        }
+      ],
+      "fx": {
+        "slots": [
+          {
+            "id": "fx0a0b0c02",
+            "kind": "fx.blur",
+            "name": "Blur fx0a0b0c02",
+            "params": {
+              "values": {
+                "radius": "4"
+              }
+            },
+            "bypass": true,
+            "mix": 0.5,
+            "blend": "screen",
+            "scale": 0.5,
+            "originNs": 1000,
+            "bindings": [
+              {
+                "param": "opacity",
+                "source": "audio:bass~10/250",
+                "amount": 0.5,
+                "offset": 0.1,
+                "curve": "ease",
+                "smoothSeconds": 0.2,
+                "mode": "scale",
+                "attackSeconds": 0.05,
+                "releaseSeconds": 0.4,
+                "rangeMin": 0.2,
+                "rangeMax": 0.9,
+                "invert": true,
+                "steps": 4,
+                "anchorNs": 77,
+                "enabled": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "stage": {
+    "surfaces": [
+      {
+        "id": "sf0a0b0c01",
+        "name": "Front",
+        "meshId": "ms0a0b0c01",
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 1.5,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "faces": [
+          0,
+          1
+        ],
+        "content": {
+          "mode": "canvasRegion",
+          "source": {
+            "kind": "canvas",
+            "id": "cv_main"
+          },
+          "region": {
+            "x": 0,
+            "y": 0,
+            "w": 0.5,
+            "h": 1
+          },
+          "viewpointId": null
+        },
+        "opacity": 0.9,
+        "masks": [
+          {
+            "id": "mk0a0b0c01",
+            "name": "Door",
+            "path": {
+              "nodes": [
+                {
+                  "point": {
+                    "x": 0.1,
+                    "y": 0.1
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                },
+                {
+                  "point": {
+                    "x": 0.4,
+                    "y": 0.1
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                },
+                {
+                  "point": {
+                    "x": 0.4,
+                    "y": 0.6
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                },
+                {
+                  "point": {
+                    "x": 0.1,
+                    "y": 0.6
+                  },
+                  "in": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "out": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "smooth": false
+                }
+              ],
+              "closed": true
+            },
+            "mode": "subtract",
+            "feather": 0.02,
+            "invert": false,
+            "enabled": true
+          }
+        ],
+        "visible": true,
+        "locked": false,
+        "color": "#3AA0FF",
+        "tags": [
+          "front"
+        ],
+        "fx": {
+          "slots": [
+            {
+              "id": "fx0a0b0c04",
+              "kind": "fx.blur",
+              "name": "Blur fx0a0b0c04",
+              "params": {
+                "values": {
+                  "radius": "4"
+                }
+              },
+              "bypass": true,
+              "mix": 0.5,
+              "blend": "screen",
+              "scale": 0.5,
+              "originNs": 1000,
+              "bindings": [
+                {
+                  "param": "opacity",
+                  "source": "audio:bass~10/250",
+                  "amount": 0.5,
+                  "offset": 0.1,
+                  "curve": "ease",
+                  "smoothSeconds": 0.2,
+                  "mode": "scale",
+                  "attackSeconds": 0.05,
+                  "releaseSeconds": 0.4,
+                  "rangeMin": 0.2,
+                  "rangeMax": 0.9,
+                  "invert": true,
+                  "steps": 4,
+                  "anchorNs": 77,
+                  "enabled": false
+                }
+              ]
+            }
+          ]
+        },
+        "bindings": [
+          {
+            "param": "opacity",
+            "source": "audio:bass~10/250",
+            "amount": 0.5,
+            "offset": 0.1,
+            "curve": "ease",
+            "smoothSeconds": 0.2,
+            "mode": "scale",
+            "attackSeconds": 0.05,
+            "releaseSeconds": 0.4,
+            "rangeMin": 0.2,
+            "rangeMax": 0.9,
+            "invert": true,
+            "steps": 4,
+            "anchorNs": 77,
+            "enabled": false
+          }
+        ],
+        "pixel": {
+          "projectorId": "pj0a0b0c01",
+          "topLeft": {
+            "x": 0.1,
+            "y": 0.1
+          },
+          "topRight": {
+            "x": 0.9,
+            "y": 0.1
+          },
+          "bottomRight": {
+            "x": 0.9,
+            "y": 0.9
+          },
+          "bottomLeft": {
+            "x": 0.1,
+            "y": 0.9
+          },
+          "lattice": {
+            "columns": 2,
+            "rows": 2,
+            "offsets": [
+              {
+                "x": 0.1,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": -0.1
+              }
+            ],
+            "interpolation": "catmullRom",
+            "handlesU": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              }
+            ],
+            "handlesV": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "meshes": [
+      {
+        "id": "ms0a0b0c01",
+        "name": "Wall",
+        "origin": "primitive",
+        "path": "",
+        "contentHash": "",
+        "primitive": "plane",
+        "primitiveParams": {
+          "values": {
+            "height": "3",
+            "width": "4"
+          }
+        },
+        "vertices": 4,
+        "triangles": 2
+      }
+    ],
+    "projectors": [
+      {
+        "id": "pj0a0b0c01",
+        "name": "Left",
+        "intrinsics": {
+          "fx": 2880,
+          "fy": 2880,
+          "cx": 960,
+          "cy": 1080,
+          "width": 1920,
+          "height": 1080
+        },
+        "lens": {
+          "k1": 0.01,
+          "k2": -0.002,
+          "p1": 0,
+          "p2": 0,
+          "k3": 0
+        },
+        "pose": {
+          "position": {
+            "x": 0,
+            "y": 1.5,
+            "z": -6
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 3.141592653589793
+          }
+        },
+        "lumens": 12000,
+        "color": "#FF8800",
+        "locked": false,
+        "pins": [
+          {
+            "id": "pn0a0b0c01",
+            "world": {
+              "x": 1,
+              "y": 2,
+              "z": 0
+            },
+            "pixel": {
+              "x": 0.25,
+              "y": 0.75
+            },
+            "enabled": true,
+            "controlId": "cp0a0b0c01"
+          }
+        ],
+        "locks": "shift",
+        "solveResidualPx": 0.4,
+        "priors": {
+          "throw": 1.5,
+          "throwSigmaPct": 3,
+          "position": {
+            "x": 0,
+            "y": 2,
+            "z": -8
+          },
+          "controlId": "cp0a0b0c01",
+          "positionSigmaM": 0.05,
+          "source": "datasheet"
+        },
+        "uncertainty": {
+          "wallPx": 0.8,
+          "proudPx": 0.3,
+          "focalPct": 1.2,
+          "axisM": 0.04,
+          "lateralM": 0.01,
+          "condition": 10000,
+          "weak": "zoom\u2194distance"
+        },
+        "focalLock": "lens",
+        "calibrationId": "cs0a0b0c01",
+        "fallbackId": "cs0a0b0c01",
+        "stagedId": null
+      }
+    ],
+    "cameras": [
+      {
+        "id": "cm0a0b0c01",
+        "name": "Scan cam",
+        "sourceKind": "device",
+        "source": "/dev/video0",
+        "intrinsics": {
+          "fx": 1371.0220864724301,
+          "fy": 1371.0220864724301,
+          "cx": 960,
+          "cy": 540,
+          "width": 1920,
+          "height": 1080
+        },
+        "lens": {
+          "k1": 0,
+          "k2": 0,
+          "p1": 0,
+          "p2": 0,
+          "k3": 0
+        },
+        "pose": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          }
+        },
+        "calibrated": true,
+        "phone": {
+          "platform": "ios-safari",
+          "model": "iPhone",
+          "cameraLabel": "Back Camera",
+          "width": 1920,
+          "height": 1440,
+          "exposure": "steady"
+        },
+        "folder": {
+          "path": "/shots",
+          "advance": "manual",
+          "settleMs": 250
+        }
+      }
+    ],
+    "viewpoints": [
+      {
+        "id": "vp0a0b0c01",
+        "name": "Audience",
+        "intrinsics": {
+          "fx": 1662.7687752661222,
+          "fy": 1662.7687752661222,
+          "cx": 960,
+          "cy": 540,
+          "width": 1920,
+          "height": 1080
+        },
+        "pose": {
+          "position": {
+            "x": 0,
+            "y": 1.7,
+            "z": -10
+          },
+          "rotation": {
+            "x": 0,
+            "y": -0.2641942447871007,
+            "z": 3.1304641512259375
+          }
+        }
+      }
+    ],
+    "scans": [
+      {
+        "id": "sc0a0b0c01",
+        "name": "Scan 1",
+        "kind": "structuredLight",
+        "createdUnixMs": 1760000000000,
+        "cameraId": "cm0a0b0c01",
+        "projectorIds": [
+          "pj0a0b0c01"
+        ],
+        "dataPath": "scans/sc0a0b0c01",
+        "meshId": "ms0a0b0c01",
+        "residual": 0.35,
+        "points": 120000,
+        "notes": "first light"
+      }
+    ],
+    "devices": [
+      {
+        "id": "dv0a0b0c01",
+        "name": "Left box",
+        "protocol": "panasonic",
+        "host": "10.0.0.21",
+        "port": 0,
+        "credentialRef": "dv0a0b0c01",
+        "projectorId": "pj0a0b0c01",
+        "outputId": "op_1",
+        "pollIntervalMs": 0,
+        "allowUnverified": false,
+        "snapshot": {
+          "readUnixMs": 1760000000002,
+          "values": {
+            "keystone": "0"
+          },
+          "unsupported": [
+            "edgeblend"
+          ],
+          "neutral": true
+        }
+      }
+    ],
+    "site": {
+      "crs": "EPSG:25832",
+      "crsName": "ETRS89 / UTM 32N",
+      "origin": {
+        "x": 500000.123,
+        "y": 5400000.456,
+        "z": 120.5
+      },
+      "rotationDeg": 12.5,
+      "gridScale": 0.9996,
+      "mainsHz": 50
+    },
+    "controls": [
+      {
+        "id": "cp0a0b0c01",
+        "name": "CP1",
+        "grid": {
+          "x": 500010,
+          "y": 5400020,
+          "z": 121
+        },
+        "sigmaM": 0.005,
+        "code": "BOLT",
+        "enabled": true
+      }
+    ],
+    "surveys": [
+      {
+        "id": "sv0a0b0c01",
+        "name": "Facade",
+        "format": "las",
+        "sourcePath": "survey/facade.las",
+        "sourceHash": "sha256:4",
+        "crs": "EPSG:25832",
+        "sourcePoints": 1000000,
+        "sourceTriangles": 0,
+        "meshId": null,
+        "cloudPath": "survey/facade.cloud",
+        "voxelM": 0.02,
+        "decimationErrorM": 0.003,
+        "state": "ready",
+        "importedUnixMs": 1760000000004,
+        "notes": "decimated"
+      }
+    ],
+    "stacks": [
+      {
+        "id": "sk0a0b0c01",
+        "name": "Double",
+        "projectorIds": [
+          "pj0a0b0c01",
+          "pj0a0b0c09"
+        ],
+        "masterId": "pj0a0b0c01",
+        "failover": "match"
+      }
+    ],
+    "aligns": [
+      {
+        "id": "al0a0b0c01",
+        "name": "Screens",
+        "cameraId": "cm0a0b0c01",
+        "outputIds": [
+          "op_1"
+        ],
+        "canvasId": "cv_main",
+        "shape": "cylinder",
+        "screen": {
+          "shape": "cylinder",
+          "origin": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "axis": {
+            "x": 0,
+            "y": 1,
+            "z": 0
+          },
+          "up": {
+            "x": 0,
+            "y": 1,
+            "z": 0
+          },
+          "radiusM": 4,
+          "arcDeg": 120,
+          "widthM": 8,
+          "heightM": 3,
+          "rmsM": 0.002,
+          "metric": true
+        },
+        "target": {
+          "fit": "corners",
+          "aspect": 1.7777777777777777,
+          "cameraCorners": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 1,
+              "y": 0
+            },
+            {
+              "x": 1,
+              "y": 1
+            },
+            {
+              "x": 0,
+              "y": 1
+            }
+          ],
+          "marginPct": 2
+        },
+        "options": {
+          "color": "off",
+          "blackLevel": true,
+          "uniformity": 0.6,
+          "curve": "cosine",
+          "edgeWidth": 0.15,
+          "gridColumns": 17,
+          "gridRows": 19,
+          "mode": "ROBUST"
+        },
+        "lastRunId": "ar0a0b0c01"
+      }
+    ],
+    "calibrations": [
+      {
+        "id": "cs0a0b0c01",
+        "name": "First light",
+        "target": "projector",
+        "targetId": "pj0a0b0c01",
+        "createdUnixMs": 1760000000003,
+        "source": "pins",
+        "scanId": null,
+        "parentId": null,
+        "score": {
+          "value": 0.8,
+          "unit": "px",
+          "grade": "A",
+          "rmsPx": 0.7,
+          "p95Px": 1.4,
+          "confidence": 0.9,
+          "terms": [
+            {
+              "code": "rms",
+              "words": "pins agree",
+              "value": 0.7,
+              "unit": "px",
+              "penalty": 0.5,
+              "light": "green",
+              "where": "",
+              "fix": "",
+              "hint": ""
+            }
+          ],
+          "words": "good",
+          "source": "pins"
+        },
+        "who": "desk",
+        "pinned": true,
+        "projector": {
+          "intrinsics": {
+            "fx": 2880,
+            "fy": 2880,
+            "cx": 960,
+            "cy": 1080,
+            "width": 1920,
+            "height": 1080
+          },
+          "lens": {
+            "k1": 0.01,
+            "k2": -0.002,
+            "p1": 0,
+            "p2": 0,
+            "k3": 0
+          },
+          "pose": {
+            "position": {
+              "x": 0,
+              "y": 1.5,
+              "z": -6
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 3.141592653589793
+            }
+          },
+          "locks": "shift, focal",
+          "pins": [
+            {
+              "id": "pn0a0b0c01",
+              "world": {
+                "x": 1,
+                "y": 2,
+                "z": 0
+              },
+              "pixel": {
+                "x": 0.25,
+                "y": 0.75
+              },
+              "enabled": true,
+              "controlId": "cp0a0b0c01"
+            }
+          ],
+          "focalLock": "lens"
+        },
+        "output": null,
+        "verifiedP50Px": 0.6,
+        "verifiedP95Px": 1.1,
+        "meshHash": "sha256:3",
+        "runId": "kt0a0b0c01",
+        "dataPath": "calibration/cs0a0b0c01",
+        "blendGamma": 0
+      },
+      {
+        "id": "cs0a0b0c02",
+        "name": "First light",
+        "target": "output",
+        "targetId": "op_1",
+        "createdUnixMs": 1760000000003,
+        "source": "pins",
+        "scanId": null,
+        "parentId": null,
+        "score": {
+          "value": 0.8,
+          "unit": "px",
+          "grade": "A",
+          "rmsPx": 0.7,
+          "p95Px": 1.4,
+          "confidence": 0.9,
+          "terms": [
+            {
+              "code": "rms",
+              "words": "pins agree",
+              "value": 0.7,
+              "unit": "px",
+              "penalty": 0.5,
+              "light": "green",
+              "where": "",
+              "fix": "",
+              "hint": ""
+            }
+          ],
+          "words": "good",
+          "source": "pins"
+        },
+        "who": "desk",
+        "pinned": true,
+        "projector": null,
+        "output": {
+          "warp": {
+            "columns": 33,
+            "rows": 19,
+            "file": "align/op_1.pfm",
+            "hash": "sha256:1",
+            "residualPx": 0.4
+          },
+          "lattice": {
+            "columns": 2,
+            "rows": 2,
+            "offsets": [
+              {
+                "x": 0.1,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": -0.1
+              }
+            ],
+            "interpolation": "catmullRom",
+            "handlesU": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              }
+            ],
+            "handlesV": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 0,
+                "y": 0
+              }
+            ]
+          },
+          "blend": {
+            "width": 480,
+            "height": 270,
+            "file": "align/op_1.blend",
+            "hash": "sha256:2"
+          },
+          "color": {
+            "gainR": 0.98,
+            "gainG": 1,
+            "gainB": 1.02,
+            "gamma": 2.31,
+            "level": 0.01
+          },
+          "residualPx": 0.6,
+          "scanId": "sc1",
+          "stackId": "sk0a0b0c01",
+          "runId": "ar0a0b0c01",
+          "measuredUnixMs": 1760000000000,
+          "fittedTo": {
+            "relative": {
+              "position": {
+                "x": 0.001,
+                "y": 0,
+                "z": 0
+              },
+              "rotation": {
+                "x": 0,
+                "y": 0.0002,
+                "z": 0.009
+              }
+            },
+            "master": {
+              "fx": 2880,
+              "fy": 2880,
+              "cx": 960,
+              "cy": 540,
+              "width": 1920,
+              "height": 1080
+            },
+            "masterLens": {
+              "k1": 0,
+              "k2": 0,
+              "p1": 0,
+              "p2": 0,
+              "k3": 0
+            },
+            "member": {
+              "fx": 2889.6,
+              "fy": 2889.6,
+              "cx": 960,
+              "cy": 540,
+              "width": 1920,
+              "height": 1080
+            },
+            "memberLens": {
+              "k1": 0.01,
+              "k2": 0,
+              "p1": 0,
+              "p2": 0,
+              "k3": 0
+            }
+          }
+        },
+        "verifiedP50Px": 0.6,
+        "verifiedP95Px": 1.1,
+        "meshHash": "sha256:3",
+        "runId": "kt0a0b0c01",
+        "dataPath": "calibration/cs0a0b0c01",
+        "blendGamma": 2.31
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "id": "op_1",
+      "name": "Output 1",
+      "kind": "display",
+      "displayKey": "DP-1",
+      "width": 1920,
+      "height": 1080,
+      "refreshHz": 60,
+      "mode": "projector",
+      "projectorId": "pj0a0b0c01",
+      "source": {
+        "kind": "canvas",
+        "id": "cv_main"
+      },
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "warp": {
+        "enabled": true,
+        "pin": {
+          "topLeft": {
+            "x": 0.01,
+            "y": 0
+          },
+          "topRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomLeft": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "lattice": {
+          "columns": 3,
+          "rows": 3,
+          "offsets": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.01,
+              "y": -0.02
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "interpolation": "catmullRom",
+          "handlesU": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "handlesV": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ]
+        }
+      },
+      "blend": {
+        "auto3D": true,
+        "edges": {
+          "left": 0,
+          "top": 0,
+          "right": 0.15,
+          "bottom": 0
+        },
+        "curve": "cosine",
+        "gamma": 2.31,
+        "blackLevel": 0.02,
+        "intensityCompensation": false
+      },
+      "color": {
+        "brightness": 0.95,
+        "contrast": 1,
+        "gamma": 1,
+        "gainR": 1,
+        "gainG": 1,
+        "gainB": 1,
+        "lift": 0
+      },
+      "masks": [
+        {
+          "id": "mk0a0b0c02",
+          "name": "Door",
+          "path": {
+            "nodes": [
+              {
+                "point": {
+                  "x": 0.1,
+                  "y": 0.1
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.4,
+                  "y": 0.1
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.4,
+                  "y": 0.6
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.1,
+                  "y": 0.6
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              }
+            ],
+            "closed": true
+          },
+          "mode": "subtract",
+          "feather": 0.02,
+          "invert": false,
+          "enabled": true
+        }
+      ],
+      "plan": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "rotation": 0,
+      "enabled": true,
+      "latencyMs": 33.3,
+      "fx": {
+        "slots": [
+          {
+            "id": "fx0a0b0c05",
+            "kind": "fx.blur",
+            "name": "Blur fx0a0b0c05",
+            "params": {
+              "values": {
+                "radius": "4"
+              }
+            },
+            "bypass": true,
+            "mix": 0.5,
+            "blend": "screen",
+            "scale": 0.5,
+            "originNs": 1000,
+            "bindings": [
+              {
+                "param": "opacity",
+                "source": "audio:bass~10/250",
+                "amount": 0.5,
+                "offset": 0.1,
+                "curve": "ease",
+                "smoothSeconds": 0.2,
+                "mode": "scale",
+                "attackSeconds": 0.05,
+                "releaseSeconds": 0.4,
+                "rangeMin": 0.2,
+                "rangeMax": 0.9,
+                "invert": true,
+                "steps": 4,
+                "anchorNs": 77,
+                "enabled": false
+              }
+            ]
+          }
+        ]
+      },
+      "measured": {
+        "warp": {
+          "columns": 33,
+          "rows": 19,
+          "file": "align/op_1.pfm",
+          "hash": "sha256:1",
+          "residualPx": 0.4
+        },
+        "lattice": {
+          "columns": 2,
+          "rows": 2,
+          "offsets": [
+            {
+              "x": 0.1,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": -0.1
+            }
+          ],
+          "interpolation": "catmullRom",
+          "handlesU": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "handlesV": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        "blend": {
+          "width": 480,
+          "height": 270,
+          "file": "align/op_1.blend",
+          "hash": "sha256:2"
+        },
+        "color": {
+          "gainR": 0.98,
+          "gainG": 1,
+          "gainB": 1.02,
+          "gamma": 2.31,
+          "level": 0.01
+        },
+        "residualPx": 0.6,
+        "scanId": "sc1",
+        "stackId": "sk0a0b0c01",
+        "runId": "ar0a0b0c01",
+        "measuredUnixMs": 1760000000000,
+        "fittedTo": {
+          "relative": {
+            "position": {
+              "x": 0.001,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.0002,
+              "z": 0.009
+            }
+          },
+          "master": {
+            "fx": 2880,
+            "fy": 2880,
+            "cx": 960,
+            "cy": 540,
+            "width": 1920,
+            "height": 1080
+          },
+          "masterLens": {
+            "k1": 0,
+            "k2": 0,
+            "p1": 0,
+            "p2": 0,
+            "k3": 0
+          },
+          "member": {
+            "fx": 2889.6,
+            "fy": 2889.6,
+            "cx": 960,
+            "cy": 540,
+            "width": 1920,
+            "height": 1080
+          },
+          "memberLens": {
+            "k1": 0.01,
+            "k2": 0,
+            "p1": 0,
+            "p2": 0,
+            "k3": 0
+          }
+        }
+      },
+      "calibrationId": "cs0a0b0c02",
+      "fallbackId": "cs0a0b0c02",
+      "stagedId": "cs0a0b0c02"
+    },
+    {
+      "id": "op0a0b0c02",
+      "name": "Monitor",
+      "kind": "window",
+      "displayKey": "",
+      "width": 1280,
+      "height": 720,
+      "refreshHz": 60,
+      "mode": "canvas",
+      "projectorId": null,
+      "source": {
+        "kind": "canvas",
+        "id": "cv_main"
+      },
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "warp": {
+        "enabled": false,
+        "pin": {
+          "topLeft": {
+            "x": 0,
+            "y": 0
+          },
+          "topRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomLeft": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "lattice": null
+      },
+      "blend": {
+        "auto3D": true,
+        "edges": {
+          "left": 0,
+          "top": 0,
+          "right": 0,
+          "bottom": 0
+        },
+        "curve": "cosine",
+        "gamma": 1.8,
+        "blackLevel": 0,
+        "intensityCompensation": false
+      },
+      "color": {
+        "brightness": 1,
+        "contrast": 1,
+        "gamma": 1,
+        "gainR": 1,
+        "gainG": 1,
+        "gainB": 1,
+        "lift": 0
+      },
+      "masks": [],
+      "plan": {
+        "x": 1920,
+        "y": 0,
+        "w": 1280,
+        "h": 720
+      },
+      "rotation": 0,
+      "enabled": false,
+      "latencyMs": 0,
+      "fx": {
+        "slots": []
+      },
+      "measured": null,
+      "calibrationId": null,
+      "fallbackId": null,
+      "stagedId": null
+    },
+    {
+      "id": "op0a0b0c03",
+      "name": "Output 3",
+      "kind": "window",
+      "displayKey": "",
+      "width": 1280,
+      "height": 720,
+      "refreshHz": 60,
+      "mode": "canvas",
+      "projectorId": null,
+      "source": {
+        "kind": "canvas",
+        "id": "cv_main"
+      },
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "warp": {
+        "enabled": false,
+        "pin": {
+          "topLeft": {
+            "x": 0,
+            "y": 0
+          },
+          "topRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomLeft": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "lattice": null
+      },
+      "blend": {
+        "auto3D": true,
+        "edges": {
+          "left": 0,
+          "top": 0,
+          "right": 0,
+          "bottom": 0
+        },
+        "curve": "cosine",
+        "gamma": 2.2,
+        "blackLevel": 0,
+        "intensityCompensation": false
+      },
+      "color": {
+        "brightness": 1,
+        "contrast": 1,
+        "gamma": 1,
+        "gainR": 1,
+        "gainG": 1,
+        "gainB": 1,
+        "lift": 0
+      },
+      "masks": [],
+      "plan": {
+        "x": 1920,
+        "y": 0,
+        "w": 1280,
+        "h": 720
+      },
+      "rotation": 0,
+      "enabled": false,
+      "latencyMs": 0,
+      "fx": {
+        "slots": []
+      },
+      "measured": null,
+      "calibrationId": null,
+      "fallbackId": null,
+      "stagedId": null
+    },
+    {
+      "id": "op0a0b0c04",
+      "name": "Output 4",
+      "kind": "display",
+      "displayKey": "DP-1",
+      "width": 1920,
+      "height": 1080,
+      "refreshHz": 60,
+      "mode": "projector",
+      "projectorId": "pj0a0b0c01",
+      "source": {
+        "kind": "canvas",
+        "id": "cv_main"
+      },
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "warp": {
+        "enabled": true,
+        "pin": {
+          "topLeft": {
+            "x": 0.01,
+            "y": 0
+          },
+          "topRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomRight": {
+            "x": 0,
+            "y": 0
+          },
+          "bottomLeft": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "lattice": {
+          "columns": 3,
+          "rows": 3,
+          "offsets": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0.01,
+              "y": -0.02
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "interpolation": "catmullRom",
+          "handlesU": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "handlesV": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ]
+        }
+      },
+      "blend": {
+        "auto3D": true,
+        "edges": {
+          "left": 0,
+          "top": 0,
+          "right": 0.15,
+          "bottom": 0
+        },
+        "curve": "cosine",
+        "gamma": 2.2,
+        "blackLevel": 0.02,
+        "intensityCompensation": false
+      },
+      "color": {
+        "brightness": 0.95,
+        "contrast": 1,
+        "gamma": 1,
+        "gainR": 1,
+        "gainG": 1,
+        "gainB": 1,
+        "lift": 0
+      },
+      "masks": [
+        {
+          "id": "mk0a0b0c02",
+          "name": "Door",
+          "path": {
+            "nodes": [
+              {
+                "point": {
+                  "x": 0.1,
+                  "y": 0.1
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.4,
+                  "y": 0.1
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.4,
+                  "y": 0.6
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              },
+              {
+                "point": {
+                  "x": 0.1,
+                  "y": 0.6
+                },
+                "in": {
+                  "x": 0,
+                  "y": 0
+                },
+                "out": {
+                  "x": 0,
+                  "y": 0
+                },
+                "smooth": false
+              }
+            ],
+            "closed": true
+          },
+          "mode": "subtract",
+          "feather": 0.02,
+          "invert": false,
+          "enabled": true
+        }
+      ],
+      "plan": {
+        "x": 0,
+        "y": 0,
+        "w": 1920,
+        "h": 1080
+      },
+      "rotation": 0,
+      "enabled": true,
+      "latencyMs": 33.3,
+      "fx": {
+        "slots": []
+      },
+      "measured": {
+        "warp": {
+          "columns": 33,
+          "rows": 19,
+          "file": "align/op_1.pfm",
+          "hash": "sha256:1",
+          "residualPx": 0.4
+        },
+        "lattice": {
+          "columns": 2,
+          "rows": 2,
+          "offsets": [
+            {
+              "x": 0.1,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": -0.1
+            }
+          ],
+          "interpolation": "catmullRom",
+          "handlesU": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "handlesV": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        "blend": {
+          "width": 480,
+          "height": 270,
+          "file": "align/op_1.blend",
+          "hash": "sha256:2"
+        },
+        "color": {
+          "gainR": 0.98,
+          "gainG": 1,
+          "gainB": 1.02,
+          "gamma": 2.4,
+          "level": 0.01
+        },
+        "residualPx": 0.6,
+        "scanId": "sc1",
+        "stackId": "sk0a0b0c01",
+        "runId": "ar0a0b0c01",
+        "measuredUnixMs": 1760000000000,
+        "fittedTo": {
+          "relative": {
+            "position": {
+              "x": 0.001,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.0002,
+              "z": 0.009
+            }
+          },
+          "master": {
+            "fx": 2880,
+            "fy": 2880,
+            "cx": 960,
+            "cy": 540,
+            "width": 1920,
+            "height": 1080
+          },
+          "masterLens": {
+            "k1": 0,
+            "k2": 0,
+            "p1": 0,
+            "p2": 0,
+            "k3": 0
+          },
+          "member": {
+            "fx": 2889.6,
+            "fy": 2889.6,
+            "cx": 960,
+            "cy": 540,
+            "width": 1920,
+            "height": 1080
+          },
+          "memberLens": {
+            "k1": 0.01,
+            "k2": 0,
+            "p1": 0,
+            "p2": 0,
+            "k3": 0
+          }
+        }
+      },
+      "calibrationId": null,
+      "fallbackId": null,
+      "stagedId": null
+    }
+  ],
+  "settings": {
+    "frameRate": "50",
+    "defaultTransition": "fade",
+    "defaultTransitionNs": 250000000,
+    "flashGuard": true,
+    "syncLatencyMs": 40,
+    "calibrationKeep": 5,
+    "calibrationGate": 2
+  },
+  "show": {
+    "rules": {
+      "minGoMsArmed": 500,
+      "minGoMsRehearsal": 0,
+      "remoteViewOnlyWhenArmed": true,
+      "disarmFrom": "desk",
+      "defaultOutcome": "safe",
+      "defaultFadeMs": 1000,
+      "panicLeadMs": 0,
+      "commitLeadMs": 34,
+      "expectArmed": true
+    },
+    "panic": [
+      {
+        "outputId": "op_1",
+        "outcome": "safe",
+        "fadeMs": 500,
+        "safeLook": {
+          "kind": "color",
+          "id": "#000000"
+        }
+      }
+    ],
+    "locks": [
+      {
+        "target": "sf0a0b0c01",
+        "kind": "entity",
+        "by": "desk",
+        "atUnixMs": 1760000000005,
+        "words": "focus done"
+      },
+      {
+        "target": "mapping",
+        "kind": "area",
+        "by": "desk",
+        "atUnixMs": 1,
+        "words": ""
+      }
+    ]
+  },
+  "fleet": {
+    "members": [
+      {
+        "id": "fm0a0b0c01",
+        "nodeId": "nd2",
+        "name": "Backup",
+        "role": "backup",
+        "backupOf": "nd1",
+        "mode": "hot",
+        "timeoutMs": 1500
+      }
+    ],
+    "succession": [
+      "nd1",
+      "nd2"
+    ],
+    "routes": []
+  },
+  "control": {
+    "surfaces": [
+      {
+        "id": "ct0a0b0c01",
+        "name": "APC40",
+        "kind": "midi",
+        "match": "APC40*",
+        "profile": "akai-apc40",
+        "feedbackTo": "",
+        "enabled": true,
+        "merge": "htp",
+        "onLoss": "release",
+        "acceptPreview": true
+      }
+    ],
+    "bindings": [
+      {
+        "id": "bd0a0b0c01",
+        "name": "Fader 1",
+        "input": "MIDI APC40 CC 1 48",
+        "target": "SET sf0a0b0c01 opacity *",
+        "shape": {
+          "behaviour": "absolute",
+          "inMin": 0,
+          "inMax": 1,
+          "outMin": 0.1,
+          "outMax": null,
+          "invert": false,
+          "curve": "sCurve",
+          "curveAmount": 2,
+          "takeover": "pickUp",
+          "relative": "auto",
+          "step": 0,
+          "acceleration": 0.5,
+          "wrap": false,
+          "pressValue": "",
+          "releaseValue": "",
+          "holdMs": 0,
+          "debounceMs": 30
+        },
+        "feedback": {
+          "mode": "value",
+          "to": "MIDI APC40 CC 1 48",
+          "when": "",
+          "on": "",
+          "off": ""
+        },
+        "enabled": true
+      }
+    ]
+  },
+  "timecode": {
+    "sources": [
+      {
+        "id": "tc0a0b0c01",
+        "name": "LTC",
+        "kind": "ltc",
+        "device": "default",
+        "channel": 2,
+        "format": "25",
+        "nodeId": "",
+        "latencyNs": 5,
+        "floorDbfs": -46,
+        "fitWindowMs": 1500
+      }
+    ]
+  },
+  "sends": [
+    {
+      "id": "sd0a0b0c01",
+      "name": "Program",
+      "protocol": "omt",
+      "tap": "output:op_1",
+      "width": 1920,
+      "height": 1080,
+      "fps": 50,
+      "format": "uyvy",
+      "enabled": true,
+      "rateDivider": 2,
+      "publishedName": "PlayMap Program",
+      "followAir": false,
+      "quality": "high",
+      "groups": "a,b",
+      "fit": "fill",
+      "onlyWhenWatched": false
+    }
+  ],
+  "fxAssets": [
+    {
+      "id": "fa0a0b0c01",
+      "name": "Glow",
+      "format": "isf",
+      "path": "fx/glow.fs",
+      "contentHash": "sha256:5",
+      "source": "",
+      "vertexSource": "",
+      "images": {}
+    }
+  ],
+  "generatorPresets": [
+    {
+      "id": "gp0a0b0c01",
+      "name": "Deep",
+      "kind": "fractal.julia",
+      "params": {
+        "values": {
+          "zoom": "9"
+        }
+      }
+    }
+  ],
+  "audio": {
+    "input": "system",
+    "channels": "M",
+    "gainDb": 3,
+    "autoGain": false,
+    "gateDb": -60,
+    "listenerDistanceM": 34
+  },
+  "tempo": {
+    "source": "detect",
+    "bpm": 128,
+    "beatsPerBar": 3,
+    "barsPerPhrase": 8,
+    "detectMinBpm": 75,
+    "detectMaxBpm": 180
+  },
+  "leds": {
+    "nodes": [
+      {
+        "id": "ln0a0b0c01",
+        "name": "Truss",
+        "protocol": "sacn",
+        "host": "",
+        "port": 0,
+        "enabled": true,
+        "rateHz": 44,
+        "latencyMs": 12,
+        "sync": "latch",
+        "universeChannels": 510,
+        "color": "#FF0000",
+        "sacnPriority": 150,
+        "sacnSyncUniverse": 0,
+        "sacnMulticast": true,
+        "followBlackout": true,
+        "vendor": "acme"
+      }
+    ],
+    "types": [
+      {
+        "id": "lt0a0b0c01",
+        "name": "RGBW tape",
+        "head": [
+          {
+            "channel": "dimmer",
+            "bits": 8,
+            "value": 255
+          }
+        ],
+        "perPixel": [
+          {
+            "channel": "r",
+            "bits": 8,
+            "value": 0
+          },
+          {
+            "channel": "g",
+            "bits": 8,
+            "value": 0
+          },
+          {
+            "channel": "b",
+            "bits": 8,
+            "value": 0
+          },
+          {
+            "channel": "w",
+            "bits": 8,
+            "value": 0
+          }
+        ],
+        "tail": [],
+        "wattsPerPixel": 0.3,
+        "origin": "csv",
+        "manufacturer": "acme"
+      }
+    ],
+    "fixtures": [
+      {
+        "id": "lf0a0b0c01",
+        "name": "Strip",
+        "typeId": "lt0a0b0c01",
+        "space": "world",
+        "spaceId": "",
+        "placement": {
+          "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          }
+        },
+        "layout": {
+          "shape": "grid",
+          "count": 64,
+          "rows": 4,
+          "size": {
+            "x": 2,
+            "y": 0.5,
+            "z": 0
+          },
+          "start": "bottomRight",
+          "columnsFirst": true,
+          "snake": true,
+          "points": []
+        },
+        "patch": {
+          "nodeId": "ln0a0b0c01",
+          "universe": 3,
+          "address": 1
+        },
+        "sampling": "area",
+        "footprint": 0.5,
+        "color": {
+          "brightness": 0.8,
+          "gainR": 1,
+          "gainG": 1,
+          "gainB": 1,
+          "gainW": 1,
+          "contentGamma": 2.2,
+          "outputGamma": 2.2
+        },
+        "enabled": true,
+        "locked": false,
+        "reverse": true,
+        "editorColor": "#00FF00",
+        "tags": [
+          "truss"
+        ],
+        "viewpointId": "vp0a0b0c01",
+        "bindDistance": 0.5
+      }
+    ]
+  },
+  "optimise": {
+    "mode": "auto",
+    "rules": [
+      {
+        "name": "h264 to hap",
+        "when": {
+          "codecs": [
+            "h264"
+          ],
+          "kinds": [
+            "video"
+          ],
+          "alpha": false,
+          "hdr": null,
+          "minBitDepth": 0,
+          "minWidth": 1920,
+          "cpuDecode": null,
+          "maxChunks": 0,
+          "tags": []
+        },
+        "to": "hap",
+        "mode": "auto",
+        "quality": "archive"
+      }
+    ],
+    "quality": "fast",
+    "targets": [
+      "nd1"
+    ]
+  }
+}

@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # A PlayMap build and test machine (Ubuntu 24.04, run as root; safe to run again): the .NET 10 SDK, headless OpenGL (Mesa
-# llvmpipe under Xvfb), FFmpeg 9.0's shared libraries in /opt/ffmpeg9, and a sound stack (PulseAudio, sox) so audio capture runs
-# against a real device. `tools/setup-dev.sh` installs; `tools/setup-dev.sh start` also starts the display and the sound card for
-# this session and prints the variables the tests read. PulseAudio pulls Ubuntu's FFmpeg and with it libva, which a bare machine
-# (and CI) lacks: `tools/without-libs.sh <command>` runs one command as on such a machine.
+# llvmpipe under Xvfb), FFmpeg 9.0's shared libraries in /opt/ffmpeg9, DXC's compiler for the shader worker in /opt/dxc (the one
+# file libdxcompiler.so of DXC v1.9.2609's Linux release, the archive and the file held to the Linux job's hashes), and a sound
+# stack (PulseAudio, sox) so audio capture runs against a real device. `tools/setup-dev.sh` installs; `tools/setup-dev.sh start`
+# also starts the display and the sound card for this session and prints the variables the tests read. PulseAudio pulls Ubuntu's
+# FFmpeg and with it libva, which a bare machine (and CI) lacks: `tools/without-libs.sh <command>` runs one command as on such a
+# machine.
 set -euo pipefail
 
 FFMPEG_DIR=/opt/ffmpeg9
 FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
+DXC_DIR=/opt/dxc
+DXC_URL="https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz"
+DXC_ARCHIVE_SHA256=96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1
+DXC_SO_SHA256=d40e4a7b3b46490313f4bfd08101946483a673831b3ea65c93d746de1c2f9216
 
 install() {
   export DEBIAN_FRONTEND=noninteractive
@@ -25,6 +31,16 @@ install() {
     tar -xJf "$tmp/ff.tar.xz" -C "$FFMPEG_DIR" --strip-components=1
     rm -rf "$tmp"
   fi
+  if [ ! -e "$DXC_DIR/libdxcompiler.so" ]; then
+    local dxc
+    dxc=$(mktemp -d)
+    curl -sSfL -o "$dxc/dxc.tar.gz" "$DXC_URL"
+    echo "$DXC_ARCHIVE_SHA256  $dxc/dxc.tar.gz" | sha256sum -c -
+    mkdir -p "$DXC_DIR"
+    tar -xzf "$dxc/dxc.tar.gz" -C "$DXC_DIR" --strip-components=2 ./lib/libdxcompiler.so
+    rm -rf "$dxc"
+  fi
+  echo "$DXC_SO_SHA256  $DXC_DIR/libdxcompiler.so" | sha256sum -c -
 }
 
 # The display the GL tests draw on (:99) and a sound card with one virtual output (playmap_test) whose monitor is the input the
@@ -41,7 +57,7 @@ start() {
     pactl load-module module-null-sink sink_name=playmap_test sink_properties=device.description=PlayMapTest >/dev/null
   fi
   pactl set-default-sink playmap_test
-  echo "export DISPLAY=:99 PLAYMAP_FFMPEG_DIR=$FFMPEG_DIR/lib PLAYMAP_TEST_AUDIO=pulse:playmap_test.monitor"
+  echo "export DISPLAY=:99 PLAYMAP_FFMPEG_DIR=$FFMPEG_DIR/lib PLAYMAP_DXC_DIR=$DXC_DIR PLAYMAP_TEST_AUDIO=pulse:playmap_test.monitor"
 }
 
 install

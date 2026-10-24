@@ -75,6 +75,14 @@ public sealed partial class EngineCore
         if (args.Count < 1)
             return CommandReply.Fail("INPUT ADD <uri> [<name>] [PROXY] [COLD]");
         var uri = args[0];
+        // A capture: URI is read by the capture grammar alone, never as an FFmpeg location: one it refuses is answered with its
+        // words (which repeat nothing of it), a well-formed one with what this node can open instead.
+        if (CaptureUri.Claims(uri))
+            return CommandReply.Fail(CaptureUri.TryParse(uri, out _, out var refused)
+                ? VerbCatalog.NotAvailableYet("INPUT ADD capture:") + " — ndi:, omt:, spout: and FFmpeg URLs are"
+                : refused);
+        if (CaptureMode(args) is { } keyword)
+            return CommandReply.Fail(VerbCatalog.NotAvailableYet("INPUT ADD … " + keyword) + " — a live input takes its sender's mode and format");
         var proxy = false;
         var cold = false;
         var words = new List<string>();
@@ -150,6 +158,31 @@ public sealed partial class EngineCore
         return name.Length > 0 ? name : host;
     }
 
+    /// <summary>MODE or FORMAT when the words after an input's URI ask a capture card's mode ("MODE 1920x1080@50") or pixel format
+    /// ("FORMAT V210"), else null: any other word is the input's name.</summary>
+    private static string? CaptureMode(List<string> args)
+    {
+        for (var i = 1; i < args.Count - 1; i++)
+        {
+            var next = args[i + 1];
+            if (args[i].Equals("MODE", StringComparison.OrdinalIgnoreCase) && IsCaptureMode(next))
+                return "MODE";
+            if (args[i].Equals("FORMAT", StringComparison.OrdinalIgnoreCase) && next.ToUpperInvariant() is "UYVY" or "V210" or "NV12" or "AUTO")
+                return "FORMAT";
+        }
+        return null;
+    }
+
+    /// <summary>"&lt;w&gt;x&lt;h&gt;@&lt;rate&gt;": "1920x1080@50", "3840x2160@59.94".</summary>
+    private static bool IsCaptureMode(string word)
+    {
+        var x = word.IndexOf('x', StringComparison.OrdinalIgnoreCase);
+        var at = word.IndexOf('@', StringComparison.Ordinal);
+        return x > 0 && at > x + 1 && at < word.Length - 1
+            && word[..x].All(char.IsAsciiDigit) && word[(x + 1)..at].All(char.IsAsciiDigit)
+            && double.TryParse(word[(at + 1)..], NumberStyles.Float, CultureInfo.InvariantCulture, out var rate) && rate > 0;
+    }
+
     private async Task<CommandReply> InputDiscoverAsync(VerbCall call)
     {
         LiveProtocol? only = null;
@@ -165,6 +198,8 @@ public sealed partial class EngineCore
                 only = LiveProtocol.Spout;
             else if (a.Equals("ALL", StringComparison.OrdinalIgnoreCase))
                 only = null;
+            else if (a.Equals("CAPTURE", StringComparison.OrdinalIgnoreCase))
+                return CommandReply.Fail(VerbCatalog.NotAvailableYet("INPUT DISCOVER CAPTURE") + " — NDI, OMT, SPOUT and ALL are");
             else if (a.Equals("WAIT", StringComparison.OrdinalIgnoreCase) && i + 1 < call.Args.Count
                      && int.TryParse(call.Args[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var ms) && ms is >= 0 and <= 5000)
             {
@@ -301,6 +336,11 @@ public sealed partial class EngineCore
     {
         if (call.Args.Count != 2)
             return CommandReply.Fail("INPUT FALLBACK <input> HOLD|BLACK|<source>");
+        // A capture: URI is read by the capture grammar alone: one it refuses is answered with its words (which repeat nothing of it).
+        if (CaptureUri.Claims(call.Args[1]))
+            return CommandReply.Fail(CaptureUri.TryParse(call.Args[1], out _, out var refused)
+                ? VerbCatalog.NotAvailableYet("INPUT FALLBACK capture:") + " — a fallback is a picture this node always has (media:, generator:, canvas:, playlist:, color:)"
+                : refused);
         var project = Edits.Project;
         if (LiveItem(project, call.Args[0], out var why) is not { } item)
             return CommandReply.Fail(why);
@@ -312,7 +352,7 @@ public sealed partial class EngineCore
         else if (word.Equals("BLACK", StringComparison.OrdinalIgnoreCase))
             next = live with { OnLoss = LiveLoss.Black, Fallback = "" };
         else if (!SourceRef.TryParse(word, out var source) || source.IsNone)
-            return CommandReply.Fail($"INPUT FALLBACK takes HOLD, BLACK or a source (media:<id>, generator:<id>, canvas:<id>, playlist:<id>, color:#RRGGBB), not \"{word}\"");
+            return CommandReply.Fail($"INPUT FALLBACK takes HOLD, BLACK or a source (media:<id>, generator:<id>, canvas:<id>, playlist:<id>, color:#RRGGBB), not \"{CaptureUri.Shown(word)}\"");
         else if (source.Kind is SourceKind.Live || project.FindMedia(source.Id) is { Kind: MediaKind.Stream })
             return CommandReply.Fail($"{item.Name} cannot fall back to a live input ({source}): a fallback is a picture this node always has");
         else if (Fallbacks.Fits(project, source) is { } unfit)
@@ -338,11 +378,16 @@ public sealed partial class EngineCore
     {
         if (call.Args.Count < 2)
             return CommandReply.Fail("INPUT BACKUP <input> <uri>|OFF");
+        var text = string.Join(' ', call.Args.Skip(1));
+        // A capture: URI is read by the capture grammar alone: one it refuses is answered with its words (which repeat nothing of it).
+        if (CaptureUri.Claims(text))
+            return CommandReply.Fail(CaptureUri.TryParse(text, out _, out var refused)
+                ? VerbCatalog.NotAvailableYet("INPUT BACKUP capture:") + " — a backup is ndi:, omt: or spout:"
+                : refused);
         var project = Edits.Project;
         if (LiveItem(project, call.Args[0], out var why) is not { } item)
             return CommandReply.Fail(why);
         var live = item.Live ?? LiveSettings.Default;
-        var text = string.Join(' ', call.Args.Skip(1));
         string backup;
         if (text.Equals("OFF", StringComparison.OrdinalIgnoreCase))
         {
@@ -353,7 +398,7 @@ public sealed partial class EngineCore
         else
         {
             if (!LiveUri.TryParse(text, out var protocol, out var address, out _) || protocol is LiveProtocol.Ffmpeg)
-                return CommandReply.Fail($"a backup is a live input (ndi:HOST (Name), omt:HOST (Name), omt://host:port, spout:Name), not \"{text}\"");
+                return CommandReply.Fail($"a backup is a live input (ndi:HOST (Name), omt:HOST (Name), omt://host:port, spout:Name), not \"{CaptureUri.Shown(text)}\"");
             backup = LiveUri.Format(protocol, address);
             if (LiveUri.TryParse(item.Location, out var pp0, out var pa0, out _) && pp0 == protocol && string.Equals(pa0, address, StringComparison.OrdinalIgnoreCase))
                 return CommandReply.Fail($"{backup} is {item.Name}'s primary — a backup is another feed");
@@ -871,6 +916,7 @@ public sealed partial class EngineCore
             w.WriteString("pacing", "latest");
             w.WriteBoolean("warm", settings.Warm);
             w.WriteNumber("mbps", live?.Mbps ?? 0);
+            WriteInputExtras(w, input);
             w.WriteEndObject();
         }
         w.WriteEndArray();
@@ -1180,7 +1226,8 @@ public sealed partial class EngineCore
             return string.Create(CultureInfo.InvariantCulture, $"{item.Name}: live.recoverMs is 0–600000, not {live.RecoverMs}");
         if (live.Quality is not ("default" or "low" or "medium" or "high"))
             return $"{item.Name}: live.quality is default, low, medium or high, not \"{live.Quality}\"";
-        if (live.Backup.Length > 0)
+        // A capture: backup is the capture check's (ValidateCapture), which answers with the grammar's words.
+        if (live.Backup.Length > 0 && !CaptureUri.Claims(live.Backup))
         {
             if (!LiveUri.TryParse(live.Backup, out var bp, out var ba, out _) || bp == LiveProtocol.Ffmpeg)
                 return $"{item.Name}: live.backup is a live input (ndi:, omt:, spout:), not \"{live.Backup}\"";

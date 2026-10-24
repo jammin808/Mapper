@@ -7,19 +7,20 @@ namespace PlayMap.Core.Media;
 public enum LiveProtocol { Ffmpeg, Ndi, Omt, Spout, Syphon, DeckLink }
 
 /// <summary>The one reader of a live input's location: "ndi:FULL NAME" | "ndi://ip:port" | "omt:FULL NAME" | "omt://host:port" |
-/// "spout:NAME" | "syphon:NAME"; anything else with a scheme or a device path is Ffmpeg. A full name is "HOST (Name)"; a '*'
-/// is allowed only as the whole host part ("ndi:*(Cam 1)") or as a whole Spout or Syphon name (the active sender).</summary>
+/// "spout:NAME" | "syphon:NAME"; anything else with a scheme or a device path is Ffmpeg, except a "capture:" location, which only
+/// <see cref="CaptureUri"/> reads (this reader takes none). A full name is "HOST (Name)"; a '*' is allowed only as the whole host part
+/// ("ndi:*(Cam 1)") or as a whole Spout or Syphon name (the active sender).</summary>
 public static class LiveUri
 {
     /// <summary>Reads a location. <paramref name="address"/> is the full name, "host:port" (<paramref name="byUrl"/>), or for
-    /// Ffmpeg the location as given. False, with nothing set, for an empty name, a misplaced '*', a malformed address, or text
-    /// with neither a scheme nor a device path.</summary>
+    /// Ffmpeg the location as given. False, with nothing set, for an empty name, a misplaced '*', a malformed address, text
+    /// with neither a scheme nor a device path, or a capture URI (<see cref="CaptureUri.Claims"/>).</summary>
     public static bool TryParse(string? location, out LiveProtocol protocol, out string address, out bool byUrl)
     {
         protocol = LiveProtocol.Ffmpeg;
         address = "";
         byUrl = false;
-        if (string.IsNullOrWhiteSpace(location))
+        if (string.IsNullOrWhiteSpace(location) || CaptureUri.Claims(location))
             return false;
         var text = location.Trim();
         var colon = text.IndexOf(':', StringComparison.Ordinal);

@@ -51,9 +51,10 @@ public class HelloTests
             await b.DisposeAsync();
         }
 
+        // Every hello b sent has been taken into a's table before the clock moves, so none lands after it as a fresh one.
+        Assert.True(await Eventually.TrueAsync(() => a.Heard >= b.Sent), $"a heard {a.Heard} of the {b.Sent} hellos b sent");
         var changes = new List<PeerChange>();
         a.Peers.Changed += changes.Add;
-        await Task.Delay(150);   // a datagram still in flight lands before the clock moves
         clock.AdvanceMs(7000);
         a.Peers.Sweep();
         Assert.Equal(PeerLiveness.Stale, Assert.Single(changes).Peer.Liveness);
@@ -65,6 +66,37 @@ public class HelloTests
         a.Peers.Sweep();
         Assert.Equal(PeerChangeKind.Forgotten, changes[^1].Kind);
         Assert.Equal(0, a.Peers.Count);
+    }
+
+    [Fact]
+    public async Task AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn()
+    {
+        // Heard says what the table holds: while the table's listener is still being told of the new peer, the hello is not counted.
+        var clock = new ManualClock(1_000_000_000);
+        using var told = new ManualResetEventSlim();
+        await using var a = Make(Node("aaaa0001", "Stage left"), clock);
+        await using var b = Make(Node("bbbb0002", "Stage right"), clock);
+        var telling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        a.Peers.Changed += change =>
+        {
+            if (change.Kind != PeerChangeKind.Added)
+                return;
+            telling.TrySetResult();
+            told.Wait(TimeSpan.FromSeconds(20));
+        };
+        a.Start();
+        b.Start();
+        b.Targets = [new IPEndPoint(IPAddress.Loopback, a.ListenPort)];
+        try
+        {
+            await telling.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            Assert.Equal((1, 0L), (a.Peers.Count, a.Heard));
+        }
+        finally
+        {
+            told.Set();
+        }
+        Assert.True(await Eventually.TrueAsync(() => a.Heard >= 1), $"a counted {a.Heard} hellos heard");
     }
 
     [Fact]

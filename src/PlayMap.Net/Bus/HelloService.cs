@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PlayMap.Core;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Time;
 
@@ -69,8 +70,11 @@ public sealed class HelloService : IAsyncDisposable
     /// <summary>The port hellos are heard on (after <see cref="Start"/>).</summary>
     public int ListenPort { get; private set; }
 
+    /// <summary>Hellos that left this node's socket.</summary>
     public long Sent => Interlocked.Read(ref _sent);
 
+    /// <summary>Hellos heard from other nodes, each counted once the peer table has taken it in and told its listeners, so a reader
+    /// that sees the count sees what the table made of every hello it counts.</summary>
     public long Heard => Interlocked.Read(ref _heard);
 
     /// <summary>Datagrams on the port that were not a hello (or too big): dropped, never fatal.</summary>
@@ -90,8 +94,9 @@ public sealed class HelloService : IAsyncDisposable
     public static readonly IReadOnlyList<string> RoundTwoCaps = ["eye", "show"];
 
     /// <summary>PlayMap's hello: kind playmap, its ports (http, ws and https on one port when it serves TLS, wire,
-    /// sync), its capabilities, its clock and its certificate's fingerprint. No show data, no secret.</summary>
-    public static ShowBusHello PlayMapHello(NodeSettings settings, long clockUnixMs, string? tlsFingerprint, string? host = null)
+    /// sync), its capabilities, its clock, its certificate's fingerprint and the build it runs (<paramref name="build"/>, this
+    /// process's own unless told). No show data, no secret.</summary>
+    public static ShowBusHello PlayMapHello(NodeSettings settings, long clockUnixMs, string? tlsFingerprint, string? host = null, BuildInfo? build = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         var ports = new Dictionary<string, int>(StringComparer.Ordinal)
@@ -105,7 +110,7 @@ public sealed class HelloService : IAsyncDisposable
             ports["https"] = settings.HttpPort;
         return new ShowBusHello(ShowBusConstants.KindPlayMap, 1, 1, settings.NodeId, settings.Name, host ?? Environment.MachineName,
             ports, [.. ShowBusHello.PlayMapCaps, .. RoundTwoCaps.Where(c => !ShowBusHello.PlayMapCaps.Contains(c, StringComparer.Ordinal))],
-            clockUnixMs, null, tlsFingerprint);
+            clockUnixMs, null, tlsFingerprint) { Build = (build ?? BuildInfo.Current).Informational };
     }
 
     public void Start()
@@ -236,7 +241,6 @@ public sealed class HelloService : IAsyncDisposable
             }
             if (hello.Instance == Instance)
                 continue;
-            Interlocked.Increment(ref _heard);
             var from = r.RemoteEndPoint is IPEndPoint ep ? NetAddress.Text(ep.Address) : "";
             try
             {
@@ -247,6 +251,7 @@ public sealed class HelloService : IAsyncDisposable
                 // A listener to the peer table that faults must not stop the hello.
                 _log.LogWarning(ex, "A peer-table listener faulted.");
             }
+            Interlocked.Increment(ref _heard);
         }
     }
 

@@ -128,17 +128,21 @@ public sealed class OptimiseWorkerEndTests
         }
     }
 
+    /// <summary>The stop's grace runs on a clock the test moves only once it has seen the kill a job's arrival makes, so the stop's own
+    /// kill comes after it however long the system takes to start the fresh worker.</summary>
     [Fact]
     public async Task AStopKillsTheWorkerItAskedToEndNotTheOneThatTookAJobMeanwhile()
     {
         var kills = new ConcurrentQueue<int>();
         var stuck = new ConcurrentQueue<int>();
+        var time = new ManualTime();
         var options = new OptimiseOptions
         {
             Worker = Sleeper(),
             StopGrace = TimeSpan.FromMilliseconds(500),
             KillWait = TimeSpan.FromMilliseconds(500),
             Kill = p => kills.Enqueue(p.Id),
+            Time = time,
         };
         var supervisor = new OptimiseSupervisor(options, NullLogger.Instance);
         supervisor.Stuck += stuck.Enqueue;
@@ -158,7 +162,10 @@ public sealed class OptimiseWorkerEndTests
             Assert.True(supervisor.Send(knobs));
             Assert.Equal(new[] { first }, kills.ToArray());
 
-            // The stop's grace passes: its kill goes to the worker it asked to end, which has not ended after its bound.
+            // The stop's grace passes (once the stop waits on it): its kill goes to the worker it asked to end, which has not ended
+            // after its bound.
+            Assert.True(await Eventually.TrueAsync(() => time.Made == 1, (int)Patience.TotalMilliseconds), "the stop never waited for its grace");
+            time.Advance(options.StopGrace);
             await stop.WaitAsync(Patience);
             Assert.Equal(new[] { first, first }, kills.ToArray());
             Assert.Equal(new[] { first }, stuck.ToArray());

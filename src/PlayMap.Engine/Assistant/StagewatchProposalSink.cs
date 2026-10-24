@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Assistant;
 using PlayMap.Core.Wire;
 
@@ -52,13 +54,17 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
     private readonly ProposalQueue _queue;
     private readonly IWireEndpoint _endpoint;
     private readonly Action<string> _log;
+    private readonly ILogger _engineLog;
     private readonly HttpClient _http;
     private readonly HashSet<string> _ran = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
+    private int _disposed;
 
-    public StagewatchProposalSink(StagewatchSinkOptions options, ProposalQueue queue, IWireEndpoint endpoint, Action<string>? log = null)
+    /// <param name="log">The journal's words.</param>
+    /// <param name="engineLog">Where a fault nothing in the sink expects is written with its trace (the engine's log).</param>
+    public StagewatchProposalSink(StagewatchSinkOptions options, ProposalQueue queue, IWireEndpoint endpoint, Action<string>? log = null, ILogger? engineLog = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(queue);
@@ -67,6 +73,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
         _queue = queue;
         _endpoint = endpoint;
         _log = log ?? Ignore;
+        _engineLog = engineLog ?? NullLogger.Instance;
         _http = options.Handler is { } h ? new HttpClient(h, disposeHandler: false) : new HttpClient();
         _http.BaseAddress = options.BaseUri;
         _http.Timeout = TimeSpan.FromSeconds(10);
@@ -250,8 +257,19 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
                 await PollOnceAsync(ct).ConfigureAwait(false);
                 await Task.Delay(_options.PollEvery, ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            catch (Exception) when (ct.IsCancellationRequested)
             {
+                // Once the stop is taken, whatever the call in flight ends on is the stop's (a refusal, a reset or a body cut
+                // short as well as the cancel): the pull ends and names nothing.
+                return;
+            }
+            catch (Exception ex)
+            {
+                // A failure no pull expects ends the pull: said at once on the sink, written with its trace to the engine's log and
+                // said in the journal, never thrown at whoever lets the desk go.
+                Problem = $"{Name} is no longer read: {ex.Message}";
+                _engineLog.LogWarning(ex, "The approval desk's pull from {Desk} faulted and ended.", Name);
+                _log("assistant: " + Problem);
                 return;
             }
         }
@@ -304,16 +322,36 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
 
     private static string JsonOut(Action<Utf8JsonWriter> write) => EngineCore.JsonOut(write);
 
+    /// <summary>Lets the desk go, once: the stop is taken, the pull ends on it, and the sink's client and stop go once it has.
+    /// Nothing reaches whoever lets the desk go: the pull ends without throwing, and a callback on its stop that throws is written
+    /// with its trace to the engine's log.</summary>
     public async ValueTask DisposeAsync()
     {
-        await _stop.CancelAsync().ConfigureAwait(false);
-        Task? loop;
-        lock (_gate)
-            loop = _loop;
-        if (loop is not null)
-            await loop.ConfigureAwait(false);
-        _http.Dispose();
-        _stop.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+        try
+        {
+            try
+            {
+                await _stop.CancelAsync().ConfigureAwait(false);
+            }
+            catch (AggregateException ex)
+            {
+                // A callback on the stop that throws is its registrant's fault, not the desk's: every callback still runs and the
+                // stop stands, so the pull is waited for as on any stop.
+                _engineLog.LogWarning(ex, "A callback on the stop of the approval desk's pull from {Desk} faulted.", Name);
+            }
+            Task? loop;
+            lock (_gate)
+                loop = _loop;
+            if (loop is not null)
+                await loop.ConfigureAwait(false);
+        }
+        finally
+        {
+            _http.Dispose();
+            _stop.Dispose();
+        }
     }
 
     public override string ToString() => Name;

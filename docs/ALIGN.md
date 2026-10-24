@@ -5,6 +5,9 @@ the screen, and gives every output a measured warp and a measured blend so the o
 reaches the air until a person accepts the result, and every accepted result goes into the calibration ledger with the correction
 it replaced kept as its fallback (`docs/CALIBRATION.md`). The verbs are in `docs/wire/align.md`.
 
+Round 3 puts this inside a guide for projectors blended or stacked on a flat screen, each camera step beside its hand step, and keeps
+the measured layer under the hand's; *Not yet*, at the end, says how.
+
 ## The flow
 
 1. `ALIGN NEW Wall cm1 ALL` groups the outputs that make one picture, the camera that sees them and the canvas they share (the
@@ -15,7 +18,7 @@ it replaced kept as its fallback (`docs/CALIBRATION.md`). The verbs are in `docs
 3. `ALIGN RUN <group> [COLOR WHITE] [ONLY <output>…]` measures and stages: progress, the step and the time left are in `STATE.align.run`. The run never writes
    the project. Its files go under `align/<run>/` beside the project and are never written again.
 4. `ALIGN ACCEPT <run>` applies every output's correction as one edit (one undo step); `ALIGN REVERT <group>` goes back to each
-   output's fallback; `ALIGN CLEAR` takes a correction off.
+   output's fallback, drawing the blend γ the output drew when that result was kept; `ALIGN CLEAR` takes a correction off.
 
 ## Identify and scan (`Core/Align/AlignSequence.cs`)
 
@@ -57,7 +60,16 @@ Per output, at a quarter of its raster, three floats a pixel: the **weight** (fr
 of where it reaches on the canvas, over `EdgeWidth` 0.15 of the raster side, through the cosine curve, normalised so the outputs'
 light sums to one), the **black pedestal** (the black lifted to the deepest overlap's floor, shared by weight, as a share of each
 output's own white) and the **uniformity gain** (the white evened out toward the dimmest by `Uniformity`, 0.6 by default: a camera's
-vignetting and a gain screen's angle bias what it measures). Each output's γ from its grey ramp is written to its `Blend.Gamma`.
+vignetting and a gain screen's angle bias what it measures). Each output's γ from its grey ramp is its measured γ
+(`Measured.Color.Gamma`), and ACCEPT also writes it into `Blend.Gamma`, as CALIBRATION RECALL and ALIGN REVERT write the γ their
+result recorded. `Blend.Gamma` is the γ the blend's fades are drawn through when above 0 — a person's, or the γ the output's current
+calibration result recorded; 0 draws the output's measured γ where it has one, else 2.2, and every renderer, the 3D blend, the audit
+and the MPCDI export read it so (`Output.DrawnBlendGamma`). A person's γ is told from a result's in one place, `Output.HandGamma`: it
+is `Blend.Gamma` unless that is 0 or the γ the current result recorded. A project file of schema 1 is read by that rule: a stored 2.2,
+or a γ that is not a person's, reads as 0 wherever 0 draws the same γ, any other γ stays the person's, and PROJECT OPEN's answer and
+journal row name each output it moved. The file writes the drawn γ as `blend.gamma`, which every earlier build reads, and
+`Blend.Gamma` beside it as `blend.gammaOverride`, so a round-2 backup mirroring this node, or a round-2 build opening its file, draws
+the same fades.
 
 ## On the air (`Render/Passes/MeasuredStage.cs`, the `output` program)
 
@@ -129,5 +141,21 @@ pixels) and `drift<n>=<px>` (the same, only after the scan: seen by the verify p
 
 Grouped capture, curved screens (cylinder, then dome), FULL colour (the primaries matched, not only white), a colour step on its
 own, the warm-up gate, the projectors' own processing snapshot, neutral and restore, the shutter knock, the free-form hand-over to
-the scan solver, auditing a vendor's built-in result, two cameras, camera control, `ALIGN PLAN` (the dry run) and the desk's Align
-tab.
+the scan solver, auditing a vendor's built-in result, two cameras, camera control and `ALIGN PLAN` (the dry run).
+
+Round 3 adds the following (`docs/round3/PLAN.md` D12, §3.19, §3.20, §9 decision 22; the design is
+`docs/round3/design/desk-workflows.md` §2, §3, §5.1, §8). None of it is built yet. Its new rows and forms are in the catalogue and
+answer "not available on this node yet".
+
+- **The flat guide.** Two projectors blended side by side, two stacked, or four as two stacked positions blended, on a flat screen.
+  Each step is done by hand or by a camera run: the corners by `WARP CORNER` and `WARP NODE … PX`, or by `ALIGN NEW … CANVAS`,
+  `ALIGN RUN` and `ALIGN ACCEPT`; the match by the output's colour trims, or by `ALIGN RUN … COLOR WHITE`.
+- **One canvas in one line.** `CANVAS SPAN` makes the canvas, each output's rectangle and its edges as one edit, and `PATTERN … ON
+  <canvas>` draws one test card across the whole canvas. A re-span over a rectangle a hand moved, or over an output drawing a
+  measured warp, is refused naming each unless the line says `KEEP` or `REPLACE`.
+- **The measured layer under the hand's.** An accept replaces the measured layer only, and its reply lists every hand edit it kept
+  with the line that clears it (`HAND`, `HAND CLEAR`). It writes no `Blend.Gamma`, and neither does `ALIGN REVERT`: the measured γ
+  stays in `Measured.Color.Gamma`, and `Blend.Gamma` holds only a person's γ (0 draws the measured one, else 2.2), so a re-run never
+  overwrites the hand's γ (*The measured blend*, above, is today's rule).
+- **On the desk.** An Align area pane in Pro lists the runs' cards with their actions, and the flat guide's camera steps sit beside
+  their hand steps.

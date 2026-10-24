@@ -1,19 +1,31 @@
-# Design: `wp3-installer` — the MSI, the supervisor and the version an installer can order
+# Design: `wp3-installer` — the installer, the supervisor and the version an installer can order
 
 *How PlayMap will be installed once per machine, so the engine never needs to run as administrator; how a small service will keep
-the engine running in the show user's session and stop one whose picture has stopped; how every build will carry a version an MSI
-can order; and what a show machine is told about its own setup. Package section: `PLAN.md` §3.5. Today CI publishes a
+the engine running in the show user's session and stop one whose picture has stopped; how every build will carry a version an
+installer can order; and what a show machine is told about its own setup. Package section: `PLAN.md` §3.5. Today CI publishes a
 self-contained folder, with no installer, no signing, no firewall rules and no dump settings, and the version is `0.1.0` on `main`
 [map §6.2–§6.3].*
 
-**The decision in one paragraph.** One per-machine MSI, built by the WiX toolset compiled in CI from its MS-RL source at a pinned
-release tag (no WiX binary, package or paid service is used; `PLAN.md` D6, M17), installs to Program Files on every edition of Windows
-11 and does every machine-level action once: firewall rules, WER's dump settings, two privileges for the show account, the event
-source, the supervisor service. Builds are unsigned this round and say so, with a SHA-256 list beside each. The
-supervisor (LocalSystem) starts `PlayMap.exe engine` in the auto-logged-on show user's session — never session 0, where display
-devices are out of reach — restarts it with backoff, and stops an engine whose shown-frame count has stopped while HEALTH says it should be moving — never
-during a start or a device rebuild within its measured budget.
-The MSI's `ProductVersion` is MAJOR.MINOR.BUILD from CI's build number, so every numbered build upgrades the one before it;
+**The decision in one paragraph.** This round one per-machine installer built by Inno Setup 7.1 (`PLAN.md` D6 and §9 decision 3:
+the owner's choice of 19 October 2026, "Keep Inno Setup") installs to Program Files on every edition of Windows 11 and does every
+machine-level action once, through the supervisor's own commands: firewall rules, WER's dump settings, the show account's
+base-priority privilege, the event source, the supervisor service. It is an EXE, not an MSI: it has no automatic undo of service and
+registry changes, no repair and no `msiexec` for IT, so it orders its own steps to stand in for the undo. The MSI this file designs
+(§1a–§4, built by the WiX toolset compiled from its MS-RL source at a pinned tag, with no WiX binary, package or paid service) is
+kept for the next round, when an MSI is revisited; everything else here holds for this round's installer as written, restated for
+an EXE. M17 gave the answer: WiX v7.0.0's pinned source does not build on `windows-2025` — it needs Visual Studio's v143 C++ tools,
+the runner's Visual Studio 2026 has v145 only, and adding v143 through Visual Studio's installer failed — and the source checks its
+EULA gesture in three places (`wix.exe`'s command line, the SDK target's WIX7015, the `CheckLicenseAcceptance.targets` every
+extension package carries), which PlayMap never passes; no patch to the source was made, and the probe that measured it is retired
+(§1a). The installer carries the Agility SDK's `D3D12Core.dll` and shows a licence page that carries Microsoft's own licence for it
+verbatim, answering the SDK's requirement that distributors and external end users "agree to terms that protect it and Microsoft at
+least as much as this agreement"; PlayMap's own terms are the owner's to name, and none are named yet. The owner accepts Microsoft's
+distribution terms, including indemnifying Microsoft (`PLAN.md` §9 decision 23). Builds are
+unsigned this round and say so, with a SHA-256 list beside each. The supervisor (LocalSystem) starts `PlayMap.exe engine
+--supervised` (the one run that writes the machine's pid record) in the auto-logged-on show user's session — never session 0, where
+display devices are out of reach — restarts it with backoff, and stops an engine whose shown-frame count has stopped while HEALTH
+says it should be moving — never during a start or a device rebuild within its measured budget. The installer's version is
+MAJOR.MINOR.BUILD from CI's build number (an MSI's `ProductVersion` next round), so every numbered build upgrades the one before it;
 `main`'s file version and SemVer stay as they are.
 
 ---
@@ -63,41 +75,62 @@ product's name carries the SemVer ("PlayMap 0.2.3 (build 18)"), and `docs/INSTAL
 ## 1a. The toolset, built from its source
 
 The maintenance fee's EULA binds WiX's binary releases only and says a user may compile binaries from the source without it; WiX v5,
-the last fee-free binary line, has had no community security fixes since February 2026 [`research/installer_tools.md` §2]. So:
+the last fee-free binary line, has had no community security fixes since February 2026 [`research/installer_tools.md` §2]. So the
+MSI this file designs is built by the WiX toolset compiled from its source, and next round's MSI brings back what it needs:
 
-- A `wix-toolset` job in the installer's CI block checks out `wixtoolset/wix` at a pinned v7 release tag, builds the SDK and the Util
-  and Firewall extensions with the runner's Visual Studio 2026 and .NET 10 SDK, and caches the packages by the tag's commit, with a
+- A `wix-toolset` job in the installer's CI block that checks out `wixtoolset/wix` at a pinned release tag, builds the SDK and the
+  Util and Firewall extensions with the runner's Visual Studio and .NET SDK, and caches the packages by the tag's commit, with a
   version suffix of PlayMap's own so they are never mistaken for nuget.org's.
-- `nuget.config` (new at the root) maps `WixToolset.*` to that local feed only: a restore can never fetch an official WiX package.
-  No WiX GitHub release, NuGet package or `wix` .NET tool is downloaded; no HeatWave, Developer Direct or fee; no EULA property; no
-  WiX issue is filed.
-- The first day is M17's time-box: the tag built, a test MSI with a `ServiceInstall`, a `MajorUpgrade` and a firewall rule installed,
-  upgraded and uninstalled quietly on the runner, the build's minutes and the cache's size recorded, and whether the self-built tool
-  still asks for the EULA gesture (if it does, the gesture is never passed — PlayMap accepts no WiX agreement, and the EULA does not
-  bind a tool built from its source — and a one-line patch to the pinned source answers the check, kept with the pin and published
-  under MS-RL; only if no patch holds does the fallback below build the installer, `PLAN.md` §9 decision 3).
-- If the toolset does not build within the day, or asks for the gesture and no patch holds, Inno Setup 7.1 (its licence allows any use; a commercial user
-  above US$5 000 revenue is asked, not required, to buy a licence — a request the owner may meet, and nothing in the build depends on
-  it, `PLAN.md` §9 decision 3) builds a 64-bit installer instead:
-  every machine-level action of §3 through the supervisor's own commands (`install`, `uninstall`, `grant`, `revoke`,
-  `preinstall-check`), the downgrade and armed checks in its `InitializeSetup`, §1's version rules restated for an EXE (ordered by the
-  four-part file version). It loses MSI's transactional rollback of service and registry changes, repair and `msiexec`.
-- `THIRD-PARTY-NOTICES.md` names WiX as a build tool built from its source at the tag, and its Util and Firewall custom-action DLLs,
-  which sit inside the MSI, as MS-RL files with a link to that tag's source.
+- A `nuget.config` at the root that maps `WixToolset.*` to that local feed only, so a restore can never fetch an official WiX
+  package. No WiX GitHub release, NuGet package or `wix` .NET tool is downloaded; no HeatWave, Developer Direct or fee; no EULA
+  property; no WiX issue is filed.
+- M17 measured that toolset this round: the tag built, then a test MSI with a `ServiceInstall`, a `MajorUpgrade` and a firewall rule
+  installed, upgraded and uninstalled quietly on the runner, the build's minutes and the cache's size recorded. Its answer: the
+  pinned v7.0.0 source does not build on `windows-2025`. Its native parts need Visual Studio's v143 C++ tools, the runner's Visual
+  Studio 2026 has v145 only, and adding v143 through Visual Studio's installer failed, so the build stops at MSB8020 before any
+  licence check runs. The source checks the EULA gesture in three places — `wix.exe`'s command line, the SDK target's WIX7015, and
+  the `CheckLicenseAcceptance.targets` every extension package carries — and WiX's own build sets `AcceptEula` for itself. PlayMap
+  accepts no WiX agreement and never passes the gesture, and no patch to the pinned source was made: a session's permission policy
+  refused it (`PLAN.md` §9 decision 3). The probe is retired with that answer: this round there is no `wix-toolset` job,
+  `nuget.config`, `installer/wix/` or `WixSourceTests`, and nothing of WiX is built or shipped.
+- So Inno Setup 7.1 (its licence allows any use; a commercial user above US$5 000 revenue is asked, not required, to buy a licence —
+  a request the owner may meet, and nothing in the build depends on it, `PLAN.md` §9 decision 3) builds this round's 64-bit
+  installer, the owner's choice of 19 October 2026: every machine-level action of §3 through the supervisor's own commands
+  (`install`, `uninstall`, `grant`, `revoke`, `preinstall-check`), the downgrade and armed checks in its `InitializeSetup`, §1's
+  version rules restated for an EXE (its version the same MAJOR.MINOR.BUILD §1 gives an MSI). It loses MSI's transactional
+  rollback of service and registry changes, repair and `msiexec`; an MSI is revisited next round.
+- `THIRD-PARTY-NOTICES.md` names nothing of WiX this round; once an MSI ships, its Util and Firewall custom-action DLLs, which sit
+  inside the MSI, are named as MS-RL files with a link to their tag's source.
 
 ## 2. What the MSI lays down
 
 | Where | What |
 |---|---|
-| `%ProgramFiles%\PlayMap\` | the self-contained publish with ReadyToRun (`PublishReadyToRun`: the engine's first frames run precompiled code, not the JIT's first tier — M13's default with the pre-roll; the first ten minutes' p99.9 frame time recorded in L21) (`PlayMap.exe` and its assemblies, .NET 10 included); ANGLE's `av_libglesv2.dll` (the desk's Avalonia and the D3D11 path); OpenAL Soft; libvmx; the shader worker's natives (DXC's `dxcompiler.dll` and `dxil.dll`, glslang, SPIRV-Tools, SPIRV-Cross) |
+| `%ProgramFiles%\PlayMap\` | the self-contained publish with ReadyToRun (`PublishReadyToRun`: the engine's first frames run precompiled code, not the JIT's first tier — M13's default with the pre-roll; the first ten minutes' p99.9 frame time recorded in L21) (`PlayMap.exe` and its assemblies, .NET 10 included); ANGLE's `av_libglesv2.dll` (the desk's Avalonia and the D3D11 path); OpenAL Soft; libvmx; the shader worker's natives (DXC's `dxcompiler.dll` alone, from Microsoft.Direct3D.DXC under its LLVM licence: its built-in validator signs DXIL, so no `dxil.dll` is laid down, `PLAN.md` §9 decision 24; glslang, SPIRV-Tools, SPIRV-Cross) |
 | `…\ffmpeg\` | FFmpeg 9.0.2's LGPL shared libraries, as replaceable files (today the folder carries none and the node looks for them beside the exe [map §6.2]) — the same hash-pinned `lgpl-shared` build both CI jobs load for every decode test from this package's first item on; the GPL command-line build stays in CI only to encode test media, on the path and never beside a test host |
 | `…\D3D12\` | the Agility SDK's `D3D12Core.dll` (its debug layer is left out of releases) |
 | `…\Supervisor\PlayMap.Supervisor.exe` | the service |
-| `%ProgramData%\PlayMap\` | `dumps\` (WER), `supervisor\` (its status file and log); the show account may write both |
+| `%ProgramData%\PlayMap\` | owned by administrators with its own access: `dumps\` (WER) and `supervisor\engine\` (the engine's pid record), which the show account may write; `supervisor\` itself (the supervisor's status file and log), which only SYSTEM and administrators may change |
 | `HKLM\SOFTWARE\PlayMap` | `InstallDir`, `Version`, `ShowUser`, `Supervised` (read by the desk and by `machine.install`) |
 
 Per user, as today: the node's home (`%LOCALAPPDATA%\PlayMap`: settings, journal, caches, the pipeline cache) in the show user's
 profile.
+
+**The licence page.** `D3D12Core.dll` is the Agility SDK's distributable code, which its licence lets PlayMap ship on its
+Distribution Requirements, among them to "require distributors and external end users to agree to terms that protect it and
+Microsoft at least as much as this agreement" ("it" is the distributable code) and to "indemnify, defend, and hold harmless
+Microsoft from any claims, including attorneys’ fees, related to the distribution or use of your applications, except to the extent
+that any claim is based solely on the unmodified distributable code", with its Distribution Restrictions beside them (`PLAN.md` §9
+decision 23 quotes them whole). So the installer shows a licence page, accepted before anything is laid down, that carries
+Microsoft's licence for `D3D12Core.dll` verbatim as the terms a person agrees to for it, with a section for PlayMap's own terms
+that states none until the owner names them. A quiet install shows no page and lays nothing down unless its command line carries
+`/ACCEPTTERMS=yes`. The owner accepts Microsoft's distribution terms, the indemnity included. No third party's terms but
+`D3D12Core.dll`'s are on the page, beside the section for PlayMap's own: DXC's `dxcompiler.dll` asks for no agreement, its LLVM
+Release License (University of Illinois/NCSA) asking that its copyright notice, its three conditions and its disclaimer travel with
+the binary, which they do in `licenses\DXC\` beside it (the package's `LICENSE-LLVM.txt`, with DXC's own `LICENSE.TXT` and
+`ThirdPartyNotices.txt` for the third-party code inside it, laid down by every build and publish) and in `THIRD-PARTY-NOTICES.md`,
+which reproduces the licence whole; no `dxil.dll` is laid down (§9 decision 24). `THIRD-PARTY-NOTICES.md` names the runtime and its
+terms.
 
 **Upgrade and launch.** A fixed `UpgradeCode`; `MajorUpgrade` scheduled after `InstallInitialize`, no same-version upgrade, a
 downgrade refused with "PlayMap 0.2.17 is newer than this installer's 0.2.12: uninstall it first to go back". A launch condition
@@ -129,9 +162,9 @@ The installer neither creates the show account nor stores its password; `docs/IN
 Before `InstallValidate` (immediate, so nothing is replaced yet), the MSI runs `PlayMap.Supervisor.exe preinstall-check`. It fails
 closed:
 
-1. It looks for a live engine: the supervisor's pid file (`%ProgramData%\PlayMap\supervisor\engine.pid`, with the port the engine
-   listens on, written by the engine at start) and any running process whose image is the installed `PlayMap.exe` with the
-   `engine` argument.
+1. It looks for a live engine: the engine's pid file (`%ProgramData%\PlayMap\supervisor\engine\engine.pid`, with the port the engine
+   listens on, written by the engine at start) and any running process whose image is the installed `PlayMap.exe` with the `engine`
+   argument.
 2. **No engine process** → the install goes on.
 3. An engine that answers on loopback (`SHOW` on its line wire, at the port the pid file names) → armed: the check sets
    `PLAYMAP_ARMED_WORDS` and a conditional error action stops the install or the uninstall with the node's words ("the show is armed
@@ -178,7 +211,7 @@ public enum SupervisorAction { None, Start, RequestStop, Terminate, WriteStatus,
 | Where the engine runs | the active console session (`WTSGetActiveConsoleSessionId`) when its user is `ShowUser`; `WTSQueryUserToken`, `CreateEnvironmentBlock`, `CreateProcessAsUser` on `winsta0\default` (M9; a scheduled task at the show user's logon is the fallback, the service then only watching) |
 | Restart | after an exit: 1 s, doubling to 30 s; five restarts in ten minutes → `StoppedTooManyRestarts`, said in the status file, cleared by `PlayMap.Supervisor.exe resume` or the service's restart |
 | The heartbeat | every 500 ms: HEALTH over loopback (each output's `ShownFrames`, wp3-stability) and, as a second path, the observer's status file |
-| Stopping a frozen engine | only while HEALTH's `gpu.phase` is `running`: open outputs whose shown-frame count has not moved for the stale time, or HEALTH silent for 10 s with no shown frames → set the engine's stop event (`Global\PlayMap-Engine-Stop`, its ACL the show user's), wait 5 s for the normal stop (doors closed in reverse, the recovery record written), then terminate; the cause in the supervisor's log and the next engine's journal |
+| Stopping a frozen engine | only while HEALTH's `gpu.phase` is `running`: open outputs whose shown-frame count has not moved for the stale time, or HEALTH silent for 10 s with no shown frames → set the engine's stop event (made for each start under a name drawn for it, `Global\PlayMap-Engine-Stop-<32 hex digits>`, named on the engine's command line, its ACL letting the show user wait on it), wait 5 s for the normal stop (doors closed in reverse, the recovery record written), then terminate; the cause in the supervisor's log and the next engine's journal |
 | The stale time | the larger of 3 s (180 refreshes at 60 Hz, past any single held frame the degrade order allows) and four times the first-good-frame time `DeviceLossRehearsalTests` record on the Windows job (the multiple L9 allows a real TDR); the longest shown-frame gap outside a rebuild in L11's and L14's runs is recorded beside it, and a gap that comes close changes the floor in one commit citing the record |
 | A start or a rebuild | `starting` or `rebuilding` is exempt up to the same four-times budget from its `since`; past it the engine is treated as frozen, with words naming the phase; a new epoch resets the count |
 | An unknown count | `ShownFrames` −1 (an engine without wp3-stability's heartbeat): the freeze rule is inactive and the status file says so ("the engine reports no shown frames: the freeze rule waits for them"); restarts on exit still apply |
@@ -228,9 +261,10 @@ decision 2"), on `main` as on a branch.
   account (and a new one has no password), a local standard "show" account is made after setup, with a password, and auto-logon is
   set to it.
 - **Shell Launcher** where the edition has it (IoT Enterprise, Enterprise, Education: `Dism /online /Enable-Feature /all
-  /FeatureName:Client-EmbeddedShellLauncher`) with the engine as the show account's shell, for a node with no desk; the supervisor
-  still watches it. On Home and Pro the supervisor starts the engine in the show account's session with Explorer underneath, and the
-  desk's monitor (or a small admin display) stays the primary display, since notifications, UAC and setup screens open there.
+  /FeatureName:Client-EmbeddedShellLauncher`) with a shell other than the engine for the show account, for a node with no desk; the
+  supervisor starts the engine in that session as on every edition (the engine itself as the shell would race the supervisor's own
+  engine: L11 records it). On Home and Pro the supervisor starts the engine in the show account's session with Explorer underneath,
+  and the desk's monitor (or a small admin display) stays the primary display, since notifications, UAC and setup screens open there.
 - **Updates.** On the editions with Update client policies: feature updates deferred 365 days, quality updates 30, no automatic
   restart with a user logged on, a maintenance window. On Home, which honours none of those policies: pause updates past the show
   (35 days at a time, extendable), set active hours, restart without updating from the power menu, and choose the maintenance window
@@ -265,8 +299,8 @@ edition cannot defer updates"); the build unsigned (grey, **i**).
 | `MsiVersionTests` | both | §1's table; a major or minor of 256 refused; build 0 refused; a lower version than the last release refused with "raise MINOR" |
 | `PreinstallCheckTests` | both (the decision pure; on Windows against fake engines) | no engine process → go on; an engine answering armed → refused with its words; disarmed → go on; **an engine process alive but silent → refused**, naming its pid; a pid file whose process is gone → go on |
 | `VersionPropsTests` | both | a build of 256.0.0 fails with the words; a numbered build sets `PlayMapMsiVersion` |
-| `WixSourceTests` | Windows | the restored `WixToolset.Sdk` and extensions come from the local feed, their hashes the cached build's; no other source serves `WixToolset.*`; no `AcceptEula` property, `-acceptEula` argument or `wix eula accept` step anywhere in the installer's files, the `Directory.Build.*` files or its CI block, and the MSI builds with none (no WIX7015 in its log) |
-| `InstallerTests` | Windows (elevated) | the MSI builds (from `installer/PlayMap.Installer.wixproj`, outside `PlayMap.sln`); with Smart App Control's state set to evaluating (a test property), a quiet install completes and its log carries the warning's words; the FFmpeg it carries hashes to CI's LGPL pin; a quiet install lays the files, the service with its recovery actions, the firewall rules, the WER values, the registry key; the previous build's MSI (built in the job with a lower build number) upgrades to this one and keeps the node's settings; a downgrade refused with words; a low build refused by the launch condition (a test property); an uninstall removes all but the node's data; with a fake engine on loopback answering armed, the install stops with its words; with a fake engine process that never answers, it stops with "does not answer"; a standard user binds 9940 |
+| `InstallerTermsTests` | both (the pinned package's half on Linux) | the licence page's terms hold Microsoft's licence for `D3D12Core.dll` byte for byte from the pinned Agility SDK package, its SHA-256 the pin's, and a section for PlayMap's own terms that states none; the script shows Inno Setup's own licence page with nothing that skips it or answers it; every package whose files the publish carries is named in `THIRD-PARTY-NOTICES.md` |
+| `InstallerTests` | Windows (elevated) | the MSI builds (from `installer/PlayMap.Installer.wixproj`, outside `PlayMap.sln`); with Smart App Control's state set to evaluating (a test property), a quiet install completes and its log carries the warning's words; the FFmpeg it carries hashes to CI's LGPL pin; a quiet install lays the files, the service with its recovery actions, the firewall rules, the WER values, the registry key; the previous build's MSI (built in the job with a lower build number) upgrades to this one and keeps the node's settings; a downgrade refused with words; a low build refused by the launch condition (a test property); an uninstall removes all but the node's data; with a fake engine on loopback answering armed, the install stops with its words; with a fake engine process that never answers, it stops with "does not answer"; a standard user binds 9940; the licence page holds the terms before anything is laid down; a quiet install without `/ACCEPTTERMS=yes` is refused and lays nothing down |
 | `SupervisorTests` | both | `SupervisorCore` on a manual clock: the backoff, the frozen-engine rule (and not on a slow HEALTH while frames move), the rule inactive while `ShownFrames` is −1, `starting` and `rebuilding` exempt within the budget and frozen past it, the five-in-ten-minutes stop, re-adoption, the dump manifest (with its stretch); on Windows the service installs, starts and stops |
 | `SessionStartProbe` | Windows (a probe, not a gate) | M9's calls on the runner, whose job runs in an interactive session: `WTSGetActiveConsoleSessionId`, `WTSQueryUserToken` and `CreateProcessAsUser` of a child that reports its session id; the answer in the job's summary, L11 the proof |
 | `SupervisorHeartbeatTests` | both (at the merge with stability) | a fake engine on loopback whose shown frames stop → the stop event, then termination after the grace |
@@ -282,12 +316,17 @@ edition cannot defer updates"); the build unsigned (grey, **i**).
 - **FFmpeg inside the MSI** must be the LGPL build (`PLAN.md` §9 decision 4): both CI jobs load the same pinned `lgpl-shared` build
   for every decode test, so the tests run on the libraries the MSI carries, and `LicenceTests` check the MSI's copy against that
   hash.
-- **WiX from its source** may not build on the runner within its day, or may still ask for the fee's EULA gesture (M17): Inno Setup
-  is the measured fallback, and the gesture is never passed: a one-line patch to the pinned source answers the check first (`PLAN.md`
-  §9 decision 3). No free installer is cheaper than the self-built toolset, and none fits the node better: Inno Setup and NSIS build
-  EXEs, MSIX needs a signature, Velopack and Squirrel install no services, WixSharp still runs a WiX toolset, Visual Studio's
-  Installer Projects build only inside the IDE, and writing the MSI's tables directly is weeks of a generator PlayMap would own
-  (`research/installer_tools.md` §3).
+- **WiX from its source** does not build on the runner, and its source checks the fee's EULA gesture in three places that PlayMap
+  never passes (M17, §1a): Inno Setup builds this round's installer (`PLAN.md` §9 decision 3), without an MSI's automatic undo,
+  repair or `msiexec`, and an MSI is revisited next round. No other free installer fits the node better: NSIS needs more script and
+  has no automatic rollback at all, MSIX needs a signature, Velopack and Squirrel install no services, WixSharp still runs a WiX
+  toolset, Visual Studio's Installer Projects build only inside the IDE, and writing the MSI's tables directly is weeks of a
+  generator PlayMap would own (`research/installer_tools.md` §3).
+- **The Direct3D 12 runtime's terms** bind the owner as its distributor (`PLAN.md` §9 decision 23 quotes them): among them, end
+  users agree to terms that protect the distributable code and Microsoft at least as much as the Agility SDK's licence, which the
+  installer's licence page answers by carrying that licence verbatim (§2), and the owner indemnifies Microsoft against claims,
+  attorneys' fees included, related to the distribution or use of PlayMap, except claims based solely on the unmodified runtime. The
+  owner accepts them.
 - **Unsigned builds** meet SmartScreen's prompt on every download and Smart App Control's block where it enforces (`PLAN.md` R23),
   which no word of PlayMap's can reach: the release page and `docs/INSTALL.md` say so before the download and give the steps, and in
   evaluation the MSI's warning page and preflight say it on the machine.

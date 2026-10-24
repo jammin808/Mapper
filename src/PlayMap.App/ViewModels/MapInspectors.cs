@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia.Media;
 using PlayMap.App.Controls;
@@ -45,6 +46,28 @@ public sealed class SurfaceInspector : InspectorViewModel
     public override string Icon => "surface";
 
     public DeskAction AddMask { get; }
+
+    private bool _isQuad;
+
+    /// <summary>A quad drawn in a projector's picture: its four corners are its fields (x, y in wall pixels, or raster pixels where no
+    /// output shows its projector), in place of the mesh fields a quad does not use.</summary>
+    public bool IsQuad
+    {
+        get => _isQuad;
+        private set
+        {
+            if (Set(ref _isQuad, value))
+                Raise(nameof(IsMeshSurface));
+        }
+    }
+
+    public bool IsMeshSurface => !_isQuad;
+
+    /// <summary>"x, y in wall pixels" (or raster pixels).</summary>
+    public string CornerUnits { get; private set; } = "";
+
+    /// <summary>The quad's corners TL, TR, BR, BL: a typed x or y sends SURFACE CORNER &lt;sf&gt; &lt;c&gt; TO &lt;x&gt; &lt;y&gt; PX (RASTER).</summary>
+    public ObservableCollection<QuadCornerRow> Corners { get; } = [];
 
     public static IReadOnlyList<ContentKindChoice> ContentKinds { get; } =
     [
@@ -264,7 +287,27 @@ public sealed class SurfaceInspector : InspectorViewModel
             return false;
         _project = p;
         Title = sf.Name;
-        Subtitle = "Surface on " + (p.FindMesh(sf.MeshId)?.Name ?? sf.MeshId);
+        IsQuad = sf.Pixel is not null;
+        if (sf.Pixel is { } quad && ViewModels.Map.QuadWall.Of(p, quad.ProjectorId) is { } wall)
+        {
+            Subtitle = "Quad on " + (p.FindProjector(quad.ProjectorId)?.Name ?? quad.ProjectorId) + (wall.Output is { } o ? " · " + o.Name : "");
+            CornerUnits = wall.Output is null ? "x, y in raster pixels" : "x, y in wall pixels";
+            Raise(nameof(CornerUnits));
+            Vec2d[] corners = [quad.TopLeft, quad.TopRight, quad.BottomRight, quad.BottomLeft];
+            if (Corners.Count != 4)
+            {
+                Corners.Clear();
+                for (var i = 0; i < 4; i++)
+                    Corners.Add(new QuadCornerRow(Session, Id, i));
+            }
+            for (var i = 0; i < 4; i++)
+                Corners[i].Load(wall.Pixels(corners[i]), wall.Units);
+        }
+        else
+        {
+            Subtitle = "Surface on " + (p.FindMesh(sf.MeshId)?.Name ?? sf.MeshId);
+            Corners.Clear();
+        }
         if (Settled("name"))
             Name = sf.Name;
         var src = sf.Content.Source;
@@ -290,6 +333,89 @@ public sealed class SurfaceInspector : InspectorViewModel
             PositionText = string.Create(CultureInfo.InvariantCulture, $"{sf.Transform.Position.X:0.###}, {sf.Transform.Position.Y:0.###}, {sf.Transform.Position.Z:0.###}");
         Masks.SyncById(sf.Masks.Select((m, i) => (m, i)).ToList(), x => x.m.Id, r => r.Id, x => new MaskRow(Session, Id, x.m, x.i), (r, x) => r.Update(x.m, x.i));
         return true;
+    }
+}
+
+/// <summary>One corner of a quad in its inspector: x, y in the wall's pixels (the raster's where no output shows the projector). A typed
+/// value that reads as a number sends SURFACE CORNER &lt;sf&gt; &lt;c&gt; TO &lt;x&gt; &lt;y&gt; PX (RASTER), the gate asked first; the node's next
+/// push is the truth, and a field typed in the last half second keeps what the person typed.</summary>
+public sealed class QuadCornerRow : ObservableObject
+{
+    private readonly DeskSession _session;
+    private readonly string _surfaceId;
+    private string _x = "";
+    private string _y = "";
+    private string _units = "PX";
+    private long _typedAt;
+
+    public QuadCornerRow(DeskSession session, string surfaceId, int corner)
+    {
+        _session = session;
+        _surfaceId = surfaceId;
+        Corner = corner;
+    }
+
+    public int Corner { get; }
+
+    /// <summary>"TL", "TR", "BR", "BL".</summary>
+    public string Name => PlayMap.Core.Mapping.PixelQuadMath.CornerNames[Corner];
+
+    public string X
+    {
+        get => _x;
+        set
+        {
+            if (Set(ref _x, value))
+                Typed();
+        }
+    }
+
+    public string Y
+    {
+        get => _y;
+        set
+        {
+            if (Set(ref _y, value))
+                Typed();
+        }
+    }
+
+    /// <summary>The line the fields make now ("SURFACE CORNER sf TL TO 480 216 PX"), or null while they do not read as numbers.</summary>
+    public string? Line =>
+        double.TryParse(_x, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) && double.TryParse(_y, NumberStyles.Float, CultureInfo.InvariantCulture, out var y)
+        && double.IsFinite(x) && double.IsFinite(y)
+            ? $"SURFACE CORNER {_surfaceId} {Name} TO {VerbText.Num(Math.Round(x, 2))} {VerbText.Num(Math.Round(y, 2))} {_units}"
+            : null;
+
+    private bool _loading;
+
+    /// <summary>The corner as the project has it (skipped for a field typed in the last half second).</summary>
+    public void Load(Vec2d pixels, string units)
+    {
+        _units = units;
+        if (Stopwatch.GetTimestamp() - _typedAt < Stopwatch.Frequency / 2)
+            return;
+        _loading = true;
+        try
+        {
+            X = pixels.X.ToString("0.##", CultureInfo.InvariantCulture);
+            Y = pixels.Y.ToString("0.##", CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Typed()
+    {
+        if (_loading || Line is not { } line)
+            return;
+        _typedAt = Stopwatch.GetTimestamp();
+        if (_session.GateWords(line) is { } why)
+            _session.Notify(ToastKind.Refused, why, line);
+        else
+            _session.Fire(line);
     }
 }
 
@@ -433,6 +559,12 @@ public sealed class ProjectorInspector : InspectorViewModel
     private string _solveText = "";
     private string _residualLevel = "grey";
     private OutputInspector? _output;
+
+    public override void Retire()
+    {
+        base.Retire();
+        _output?.Retire();
+    }
 
     public ProjectorInspector(DeskSession session, string id, MapViewModel map) : base(session, id)
     {
@@ -650,7 +782,9 @@ public sealed class ProjectorInspector : InspectorViewModel
         var pos = pj.Pose.Position;
         var fwd = pj.Pose.Forward;
         PoseText = string.Create(CultureInfo.InvariantCulture, $"At ({pos.X:0.00}, {pos.Y:0.00}, {pos.Z:0.00}) m, looking ({fwd.X:0.00}, {fwd.Y:0.00}, {fwd.Z:0.00})");
-        Pins.SyncById(pj.Pins.Select((pin, i) => (pin, i)).ToList(), x => x.pin.Id, r => r.Id, x => new PinRow(Session, x.pin, x.i, pj), (r, x) => r.Update(x.pin, x.i, pj));
+        Pins.SyncById(pj.Pins.Select((pin, i) => (pin, i)).ToList(), x => x.pin.Id, r => r.Id, x => new PinRow(Session, x.pin, x.i, pj, _map.SelectPin), (r, x) => r.Update(x.pin, x.i, pj));
+        foreach (var row in Pins)
+            row.IsSelected = row.Id == _map.SelectedPinId;
         var enabled = pj.Pins.Count(x => x.Enabled);
         SolveText = pj.SolveResidualPx > 0
             ? string.Create(CultureInfo.InvariantCulture, $"Last solve {pj.SolveResidualPx:0.0} px RMS · {enabled} pins")
@@ -658,10 +792,21 @@ public sealed class ProjectorInspector : InspectorViewModel
         ResidualLevel = pj.SolveResidualPx <= 0 ? "grey" : PinRow.LevelOf(pj.SolveResidualPx);
         var output = p.Outputs.FirstOrDefault(o => o.ProjectorId == Id);
         if (output is null)
+        {
+            _output?.Retire();
             Output = null;
+        }
         else if (_output?.Id != output.Id)
-            Output = new OutputInspector(Session, output.Id);
-        _output?.Refresh(p, s);
+        {
+            // Loaded before its fields are bound, as the host shows an inspector.
+            _output?.Retire();
+            var shown = new OutputInspector(Session, output.Id);
+            shown.Refresh(p, s);
+            shown.BeginSettle();
+            Output = shown;
+        }
+        else
+            _output.Refresh(p, s);
         return true;
     }
 }
@@ -678,12 +823,67 @@ public sealed class PinRow : ObservableObject
     private bool _enabled;
     private bool _loading;
 
-    public PinRow(DeskSession session, CalibrationPin pin, int index, Projector pj)
+    public PinRow(DeskSession session, CalibrationPin pin, int index, Projector pj, Action<string?>? select = null)
     {
         _session = session;
         Id = pin.Id;
         Remove = DeskAction.Send(session, "remove", "Remove pin", () => "REMOVE " + Id).Look("trash", danger: true);
+        SelectCommand = new RelayCommand(() => select?.Invoke(Id));
         Update(pin, index, pj);
+    }
+
+    /// <summary>Picks the pin: the arrows move it by one raster pixel (SET &lt;pin&gt; pixel).</summary>
+    public RelayCommand SelectCommand { get; }
+
+    private bool _isSelected;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => Set(ref _isSelected, value);
+    }
+
+    private string _pixelX = "";
+    private string _pixelY = "";
+    private long _typedAt;
+
+    /// <summary>The pin's pixel x in its projector's raster, typed: SET &lt;pin&gt; pixel [x, y] (the line its drag sends).</summary>
+    public string PixelX
+    {
+        get => _pixelX;
+        set
+        {
+            if (Set(ref _pixelX, value))
+                TypedPixel();
+        }
+    }
+
+    public string PixelY
+    {
+        get => _pixelY;
+        set
+        {
+            if (Set(ref _pixelY, value))
+                TypedPixel();
+        }
+    }
+
+    /// <summary>The line the typed pixel makes now, or null while it does not read as numbers.</summary>
+    public string? PixelLine =>
+        double.TryParse(_pixelX, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) && double.TryParse(_pixelY, NumberStyles.Float, CultureInfo.InvariantCulture, out var y)
+        && double.IsFinite(x) && double.IsFinite(y)
+            ? VerbText.SetJson(Id, "pixel", new Vec2d(Math.Round(x, 3), Math.Round(y, 3)))
+            : null;
+
+    private void TypedPixel()
+    {
+        if (_loading || PixelLine is not { } line)
+            return;
+        _typedAt = Stopwatch.GetTimestamp();
+        if (_session.GateWords(line) is { } why)
+            _session.Notify(ToastKind.Refused, why, line);
+        else
+            _session.Fire(line);
     }
 
     public string Id { get; }
@@ -714,7 +914,8 @@ public sealed class PinRow : ObservableObject
         }
     }
 
-    public string ResidualText => double.IsFinite(_residual) ? string.Create(CultureInfo.InvariantCulture, $"{_residual:0.0} px") : "behind";
+    /// <summary>The residual with its light's shape ("✓ 0.4 px", "✕ behind"): the chip's colour is never the only cue.</summary>
+    public string ResidualText => StatusShapes.Shape(Level) + " " + (double.IsFinite(_residual) ? string.Create(CultureInfo.InvariantCulture, $"{_residual:0.0} px") : "behind");
 
     /// <summary>"good" (under 1 px), "fair" (under 3 px), "poor".</summary>
     public string Level => LevelOf(_residual);
@@ -742,6 +943,11 @@ public sealed class PinRow : ObservableObject
             Raise(nameof(Number));
             World = string.Create(CultureInfo.InvariantCulture, $"{pin.World.X:0.00}, {pin.World.Y:0.00}, {pin.World.Z:0.00}");
             Pixel = string.Create(CultureInfo.InvariantCulture, $"{pin.Pixel.X:0}, {pin.Pixel.Y:0}");
+            if (Stopwatch.GetTimestamp() - _typedAt >= Stopwatch.Frequency / 2)
+            {
+                PixelX = pin.Pixel.X.ToString("0.###", CultureInfo.InvariantCulture);
+                PixelY = pin.Pixel.Y.ToString("0.###", CultureInfo.InvariantCulture);
+            }
             ResidualPx = PinResiduals.Of(pj, pin);
             Enabled = pin.Enabled;
         }
@@ -1078,7 +1284,7 @@ public sealed class OutputInspector : InspectorViewModel
         Auto3D = o.Blend.Auto3D;
         Curve = o.Blend.Curve;
         if (Settled("blend.gamma"))
-            Gamma = o.Blend.Gamma;
+            Gamma = o.DrawnBlendGamma();
         if (Settled("blend.blackLevel"))
             BlackLevel = o.Blend.BlackLevel;
         if (Settled("blend.edges"))

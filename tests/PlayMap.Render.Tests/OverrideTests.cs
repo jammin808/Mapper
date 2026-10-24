@@ -9,8 +9,8 @@ namespace PlayMap.Render.Tests;
 /// a raw frame that reaches the raster code for code (past the trim, the warp and a freeze, never past
 /// blackout), a playlist routed to a picture the renderer draws itself, and the stage's objects uploaded
 /// once per instance.</summary>
-[Collection("gl")]
-public class OverrideTests(GlFixture gl)
+[Collection("gpu")]
+public class OverrideTests(BackendFixture backends)
 {
     private sealed class RawOn(string outputId, SourceRef source) : IRawOutputs
     {
@@ -29,9 +29,9 @@ public class OverrideTests(GlFixture gl)
     {
         var project = Scene.Project([Scene.Gen("pattern.flat", ParamSet.Empty.With("level", 50.0))],
             [Scene.SourceOutput("op1", SourceRef.Solid("#0000FF"), 32, 18), Scene.SourceOutput("op2", SourceRef.Solid("#00FF00"), 32, 18)]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var px = new byte[32 * 18 * 4];
             engine.Render(Scene.Inputs(project) with { PatternOverride = SourceRef.Generator("gn_test"), PatternOutputs = ["op2"] });
             Assert.True(engine.ReadOutput("op1", px));
@@ -55,9 +55,9 @@ public class OverrideTests(GlFixture gl)
         var sources = new FuncSources((s, _) => s == raw ? new ArrayLease(PixelLayout.Gray8, w, h, 1, ColorMatrix.Bt709, ColorRange.Full, (gray, w, w, h)) : null);
         var warp = new TestStage();
         warp.Warps["op1"] = WarpMeshBuilder.Build(new OutputWarp(true, CornerPin.None with { TopLeft = new Core.Numerics.Vec2d(0.2, 0.2) }, null));
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var px = new byte[w * h * 4];
             engine.Render(Scene.Inputs(project, sources: sources, stage: warp) with { Raw = new RawOn("op1", raw), Freeze = true });
             Assert.True(engine.ReadOutput("op1", px));
@@ -86,9 +86,9 @@ public class OverrideTests(GlFixture gl)
     {
         var project = Scene.Project([Scene.Gen("pattern.flat", ParamSet.Empty.With("level", 100.0))],
             [Scene.SourceOutput("op1", SourceRef.Playlist("pl_show"), 16, 8)]);
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             var px = new byte[16 * 8 * 4];
             engine.Render(Scene.Inputs(project, sources: new Router(SourceRef.Generator("gn_test"))));
             Assert.True(engine.ReadOutput("op1", px));
@@ -105,9 +105,9 @@ public class OverrideTests(GlFixture gl)
         var project = Scene.Project([], [Scene.SourceOutput("op1", SourceRef.Solid("#336699"), 32, 18)]);
         var stage = new TestStage();
         stage.Warps["op1"] = WarpMeshBuilder.Build(new OutputWarp(true, CornerPin.None with { TopRight = new Core.Numerics.Vec2d(-0.1, 0) }, null));
-        gl.Run(c =>
+        backends.Run(leg =>
         {
-            using var engine = new RenderEngine(c, new RenderEngineOptions(GpuTiming: false));
+            using var engine = new RenderEngine(leg.Device, new RenderEngineOptions(GpuTiming: false));
             for (var f = 0; f < 3; f++)
                 engine.Render(Scene.Inputs(project, stage: stage));
             Assert.Equal(1, engine.WarpUploads);

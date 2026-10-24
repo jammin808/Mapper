@@ -10,7 +10,7 @@ public sealed record JournalRow(long AtUnixMs, string Kind, string Text, string?
 
 /// <summary>The show journal (playmap.journal.jsonl): every verb, refusal, link change and fault, one JSON
 /// object a line. Writes go through a lane of their own so a slow disk never holds the control lane; the
-/// last rows are kept in memory for the context's "recent" and the desk. Secrets never reach it (pairing
+/// last rows are kept in memory, the context's "recent" read from them. Secrets never reach it (pairing
 /// proofs and keys are not verbs; the wire's AUTH lines are never journalled).</summary>
 public sealed class Journal : IAsyncDisposable
 {

@@ -1,7 +1,7 @@
 namespace PlayMap.Core.Media;
 
 /// <summary>The graphics API a device or a picture belongs to.</summary>
-public enum GpuApi { None, OpenGl, D3D11, DmaBuf, IoSurface, Cuda }
+public enum GpuApi { None, OpenGl, D3D11, DmaBuf, IoSurface, Cuda, D3D12 }
 
 /// <summary>The layout of a picture on the GPU.</summary>
 public enum GpuSurfaceFormat { Nv12, P010, Bgra8, Rgba8, Rgb10A2, Rgba16, Rgba16F, Rgba32F }

@@ -114,10 +114,11 @@ public sealed partial class FakeEngineLink
     // ---- the wall's frame ---------------------------------------------------------------------------------------------------
 
     /// <summary>How a point on the wall maps to a projector's raster, as the engine's frame: the output that shows the projector (its
-    /// raster is the wall's pixels) and its warp; with no output only raster coordinates mean anything.</summary>
+    /// raster is the wall's pixels), its warp and its quarter turns; with no output only raster coordinates mean anything.</summary>
     private sealed class Frame
     {
         private readonly WarpField _field;
+        private readonly int _quarters;
 
         public Frame(Projector projector, Output? output)
         {
@@ -126,6 +127,7 @@ public sealed partial class FakeEngineLink
             Width = output?.Width ?? projector.Intrinsics.Width;
             Height = output?.Height ?? projector.Intrinsics.Height;
             _field = output is null ? WarpField.Identity : new WarpField(output.Warp);
+            _quarters = output is null ? 0 : (int)(((Math.Round(output.Rotation / 90.0) % 4) + 4) % 4);
         }
 
         public Projector Projector { get; }
@@ -148,9 +150,29 @@ public sealed partial class FakeEngineLink
             return new Frame(pj, shows);
         }
 
-        public Vec2d? ToRaster(Vec2d wall) => _field.Invert(wall.X, wall.Y);
+        public Vec2d? ToRaster(Vec2d wall)
+        {
+            var f = _quarters switch
+            {
+                1 => new Vec2d(wall.Y, 1 - wall.X),
+                2 => new Vec2d(1 - wall.X, 1 - wall.Y),
+                3 => new Vec2d(1 - wall.Y, wall.X),
+                _ => wall,
+            };
+            return _field.Invert(f.X, f.Y);
+        }
 
-        public Vec2d ToWall(Vec2d raster) => _field.Evaluate(raster.X, raster.Y);
+        public Vec2d ToWall(Vec2d raster)
+        {
+            var a = _field.Evaluate(raster.X, raster.Y);
+            return _quarters switch
+            {
+                1 => new Vec2d(1 - a.Y, a.X),
+                2 => new Vec2d(1 - a.X, 1 - a.Y),
+                3 => new Vec2d(a.Y, 1 - a.X),
+                _ => a,
+            };
+        }
     }
 
     private static bool Number(string word, out double value) =>

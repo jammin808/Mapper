@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 
 namespace PlayMap.Net.Sync;
@@ -12,7 +13,7 @@ namespace PlayMap.Net.Sync;
 ///  4  1  version 1               40  8  u64 refresh index
 ///  5  1  lock state (0–7)        48  4  u32 vblanks missed in the last 60 s (≤ 60 000)
 ///  6  1  flags                   52  4  u32 house sync, milli-Hz (≤ 1 000 000)
-///  7  1  path (0–2)              56  4  i32 air latency, µs (0 … 500 000)
+///  7  1  path (0–3)              56  4  i32 air latency, µs (0 … 500 000)
 ///  8  4  u32 node id             60  4  u32 clock uncertainty, µs (≤ 1 000 000)
 /// 12  4  u32 output id hash (FNV-1a 32 of the id's UTF-8)
 /// 16  4  u32 sequence (per node and output)
@@ -47,18 +48,33 @@ public readonly record struct VblankReport(LockState State, byte Flags, byte Pat
     public const byte FlagBoard = 64;
     public const byte FlagBoardSynced = 128;
 
-    /// <summary>Path words: 0 offscreen, 1 gl, 2 dxgi-flip.</summary>
+    /// <summary>Path words: 0 offscreen, 1 gl, 2 dxgi-flip (DXGI's flip model, whether D3D11 or Direct3D 12 feeds the swap chain), 3
+    /// dedicated (a display removed from the desktop). A path above 3 is not a report.</summary>
     public const byte PathOffscreen = 0;
     public const byte PathGl = 1;
     public const byte PathDxgiFlip = 2;
+    public const byte PathDedicated = 3;
 
     public bool Settled => (Flags & FlagSettled) != 0;
 
-    public string PathWord => Path switch
+    public string PathWord => Word(Path);
+
+    /// <summary>A report's path word: "offscreen", "gl", "dxgi-flip" or "dedicated".</summary>
+    public static string Word(byte path) => path switch
     {
         PathGl => "gl",
         PathDxgiFlip => "dxgi-flip",
+        PathDedicated => "dedicated",
         _ => "offscreen",
+    };
+
+    /// <summary>The path an output's presenter reports: both flip presenters share DXGI's presentation model, so a Direct3D 12 flip
+    /// output reports 2 as a D3D11 one does, and a group mixing builds reads every member.</summary>
+    public static byte PathOf(PresentPath path) => path switch
+    {
+        PresentPath.GlWindow => PathGl,
+        PresentPath.DxgiFlip or PresentPath.D3D12Flip => PathDxgiFlip,
+        _ => PathOffscreen,
     };
 
     /// <summary>The node id as eight hex (how STATE names it).</summary>
@@ -91,7 +107,7 @@ public readonly record struct VblankReport(LockState State, byte Flags, byte Pat
 
     /// <summary>True when this report would read back as itself: every field in range.</summary>
     public bool IsValid =>
-        (uint)State <= (uint)LockState.Joining && Path <= PathDxgiFlip && (BoardFrameCount & 0xFF000000) == 0
+        (uint)State <= (uint)LockState.Joining && Path <= PathDedicated && (BoardFrameCount & 0xFF000000) == 0
         && PeriodPs is >= MinPeriodPs and <= MaxPeriodPs && LastVblankLeaderNs >= 0 && Missed60s <= MaxMissed60s
         && HouseSyncMilliHz <= MaxHouseSyncMilliHz && AirLatencyUs is >= 0 and <= MaxAirLatencyUs && ClockUncertaintyUs <= MaxClockUncertaintyUs
         && ((Flags & FlagBoardSynced) == 0 || (Flags & FlagBoard) != 0);

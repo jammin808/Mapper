@@ -17,7 +17,8 @@ namespace PlayMap.App.Tests;
 /// pixels — the line a real engine takes, leaving the same corners — and selects the new quad with its first corner (HANDLE SELECT);
 /// the arrows move that corner in wall pixels (Alt+Right: SURFACE CORNER &lt;sf&gt; TL BY 0.1 0 PX, plain 1 px, Shift 10 px), Tab and
 /// Shift+Tab pick the next and previous corner, while the view has the keyboard (a focused slider keeps its arrows, and Tab its
-/// walk); Ctrl+Left stays the transport's; Esc drops a quad half drawn, as does showing another projector. A right-click on a quad
+/// walk); Ctrl+Left stays the transport's; Esc drops a quad half drawn, and showing another projector keeps it as its own projector's
+/// draft. A right-click on a quad
 /// is the quad's menu.</summary>
 public class QuadToolTests
 {
@@ -220,13 +221,13 @@ public class QuadToolTests
         Assert.Contains("REMOVE " + quad.Id, items.Select(a => a.Verb));
         Assert.All(items.Where(a => a.Verb.StartsWith("REMOVE", StringComparison.Ordinal)), a => Assert.Equal("REMOVE " + quad.Id, a.Verb));
         canvas.ContextMenu.Close();
-        // The view's own entries, where nothing is under the pointer: the quad tool and On the wall.
-        Assert.Equal([map.QuadToolAction, map.OnWall], map.ViewActions);
+        // The view's own entries, where nothing is under the pointer: the quad tool, Keep quad tool, On the wall, the first-light guide.
+        Assert.Equal([map.QuadToolAction, map.KeepQuadToolAction, map.OnWall, map.FirstLight], map.ViewActions);
         await map.QuadToolAction.Command.ExecuteAsync();
         Assert.Equal(MapTool.Quad, map.Tool);
 
-        // Two corners on pj_left's wall, then the view shows pj_right: the half-drawn quad is dropped (the wall's cursor off), and
-        // Enter after two more clicks on pj_right's wall draws nothing from pj_left's corners.
+        // Two corners on pj_left's wall, then the view shows pj_right: the half-drawn quad stays pj_left's draft (the wall's cursor
+        // off), and Enter after two more clicks on pj_right's wall draws nothing from pj_left's corners.
         map.Select("projector", "pj_left");
         DeskHarness.Pump();
         ClickWall(window, canvas, 0.2, 0.2);
@@ -238,12 +239,19 @@ public class QuadToolTests
         Assert.Equal("pj_right", map.ViewProjector!.Id);
         Assert.False(map.Quad.IsDrawing);
         Assert.Contains("CURSOR OFF", desk.Link.SentLines);
+        Assert.Equal(2, map.Drafts.Of("pj_left")!.Count);
         ClickWall(window, canvas, 0.2, 0.8);
         ClickWall(window, canvas, 0.8, 0.8);
         Key(window, Avalonia.Input.Key.Enter, physical: PhysicalKey.Enter);
         await map.LastQuad;
         Assert.DoesNotContain(desk.Link.SentLines, l => l.StartsWith("SURFACE QUAD", StringComparison.Ordinal));
         Assert.Equal(2, map.Quad.Clicks.Count);
+        // Back on pj_left, its own two corners are there again.
+        map.Select("projector", "pj_left");
+        DeskHarness.Pump();
+        Assert.Equal(2, map.Quad.Clicks.Count);
+        Assert.Equal(0.2, map.Quad.Clicks[0].X, 2);
+        Assert.Equal(0.8, map.Quad.Clicks[1].X, 2);
         window.Close();
     }
 
@@ -260,7 +268,7 @@ public class QuadToolTests
         ClickWall(window, canvas, 0.3, 0.3);
         ClickWall(window, canvas, 0.6, 0.3);
         Assert.Equal(2, map.Quad.Clicks.Count);
-        Assert.Equal("Corner 3 of 4 · Esc cancels.", map.ToolHint);
+        Assert.Equal("Corner 3 of 4 · drag or nudge a point to move it · Esc discards.", map.ToolHint);
         // Enter with two corners draws nothing.
         Key(window, Avalonia.Input.Key.Enter, physical: PhysicalKey.Enter);
         Assert.DoesNotContain(desk.Verbs(), l => l.StartsWith("SURFACE QUAD", StringComparison.Ordinal));

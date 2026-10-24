@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using PlayMap.Assistant;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
@@ -29,14 +30,18 @@ internal sealed class OpsRig : IAsyncDisposable
 
     /// <param name="display">The outputs a real scan shows its patterns on (null: none — the simulator scans).</param>
     /// <param name="services">A test's own parts on top of the rig's (a camera re-solve's display and camera).</param>
+    /// <param name="clock">The node's and the devices' clock (null: the real monotonic clock, which a scan display's stamps share).</param>
+    /// <param name="assistantLog">The engine's log as the assistant has it (null: none).</param>
     public OpsRig(AssistantSettings? assistant = null, ScriptedModel? model = null, Project? project = null, INetworkControl? network = null,
-        ScanRunnerOptions? scan = null, IScanDisplay? display = null, Func<EngineServices, EngineServices>? services = null)
+        ScanRunnerOptions? scan = null, IScanDisplay? display = null, Func<EngineServices, EngineServices>? services = null,
+        IMonoClock? clock = null, ILogger? assistantLog = null)
     {
         Folder = Directory.CreateTempSubdirectory("playmap-ops-").FullName;
         Credentials = new NodeCredentialStore(Path.Combine(Folder, "keys"));
         Model = model ?? new ScriptedModel();
         Scanner = new ScanRunner(display, scan);
-        Devices = new DeviceService(Credentials, MonoClock.Instance, new DeviceServiceOptions
+        clock ??= MonoClock.Instance;
+        Devices = new DeviceService(Credentials, clock, new DeviceServiceOptions
         {
             PjLinkUdpPort = -1,
             Timings = DriverTimings.Fast,
@@ -47,13 +52,14 @@ internal sealed class OpsRig : IAsyncDisposable
         Assistant = new AssistantService(Credentials, assistant ?? new AssistantSettings { Enabled = true }, new AssistantServiceOptions
         {
             Save = s => AssistantSettingsFile.Save(home, s),
+            Log = assistantLog,
             Providers = (_, key) =>
             {
                 Model.KeySeen = key;
                 return Model;
             },
         });
-        var parts = EngineServices.ForTests(MonoClock.Instance);
+        var parts = EngineServices.ForTests(clock);
         parts = parts with
         {
             // A node id of its own: the preview rings are files every process of this user shares.
@@ -65,6 +71,9 @@ internal sealed class OpsRig : IAsyncDisposable
         };
         parts = services?.Invoke(parts) ?? parts;
         Engine = new EngineCore(parts with { Devices = Devices, Assistant = Assistant, Proposals = Assistant }, project);
+        // A folder run whatever the test machine holds: STATE's machine.install never reads the host's install key.
+        Engine.InstallSource = () => PlayMap.Engine.Install.InstallFacts.NotInstalled;
+        Engine.InstallReadAgain();
         _ops = OpsServices.Attach(Engine);
     }
 
@@ -165,8 +174,15 @@ internal sealed class OpsRig : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        await _ops.DisposeAsync();
-        await Engine.DisposeAsync();
+        try
+        {
+            await _ops.DisposeAsync();
+        }
+        finally
+        {
+            // A service that fails to stop fails the test, and leaves no engine running in the test host.
+            await Engine.DisposeAsync();
+        }
     }
 
     /// <summary>Removes the rig's folder (after <see cref="DisposeAsync"/>, once the journal has been read).</summary>

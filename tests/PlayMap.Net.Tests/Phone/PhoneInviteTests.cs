@@ -299,6 +299,34 @@ public sealed class PhoneInviteTests
     }
 
     [Fact]
+    public async Task ASocketThatSaysNoHelloIsRefusedOnceTheHubsClockPassesItsLimit()
+    {
+        var time = new ManualTime();
+        await using var node = await PhoneNode.StartAsync(o => o with { Time = time });
+        var before = time.Waiting;
+        await using var phone = await PhoneClient.ConnectAsync(node.Port);
+        Assert.True(await Eventually.TrueAsync(() => time.Waiting > before, 30_000), "the wait for the hello never stood on the hub's clock");
+        time.Advance(TimeSpan.FromSeconds(10) - TimeSpan.FromTicks(1));
+        Assert.Equal(before + 1, time.Waiting);
+        time.Advance(TimeSpan.FromTicks(1));
+        var (status, words) = await phone.ClosedAsync();
+        Assert.Equal(WebSocketCloseStatus.PolicyViolation, status);
+        Assert.Equal("no hello", words);
+        Assert.Empty(node.Hub.Phones());
+    }
+
+    [Fact]
+    public async Task ASocketThatSaysNoHelloOnTheSystemsClockIsToldWhyBeforeItIsLetGo()
+    {
+        // A node's own clock: the words go before the hub lets the socket go, however late the limit runs out.
+        await using var node = await PhoneNode.StartAsync(o => o with { Time = TimeProvider.System, HelloTimeout = TimeSpan.FromMilliseconds(300) });
+        await using var phone = await PhoneClient.ConnectAsync(node.Port);
+        var (status, words) = await phone.ClosedAsync();
+        Assert.Equal(WebSocketCloseStatus.PolicyViolation, status);
+        Assert.Equal("no hello", words);
+    }
+
+    [Fact]
     public async Task APhoneForgottenWhileItsJoinIsInFlightIsRefusedAndItsKeyStaysForgotten()
     {
         var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

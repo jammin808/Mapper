@@ -10,8 +10,59 @@ using PlayMap.Net;
 namespace PlayMap.Engine;
 
 /// <summary>One line of a package's verb as its handler receives it: the matched row, the words after the verb's own, the whole
-/// line and who sent it.</summary>
-public sealed record VerbCall(VerbSpec Spec, List<string> Args, WireLine Line, SessionInfo Session, CancellationToken Ct);
+/// line and who sent it. One object per line (made by the router in the line's turn on the lane, by the line's dispatcher off it),
+/// whose work held behind the row the line's dispatcher alone takes, once: a class, so no copy of it holds work that dispatcher
+/// never takes.</summary>
+public sealed class VerbCall(VerbSpec spec, List<string> args, WireLine line, SessionInfo session, CancellationToken ct)
+{
+    /// <summary>Marks the work behind the row as taken by the line's dispatcher.</summary>
+    private static readonly Action Taken = static () => { };
+
+    private Action? _afterRow;
+
+    public VerbSpec Spec { get; } = spec;
+
+    public List<string> Args { get; } = args;
+
+    public WireLine Line { get; } = line;
+
+    public SessionInfo Session { get; } = session;
+
+    public CancellationToken Ct { get; } = ct;
+
+    /// <summary>Begins work this line's handler starts and leaves running once the line's own row is in the journal, so every row of
+    /// that work follows the verb's (<see cref="EngineCore.AfterRow"/>), on the lane and off it, whether the handler or work it left
+    /// running holding this call hands it over: held until the line's dispatcher has written the row, whatever it says, or knows it
+    /// writes none, and then begun by that dispatcher on its own thread (the lane's, for a member's air line); handed over after
+    /// that, begun at once on the thread that hands it over. A start only begins work that runs off the lane and touches none of the
+    /// lane's state, so either thread may begin it.</summary>
+    public void AfterRow(Action start)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        while (true)
+        {
+            var held = Volatile.Read(ref _afterRow);
+            if (ReferenceEquals(held, Taken))
+            {
+                start();
+                return;
+            }
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _afterRow, held + start, held), held))
+                return;
+        }
+    }
+
+    /// <summary>True while work is held behind the line's row, not yet taken by its dispatcher.</summary>
+    internal bool HoldsAfterRow => Volatile.Read(ref _afterRow) is { } held && !ReferenceEquals(held, Taken);
+
+    /// <summary>The work held behind the line's row, taken once by its dispatcher (null when there is none); work handed over after
+    /// it begins at once.</summary>
+    internal Action? TakeAfterRow()
+    {
+        var held = Interlocked.Exchange(ref _afterRow, Taken);
+        return ReferenceEquals(held, Taken) ? null : held;
+    }
+}
 
 /// <summary>What opening a topic gave: a subscription to dispose on OFF or close, or the refusal words.</summary>
 public readonly record struct PushOpen(IDisposable? Sub, string? Refused)
@@ -28,7 +79,7 @@ public sealed record ShowEvent(long Seq, string Kind, long AtLeaderNs, long AtUn
 /// <summary>The packages' verbs and where each is answered: on the control lane (the default — what it changes is the lane's), or
 /// off it (work that waits on a device, a peer, the GPU, a file or a person; what it changes in the project still goes through
 /// the lane with <see cref="EngineCore.EditAsync"/>). Built once in the engine's constructor; a row routed twice, or a name
-/// that is not a row's own name, throws there. A round-2 row is available exactly when it is routed.</summary>
+/// that is not a row's own name, throws there. A later round's row is available exactly when it is routed.</summary>
 public sealed class VerbRoutes : IVerbAvailability
 {
     private readonly Dictionary<string, Func<VerbCall, CommandReply>> _lane = new(StringComparer.Ordinal);
@@ -57,7 +108,7 @@ public sealed class VerbRoutes : IVerbAvailability
 
     public bool IsRouted(string verb) => _lane.ContainsKey(verb) || _offLane.ContainsKey(verb);
 
-    /// <summary>Every row of the first round, and a round-2 row once a package routed it.</summary>
+    /// <summary>Every row of the first round, and a later round's row once a package routed it.</summary>
     public bool IsAvailable(VerbSpec spec)
     {
         ArgumentNullException.ThrowIfNull(spec);
@@ -197,6 +248,9 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         RouteShow(_routes); RouteFleet(_routes); RouteSync(_routes); RouteOutput(_routes); RouteDecode(_routes); RouteOptimise(_routes);
         RouteVideoIo(_routes); RouteControl(_routes); RouteCompanion(_routes); RouteFx(_routes); RouteAudio(_routes);
         RouteContent(_routes); RouteLed(_routes); RouteSite(_routes); RouteAlign(_routes); RoutePhone(_routes); RouteWall(_routes);
+        // Round 3's, by hook word (docs/round3/PLAN.md §2.3).
+        RouteMachine(_routes); RouteGpu(_routes); RouteObserve(_routes); RouteShaders(_routes); RouteUndo(_routes); RouteHandles(_routes);
+        RouteCanvas(_routes); RouteGuide(_routes); RouteCapture(_routes);
     }
 
     /// <summary>Every package's lane work each 10 ms tick, after the playlists' own tick, with the leader's now.</summary>
@@ -206,20 +260,43 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         TickContent(leaderNs); TickLed(leaderNs); TickWall(leaderNs);
     }
 
-    /// <summary>STATE's new top-level keys, in this order, after "cameras". STATE is written on whichever thread asks for it and
-    /// cached by <see cref="StateKey"/>: every State, Air, Output … hook reads published state only (never the lane's working
-    /// fields), a package whose facts move outside the project, the playback and the air calls <see cref="FactsChanged"/>, and one
-    /// whose shown values move with time on their own calls <see cref="Moved"/> when they move.</summary>
-    internal void WriteModuleState(Utf8JsonWriter w)
+    /// <summary>STATE's new top-level keys, in this order, after "cameras": round 2's, then round 3's (render, observe, previews,
+    /// guides). STATE is written on whichever thread asks for it and cached by <see cref="StateKey"/>: every State, Air, Output …
+    /// hook reads published state only (never the lane's working fields), a package whose facts move outside the project, the
+    /// playback and the air calls <see cref="FactsChanged"/>, and one whose shown values move with time on their own calls
+    /// <see cref="Moved"/> when they move. Each package's part is timed by its hook word.</summary>
+    internal void WriteModuleState(Utf8JsonWriter w, StateParts parts)
     {
-        StateShow(w); StateFleet(w); StateDecode(w); StateVideoIo(w); StateControl(w); StateCompanion(w); StateFx(w);
-        StateAudio(w); StateContent(w); StateLed(w); StateWall(w); StateAlign(w); StatePhone(w);
+        StateShow(w); parts.Wrote("show"); StateFleet(w); parts.Wrote("fleet"); StateDecode(w); parts.Wrote("decode");
+        StateVideoIo(w); parts.Wrote("videoio"); StateControl(w); parts.Wrote("control"); StateCompanion(w); parts.Wrote("companion");
+        StateFx(w); parts.Wrote("fx"); StateAudio(w); parts.Wrote("audio"); StateContent(w); parts.Wrote("content");
+        StateLed(w); parts.Wrote("led"); StateWall(w); parts.Wrote("wall"); StateAlign(w); parts.Wrote("align");
+        StatePhone(w); parts.Wrote("phone"); StateGpu(w); parts.Wrote("gpu"); StateObserve(w); parts.Wrote("observe");
+        StatePreview(w); parts.Wrote("preview"); StateGuide(w); parts.Wrote("guide");
     }
 
-    /// <summary>Keys added at the end of existing STATE objects, in package order.</summary>
+    /// <summary>Keys added at the end of existing STATE objects, in package order (round 2's, then round 3's).</summary>
     internal void WriteAirExtras(Utf8JsonWriter w) { AirShow(w); AirWall(w); }
 
-    internal void WriteOutputExtras(Utf8JsonWriter w, Output o) { OutputOutput(w, o); OutputFx(w, o); OutputAlign(w, o); }
+    /// <summary>Keys at the end of air.overlay, after wp2-wall's own (handleP95Ms).</summary>
+    internal void WriteOverlayExtras(Utf8JsonWriter w) { OverlayHandles(w); }
+
+    /// <summary>Keys at the end of STATE's render block, after wp3-d3d12-core's own (graph): wp3-d3d12-core's StateGpu calls it last
+    /// inside the block it writes.</summary>
+    internal void WriteRenderExtras(Utf8JsonWriter w) { RenderPlan(w); }
+
+    /// <summary>Keys at the end of fx.compile, after wp2-fx's own (worker), and at the end of the fx block (quarantine).</summary>
+    internal void WriteFxCompileExtras(Utf8JsonWriter w) { FxCompileShaders(w); }
+
+    internal void WriteFxExtras(Utf8JsonWriter w) { FxShaders(w); }
+
+    /// <summary>Keys at the end of each output, after the round-2 packages' own: measured (wp2-align), then observed, showing, hand,
+    /// passThrough.</summary>
+    internal void WriteOutputExtras(Utf8JsonWriter w, Output o)
+    {
+        OutputOutput(w, o); OutputFx(w, o); OutputAlign(w, o);
+        OutputObserve(w, o); OutputShowing(w, o); OutputCanvas(w, o); OutputCapture(w, o);
+    }
 
     internal void WritePlaylistExtras(Utf8JsonWriter w, Playlist list) { PlaylistControl(w, list); }
 
@@ -235,13 +312,19 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
             w.WriteString("light", light);
     }
 
-    internal void WriteMediaExtras(Utf8JsonWriter w) { MediaOptimise(w); }
+    internal void WriteMediaExtras(Utf8JsonWriter w) { MediaOptimise(w); MediaShowing(w); }
+
+    /// <summary>Keys at the end of each of videoio's inputs, after wp2-videoio's own (capture, latency); in STATE and INPUT LIST
+    /// alike.</summary>
+    internal void WriteInputExtras(Utf8JsonWriter w, VideoIo.LiveInput input) { InputCapture(w, input); }
 
     internal void WriteStageExtras(Utf8JsonWriter w) { StageSite(w); }
 
     internal void WriteProjectorExtras(Utf8JsonWriter w, Projector pj) { ProjectorSite(w, pj); ProjectorWall(w, pj); }
 
-    internal void WriteMachineExtras(Utf8JsonWriter w) { MachineOutput(w); MachineDecode(w); }
+    /// <summary>Keys at the end of the machine block: round 2's, then the identity, capabilities, platform and locked keys, then
+    /// install.</summary>
+    internal void WriteMachineExtras(Utf8JsonWriter w) { MachineOutput(w); MachineDecode(w); MachineMachine(w); MachineInstall(w); }
 
     internal void WriteProjectExtras(Utf8JsonWriter w) { ProjectCompanion(w); }
 
@@ -253,6 +336,7 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         ContextOptimise(items, links); ContextVideoIo(items, links); ContextControl(items, links); ContextCompanion(items, links);
         ContextFx(items, links); ContextAudio(items, links); ContextContent(items, links); ContextLed(items, links);
         ContextSite(items, links); ContextAlign(items, links); ContextPhone(items, links); ContextWall(items, links);
+        ContextMachine(items, links); ContextGpu(items, links); ContextObserve(items, links); ContextGuide(items, links);
         ShapeContext(items, links);
     }
 
@@ -268,6 +352,18 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     /// reach the packages' checks and their words refuse the edit.</summary>
     internal Func<Project, object, string?>? ValidateForTests { get; set; }
 
+    /// <summary>A field the air does not follow yet, refused by its package's check until the package draws it: an edit that moves it
+    /// from the stored value (<paramref name="before"/>, absent for an added entity) to anything but its default is answered with
+    /// the words of a verb not available yet, so the generic SET and ADD never report as done what the air never follows. A stored
+    /// value (a project opened with it) is kept through other edits, and setting the field back to its default is taken.</summary>
+    internal static string? NotDrawnYet<T>(string field, T after, T before, T fallback, bool added) =>
+        SameValue(after, fallback) || (!added && SameValue(after, before)) ? null : VerbCatalog.NotAvailableYet(field);
+
+    /// <summary>Two values as the project file holds them (a list read back is a new array with the same items).</summary>
+    private static bool SameValue<T>(T a, T b) =>
+        EqualityComparer<T>.Default.Equals(a, b) || (a is not null && b is not null
+            && string.Equals(Core.Model.ProjectJson.SerializeEntity(a), Core.Model.ProjectJson.SerializeEntity(b), StringComparison.Ordinal));
+
     /// <summary>Each package's check of an entity it owns, at the end of the generic Validate (null = fine).</summary>
     internal string? ValidateModules(Project p, object entity)
     {
@@ -277,6 +373,8 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
         ValidateControl(p, entity, ref why); ValidateFx(p, entity, ref why); ValidateAudio(p, entity, ref why);
         ValidateContent(p, entity, ref why); ValidateLed(p, entity, ref why); ValidateSite(p, entity, ref why);
         ValidateAlign(p, entity, ref why); ValidatePhone(p, entity, ref why); ValidateWall(p, entity, ref why);
+        ValidateObserve(p, entity, ref why); ValidateCanvas(p, entity, ref why); ValidateGuide(p, entity, ref why);
+        ValidateCapture(p, entity, ref why);
         return why;
     }
 
@@ -295,8 +393,9 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
 
     /// <summary>The show's door for a line about to run — on the lane, or at the start of an off-lane verb (reading only published
     /// state there). Sets <paramref name="refused"/> to refuse it with words, or <paramref name="lineStore"/> to send the line's edits
-    /// to a blind draft. wp2-show implements it (wp2-blind adds the redirection); its stub lets every line pass.</summary>
-    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, ref CommandReply? refused, ref ProjectStore? lineStore);
+    /// to a blind draft. What it leaves running goes behind the line's row: through <paramref name="call"/> off the lane, through
+    /// <see cref="AfterRow"/> on it (null there). wp2-show implements it (wp2-blind adds the redirection); its stub lets every line pass.</summary>
+    partial void GateLine(VerbSpec spec, WireLine line, SessionInfo session, VerbCall? call, ref CommandReply? refused, ref ProjectStore? lineStore);
 
     /// <summary>The fleet's door before the show's: a hot backup or a fenced node refuses a client's line that would change the show it
     /// mirrors, with the way out (wp2-backup). Same places as <see cref="GateLine"/>.</summary>
@@ -419,4 +518,53 @@ public sealed partial class EngineCore : IVerbAvailability, IPushTopics
     partial void RecoveryLoadSync(IReadOnlyDictionary<string, string> from);
     partial void RecoveryLoadControl(IReadOnlyDictionary<string, string> from);
     partial void RecoveryLoadLed(IReadOnlyDictionary<string, string> from);
+
+    // Round 3's hooks, by hook word (docs/round3/PLAN.md §2.3), each implemented in its package's stub file
+    // (EngineCore.<Word>.cs; wp3-installer's in Install/EngineCore.Install.cs) with an empty body holding one comment line.
+    partial void RouteMachine(VerbRoutes routes);
+    partial void RouteGpu(VerbRoutes routes);
+    partial void RouteObserve(VerbRoutes routes);
+    partial void RouteShaders(VerbRoutes routes);
+    partial void RouteUndo(VerbRoutes routes);
+    partial void RouteHandles(VerbRoutes routes);
+    partial void RouteCanvas(VerbRoutes routes);
+    partial void RouteGuide(VerbRoutes routes);
+    partial void RouteCapture(VerbRoutes routes);
+
+    partial void StateGpu(Utf8JsonWriter w);
+    partial void StateObserve(Utf8JsonWriter w);
+    partial void StatePreview(Utf8JsonWriter w);
+    partial void StateGuide(Utf8JsonWriter w);
+
+    partial void OverlayHandles(Utf8JsonWriter w);
+    partial void RenderPlan(Utf8JsonWriter w);
+    partial void FxCompileShaders(Utf8JsonWriter w);
+    partial void FxShaders(Utf8JsonWriter w);
+    partial void OutputObserve(Utf8JsonWriter w, Output o);
+    partial void OutputShowing(Utf8JsonWriter w, Output o);
+    partial void OutputCanvas(Utf8JsonWriter w, Output o);
+    partial void OutputCapture(Utf8JsonWriter w, Output o);
+    partial void MediaShowing(Utf8JsonWriter w);
+    partial void InputCapture(Utf8JsonWriter w, VideoIo.LiveInput input);
+    partial void MachineMachine(Utf8JsonWriter w);
+    partial void MachineInstall(Utf8JsonWriter w);
+
+    partial void ContextMachine(List<ContextItem> items, List<ContextLink> links);
+    partial void ContextGpu(List<ContextItem> items, List<ContextLink> links);
+    partial void ContextObserve(List<ContextItem> items, List<ContextLink> links);
+    partial void ContextGuide(List<ContextItem> items, List<ContextLink> links);
+
+    partial void ValidateObserve(Project p, object entity, ref string? why);
+    partial void ValidateCanvas(Project p, object entity, ref string? why);
+    partial void ValidateGuide(Project p, object entity, ref string? why);
+    partial void ValidateCapture(Project p, object entity, ref string? why);
+
+    /// <summary>VIEW … SHARED &lt;pid&gt;: wp3-desk-gpu answers it (EngineCore.Preview.cs); while <paramref name="reply"/> stays null the
+    /// spine refuses it with the words of a form not available yet.</summary>
+    partial void ViewShared(List<string> args, SessionInfo session, ref CommandReply? reply);
+
+    /// <summary>What an output shows now, in the words its context item carries after its own ("Front — Intro.mov via Show"), or ""
+    /// when nothing is said: wp3-desk-map fills it (EngineCore.Showing.cs). Read on whichever thread builds the context, from published
+    /// state only.</summary>
+    internal partial string ShowingWords(Output output);
 }

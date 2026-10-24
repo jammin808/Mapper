@@ -52,7 +52,7 @@ inspector one click away.
 
 | Area | Who it is for | What it holds | How it is reached |
 |---|---|---|---|
-| **Workflows home** (Simple's landing; a pane in Pro) | a person setting up a standard job | a card per guide — Blend two projectors, Stack two projectors, Stack and blend four, Map a video onto a wall, Map an object, First light, Facade — each with its state from STATE `guides` ("Front screen · corners · 4 of 7"), Resume and Start (`GUIDE <kind> <subject> BEGIN`) | the Guides menu, the empty view's right-click, the palette, Simple's start |
+| **Workflows home** (Simple's landing; a pane in Pro) | a person setting up a standard job | a card per guide — Blend two projectors, Stack two projectors, Stack and blend four, Map a video onto a wall, Map an object, First light, Facade — each with its state from STATE `guides` ("Front screen · corners · 4 of 7"), Resume and Start (`GUIDE BEGIN <kind> <subject>`) | the Guides menu, the empty view's right-click, the palette, Simple's start |
 | **A guide** | the same | the step rail docked at the left, the live view in the centre (the projector view, the 3D view or the wall's overlay), the step's object's inspector at the right showing only the fields the step uses, each step with **Do it**, **By hand**, **Ask**, **Explain** and, for a step a person judges, **Check** | the Guides menu (each guide, and each of its steps, acting on the selection), a card, the object's right-click (each step is re-entered from the object it is about), the palette |
 | **Pro** | an operator who knows the tools | every pane, the outliner, the full inspectors, every card and drawer, the advanced panes (below), the generated entries | Ctrl+Shift+P, the View menu |
 | **The advanced panes** (Pro) | an operator who programs a show's looks and controls | the effects chain editor, the modulation and bindings pane, and an area pane per advanced STATE block (below) | the Window menu, the object's right-click, the palette |
@@ -204,17 +204,18 @@ The guides are the assistant's way into every workflow, as they are the desk's:
 
 - `GUIDE LIST` answers every guide begun on the node and its state; `GUIDE <FLAT|WALL|OBJECT|FACADE|FIRST> [<subject>]` answers one
   guide's steps (`FACADE` is `SITE GUIDE`'s list, kept under its old row too). The subject is what the guide is about: a canvas
-  for FLAT, a viewpoint for WALL, a projector or a pair for OBJECT; with none, the first step says which line makes one. `GUIDE <kind>
-  <subject> BEGIN` (a card's Start, from any session, an assistant's included) records the guide as begun and `END` as ended, in
-  `Project.Guides` with who and when.
+  for FLAT, a viewpoint for WALL, a projector or a pair for OBJECT; with none, the first step says which line makes one. `GUIDE BEGIN
+  <kind> <subject>` (a card's Start, from any session, an assistant's included) records the guide as begun and `GUIDE END <kind>
+  <subject>` as ended, in `Project.Guides` with who and when. (The catalogue names a row by a line's first two words, so the second
+  word is the action: `GUIDE FLAT cv BEGIN` would be read as the `GUIDE` query.)
 - Each step: `step` (its key), `state` (`done`, `waiting`, `running`, `failed`, as `SiteGuide`'s), `words`, `facts` (the measured
   numbers it rests on: residuals, coverage, the seam's misregistration, a score's terms), `line` (what does it now), `auto` (the
   automatic way, if any), `hand` (the hand way, with `<…>` where only a person knows the value), and `checked` for a step a person
   judges.
-- A step a person judges — corners lined up by eye, a blend that looks right — is marked by `GUIDE <kind> <subject> CHECK <step>`
-  (and `UNCHECK`): the mark records the step's inputs, and the step reads `done` while they are unchanged and "changed since you
-  checked it" once they move. `CHECK` is a person's mark: an assistant's session is refused with "a person checks a step", as only
-  a person approves.
+- A step a person judges — corners lined up by eye, a blend that looks right — is marked by `GUIDE CHECK <kind> <subject> <step>`
+  (and `GUIDE UNCHECK <kind> <subject> <step>`): the mark records the step's inputs, and the step reads `done` while they are
+  unchanged and "changed since you checked it" once they move. `CHECK` is a person's mark: an assistant's session is refused with
+  "a person checks a step", as only a person approves.
 - STATE `guides` lists every guide begun (kind, subject, the next step, how many of how many, its light); the context carries one
   item per guide (kind `guide`, "Flat blend · Front: corners, 4 of 7"), so Patterns' Eye and a peer's assistant see where a
   setup stands. The Eye keeps the first 64 of a context's commands today, which are the air's, so it sees a guide's state but
@@ -359,11 +360,12 @@ coverage meter's facts, so it says what is missing before a solve fails.
 
 ### 6.1 The quad, its corners and a pin by one pixel (desk-ux item 6, W1)
 
-Today the quad works, and a half-drawn one is lost the moment the person looks away: the clicks are dropped on a tool change, on
-showing another projector, on leaving MAP and at Esc; after Enter the tool stays Q, so the next click starts a new quad instead of
-selecting the old one; a reselected quad resets to its top-left corner without telling the wall, and the desk never sends `HANDLE
-SELECT NONE`; picking a quad in the outliner does not show its projector; the first-light guide's × closes it for good; corners are
-neither dragged nor typed, and a pin's pixel is read-only [today §a].
+desk-ux builds this section (`docs/DESK.md`, MAP's quad tool) against the reading of the tree at `6f24310`, where the quad works and
+a half-drawn one is lost the moment the person looks away: the clicks are dropped on a tool change, on showing another projector, on
+leaving MAP and at Esc; after Enter the tool stays Q, so the next click starts a new quad instead of selecting the old one; a
+reselected quad resets to its top-left corner without telling the wall, and the desk never sends `HANDLE SELECT NONE`; picking a
+quad in the outliner does not show its projector; the first-light guide's × closes it for good; corners are neither dragged nor
+typed, and a pin's pixel is read-only [today §a].
 
 - **A draft per projector.** The clicks of an unfinished quad stay on the desk (never in the project, so the one-writer rule is
   untouched) until Enter sends `SURFACE QUAD` or the person discards it — the draft chip's ✕, or Esc while the view has the keyboard
@@ -390,10 +392,9 @@ neither dragged nor typed, and a pin's pixel is read-only [today §a].
 
 ### 6.2 Every handle: selected, dragged, typed, nudged (desk-map, W3)
 
-Today only a quad's corner nudges; pins and output warp corners move by drag alone, a pin's pixel is read-only in its row, and the
+desk-ux (§6.1) drags, types and nudges a quad's corners and types and nudges a pin; output warp corners move by drag alone, and the
 projector view has no zoom, so at 1600 px about two raster pixels sit under each screen pixel and a one-pixel drag is out of reach
-[today §a]. desk-ux (§6.1) types and nudges a quad's corners and a pin first; desk-map gives every handle the same, with the engine
-rows an encoder, a dial and an assistant use.
+[today §a]. desk-map gives every handle the same, with the engine rows an encoder, a dial and an assistant use.
 
 | Handle | Selected by | Dragged | Typed (inspector) | Nudged | The line |
 |---|---|---|---|---|---|
@@ -585,7 +586,7 @@ daylight, desk-ux) recolours neutrals, never a meaning.
 
 | Channel | Its job | Tokens | Rules |
 |---|---|---|---|
-| **Status** (desk-ux's rules) | the air and the node's condition | red (fault, the air at risk, armed) `#E5484D`, amber (attention) `#D29922`, green (ready, sparingly) `#3FB950` — today's `LightRed`, `LightAmber`, `LightGreen` — and grey `#6F7882` (`LightGrey`) for off, unknown and information | reserved for this job alone; every light a shape and a word (✓ △ ✕ ■, and ○ or **i** on grey); ok, warn and fault 3:1 apart in luminance; a flash only for an unacknowledged red or amber, once per event, at most 2 Hz, never text; red, amber and green at chroma C* ≥ 40; grey is the channel's achromatic token, exempt from that rule and never the only cue — its shape and word carry it; the edition's information rows are grey with **i**; the controllers rows (the owner's call 9) keep their own lights |
+| **Status** (desk-ux's rules) | the air and the node's condition | red (fault, the air at risk, armed) `#E5484D`, amber (attention) `#D29922`, green (ready, sparingly) `#3FB950` — today's `LightRed`, `LightAmber`, `LightGreen` — and grey `#6F7882` (`LightGrey`) for off, unknown and information | reserved for this job alone; every light a shape and a word (✓ △ ✕ ■, and ○ or **i** on grey); ok, warn and fault each 3:1 or more against every theme's panels (`PLAN.md` §3.6 item 4: three lights 3:1 apart cannot all be 3:1 from a panel as dark as `#191C20`); a flash only for an unacknowledged red or amber, once per event, at most 2 Hz, never text; red, amber and green at chroma C* ≥ 40; grey is the channel's achromatic token, exempt from that rule and never the only cue — its shape and word carry it; the edition's information rows are grey with **i**; the controllers rows (the owner's call 9) keep their own lights |
 | **Identity** (new) | which projector, output or client | dark themes: P1 azure `#3C9AF2`, P2 lavender `#D6C3FA`, P3 magenta `#CC64C3`; daylight: P1 `#1F79CC`, P2 `#524A98`, P3 `#B5479E`; then repeating — always with the number badge (P1, P2 …) | never a status hue (amber, orange, yellow, red, green) and never a grey: today's projector `#FFB74D` collides with amber and goes for new projectors; a stored colour within ΔE₀₀ 20 of a status token stays the project's and is drawn in its projector's identity token, the inspector saying so ("stored #FFB74D reads as amber: shown as P1's azure"); outlines, pins, cameras, the wall's line-up overlay and Identify use it |
 | **Stage** (new) | where in the workflow | low-chroma tints: Setup and Outputs `#AAC4D9` (steel), MAP `#9DCAC3` (teal), SCAN `#C2C3A8` (sage), PLAY and the show none | a 2–4 % tint over the panel background and a 2 px bar on the workspace tab, pane headers and a guide's step headers; red never marks a stage; the armed frame and the blind grey override every tint |
 
@@ -601,9 +602,9 @@ Computed from the tokens above (CIEDE2000; colour-vision simulation by Machado's
 | SCAN `#C2C3A8` | 23.2 (green) | 15.3 | 14 | — |
 
 The identity tokens are at least ΔE₀₀ 23 from one another (P1–P2 28.6, P1–P3 38.5, P2–P3 23.9); the daylight set has 4.1, 6.8 and 4.4 :
-1 on a `#F3F4F6` panel, and its distances are computed against desk-ux's daylight status tokens when that theme lands. Today's tokens
-fail these rules (stage `#7F8C9A` is 7.6 from the status grey, SCAN `#8E86B5` has C* 27, the pale grey identity reads as the status
-grey), which is why they are not used.
+1 on a `#F3F4F6` panel, and its distances are computed against desk-ux's daylight status tokens (`DeskPalette.Daylight`: green
+`#1A7F37`, amber `#9A6700`, red `#CF222E`, grey `#5F6873`). Today's tokens fail these rules (stage `#7F8C9A` is 7.6 from the status
+grey, SCAN `#8E86B5` has C* 27, the pale grey identity reads as the status grey), which is why they are not used.
 
 `AreaColourTests` (App, from each theme's own tokens): every identity and stage token at least ΔE₀₀ 20 from every status token, and at
 least 10 under simulated protanopia, deuteranopia and tritanopia; identity tokens at least ΔE₀₀ 20 from one another and at C* ≥ 20;
@@ -643,7 +644,9 @@ in WAL mode on a lane of its own, never on the render, present or capture thread
 
 | Row | Syntax | Package | Risk / class |
 |---|---|---|---|
-| `GUIDE` | `GUIDE LIST \| GUIDE FLAT\|WALL\|OBJECT\|FACADE\|FIRST [<subject>] \| GUIDE <kind> <subject> BEGIN\|END \| GUIDE <kind> <subject> CHECK\|UNCHECK <step>` | workflows | Low / Query (BEGIN, END, CHECK, UNCHECK: Review / Project; CHECK and UNCHECK refused from an assistant's session) |
+| `GUIDE` | `GUIDE LIST \| GUIDE FLAT\|WALL\|OBJECT\|FACADE\|FIRST [<subject>]` | workflows | Low / Query |
+| `GUIDE BEGIN`, `GUIDE END` | `GUIDE BEGIN\|END FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject>` | workflows | Review / Project |
+| `GUIDE CHECK`, `GUIDE UNCHECK` | `GUIDE CHECK\|UNCHECK FLAT\|WALL\|OBJECT\|FACADE\|FIRST <subject> <step>` | workflows | Review / Project (refused from an assistant's session) |
 | `CANVAS SPAN` | `CANVAS SPAN <canvas>\|NEW <output> <output>… [SIDE <c>x<r>] [STACK <n 2-4>] [OVERLAP <px>\|<pct>%] [KEEP\|REPLACE]` | canvas | Review / Layout |
 | `CANVAS SOURCE` | `CANVAS SOURCE <canvas> <source> [FIT\|FILL\|STRETCH]` | canvas | High / Content |
 | `PATTERN` (extended) | `PATTERN <kind>\|OFF [ON <output>\|<canvas>\|ALL]` | canvas | as `PATTERN` |

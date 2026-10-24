@@ -72,6 +72,8 @@ public static class BlendMath
     public static BlendMap EdgeBlendMap(string outputId, int width, int height, BlendSettings settings, int outputWidth = 0, int outputHeight = 0)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        // The caller passes the γ the output draws; a γ of 0 with no measurement behind it is the assumed one.
+        var gamma = settings.DrawnGamma(null);
         width = Math.Max(1, width);
         height = Math.Max(1, height);
         var sx = outputWidth > 0 ? width / (double)outputWidth : 1;
@@ -90,10 +92,10 @@ public static class BlendMath
             for (var x = 0; x < width; x++)
             {
                 var k = y * width + x;
-                weights[k] = (float)ToSignal(fx[x] * fy[y], settings.Gamma);
+                weights[k] = (float)ToSignal(fx[x] * fy[y], gamma);
                 var bandX = (e.Left > 0 && x + 0.5 < e.Left * sx) || (e.Right > 0 && width - (x + 0.5) < e.Right * sx);
                 var coverage = (bandX ? 2 : 1) * (bandY ? 2 : 1);
-                pedestal[k] = (float)BlackLevel.Signal(settings.BlackLevel, coverage, deepest, settings.Gamma);
+                pedestal[k] = (float)BlackLevel.Signal(settings.BlackLevel, coverage, deepest, gamma);
             }
         }
         return new BlendMap(outputId, width, height, weights, pedestal);

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Windows job's probe (bench/r3-probe/README.md): what the hosted runner gives — M7, the Agility SDK's runtime loaded by a
+       .NET apphost through the device factory, and M14, MMCSS, the power-throttling read-back, the GPU scheduling class, an HDR10
+       colour space on its display and M9's session calls — written as the job's summary. Windows only; outside PlayMap.sln, built
+       and run by the Windows job alone. It asks M7 with the Direct3D 12 test's own code (WarpDevice.cs), so the two cannot ask
+       differently. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Bench.Probe</RootNamespace>
+    <AssemblyName>PlayMap.Bench.Probe</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TerraFX.Interop.Windows" Version="10.0.26100.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\tests\PlayMap.Render.D3D12.Tests\WarpDevice.cs" Link="WarpDevice.cs" />
+    <Compile Include="..\shared\BenchWindow.cs" Link="BenchWindow.cs" />
+  </ItemGroup>
+
+</Project>

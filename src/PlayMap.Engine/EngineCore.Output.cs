@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Presentation;
@@ -56,6 +57,8 @@ public sealed partial class EngineCore
     /// is refused; DXGI is refused where it cannot run (not Windows), and asking it again with a blown fuse clears the fuse.</summary>
     private CommandReply PresentPathVerb(List<string> args, SessionInfo session)
     {
+        if (args.Count == 1 && args[0].Trim().Equals("D3D12", StringComparison.OrdinalIgnoreCase))
+            return CommandReply.Fail(VerbCatalog.NotAvailableYet("PRESENT PATH D3D12") + " — AUTO, DXGI and GL are");
         if (args.Count != 1 || PresentChoice.Normalise(args[0]) is var word && !args[0].Trim().Equals(word, StringComparison.OrdinalIgnoreCase))
             return CommandReply.Fail("PRESENT PATH AUTO|DXGI|GL");
         if (Services.PresentNode is not { } node)
@@ -411,7 +414,7 @@ public sealed partial class EngineCore
         w.WriteString("words", p.Words());
         w.WriteNumber("presented", p.Presented);
         w.WriteNumber("late10s", p.Late10s);
-        w.WriteString("phase", p.Path == Render.Platform.PresentPath.Offscreen ? "nominal" : p.Measured ? "approximate" : "unknown");
+        w.WriteString("phase", p.Path == PresentPath.Offscreen ? "nominal" : p.Measured ? "approximate" : "unknown");
         w.WriteString("light", ShowContext.LightWord(p.Light));
         w.WriteEndObject();
     }
@@ -570,6 +573,15 @@ public sealed partial class EngineCore
     {
         // Another check's words stand: this one only adds its own.
         if (entity is not Output o || why is not null)
+            return;
+        // The present path's fields (wp3-present lifts each as it draws it): nothing reads them yet.
+        var stored = p.FindOutput(o.Id);
+        var was = stored ?? o;
+        why = NotDrawnYet("colorBits", o.ColorBits, was.ColorBits, 8, stored is null)
+            ?? NotDrawnYet("hdr", o.Hdr, was.Hdr, HdrMode.Off, stored is null)
+            ?? NotDrawnYet("nitTarget", o.NitTarget, was.NitTarget, Output.DefaultNitTarget, stored is null)
+            ?? NotDrawnYet("framesInFlight", o.FramesInFlight, was.FramesInFlight, 0, stored is null);
+        if (why is not null)
             return;
         if (double.IsNaN(o.LatencyMs) || o.LatencyMs < 0 || o.LatencyMs > 500)
         {

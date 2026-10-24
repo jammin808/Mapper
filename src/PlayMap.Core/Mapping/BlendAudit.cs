@@ -157,9 +157,9 @@ public static class BlendAudit
                 notes.Add(new BlendNote(true, Words($"{Cap(side)} join with {name}: {myZone:0.#} px, but this output's curve is {me.Blend.Curve} and {name}'s is {other.Blend.Curve} — use the same curve on both.")));
                 continue;
             }
-            if (Math.Abs(other.Blend.Gamma - me.Blend.Gamma) > 0.01)
+            if (Math.Abs(other.DrawnBlendGamma() - me.DrawnBlendGamma()) > 0.01)
             {
-                notes.Add(new BlendNote(true, Words($"{Cap(side)} join with {name}: {myZone:0.#} px, but the gammas differ ({me.Blend.Gamma:0.##} and {other.Blend.Gamma:0.##}) — the fades will not sum to one in light.")));
+                notes.Add(new BlendNote(true, Words($"{Cap(side)} join with {name}: {myZone:0.#} px, but the gammas differ ({me.DrawnBlendGamma():0.##} and {other.DrawnBlendGamma():0.##}) — the fades will not sum to one in light.")));
                 continue;
             }
             if (Math.Abs(myZone - overlap) >= WidthTolerancePx)

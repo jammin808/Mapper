@@ -4,13 +4,15 @@ using System.Net;
 using System.Net.Sockets;
 using PlayMap.Core.Dmx;
 using PlayMap.Core.Led;
+using PlayMap.Core.Machine;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 
 namespace PlayMap.Net.Led;
 
 /// <summary>How the sender is made: the shared Art-Net socket (null = no Art-Net on this node), the address the sACN and DDP socket
-/// binds (null = any), the multicast TTL, and the clock it schedules on.</summary>
+/// binds (null = any), the multicast TTL, the clock it schedules on and the deadline timer its thread waits on.</summary>
 public sealed record LedSenderOptions
 {
     public IArtNetEndpoint? ArtNet { get; init; }
@@ -20,6 +22,10 @@ public sealed record LedSenderOptions
     public int MulticastTtl { get; init; } = 1;
 
     public IMonoClock Clock { get; init; } = MonoClock.Instance;
+
+    /// <summary>Makes the send thread's deadline timer, for waits on <see cref="Clock"/>, on that thread as it starts (the thread
+    /// disposes it); null: <see cref="ThreadClaims.CreateTimer"/> on <see cref="Clock"/>.</summary>
+    public Func<IDeadlineTimer>? Timer { get; init; }
 
     /// <summary>A universe not sent for this long is sent again with its last payload (Art-Net recommends 800–1000 ms).</summary>
     public long KeepAliveNs { get; init; } = 900_000_000;
@@ -35,12 +41,17 @@ public sealed record LedSenderOptions
 /// (floor(leader seconds × rate) changes), held until their emission instant (the light's monotonic instant less the node's latency),
 /// then sent as one burst of every universe followed by the latch (ArtSync, the sACN synchronization packet, or the DDP push flag on
 /// the device's last packet). A universe not sent for 900 ms is sent again with its last payload. The work is done by
-/// <see cref="Pump"/>, which a test drives on a hand-moved clock; <see cref="Start"/> runs it on its own thread, waiting on an event
-/// until a millisecond before the next instant and spinning the rest. Once warm the send path allocates nothing: packets are written
-/// into per-node buffers and sent to cached socket addresses.</summary>
+/// <see cref="Pump"/>, which a test drives on a hand-moved clock; <see cref="Start"/> runs it on its own thread, waiting on its deadline
+/// timer (<see cref="LedSenderOptions.Timer"/>) until a millisecond before the next instant, woken early by whatever hands it work, and
+/// spinning the rest. Once warm the send path allocates nothing: packets are written into per-node buffers and sent to cached socket
+/// addresses.</summary>
 public sealed class LedSender : ILedOutput
 {
     private const int Ring = 256;
+
+    /// <summary>The last part of a wait before an instant that the send thread spins rather than waits (ns), so a frame leaves at its
+    /// instant whatever timer the thread waits on.</summary>
+    private const long SpinNs = 1_000_000;
 
     private sealed class NodeRun
     {
@@ -105,6 +116,8 @@ public sealed class LedSender : ILedOutput
         _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, Math.Clamp(options.MulticastTtl, 1, 255));
         _pool.Submitted = () => _wake.Set();
         LedArtNet.WritePoll(_poll);
+        // The sender's thread takes the gate on its deadlines while verbs and readers take it too: a first wait allocates nothing.
+        LockWaits.Prepare(_gate);
     }
 
     private bool _listening;
@@ -172,14 +185,16 @@ public sealed class LedSender : ILedOutput
 
     private void Run()
     {
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Led);
         var clock = _options.Clock;
+        using var timer = _options.Timer?.Invoke() ?? ThreadClaims.CreateTimer(clock);
         while (!_disposed)
         {
             var next = Pump(clock.NowNs);
-            var wait = next - clock.NowNs;
-            if (wait > 1_000_000)
+            if (next - clock.NowNs > SpinNs)
             {
-                _wake.WaitOne(TimeSpan.FromTicks(Math.Min((wait - 1_000_000) / 100, TimeSpan.TicksPerSecond)));
+                // A program, a master change, a stop, a frame or the end wakes the wait early (false): the next pump takes it.
+                _ = timer.WaitUntil(next - SpinNs, _wake);
                 continue;
             }
             var spin = new SpinWait();

@@ -6,6 +6,11 @@
              xmlns:mapvm="using:PlayMap.App.ViewModels.Map"
              x:Class="PlayMap.App.Views.MapView"
              x:DataType="vm:MapViewModel">
+  <Panel>
+  <Border Classes="blindTag" x:Name="BlindTag" ZIndex="10" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,2,0,0" IsHitTestVisible="False"
+          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsBlindMine, FallbackValue=False}">
+    <TextBlock Text="{Binding $parent[Window].((vm:MainViewModel)DataContext).BlindTag, FallbackValue=''}" />
+  </Border>
   <Grid ColumnDefinitions="290,*,360" Margin="10" ColumnSpacing="10">
 
     <!-- The scene outliner: every object with its visibility and lock, and its right-click menu. -->
@@ -59,6 +64,22 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <!-- Under Surfaces: each unfinished quad, kept until Enter or a Discard, with Resume and Discard. -->
+                <ItemsControl x:Name="OutlinerDrafts" IsVisible="{Binding IsSurfaces}"
+                              ItemsSource="{Binding $parent[UserControl].((vm:MapViewModel)DataContext).DraftChips, FallbackValue={x:Null}}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="mapvm:QuadDraftChip">
+                      <Border Classes="chip" Padding="8,3" ui:DeskMenu.Actions="{Binding Actions}" Margin="0,2">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.surface}" Width="12" Height="12" Foreground="{StaticResource DeskAccentBrush}" VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding Words}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                          <ContentControl Content="{Binding Resume}" ContentTemplate="{StaticResource ActionText}" />
+                          <ContentControl Content="{Binding Discard}" ContentTemplate="{StaticResource ActionSmall}" />
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </StackPanel>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
@@ -95,6 +116,9 @@
             <RadioButton GroupName="tool" x:Name="QuadToolButton" Classes="tool" IsChecked="{Binding IsQuadTool}" ToolTip.Tip="Quad  (Q) — click the four corners of the wall, on the wall; Enter draws it">
               <PathIcon Data="{StaticResource Icon.surface}" />
             </RadioButton>
+            <ToggleButton x:Name="KeepQuadToolButton" Classes="tool small" IsChecked="{Binding KeepQuadTool}" ToolTip.Tip="Keep quad tool: after Enter the quad tool stays armed, to draw several in a row">
+              <TextBlock Text="+Q" FontWeight="SemiBold" FontSize="11" />
+            </ToggleButton>
             <RadioButton GroupName="tool" x:Name="PinToolButton" Classes="tool" IsChecked="{Binding IsPinTool}" ToolTip.Tip="Pins  (P) — 3D point ↔ projector pixel">
               <PathIcon Data="{StaticResource Icon.pin}" />
             </RadioButton>
@@ -116,7 +140,7 @@
           </Border>
           <TextBlock Grid.Column="2" Classes="dim" Text="{Binding ToolHint}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="12" Margin="4,0" />
           <!-- On the wall: the edit overlay on the projector's output; greyed with the node's words while the show is armed. -->
-          <Button Grid.Column="3" x:Name="OnWallButton" Classes="tool" Classes.checked="{Binding OnWall.IsChecked}" Command="{Binding OnWall.Command}"
+          <Button Grid.Column="3" x:Name="OnWallButton" Classes="tool" Classes.checked="{Binding OnWall.IsChecked}" Classes.bindable="{Binding OnWall.IsBindable}" ui:MapAnythingTouch.Action="{Binding OnWall}" Command="{Binding OnWall.Command}"
                   ToolTip.Tip="{Binding OnWall.Tip}" ToolTip.ShowOnDisabled="True" IsVisible="{Binding OnWall.IsAvailable}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <PathIcon Data="{StaticResource Icon.projector}" Width="14" Height="14" />
@@ -131,6 +155,21 @@
         <Panel>
           <ui:MapViewport x:Name="Viewport" Map="{Binding}" ViewId="{Binding EditorViewId}" NodeId="{Binding NodeId}" IsVisible="{Binding Is3DView}" />
           <ui:ProjectorCanvas x:Name="ProjectorView" Map="{Binding}" ViewId="{Binding ViewId}" NodeId="{Binding NodeId}" IsVisible="{Binding IsProjectorView}" Margin="12" />
+          <!-- The viewed projector's unfinished quad: "Quad 2/4 on P1 · Resume · Discard", in the view's corner. -->
+          <ContentControl x:Name="ViewDraftChip" Content="{Binding ViewDraftChip}" IsVisible="{Binding IsProjectorView}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="20">
+            <ContentControl.ContentTemplate>
+              <DataTemplate x:DataType="mapvm:QuadDraftChip">
+                <Border Classes="chip" Padding="8,3" ui:DeskMenu.Actions="{Binding Actions}" Margin="0,2">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.surface}" Width="12" Height="12" Foreground="{StaticResource DeskAccentBrush}" VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding Words}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                          <ContentControl Content="{Binding Resume}" ContentTemplate="{StaticResource ActionText}" />
+                          <ContentControl Content="{Binding Discard}" ContentTemplate="{StaticResource ActionSmall}" />
+                        </StackPanel>
+                      </Border>
+              </DataTemplate>
+            </ContentControl.ContentTemplate>
+          </ContentControl>
         </Panel>
       </Border>
 
@@ -151,4 +190,5 @@
       <views:InspectorView DataContext="{Binding Inspector}" />
     </Border>
   </Grid>
+  </Panel>
 </UserControl>

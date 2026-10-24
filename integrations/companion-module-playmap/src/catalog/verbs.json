@@ -1676,8 +1676,8 @@
   },
   {
     "name": "PATTERN",
-    "syntax": "PATTERN \u003Ckind\u003E|OFF [ON \u003Coutput\u003E|ALL]",
-    "words": "Puts a test pattern over the outputs (OFF returns them to the show)",
+    "syntax": "PATTERN \u003Ckind\u003E|OFF [ON \u003Coutput\u003E|\u003Ccanvas\u003E|ALL]",
+    "words": "Puts a test pattern over the outputs, or once across a canvas wherever it is shown (OFF returns them to the show)",
     "category": "content",
     "risk": "high",
     "mutates": true,
@@ -1688,7 +1688,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "PATTERN \u003Ckind\u003E|OFF [ON \u003Coutput\u003E|ALL]"
+      "PATTERN \u003Ckind\u003E|OFF [ON \u003Coutput\u003E|\u003Ccanvas\u003E|ALL]"
     ],
     "available": true,
     "params": [
@@ -1703,7 +1703,7 @@
         "optional": true,
         "prefix": "op",
         "keyword": "ON",
-        "alt": "ALL"
+        "alt": "\u003Ccanvas\u003E|ALL"
       }
     ],
     "formParams": [
@@ -1719,7 +1719,7 @@
           "optional": true,
           "prefix": "op",
           "keyword": "ON",
-          "alt": "ALL"
+          "alt": "\u003Ccanvas\u003E|ALL"
         }
       ]
     ],
@@ -1931,8 +1931,8 @@
   },
   {
     "name": "VIEW",
-    "syntax": "VIEW \u003Cview\u003E SHOW|CAMERA|KEEP|HIDE [\u003Cwhat\u003E [\u003Cw\u003Ex\u003Ch\u003E] [DRAFT]|\u003Ccamera json\u003E]",
-    "words": "A preview into the view\u0027s shared-memory ring on this machine: SHOW editor, output:\u003Cid\u003E, projector:\u003Cid\u003E, camera:\u003Cid\u003E or scan:\u003Cid\u003E:smart|confidence; DRAFT shows this session\u0027s blind draft instead of the air (editor only); CAMERA moves an editor view\u0027s eye; KEEP renews it (a view not renewed for 15 s is hidden); HIDE lets it go",
+    "syntax": "VIEW \u003Cview\u003E SHOW|CAMERA|KEEP|HIDE [\u003Cwhat\u003E [\u003Cw\u003Ex\u003Ch\u003E] [DRAFT]|\u003Ccamera json\u003E] [SHARED \u003Cpid\u003E]",
+    "words": "A preview into the view\u0027s shared-memory ring on this machine: SHOW editor, output:\u003Cid\u003E, projector:\u003Cid\u003E, camera:\u003Cid\u003E or scan:\u003Cid\u003E:smart|confidence; DRAFT shows this session\u0027s blind draft instead of the air (editor only); CAMERA moves an editor view\u0027s eye; KEEP renews it (a view not renewed for 15 s is hidden); HIDE lets it go; SHARED \u003Cpid\u003E shares the picture with that process on this machine as a GPU texture and its fences instead of the ring",
     "category": "output",
     "risk": "low",
     "mutates": false,
@@ -1943,7 +1943,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "VIEW \u003Cview\u003E SHOW|CAMERA|KEEP|HIDE [\u003Cwhat\u003E [\u003Cw\u003Ex\u003Ch\u003E] [DRAFT]|\u003Ccamera json\u003E]"
+      "VIEW \u003Cview\u003E SHOW|CAMERA|KEEP|HIDE [\u003Cwhat\u003E [\u003Cw\u003Ex\u003Ch\u003E] [DRAFT]|\u003Ccamera json\u003E] [SHARED \u003Cpid\u003E]"
     ],
     "available": true,
     "params": [
@@ -1976,6 +1976,12 @@
         "kind": "text",
         "optional": true,
         "alt": "\u003Ccamera json\u003E"
+      },
+      {
+        "name": "shared",
+        "kind": "integer",
+        "optional": true,
+        "keyword": "SHARED"
       }
     ],
     "formParams": [
@@ -2009,6 +2015,12 @@
           "kind": "text",
           "optional": true,
           "alt": "\u003Ccamera json\u003E"
+        },
+        {
+          "name": "shared",
+          "kind": "integer",
+          "optional": true,
+          "keyword": "SHARED"
         }
       ]
     ],
@@ -2472,8 +2484,8 @@
   },
   {
     "name": "WARP NODE",
-    "syntax": "WARP NODE \u003Coutput\u003E \u003Ccolumn\u003E \u003Crow\u003E \u003Cdx\u003E \u003Cdy\u003E",
-    "words": "Moves one lattice node (normalised output units)",
+    "syntax": "WARP NODE \u003Coutput\u003E \u003Ccolumn\u003E \u003Crow\u003E \u003Cdx\u003E \u003Cdy\u003E | WARP NODE \u003Coutput\u003E \u003Cc\u003E \u003Cr\u003E TO|BY \u003Cx\u003E \u003Cy\u003E PX",
+    "words": "Moves one lattice node by dx, dy (normalised output units), or to or by x, y in the output\u0027s pixels",
     "category": "mapping",
     "risk": "review",
     "mutates": true,
@@ -2484,7 +2496,8 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "WARP NODE \u003Coutput\u003E \u003Ccolumn\u003E \u003Crow\u003E \u003Cdx\u003E \u003Cdy\u003E"
+      "WARP NODE \u003Coutput\u003E \u003Ccolumn\u003E \u003Crow\u003E \u003Cdx\u003E \u003Cdy\u003E",
+      "WARP NODE \u003Coutput\u003E \u003Cc\u003E \u003Cr\u003E TO|BY \u003Cx\u003E \u003Cy\u003E PX"
     ],
     "available": true,
     "params": [
@@ -2532,6 +2545,44 @@
         {
           "name": "dy",
           "kind": "number"
+        }
+      ],
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "c",
+          "kind": "text"
+        },
+        {
+          "name": "r",
+          "kind": "text"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "TO",
+            "BY"
+          ]
+        },
+        {
+          "name": "x",
+          "kind": "number"
+        },
+        {
+          "name": "y",
+          "kind": "number"
+        },
+        {
+          "name": "px",
+          "kind": "enum",
+          "values": [
+            "PX"
+          ]
         }
       ]
     ],
@@ -6349,8 +6400,8 @@
   },
   {
     "name": "PRESENT PATH",
-    "syntax": "PRESENT PATH AUTO|DXGI|GL",
-    "words": "Where outputs present from the render host\u0027s next start: AUTO is OpenGL this round; DXGI (flip model on Windows) is experimental until proven on the machine (kept on the node)",
+    "syntax": "PRESENT PATH AUTO|D3D12|DXGI|GL",
+    "words": "Where outputs present from the render host\u0027s next start: AUTO is OpenGL this round; D3D12 presents through Direct3D 12\u0027s flip presenters; DXGI (flip model on Windows) is experimental until proven on the machine (kept on the node)",
     "category": "output",
     "risk": "high",
     "mutates": true,
@@ -6361,7 +6412,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "PRESENT PATH AUTO|DXGI|GL"
+      "PRESENT PATH AUTO|D3D12|DXGI|GL"
     ],
     "available": false,
     "params": [
@@ -6370,6 +6421,7 @@
         "kind": "enum",
         "values": [
           "AUTO",
+          "D3D12",
           "DXGI",
           "GL"
         ]
@@ -6382,6 +6434,7 @@
           "kind": "enum",
           "values": [
             "AUTO",
+            "D3D12",
             "DXGI",
             "GL"
           ]
@@ -6950,8 +7003,8 @@
   },
   {
     "name": "INPUT DISCOVER",
-    "syntax": "INPUT DISCOVER [NDI|OMT|SPOUT|ALL] [WAIT \u003C0-5000 ms\u003E]",
-    "words": "The NDI, OMT and Spout sources this node sees",
+    "syntax": "INPUT DISCOVER [NDI|OMT|SPOUT|CAPTURE|ALL] [WAIT \u003C0-5000 ms\u003E]",
+    "words": "The NDI, OMT and Spout sources and the capture devices, with their modes, this node sees",
     "category": "video",
     "risk": "low",
     "mutates": false,
@@ -6962,7 +7015,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "INPUT DISCOVER [NDI|OMT|SPOUT|ALL] [WAIT \u003C0-5000 ms\u003E]"
+      "INPUT DISCOVER [NDI|OMT|SPOUT|CAPTURE|ALL] [WAIT \u003C0-5000 ms\u003E]"
     ],
     "available": false,
     "params": [
@@ -6974,6 +7027,7 @@
           "NDI",
           "OMT",
           "SPOUT",
+          "CAPTURE",
           "ALL"
         ]
       },
@@ -6994,6 +7048,7 @@
             "NDI",
             "OMT",
             "SPOUT",
+            "CAPTURE",
             "ALL"
           ]
         },
@@ -7009,8 +7064,8 @@
   },
   {
     "name": "INPUT ADD",
-    "syntax": "INPUT ADD \u003Curi\u003E [\u003Cname\u003E] [PROXY] [COLD]",
-    "words": "Adds a live input (ndi:HOST (Name), omt:HOST (Name), omt://host:port, spout:Name) to the library, received once however many surfaces show it; answers its id",
+    "syntax": "INPUT ADD \u003Curi\u003E [\u003Cname\u003E] [PROXY] [COLD] [MODE \u003Cw\u003Ex\u003Ch\u003E@\u003Crate\u003E] [FORMAT UYVY|V210|NV12|AUTO]",
+    "words": "Adds a live input (ndi:HOST (Name), omt:HOST (Name), omt://host:port, spout:Name, or a capture card\u0027s capture:\u003Cprovider\u003E/\u003Cdevice\u003E[/\u003Cinput\u003E] in a MODE and FORMAT) to the library, received once however many surfaces show it; answers its id",
     "category": "video",
     "risk": "review",
     "mutates": true,
@@ -7021,7 +7076,7 @@
     "gesture": false,
     "pairedOnly": false,
     "forms": [
-      "INPUT ADD \u003Curi\u003E [\u003Cname\u003E] [PROXY] [COLD]"
+      "INPUT ADD \u003Curi\u003E [\u003Cname\u003E] [PROXY] [COLD] [MODE \u003Cw\u003Ex\u003Ch\u003E@\u003Crate\u003E] [FORMAT UYVY|V210|NV12|AUTO]"
     ],
     "available": false,
     "params": [
@@ -7048,6 +7103,24 @@
         "optional": true,
         "values": [
           "COLD"
+        ]
+      },
+      {
+        "name": "mode",
+        "kind": "text",
+        "optional": true,
+        "keyword": "MODE"
+      },
+      {
+        "name": "format",
+        "kind": "enum",
+        "optional": true,
+        "keyword": "FORMAT",
+        "values": [
+          "UYVY",
+          "V210",
+          "NV12",
+          "AUTO"
         ]
       }
     ],
@@ -7076,6 +7149,24 @@
           "optional": true,
           "values": [
             "COLD"
+          ]
+        },
+        {
+          "name": "mode",
+          "kind": "text",
+          "optional": true,
+          "keyword": "MODE"
+        },
+        {
+          "name": "format",
+          "kind": "enum",
+          "optional": true,
+          "keyword": "FORMAT",
+          "values": [
+            "UYVY",
+            "V210",
+            "NV12",
+            "AUTO"
           ]
         }
       ]
@@ -9614,7 +9705,7 @@
   {
     "name": "FX CHECK",
     "syntax": "FX CHECK \u003Casset\u003E|\u003Ckind\u003E|\u003Cjson\u003E",
-    "words": "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node\u0027s context and reports its issues by line",
+    "words": "Translates an ISF source for GLSL 3.30 and ES 3.00, compiles it on this node\u0027s context and reports its issues by line; on a node with a shader worker, each stage of the Direct3D 12 road too (translate, glslang, validate, cross, dxc)",
     "category": "effects",
     "risk": "low",
     "mutates": false,
@@ -13917,8 +14008,8 @@
   },
   {
     "name": "HANDLE SELECT",
-    "syntax": "HANDLE SELECT \u003Csurface\u003E TL|TR|BR|BL|\u003Ccol\u003E,\u003Crow\u003E | HANDLE SELECT NONE",
-    "words": "The handle the wall shows enlarged and the arrows move",
+    "syntax": "HANDLE SELECT \u003Csurface\u003E TL|TR|BR|BL|\u003Ccol\u003E,\u003Crow\u003E | HANDLE SELECT NONE | HANDLE SELECT \u003Cpin\u003E | HANDLE SELECT \u003Coutput\u003E WARP TL|TR|BR|BL|\u003Cc\u003E,\u003Cr\u003E | HANDLE SELECT \u003Coutput\u003E MASK \u003Ci\u003E \u003Cnode\u003E",
+    "words": "The handle the wall shows enlarged and the arrows move: a quad\u0027s corner or lattice node, a pin, an output\u0027s warp corner or lattice node, or a mask\u0027s node",
     "category": "mapping",
     "risk": "low",
     "mutates": true,
@@ -13930,7 +14021,10 @@
     "pairedOnly": false,
     "forms": [
       "HANDLE SELECT \u003Csurface\u003E TL|TR|BR|BL|\u003Ccol\u003E,\u003Crow\u003E",
-      "HANDLE SELECT NONE"
+      "HANDLE SELECT NONE",
+      "HANDLE SELECT \u003Cpin\u003E",
+      "HANDLE SELECT \u003Coutput\u003E WARP TL|TR|BR|BL|\u003Cc\u003E,\u003Cr\u003E",
+      "HANDLE SELECT \u003Coutput\u003E MASK \u003Ci\u003E \u003Cnode\u003E"
     ],
     "available": false,
     "params": [
@@ -13965,6 +14059,42 @@
           "values": [
             "NONE"
           ]
+        }
+      ],
+      [
+        {
+          "name": "pin",
+          "kind": "entity",
+          "prefix": "pn"
+        }
+      ],
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "warp",
+          "kind": "text",
+          "keyword": "WARP",
+          "alt": "TR|BR|BL|\u003Cc\u003E,\u003Cr\u003E"
+        }
+      ],
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "mask",
+          "kind": "text",
+          "keyword": "MASK"
+        },
+        {
+          "name": "node",
+          "kind": "text"
         }
       ]
     ],
@@ -14619,6 +14749,1827 @@
     "params": [],
     "formParams": [
       []
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "MACHINE",
+    "syntax": "MACHINE [STATUS]",
+    "words": "This machine\u0027s identity, edition and support tier, the claims PlayMap made of Windows with what Windows answered, and any drift from the locked driver set, in words",
+    "category": "fleet",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "MACHINE [STATUS]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "status",
+        "kind": "flag",
+        "optional": true,
+        "values": [
+          "STATUS"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "status",
+          "kind": "flag",
+          "optional": true,
+          "values": [
+            "STATUS"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "MACHINE SET",
+    "syntax": "MACHINE SET QOS HIGH|AUTO | TIMER HIGH|DEFAULT | MMCSS ON|OFF | PROCESS HIGH|NORMAL | CPUSETS AUTO|OFF|ONE-CACHE | GPU-PRIORITY NORMAL|HIGH|REALTIME | GC DEFAULT|SHOW | AWAKE ON|OFF",
+    "words": "Changes one of this machine\u0027s claims (power throttling, the timer, MMCSS, the process priority, CPU sets, the GPU scheduling class, the GC\u0027s show mode, keep-awake), kept on the node and applied now where Windows allows, else at the next start, saying which; REALTIME needs the privilege the installer grants",
+    "category": "fleet",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "setup",
+    "riskWhen": [
+      {
+        "arg": -1,
+        "word": "REALTIME",
+        "risk": "high"
+      }
+    ],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "MACHINE SET QOS HIGH|AUTO",
+      "MACHINE SET TIMER HIGH|DEFAULT",
+      "MACHINE SET MMCSS ON|OFF",
+      "MACHINE SET PROCESS HIGH|NORMAL",
+      "MACHINE SET CPUSETS AUTO|OFF|ONE-CACHE",
+      "MACHINE SET GPU-PRIORITY NORMAL|HIGH|REALTIME",
+      "MACHINE SET GC DEFAULT|SHOW",
+      "MACHINE SET AWAKE ON|OFF"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "qos",
+        "kind": "enum",
+        "values": [
+          "QOS"
+        ]
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "HIGH",
+          "AUTO"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "qos",
+          "kind": "enum",
+          "values": [
+            "QOS"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "HIGH",
+            "AUTO"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "timer",
+          "kind": "enum",
+          "values": [
+            "TIMER"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "HIGH",
+            "DEFAULT"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "mmcss",
+          "kind": "enum",
+          "values": [
+            "MMCSS"
+          ]
+        },
+        {
+          "name": "state",
+          "kind": "enum",
+          "values": [
+            "ON",
+            "OFF"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "process",
+          "kind": "enum",
+          "values": [
+            "PROCESS"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "HIGH",
+            "NORMAL"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "cpusets",
+          "kind": "enum",
+          "values": [
+            "CPUSETS"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "AUTO",
+            "OFF",
+            "ONE-CACHE"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "gpu-priority",
+          "kind": "enum",
+          "values": [
+            "GPU-PRIORITY"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "NORMAL",
+            "HIGH",
+            "REALTIME"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "gc",
+          "kind": "enum",
+          "values": [
+            "GC"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "DEFAULT",
+            "SHOW"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "awake",
+          "kind": "enum",
+          "values": [
+            "AWAKE"
+          ]
+        },
+        {
+          "name": "state",
+          "kind": "enum",
+          "values": [
+            "ON",
+            "OFF"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "MACHINE LOCK",
+    "syntax": "MACHINE LOCK [CLEAR]",
+    "words": "Keeps this machine\u0027s driver set (adapters, the Direct3D runtime, FFmpeg, the sync board\u0027s firmware, the OS build, PlayMap\u0027s build) as the one its shows run on, so preflight names any drift; CLEAR forgets it (kept on the node, never in the project)",
+    "category": "fleet",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "setup",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "MACHINE LOCK [CLEAR]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "clear",
+        "kind": "flag",
+        "optional": true,
+        "values": [
+          "CLEAR"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "clear",
+          "kind": "flag",
+          "optional": true,
+          "values": [
+            "CLEAR"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GPU",
+    "syntax": "GPU [STATUS]",
+    "words": "The render device: its API, adapter, feature level and shader model, how its start went stage by stage, its epoch and its removals",
+    "category": "output",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GPU [STATUS]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "status",
+        "kind": "flag",
+        "optional": true,
+        "values": [
+          "STATUS"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "status",
+          "kind": "flag",
+          "optional": true,
+          "values": [
+            "STATUS"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GPU WARM",
+    "syntax": "GPU WARM [WAIT]",
+    "words": "Makes every pipeline the show can reach now, off the render thread; WAIT answers when done, with how many were made, came from the cache and failed",
+    "category": "output",
+    "risk": "low",
+    "mutates": true,
+    "aliases": [],
+    "show": "perform",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GPU WARM [WAIT]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "wait",
+        "kind": "flag",
+        "optional": true,
+        "values": [
+          "WAIT"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "wait",
+          "kind": "flag",
+          "optional": true,
+          "values": [
+            "WAIT"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GPU REHEARSE",
+    "syntax": "GPU REHEARSE [REMOVE]",
+    "words": "Rehearses a device loss: removes the render device on purpose and answers when the first good frame is back, with the time (the outputs black for its length: refused while armed)",
+    "category": "output",
+    "risk": "high",
+    "mutates": true,
+    "aliases": [],
+    "show": "heavy",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GPU REHEARSE [REMOVE]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "remove",
+        "kind": "flag",
+        "optional": true,
+        "values": [
+          "REMOVE"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "remove",
+          "kind": "flag",
+          "optional": true,
+          "values": [
+            "REMOVE"
+          ]
+        }
+      ]
+    ],
+    "press": "hold"
+  },
+  {
+    "name": "PRESENT PROVE",
+    "syntax": "PRESENT PROVE [\u003Coutput\u003E|ALL] [FOR \u003Cseconds 2-60\u003E]",
+    "words": "Measures each output\u0027s presentation over a window (10 s unless FOR) and answers its mode with the evidence: proven when the window met every vblank at the display\u0027s own rate, one frame from present to display",
+    "category": "output",
+    "risk": "low",
+    "mutates": true,
+    "aliases": [],
+    "show": "perform",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "PRESENT PROVE [\u003Coutput\u003E|ALL] [FOR \u003Cseconds 2-60\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "op",
+        "alt": "ALL"
+      },
+      {
+        "name": "for",
+        "kind": "number",
+        "optional": true,
+        "keyword": "FOR",
+        "min": 2,
+        "max": 60
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "op",
+          "alt": "ALL"
+        },
+        {
+          "name": "for",
+          "kind": "number",
+          "optional": true,
+          "keyword": "FOR",
+          "min": 2,
+          "max": 60
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "WATERMARK",
+    "syntax": "WATERMARK \u003Coutput\u003E|ALL ON|OFF [TOP|BOTTOM|BOTH] [AT \u003Cx\u003E \u003Cy\u003E] [SIZE \u003Cpx 4-32\u003E]",
+    "words": "A frame code on an output\u0027s picture at an edge or a place, at a block size, that an observer reads back to prove which frame was shown (one undo step)",
+    "category": "output",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "layout",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "WATERMARK \u003Coutput\u003E|ALL ON|OFF [TOP|BOTTOM|BOTH] [AT \u003Cx\u003E \u003Cy\u003E] [SIZE \u003Cpx 4-32\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op",
+        "alt": "ALL"
+      },
+      {
+        "name": "state",
+        "kind": "enum",
+        "values": [
+          "ON",
+          "OFF"
+        ]
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "optional": true,
+        "values": [
+          "TOP",
+          "BOTTOM",
+          "BOTH"
+        ]
+      },
+      {
+        "name": "at",
+        "kind": "number",
+        "optional": true,
+        "keyword": "AT"
+      },
+      {
+        "name": "y",
+        "kind": "number",
+        "optional": true
+      },
+      {
+        "name": "size",
+        "kind": "number",
+        "optional": true,
+        "keyword": "SIZE",
+        "min": 4,
+        "max": 32
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op",
+          "alt": "ALL"
+        },
+        {
+          "name": "state",
+          "kind": "enum",
+          "values": [
+            "ON",
+            "OFF"
+          ]
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "optional": true,
+          "values": [
+            "TOP",
+            "BOTTOM",
+            "BOTH"
+          ]
+        },
+        {
+          "name": "at",
+          "kind": "number",
+          "optional": true,
+          "keyword": "AT"
+        },
+        {
+          "name": "y",
+          "kind": "number",
+          "optional": true
+        },
+        {
+          "name": "size",
+          "kind": "number",
+          "optional": true,
+          "keyword": "SIZE",
+          "min": 4,
+          "max": 32
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "OBSERVE",
+    "syntax": "OBSERVE \u003Coutput\u003E FROM \u003Ccapture uri\u003E | OBSERVE \u003Coutput\u003E OFF",
+    "words": "Watches an output\u0027s picture through a capture input (capture:\u003Cprovider\u003E/\u003Cdevice\u003E[/\u003Cinput\u003E]) and reads its frame code: each frame shown, stale or lost; OFF stops watching (kept on the node)",
+    "category": "output",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "setup",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "OBSERVE \u003Coutput\u003E FROM \u003Ccapture uri\u003E",
+      "OBSERVE \u003Coutput\u003E OFF"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op"
+      },
+      {
+        "name": "from",
+        "kind": "text",
+        "keyword": "FROM"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "keyword": "FROM"
+        }
+      ],
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "off",
+          "kind": "enum",
+          "values": [
+            "OFF"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "OBSERVE STATUS",
+    "syntax": "OBSERVE STATUS [\u003Coutput\u003E]",
+    "words": "Each observed output\u0027s verdict, the frame seen and how late, in words",
+    "category": "output",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "OBSERVE STATUS [\u003Coutput\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "op"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "op"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "LATENCY STEP",
+    "syntax": "LATENCY STEP \u003Coutput\u003E [VIA \u003Ccamera\u003E|OBSERVER] [STEPS \u003C3-60\u003E]",
+    "words": "Measures glass to glass: steps the frame code\u0027s region (VIA a camera, the whole output) to white and times when the observer or the camera sees each step, with each stage\u0027s share (it puts the steps on the air: refused while armed)",
+    "category": "output",
+    "risk": "high",
+    "mutates": true,
+    "aliases": [],
+    "show": "heavy",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "LATENCY STEP \u003Coutput\u003E [VIA \u003Ccamera\u003E|OBSERVER] [STEPS \u003C3-60\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op"
+      },
+      {
+        "name": "via",
+        "kind": "entity",
+        "optional": true,
+        "prefix": "cm",
+        "keyword": "VIA",
+        "alt": "OBSERVER"
+      },
+      {
+        "name": "steps",
+        "kind": "number",
+        "optional": true,
+        "keyword": "STEPS",
+        "min": 3,
+        "max": 60
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "via",
+          "kind": "entity",
+          "optional": true,
+          "prefix": "cm",
+          "keyword": "VIA",
+          "alt": "OBSERVER"
+        },
+        {
+          "name": "steps",
+          "kind": "number",
+          "optional": true,
+          "keyword": "STEPS",
+          "min": 3,
+          "max": 60
+        }
+      ]
+    ],
+    "press": "hold"
+  },
+  {
+    "name": "FX RELEASE",
+    "syntax": "FX RELEASE \u003Ckind\u003E|ALL",
+    "words": "Lifts the quarantine on an effect kind whose shader took the GPU down, so its slots draw again (the quarantine is the node\u0027s, never a draft\u0027s)",
+    "category": "effects",
+    "risk": "high",
+    "mutates": true,
+    "aliases": [],
+    "show": "setup",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "FX RELEASE \u003Ckind\u003E|ALL"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "kind",
+        "kind": "text",
+        "alt": "ALL"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "kind",
+          "kind": "text",
+          "alt": "ALL"
+        }
+      ]
+    ],
+    "press": "hold"
+  },
+  {
+    "name": "UNDO LIST",
+    "syntax": "UNDO LIST [\u003Cn 1-100\u003E]",
+    "words": "The undo steps, newest first, in field words with who and when",
+    "category": "project",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "UNDO LIST [\u003Cn 1-100\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "n",
+        "kind": "integer",
+        "optional": true,
+        "min": 1,
+        "max": 100
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "n",
+          "kind": "integer",
+          "optional": true,
+          "min": 1,
+          "max": 100
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "UNDO TO",
+    "syntax": "UNDO TO \u003Cstep\u003E",
+    "words": "Undoes a step and every newer one as one action (UNDO TO the newest is one UNDO)",
+    "category": "project",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "project",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "UNDO TO \u003Cstep\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "step",
+        "kind": "text"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "step",
+          "kind": "text"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "PIN MOVE",
+    "syntax": "PIN MOVE \u003Cpin\u003E TO|BY \u003Cx\u003E \u003Cy\u003E [PX]",
+    "words": "Moves a pin\u0027s picture point to or by x, y (0\u20131 across its projector\u0027s picture; PX: its pixels)",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "target",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": true,
+    "pairedOnly": false,
+    "forms": [
+      "PIN MOVE \u003Cpin\u003E TO|BY \u003Cx\u003E \u003Cy\u003E [PX]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "pin",
+        "kind": "entity",
+        "prefix": "pn"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "TO",
+          "BY"
+        ]
+      },
+      {
+        "name": "x",
+        "kind": "number"
+      },
+      {
+        "name": "y",
+        "kind": "number"
+      },
+      {
+        "name": "px",
+        "kind": "flag",
+        "optional": true,
+        "values": [
+          "PX"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "pin",
+          "kind": "entity",
+          "prefix": "pn"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "TO",
+            "BY"
+          ]
+        },
+        {
+          "name": "x",
+          "kind": "number"
+        },
+        {
+          "name": "y",
+          "kind": "number"
+        },
+        {
+          "name": "px",
+          "kind": "flag",
+          "optional": true,
+          "values": [
+            "PX"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "WARP CORNER",
+    "syntax": "WARP CORNER \u003Coutput\u003E TL|TR|BR|BL TO|BY \u003Cx\u003E \u003Cy\u003E [PX|NORM]",
+    "words": "Moves a corner of an output\u0027s corner pin to or by x, y (PX: the output\u0027s pixels; NORM: 0\u20131 across it)",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "layout",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": true,
+    "pairedOnly": false,
+    "forms": [
+      "WARP CORNER \u003Coutput\u003E TL|TR|BR|BL TO|BY \u003Cx\u003E \u003Cy\u003E [PX|NORM]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "TL",
+          "TR",
+          "BR",
+          "BL"
+        ]
+      },
+      {
+        "name": "choice2",
+        "kind": "enum",
+        "values": [
+          "TO",
+          "BY"
+        ]
+      },
+      {
+        "name": "x",
+        "kind": "number"
+      },
+      {
+        "name": "y",
+        "kind": "number"
+      },
+      {
+        "name": "choice3",
+        "kind": "enum",
+        "optional": true,
+        "values": [
+          "PX",
+          "NORM"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "TL",
+            "TR",
+            "BR",
+            "BL"
+          ]
+        },
+        {
+          "name": "choice2",
+          "kind": "enum",
+          "values": [
+            "TO",
+            "BY"
+          ]
+        },
+        {
+          "name": "x",
+          "kind": "number"
+        },
+        {
+          "name": "y",
+          "kind": "number"
+        },
+        {
+          "name": "choice3",
+          "kind": "enum",
+          "optional": true,
+          "values": [
+            "PX",
+            "NORM"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "CANVAS SPAN",
+    "syntax": "CANVAS SPAN \u003Ccanvas\u003E|NEW \u003Coutput\u003E \u003Coutput\u003E\u2026 [SIDE \u003Cc\u003Ex\u003Cr\u003E] [STACK \u003Cn 2-4\u003E] [OVERLAP \u003Cpx\u003E|\u003Cpct\u003E%] [KEEP|REPLACE]",
+    "words": "Spans a canvas across outputs as one edit: the outputs position by position (SIDE columns x rows, STACK outputs a position), the overlap between positions, each output\u0027s rectangle and edges, recorded as the span; over a rectangle a hand moved or a measured warp, refused naming each unless KEEP or REPLACE",
+    "category": "output",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "layout",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "CANVAS SPAN \u003Ccanvas\u003E|NEW \u003Coutput\u003E \u003Coutput\u003E\u2026 [SIDE \u003Cc\u003Ex\u003Cr\u003E] [STACK \u003Cn 2-4\u003E] [OVERLAP \u003Cpx\u003E|\u003Cpct\u003E%] [KEEP|REPLACE]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "canvas",
+        "kind": "entity",
+        "prefix": "cv",
+        "alt": "NEW"
+      },
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op"
+      },
+      {
+        "name": "output2",
+        "kind": "entity",
+        "prefix": "op",
+        "repeats": true
+      },
+      {
+        "name": "side",
+        "kind": "text",
+        "optional": true,
+        "keyword": "SIDE"
+      },
+      {
+        "name": "stack",
+        "kind": "integer",
+        "optional": true,
+        "keyword": "STACK",
+        "min": 2,
+        "max": 4
+      },
+      {
+        "name": "overlap",
+        "kind": "number",
+        "optional": true,
+        "keyword": "OVERLAP",
+        "alt": "\u003Cpct\u003E%"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "optional": true,
+        "values": [
+          "KEEP",
+          "REPLACE"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "canvas",
+          "kind": "entity",
+          "prefix": "cv",
+          "alt": "NEW"
+        },
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "output2",
+          "kind": "entity",
+          "prefix": "op",
+          "repeats": true
+        },
+        {
+          "name": "side",
+          "kind": "text",
+          "optional": true,
+          "keyword": "SIDE"
+        },
+        {
+          "name": "stack",
+          "kind": "integer",
+          "optional": true,
+          "keyword": "STACK",
+          "min": 2,
+          "max": 4
+        },
+        {
+          "name": "overlap",
+          "kind": "number",
+          "optional": true,
+          "keyword": "OVERLAP",
+          "alt": "\u003Cpct\u003E%"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "optional": true,
+          "values": [
+            "KEEP",
+            "REPLACE"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "CANVAS SOURCE",
+    "syntax": "CANVAS SOURCE \u003Ccanvas\u003E \u003Csource\u003E [FIT|FILL|STRETCH]",
+    "words": "What a canvas shows as its base layer, fitted, filled or stretched",
+    "category": "output",
+    "risk": "high",
+    "mutates": true,
+    "aliases": [],
+    "show": "content",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "CANVAS SOURCE \u003Ccanvas\u003E \u003Csource\u003E [FIT|FILL|STRETCH]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "canvas",
+        "kind": "entity",
+        "prefix": "cv"
+      },
+      {
+        "name": "source",
+        "kind": "ref"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "optional": true,
+        "values": [
+          "FIT",
+          "FILL",
+          "STRETCH"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "canvas",
+          "kind": "entity",
+          "prefix": "cv"
+        },
+        {
+          "name": "source",
+          "kind": "ref"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "optional": true,
+          "values": [
+            "FIT",
+            "FILL",
+            "STRETCH"
+          ]
+        }
+      ]
+    ],
+    "press": "hold"
+  },
+  {
+    "name": "HAND",
+    "syntax": "HAND \u003Coutput\u003E|\u003Cprojector\u003E|\u003Csurface\u003E",
+    "words": "What a hand set over the automatic results: warp, blend, colour, masks and \u03B3, each beside the measured value under it and the run that measured it",
+    "category": "mapping",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "HAND \u003Coutput\u003E|\u003Cprojector\u003E|\u003Csurface\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op",
+        "alt": "\u003Cprojector\u003E|\u003Csurface\u003E"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op",
+          "alt": "\u003Cprojector\u003E|\u003Csurface\u003E"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "HAND CLEAR",
+    "syntax": "HAND CLEAR \u003Coutput\u003E WARP|BLEND|COLOR|MASKS|ALL",
+    "words": "Clears a hand\u0027s layer of an output, the measured layer under it staying (one undo step)",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "layout",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "HAND CLEAR \u003Coutput\u003E WARP|BLEND|COLOR|MASKS|ALL"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "WARP",
+          "BLEND",
+          "COLOR",
+          "MASKS",
+          "ALL"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "WARP",
+            "BLEND",
+            "COLOR",
+            "MASKS",
+            "ALL"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GUIDE",
+    "syntax": "GUIDE LIST | GUIDE FLAT|WALL|OBJECT|FACADE|FIRST [\u003Csubject\u003E]",
+    "words": "The guides as steps: LIST, every guide begun on this node; FLAT, WALL, OBJECT, FACADE or FIRST, one guide\u0027s steps for its subject, each with its state, words, facts and the automatic, hand and proposed lines",
+    "category": "mapping",
+    "risk": "low",
+    "mutates": false,
+    "aliases": [],
+    "show": "query",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GUIDE LIST",
+      "GUIDE FLAT|WALL|OBJECT|FACADE|FIRST [\u003Csubject\u003E]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "list",
+        "kind": "enum",
+        "values": [
+          "LIST"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "list",
+          "kind": "enum",
+          "values": [
+            "LIST"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "FLAT",
+            "WALL",
+            "OBJECT",
+            "FACADE",
+            "FIRST"
+          ]
+        },
+        {
+          "name": "subject",
+          "kind": "text",
+          "optional": true
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GUIDE BEGIN",
+    "syntax": "GUIDE BEGIN FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E",
+    "words": "Records a guide begun for its subject, with who and when",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "project",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GUIDE BEGIN FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "FLAT",
+          "WALL",
+          "OBJECT",
+          "FACADE",
+          "FIRST"
+        ]
+      },
+      {
+        "name": "subject",
+        "kind": "text"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "FLAT",
+            "WALL",
+            "OBJECT",
+            "FACADE",
+            "FIRST"
+          ]
+        },
+        {
+          "name": "subject",
+          "kind": "text"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GUIDE END",
+    "syntax": "GUIDE END FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E",
+    "words": "Records a begun guide ended",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "project",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GUIDE END FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "FLAT",
+          "WALL",
+          "OBJECT",
+          "FACADE",
+          "FIRST"
+        ]
+      },
+      {
+        "name": "subject",
+        "kind": "text"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "FLAT",
+            "WALL",
+            "OBJECT",
+            "FACADE",
+            "FIRST"
+          ]
+        },
+        {
+          "name": "subject",
+          "kind": "text"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GUIDE CHECK",
+    "syntax": "GUIDE CHECK FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E \u003Cstep\u003E",
+    "words": "A person marks a step they judged done (corners lined up by eye, a blend that looks right): the mark keeps the step\u0027s inputs and lapses once they move; never from an assistant\u0027s session",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "project",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GUIDE CHECK FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E \u003Cstep\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "FLAT",
+          "WALL",
+          "OBJECT",
+          "FACADE",
+          "FIRST"
+        ]
+      },
+      {
+        "name": "subject",
+        "kind": "text"
+      },
+      {
+        "name": "step",
+        "kind": "text"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "FLAT",
+            "WALL",
+            "OBJECT",
+            "FACADE",
+            "FIRST"
+          ]
+        },
+        {
+          "name": "subject",
+          "kind": "text"
+        },
+        {
+          "name": "step",
+          "kind": "text"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "GUIDE UNCHECK",
+    "syntax": "GUIDE UNCHECK FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E \u003Cstep\u003E",
+    "words": "Takes a person\u0027s mark off a step; never from an assistant\u0027s session",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "project",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "GUIDE UNCHECK FLAT|WALL|OBJECT|FACADE|FIRST \u003Csubject\u003E \u003Cstep\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "choice",
+        "kind": "enum",
+        "values": [
+          "FLAT",
+          "WALL",
+          "OBJECT",
+          "FACADE",
+          "FIRST"
+        ]
+      },
+      {
+        "name": "subject",
+        "kind": "text"
+      },
+      {
+        "name": "step",
+        "kind": "text"
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "choice",
+          "kind": "enum",
+          "values": [
+            "FLAT",
+            "WALL",
+            "OBJECT",
+            "FACADE",
+            "FIRST"
+          ]
+        },
+        {
+          "name": "subject",
+          "kind": "text"
+        },
+        {
+          "name": "step",
+          "kind": "text"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "VIEWPOINT FIT",
+    "syntax": "VIEWPOINT FIT \u003Cviewpoint\u003E \u003Csurface\u003E\u2026 [MARGIN \u003Cpct\u003E] [KEEP|REPLACE]",
+    "words": "Aims a viewpoint and fits its field of view to surfaces from its eye, with a margin, recorded as the fit; over an aim or field of view typed since, refused naming each unless KEEP or REPLACE",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "target",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "VIEWPOINT FIT \u003Cviewpoint\u003E \u003Csurface\u003E\u2026 [MARGIN \u003Cpct\u003E] [KEEP|REPLACE]"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "viewpoint",
+        "kind": "entity",
+        "prefix": "vp"
+      },
+      {
+        "name": "surface",
+        "kind": "entity",
+        "prefix": "sf",
+        "repeats": true
+      },
+      {
+        "name": "margin",
+        "kind": "number",
+        "optional": true,
+        "keyword": "MARGIN"
+      },
+      {
+        "name": "choice",
+        "kind": "enum",
+        "optional": true,
+        "values": [
+          "KEEP",
+          "REPLACE"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "viewpoint",
+          "kind": "entity",
+          "prefix": "vp"
+        },
+        {
+          "name": "surface",
+          "kind": "entity",
+          "prefix": "sf",
+          "repeats": true
+        },
+        {
+          "name": "margin",
+          "kind": "number",
+          "optional": true,
+          "keyword": "MARGIN"
+        },
+        {
+          "name": "choice",
+          "kind": "enum",
+          "optional": true,
+          "values": [
+            "KEEP",
+            "REPLACE"
+          ]
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "SURFACE MAP",
+    "syntax": "SURFACE MAP \u003Csurface\u003E UV | SURFACE MAP \u003Csurface\u003E CANVAS \u003Ccanvas\u003E [\u003Cx\u003E \u003Cy\u003E \u003Cw\u003E \u003Ch\u003E] | SURFACE MAP \u003Csurface\u003E PROJECTION FROM \u003Cviewpoint\u003E",
+    "words": "How a surface\u0027s content lies on it: by its own UVs, from a rectangle of a canvas, or projected from a viewpoint",
+    "category": "mapping",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "content",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "SURFACE MAP \u003Csurface\u003E UV",
+      "SURFACE MAP \u003Csurface\u003E CANVAS \u003Ccanvas\u003E [\u003Cx\u003E \u003Cy\u003E \u003Cw\u003E \u003Ch\u003E]",
+      "SURFACE MAP \u003Csurface\u003E PROJECTION FROM \u003Cviewpoint\u003E"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "surface",
+        "kind": "entity",
+        "prefix": "sf"
+      },
+      {
+        "name": "uv",
+        "kind": "enum",
+        "values": [
+          "UV"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "surface",
+          "kind": "entity",
+          "prefix": "sf"
+        },
+        {
+          "name": "uv",
+          "kind": "enum",
+          "values": [
+            "UV"
+          ]
+        }
+      ],
+      [
+        {
+          "name": "surface",
+          "kind": "entity",
+          "prefix": "sf"
+        },
+        {
+          "name": "canvas",
+          "kind": "entity",
+          "prefix": "cv",
+          "keyword": "CANVAS"
+        },
+        {
+          "name": "x",
+          "kind": "number",
+          "optional": true
+        },
+        {
+          "name": "y",
+          "kind": "number",
+          "optional": true
+        },
+        {
+          "name": "w",
+          "kind": "text",
+          "optional": true
+        },
+        {
+          "name": "h",
+          "kind": "text",
+          "optional": true
+        }
+      ],
+      [
+        {
+          "name": "surface",
+          "kind": "entity",
+          "prefix": "sf"
+        },
+        {
+          "name": "projection",
+          "kind": "enum",
+          "values": [
+            "PROJECTION"
+          ]
+        },
+        {
+          "name": "from",
+          "kind": "entity",
+          "prefix": "vp",
+          "keyword": "FROM"
+        }
+      ]
+    ],
+    "press": "instant"
+  },
+  {
+    "name": "OUTPUT PASSTHROUGH",
+    "syntax": "OUTPUT PASSTHROUGH \u003Coutput\u003E ON|OFF",
+    "words": "Runs an output as its capture input\u0027s pass-through: one frame in flight, outside the delay ring, sampled as late as its measured render time allows",
+    "category": "output",
+    "risk": "review",
+    "mutates": true,
+    "aliases": [],
+    "show": "setup",
+    "riskWhen": [],
+    "ephemeral": false,
+    "gesture": false,
+    "pairedOnly": false,
+    "forms": [
+      "OUTPUT PASSTHROUGH \u003Coutput\u003E ON|OFF"
+    ],
+    "available": false,
+    "params": [
+      {
+        "name": "output",
+        "kind": "entity",
+        "prefix": "op"
+      },
+      {
+        "name": "state",
+        "kind": "enum",
+        "values": [
+          "ON",
+          "OFF"
+        ]
+      }
+    ],
+    "formParams": [
+      [
+        {
+          "name": "output",
+          "kind": "entity",
+          "prefix": "op"
+        },
+        {
+          "name": "state",
+          "kind": "enum",
+          "values": [
+            "ON",
+            "OFF"
+          ]
+        }
+      ]
     ],
     "press": "instant"
   }

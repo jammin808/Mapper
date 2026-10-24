@@ -510,7 +510,26 @@ public sealed partial class EngineCore
                 compiled = new FxCompileReport(false, "the compile lane did not answer in 10 s", pass.Lane.Mode);
             }
         }
-        return FxSources.Report(doc, glsl, es, compiled, esContext, Fx.LaneMode);
+        var stages = Services.FxStages is { } stageCheck && doc.Valid ? await FxStagesAsync(stageCheck, bundle, ct).ConfigureAwait(false) : default;
+        return FxSources.Report(doc, glsl, es, compiled, esContext, Fx.LaneMode, stages);
+    }
+
+    /// <summary>The stages a package's check adds to the report (<see cref="EngineServices.FxStages"/>), with the compile lane's 10 s
+    /// bound: a check that does not answer in time, or faults, is one failed stage with its words.</summary>
+    private static async Task<System.Collections.Immutable.ImmutableArray<FxStage>> FxStagesAsync(IFxStageCheck check, FxBundle bundle, CancellationToken ct)
+    {
+        try
+        {
+            return await check.CheckAsync(bundle.Name, bundle.Fragment, bundle.Vertex, ct).WaitAsync(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return [new FxStage("stages", false, "the stage check did not answer in 10 s", 0)];
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException))
+        {
+            return [new FxStage("stages", false, "the stage check failed: " + Journal.Describe(ex), 0)];
+        }
     }
 
     /// <summary>The words after the verb: a JSON object is one word to the end of the line, a quoted path one word.</summary>
@@ -529,12 +548,14 @@ public sealed partial class EngineCore
         w.WriteNumber("builtin", catalog.BuiltinCount);
         w.WriteNumber("isf", catalog.IsfCount);
         w.WriteNumber("ffgl", 0);
-        w.WriteNumber("quarantined", 0);
+        // The kinds the node's quarantine holds (wp3-shaders' EngineServices.Quarantine): fx.quarantine lists them.
+        w.WriteNumber("quarantined", Services.Quarantine.All.Length);
         w.WriteEndObject();
         w.WriteStartObject("compile");
         w.WriteString("lane", Fx.LaneMode);
         w.WriteNumber("pending", Fx.Pass?.Lane.Pending ?? 0);
         w.WriteString("words", Fx.Pass is null ? "no renderer on this node" : Fx.Pass.Lane.Words);
+        WriteFxCompileExtras(w);
         w.WriteEndObject();
         w.WriteStartArray("slots");
         foreach (var v in views)
@@ -545,6 +566,7 @@ public sealed partial class EngineCore
         w.WriteNumber("inProcess", 0);
         w.WriteString("words", "FFGL plugins are not hosted by this build");
         w.WriteEndObject();
+        WriteFxExtras(w);
         w.WriteEndObject();
     }
 

@@ -562,15 +562,18 @@ internal sealed class FakePhone : IAsyncDisposable
 
 /// <summary>An engine with a scan runner on a <see cref="GlassDisplay"/>, the phone hub on a real web port on loopback (the door to
 /// invites a fixed https address), one projector driven by one output, and the floor-and-box scene as the world the phone's
-/// camera sees.</summary>
+/// camera sees. The hub runs on <see cref="PhoneTime"/>, held still unless a test moves it: a phone's silence, its tickets and a
+/// still's patience are counted on it, so however long the machine leaves the fake phone's pings unsent, the hub never ends it
+/// for a quiet the test did not make.</summary>
 internal sealed class PhoneScanRig : IAsyncDisposable
 {
     private readonly IAsyncDisposable _ops;
 
-    private PhoneScanRig(string folder, GlassDisplay display, ScanRunner runner, PhoneHub hub, HttpHost host, EngineCore engine, IAsyncDisposable ops,
-        SimulatedRig truth, ScanSimulator camera)
+    private PhoneScanRig(string folder, GlassDisplay display, ScanRunner runner, PhoneHub hub, ManualTime phoneTime, HttpHost host, EngineCore engine,
+        IAsyncDisposable ops, SimulatedRig truth, ScanSimulator camera)
     {
         Folder = folder;
+        PhoneTime = phoneTime;
         Display = display;
         Runner = runner;
         Hub = hub;
@@ -591,6 +594,9 @@ internal sealed class PhoneScanRig : IAsyncDisposable
 
     public PhoneHub Hub { get; }
 
+    /// <summary>The hub's clock (<see cref="PhoneHubOptions.Time"/>).</summary>
+    public ManualTime PhoneTime { get; }
+
     public HttpHost Host { get; }
 
     public EngineCore Engine { get; }
@@ -608,7 +614,8 @@ internal sealed class PhoneScanRig : IAsyncDisposable
         var folder = Directory.CreateTempSubdirectory("playmap-phonescan-").FullName;
         var display = new GlassDisplay();
         var runner = new ScanRunner(display, scan ?? new ScanRunnerOptions { PatternTimeout = TimeSpan.FromSeconds(2) });
-        var hub = new PhoneHub(new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), NodeId = "0badc0de", NodeName = "Test node" });
+        var phoneTime = new ManualTime();
+        var hub = new PhoneHub(new PhoneHubOptions { KeysPath = Path.Combine(folder, "phones.json"), NodeId = "0badc0de", NodeName = "Test node", Time = phoneTime });
         var prior = Intrinsics.FromThrowRatio(256, 160, 1.4);
         var truth = new SimulatedRig(SimulatedRig.DefaultScene, 320, 240, [prior]);
         var t = truth.Projector(0);
@@ -641,7 +648,7 @@ internal sealed class PhoneScanRig : IAsyncDisposable
         await host.StartAsync();
         var sim = new ScanSimulator(new SimGeometry(SimScenes.FloorAndBox(256, 160, 320, 240) with { Projector = t }),
             ScanPlan.Create(256, 160), new SimOptions { NoiseSigma = cameraNoise });
-        return new PhoneScanRig(folder, display, runner, hub, host, engine, ops, truth, sim);
+        return new PhoneScanRig(folder, display, runner, hub, phoneTime, host, engine, ops, truth, sim);
     }
 
     public async Task<CommandReply> Run(string line, SessionInfo? session = null)

@@ -14,7 +14,9 @@ inline; claims marked *estimate* are engineering judgement, not measurements.
 
 **The opening PlayMap takes:** professional-grade automatic calibration with a webcam or phone and no special
 hardware, a surface-anchored workflow so recalibration never destroys work, and full membership of the
-Patterns/Stagewatch show network — local-first, no cloud dependency.
+Patterns/Stagewatch show network — local-first, no cloud dependency. PlayMap is becoming an installed, Windows-native
+show node: one that uses what the hardware gives (Direct3D 12, the flip model, RTX and Radeon features, the hardware lock
+where a board allows one), claims nothing it has not measured, and opens on guided workflows for the common jobs (§8).
 
 ## 2. Problems people have mapping 3D surfaces — and PlayMap's answer
 
@@ -76,20 +78,30 @@ separate same-coloured surfaces), vectorise to Bézier paths, lift to 3D with pl
 ## 6. Playback, sync and distribution
 
 - **Decode:** FFmpeg 9.0 through FFmpeg.AutoGen 9.0.1.1 (package version tracks FFmpeg); hardware decode with
-  D3D11VA on Windows (covers NVIDIA/Intel/AMD), VAAPI/CUDA/Vulkan on Linux, VideoToolbox on macOS; YUV→RGB on
+  D3D11VA on Windows (covers NVIDIA/Intel/AMD; D3D12VA on the renderer's Direct3D 12 device is the direction,
+  docs/round3/PLAN.md §3.11), VAAPI/CUDA/Vulkan on Linux, VideoToolbox on macOS; YUV→RGB on
   the GPU honouring matrix/range/transfer; HAP decoded by uploading its BC blocks directly (FFmpeg's CPU HAP
   decoder defeats the purpose). Frame-accurate seek = seek backward, flush, decode-and-discard to the target.
   libVLC (no PTS out, its own clock) and libmpv (render API GL/software only) don't fit a frame-accurate
   multi-output engine.
 - **GPU and presentation:** on Windows the lowest-latency path is engine-owned borderless windows with DXGI
-  flip-model waitable swap chains (independent flip, one frame of latency), `GetFrameStatistics` to map vblanks;
-  PlayMap starts on OpenGL 3.3 (testable headless on Mesa) behind a device seam, with D3D11 next (ROADMAP).
+  flip-model waitable swap chains (independent flip, one frame of latency), `GetFrameStatistics` to map vblanks.
+  PlayMap draws through a rendering hardware interface (RHI) cut at `GlDevice`, with OpenGL 3.3 core or ES 3.00 behind it
+  (testable headless on Mesa) and an experimental Direct3D 11 flip path through ANGLE; the direction is Direct3D 12 behind that
+  interface, with OpenGL the reference backend until the pixel and timing evidence agrees (§8). PlayMap's programs are written in
+  HLSL for that backend too, compiled by DXC at build time, and a user's ISF effect reaches DXIL through SPIR-V (glslang,
+  SPIRV-Cross) in a worker process of its own, so none of that road's compilers (glslang, SPIRV-Tools, SPIRV-Cross, DXC) loads
+  into the engine; no device draws either yet.
 - **Sync:** Watchout 7 (NTP via w32time, "millisecond-level"; frame-exact needs NVIDIA sync boards), Pixera
   (sync cards + "RX Frame Sync"), disguise (genlock + QTP/VSync messages), Resolume/Millumin (OSC/LTC mirror —
   users report drift). PlayMap: own UDP exchange on the monotonic clock with min-RTT filtering and drift
   regression (LAN: tens to hundreds of µs, *estimate*), and **stateless frame selection** — the frame is a pure
   function of leader time at the predicted vblank plus the display's measured latency — so nodes never
-  accumulate drift; ±1 refresh without genlock, same vblank with NVIDIA present barrier (roadmap).
+  accumulate drift. Without genlock the ceiling is ±1 refresh: network time aligns which frame is drawn, not when it
+  scans out. The same vblank needs sync hardware. AMD withdrew framelock and GeForce never had it, so that is an NVIDIA
+  professional GPU with an RTX PRO Sync board, through the present barrier on Direct3D 12 or the `WGL_NV_swap_group` swap
+  group on OpenGL. PlayMap's direction is that lock where the hardware allows it, and the software lock everywhere else: the
+  same frame, its measured phase published (docs/round3/PLAN.md D5).
 - **Distribution:** content-addressed storage (Watchout 7's Asset Manager pattern): chunked range pulls,
   resume, verify-then-rename, per-node readiness, throttled during shows.
 - **Web/YouTube:** CEF off-screen with shared textures (CefSharp 154.x on Windows) is the lowest-latency browser
@@ -108,3 +120,49 @@ Read from the repositories (Patterns `stagewatch-video-control`, Stagewatch `mai
 (`live:false` when stuck — a case Patterns' own client misses), screens, triggers and proposals. Patterns has no
 render-node concept yet (`docs/GENERALISATION.md`: postponed) and controls third-party boxes only through its
 Interactive area — which PlayMap speaks. See `docs/SHOWBUS-NODE.md`.
+
+## 8. Where PlayMap is going
+
+The research behind the Windows-native direction is in `docs/round3/research/`: the direction note
+(`windows-gpu-direction.md`) and the six notes it draws on — the graphics API (`graphics_api.md`), framelock and presentation
+(`framelock_presentation.md`), vendor features (`vendor_features.md`), the Windows platform and packaging
+(`windows_platform.md`), games' and medical devices' architecture (`gaming_medical_architecture.md`) and the desk's UI and UX
+(`desk_ui_ux.md`) — and four beside them: Windows 11 Home (`windows11_home.md`), an installer with no paid service
+(`installer_tools.md`), capture cards (`capture_cards.md`) and the workflows (`workflows_ux.md`). Round 3's plan turns them into
+decisions (`docs/round3/PLAN.md` §1.2). What they found, in short:
+
+- **Direct3D 12, behind an RHI.** New GPU features reach Windows through it first; it sits on DXGI's flip model and NVIDIA's
+  present barrier; it has the deepest set of fault tools (PIX, DRED, Aftermath, Radeon GPU Detective) and GPU-less CI on WARP.
+  OpenGL is in maintenance on Windows, so it stays only as the reference backend until parity is measured. Vulkan is not
+  carried: its Windows presentation depends on each vendor.
+- **The lock only where the hardware gives one.** Tearing between outputs is phase, and only sync hardware removes it (§6).
+- **Every edition of Windows 11, Home included.** Home runs every API the engine and the desk use and lacks only the management
+  layers (Assigned Access, Shell Launcher, specialized displays, the update policies), so each has a fallback and a preflight row.
+- **What a real-time engine claims from Windows.** Windows 11 lowers the quality of service of a process whose windows are hidden,
+  covered or minimised, or that has none, and stops honouring its timer requests; a high-resolution waitable timer wakes near its
+  due time; MMCSS serves time-critical multimedia threads; and CPU sets, never a hard affinity, place threads on hybrid processors.
+  So the engine claims HighQoS with its timer requests honoured, high process priority, MMCSS and CPU sets by thread role and that
+  timer for every deadline thread, each claim read back into STATE, and keeps off what has no documented cause (the GPU scheduling
+  class, the GC's show mode, one cache for the critical threads) until the lab measures it (docs/PLATFORM.md).
+- **A per-machine installer.** An MSI rolls back services and machine-level writes, and the WiX toolset built from its own source
+  needs no paid service, but WiX v7.0.0's pinned source does not build on the Windows runner (M17: it needs Visual Studio's v143
+  C++ tools, which the runner's Visual Studio 2026 lacks) and checks a licence gesture in three places that PlayMap never passes.
+  So this round's installer is built with Inno Setup, an EXE without an MSI's rollback, repair or `msiexec`, and an MSI is
+  revisited next round. The Agility SDK's licence lets its Direct3D 12 runtime ship inside the installer on its Distribution
+  Requirements, among them to "require distributors and external end users to agree to terms that protect it and Microsoft at
+  least as much as this agreement" and to indemnify Microsoft, with its Distribution Restrictions beside them. So the installer
+  shows a licence page that carries Microsoft's own licence for `D3D12Core.dll` verbatim, PlayMap's own terms being the owner's to
+  name, and the owner accepts Microsoft's distribution terms, the indemnity included (docs/round3/PLAN.md §9 decisions 3 and 23,
+  which quotes the terms whole). Session 0 cannot drive displays, so the engine runs in the show user's session under a
+  supervising service (docs/INSTALL.md).
+- **What games and medical devices teach.** Nothing compiled, allocated or waited on during the show; the render graph compiled
+  when the show changes; an observer, independent of the engine, of what the audience saw; device loss rehearsed; every hazard
+  traced to a fault test.
+- **The desk.** It keeps Avalonia; its previews are to move from CPU copies to shared textures, and it borrows the lighting
+  consoles' safety patterns (built: the GO guard, blind in grey, the Oops history, the dark room look; docs/DESK.md). Every command
+  is to be in the menu bar, by Microsoft's rule that no command lives only in a context menu. Colour is to mark status, identity
+  and stage, and never be the only cue (ISA-101 and IEC 60601-1-8 reserve alarm colours): three status lights each 3:1 from a dark
+  panel cannot also be 3:1 from one another, so each light keeps 3:1 against every surface it is drawn on and carries a shape
+  beside its colour, and a word beside it in a row, a card or a chip (docs/round3/PLAN.md §3.6 item 4).
+- **Capture cards.** A pass-through's floor is one input frame plus the render, so the direction is one frame in flight and
+  the fewest copies the card and the path allow.

@@ -52,6 +52,62 @@ public sealed class RoutesTests
     }
 
     [Fact]
+    public async Task EveryRoundThreeRowAnswersNotAvailableUntilItsPackageRoutesIt()
+    {
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var revision = engine.Store.Current.Revision;
+        var air = engine.Air;
+        foreach (var v in VerbCatalog.All.Where(v => v.Round == 3 && !engine.Routes.IsRouted(v.Name)))
+        {
+            Assert.False(engine.IsAvailable(v), v.Name);
+            var reply = await Run(engine, v.Name, Node);
+            Assert.False(reply.Ok, v.Name);
+            Assert.Equal($"{v.Name} is not available on this node yet", reply.Payload);
+        }
+        Assert.Equal(revision, engine.Store.Current.Revision);
+        Assert.Equal(air, engine.Air);
+    }
+
+    /// <summary>A form a round-3 package adds to an earlier row answers that it is not available yet, with the forms that are, until
+    /// its package fills it; nothing moves. These run at every merge, so a form its package has filled leaves the list with that merge.</summary>
+    [Fact]
+    public async Task EveryFormRoundThreeAddsToAnEarlierRowAnswersNotAvailableWithTheWayOutAndChangesNothing()
+    {
+        await using var engine = new EngineCore(EngineServices.ForTests());
+        var output = engine.Store.Project.Outputs[0].Id;
+        var canvas = engine.Store.Project.Canvases[0].Id;
+        var revision = engine.Store.Current.Revision;
+        var air = engine.Air;
+        (string Line, string Form)[] forms =
+        [
+            ("VIEW v_stage SHOW editor 1280x720 SHARED 4242", "VIEW … SHARED"),
+            ("PRESENT PATH D3D12", "PRESENT PATH D3D12"),
+            ($"PATTERN grid ON {canvas}", "PATTERN … ON <canvas>"),
+            ($"WARP NODE {output} 2 1 TO 640 360 PX", "WARP NODE … TO|BY … PX"),
+            ($"WARP NODE {output} 2 1 BY 1 0 PX", "WARP NODE … TO|BY … PX"),
+            ("HANDLE SELECT pn_1", "HANDLE SELECT <pin>"),
+            ($"HANDLE SELECT {output} WARP TL", "HANDLE SELECT … WARP"),
+            ($"HANDLE SELECT {output} MASK 0 3", "HANDLE SELECT … MASK"),
+            ("INPUT DISCOVER CAPTURE", "INPUT DISCOVER CAPTURE"),
+            ("INPUT ADD capture:dshow/Cam", "INPUT ADD capture:"),
+            ("INPUT ADD ndi:HOST MODE 1920x1080@50", "INPUT ADD … MODE"),
+            ("INPUT ADD ndi:HOST FORMAT V210", "INPUT ADD … FORMAT"),
+        ];
+        foreach (var (line, form) in forms)
+        {
+            var reply = await Run(engine, line, Desk);
+            Assert.False(reply.Ok, line);
+            Assert.StartsWith(form + " is not available on this node yet — ", reply.Payload, StringComparison.Ordinal);
+        }
+        Assert.Equal(revision, engine.Store.Current.Revision);
+        Assert.Equal(air, engine.Air);
+        // The forms each row had answer as before: a quad's handle, a node in output units, an output's pattern.
+        Assert.Equal($"no output {canvas}x", (await Run(engine, $"PATTERN grid ON {canvas}x", Desk)).Payload);
+        Assert.True((await Run(engine, $"WARP NODE {output} 1 1 0.01 0", Desk)).Ok);
+        Assert.True((await Run(engine, $"PATTERN grid ON {output}", Desk)).Ok);
+    }
+
+    [Fact]
     public void ARowIsRoutedOnceAndOnlyByItsOwnName()
     {
         var routes = new VerbRoutes();

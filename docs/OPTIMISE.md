@@ -12,7 +12,7 @@ plays a version from the item's next open. The wire is `docs/wire/optimise.md`.
 | Recipe | `Core/Media/Optimise/Recipe.cs` | The target, quality, chunks, second stage, raw threshold and audio; canonical JSON (sorted keys, invariant numbers); key `ok:` + 32 hex of SHA-256 over source hash, recipe and the encoder algorithm (`hapenc/1`) |
 | Version choice | `Core/Media/Optimise/VersionChoice.cs` | Pure: which file an item plays here (below) |
 | Governor | `Core/Media/Optimise/Governor.cs` | Pure state machine: run, trickle, paused, waiting |
-| Encoder | `Render/Encode/GlHapEncoder.cs`, programs `hapenc.bc1/.bc3/.ycocg/.bc4` | GL 3.3 core or ES 3.0 fragment programs, one texel per 4×4 block into an RGBA32UI target, in tiles of at most 256 × 256 blocks |
+| Encoder | `Render/Gl/GlHapEncoder.cs`, programs `hapenc.bc1/.bc3/.ycocg/.bc4` | GL 3.3 core or ES 3.0 fragment programs, one texel per 4×4 block into an RGBA32UI target, in tiles of at most 256 × 256 blocks |
 | Packer | `Core/Media/Optimise/HapEncoding.cs`, `SnappyCompressor.cs` | Chunks on block boundaries; each chunk Snappy-compressed (PlayMap's own compressor, written from the published format description) or stored raw when Snappy saves under 10 %; the frame through decode's `HapFrameWriter` |
 | Transcode | `Media/Optimise/HapTranscode.cs` | Decode in order, RGBA through the frame's own matrix and range, encode, mux to `.mov` with the source's timestamps and its audio stream-copied; then read back |
 | Service | `Engine/Optimise/OptimiseService.cs`, `JobStore.cs`, `OptimiseSupervisor.cs` | The queue, the worker's life, the governor loop, recording |
@@ -27,7 +27,7 @@ queue nothing; `MEDIA OPTIMISE` runs the rules by hand) and does nothing under `
 | Rule | When | Decision | Words |
 |---|---|---|---|
 | `hap-keep` | the codec is HAP-family | keep | already a GPU codec |
-| `hdr` | PQ, HLG or linear transfer, or ≥ 10 bits in BT.2020 | keep | HDR source (PQ): kept as it is — a HAP HDR encoder arrives next round |
+| `hdr` | PQ, HLG or linear transfer, or ≥ 10 bits in BT.2020 | keep | HDR source (PQ): kept as it is — a HAP HDR encoder arrives next round (the node's current words; no HAP HDR encoder is planned yet: *Not built yet*, below) |
 | `stills` | an image | keep | a still uploads once |
 | `alpha` | a video with alpha | HAP Q Alpha | prores with alpha: HAP Q Alpha keeps it on the GPU |
 | `long-gop-hw` | long-GOP, every target decodes it in hardware | keep | every target node decodes it on the GPU |
@@ -122,8 +122,10 @@ On this machine (4 cores, Mesa llvmpipe, FFmpeg 9), testsrc2 at 960 × 540, both
 A 2 s 1080p MPEG-4 clip with AAC becomes HAP Q at 43.5 dB average through the real worker; ffprobe reads the version's audio start
 and duration equal to the source's.
 
-## Next round
+## Not built yet
 
+The encoder stays on GL in the optimise worker through round 3. A GPU HAP encoder on Direct3D 12 compute is a stretch of round 3's
+plan (docs/round3/PLAN.md §3.11 item 8): a new encoder version, with its PSNR evidence. Not in that plan:
 `MEDIA RULE MODE ASK` with its suggestions (`STATE.media.optimise.suggested`, the accept line); the lossless rewriter (`rechunk`,
 `strip`, `snappy`); `MEDIA ESTIMATE` and the rate table; `MEDIA VERSION REMOVE` and `MEDIA PRUNE`; rule editing (`MEDIA RULE ADD`,
 `REMOVE`); keyframe-aligned segments and resume at a segment; `MEDIA FETCH` of each node's own pick with dedupe by key

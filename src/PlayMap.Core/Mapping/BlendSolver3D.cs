@@ -581,7 +581,7 @@ public static class BlendSolver3D
         var pedestal = new float[n];
         var irradiance = new float[n];
         var gain = new float[n];
-        var gamma = v.Output.Blend.Gamma;
+        var gamma = v.Output.DrawnBlendGamma();
         var compensate = v.Output.Blend.IntensityCompensation && o.Uniformity > 0;
         int hits = 0, overlap = 0, shadow = 0, maxOverlap = 0;
         var minGain = 1.0;

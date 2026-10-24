@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The supervisor (docs/round3/design/installer.md §5): the service that starts the engine in the show user's session, restarts
+       it and stops one whose shown frames have stopped while HEALTH says they should move. It references Core alone; its policy is
+       pure and runs on every OS, its Windows calls carry their platform. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Supervisor</RootNamespace>
+    <AssemblyName>PlayMap.Supervisor</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ServiceBase for the Windows service; its types are Windows only and sit behind the platform checks. -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Supervisor.Tests" />
+  </ItemGroup>
+
+</Project>

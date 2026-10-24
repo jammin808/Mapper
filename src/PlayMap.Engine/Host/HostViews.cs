@@ -12,9 +12,26 @@ public interface INodeFaults
 }
 
 /// <summary>One media pull between nodes as STATE shows it: the library item and its file by hash, who it comes from,
-/// how far it is, and its state ("queued", "pulling", "failed: …").</summary>
+/// how far it is, and its state ("queued", "pulling", "failed: …"). Its bytes are the file's in place: while the pull is on its way they
+/// step back only when it moves on to another peer, whose pull starts from the chunks the part file keeps whole; a failed row says
+/// 0.</summary>
 public sealed record MediaTransferView(string Hash, string MediaId, string Name, string From, long BytesDone, long Size, string State)
 {
+    /// <summary>The peer's address and port the pull asks ("" until a peer is asked).</summary>
+    public string At { get; init; } = "";
+
+    /// <summary>Where a pull on its way stands: "asking" while a peer's list of files is read (the row still "queued" until a peer's
+    /// pull of the file has started, and "pulling" after one has, with that pull's bytes and its last try's words), "receiving" while
+    /// the file's bytes come, "verifying" while the whole file is hashed and put in place; "" before a peer is asked and once the pull
+    /// failed.</summary>
+    public string Stage { get; init; } = "";
+
+    /// <summary>When the state, the stage or the peer asked last changed, in Unix ms of the node's wall clock.</summary>
+    public long SinceUnixMs { get; init; }
+
+    /// <summary>The last failed try's words while the pull goes on ("" when no try failed).</summary>
+    public string Note { get; init; } = "";
+
     /// <summary>The fraction pulled, 0 to 1.</summary>
     public double Progress => Size > 0 ? Math.Clamp(BytesDone / (double)Size, 0, 1) : 0;
 
@@ -22,7 +39,9 @@ public sealed record MediaTransferView(string Hash, string MediaId, string Name,
     public bool Moving => State is "queued" or "pulling";
 }
 
-/// <summary>The media pulls the network edge runs (MEDIA FETCH), for STATE's media.transfers and MEDIA LIST.</summary>
+/// <summary>The node's own media pulls, over a peer's /api/media, for STATE's media.transfers and MEDIA LIST: the network edge runs them
+/// for MEDIA FETCH only on a node without the fleet's part. The exe composes that part, and there MEDIA FETCH runs the fleet's pull
+/// (BackupNode.FetchMedia), which lists nothing here.</summary>
 public interface IMediaTransfers
 {
     IReadOnlyList<MediaTransferView> Transfers();

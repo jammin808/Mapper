@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using PlayMap.Core.Numerics;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Time;
 using PlayMap.Net.Sync;
@@ -48,7 +49,7 @@ public sealed class PmvbCodecTests
         { "version 0", 4, 0 },
         { "state 8 (beyond joining)", 5, 8 },
         { "state 255", 5, 255 },
-        { "path 3", 7, 3 },
+        { "path 4", 7, 4 },
         { "board synced without a board", 6, VblankReport.FlagBoardSynced },
         { "a frame count over 24 bits", 20, 0x01000000 },
         { "a period under 1 ms (1001 Hz)", 24, VblankReport.MinPeriodPs - 1 },
@@ -83,6 +84,37 @@ public sealed class PmvbCodecTests
                 break;
         }
         Assert.False(VblankReport.TryRead(b, out _), why);
+    }
+
+    /// <summary>Path 3 (a dedicated display) reads back as itself and says "dedicated"; every path above it is refused. A Direct3D 12
+    /// flip output reports path 2 with a D3D11 one, the presentation model both share, so a reader that knows paths 0–2 reads it.</summary>
+    [Fact]
+    public void PathThreeReadsBackAsDedicatedAndEveryPathAboveItIsRefused()
+    {
+        var dedicated = Good with { Path = VblankReport.PathDedicated };
+        Assert.Equal(3, VblankReport.PathDedicated);
+        Assert.True(dedicated.IsValid);
+        var b = Bytes(dedicated);
+        Assert.Equal(3, b[7]);
+        Assert.True(VblankReport.TryRead(b, out var back));
+        Assert.Equal(dedicated, back);
+        Assert.Equal("dedicated", back.PathWord);
+        for (var path = 4; path <= byte.MaxValue; path++)
+        {
+            b[7] = (byte)path;
+            Assert.False(VblankReport.TryRead(b, out _), $"path {path}");
+            Assert.False((Good with { Path = (byte)path }).IsValid, $"path {path}");
+        }
+
+        Assert.Equal(VblankReport.PathDxgiFlip, VblankReport.PathOf(PresentPath.D3D12Flip));
+        Assert.Equal(VblankReport.PathDxgiFlip, VblankReport.PathOf(PresentPath.DxgiFlip));
+        Assert.Equal(VblankReport.PathGl, VblankReport.PathOf(PresentPath.GlWindow));
+        Assert.Equal(VblankReport.PathOffscreen, VblankReport.PathOf(PresentPath.Offscreen));
+        var flip = Good with { Path = VblankReport.PathOf(PresentPath.D3D12Flip) };
+        Assert.True(VblankReport.TryRead(Bytes(flip), out var read));
+        Assert.Equal(2, Bytes(flip)[7]);
+        Assert.Equal("dxgi-flip", read.PathWord);
+        Assert.Equal(["offscreen", "gl", "dxgi-flip", "dedicated"], Enumerable.Range(0, 4).Select(p => VblankReport.Word((byte)p)));
     }
 
     [Fact]

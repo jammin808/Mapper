@@ -35,7 +35,7 @@ public sealed partial class EngineCore
         routes.OffLane("CONTROL INJECT", ControlInjectAsync);
         routes.Lane("BIND LIST", c => BindList(c.Args));
         routes.Lane("BIND ADD", c => BindAdd(c.Args, c.Line));
-        routes.OffLane("BIND LEARN", c => BindLearnAsync(c.Args, c.Line));
+        routes.OffLane("BIND LEARN", BindLearnAsync);
         routes.Lane("BIND FORGET", c => BindForget(c.Args, c.Line));
         routes.Lane("BIND ENABLE", c => BindEnable(c.Args));
         routes.Lane("NUDGE", c => Nudge(c.Args));
@@ -154,26 +154,33 @@ public sealed partial class EngineCore
             return RefusedStopping(line, session, journalLine);
         if (VerbCatalog.Match(line) is { } m && (_routes.TryOffLane(m.Spec.Name, out _) || IsOpsVerb(m.Spec)))
             return await HandleAsync(line, session, ct).ConfigureAwait(false);
-        CommandReply reply;
+        LineTurn turn;
         try
         {
-            reply = await _lane.RunAsync(() => Route(line, session, ct)).ConfigureAwait(false);
-        }
-        catch (EditRefusedException refused)
-        {
-            reply = CommandReply.Fail(refused.Message);
+            turn = await _lane.RunAsync(() => RouteBehindRow(line, session, ct)).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            return CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged");
+            // The lane took no more work (the node is closing): nothing of the line ran.
+            turn = new LineTurn(null, ex, null);
         }
-        if (journalLine && !reply.Silent && IsJournalled(line))
-            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
-                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
-        else if (!journalLine && reply.Ok && !reply.Silent)
-            FanOutGestureLine(line);
-        return reply;
+        try
+        {
+            if (RowHeldForTests is { } hold)
+                await hold(line, turn.HoldsWork).ConfigureAwait(false);
+            if (turn.Reply is not { } written)
+                Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            else if (journalLine && !written.Silent && IsJournalled(line))
+                Journal.Add(written.Ok ? "verb" : "refused", written.Ok ? (written.Effect.Length > 0 ? written.Effect : VerbCatalog.Redacted(line)) : written.Payload ?? "refused",
+                    session.ClientName, VerbCatalog.Redacted(line), written.Ok);
+            else if (!journalLine && written.Ok && !written.Silent)
+                FanOutGestureLine(line);
+        }
+        finally
+        {
+            BeginAfterRow(turn.TakeWork());
+        }
+        return turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged");
     }
 
     /// <summary>A verb the operations edge answers (TryOps: devices, the assistant, scanning a surface, solving a projector), not the lane.</summary>
@@ -628,8 +635,9 @@ public sealed partial class EngineCore
         }), also.Count > 0 ? $"bound {words} (also bound to {string.Join(", ", also.Distinct(StringComparer.Ordinal))})" : $"bound {words}");
     }
 
-    private async Task<CommandReply> BindLearnAsync(List<string> args, WireLine line)
+    private async Task<CommandReply> BindLearnAsync(VerbCall c)
     {
+        var (args, line) = (c.Args, c.Line);
         if (args.Count == 1 && IsOff(args[0]))
             return await ControlInput.CancelLearnAsync().ConfigureAwait(false) ? CommandReply.Success(effect: "learn stopped — nothing was bound") : CommandReply.Fail("not learning");
         if (args.Count == 0)
@@ -652,7 +660,11 @@ public sealed partial class EngineCore
         var now = Services.Mono.NowNs;
         var untilUnix = Services.Wall.UnixMs + 30_000;
         var words = TargetWords(Store.Project, target.Text);
-        await ControlInput.ArmAsync(new LearnSession(target, from, now + 30_000_000_000L, untilUnix, words)).ConfigureAwait(false);
+        // Armed before the answer, so a control moved from then on is learnt; what the learn comes to is journalled behind this
+        // line's row.
+        var row = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        c.AfterRow(() => row.TrySetResult());
+        await ControlInput.ArmAsync(new LearnSession(target, from, now + 30_000_000_000L, untilUnix, words), row.Task).ConfigureAwait(false);
         return CommandReply.Success(JsonOut(w =>
         {
             w.WriteStartObject();

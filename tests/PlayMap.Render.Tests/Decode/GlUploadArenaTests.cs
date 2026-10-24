@@ -4,7 +4,7 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Numerics;
 using PlayMap.Render.Decode;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Gl;
 using PlayMap.Render.Video;
 using PlayMap.Tests;
 
@@ -14,8 +14,8 @@ namespace PlayMap.Render.Tests.Decode;
 /// block uploads from the arena's buffer and draws the same picture as the copy path; a returned block is free again only after a
 /// fence the GPU has passed; an arena that is gone is never read (the last picture holds); the per-frame fence and the returns
 /// allocate nothing once warm.</summary>
-[Collection("gl")]
-public sealed class GlUploadArenaTests(GlFixture gl)
+[Collection("gpu")]
+public sealed class GlUploadArenaTests(BackendFixture backends)
 {
     private const int W = 64, H = 32;
     private const int Bytes = (W / 4) * (H / 4) * 8;
@@ -40,16 +40,18 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         return px;
     }
 
+    /// <summary>The device's arena, opened through its upload ring (closed by <see cref="Close"/>).</summary>
     private static GlUploadArena Make(GlDevice device)
     {
-        var arena = GlUploadArena.Create(device, 4, out var words);
+        var arena = device.Backend.Uploads.OpenArena(4, out var words) as GlUploadArena;
         Assert.True(arena is not null, "no arena: " + words);
-        device.DecodeContext = new DecodeContext(null, ZeroCopyPlatform.None, "glx", arena, "");
         return arena;
     }
 
+    private static void Close(GlDevice device) => device.Backend.Uploads.CloseArena();
+
     [Fact]
-    public void ABlockUploadsFromTheArenaAndDrawsWhatTheCopyPathDraws() => gl.Run(ctx =>
+    public void ABlockUploadsFromTheArenaAndDrawsWhatTheCopyPathDraws() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         Assert.True(device.Caps.Dxt1, "this GL samples no BC1: the arena's HAP upload cannot be drawn here");
@@ -57,7 +59,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         try
         {
             var block = WriteBc1(arena, 11);
-            using var staged = new VideoTextureSet(device);
+            using var staged = new VideoTextureSet(device.Backend);
             Assert.True(staged.Update(Staged(block, 1)), staged.Refusal);
             Assert.Equal(1, staged.StagedUploads);
             var copy = new byte[Bytes];
@@ -65,7 +67,7 @@ public sealed class GlUploadArenaTests(GlFixture gl)
             var pin = GCHandle.Alloc(copy, GCHandleType.Pinned);
             try
             {
-                using var plain = new VideoTextureSet(device);
+                using var plain = new VideoTextureSet(device.Backend);
                 Assert.True(plain.Update(new TestLease(PixelLayout.Bc1, W, H, 1, [new FramePlane(pin.AddrOfPinnedObject(), (W / 4) * 8, W / 4, H / 4)])));
                 Assert.Equal(0, plain.StagedUploads);
                 Assert.Equal(Picture(device, plain), Picture(device, staged));
@@ -78,12 +80,12 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
         }
     });
 
     [Fact]
-    public void AReturnedBlockIsFreeOnlyAfterTheGpuPassedItsFence() => gl.Run(ctx =>
+    public void AReturnedBlockIsFreeOnlyAfterTheGpuPassedItsFence() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         using var arena = Make(device);
@@ -101,19 +103,19 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
         }
     });
 
     [Fact]
-    public void AFrameInAnArenaThatIsGoneIsNeverReadAndTheLastPictureHolds() => gl.Run(ctx =>
+    public void AFrameInAnArenaThatIsGoneIsNeverReadAndTheLastPictureHolds() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         Assert.True(device.Caps.Dxt1, "this GL samples no BC1: the arena's HAP upload cannot be drawn here");
         var arena = Make(device);
         try
         {
-            using var set = new VideoTextureSet(device);
+            using var set = new VideoTextureSet(device.Backend);
             var first = WriteBc1(arena, 2);
             Assert.True(set.Update(Staged(first, 1)));
             var before = Picture(device, set);
@@ -131,13 +133,13 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
             arena.Dispose();
         }
     });
 
     [Fact]
-    public void RentReturnAndTheFrameFenceAllocateNothingOnceWarm() => gl.Run(ctx =>
+    public void RentReturnAndTheFrameFenceAllocateNothingOnceWarm() => backends.RunGl(ctx =>
     {
         var device = ctx.Device;
         using var arena = Make(device);
@@ -154,9 +156,32 @@ public sealed class GlUploadArenaTests(GlFixture gl)
         }
         finally
         {
-            device.DecodeContext = null;
+            Close(device);
         }
     });
+
+    /// <summary>Producers return blocks while the render thread fences them every frame, and both rent and return through the arena's
+    /// ranges: the arena's lock and its ranges' are made with their wait events, so a first wait on either allocates nothing.</summary>
+    [Fact]
+    public void TheArenasLocksAreMadeWithTheirWaitEvents() => backends.RunGl(ctx =>
+    {
+        var device = ctx.Device;
+        using var arena = Make(device);
+        try
+        {
+            var probes = LockWaitProbe.FirstWaits(arena).Concat(LockWaitProbe.FirstWaits(Allocator(arena))).ToList();
+            Assert.Equal(2, probes.Count);
+            Assert.All(probes, p => Assert.EndsWith(" 0 B", p, StringComparison.Ordinal));
+        }
+        finally
+        {
+            Close(device);
+        }
+    });
+
+    private static ArenaAllocator Allocator(GlUploadArena arena) =>
+        (ArenaAllocator)(typeof(GlUploadArena).GetField("_allocator", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?.GetValue(arena) ?? throw new MissingFieldException(nameof(GlUploadArena), "_allocator"));
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
     private static long Cycle(GlDevice device, GlUploadArena arena, UploadBlock[] blocks, int frames)

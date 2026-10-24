@@ -114,6 +114,51 @@ public class DeskLogicTests
     }
 
     [Fact]
+    public async Task ACommitDropsTheLineTheIntervalSentUnderItsKeyAndARefusedOneGoesAgain()
+    {
+        var time = new ManualTime();
+        var sent = new List<string>();
+        var refuse = false;
+        using var throttle = new ThrottledSender((line, _) =>
+        {
+            sent.Add(line);
+            return Task.FromResult(!refuse);
+        }, TimeSpan.FromMilliseconds(16), time);
+
+        // The interval sends A; the release posts A again: the node has it, so the commit sends nothing.
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 10 10 RASTER");
+        time.Advance(TimeSpan.FromMilliseconds(16));
+        await throttle.Pump;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 10 10 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(["SURFACE CORNER sf TR TO 10 10 RASTER"], sent);
+
+        // The commit forgot what the interval sent: the next gesture's same line goes.
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 10 10 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(2, sent.Count);
+
+        // A line the node refused is not the node's: the commit sends it again.
+        refuse = true;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 20 20 RASTER");
+        time.Advance(TimeSpan.FromMilliseconds(16));
+        await throttle.Pump;
+        refuse = false;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 20 20 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(["SURFACE CORNER sf TR TO 20 20 RASTER", "SURFACE CORNER sf TR TO 20 20 RASTER"], sent[2..]);
+
+        // A different line under the key, and the same line under another key, both go.
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 30 30 RASTER");
+        time.Advance(TimeSpan.FromMilliseconds(16));
+        await throttle.Pump;
+        throttle.Post("corner", "SURFACE CORNER sf TR TO 31 30 RASTER");
+        throttle.Post("other", "SURFACE CORNER sf TR TO 30 30 RASTER");
+        await throttle.CommitAsync(Ct);
+        Assert.Equal(["SURFACE CORNER sf TR TO 30 30 RASTER", "SURFACE CORNER sf TR TO 31 30 RASTER", "SURFACE CORNER sf TR TO 30 30 RASTER"], sent[4..]);
+    }
+
+    [Fact]
     public void TheRestartBackoffDoublesToItsCeilingAndAHealthyRunStartsItAgain()
     {
         var b = new RestartBackoff();
@@ -149,9 +194,9 @@ public class DeskLogicTests
             var p = new FakeProcess(100 + made.Count, exits.Dequeue());
             made.Add(p);
             return p;
-        }, backoff: new RestartBackoff(TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(4)));
+        }, backoff: new RestartBackoff(TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(4)), supervisedMachine: () => false);
         supervisor.Note += notes.Add;
-        supervisor.Start();
+        Assert.True(supervisor.Start());
         await supervisor.Watching.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         Assert.Equal(3, supervisor.Starts);
         Assert.All(made, p => Assert.True(p.Disposed));
@@ -286,7 +331,9 @@ public class DeskLogicTests
     public async Task ARefusalBecomesAToastInPlainWordsWithTheVerbThatCausedIt()
     {
         await using var link = new FakeEngineLink(clock: new PlayMap.Core.Time.ManualClock());
-        await using var session = new DeskSession(a => a());
+        // The toasts' ages run on a clock the test moves: the repeat below is within the fold's two seconds however late it runs.
+        var time = new ManualTime();
+        await using var session = new DeskSession(a => a(), time);
         session.Attach(link, "Demo");
         var r = await session.SendAsync("PLAYLIST GO pl_nope", Ct);
         Assert.False(r.Ok);
@@ -294,9 +341,19 @@ public class DeskLogicTests
         Assert.StartsWith("No playlist 'pl_nope'", session.LastToast.Text, StringComparison.Ordinal);
         Assert.Equal("PLAYLIST GO pl_nope", session.LastToast.Verb);
         Assert.Equal("Already playing", DeskSession.Plain("ERR already playing"));
-        // A drag's refusal repeated folds into the toast already up.
+        // A drag's refusal repeated folds into the toast already up; past the fold's two seconds it is said again.
+        time.Advance(TimeSpan.FromSeconds(1.9));
         await session.SendAsync("PLAYLIST GO pl_nope", Ct);
         Assert.Single(session.Toasts);
+        time.Advance(TimeSpan.FromSeconds(2.1));
+        await session.SendAsync("PLAYLIST GO pl_nope", Ct);
+        Assert.Equal(2, session.Toasts.Count);
+        // A refusal stays for twice the window's age; the session's clock says when it goes.
+        session.Expire(TimeSpan.FromSeconds(6));
+        Assert.Equal(2, session.Toasts.Count);
+        time.Advance(TimeSpan.FromSeconds(12.1));
+        session.Expire(TimeSpan.FromSeconds(6));
+        Assert.Empty(session.Toasts);
         link.SetStatus(PlayMap.Core.Wire.LinkStatus.Down);
         var down = await session.SendAsync("BLACKOUT ON", Ct);
         Assert.False(down.Ok);

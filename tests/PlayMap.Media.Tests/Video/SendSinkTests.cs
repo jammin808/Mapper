@@ -3,6 +3,7 @@ using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Video;
 using PlayMap.Media.Video;
+using PlayMap.Tests;
 
 namespace PlayMap.Media.Tests.Video;
 
@@ -112,6 +113,18 @@ public sealed class SendSinkTests
         // One period of 60 fps after the last frame, on the leader's grid.
         Assert.Equal(16_666_600 + 16_666_666, leaderNs);
         Assert.Equal(2, sink.Stats.Sent);
+    }
+
+    /// <summary>The render thread offers a frame under the offer gate every frame while a stop takes it, and the worker counts each
+    /// send under the stats gate while readers take it: both are made with their wait events, so a first wait for the other
+    /// allocates nothing.</summary>
+    [Fact]
+    public void ASendersLocksAreMadeWithTheirWaitEvents()
+    {
+        using var sink = new QuietSink(start: false);
+        var probes = LockWaitProbe.FirstWaits(sink);
+        Assert.Equal(2, probes.Count);
+        Assert.All(probes, p => Assert.EndsWith(" 0 B", p, StringComparison.Ordinal));
     }
 
     [Fact]

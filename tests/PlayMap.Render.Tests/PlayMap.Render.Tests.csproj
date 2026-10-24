@@ -36,9 +36,14 @@
     <PackageReference Include="Avalonia.Angle.Windows.Natives" Version="2.1.27548.20260419" />
   </ItemGroup>
 
-  <!-- The one way the suites measure allocation, shared rather than copied. -->
+  <!-- The one way the suites measure allocation, and what a lock's first wait makes, shared rather than copied. -->
   <ItemGroup Label="fix-tests3">
     <Compile Include="..\Shared\Allocations.cs" Link="Shared\Allocations.cs" />
+    <Compile Include="..\Shared\LockWaitProbe.cs" Link="Shared\LockWaitProbe.cs" />
   </ItemGroup>
 
+  <!-- wp3-rhi: the line around the GL backend, held by the Render and Engine suites alike. -->
+  <ItemGroup Label="wp3-rhi">
+    <Compile Include="..\Shared\GlFence.cs" Link="Shared\GlFence.cs" />
+  </ItemGroup>
 </Project>

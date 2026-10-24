@@ -65,6 +65,7 @@ public class CalibrationDeskTests
                 Assert.Equal(fix, row.Fix!.Verb);
                 Assert.Null(DeskVerbRuleTests.Fault(fix));
                 var button = view.GetVisualDescendants().OfType<Button>().Single(b => ReferenceEquals(b.DataContext, row.Fix));
+                var named = $"{card.Id} term {i + 1} {row.Title} ({fix})";
                 // The operator scrolls the tab to the row.
                 button.BringIntoView();
                 DeskHarness.Pump();
@@ -72,11 +73,16 @@ public class CalibrationDeskTests
                 foreach (var toast in desk.Session.Toasts.ToList())
                     desk.Session.Dismiss(toast);
                 DeskHarness.Pump();
+                Assert.True(button.IsEffectivelyVisible && button.IsEffectivelyEnabled,
+                    $"{named}: its Fix is visible {button.IsEffectivelyVisible}, enabled {button.IsEffectivelyEnabled} ({row.Fix.Refusal})");
                 desk.Link.ClearSent();
+                // The press lands on the Fix itself, or the click names what it landed on.
                 DeskHarness.Click(window, button);
                 await row.Fix.Command.Last;
                 DeskHarness.Pump();
-                Assert.Equal(fix, Assert.Single(desk.Verbs()));
+                var verbs = desk.Verbs();
+                Assert.True(verbs.Count == 1 && verbs[0] == fix,
+                    $"{named}: its Fix sent [{string.Join("; ", verbs)}] of [{string.Join("; ", desk.Link.SentLines)}]");
                 pressed++;
             }
         }

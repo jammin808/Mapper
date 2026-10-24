@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging.Abstractions;
 using PlayMap.Core.Model;
 using PlayMap.Core.Storage;
+using PlayMap.Core.Wire;
 using PlayMap.Engine.Align;
 using PlayMap.Engine.Optimise;
 using PlayMap.Engine.Presentation;
@@ -39,7 +40,7 @@ public sealed class DurableWriteTests
             Assert.Contains(queue.Path, flushed);
 
             var project = Path.Combine(node.Dir.FullName, "show.playmap");
-            await node.OkAsync("PROJECT SAVE " + project);
+            await node.OkAsync("PROJECT SAVE " + WireGrammar.Quote(project));
             Assert.Contains(project, flushed);
             Assert.True(File.Exists(project));
 

@@ -858,7 +858,8 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
     }
 
     /// <summary>A follower whose leader has been silent longer than the settings' timeout free-wheels on its last estimate: its
-    /// playlists keep switching their own items at the anchored instants; the journal and the context say so, once.</summary>
+    /// playlists keep switching their own items at the anchored instants; the journal and the context say so, once. STATE says it
+    /// first, and is pushed: a reader that has the row, or the event, reads the same in STATE.</summary>
     private void WatchLeader(EngineCore engine)
     {
         if (_follower is null || !Clock.IsFollowing || Role != "follower")
@@ -869,17 +870,17 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         {
             _holdNoted = true;
             var who = LeaderLabel;
-            engine.Journal.Add("sync", $"{who} went quiet: free-wheeling on the last estimate; playlists keep their anchored switches", ok: false);
-            engine.RaiseEvent("sync.leader.lost", engine.LeaderNowNs, w => w.WriteString("leader", _settings.Leader));
             _words = $"free-wheeling: {who} is not heard";
             engine.FactsChanged();
+            engine.Journal.Add("sync", $"{who} went quiet: free-wheeling on the last estimate; playlists keep their anchored switches", ok: false);
+            engine.RaiseEvent("sync.leader.lost", engine.LeaderNowNs, w => w.WriteString("leader", _settings.Leader));
         }
         else if (!silent && _holdNoted && !Clock.IsHolding)
         {
             _holdNoted = false;
-            engine.Journal.Add("sync", $"{LeaderLabel} is heard again");
             _words = $"following {LeaderLabel} for {_settings.Group}";
             engine.FactsChanged();
+            engine.Journal.Add("sync", $"{LeaderLabel} is heard again");
         }
     }
 
@@ -916,7 +917,7 @@ public sealed class SyncNode : IFleetFanout, IVblankSink, IAsyncDisposable
         var me = _network.Settings.NodeId;
         var u = Clock.UncertaintyNs / 1000;
         return [.. (_source?.Read() ?? []).Select(v => new SyncOutputRow(me, v.OutputId, Core.Sync.FrameLockMachine.Word(v.State),
-            v.Path switch { VblankReport.PathGl => "gl", VblankReport.PathDxgiFlip => "dxgi-flip", _ => "offscreen" },
+            VblankReport.Word(v.Path),
             Math.Round(1e12 / v.PeriodPs, 6), Math.Round((v.PeriodPs / 1000.0 - 1e9 / SyncBoard.Nominal(1e12 / v.PeriodPs)) / (1e9 / SyncBoard.Nominal(1e12 / v.PeriodPs)) * 1e6, 2),
             0, Math.Round(u, 3), null, v.Missed60s, v.FrameCount, true, true, v.AirLatencyUs / 1000.0))];
     }

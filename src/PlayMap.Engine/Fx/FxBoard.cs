@@ -119,7 +119,8 @@ internal sealed class FxBoard
         FxSlotState.Ok => "ok",
         FxSlotState.Compiling => "compiling",
         FxSlotState.Faulted => "faulted",
-        FxSlotState.Bypassed => "bypassed",
+        // A slot the node's quarantine holds reads bypassed as the renderer drew it; the show's own bypass is read from the project.
+        FxSlotState.Bypassed or FxSlotState.Quarantined => "bypassed",
         FxSlotState.Missing => "missing",
         _ => "idle",
     };

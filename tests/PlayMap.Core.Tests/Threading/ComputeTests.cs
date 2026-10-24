@@ -163,6 +163,7 @@ public sealed partial class ComputeTests
         ["PlayMap.Engine/Companion/Announcer.cs"] = 1, // announce loop
         ["PlayMap.Engine/Companion/CompanionParts.cs"] = 2, // facts handed on
         ["PlayMap.Engine/Companion/ThumbnailService.cs"] = 1, // a source opened and waited for (its encode through Compute)
+        ["PlayMap.Engine/Control/ControlRuntime.cs"] = 1, // a learn's row journalled behind its verb's row
         ["PlayMap.Engine/Control/ControlService.cs"] = 3, // input loop, ticker, an LTC input opened or closed after the one before
         ["PlayMap.Engine/EngineCore.Audio.cs"] = 1, // listen loop
         ["PlayMap.Engine/EngineCore.BlendSolve.cs"] = 3, // the solver's async run (its solve through Compute), its end posted to the lane, the wait for it
@@ -210,6 +211,7 @@ public sealed partial class ComputeTests
         ["PlayMap.Net/Sync/ClockSync.cs"] = 3, // socket loops
         ["PlayMap.Net/Wire/LineSessions.cs"] = 1, // push loop
         ["PlayMap.Net/Wire/WireServer.cs"] = 1, // accept loop
+        ["PlayMap.Render/Effects/FxLane.cs"] = 1, // a program made after its lane went, let go when its make lands (its pictures decode through Compute)
     };
 
     /// <summary>The scan finds pool work in each form it takes: a run of any result type (a nested generic among them), a factory start,

@@ -171,9 +171,16 @@ public static class StateExplainer
             lines.Add(missing == 1 ? "One media file is missing on this node." : string.Create(CultureInfo.InvariantCulture, $"{missing:0} media files are missing on this node."));
         else if (Bool(m, "ready") == false)
             lines.Add("The media is not ready yet.");
-        var transfers = Arr(m, "transfers").Count;
-        if (transfers > 0)
-            lines.Add(transfers == 1 ? "One media transfer is running." : string.Create(CultureInfo.InvariantCulture, $"{transfers} media transfers are running."));
+        // A row on its way is "queued" or "pulling"; one whose state says how it failed ("failed: …") runs no more.
+        var rows = Arr(m, "transfers");
+        var running = rows.Count(t => Str(t, "state") is "queued" or "pulling");
+        if (running > 0)
+            lines.Add(running == 1 ? "One media transfer is running." : string.Create(CultureInfo.InvariantCulture, $"{running} media transfers are running."));
+        var failed = rows.Where(t => Str(t, "state")?.StartsWith("failed", StringComparison.Ordinal) == true).ToList();
+        if (failed.Count == 1)
+            lines.Add($"The media transfer of {Str(failed[0], "name") ?? "a file"} {Str(failed[0], "state")}; MEDIA FETCH asks for it again.");
+        else if (failed.Count > 1)
+            lines.Add(string.Create(CultureInfo.InvariantCulture, $"{failed.Count} media transfers failed (each row's state says why); MEDIA FETCH asks for them again."));
     }
 
     private static void Stage(JsonElement r, List<string> lines)

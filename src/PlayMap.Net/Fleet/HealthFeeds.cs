@@ -24,7 +24,8 @@ public sealed record FeedEnd(string Words, bool Heard, bool Refused);
 public interface IHealthFeeds
 {
     /// <summary>Runs one subscription until the peer closes, goes, sends what is not its own record, or <paramref name="ct"/> stops
-    /// it. <paramref name="onPin"/> hears the pin's verdict ("pinned", "first use", "plain", "refused") once it is known.</summary>
+    /// it. <paramref name="onPin"/> hears the pin's verdict ("pinned", "first use", "plain", "refused") once it is known. A dial that ends
+    /// once <paramref name="ct"/> is cancelled ends as that cancel, whatever it met.</summary>
     Task<FeedEnd> RunAsync(FleetDial dial, Action<HealthRecord> onRecord, Action<string> onPin, CancellationToken ct);
 }
 
@@ -77,8 +78,11 @@ public sealed class HealthFeedClient(Func<PinStore> pins, TimeProvider time, ILo
             using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, dialing.Token))
                 await socket.ConnectAsync(uri, linked.Token);
         }
-        catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or HttpRequestException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or HttpRequestException)
         {
+            // Once the stop is taken, whatever the dial ends on is the stop's (a refusal or a reset as well as the cancel): the
+            // subscription ends as the stop, never as a fault of the feed.
+            ct.ThrowIfCancellationRequested();
             if (verdict is PinVerdict.Changed or PinVerdict.Mismatch)
             {
                 onPin("refused");

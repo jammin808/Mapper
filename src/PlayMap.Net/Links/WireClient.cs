@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -27,6 +26,10 @@ public sealed record WireClientOptions
 
     /// <summary>Request ids this link makes start with this (ids are unique per link).</summary>
     public string IdPrefix { get; init; } = "c";
+
+    /// <summary>The clock the beat and the peer's silence are counted on: the process's monotonic clock unless the owner hands its own
+    /// (a node's, so a hand-moved clock decides when the link pings, goes stale and drops, whatever real time does).</summary>
+    public IMonoClock Clock { get; init; } = MonoClock.Instance;
 
     public TimeSpan PingEvery { get; init; } = TimeSpan.FromMilliseconds(ShowBusConstants.BeatMs);
 
@@ -67,7 +70,8 @@ public enum PairState
 /// <summary>A dialled line-wire link in Patterns' grammar — the core of the Patterns link and the desk's engine link.
 /// It says HELLO, proves the token against the peer's NONCE (plain AUTH only to this machine, and only when the peer
 /// never asked for a proof), pings every 2 s (the clock exchange, and the beat the peer's silence is measured
-/// against), goes stale after 6 s of silence and drops and redials after 12 s with the contract's backoff. A line
+/// against), goes stale after 6 s of silence and drops and redials after 12 s with the contract's backoff, each counted on
+/// its options' clock; a stale link is live again with the peer's next line on the same connection. A line
 /// sent through it carries a request id and its reply is matched by that id; nothing is queued while the link is
 /// down — a send then fails at once with the reason.</summary>
 public sealed class WireClient : IAsyncDisposable
@@ -103,6 +107,9 @@ public sealed class WireClient : IAsyncDisposable
 
     /// <summary>Connections made since start (a redial counts again).</summary>
     public long Connections => Interlocked.Read(ref _connections);
+
+    /// <summary>How long the peer has said nothing on the connection now, on the link's clock (zero while none is up).</summary>
+    public TimeSpan Silence => _stream is null ? TimeSpan.Zero : Since(Interlocked.Read(ref _lastHeard));
 
     public string Address => _o.Host + ":" + _o.Port.ToString(CultureInfo.InvariantCulture);
 
@@ -260,7 +267,7 @@ public sealed class WireClient : IAsyncDisposable
         var stream = new NetworkStream(socket, ownsSocket: true);
         _stream = stream;
         Interlocked.Increment(ref _connections);
-        Interlocked.Exchange(ref _lastHeard, Stopwatch.GetTimestamp());
+        Interlocked.Exchange(ref _lastHeard, _o.Clock.NowNs);
         SetPairing(PairState.Unknown);
         var reader = new LineReader(stream, _o.MaxLineBytes, _o.LineSeconds);
         var heard = false;
@@ -290,7 +297,7 @@ public sealed class WireClient : IAsyncDisposable
                 if (line is null)
                     break;
                 heard = true;
-                Interlocked.Exchange(ref _lastHeard, Stopwatch.GetTimestamp());
+                Interlocked.Exchange(ref _lastHeard, _o.Clock.NowNs);
                 if (Status == LinkStatus.Stale)
                     SetStatus(LinkStatus.Live);
                 if (line.StartsWith("NONCE ", StringComparison.Ordinal))
@@ -383,16 +390,17 @@ public sealed class WireClient : IAsyncDisposable
             _offset.Add(new ClockSample(t1, t2, t3, _wall.UnixMs));
     }
 
-    /// <summary>Every ping beat: the clock exchange, the liveness check (stale at 6 s, dropped at 12 s).</summary>
+    /// <summary>Every ping beat: the clock exchange, the liveness check (stale at 6 s, dropped at 12 s), both on the link's clock; the
+    /// check looks every step of real time.</summary>
     private async Task BeatAsync(CancellationToken ct)
     {
-        var lastPing = Stopwatch.GetTimestamp();
+        var lastPing = _o.Clock.NowNs;
         var ping = 0L;
         await WriteAsync("@k" + (++ping).ToString(CultureInfo.InvariantCulture) + " PING " + _wall.UnixMs.ToString(CultureInfo.InvariantCulture), ct);
         var step = TimeSpan.FromMilliseconds(Math.Clamp(_o.StaleAfter.TotalMilliseconds / 8, 20, 250));
         while (await Waits.DelayAsync(step, ct))
         {
-            var silent = Stopwatch.GetElapsedTime(Interlocked.Read(ref _lastHeard));
+            var silent = Since(Interlocked.Read(ref _lastHeard));
             if (silent > _o.DropAfter)
             {
                 _log.LogInformation("The link to {Address} was silent for {Seconds:0} s: dropped, dialling again.", Address, silent.TotalSeconds);
@@ -401,13 +409,16 @@ public sealed class WireClient : IAsyncDisposable
             }
             if (silent > _o.StaleAfter && Status == LinkStatus.Live)
                 SetStatus(LinkStatus.Stale);
-            if (Stopwatch.GetElapsedTime(lastPing) >= _o.PingEvery)
+            if (Since(lastPing) >= _o.PingEvery)
             {
-                lastPing = Stopwatch.GetTimestamp();
+                lastPing = _o.Clock.NowNs;
                 await WriteAsync("@k" + (++ping).ToString(CultureInfo.InvariantCulture) + " PING " + _wall.UnixMs.ToString(CultureInfo.InvariantCulture), ct);
             }
         }
     }
+
+    /// <summary>The time on the link's clock since <paramref name="ns"/> (never negative).</summary>
+    private TimeSpan Since(long ns) => TimeSpan.FromTicks(Math.Max(0, _o.Clock.NowNs - ns) / TimeSpan.NanosecondsPerTick);
 
     private void FailPending(string words)
     {

@@ -1,9 +1,9 @@
 using System.Runtime.Versioning;
+using PlayMap.Core.Gpu;
+using PlayMap.Core.Presentation;
 using PlayMap.Render.Engine;
-using PlayMap.Render.Gpu;
-using PlayMap.Render.Platform;
-using PlayMap.Render.Platform.Windows;
-using PlayMap.Render.Timing;
+using PlayMap.Render.Gl;
+using PlayMap.Render.Gl.Windows;
 using Xunit.Abstractions;
 
 namespace PlayMap.Render.Tests.Presentation;
@@ -32,7 +32,7 @@ public sealed class DxgiWarpPresenterTests(ITestOutputHelper output)
         Assert.NotEqual(0, platform.Share.D3D11Device);
         output.WriteLine($"{platform.Adapter} · {platform.Context.Device.Renderer} · {platform.Context.Device.Version}");
 
-        using (var renderer = new RenderEngine(platform.Context))
+        using (var renderer = new RenderEngine(platform.Device))
             renderer.WarmUp();
 
         var device = platform.Context.Device;
@@ -55,7 +55,10 @@ public sealed class DxgiWarpPresenterTests(ITestOutputHelper output)
         int queued = 0, held = 0, occluded = 0;
         for (var f = 0; f < 120; f++)
         {
-            var r = presenter.Present(picture);
+            var list = platform.Device.BeginFrame(f + 1);
+            presenter.Record(list, picture);
+            platform.Device.Submit(list);
+            var r = presenter.Present();
             clock.OnPresented(in r);
             presenter.Observe(clock);
             switch (r.Problem)

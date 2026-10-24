@@ -1,6 +1,7 @@
 using System.Diagnostics;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Media;
-using PlayMap.Render.Gpu;
+using PlayMap.Render.Engine;
 
 namespace PlayMap.Render.Hap;
 
@@ -42,19 +43,31 @@ public static class HapPass
         _ => 0,
     };
 
-    /// <summary>Draws the pass into <paramref name="target"/> (the picture's visible size).</summary>
-    public static void Draw(GlDevice device, RenderTarget target, GpuTexture first, GpuTexture? second, int mode, double hdrScale, int transfer)
+    /// <summary>The pass writes the picture whole, opaque.</summary>
+    private static readonly DrawState Drawn = DrawState.Opaque;
+
+    /// <summary>The pass's draw into pictures of <paramref name="target"/>'s shape.</summary>
+    internal static void Pipelines(PipelineList keys, TargetShape target)
     {
-        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(keys);
+        keys.Add("hap", Drawn, target);
+    }
+
+    /// <summary>Draws the pass of <paramref name="program"/> (the device's <c>hap</c>) into <paramref name="target"/> (the picture's
+    /// visible size) in a pass of its own on the frame's list.</summary>
+    public static void Draw(ICommandList list, ProgramId program, RenderTarget target, GpuTexture first, GpuTexture? second, int mode,
+        double hdrScale, int transfer)
+    {
+        ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(target);
-        var p = device.Program("hap");
-        device.BindTarget(target);
-        device.SetBlend(BlendMode.Opaque);
-        p.SetInt("uMode", mode);
-        p.Set("uHdr", (float)hdrScale, transfer);
-        device.BindSampler(p, "uTex0", 0, first);
-        device.BindSampler(p, "uTex1", 1, second ?? first);
-        device.DrawFullscreen(p);
+        ArgumentNullException.ThrowIfNull(first);
+        using (list.Pass(target, PassDesc.Keep))
+            list.Draw(program, Drawn)
+                .SetInt("uMode", mode)
+                .Set("uHdr", (float)hdrScale, transfer)
+                .Texture("uTex0", first)
+                .Texture("uTex1", second ?? first)
+                .Fullscreen();
         target.Color.Version++;
     }
 
@@ -102,53 +115,5 @@ public static class HapUploadMeter
             return;
         Interlocked.Add(ref _bytes, bytes);
         Interlocked.Add(ref _ticks, ticks);
-    }
-}
-
-/// <summary>Streams compressed planes through a ring of pixel-unpack buffers: the plane is copied into a mapped buffer and the
-/// texture is filled from it, so the driver may move the bytes on its own time and the decoder's slot is free as soon as the
-/// copy returns. A buffer the driver will not map falls back to a client-memory upload.</summary>
-internal sealed unsafe class CompressedUploadRing : IDisposable
-{
-    private readonly GlDevice _device;
-    private readonly uint[] _buffers;
-    private int _next;
-    private bool _disposed;
-
-    public CompressedUploadRing(GlDevice device, int slots = 3)
-    {
-        _device = device;
-        _buffers = new uint[Math.Max(1, slots)];
-        for (var i = 0; i < _buffers.Length; i++)
-            _buffers[i] = device.CreatePixelBuffer(pack: false, 16);
-    }
-
-    public void Upload(GpuTexture texture, nint blocks, int bytes)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var t0 = Stopwatch.GetTimestamp();
-        var buffer = _buffers[_next];
-        _next = (_next + 1) % _buffers.Length;
-        var p = _device.MapUnpack(buffer, bytes);
-        if (p is null)
-        {
-            _device.UploadCompressed(texture, blocks, bytes);
-        }
-        else
-        {
-            GlDevice.Copy(blocks, p, bytes);
-            _device.UnmapUnpack(buffer);
-            _device.UploadCompressedFromUnpackBuffer(texture, buffer, 0, bytes);
-        }
-        HapUploadMeter.Add(bytes, Stopwatch.GetTimestamp() - t0);
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-        foreach (var b in _buffers)
-            _device.DeleteBuffer(b);
-        _disposed = true;
     }
 }

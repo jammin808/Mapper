@@ -10,6 +10,15 @@ This build draws the chains on **outputs**, canvas **layers**, stage **surfaces*
 kept in the show, edited with the same verbs and reported in STATE (`"state":"idle"`, with the words "not drawn: this build draws
 a canvas's layers' chains, not the canvas's own"); its layers' chains, and those of the outputs and surfaces that show it, draw.
 
+Today every effect compiles and draws on OpenGL. The direction (docs/round3/PLAN.md D7, §3.4, §3.16): the renderer's own programs
+are written once in HLSL and compiled by DXC at build time; an ISF effect compiles out of the engine's process, in
+`PlayMap shader-worker` (ISF → GLSL 4.50 → SPIR-V → HLSL → DXIL), and draws on the Direct3D 12 device, so no compiler loads into
+the engine on that path. The HLSL library and the worker's road to DXIL are built, and `FX CHECK` reports each stage of that road
+(*The Direct3D 12 road*, below); no device draws their DXIL yet, which is wp3-d3d12-core's for the library and wp3-shaders-2's for
+user effects. A kind the node's quarantine holds draws bypassed, with words, until `FX RELEASE`; what puts a kind that brought the
+GPU down into it is wp3-shaders-2's GPU-time guard and wp3-stability-2's removal breadcrumbs. OpenGL stays the reference path until
+parity is measured.
+
 ## Where a chain runs
 
 Each chain runs where its owner's picture is made, and at most once a frame however many outputs show it:
@@ -108,11 +117,62 @@ When `TIME` leaves the range a float holds to a millisecond (past 65 536 s, or b
 
 ## The compile lane
 
-Programs are compiled on a **second GL context that shares the render context's objects**, on a thread of its own. A slot shows
-its input untouched while its program compiles, and a compile — however long — never holds a frame: the render thread takes the
-finished program at its next frame. Where a second context cannot be made, the lane runs on the render thread instead, one
-program a frame, and STATE says so (`fx.compile.lane: "render-thread"` with words). `FX CHECK` and `FX IMPORT` compile through
-the same lane, off the control lane, with a 10 s bound.
+Each pass of an effect is a program the device makes (`IGpuDevice.CreateProgramAsync`, the translated source in): the GL backend
+compiles and links it on a **second GL context that shares the render context's objects**, on a thread of its own, and reads its
+uniforms and samplers back into the program's layout, so a draw sets only the names its program holds. A slot shows its input
+untouched while its program compiles, and a compile — however long — never holds a frame: the render thread takes the finished
+program at its next frame. A program that does not compile answers its stage and the ISF line of the error. Where a second
+context cannot be made, the lane runs on the render thread instead, one program a frame, and STATE says so
+(`fx.compile.lane: "render-thread"` with words). A program no slot has drawn for 600 frames is released, and the device lets it
+go once the last frame that drew it has completed. `FX CHECK` and `FX IMPORT` compile through the same lane, off the control
+lane, with a 10 s bound, and release what they made.
+
+On the Direct3D 12 device the direction is that nothing compiles during the show (docs/round3/PLAN.md §3.13, §3.16): `SHOW ARM`
+waits, up to its deadline, for every pipeline the armed show can reach, ISF kinds' included, made from the shader worker's DXIL; a
+pipeline still missing then holds its step, named, and is never compiled on the render thread.
+
+## The Direct3D 12 road
+
+A user's ISF effect reaches DXIL in `PlayMap shader-worker`, a process of its own that every node the exe composes starts with the
+first source it checks, below normal priority, spoken to in one JSON object a line (docs/wire/shaders.md). Each source goes through
+five stages, each failure in its stage's words with the line mapped back to the ISF file:
+
+| Stage | What it does |
+|---|---|
+| `translate` | Core's Vulkan target: GLSL 4.50, the colour at an explicit location (each stage's varyings at the locations glslang gives them, matched by name at `cross`), images at set 0 with fixed bindings (at most 16), the inputs and each image's size, rect and flag as loose uniforms, the built-ins as a block |
+| `glslang` | GLSL to SPIR-V under Vulkan's rules relaxed (glslang's `-R`, through shaderc), the loose uniforms gathered into the default block |
+| `validate` | `spirv-val` for Vulkan 1.0: the module is valid before anything reads it |
+| `cross` | SPIRV-Cross to Shader Model 6.0 HLSL: the default block at `b0`, the built-ins at `b1`, the images at `t0` onward in the file's order and every image sampled through the one sampler at `s0` (linear and clamped, as GL samples the pictures an effect reads); the vertex entry ends with the render hardware interface's conversion to Direct3D's clip space (`ClipSpace.ToDirect3D`), so an effect lands on the rows and depths it lands on in GL; each varying the pixel entry reads takes the vertex output of its name, so both entries carry one `TEXCOORD` semantic for it whatever order and subset each file declares, as GL links varyings by name, and one no vertex output of its name and type writes is refused with its name; any other resource is refused with its name |
+| `dxc` | DXC's compiler, dxcompiler, to validated DXIL (`vs_6_0`, `ps_6_0`) signed with the retail hash by its built-in validator, and its reflection |
+
+The compilers — glslang (shaderc), SPIRV-Tools (inside shaderc on Linux, its own library on Windows), SPIRV-Cross and DXC's
+compiler alone (dxcompiler: `dxcompiler.dll` from Microsoft.Direct3D.DXC on Windows, `libdxcompiler.so` from DXC's pinned Linux
+release on Linux; no `dxil.dll` or `libdxil.so`, docs/round3/PLAN.md §9 decision 24) — load only in the worker, each file held to
+its SHA-256; the engine's process holds none. The worker compiles one source at a time: a source it does not answer (past the
+compile's 10 s deadline, past an `FX CHECK`'s bound, or abandoned by its caller) ends that worker and counts nothing; a worker that
+stops mid-compile is started again after a backoff doubling from 1 s to 30 s and given the source again; a source that stops it
+three times fails with words and is answered at once from then on, without a worker, until it changes. STATE says the worker in
+`fx.compile.worker` (whether it runs, its pid, restarts, the last compile's time, counts, and each native's name, file and state
+from its hello).
+
+`FX CHECK`'s report, and `FX IMPORT`'s check, carry `stages` beside the GL dialects: each stage of the road in order with `ok`
+(true, false, or null when not run), its words and the ISF line it points at; a failed stage makes the report's `ok` false. A
+quarantined kind answers one failed `quarantine` stage with the words that lift it; a worker that could not answer, one failed
+`worker` stage. The worker's check answers within 8 s (the engine bounds a stage check at 10 s). A check changes no quarantine and
+nothing on the air. GL user effects compile on the device's compile lane, as above; no device draws the worker's DXIL yet
+(wp3-shaders-2).
+
+**The quarantine.** The kinds a node will not draw are its own, kept in its home (`playmap.quarantine.json`), never in the show, so
+a blind draft never carries one and a hot backup does not mirror it. A quarantined kind's slots draw bypassed: their input passes
+unchanged, nothing of them is drawn, and each reads `"state": "bypassed"` with the words "quarantined on this node (FX RELEASE lifts
+it): its input passes unchanged", `gpuMs` 0 and `bypass` false, on every frame the quarantine holds the kind (a slot that drew
+before lets go of its renderer at once); the rest of the chain draws. STATE lists the entries in
+`fx.quarantine` (each kind's hash, name, reason, words, when, build and the show's slots of it) and counts them in
+`fx.library.quarantined`; preflight's `fx` section is red for each quarantined kind (`FX RELEASE <hash>`) and each slot that uses
+one (`FX REMOVE <slot>`). `FX RELEASE <kind>|ALL` lifts one or all: class Setup, refused while the show is armed and never drafted,
+refused with words for a kind not quarantined and for `ALL` with none. A release answers the kinds it lifted and says how many of
+the show's slots use them; whether a slot draws is its own `state`'s. Nothing on the node adds a kind yet: wp3-shaders-2's
+GPU-time guard and wp3-stability-2's removal breadcrumbs are to, and the worker's three-stop failure writes none.
 
 ## The built-in library
 
@@ -141,11 +201,16 @@ frame the drawn project carries the slot's bound numbers at their live values wh
 ## Measured, not governed
 
 Each slot's GPU time is measured between two GPU timestamps around its passes and its mix, three frames deep so reading never
-waits, and reported in STATE (`gpuMs`; on a GLES context, which has no timestamp queries, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
-(`NodeSettings.fx.budgetMs`, 4 ms): amber past it, red past twice it. Nothing acts on it.
+waits, and reported in STATE (`gpuMs`; on a GLES context with no timestamp counter, `EXT_disjoint_timer_query` absent or
+reporting no bits, it stays 0); an output's chain cost is their sum (`outputs[].fx.costMs`) against the node's budget
+(`NodeSettings.fx.budgetMs`, 4 ms): amber past it, red past twice it. Nothing acts on it today. The direction on the Direct3D 12
+device is a GPU-time guard with a measured cause (docs/round3/PLAN.md §3.16 item 4): a user slot that is the cause of its output
+missing vblanks — the frame's GPU time over the output's period, and under it without the slot's own time — on 30 frames in a row is
+bypassed and quarantined, with both numbers in its words.
 
 Once warm, a frame with chains on outputs, layers, surfaces and items — and with chains that are not drawn, saying why —
-allocates nothing on the frame path.
+allocates nothing on the frame path while no layer, surface or effect slot is modulated; a frame with a modulated one builds its
+drawn project afresh (docs/ROADMAP.md R2.8).
 
 ## Next
 
@@ -154,6 +219,9 @@ allocates nothing on the frame path.
   zoom) have nothing to work on until a one-pixel picture is drawn at its owner's size.
 - Live `audio` and `audioFFT` textures, the geometry-aware effects (`PM_POSITION`, `PM_NORMAL`, `PM_EDGE`) and the rest of the
   library.
-- FFGL 2.x: the in-process host, the probe child and quarantine, the isolated host, the Windows GL island.
+- FFGL 2.x plugins (docs/ROADMAP.md M25) are not in round 3's plan. They are OpenGL code, and OpenGL retires once Direct3D 12
+  reaches parity (docs/round3/PLAN.md D2), so a host waits for a design against the Direct3D 12 device.
 - The ES fix-up tokenizer (hoisting non-constant global initialisers, explicit int → float), history pre-roll, ISF generators and
-  transitions, presets and linked looks, audition on a preview, the shader editor.
+  transitions, presets and linked looks, audition on a preview.
+- On the desk, round 3's direction (docs/round3/PLAN.md §3.18 item 5): the effects chain editor, an advanced pane, with ISF import
+  and its compile report by line. No ISF source editor is planned.

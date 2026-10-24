@@ -35,7 +35,7 @@ public class ExplainAndRecipeTests
              "video":null,
              "playlists":[{"name":"Loop","focused":false,"state":"playing","item":{"label":"Snow"},"remainingMs":95000},{"name":"Spare","state":"stopped"}],
              "outputs":[{"name":"Projector 1","open":true,"light":"amber","dropped":12},{"name":"Projector 2","open":false,"light":"red"}],
-             "media":{"missing":2,"ready":false,"transfers":[{"id":"t1"}]},
+             "media":{"missing":2,"ready":false,"transfers":[{"name":"Intro","state":"pulling"}]},
              "stage":{"surfaces":3,"meshes":1,"projectors":[{"name":"Left","solved":false}]},
              "scan":{"state":"decoding"},
              "links":{"patterns":{"state":"down","host":"10.0.0.5:9697"}},
@@ -59,6 +59,29 @@ public class ExplainAndRecipeTests
         Assert.Contains("The Patterns link at 10.0.0.5:9697 is down.", text, StringComparison.Ordinal);
         Assert.Contains("It hears 2 peers; FOH is amber.", text, StringComparison.Ordinal);
         Assert.Contains("The project Show has unsaved changes.", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplainCountsOnlyTheTransfersOnTheirWayAndSaysOnesThatFailed()
+    {
+        const string one =
+            """
+            {"name":"Rack 2","light":"amber","media":{"missing":1,"ready":false,"transfers":[
+              {"name":"Intro","state":"failed: Stage left's media list could not be read: answered 503"}]}}
+            """;
+        var text = StateExplainer.Explain(one);
+        Assert.DoesNotContain("is running", text, StringComparison.Ordinal);
+        Assert.Contains("The media transfer of Intro failed: Stage left's media list could not be read: answered 503; MEDIA FETCH asks for it again.", text,
+            StringComparison.Ordinal);
+
+        const string several =
+            """
+            {"name":"Rack 2","light":"amber","media":{"missing":4,"ready":false,"transfers":[
+              {"name":"A","state":"pulling"},{"name":"B","state":"queued"},{"name":"C","state":"failed: answered 503"},{"name":"D","state":"failed: answered 503"}]}}
+            """;
+        var lines = StateExplainer.ExplainLines(several);
+        Assert.Contains("2 media transfers are running.", lines);
+        Assert.Contains("2 media transfers failed (each row's state says why); MEDIA FETCH asks for them again.", lines);
     }
 
     [Fact]

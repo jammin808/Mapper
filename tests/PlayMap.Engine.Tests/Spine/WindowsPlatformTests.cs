@@ -36,6 +36,25 @@ public sealed class WindowsPlatformTests
         Assert.True(seen > 100, $"{seen} types");
     }
 
+    /// <summary>Round 3's new projects: every type of the Direct3D 12 backend and of the Windows machine platform is Windows only; the
+    /// supervisor's are where their namespace says Windows (its policy is pure and runs on every OS, its service calls carry their
+    /// platform).</summary>
+    [Fact]
+    public void TheNewProjectsTypesCarryTheirPlatform()
+    {
+        foreach (var name in new[] { "PlayMap.Render.D3D12", "PlayMap.Platform.Windows" })
+        {
+            var types = Assembly.Load(name).GetTypes().Where(t => t.Namespace?.StartsWith(name, StringComparison.Ordinal) == true).ToList();
+            Assert.NotEmpty(types);
+            foreach (var t in types)
+                Assert.True(WindowsOnly(t), $"{t.FullName} is in {name} without [SupportedOSPlatform(\"windows\")]");
+        }
+        var supervisor = Assembly.Load("PlayMap.Supervisor").GetTypes().Where(t => t.Namespace?.StartsWith("PlayMap.Supervisor", StringComparison.Ordinal) == true).ToList();
+        Assert.NotEmpty(supervisor);
+        foreach (var t in supervisor.Where(t => t.Namespace!.Split('.').Contains("Windows", StringComparer.Ordinal)))
+            Assert.True(WindowsOnly(t), $"{t.FullName} is under a Windows namespace without [SupportedOSPlatform(\"windows\")]");
+    }
+
     [Fact]
     public void EverySourceFileNamedForWindowsDeclaresIt()
     {

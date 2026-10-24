@@ -21,6 +21,9 @@ internal sealed class CompanionRig : IAsyncDisposable
     {
         var s = EngineServices.ForTests(Clock);
         Engine = new EngineCore(services?.Invoke(s) ?? s, project);
+        // A folder run whatever the test machine holds: STATE's machine.install never reads the host's install key.
+        Engine.InstallSource = () => PlayMap.Engine.Install.InstallFacts.NotInstalled;
+        Engine.InstallReadAgain();
     }
 
     public async Task<CommandReply> Run(string line, SessionInfo? session = null)

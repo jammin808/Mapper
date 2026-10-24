@@ -120,14 +120,15 @@ public sealed partial class EngineCore
     public Task<string> RestoreAsync(RecoveryRecord record) => _lane.RunAsync(() =>
     {
         ArgumentNullException.ThrowIfNull(record);
-        Project? project = null;
+        Core.Model.ProjectRead? read = null;
         if (record.UnsavedProjectJson is not null)
-            project = Core.Model.ProjectJson.Deserialize(record.UnsavedProjectJson);
+            read = Core.Model.ProjectJson.Read(record.UnsavedProjectJson);
         else if (record.ProjectPath is not null && File.Exists(record.ProjectPath))
-            project = Core.Model.ProjectJson.Deserialize(Core.Storage.DurableFile.ReadAllText(record.ProjectPath));
-        if (project is null)
+            read = Core.Model.ProjectJson.Read(Core.Storage.DurableFile.ReadAllText(record.ProjectPath));
+        if (read is null)
             return "nothing to recover";
-        Store.Replace(project, "recovered after a restart");
+        var project = read.Project;
+        Store.Replace(project, read.Note.Length > 0 ? "recovered after a restart — " + read.Note : "recovered after a restart");
         _projectPath = record.ProjectPath;
         _dirty = record.UnsavedProjectJson is not null;
         SetAir(a => a with { Blackout = record.Blackout, PatternKind = record.Pattern });
@@ -365,7 +366,9 @@ public sealed partial class EngineCore
         var reply = RouteRoundOne(c.Spec, c.Args, c.Line, c.Session, c.Ct);
         if (!reply.Ok || c.Args.Count < 2 || !c.Args[0].Equals("FOLLOW-BLACKOUT", StringComparison.OrdinalIgnoreCase))
             return reply;
-        sync.PersistFollowBlackout(_air.FollowPatternsBlackout);
+        // The switch is written beside the lane and a write that fails is journalled: behind this line's row.
+        var on = _air.FollowPatternsBlackout;
+        AfterRow(() => sync.PersistFollowBlackout(on));
         return reply;
     }
 
@@ -626,25 +629,22 @@ public sealed partial class EngineCore
         // pressed here a second time it would turn the panic hard.
         if (_air.Panic is { } panic && atLeaderNs <= panic.SinceLeaderNs && VerbCatalog.Match(line) is { Spec.Name: "PANIC" })
             return (CommandReply.Fail($"already in this panic since {Seconds(panic.SinceUnixMs)} — the leader's press at that instant ran here"), ran);
-        CommandReply reply;
+        LineTurn turn;
+        using (Services.Clock.Pin(atLeaderNs))
+            turn = RouteBehindRow(line, session, CancellationToken.None);
         try
         {
-            using (Services.Clock.Pin(atLeaderNs))
-                reply = Route(line, session, CancellationToken.None);
+            if (turn.Reply is not { } written)
+                Journal.Add("fault", $"{line.Verb}: {Journal.Describe(turn.Fault!)}", session.ClientName, VerbCatalog.Redacted(line), false);
+            else if (!written.Silent && IsJournalled(line))
+                Journal.Add(written.Ok ? "verb" : "refused", written.Ok ? (written.Effect.Length > 0 ? written.Effect : VerbCatalog.Redacted(line)) : written.Payload ?? "refused",
+                    session.ClientName, VerbCatalog.Redacted(line), written.Ok);
         }
-        catch (EditRefusedException refused)
+        finally
         {
-            reply = CommandReply.Fail(refused.Message);
+            BeginAfterRow(turn.TakeWork());
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Journal.Add("fault", $"{line.Verb}: {Journal.Describe(ex)}", session.ClientName, VerbCatalog.Redacted(line), false);
-            return (CommandReply.Fail($"the node faulted on this line ({ex.GetType().Name}) — logged"), ran);
-        }
-        if (!reply.Silent && IsJournalled(line))
-            Journal.Add(reply.Ok ? "verb" : "refused", reply.Ok ? (reply.Effect.Length > 0 ? reply.Effect : VerbCatalog.Redacted(line)) : reply.Payload ?? "refused",
-                session.ClientName, VerbCatalog.Redacted(line), reply.Ok);
-        return (reply, ran);
+        return (turn.Reply ?? CommandReply.Fail($"the node faulted on this line ({turn.Fault!.GetType().Name}) — logged"), ran);
     }
 
     /// <summary>A leader's anchor taken through this node's own PLAYLIST ANCHOR, for the playlist of that id in the group, or else —

@@ -10,7 +10,7 @@ import { RULES, fillHint } from './live.ts'
 import { colourOf, rgbOf } from './palette/playmap.ts'
 import { clockText } from './state/model.ts'
 import { P, at, bool, field, list, num, str } from './state/paths.ts'
-import { projectorLight, projectorScore, scanRunning } from './state/variables.ts'
+import { movingTransfers, projectorLight, projectorScore, scanRunning } from './state/variables.ts'
 
 /** What each feedback type depends on: a push or a module change that moves one of these rechecks only the types that read it. */
 export const FEEDBACK_SLICES: Record<string, readonly string[]> = {
@@ -354,7 +354,7 @@ export function feedbackDefinitions(ctx: Ctx): CompanionFeedbackDefinitions {
 			name: 'Media: a transfer running',
 			options: [],
 			defaultStyle: style('amber'),
-			callback: () => linkLive() && list(ctx.model.state, P.transfers).length > 0,
+			callback: () => linkLive() && movingTransfers(ctx.model.state).length > 0,
 		},
 		scan_running: {
 			type: 'boolean',

@@ -1,0 +1,286 @@
+[
+  {
+    "title": "Machine platform",
+    "path": "machine.platform",
+    "light": "machine.platform.light",
+    "words": "{name}: {words}",
+    "fields": [
+      {
+        "label": "QoS",
+        "path": "settings.qos"
+      },
+      {
+        "label": "Process",
+        "path": "settings.process"
+      },
+      {
+        "label": "MMCSS",
+        "path": "settings.mmcss"
+      },
+      {
+        "label": "Timer",
+        "path": "timer.mode"
+      },
+      {
+        "label": "Timer p99 (\u00B5s)",
+        "path": "timer.lateP99Us"
+      },
+      {
+        "label": "Awake",
+        "path": "awake"
+      },
+      {
+        "label": "CPU sets",
+        "path": "settings.cpuSets"
+      },
+      {
+        "label": "GPU priority",
+        "path": "settings.gpuPriority"
+      },
+      {
+        "label": "Keep-awake",
+        "path": "settings.awake"
+      },
+      {
+        "label": "Waits timed",
+        "path": "timer.waits"
+      },
+      {
+        "label": "Power plan",
+        "path": "powerPlan.name"
+      },
+      {
+        "label": "GC while armed",
+        "path": "gc.setting"
+      },
+      {
+        "label": "GC held",
+        "path": "gc.held"
+      }
+    ],
+    "actions": [
+      "MACHINE STATUS",
+      "PREFLIGHT QUICK",
+      "MACHINE SET QOS AUTO",
+      "MACHINE SET QOS HIGH",
+      "MACHINE SET AWAKE OFF",
+      "MACHINE SET AWAKE ON"
+    ]
+  },
+  {
+    "title": "Claim",
+    "path": "machine.platform.claims",
+    "each": true,
+    "label": "what",
+    "light": "light",
+    "words": "{applied?{asked} \u2192 {readBack}:{asked} refused: {words}}",
+    "fields": [
+      {
+        "label": "Asked",
+        "path": "asked"
+      },
+      {
+        "label": "Applied",
+        "path": "applied"
+      },
+      {
+        "label": "Read back",
+        "path": "readBack"
+      },
+      {
+        "label": "Words",
+        "path": "words"
+      }
+    ],
+    "actions": [
+      "MACHINE STATUS"
+    ]
+  },
+  {
+    "title": "This machine",
+    "path": "machine.identity",
+    "light": [
+      {
+        "from": "os.tier",
+        "green": [
+          "ltsc",
+          "managed",
+          "home"
+        ],
+        "red": "unsupported"
+      },
+      {
+        "fixed": "grey"
+      }
+    ],
+    "words": "{os.name} {os.version} \u00B7 build {os.build}.{os.revision} \u00B7 {build.informational}",
+    "fields": [
+      {
+        "label": "Tier",
+        "path": "os.tier"
+      },
+      {
+        "label": "Edition",
+        "path": "os.edition"
+      },
+      {
+        "label": "CPU",
+        "path": "cpu.model"
+      },
+      {
+        "label": "Logical processors",
+        "path": "cpu.logical"
+      },
+      {
+        "label": "Vector bits",
+        "path": "cpu.vectorBits"
+      },
+      {
+        "label": "GPUs",
+        "path": "adapters"
+      },
+      {
+        "label": "Agility",
+        "path": "runtimes.agility"
+      },
+      {
+        "label": "FFmpeg",
+        "path": "runtimes.ffmpeg"
+      },
+      {
+        "label": "Sync firmware",
+        "path": "runtimes.syncFirmware"
+      }
+    ],
+    "actions": [
+      "MACHINE STATUS",
+      "MACHINE LOCK"
+    ]
+  },
+  {
+    "title": "GPU",
+    "path": "machine.identity.adapters",
+    "each": true,
+    "label": "name",
+    "key": "luid",
+    "light": [
+      {
+        "from": "support",
+        "green": [
+          "tier1",
+          "validatedPerDriver"
+        ],
+        "amber": "bestEffort",
+        "red": "unsupported"
+      }
+    ],
+    "words": "{tier} \u00B7 driver {driver} \u00B7 {support}",
+    "fields": [
+      {
+        "label": "Driver",
+        "path": "driver"
+      },
+      {
+        "label": "Branch",
+        "path": "branch"
+      },
+      {
+        "label": "Tier",
+        "path": "tier"
+      },
+      {
+        "label": "Support",
+        "path": "support"
+      },
+      {
+        "label": "Drives outputs",
+        "path": "drivesOutputs"
+      },
+      {
+        "label": "Memory (MB)",
+        "path": "dedicatedMb"
+      },
+      {
+        "label": "LUID",
+        "path": "luid"
+      }
+    ],
+    "actions": [
+      "MACHINE STATUS"
+    ]
+  },
+  {
+    "title": "Driver lock",
+    "path": "machine.locked",
+    "light": [
+      {
+        "if": "drift",
+        "light": "amber"
+      },
+      {
+        "fixed": "green"
+      }
+    ],
+    "words": "{drift?{drift.length} moved since the lock \u2014 MACHINE LOCK takes the new set:the drivers are the locked set}",
+    "fields": [
+      {
+        "label": "Windows",
+        "path": "set.os"
+      },
+      {
+        "label": "PlayMap",
+        "path": "set.playmap"
+      },
+      {
+        "label": "Agility",
+        "path": "set.agility"
+      },
+      {
+        "label": "FFmpeg",
+        "path": "set.ffmpeg"
+      },
+      {
+        "label": "Drift",
+        "path": "drift"
+      }
+    ],
+    "actions": [
+      "MACHINE LOCK",
+      "MACHINE LOCK CLEAR"
+    ]
+  },
+  {
+    "title": "Capability",
+    "path": "machine.capabilities",
+    "each": true,
+    "label": "feature",
+    "key": "feature",
+    "light": [
+      {
+        "if": "supported",
+        "light": "green"
+      },
+      {
+        "fixed": "grey"
+      }
+    ],
+    "words": "{supported?supported:{words}}",
+    "fields": [
+      {
+        "label": "Supported",
+        "path": "supported"
+      },
+      {
+        "label": "Words",
+        "path": "words"
+      },
+      {
+        "label": "Driver",
+        "path": "driver"
+      }
+    ],
+    "actions": [
+      "MACHINE STATUS"
+    ]
+  }
+]

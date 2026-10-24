@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Direct3D 12 backend behind the RHI (docs/round3/design/d3d12.md): the device, its queues, memory, descriptors, commands,
+       pipelines and shaders, the exporter, the flip presenters, video, user effects, the present barrier and the rebuild path, one
+       folder each. An edge: it references Core and its own native bindings (TerraFX's raw Direct3D 12 and DXGI declarations), never
+       PlayMap.Render, so the GL backend and this one meet only in Core's contracts. Every type is Windows only. -->
+  <PropertyGroup>
+    <TargetFramework>$(PlayMapTfm)</TargetFramework>
+    <RootNamespace>PlayMap.Render.D3D12</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TerraFX.Interop.Windows" Version="10.0.26100.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMap.Core\PlayMap.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlayMap.Render.D3D12.Tests" />
+  </ItemGroup>
+
+  <!-- The HLSL library (Shaders/Shaders.targets): DXC's executable for the build's compile on Windows (its package's own build
+       files are not imported: nothing of it reaches the output), and the step that writes the headers and embeds the library. -->
+  <ItemGroup Label="wp3-shaders">
+    <PackageReference Include="Microsoft.Direct3D.DXC" Version="1.9.2609.5" ExcludeAssets="all" PrivateAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+  <Import Project="Shaders\Shaders.targets" />
+
+</Project>

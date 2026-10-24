@@ -12,9 +12,12 @@ public static class Program
         ArgumentNullException.ThrowIfNull(args);
         if (EngineEntry.TryDispatch(args, out var exit))
             return exit;
+        // A command line the host does not read is answered where the person who typed it reads: the console it was typed in.
+#pragma warning disable RS0030
         Console.Error.WriteLine(args.Length == 0
             ? "PlayMap.Node needs an entry: " + EngineEntry.Usage
             : $"'{args[0]}' is not an entry of PlayMap.Node — it reads: {EngineEntry.Usage}");
+#pragma warning restore RS0030
         return EngineEntry.BadArguments;
     }
 }

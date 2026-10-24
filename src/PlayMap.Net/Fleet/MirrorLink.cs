@@ -9,15 +9,17 @@ namespace PlayMap.Net.Fleet;
 /// <summary>A backup's side of its primary's mirror: a line-wire link that proves the primary's token against its NONCE (the token
 /// never crosses the network), then says <c>SUBSCRIBE MIRROR &lt;node&gt;</c> on every connection and hands each <c>MIRROR …</c> line on.
 /// It redials with the link's backoff while the primary is away; a refused subscription is said once per connection
-/// (<see cref="Refused"/>). It moves lines; the engine runs them through its own verb.</summary>
+/// (<see cref="Refused"/>). The primary's silence is counted on the clock it is given (the node's). It moves lines; the engine runs
+/// them through its own verb.</summary>
 public sealed class MirrorLink : IAsyncDisposable
 {
     private readonly WireClient _link;
     private readonly ILogger _log;
     private volatile string _refused = "";
 
-    public MirrorLink(string host, int port, string clientName, string token, string selfNode, ShowWallClock wall, ILogger? log = null)
+    public MirrorLink(string host, int port, string clientName, string token, string selfNode, ShowWallClock wall, IMonoClock clock, ILogger? log = null)
     {
+        ArgumentNullException.ThrowIfNull(clock);
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
         ArgumentException.ThrowIfNullOrWhiteSpace(selfNode);
         _log = log ?? NullLogger.Instance;
@@ -29,6 +31,7 @@ public sealed class MirrorLink : IAsyncDisposable
             ClientName = clientName,
             Token = token ?? "",
             IdPrefix = "m",
+            Clock = clock,
             OnConnected = async ct =>
             {
                 // A mutating subscription waits for the pairing to settle: the proof answers the NONCE beside this greeting.
@@ -57,12 +60,18 @@ public sealed class MirrorLink : IAsyncDisposable
         _link = link;
         _link.Line += OnLine;
         _link.StatusChanged += s => StatusChanged?.Invoke(s);
+        _link.PairingChanged += s => PairingChanged?.Invoke(s);
     }
 
     /// <summary>A <c>MIRROR …</c> line from the primary, raised on the link's reader (a handler keeps it short).</summary>
     public event Action<string>? Line;
 
     public event Action<LinkStatus>? StatusChanged;
+
+    /// <summary>Raised when the connection's pairing moves: unknown as it connects; paired, refused or a token asked for on the link's
+    /// reader as it reads the primary's NONCE or answer (a handler keeps it short); not needed once the primary asked no proof within
+    /// the nonce wait.</summary>
+    public event Action<PairState>? PairingChanged;
 
     /// <summary>Raised on each connection just before it subscribes.</summary>
     public event Action? Subscribing;
@@ -76,6 +85,12 @@ public sealed class MirrorLink : IAsyncDisposable
     public LinkStatus Status => _link.Status;
 
     public PairState Pairing => _link.Pairing;
+
+    /// <summary>Connections made since start (a redial counts again; a connection's subscription ends with it).</summary>
+    public long Connections => _link.Connections;
+
+    /// <summary>How long the primary has said nothing on the connection now, on the link's clock.</summary>
+    public TimeSpan Silence => _link.Silence;
 
     /// <summary>Why the last subscription was refused ("" when it was taken).</summary>
     public string RefusedWords => _refused;

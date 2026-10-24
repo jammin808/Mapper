@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using PlayMap.Core.Media;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 
 namespace PlayMap.Media.Video;
 
@@ -43,6 +44,9 @@ public abstract class SendSink : ISendSink
     {
         ArgumentNullException.ThrowIfNull(spec);
         Spec = spec;
+        // The render thread offers a frame under the offer gate every frame while a stop takes it, and the worker counts each send
+        // under the stats gate while readers take it: a first wait for the other allocates nothing.
+        LockWaits.Prepare(_offerGate, _statsGate);
         _thread = new Thread(Loop) { IsBackground = true, Name = "send " + spec.Name };
     }
 

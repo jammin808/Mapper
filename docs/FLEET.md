@@ -13,7 +13,15 @@ sync group when its leader dies. The wire's verbs, replies and STATE are in [wir
 projectors (with the device's power, shutter and input folded in), the renderer and its resets, CPU, this process's memory and the
 machine's free memory, the media disk's free space, the GPU's load and temperature, network traffic, uptime, the clock sync's role
 and uncertainty, the devices by light, the media files and how many are missing, and the watchdog: the control lane's widest tick
-gap and the render's p95 frame time. Every number not measured is −1.
+gap and the render's p95 frame time. Every number not measured is −1. It names the build the node runs (`build`, SemVer with
+CI's build number and the commit). It has places for each output's frames shown (by the present ledger's count) and frames observed
+off the air by an independent reader, and for the GPU device's epoch and phase (`starting`, `running`, `rebuilding`); each reads −1
+(the phase `unknown`) until round 3's stability work fills it (docs/round3/PLAN.md §3.9). The direction (docs/round3/PLAN.md D6):
+a supervising service, `PlayMap.Supervisor`, starts the engine in the show user's session and restarts it, and stops an engine whose
+shown frames stop while its GPU phase is `running` — never during a start or a device rebuild, and never while the count is −1. The
+engine never runs in session 0 and never needs administrator rights: it runs as the user of the console session — the account
+`/SHOWUSER=` names (meant to be a standard account), or, on an install that names none, whoever is signed in at the console
+(docs/INSTALL.md).
 
 Eleven categories, always present, in this order — outputs, render, cpu, memory, disk, gpu, network, sync, devices, media, watchdog
 — each with a light and words. The light table (`HealthLights`):
@@ -36,13 +44,15 @@ The machine's light is the worst known category (red over amber over green; grey
 that moves while all is well: "FOH-A · primary · all green · 2 unknown", "FOH-B · backup · 1 amber: outputs — Left: 4 dropped, 1
 missed in a minute".
 
-The numbers come from the **machine sampler**, on its own one-second timer (never the control lane, never the render thread):
+The numbers come from the **machine sampler**, on its own one-second timer (never the control lane, never the render thread; a
+tick that finds the last reading still being read takes none, so a reading that stalls holds one pool thread, never one a second):
 Linux reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `/proc/uptime`, the home volume's free space, and the GPU from
 `/sys/class/drm/card*/device` (`gpu_busy_percent`, a hwmon `temp1_input`) where the driver gives it; Windows reads system times,
 `GlobalMemoryStatusEx`, `GetTickCount64`, the interfaces' bytes and the PDH counter `\GPU Engine(*engtype_3D)\Utilization Percentage`
-(compile-only here; its test runs on the Windows CI job). NVIDIA's numbers on Linux and every GPU temperature on Windows need NVML
-(next round), so they read grey with that reason. The lane's gap is measured on the engine's clock from the lane's second second on
-(its first is the node starting). A node without the fleet's part (a bare engine) reads every machine number −1.
+(compile-only here; its test runs on the Windows CI job). NVIDIA's numbers on a Linux development machine and every GPU temperature
+on Windows need NVML, which PlayMap does not load and round 3 does not plan: on Linux the GPU reads grey with that reason, and on
+Windows the light is the load's alone, the temperature −1. The lane's gap is measured on the engine's clock from the lane's second
+second on (its first is the node starting). A node without the fleet's part (a bare engine) reads every machine number −1.
 
 HEALTH is pushed (`SUBSCRIBE HEALTH`, the `/health` WebSocket) at once, once a second, and at once when any light moves — a clock
 that runs only while someone watches. The `/health` WebSocket feeds at most 64 sockets at once (a monitor holds one per peer); one more
@@ -92,6 +102,11 @@ whose hello offers the `context` cap is read (a PlayMap peer's over its line wir
 media sit on the Video band. PlayMap's own `PatternsEyeContractTests` read its context with a copy of Patterns' `ShowContext.Parse`
 and the show-app section of `EyeGraph.Build` and check its things are drawn lit with its own lights.
 
+Patterns' Eye keeps the first 64 of a context's commands today, so PlayMap lists the panic, air, transport and Show Mode rows first;
+the request to Patterns for a cap of at least 256 is [SHOWBUS-NODE.md](SHOWBUS-NODE.md) §5 item 7. PlayMap's own context reader
+(`Core/Bus/ShowContext.Parse`, which reads Patterns' context over `LINK PATTERNS`) also keeps 64 commands today; the direction is no
+count cap there, since its 512 KB bound already bounds what it holds (docs/round3/PLAN.md §5.6 item 7).
+
 ## The hot backup
 
 A frame is a pure function of the show, its playlists' anchors, the air and the leader instant. A backup takes each of those from its
@@ -112,7 +127,9 @@ primary's **mirror** (`SUBSCRIBE MIRROR <node>`, paired only):
   blend map, a survey's thinned cloud — pulled by key from `/mirror/file/<kind>/<id>` into the backup's folder for them (its own
   project's, else `mirror/<primary id>` in the node's home), each checked against the hash the show names, before the show that
   names them is applied: the backup's stage loads the primary's mesh from its first frame, and a file that lands later is read at
-  once;
+  once. A file the primary refuses is refused here by the answer's status alone, its body never read ("FOH-A answered 404"); a file
+  whose body sends nothing for 10 s on the node's clock (the pulls' quiet) is not kept, its refused row saying so ("sent nothing for
+  10 s, 65536 of 300000 bytes in"); the watch asks for either again, within its own turn (an open fix, docs/ROADMAP.md);
 - the clock, the group's anchors and the group's air: the backup follows the primary's sync group (`SYNC FOLLOW`, docs/SYNC.md);
 - every other playlist's anchor, and the air lines the group's feed does not carry (`FREEZE`, `PATTERN`, a panic or blackout `ON`
   outputs or `HERE`), through the backup's own `MIRROR` verb (session "fleet"), each at the primary's leader instant.
@@ -128,16 +145,23 @@ proof made for HTTPS is refused over plain HTTP, and a request with a proof that
 carries. From another machine a pull goes over HTTPS only (the backup refuses to send one in clear,
 and refuses a hello that drops a certificate it has pinned), checked against the fingerprint the primary's hello advertises and pinned
 in the fleet's pin file after the first proved answer; a changed certificate is refused. `MEDIA FETCH <media> VERSION <version> [FROM <node>]` pulls one version the same way on any node.
+With the fleet's part, which the exe composes, `MEDIA FETCH <media>|ALL [FROM <node>]` pulls each missing file the same way, by its
+hash, from the node named or else the first heard that holds it (the primary this node backs up first). These pulls say each file's
+end in the journal, at most 4 rows a fetch and one that counts the rest, and write no `media.transfers` row (docs/WIRE.md); a body
+that falls silent for 10 s on the node's clock fails that try.
 
 The backup is **identical** when the primary's show is here at its revision, every file it names is here, the backup's clock reads
 the primary's time line and the group's feed is live; `joining`, `resyncing` (a pull under way), `different` (a file could not be
-pulled) and `lost` (the mirror is down; the last show and air hold) say otherwise. The backup keeps the highest epoch its primary is
-heard to hold (the mirror's hello, its HEALTH) in its settings, so a takeover after the backup restarted, its primary silent by
-then, still commits above it. A client's edit on a backup is refused with the way out ("FOH-B mirrors FOH-A — send it to FOH-A
-(10.0.0.21), or FAILOVER to make this node the show", the words STATE.fleet.door carries, so the desk greys what the node would
-refuse before the press); queries, panic, Show Mode, the node's own administration, a fetch of a file by hash and the fleet's verbs
-stay; no blind draft is begun or landed on a backup, and `FLEET BACKUP` waits while the node holds
-one. A pull that fails is asked again from the watch while the primary's revision is ahead or a file the show names is missing. A
+pulled) and `lost` (the mirror is down or not subscribed, or its primary has said nothing on it for over 6 s; the last show and air
+hold) say otherwise. The mirror's link counts the primary's silence on the backup's own clock, as its pulls count a body's: a
+subscription lives as long as its connection, so a mirror quiet past 6 s is followed again with the primary's next line on that
+connection, and one quiet past 12 s is dropped and dialled again, and the new connection subscribes anew. The backup keeps the
+highest epoch its primary is heard to hold (the mirror's hello, its HEALTH) in its settings, so a takeover after the backup
+restarted, its primary silent by then, still commits above it. A client's edit on a backup is refused with the way out ("FOH-B
+mirrors FOH-A — send it to FOH-A (10.0.0.21), or FAILOVER to make this node the show", the words STATE.fleet.door carries, so the
+desk greys what the node would refuse before the press); queries, panic, Show Mode, the node's own administration, a fetch of a
+file by hash and the fleet's verbs stay; no blind draft is begun or landed on a backup, and `FLEET BACKUP` waits while the node
+holds one. A pull that fails is asked again from the watch while the primary's revision is ahead or a file the show names is missing. A
 follower whose clock asks a port its leader no longer answers on (the leader's hello names another since it led again) follows
 afresh. A node that has begun to stop starts no pull, no join and no takeover step, and its mirror and pulls end with it.
 
@@ -197,9 +221,14 @@ Preflight's `fleet` section: every expected machine heard (known before a restar
 pin valid. Its `backup` section: on a backup, its mirror identical and every file and optimised version the show names here (the
 line that fetches a missing one), and every file beside the show (named; the mirror asks for it again itself); on a primary, each
 backup identical; on a node that holds the show, every route reachable (`FLEET ROUTE TEST`); a fenced node red with `FLEET BACKUP
-<new primary>`. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses, RESET, and a key per machine with its
-light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node that took a show over, FLEET PROMOTE
-on a follower (red while its leader is silent), and a key per backup of a primary.
+<new primary>`. A backup's lost mirror carries `FLEET BACKUP <primary>` while no subscription stands (its connection ended, or a
+connection, live or quiet, whose subscription is not taken), and no line while its link is only quiet with its subscription
+standing: the verb refuses it, and the primary's next line follows the mirror again (or, past 12 s, the link dials again); the row's
+state, words and line are read from one look at the link. INDEX's `eye` section: NEXT and PREV PROBLEM, the PROBLEMS and ALL lenses,
+RESET, and a key per machine with its light; its `fleet` section: FAILOVER on a backup lit by its mirror, FAILBACK CONFIRM on a node
+that took a show over, FLEET PROMOTE on a follower (red while its leader is silent), and a key per backup of a primary. A mirror is
+lit alike wherever it is shown, on the backup or on its primary (STATE, the context, INDEX, preflight): green identical, red lost,
+amber otherwise.
 
 ## Threads
 

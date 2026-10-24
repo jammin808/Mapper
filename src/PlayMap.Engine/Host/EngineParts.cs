@@ -64,6 +64,9 @@ public sealed partial record EngineParts
         AddAudioParts(extensions); AddControlParts(extensions); AddOptimiseParts(extensions); AddVideoIoParts(extensions);
         AddCompanionParts(extensions); AddFxParts(extensions); AddContentParts(extensions); AddLedParts(extensions);
         AddSiteParts(extensions); AddWallParts(extensions); AddAlignParts(extensions); AddPhoneParts(extensions);
+        // Round 3's, by hook word (docs/round3/PLAN.md §2.3).
+        AddMachineParts(extensions); AddInstallParts(extensions); AddPlanParts(extensions); AddObserveParts(extensions);
+        AddShadersParts(extensions); AddPreviewParts(extensions); AddCaptureParts(extensions);
         return new EngineParts { RenderHost = render, ScanBackend = scan, Extensions = extensions };
     }
 
@@ -96,4 +99,13 @@ public sealed partial record EngineParts
     static partial void AddAlignParts(List<EngineExtensionFactory> extensions);
     static partial void AddPhoneParts(List<EngineExtensionFactory> extensions);
     static partial void AddWallParts(List<EngineExtensionFactory> extensions);
+
+    // Each round-3 package with parts adds its extensions in its own file (Host/EngineParts.<Word>.cs).
+    static partial void AddMachineParts(List<EngineExtensionFactory> extensions);
+    static partial void AddInstallParts(List<EngineExtensionFactory> extensions);
+    static partial void AddPlanParts(List<EngineExtensionFactory> extensions);
+    static partial void AddObserveParts(List<EngineExtensionFactory> extensions);
+    static partial void AddShadersParts(List<EngineExtensionFactory> extensions);
+    static partial void AddPreviewParts(List<EngineExtensionFactory> extensions);
+    static partial void AddCaptureParts(List<EngineExtensionFactory> extensions);
 }

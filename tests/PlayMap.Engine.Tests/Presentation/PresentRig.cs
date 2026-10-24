@@ -2,13 +2,12 @@ using System.Collections.Frozen;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
+using PlayMap.Core.Presentation;
 using PlayMap.Core.Show;
 using PlayMap.Core.Sync;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Presentation;
-using PlayMap.Render.Platform;
 using PlayMap.Render.Sync;
-using PlayMap.Render.Timing;
 
 namespace PlayMap.Engine.Tests.Presentation;
 
@@ -181,7 +180,11 @@ internal sealed class PresentRig : IAsyncDisposable
             services = services with { Outputs = outputs };
         if (network is not null)
             services = services with { Network = network };
-        return new PresentRig(new EngineCore(services, project), outputs, gate);
+        var engine = new EngineCore(services, project);
+        // A folder run whatever the test machine holds: STATE's machine.install never reads the host's install key.
+        engine.InstallSource = () => PlayMap.Engine.Install.InstallFacts.NotInstalled;
+        engine.InstallReadAgain();
+        return new PresentRig(engine, outputs, gate);
     }
 
     public async Task<CommandReply> Run(string line)

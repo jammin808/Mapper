@@ -23,7 +23,8 @@ BIND ADD MIDI MSC 127 GO TO PLAYLIST NEXT Show
 
 The value word rides as a whole word: `*` the shaped value, `*%` a percentage, `#*` an item number. A target that cannot be bound
 is refused with the reason — a query (it would change nothing), a session or approval verb, anything that carries a secret,
-another binding verb. A binding to a high-risk line is itself high risk: an assistant's `BIND ADD … TO BLACKOUT ON` needs a
+another binding verb, a path quoted with single backslashes (the line fires later, rebuilt from the words read now, so it would name
+another file; the refusal gives the spelling that reads as typed, as the node's door does — `docs/WIRE.md`). A binding to a high-risk line is itself high risk: an assistant's `BIND ADD … TO BLACKOUT ON` needs a
 person; so does a line that carries more lines than are worth reading (256 at every depth together), however low each of them is.
 
 `BIND ADD` keeps any other binding on the same input and says so ("also bound to bd…"), so one fader may drive several targets on
@@ -90,7 +91,8 @@ One parser per port (MIDI 1.0: running status, real-time bytes anywhere, Note On
 MIDI Machine Control commands bind as `MIDI MSC <device> GO`; device 127 (all-call) reaches every device's bindings. MTC (quarter
 frames, full frames and user bits, any device id) goes to the timecode sources. Backends: the ALSA sequencer on Linux (loaded at
 run time; without `/dev/snd/seq` it says so and lists no ports), WinMM on Windows (compile-only here, run by the Windows CI job),
-and an in-memory backend for tests. MIDI output, controller profiles, CoreMIDI and Windows MIDI Services are next round.
+and an in-memory backend for tests. MIDI output, controller profiles and Windows MIDI Services are not built yet. No CoreMIDI
+backend is planned: the direction is Windows 11 show nodes (docs/round3/PLAN.md D4).
 
 ## Art-Net
 
@@ -126,13 +128,16 @@ speed channels, unbound, so the sheet never shifts.
 `STATE.control` holds the OSC socket (with its feedback clients and counts), the MIDI backend and its ports, the Art-Net socket and the
 sACN receiver (its groups and sources) with their counts, each surface with its
 port and light, the bindings' counts (live, waiting, unplugged), learn and the last input (moving STATE at most five times a
-second; `CONTROL MONITOR` shows the last 64 inputs). The context has an item per surface linked `controls` to what its bindings
-act on, and items while learning or with input off. Preflight's `control` section checks every bound source can be heard, with
-the line that fixes it. Fixture `tests/fixtures/state/control.json`, cards `control.cards.json`.
+second; `CONTROL MONITOR` shows the last 64 inputs). The OSC socket's `senders` are the addresses heard in the last 10 minutes of
+the node's wall clock. The OSC, Art-Net and sACN counts move STATE at most four times a second of the node's clock, and the tick
+that forgets a sender moves STATE once it has, so a STATE written after that tick never counts the sender. The context has an
+item per surface linked `controls` to what its bindings act on, and items while learning or with input off. Preflight's `control`
+section checks every bound source can be heard, with the line that fixes it. Fixture `tests/fixtures/state/control.json`, cards
+`control.cards.json`.
 
 ## Not in this build
 
 Controller profiles and MIDI feedback (lamps, motor faders, receipts that flash while accepted), feedback from a STATE predicate
 (`feedback.when`), the `/playmap/state` mirror and `/playmap/subscribe`, OSCQuery (9944), timetagged bundles run at their instant,
-sACN discovery, per-channel priority (START code 0xDD), a surface's LTP merge and release on loss, MIDI out, CoreMIDI, Windows MIDI
-Services, input forwarding, MIDI clock — the next round.
+sACN discovery, per-channel priority (START code 0xDD), a surface's LTP merge and release on loss, MIDI out, Windows MIDI Services,
+input forwarding and MIDI clock. None of these is in round 3's plan.

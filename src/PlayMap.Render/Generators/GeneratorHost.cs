@@ -1,8 +1,9 @@
 using PlayMap.Core.Content;
+using PlayMap.Core.Gpu;
 using PlayMap.Core.Model;
 using PlayMap.Render.Effects;
+using PlayMap.Render.Engine;
 using PlayMap.Render.Generators.Skia;
-using PlayMap.Render.Gpu;
 using SkiaSharp;
 
 namespace PlayMap.Render.Generators;
@@ -36,7 +37,7 @@ internal sealed class GeneratorHost : IDisposable
         public long LastRendered = -1;
         public string? Fault;
         public GpuTexture? ErrorCard;
-        public FxTimer? Timer;
+        public GpuSpanTimer? Timer;
         public long TimedNs = -1;
 
         public void Dispose()
@@ -45,7 +46,6 @@ internal sealed class GeneratorHost : IDisposable
             Renderer = null;
             ErrorCard?.Dispose();
             ErrorCard = null;
-            Timer?.Dispose();
             Timer = null;
         }
     }
@@ -96,8 +96,11 @@ internal sealed class GeneratorHost : IDisposable
     public GpuTexture Render(Generator generator, int width, int height, GeneratorContext context, in GeneratorFrame frame)
     {
         ArgumentNullException.ThrowIfNull(generator);
-        width = Math.Clamp(width, 1, _services.Device.MaxTextureSize);
-        height = Math.Clamp(height, 1, _services.Device.MaxTextureSize);
+        // Inside the engine's frame its list; asked outside one, a frame of its own.
+        using var scope = _services.Frame();
+        var max = _services.Device.Features.MaxTextureSize;
+        width = Math.Clamp(width, 1, max);
+        height = Math.Clamp(height, 1, max);
         var key = new Key(generator.Id, width, height, ReadsContext(generator.Kind) ? context : GeneratorContext.None);
         if (!_instances.TryGetValue(key, out var inst))
         {
@@ -135,10 +138,11 @@ internal sealed class GeneratorHost : IDisposable
                 renderer.Modulate(frame.Modulation, frame.LeaderNs, live?.LiveValues);
                 // What it reads of other sources draws on their account, before its own draw is timed.
                 renderer.Prepare(in own);
-                inst.Timer ??= _services.Device.HasTimerQuery ? new FxTimer(_services.Device) : null;
-                inst.Timer?.Begin();
+                if (_services.GpuTiming)
+                    inst.Timer ??= new GpuSpanTimer(_services.Device);
+                inst.Timer?.Begin(_services.List, _frame);
                 renderer.Render(in own);
-                inst.Timer?.End();
+                inst.Timer?.End(_services.List);
             }
             catch (Exception ex)
             {
@@ -375,8 +379,8 @@ internal sealed class GeneratorHost : IDisposable
             ErrorCard.Draw(canvas, _services.Kit, width, height, title, detail);
             canvas.Flush();
         }
-        var texture = _services.Device.CreateTexture(width, height, TextureFormat.Rgba8);
-        _services.Device.UploadPointer(texture, bitmap.GetPixels(), UploadFormat.Rgba8, bitmap.RowBytes / 4);
+        var texture = _services.Device.CreateTexture(new TextureDesc(width, height, TextureFormat.Rgba8, FrameLists.Uploaded));
+        RenderServices.Upload(_services.List, texture, bitmap);
         return texture;
     }
 

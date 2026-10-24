@@ -3,6 +3,7 @@ using FFmpeg.AutoGen;
 using PlayMap.Core.Media;
 using PlayMap.Core.Media.Decode;
 using PlayMap.Core.Model;
+using PlayMap.Core.Threading;
 using PlayMap.Core.Time;
 using PlayMap.Media.Ffmpeg;
 using PlayMap.Media.Frames;
@@ -203,7 +204,7 @@ public sealed unsafe class FfmpegVideoSource : IVideoSource
 
     private void Run()
     {
-        LockWaits.PrepareThisThread();
+        using var claim = Core.Machine.ThreadClaims.Claim(Core.Machine.ThreadRole.Decode);
         try
         {
             if (!Open())

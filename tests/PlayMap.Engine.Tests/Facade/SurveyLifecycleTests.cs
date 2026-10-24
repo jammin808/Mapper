@@ -1,3 +1,5 @@
+using PlayMap.Core.Wire;
+
 namespace PlayMap.Engine.Tests.Facade;
 
 /// <summary>A survey import and the life of the node and the project around it: a node disposed while an import runs has ended the
@@ -23,7 +25,7 @@ public sealed class SurveyLifecycleTests
         try
         {
             var file = SurveyFacade.WritePly(rig.File("front.ply"), 601, 601);
-            await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL DECIMATE 20000");
+            await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL DECIMATE 20000");
             await rig.Engine.DisposeAsync();
             Assert.True(rig.Engine.WhenSurveyed.IsCompleted, "the import still runs after the node was disposed");
             Assert.Equal("failed", rig.Engine.SurveyJob!.State);
@@ -41,7 +43,7 @@ public sealed class SurveyLifecycleTests
     {
         await using var rig = new SiteRig();
         var file = SurveyFacade.WritePly(rig.File("front.ply"), 401, 401);
-        await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL DECIMATE 20000");
+        await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL DECIMATE 20000");
         await rig.Ok("PROJECT NEW Another show");
         var revision = rig.Engine.Store.Current.Revision;
         await rig.Engine.WhenSurveyed.WaitAsync(TimeSpan.FromMinutes(2));
@@ -58,9 +60,9 @@ public sealed class SurveyLifecycleTests
     {
         await using var rig = new SiteRig();
         var file = SurveyFacade.WritePly(rig.File("front.ply"), 401, 401);
-        await rig.Ok($"SURVEY IMPORT {file} CRS LOCAL DECIMATE 20000");
+        await rig.Ok($"SURVEY IMPORT {WireGrammar.Quote(file)} CRS LOCAL DECIMATE 20000");
         var elsewhere = Path.Combine(rig.Folder, "elsewhere", "show.playmap");
-        await rig.Ok($"PROJECT SAVE {elsewhere}");
+        await rig.Ok($"PROJECT SAVE {WireGrammar.Quote(elsewhere)}");
         var revision = rig.Engine.Store.Current.Revision;
         await rig.Engine.WhenSurveyed.WaitAsync(TimeSpan.FromMinutes(2));
         Assert.Equal("failed", rig.Engine.SurveyJob!.State);

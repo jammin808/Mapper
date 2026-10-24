@@ -24,6 +24,7 @@ public sealed class PjLinkNoticeEventArgs(PjLinkNotice notice, IPEndPoint from) 
 public sealed class PjLinkUdp : IAsyncDisposable
 {
     private readonly Socket _socket;
+    private readonly TimeProvider _time;
     private readonly CancellationTokenSource _stop = new();
     private readonly Lock _gate = new();
     private List<PjLinkSearchHit>? _collecting;
@@ -31,8 +32,10 @@ public sealed class PjLinkUdp : IAsyncDisposable
 
     /// <param name="port">4352 in a venue; a free port in tests (0 = any).</param>
     /// <param name="bind">The local address to listen on; any by default.</param>
-    public PjLinkUdp(int port = PjLinkProtocol.Port, IPAddress? bind = null)
+    /// <param name="time">The clock a search's window is counted on (the system's when null).</param>
+    public PjLinkUdp(int port = PjLinkProtocol.Port, IPAddress? bind = null, TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         try
         {
@@ -62,8 +65,8 @@ public sealed class PjLinkUdp : IAsyncDisposable
     }
 
     /// <summary>Broadcasts a search to <paramref name="target"/> (the subnet's broadcast address, port 4352) and
-    /// collects the answers for <paramref name="window"/>. A projector answers once per search; the same MAC from
-    /// two addresses is two hits (two network ports of one box).</summary>
+    /// collects the answers for <paramref name="window"/> of this socket's clock. A projector answers once per search; the same MAC
+    /// from two addresses is two hits (two network ports of one box).</summary>
     public async Task<IReadOnlyList<PjLinkSearchHit>> SearchAsync(IPEndPoint target, TimeSpan window, CancellationToken ct)
     {
         Start();
@@ -73,7 +76,7 @@ public sealed class PjLinkUdp : IAsyncDisposable
         try
         {
             await _socket.SendToAsync(Encoding.ASCII.GetBytes(PjLinkProtocol.SearchDatagram), SocketFlags.None, target, ct).ConfigureAwait(false);
-            await Task.Delay(window, ct).ConfigureAwait(false);
+            await Task.Delay(window, _time, ct).ConfigureAwait(false);
         }
         finally
         {

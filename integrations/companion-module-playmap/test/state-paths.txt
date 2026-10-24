@@ -49,6 +49,7 @@ media.optimise.jobs.[].state
 media.ready
 media.transfers
 media.transfers.[].progress
+media.transfers.[].state
 name
 outputs
 outputs.[].dropped

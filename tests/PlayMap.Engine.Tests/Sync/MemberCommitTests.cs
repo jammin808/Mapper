@@ -37,6 +37,8 @@ public sealed class MemberCommitTests
         Assert.Equal("#000000", Background(member));
         clock.AdvanceMs(1);
         Assert.True(await Eventually.TrueAsync(() => Background(member) == "#FF0000"), member.Journal());
+        // The landing's row is written once the commit has landed, on the lane's tick that landed it: it is read once that tick is over.
+        await Ticked(member);
         Assert.Contains("blind commit: 1 change landed (on go) by Desk", member.Journal(), StringComparison.Ordinal);
 
         // NEXT: the item would switch at its end, ten seconds on; the leader's NEXT, 300 ms ahead, switches it early, and the

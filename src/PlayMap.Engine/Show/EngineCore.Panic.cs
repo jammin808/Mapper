@@ -593,21 +593,26 @@ public sealed partial class EngineCore
         if (!WireGrammar.TryParse(text, out var line, out _))
             return;
         _panicLines[key] = "sent";
-        _ = Task.Run(async () =>
+        // A line of the node's own is journalled as it runs: sent behind the row of the PANIC that sends it, at once from the tick. Begun
+        // by the PANIC's dispatcher, off the lane, it is sent from there with no further hop; from the lane (a tick, a member's air
+        // line) it leaves the lane first.
+        AfterRow(() => _ = _lane.IsOnLane ? Task.Run(() => SendSystemLineAsync(line, key), CancellationToken.None) : SendSystemLineAsync(line, key));
+    }
+
+    private async Task SendSystemLineAsync(WireLine line, string key)
+    {
+        string stage;
+        try
         {
-            string stage;
-            try
-            {
-                var reply = await HandleAsync(line, SystemSession, CancellationToken.None).ConfigureAwait(false);
-                stage = reply.Ok ? (reply.Applied ? "applied" : "accepted") : "refused: " + (reply.Payload ?? "");
-            }
-            catch (ObjectDisposedException)
-            {
-                stage = "not sent: the node is stopping";
-            }
-            _panicLines[key] = stage;
-            FactsChanged();
-        }, CancellationToken.None);
+            var reply = await HandleAsync(line, SystemSession, CancellationToken.None).ConfigureAwait(false);
+            stage = reply.Ok ? (reply.Applied ? "applied" : "accepted") : "refused: " + (reply.Payload ?? "");
+        }
+        catch (ObjectDisposedException)
+        {
+            stage = "not sent: the node is stopping";
+        }
+        _panicLines[key] = stage;
+        FactsChanged();
     }
 
     /// <summary>The lane's panic work each tick: transport outcomes whose instant has come, returns that have settled, and one
