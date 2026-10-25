@@ -1638,7 +1638,7 @@ Round 2 W1 notes:
   (`HttpHostOptions.SeenInClear`, the gate built with the report). Those two lie outside the leave's list: the report starts in
   `WireSession` and `TokenGate`, whose owners build them from those options, and no file in the list builds either. Both sit beside
   listed files in folders round 3 names for no wave, neither is a spine file, and each gains one nullable option and nothing else. The
-  leave names files, so this batch asks the owner to extend it to these two before it merges. No catalogue row, STATE key or fixture
+  leave names files; the owner extended it to these two on 2026-10-25. No catalogue row, STATE key or fixture
   moves. `tests/PlayMap.Engine.Tests/Host/StagewatchIdentifyTests.cs`' small Stagewatch now keeps each screen's Authorization header
   for the new tests, and `tests/PlayMap.Engine.Tests/Host/HostRig.cs`' fake Patterns desk answers `STATUS` with its STATE as Patterns
   does (`HostNetworkTests`' Patterns link reads its clip from that answer now that the desk's greeting is set aside; its assertions
