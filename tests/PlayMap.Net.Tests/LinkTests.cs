@@ -12,8 +12,9 @@ using PlayMap.Net.Wire;
 namespace PlayMap.Net.Tests;
 
 /// <summary>A Patterns desk as the tests play it: STATE then NONCE on connect, HELLO answered OK, AUTH-PROOF checked
-/// against the nonce and the HELLO name, PING answered with its stamps, CONTEXT answered, VIDEO verbs answered with
-/// their id — and a test can push a STATE, fall silent, or cut the connection.</summary>
+/// against the nonce and the HELLO name, plain AUTH checked against the token, PING answered with its stamps, STATUS answered with its
+/// STATE and CONTEXT answered, VIDEO verbs answered with their id — and a test can push a STATE, fall silent, or cut the connection.
+/// A desk older than proofs (or anything else at its address) sends no NONCE; a test can make the first NONCE any word.</summary>
 internal sealed class FakePatternsDesk : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
@@ -22,6 +23,7 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
     private readonly Task _accept;
     private volatile StreamWriter? _current;
     private volatile TcpClient? _currentClient;
+    private volatile string _nonce = "";
 
     public FakePatternsDesk(string token)
     {
@@ -42,6 +44,15 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
 
     public string State { get; set; } = StateWith(62000, 7, playing: true, blackout: false);
 
+    /// <summary>The STATE said on connect, before the NONCE (null: <see cref="State"/>).</summary>
+    public string? Greeting { get; set; }
+
+    /// <summary>Whether the desk sends a NONCE on connect (a desk older than proofs sends none).</summary>
+    public bool AsksProof { get; set; } = true;
+
+    /// <summary>The first NONCE's word on a connection (null: a fresh 32-hex nonce); every later one is fresh.</summary>
+    public string? FirstNonce { get; set; }
+
     public static string StateWith(double positionMs, long seq, bool playing, bool blackout) => string.Create(CultureInfo.InvariantCulture,
         $"{{\"blackout\":{(blackout ? "true" : "false")},\"video\":{{\"file\":\"sponsor.mp4\",\"tag\":\"VT\",\"position\":62,\"length\":210,\"playing\":{(playing ? "true" : "false")},\"ended\":false,\"loops\":false,\"positionMs\":{positionMs},\"lengthMs\":210000,\"remainingMs\":148000,\"paused\":false,\"rate\":1,\"seq\":{seq}}}}}");
 
@@ -50,6 +61,14 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
         State = state;
         if (_current is { } w)
             await w.WriteLineAsync("STATE " + state);
+    }
+
+    /// <summary>Asks the connection up now for a proof again, with a fresh 32-hex NONCE.</summary>
+    public async Task SendNonceAsync()
+    {
+        _nonce = Pairing.NewNonce();
+        if (_current is { } w)
+            await w.WriteLineAsync("NONCE " + _nonce);
     }
 
     /// <summary>Cuts the current connection (the link should redial).</summary>
@@ -83,10 +102,11 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
             _current = writer;
             _currentClient = client;
-            var nonce = Pairing.NewNonce();
+            _nonce = FirstNonce ?? Pairing.NewNonce();
             var name = "";
-            await writer.WriteLineAsync("STATE " + State);
-            await writer.WriteLineAsync("NONCE " + nonce);
+            await writer.WriteLineAsync("STATE " + (Greeting ?? State));
+            if (AsksProof)
+                await writer.WriteLineAsync("NONCE " + _nonce);
             while (await reader.ReadLineAsync() is { } line)
             {
                 Heard.Enqueue(line);
@@ -102,11 +122,18 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
                         await writer.WriteLineAsync("OK" + tag);
                         break;
                     case "AUTH-PROOF":
-                        var right = Pairing.Verify(Token, nonce, name, words[1]);
-                        nonce = Pairing.NewNonce();
+                        var right = Pairing.Verify(Token, _nonce, name, words[1]);
+                        _nonce = Pairing.NewNonce();
                         await writer.WriteLineAsync(right ? "OK" + tag + " paired" : "ERR" + tag + " wrong token — the pairing token is on the desk's Remote page, TRUST");
                         if (!right)
-                            await writer.WriteLineAsync("NONCE " + nonce);
+                            await writer.WriteLineAsync("NONCE " + _nonce);
+                        break;
+                    case "AUTH":
+                        var plain = Pairing.Normalise(rest[5..]) == Pairing.Normalise(Token);
+                        await writer.WriteLineAsync(plain ? "OK" + tag + " paired" : "ERR" + tag + " wrong token");
+                        break;
+                    case "STATUS":
+                        await writer.WriteLineAsync("OK" + tag + " " + State);
                         break;
                     case "PING":
                         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
@@ -142,7 +169,8 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
 }
 
 /// <summary>The links PlayMap dials: a Patterns desk (pairing by proof, the clip clock counted on and re-anchored on
-/// its seq, the blackout followed, commands with ids, staleness and the redial) and the desk's engine link against
+/// its seq, the blackout followed, commands with ids, staleness and the redial; nothing it says taken and nothing sent to it before it
+/// pairs; the token proved only against a 32-hex NONCE and sent plain only to this machine) and the desk's engine link against
 /// PlayMap's own wire (pairing, STATE and PROJECT mirrored latest-wins, nothing queued while down).</summary>
 public class LinkTests
 {
@@ -208,6 +236,163 @@ public class LinkTests
     }
 
     [Fact]
+    public async Task NothingTheDeskSaysBeforeItPairsIsTakenAndItsStateIsAskedOncePaired()
+    {
+        // The desk greets with a STATE that blacks out, then asks for the proof: the greeting came before it paired, so its blackout
+        // and its clip are set aside, and the STATE the desk answers once paired is the first one taken.
+        await using var desk = new FakePatternsDesk(TestSettings.Token) { Greeting = FakePatternsDesk.StateWith(1000, 3, playing: false, blackout: true) };
+        await using var link = new PatternsLink(new PatternsLinkOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            Token = TestSettings.Token,
+            ContextEvery = TimeSpan.FromHours(1),
+        }, TestSettings.Wall());
+        var blackouts = new ConcurrentQueue<bool>();
+        link.BlackoutChanged += blackouts.Enqueue;
+        link.Start();
+
+        Assert.True(await Eventually.TrueAsync(() => link.Video is { Seq: 7 }), $"{link.Pairing}, {link.SetAsideBeforePairing} set aside");
+        Assert.Equal([false], blackouts);
+        Assert.Equal(((bool?)false, 1L, true), (link.Blackout, link.SetAsideBeforePairing, link.Paired));
+        var heard = desk.Heard.ToList();
+        var proof = heard.FindIndex(l => l.StartsWith("@pair AUTH-PROOF ", StringComparison.Ordinal));
+        var status = heard.FindIndex(l => l.StartsWith("@pm", StringComparison.Ordinal) && l.EndsWith(" STATUS", StringComparison.Ordinal));
+        Assert.True(proof >= 0 && status > proof, string.Join(" | ", heard));
+        Assert.Single(heard, l => l.EndsWith(" STATUS", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ADeskThatAsksNoProofOffThisMachineIsNotFollowedAndHearsNoToken()
+    {
+        // Anything that answers at the desk's address and asks no proof — an older desk on another machine, or another machine at its
+        // address — is never told the token, and blacks nothing out however its STATE reads.
+        await using var desk = new FakePatternsDesk(TestSettings.Token)
+        {
+            AsksProof = false,
+            Greeting = FakePatternsDesk.StateWith(1000, 3, playing: true, blackout: true),
+        };
+        // Its silence is counted on a clock only the test moves, so a slow runner never drops the link while the test watches it.
+        await using var link = new PatternsLink(new PatternsLinkOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            Token = TestSettings.Token,
+            IsLocal = _ => false,
+            ContextEvery = TimeSpan.FromMilliseconds(100),
+            Clock = new ManualClock(1_000_000_000),
+        }, TestSettings.Wall());
+        var blackouts = new ConcurrentQueue<bool>();
+        link.BlackoutChanged += blackouts.Enqueue;
+        link.Start();
+
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.NotNeeded));
+        await desk.PushAsync(FakePatternsDesk.StateWith(5000, 9, playing: true, blackout: true));
+        Assert.True(await Eventually.TrueAsync(() => link.SetAsideBeforePairing == 2));
+        var refused = await link.SendAsync("VIDEO PAUSE");
+        // The context loop has turned three times, on a live link: none of its turns asked the desk anything.
+        Assert.True(await Eventually.TrueAsync(() => link.ContextTurns >= 3), link.ContextTurns.ToString(CultureInfo.InvariantCulture));
+
+        Assert.Equal((LinkStatus.Live, false, false), (link.Status, link.Local, link.Paired));
+        Assert.Empty(blackouts);
+        Assert.Null(link.Blackout);
+        Assert.Null(link.Video);
+        Assert.Null(link.ContextJson);
+        Assert.Equal(0, link.Clock.Samples);
+        Assert.False(refused.Ok);
+        Assert.Contains("has not paired with this node — nothing is sent", refused.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(desk.Heard, l => l.Contains("AUTH", StringComparison.Ordinal) || l.Contains("VIDEO", StringComparison.Ordinal)
+            || l.Contains("STATUS", StringComparison.Ordinal) || l.Contains("CONTEXT", StringComparison.Ordinal));
+        Assert.DoesNotContain(desk.Heard, l => l.Contains(Pairing.Normalise(TestSettings.Token), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ADeskThatAsksNoProofOnThisMachinePairsByItsTokenAndIsFollowed()
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token) { AsksProof = false };
+        await using var link = new PatternsLink(new PatternsLinkOptions { Host = "127.0.0.1", Port = desk.Port, Token = TestSettings.Token }, TestSettings.Wall());
+        link.Start();
+
+        Assert.True(await Eventually.TrueAsync(() => link.Video is { Seq: 7 }), link.Pairing.ToString());
+        Assert.Equal((PairState.Paired, true, 1L), (link.Pairing, link.Local, link.SetAsideBeforePairing));
+        Assert.Single(desk.Heard, l => l == "@pair AUTH " + TestSettings.Token);
+    }
+
+    [Fact]
+    public async Task AnOpenDeskIsFollowedWhenThisLinkHoldsNoToken()
+    {
+        await using var desk = new FakePatternsDesk("") { AsksProof = false };
+        await using var link = new PatternsLink(new PatternsLinkOptions { Host = "127.0.0.1", Port = desk.Port, IsLocal = _ => false }, TestSettings.Wall());
+        link.Start();
+
+        Assert.True(await Eventually.TrueAsync(() => link.Video is { Seq: 7 }), link.Pairing.ToString());
+        Assert.Equal((PairState.NotNeeded, true), (link.Pairing, link.Paired));
+        Assert.DoesNotContain(desk.Heard, l => l.Contains("AUTH", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("0123456789ABCDEF0123456789ABCDEF")]
+    [InlineData("0123456789abcdef0123456789abcde")]
+    [InlineData("0123456789abcdef0123456789abcdef0")]
+    [InlineData("0123456789abcdef0123456789abcdeg")]
+    public async Task OnlyA32HexNonceIsProvedAndNoNonceShapeGetsPlainAuth(string first)
+    {
+        // A NONCE of any other shape gets no proof, and a link that heard one sends no plain AUTH even to this machine; the desk's next
+        // NONCE, of the right shape, gets the one proof.
+        await using var desk = new FakePatternsDesk(TestSettings.Token) { FirstNonce = first };
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            NonceWait = TimeSpan.FromMilliseconds(100),
+        }, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Unprovable), link.Pairing.ToString());
+        // The connection's wait for a NONCE has ended: no plain AUTH follows a NONCE of any shape (an AUTH written before that wait ended
+        // would stand before the proof below in what the desk heard).
+        Assert.True(await Eventually.TrueAsync(() => link.NonceWaitsEnded == 1), link.Pairing.ToString());
+        Assert.DoesNotContain(desk.Heard, l => l.Contains("AUTH", StringComparison.Ordinal));
+        Assert.True(link.Local);
+
+        await desk.SendNonceAsync();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Pairing.ToString());
+        Assert.Single(desk.Heard, l => l.Contains("AUTH", StringComparison.Ordinal));
+        Assert.Single(desk.Heard, l => l.StartsWith("@pair AUTH-PROOF ", StringComparison.Ordinal));
+        Assert.True(Pairing.IsNonce(Pairing.NewNonce()));
+        Assert.False(Pairing.IsNonce(first));
+    }
+
+    [Fact]
+    public async Task AClockEstimateKeptPerConnectionStartsEmptyOnEachNewOne()
+    {
+        // The Patterns link takes the desk's clock only from the connection the desk pairs on: what an earlier connection's answer said
+        // is gone when the link dials again. Its silence and its pings are counted on a clock only the test moves (one ping per
+        // connection, sent as it opens).
+        await using var desk = new FakePatternsDesk(TestSettings.Token);
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            Clock = new ManualClock(1_000_000_000),
+            ClockPerConnection = true,
+        }, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Clock.Samples == 1 && link.Pairing == PairState.Paired), link.Pairing.ToString());
+
+        // The next connection's desk answers nothing: its estimate is empty, whatever the first one held.
+        desk.Silent = true;
+        desk.Cut();
+        Assert.True(await Eventually.TrueAsync(() => link.Connections == 2 && desk.Accepted == 2 && link.Status == LinkStatus.Live),
+            $"{link.Status} after {link.Connections} connections");
+        Assert.True(await Eventually.TrueAsync(() => desk.Heard.Count(l => l.Contains(" PING ", StringComparison.Ordinal)) == 2));
+        Assert.Equal(0, link.Clock.Samples);
+    }
+
+    [Fact]
     public async Task ThePatternsLinkGoesStaleOnSilenceDropsAndRedialsAndQueuesNothingWhileDown()
     {
         await using var desk = new FakePatternsDesk(TestSettings.Token);
@@ -238,9 +423,10 @@ public class LinkTests
             whileDown.TrySetResult((sent.IsCompleted, sent));
         };
         link.Start();
-        // Live and paired by its proof, its first ping answered: nothing more is due from the desk.
-        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live && link.Pairing == PairState.Paired && link.Clock.Samples > 0),
-            $"{link.Status}, {link.Pairing}");
+        // Live and paired by its proof, its first ping answered and the STATE it asks once paired taken (its clip): nothing more is due
+        // from the desk, so no answer in flight lands after the clock moves.
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live && link.Pairing == PairState.Paired && link.Clock.Samples > 0
+            && link.Video is not null), $"{link.Status}, {link.Pairing}");
 
         // The desk falls silent and the clock passes the stale mark: stale on the same connection, its clip not trusted.
         desk.Silent = true;
@@ -262,10 +448,10 @@ public class LinkTests
         Assert.Equal([LinkStatus.Connecting, LinkStatus.Live, LinkStatus.Stale, LinkStatus.Down, LinkStatus.Connecting, LinkStatus.Live], statuses);
         Assert.Equal((LinkStatus.Live, 2L, 2), (link.Status, link.Connections, desk.Accepted));
 
-        // A cut connection is dialled again, and a line sent on the new one is answered.
+        // A cut connection is dialled again, and a line sent on the new one once the desk paired there is answered.
         desk.Cut();
-        Assert.True(await Eventually.TrueAsync(() => desk.Accepted == 3 && link.Connections == 3 && link.Status == LinkStatus.Live, 8000),
-            $"{link.Status} after {link.Connections} connections");
+        Assert.True(await Eventually.TrueAsync(() => desk.Accepted == 3 && link.Connections == 3 && link.Status == LinkStatus.Live && link.Paired, 8000),
+            $"{link.Status} after {link.Connections} connections, {link.Pairing}");
         Assert.True((await link.SendAsync("VIDEO PLAY")).Ok);
     }
 

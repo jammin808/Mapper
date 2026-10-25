@@ -364,7 +364,8 @@ internal sealed class FfmpegFactAttribute : FactAttribute
 }
 
 /// <summary>A Patterns desk as the tests play it (the Net tests' fake): STATE then NONCE on connect, HELLO answered,
-/// AUTH-PROOF checked against the nonce and the HELLO name, PING and CONTEXT answered — and a test can push a STATE.</summary>
+/// AUTH-PROOF checked against the nonce and the HELLO name, PING, STATUS (its STATE, as Patterns answers it) and CONTEXT answered — and
+/// a test can push a STATE.</summary>
 internal sealed class FakePatternsDesk : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
@@ -446,6 +447,9 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
                         await writer.WriteLineAsync(right ? "OK" + tag + " paired" : "ERR" + tag + " wrong token");
                         if (!right)
                             await writer.WriteLineAsync("NONCE " + nonce);
+                        break;
+                    case "STATUS":
+                        await writer.WriteLineAsync("OK" + tag + " " + State);
                         break;
                     case "PING":
                         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);

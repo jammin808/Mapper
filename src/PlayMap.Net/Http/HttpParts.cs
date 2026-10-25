@@ -59,11 +59,35 @@ public enum GateVerdict
     NeedsHttps,
 }
 
+/// <summary>This node's own pairing token came in clear from another machine: whoever was on the network between could have read it.
+/// A sighting changes no gate's answer; the node marks it so the token can be replaced.</summary>
+/// <param name="From">The address it came from.</param>
+/// <param name="Carrier"><see cref="Wire"/> (plain AUTH on the line wire) or <see cref="Http"/> (a token header on plain HTTP).</param>
+public sealed record ClearSighting(string From, string Carrier)
+{
+    public const string Wire = "wire";
+    public const string Http = "http";
+
+    /// <summary>How it came, in words.</summary>
+    public string How => Carrier == Wire ? "plain AUTH on the line wire" : "a token header on plain HTTP";
+
+    /// <summary>Whether <paramref name="presented"/> is the node's token now (normalised, compared in fixed time); never true when the
+    /// node asks no token.</summary>
+    public static bool IsNodeToken(string presented, NodeSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var token = Pairing.Normalise(settings.Token);
+        return token.Length > 0 && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(Pairing.Normalise(presented)), System.Text.Encoding.UTF8.GetBytes(token));
+    }
+}
+
 /// <summary>The web's gate (docs/WIRE.md): the token rides in <c>X-PlayMap-Token</c> or <c>Authorization: Bearer</c>,
 /// never in a URL (a query string is never read for it); reads and verbs alike need it from anything but this machine
 /// and the trusted list when a token is set; five wrong tokens in a minute lock the address out for the rest of
-/// that minute; Require HTTPS refuses plain requests from anything but loopback.</summary>
-public sealed class TokenGate(int wrongPerMinute = 5)
+/// that minute; Require HTTPS refuses plain requests from anything but loopback. A token header on plain HTTP from another machine
+/// gets the gate's verdict unchanged, and when it carries the node's own token it is reported to <paramref name="seenInClear"/>.</summary>
+public sealed class TokenGate(int wrongPerMinute = 5, Action<ClearSighting>? seenInClear = null)
 {
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
     private readonly object _gate = new();
@@ -75,6 +99,9 @@ public sealed class TokenGate(int wrongPerMinute = 5)
         ArgumentNullException.ThrowIfNull(settings);
         var remote = context.Connection.RemoteIpAddress;
         var loopback = NetAddress.IsLoopback(remote);
+        if (seenInClear is not null && !context.Request.IsHttps && !loopback && Presented(context.Request) is { Length: > 0 } presented
+            && ClearSighting.IsNodeToken(presented, settings))
+            seenInClear(new ClearSighting(NetAddress.Text(remote), ClearSighting.Http));
         if (settings.RequireHttps && !context.Request.IsHttps && !loopback)
             return GateVerdict.NeedsHttps;
         if (!NetAddress.TokenNeeded(settings) || NetAddress.IsTrusted(remote, settings))

@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -7,8 +9,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using PlayMap.Core.Bus;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
+using PlayMap.Net.Bus;
 using PlayMap.Net.Links;
 using PlayMap.Net.Tls;
 
@@ -125,10 +129,105 @@ internal sealed class FakeStagewatch : IAsyncDisposable
     }
 }
 
+/// <summary>A Stagewatch with no certificate as its web server meets a dial: whatever comes is read as a request's head until its blank
+/// line. A TLS greeting has none, so nothing is said back (this front waits until the dialler closes, however long that takes, so only
+/// the dialler's own deadline ends the attempt); a plain request is passed whole to the <see cref="FakeStagewatch"/> behind it, and
+/// its answer back.</summary>
+internal sealed class SilentTlsFront : IAsyncDisposable
+{
+    private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+    private readonly CancellationTokenSource _stop = new();
+    private readonly ConcurrentQueue<TcpClient> _clients = new();
+    private readonly int _behind;
+    private readonly Task _accept;
+    private int _greetings;
+    private int _plain;
+
+    public SilentTlsFront(int behind)
+    {
+        _behind = behind;
+        _listener.Start();
+        Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        _accept = AcceptAsync();
+    }
+
+    public int Port { get; }
+
+    /// <summary>TLS greetings read and never answered.</summary>
+    public int TlsGreetings => Volatile.Read(ref _greetings);
+
+    /// <summary>Plain connections passed to the Stagewatch behind.</summary>
+    public int Plain => Volatile.Read(ref _plain);
+
+    private async Task AcceptAsync()
+    {
+        try
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                var client = await _listener.AcceptTcpClientAsync(_stop.Token);
+                _clients.Enqueue(client);
+                _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
+        {
+            // The front stops.
+        }
+    }
+
+    private async Task ServeAsync(TcpClient client)
+    {
+        var ct = _stop.Token;
+        try
+        {
+            var stream = client.GetStream();
+            var first = new byte[1];
+            if (await stream.ReadAsync(first, ct) == 0)
+                return;
+            if (first[0] == 0x16)
+            {
+                Interlocked.Increment(ref _greetings);
+                var head = new byte[4096];
+                while (await stream.ReadAsync(head, ct) > 0)
+                {
+                    // Read as a request's head that never ends: nothing is said back.
+                }
+                return;
+            }
+            Interlocked.Increment(ref _plain);
+            using var behind = new TcpClient();
+            await behind.ConnectAsync(IPAddress.Loopback, _behind, ct);
+            var back = behind.GetStream();
+            await back.WriteAsync(first, ct);
+            await Task.WhenAny(stream.CopyToAsync(back, ct), back.CopyToAsync(stream, ct));
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or SocketException or ObjectDisposedException)
+        {
+            // Either end closed.
+        }
+        finally
+        {
+            client.Dispose();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _stop.CancelAsync();
+        _listener.Stop();
+        while (_clients.TryDequeue(out var c))
+            c.Dispose();
+        await _accept;
+        _stop.Dispose();
+    }
+}
+
 /// <summary>PlayMap as a Stagewatch screen: asked for with its cid, page and the key in a header (never the URL),
 /// frames counted on locally and taken latest-wins, "?" while Stagewatch says it is stuck, the operator's redirect
 /// raised, pings closing a clock exchange, the context posted, and approved lines collected, run once through the
-/// node's own path and answered.</summary>
+/// node's own path and answered. Every dial tries TLS first; a pinned certificate, or one the hello names, is TLS or nothing; over
+/// plain ws the key goes only to this machine, and off it the timer is read without the key.</summary>
 public class StagewatchLinkTests
 {
     private const string Frame5 = "{\"type\":\"state\",\"v\":1,\"seq\":5,\"mode\":\"countdown\",\"state\":\"running\",\"seconds\":750,\"text\":\"12:30\",\"total\":1800,\"phase\":\"warning\",\"color\":\"#F59E0B\",\"title\":\"Keynote\",\"next\":\"Panel\",\"message\":\"Wrap up\",\"urgency\":\"warning\",\"flash\":\"slow\",\"blackout\":false,\"holding\":\"\",\"watermark\":\"REHEARSAL\",\"show\":{\"timer\":true,\"message\":true},\"playout\":{\"title\":\"VT1\",\"remaining\":42,\"duration\":60,\"running\":true,\"source\":\"Patterns\"}}";
@@ -254,6 +353,192 @@ public class StagewatchLinkTests
             dirB.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public async Task ATypedAddressTriesTlsFirstAndTheKeyRidesOverIt()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-sw-typed-");
+        try
+        {
+            using var id = TlsIdentity.LoadOrCreate(dir.FullName, "Hall A", DateTimeOffset.UtcNow);
+            var pins = new PinStore();
+            await using var sw = await FakeStagewatch.StartAsync(id.Certificate);
+            // Typed, no hello names it, and played as another machine: it answers TLS, so the key goes, inside TLS.
+            var pinKey = PinStore.AddressKey("127.0.0.1", sw.Port);
+            await using var link = new StagewatchLink(Options(sw) with { PinKey = pinKey, IsLocal = _ => false }, new FakeEndpoint(), TestSettings.Wall(), pins);
+            link.Start();
+            Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
+            Assert.Equal((true, false), (link.OverTls, link.KeyHeldBack));
+            Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", Assert.Single(sw.Asked));
+            // Its certificate is pinned by the address once the key's first side call is answered.
+            Assert.True(await Eventually.TrueAsync(() => pins.Get(pinKey) == id.Fingerprint), link.Words);
+            Assert.StartsWith("Bearer swk_test0123456789 ", sw.Contexts.First(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task APlainStagewatchOffThisMachineIsReadWithoutTheKey()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        var pins = new PinStore();
+        var pinKey = PinStore.AddressKey("127.0.0.1", sw.Port);
+        // Its silence is counted on a clock only the test moves, so a slow runner never drops the link while the test watches it.
+        await using var link = new StagewatchLink(Options(sw, approvals: true) with { PinKey = pinKey, IsLocal = _ => false }, new FakeEndpoint(), TestSettings.Wall(), pins,
+            new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
+
+        // It offers no TLS and is not this machine: the upgrade carries no key, and the words say why.
+        Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
+        Assert.Equal((false, true), (link.OverTls, link.KeyHeldBack));
+        Assert.StartsWith($"Stagewatch at 127.0.0.1:{sw.Port} offers no TLS — the key stays on this machine", link.Words, StringComparison.Ordinal);
+
+        // The timer is still read; no side call (each would carry the key) is made, and nothing is pinned.
+        await sw.SendAsync(Frame5);
+        Assert.True(await Eventually.TrueAsync(() => link.Reading.Trusted));
+        Assert.True(await Eventually.TrueAsync(() => link.Clock.Samples > 0));
+        // The ping, the context and the approval queue share one beat, all three due on its first turn and every 200 ms after: the
+        // third ping is a turn that would have posted the context and asked the queue twice already.
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 3), $"{Pings(sw)} pings");
+        Assert.Empty(sw.Contexts);
+        Assert.Single(sw.Asked);
+        Assert.Null(pins.Get(pinKey));
+        Assert.Equal(1, link.Connections);
+    }
+
+    [Fact]
+    public async Task APinnedStagewatchIsNeverDialledPlain()
+    {
+        // Its certificate is pinned (its hello names none now): a plain answer at its address is refused, and nothing goes to it.
+        await using var sw = await FakeStagewatch.StartAsync();
+        var pins = new PinStore();
+        pins.Pin("node:5a5a5a5a", "sha256:" + new string('a', 64));
+        await using var link = new StagewatchLink(Options(sw) with { PinKey = "node:5a5a5a5a" }, new FakeEndpoint(), TestSettings.Wall(), pins);
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Words.Contains("answered without its pinned certificate — refused", StringComparison.Ordinal)), link.Words);
+        Assert.NotEqual(LinkStatus.Live, link.Status);
+        Assert.Equal(0, link.Connections);
+        Assert.Empty(sw.Asked);
+        Assert.Empty(sw.Contexts);
+    }
+
+    [Fact]
+    public async Task AStagewatchWhoseHelloNamesACertificateIsTlsOrNothing()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        await using var link = new StagewatchLink(Options(sw) with { Tls = true, Fingerprint = "sha256:" + new string('b', 64), PinKey = "node:6b6b6b6b" },
+            new FakeEndpoint(), TestSettings.Wall(), new PinStore());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Words.Contains("answered without TLS although its hello names a certificate — refused", StringComparison.Ordinal)),
+            link.Words);
+        Assert.Equal(0, link.Connections);
+        Assert.Empty(sw.Asked);
+    }
+
+    [Fact]
+    public async Task APinnedIdWhoseHelloNamesNoTlsDialsTls()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-sw-pinned-");
+        try
+        {
+            using var id = TlsIdentity.LoadOrCreate(dir.FullName, "Hall A", DateTimeOffset.UtcNow);
+            await using var sw = await FakeStagewatch.StartAsync(id.Certificate);
+            var pins = new PinStore();
+            pins.Pin(PinStore.NodeKey("5a5a5a5a"), id.Fingerprint);
+            // Heard on the hello with its ws port and no certificate named: the pin, not the hello, says TLS.
+            var hello = new ShowBusHello(ShowBusConstants.KindStagewatch, 1, 1, "5a5a5a5a", "Hall A", "127.0.0.1",
+                new Dictionary<string, int> { ["ws"] = sw.Port }, [], 0, null, null);
+            var options = StagewatchLinkOptions.FromPeer(new ShowBusPeer(hello, "127.0.0.1", 0, 0, PeerLiveness.Live), "swk_test0123456789", "a1b2c3d4", "Stage left");
+            Assert.False(options.Tls);
+            await using var link = new StagewatchLink(options with { IsLocal = _ => false, BeatEvery = TimeSpan.FromMilliseconds(200) },
+                new FakeEndpoint(), TestSettings.Wall(), pins);
+            link.Start();
+            Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
+            Assert.Equal((true, (PinVerdict?)PinVerdict.Pinned, false), (link.OverTls, link.Pin, link.KeyHeldBack));
+            Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", Assert.Single(sw.Asked));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AStagewatchThatReadsTheTlsGreetingAsAHeadIsDialledPlainAtTheLinksOwnDeadline(bool local)
+    {
+        // A Stagewatch with HTTPS off reads the greeting and waits for a blank line that never comes. The front behind this address never
+        // answers and never closes, so the link's own deadline ends the TLS attempt, and the link goes live over plain ws: with the key
+        // on this machine, read without it off this machine.
+        await using var sw = await FakeStagewatch.StartAsync();
+        await using var front = new SilentTlsFront(sw.Port);
+        var pins = new PinStore();
+        var pinKey = PinStore.AddressKey("127.0.0.1", front.Port);
+        var options = Options(sw) with { Port = front.Port, PinKey = pinKey, IsLocal = _ => local };
+        // Under the 5 s Stagewatch waits for a request's head: the link, not Stagewatch, ends the attempt.
+        Assert.InRange(options.TlsAnswerWithin, TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2.5));
+        await using var link = new StagewatchLink(options, new FakeEndpoint(), TestSettings.Wall(), pins, new ManualClock(1_000_000_000));
+        link.Start();
+
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live, 15000), link.Words);
+        Assert.Equal(1, front.TlsGreetings);
+        Assert.True(front.Plain >= 1);
+        Assert.Equal((false, !local), (link.OverTls, link.KeyHeldBack));
+        Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=" + (local ? "Bearer swk_test0123456789" : ""), Assert.Single(sw.Asked));
+        Assert.Equal(1, link.Connections);
+        Assert.Null(pins.Get(pinKey));
+    }
+
+    [Fact]
+    public async Task APinnedStagewatchThatShowsNoCertificateByTheDeadlineIsRefused()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        await using var front = new SilentTlsFront(sw.Port);
+        var pins = new PinStore();
+        pins.Pin("node:5a5a5a5a", "sha256:" + new string('a', 64));
+        await using var link = new StagewatchLink(Options(sw) with { Port = front.Port, PinKey = "node:5a5a5a5a", TlsAnswerWithin = TimeSpan.FromMilliseconds(300) },
+            new FakeEndpoint(), TestSettings.Wall(), pins);
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Words.Contains("answered without its pinned certificate — refused", StringComparison.Ordinal)), link.Words);
+        Assert.True(front.TlsGreetings >= 1);
+        Assert.Equal(0, front.Plain);
+        Assert.Equal(0, link.Connections);
+        Assert.Empty(sw.Asked);
+    }
+
+    [Fact]
+    public async Task ATypedAddressWithNoKeyIsNeverPinned()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-sw-nokey-");
+        try
+        {
+            using var id = TlsIdentity.LoadOrCreate(dir.FullName, "Hall A", DateTimeOffset.UtcNow);
+            var pins = new PinStore();
+            await using var sw = await FakeStagewatch.StartAsync(id.Certificate);
+            var pinKey = PinStore.AddressKey("127.0.0.1", sw.Port);
+            // No key: no answer is authenticated, so whatever certificate answers at the typed address is used and never pinned.
+            await using var link = new StagewatchLink(Options(sw) with { Key = "", PinKey = pinKey, IsLocal = _ => false }, new FakeEndpoint(), TestSettings.Wall(), pins,
+                new ManualClock(1_000_000_000));
+            link.Start();
+            Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
+            // The beat starts after the pin's decision: its first ping says the decision was made.
+            Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 1), link.Words);
+            Assert.Equal((true, (PinVerdict?)PinVerdict.FirstUse), (link.OverTls, link.Pin));
+            Assert.Null(pins.Get(pinKey));
+            Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    private static int Pings(FakeStagewatch sw) => sw.Received.Count(m => m.Contains("\"cmd\":\"ping\"", StringComparison.Ordinal));
 
     [Fact]
     public void AFrameCountsOnFromItsArrivalAndFormatsAsStagewatchDoes()

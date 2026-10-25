@@ -55,6 +55,9 @@ public sealed record PatternsLinkOptions
     /// <summary>The desk's pairing token ("" = none).</summary>
     public string Token { get; init; } = "";
 
+    /// <summary>Whether the socket reached this machine (<see cref="WireClientOptions.IsLocal"/>): the only place plain AUTH goes.</summary>
+    public Func<IPAddress, bool> IsLocal { get; init; } = NetAddress.IsLoopback;
+
     public string ClientName { get; init; } = "PlayMap";
 
     public TimeSpan ContextEvery { get; init; } = TimeSpan.FromSeconds(5);
@@ -92,7 +95,10 @@ public sealed record PatternsLinkOptions
 }
 
 /// <summary>PlayMap following a Patterns desk over its line wire (TCP 9697): STATE then NONCE on connect, HELLO
-/// PlayMap, AUTH-PROOF with the desk's token, PING every 2 s (the desk's clock offset), CONTEXT every 5 s. The desk's
+/// PlayMap, AUTH-PROOF with the desk's token, PING every 2 s (the desk's clock offset), CONTEXT every 5 s. Nothing the desk says
+/// is taken until it pairs (<see cref="Paired"/>): its greeting STATE, a STATE pushed before its "OK paired", its context and its
+/// clock are set aside, so an answer at the desk's address that cannot prove the token blacks nothing; once paired the desk is
+/// asked its STATE once, and nothing is sent to it before. The desk's
 /// clip clock (STATE.video) is held as an anchor and counted on locally at its rate — re-anchored when its seq moves
 /// (a seek, a pause, a new clip) or when a frame strays from the count — and the desk's blackout is followed. Stale
 /// after 6 s of silence, dropped and redialled after 12 s, counted on its options' clock; nothing is queued while the link is
@@ -114,6 +120,8 @@ public sealed class PatternsLink : IAsyncDisposable
     private string? _state;
     private string? _context;
     private Task? _contextLoop;
+    private long _setAside;
+    private long _contextTurns;
 
     public PatternsLink(PatternsLinkOptions options, ShowWallClock wall, IMonoClock? mono = null, ILogger? log = null)
     {
@@ -126,11 +134,14 @@ public sealed class PatternsLink : IAsyncDisposable
             Port = options.Port,
             ClientName = options.ClientName,
             Token = options.Token,
+            IsLocal = options.IsLocal,
             IdPrefix = "pm",
             StaleAfter = options.StaleAfter,
             DropAfter = options.DropAfter,
             Clock = options.Clock,
             MaxLineBytes = 1024 * 1024,
+            OnConnected = AskStateOncePairedAsync,
+            ClockPerConnection = true,
         }, wall, log);
         _wire.Line += OnLine;
         _wire.StatusChanged += s => StatusChanged?.Invoke(s);
@@ -138,8 +149,19 @@ public sealed class PatternsLink : IAsyncDisposable
 
     public LinkStatus Status => _wire.Status;
 
-    /// <summary>Paired by proof, or the desk asked none.</summary>
-    public bool Paired => _wire.Pairing is PairState.Paired or PairState.NotNeeded;
+    /// <summary>What the desk says is taken: it said "OK paired" to this link's proof (or, on this machine, to its token) on the
+    /// connection up now, or it asks for no proof and this link holds no token for it. A desk that asks no proof while a token is held
+    /// here is not followed: anything at its address could answer so.</summary>
+    public bool Paired => _wire.Pairing == PairState.Paired || (_wire.Pairing == PairState.NotNeeded && _o.Token.Length == 0);
+
+    /// <summary>The connection up now reached this machine.</summary>
+    public bool Local => _wire.Local;
+
+    /// <summary>The desk's lines set aside because they came before it paired (its greeting STATE among them), since start.</summary>
+    public long SetAsideBeforePairing => Interlocked.Read(ref _setAside);
+
+    /// <summary>Turns the context loop has taken, whether or not it asked the desk (it asks only a paired desk on a live link).</summary>
+    internal long ContextTurns => Interlocked.Read(ref _contextTurns);
 
     public PairState Pairing => _wire.Pairing;
 
@@ -165,22 +187,23 @@ public sealed class PatternsLink : IAsyncDisposable
         }
     }
 
-    /// <summary>The desk's Show Bus context, refreshed every 5 s (null when the link is down).</summary>
+    /// <summary>The desk's Show Bus context, refreshed every 5 s (null when the link is down or the desk has not paired).</summary>
     public string? ContextJson
     {
         get
         {
             lock (_gate)
-                return Status is LinkStatus.Live or LinkStatus.Stale ? _context : null;
+                return Status is LinkStatus.Live or LinkStatus.Stale && Paired ? _context : null;
         }
     }
 
+    /// <summary>The desk's blackout as its last STATE said it (null when the link is down or the desk has not paired).</summary>
     public bool? Blackout
     {
         get
         {
             lock (_gate)
-                return Status is LinkStatus.Live or LinkStatus.Stale ? _blackout : null;
+                return Status is LinkStatus.Live or LinkStatus.Stale && Paired ? _blackout : null;
         }
     }
 
@@ -192,7 +215,7 @@ public sealed class PatternsLink : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (_anchor is not { } v || Status != LinkStatus.Live)
+                if (_anchor is not { } v || Status != LinkStatus.Live || !Paired)
                     return null;
                 var now = _mono.NowNs;
                 if (v.Running && Durations.ToMs(now - _frameAtNs) > _o.VideoStaleAfter.TotalMilliseconds)
@@ -202,8 +225,9 @@ public sealed class PatternsLink : IAsyncDisposable
         }
     }
 
-    /// <summary>The desk's clock minus this machine's (ms), with the round trip, once a PING exchange closed.</summary>
-    public (double OffsetMs, double RoundTripMs, int Samples) Clock => _wire.Clock;
+    /// <summary>The desk's clock minus this machine's (ms), with the round trip, once a PING exchange closed; nothing while the desk
+    /// has not paired. The estimate is the connection up now's, so it holds only exchanges with the peer that paired on it.</summary>
+    public (double OffsetMs, double RoundTripMs, int Samples) Clock => Paired ? _wire.Clock : (0, 0, 0);
 
     public void Start()
     {
@@ -212,14 +236,52 @@ public sealed class PatternsLink : IAsyncDisposable
     }
 
     /// <summary>Sends a line to the desk (a request id is added; the reply is matched by it). Fails at once while the
-    /// link is down.</summary>
-    public Task<WireReply> SendAsync(string line, CancellationToken ct = default) => _wire.SendAsync(line, ct);
+    /// link is down or the desk has not paired: nothing is written then.</summary>
+    public Task<WireReply> SendAsync(string line, CancellationToken ct = default) =>
+        Paired || Status is not (LinkStatus.Live or LinkStatus.Stale) ? _wire.SendAsync(line, ct) : Task.FromResult(new WireReply(false, NotPairedWords));
+
+    private string NotPairedWords => $"the Patterns desk at {Address} has not paired with this node — nothing is sent to it";
+
+    /// <summary>A desk pushes STATE only when something changes, and its greeting came before it paired: once it pairs on a connection
+    /// it is asked its STATE, and the answer is taken as a push.</summary>
+    private async Task AskStateOncePairedAsync(CancellationToken ct)
+    {
+        var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnPairing(PairState _)
+        {
+            if (Paired)
+                settled.TrySetResult();
+        }
+        _wire.PairingChanged += OnPairing;
+        try
+        {
+            OnPairing(_wire.Pairing);
+            await settled.Task.WaitAsync(ct);
+        }
+        finally
+        {
+            _wire.PairingChanged -= OnPairing;
+        }
+        var reply = await _wire.SendAsync("STATUS", ct);
+        if (reply.Ok && Paired)
+            TakeState(reply.Text);
+    }
 
     private void OnLine(string line)
     {
         if (!line.StartsWith("STATE ", StringComparison.Ordinal))
             return;
-        var json = line[6..];
+        if (!Paired)
+        {
+            // Before the desk pairs on this connection its STATE is not a fact: anything at its address could have said it.
+            Interlocked.Increment(ref _setAside);
+            return;
+        }
+        TakeState(line[6..]);
+    }
+
+    private void TakeState(string json)
+    {
         using var doc = JsonText.TryParse(json, 1024 * 1024);
         if (doc is null || doc.RootElement.ValueKind != JsonValueKind.Object)
             return;
@@ -274,10 +336,11 @@ public sealed class PatternsLink : IAsyncDisposable
     {
         while (await Waits.DelayAsync(_o.ContextEvery, ct))
         {
-            if (Status != LinkStatus.Live)
+            Interlocked.Increment(ref _contextTurns);
+            if (Status != LinkStatus.Live || !Paired)
                 continue;
             var reply = await _wire.SendAsync("CONTEXT", ct);
-            if (reply.Ok && ShowContext.Parse(reply.Text) is not null)
+            if (reply.Ok && Paired && ShowContext.Parse(reply.Text) is not null)
             {
                 lock (_gate)
                     _context = reply.Text;

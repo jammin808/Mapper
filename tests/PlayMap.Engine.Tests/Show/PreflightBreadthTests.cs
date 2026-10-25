@@ -3,7 +3,10 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
 using PlayMap.Core.Wire;
+using PlayMap.Engine.Host;
 using PlayMap.Engine.Show;
+using PlayMap.Engine.Tests.Host;
+using PlayMap.Net.Http;
 
 namespace PlayMap.Engine.Tests.Show;
 
@@ -11,12 +14,13 @@ namespace PlayMap.Engine.Tests.Show;
 /// safety. Each row fails on an injected fault, names a line that fixes it (a line of the catalogue), and passes once fixed.</summary>
 public sealed class PreflightBreadthTests
 {
-    /// <summary>The network as a test sets it: the clock's role and uncertainty, and the two links.</summary>
-    private sealed class Net : INetworkView
+    /// <summary>The network as a test sets it: the clock's role and uncertainty, the two links, and the token seen in clear.</summary>
+    private sealed class Net : INetworkView, ITokenSightings
     {
         public SyncView SyncNow { get; set; } = new("solo", null, 0, 0, 0);
         public LinkView? PatternsNow { get; set; }
         public LinkView? StagewatchNow { get; set; }
+        public TokenSighting? TokenSeenInClear { get; set; }
 
         public IReadOnlyList<PeerView> Peers() => [];
         public LinkView? Patterns() => PatternsNow;
@@ -190,6 +194,52 @@ public sealed class PreflightBreadthTests
         net.PatternsNow = new LinkView("live", "10.0.0.5:7000", true, "no clip on air");
         net.StagewatchNow = new LinkView("live", "10.0.0.6", true, "");
         Assert.All(await Check(new LinksCheck(), rig.Engine), r => Assert.Equal(Light.Green, r.Light));
+    }
+
+    [Fact]
+    public async Task ATokenSeenInClearIsAmberWithTheLineThatMakesANewOne()
+    {
+        var net = new Net { PatternsNow = new LinkView("live", "10.0.0.5:9697", true, "no clip on air") };
+        await using var rig = new ShowRig(services: s => s with { Network = net });
+        Assert.DoesNotContain(await Check(new LinksCheck(), rig.Engine), r => r.Id == "links:token");
+
+        net.TokenSeenInClear = new TokenSighting(new ClearSighting("10.0.0.9", ClearSighting.Wire), 1_700_000_000_000);
+        var rows = await Check(new LinksCheck(), rig.Engine);
+        var token = rows.Single(r => r.Id == "links:token");
+        Assert.Equal((Light.Amber, "seen in clear", "PAIRING NEW"), (token.Light, token.Value, token.Fix));
+        Assert.Contains("came in clear from 10.0.0.9 (plain AUTH on the line wire)", token.Note, StringComparison.Ordinal);
+        Parses(token);
+        // The links' own rows are as they were: a token seen in clear refuses nothing.
+        Assert.Equal(Light.Green, rows.Single(r => r.Id == "links:patterns").Light);
+
+        net.TokenSeenInClear = null;
+        Assert.DoesNotContain(await Check(new LinksCheck(), rig.Engine), r => r.Id == "links:token");
+    }
+
+    [Fact]
+    public async Task ANodesTokenSeenInClearIsJournalledOncePerAddressAndCarrierAndGoesWithANewToken()
+    {
+        await using var rig = await HostRig.StartAsync();
+        var rows = new System.Collections.Concurrent.ConcurrentQueue<JournalRow>();
+        rig.Engine.Journal.Written += rows.Enqueue;
+        Assert.DoesNotContain(await Check(new LinksCheck(), rig.Engine), r => r.Id == "links:token");
+
+        // A client that sends the token with every request writes one row per address and carrier; the mark keeps the latest.
+        rig.Network.OnTokenSeenInClear(new ClearSighting("10.0.0.9", ClearSighting.Http));
+        rig.Network.OnTokenSeenInClear(new ClearSighting("10.0.0.9", ClearSighting.Http));
+        rig.Network.OnTokenSeenInClear(new ClearSighting("10.0.0.9", ClearSighting.Wire));
+        Assert.Equal(2, rows.Count(r => r.Text.StartsWith("this node's pairing token came in clear from 10.0.0.9", StringComparison.Ordinal)));
+        Assert.All(rows.Where(r => r.Text.Contains("came in clear", StringComparison.Ordinal)), r => Assert.Equal(("network", false), (r.Kind, r.Ok)));
+        Assert.DoesNotContain(rows, r => r.Text.Contains(HostRig.Token, StringComparison.Ordinal) || r.Text.Contains(Pairing.Normalise(HostRig.Token), StringComparison.Ordinal));
+        var token = (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:token");
+        Assert.Equal((Light.Amber, "PAIRING NEW"), (token.Light, token.Fix));
+        Assert.Contains("(plain AUTH on the line wire)", token.Note, StringComparison.Ordinal);
+
+        // A new token is not the one seen: the mark goes, and the next sighting is the new token's own row.
+        await rig.OkAsync(token.Fix!);
+        Assert.DoesNotContain(await Check(new LinksCheck(), rig.Engine), r => r.Id == "links:token");
+        rig.Network.OnTokenSeenInClear(new ClearSighting("10.0.0.9", ClearSighting.Http));
+        Assert.Equal(3, rows.Count(r => r.Text.StartsWith("this node's pairing token came in clear", StringComparison.Ordinal)));
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
 using PlayMap.Net.Companion;
+using PlayMap.Net.Http;
 
 namespace PlayMap.Net.Wire;
 
@@ -14,7 +15,8 @@ namespace PlayMap.Net.Wire;
 /// Pairing is the connection's: a proof answers this connection's nonce, a nonce answers one proof, and the token
 /// a proof matched is compared with the node's token on every verb (a new token unpairs at once). On the web port's line
 /// channel (a WebSocket) nothing but NONCE, HELLO, AUTH-PROOF and PING is answered until it pairs, the greeting STATE waits
-/// for "OK paired", plain AUTH is never taken, and wrong proofs count against the address in the web port's ledger.</summary>
+/// for "OK paired", plain AUTH is never taken, and wrong proofs count against the address in the web port's ledger. On TCP, plain AUTH
+/// from another machine is refused, and when it carries the node's own token it is reported as seen in clear.</summary>
 internal sealed class WireSession : IAsyncDisposable
 {
     private static readonly TimeSpan LastWordWait = TimeSpan.FromSeconds(2);
@@ -341,6 +343,10 @@ internal sealed class WireSession : IAsyncDisposable
         {
             if (_strict || !(_loopback && _server.Options.PlainAuthOnLoopback))
             {
+                // Plain AUTH from another machine is refused; when it carries the node's own token on TCP, the node is told, because the
+                // token crossed the network in clear.
+                if (!_strict && _server.Options.SeenInClear is { } seen && ClearSighting.IsNodeToken(line.RestAfter(1), _server.Settings))
+                    seen(new ClearSighting(_address, ClearSighting.Wire));
                 Writer.Say(WireGrammar.Err(id, WireWords.UseProof));
                 return;
             }

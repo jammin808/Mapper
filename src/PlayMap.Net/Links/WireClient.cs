@@ -24,6 +24,10 @@ public sealed record WireClientOptions
     /// <summary>The peer's pairing token ("" = none): proved against its NONCE, never sent in clear to another machine.</summary>
     public string Token { get; init; } = "";
 
+    /// <summary>Whether a connected socket's remote address is this machine, the only place plain AUTH goes. It is asked of the
+    /// address the socket reached, never of a host name; a test plays another machine from loopback by answering false.</summary>
+    public Func<IPAddress, bool> IsLocal { get; init; } = NetAddress.IsLoopback;
+
     /// <summary>Request ids this link makes start with this (ids are unique per link).</summary>
     public string IdPrefix { get; init; } = "c";
 
@@ -43,6 +47,11 @@ public sealed record WireClientOptions
 
     /// <summary>How long to wait for a NONCE before taking the peer as open (or trusting this machine).</summary>
     public TimeSpan NonceWait { get; init; } = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>The clock estimate holds only the exchanges of the connection up now: each new connection starts it empty. A link that
+    /// takes its peer's word only once the peer proves itself on a connection takes its clock the same way, so nothing an earlier,
+    /// unproved answer at the peer's address said counts once a later connection pairs (false: the estimate spans connections).</summary>
+    public bool ClockPerConnection { get; init; }
 
     public int MaxLineBytes { get; init; } = 4 * 1024 * 1024;
 
@@ -65,15 +74,18 @@ public enum PairState
     NeedsToken,
     /// <summary>The proof was refused: this link does not try again until it redials.</summary>
     Refused,
+    /// <summary>The peer asked for a proof with a NONCE that is not 32 lowercase hex: nothing is proved for it, and nothing goes in
+    /// plain AUTH on this connection. A later NONCE of the right shape is proved.</summary>
+    Unprovable,
 }
 
 /// <summary>A dialled line-wire link in Patterns' grammar — the core of the Patterns link and the desk's engine link.
-/// It says HELLO, proves the token against the peer's NONCE (plain AUTH only to this machine, and only when the peer
-/// never asked for a proof), pings every 2 s (the clock exchange, and the beat the peer's silence is measured
-/// against), goes stale after 6 s of silence and drops and redials after 12 s with the contract's backoff, each counted on
-/// its options' clock; a stale link is live again with the peer's next line on the same connection. A line
-/// sent through it carries a request id and its reply is matched by that id; nothing is queued while the link is
-/// down — a send then fails at once with the reason.</summary>
+/// It says HELLO, proves the token against the peer's NONCE when that NONCE is 32 lowercase hex (no other shape is proved), sends
+/// plain AUTH only to a socket whose remote address is this machine and only when the peer never sent a NONCE, pings every 2 s
+/// (the clock exchange, and the beat the peer's silence is measured against), goes stale after 6 s of silence and drops and
+/// redials after 12 s with the contract's backoff, each counted on its options' clock; a stale link is live again with the peer's
+/// next line on the same connection. A line sent through it carries a request id and its reply is matched by that id; nothing is
+/// queued while the link is down — a send then fails at once with the reason.</summary>
 public sealed class WireClient : IAsyncDisposable
 {
     private readonly WireClientOptions _o;
@@ -93,6 +105,8 @@ public sealed class WireClient : IAsyncDisposable
     private int _pair = (int)PairState.Unknown;
     private int _disposed;
     private long _connections;
+    private long _nonceWaits;
+    private volatile bool _local;
 
     public WireClient(WireClientOptions options, ShowWallClock wall, ILogger? log = null)
     {
@@ -108,10 +122,17 @@ public sealed class WireClient : IAsyncDisposable
     /// <summary>Connections made since start (a redial counts again).</summary>
     public long Connections => Interlocked.Read(ref _connections);
 
+    /// <summary>Connections whose wait for a NONCE has ended (each connection's one), whatever it decided.</summary>
+    internal long NonceWaitsEnded => Interlocked.Read(ref _nonceWaits);
+
     /// <summary>How long the peer has said nothing on the connection now, on the link's clock (zero while none is up).</summary>
     public TimeSpan Silence => _stream is null ? TimeSpan.Zero : Since(Interlocked.Read(ref _lastHeard));
 
     public string Address => _o.Host + ":" + _o.Port.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>The connection up now reached this machine (<see cref="WireClientOptions.IsLocal"/> of its socket's remote address);
+    /// false while none is up.</summary>
+    public bool Local => _local;
 
     public event Action<LinkStatus>? StatusChanged;
 
@@ -264,8 +285,14 @@ public sealed class WireClient : IAsyncDisposable
             timeout.CancelAfter(_o.ConnectTimeout);
             await socket.ConnectAsync(_o.Host, _o.Port, timeout.Token);
         }
+        _local = socket.RemoteEndPoint is IPEndPoint reached && _o.IsLocal(NetAddress.Normal(reached.Address));
         var stream = new NetworkStream(socket, ownsSocket: true);
         _stream = stream;
+        if (_o.ClockPerConnection)
+        {
+            lock (_clockGate)
+                _offset.Reset();
+        }
         Interlocked.Increment(ref _connections);
         Interlocked.Exchange(ref _lastHeard, _o.Clock.NowNs);
         SetPairing(PairState.Unknown);
@@ -279,14 +306,21 @@ public sealed class WireClient : IAsyncDisposable
         var beat = Task.Run(() => BeatAsync(ct), CancellationToken.None);
         var nonceWait = Task.Run(async () =>
         {
-            if (!await Waits.DelayAsync(_o.NonceWait, ct) || Volatile.Read(ref nonceSeen))
-                return;
-            // No NONCE: the peer is open or trusts this address. A desk older than proofs pairs by plain AUTH — only
-            // when it is this machine, so the token never crosses the network.
-            if (_o.Token.Length > 0 && IsLoopbackHost())
-                await WriteAsync("@pair AUTH " + _o.Token, ct);
-            else if (Pairing == PairState.Unknown)
-                SetPairing(PairState.NotNeeded);
+            try
+            {
+                if (!await Waits.DelayAsync(_o.NonceWait, ct) || Volatile.Read(ref nonceSeen))
+                    return;
+                // No NONCE: the peer is open or trusts this address. A desk older than proofs pairs by plain AUTH — only
+                // when the socket reached this machine, so the token never crosses the network.
+                if (_o.Token.Length > 0 && _local)
+                    await WriteAsync("@pair AUTH " + _o.Token, ct);
+                else if (Pairing == PairState.Unknown)
+                    SetPairing(PairState.NotNeeded);
+            }
+            finally
+            {
+                Interlocked.Increment(ref _nonceWaits);
+            }
         }, CancellationToken.None);
         var greeted = _o.OnConnected is { } greet ? Task.Run(() => greet(ct), CancellationToken.None) : Task.CompletedTask;
         try
@@ -310,8 +344,16 @@ public sealed class WireClient : IAsyncDisposable
                         SetPairing(PairState.NeedsToken);
                         continue;
                     }
+                    var nonce = line[6..].Trim();
+                    if (!Core.Bus.Pairing.IsNonce(nonce))
+                    {
+                        if (Pairing != PairState.Unprovable)
+                            _log.LogWarning("The link to {Address} asked for a proof with a NONCE that is not 32 lowercase hex: none is sent.", Address);
+                        SetPairing(PairState.Unprovable);
+                        continue;
+                    }
                     proofTried = true;
-                    await WriteAsync("@pair AUTH-PROOF " + Core.Bus.Pairing.Proof(_o.Token, line[6..].Trim(), _o.ClientName), ct);
+                    await WriteAsync("@pair AUTH-PROOF " + Core.Bus.Pairing.Proof(_o.Token, nonce, _o.ClientName), ct);
                     continue;
                 }
                 if (IsReply(line))
@@ -346,9 +388,6 @@ public sealed class WireClient : IAsyncDisposable
             _log.LogDebug(ex, "A helper of the link to {Address} ended with it.", Address);
         }
     }
-
-    private bool IsLoopbackHost() =>
-        string.Equals(_o.Host, "localhost", StringComparison.OrdinalIgnoreCase) || (IPAddress.TryParse(_o.Host, out var a) && IPAddress.IsLoopback(a));
 
     private static bool IsReply(string line) =>
         line == "OK" || line == "ERR" || line.StartsWith("OK ", StringComparison.Ordinal) || line.StartsWith("ERR ", StringComparison.Ordinal);
@@ -441,6 +480,7 @@ public sealed class WireClient : IAsyncDisposable
 
     private void Close()
     {
+        _local = false;
         var stream = _stream;
         _stream = null;
         stream?.Dispose();

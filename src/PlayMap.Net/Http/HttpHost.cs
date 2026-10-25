@@ -66,6 +66,10 @@ public sealed record HttpHostOptions
     /// <summary>Parts that serve pages and sockets under their own path (the phone's /scan); each admits its own requests before the
     /// token gate (open, its own credential, refused, or deferred to the gate).</summary>
     public IReadOnlyList<IWebModule> Modules { get; init; } = [];
+
+    /// <summary>Told when the node's own token comes in a header on plain HTTP from another machine (<see cref="TokenGate"/>); null = not
+    /// reported.</summary>
+    public Action<ClearSighting>? SeenInClear { get; init; }
 }
 
 /// <summary>PlayMap's web port (Kestrel, one port): plain HTTP and HTTPS side by side (a TLS handshake's first byte
@@ -83,7 +87,7 @@ public sealed class HttpHost : IAsyncDisposable
     private readonly ILogger _log;
     private readonly CommandRunner _runner;
     private readonly ChangeSignal _changes = new();
-    private readonly TokenGate _gate = new();
+    private readonly TokenGate _gate;
     private readonly ConnectionLedger _ledger = new();
     private readonly Func<bool> _isAnimating;
     private readonly Func<bool> _isLive;
@@ -107,6 +111,7 @@ public sealed class HttpHost : IAsyncDisposable
             if (WhyNotAModulePath(module.PathPrefix) is { } why)
                 throw new ArgumentException($"{module.Name}: {why}", nameof(options));
         _log = _options.LoggerFactory?.CreateLogger("PlayMap.Net.Http") ?? NullLogger.Instance;
+        _gate = new TokenGate(seenInClear: _options.SeenInClear);
         _runner = new CommandRunner(endpoint, wall, _log);
         _isAnimating = _options.IsAnimating ?? (() => endpoint is INodeActivity { IsAnimating: true });
         _isLive = () => endpoint is not INodeActivity a || a.IsLive;

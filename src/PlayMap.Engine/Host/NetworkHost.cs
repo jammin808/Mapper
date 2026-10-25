@@ -10,6 +10,8 @@ using PlayMap.Core.Playback;
 using PlayMap.Core.Storage;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
+using PlayMap.Devices.Model;
+using PlayMap.Engine.Devices;
 using PlayMap.Net;
 using PlayMap.Net.Bus;
 using PlayMap.Net.Http;
@@ -20,6 +22,16 @@ using PlayMap.Net.Tls;
 using PlayMap.Net.Wire;
 
 namespace PlayMap.Engine.Host;
+
+/// <summary>When this node's pairing token now in force last came in clear from another machine.</summary>
+public sealed record TokenSighting(ClearSighting Seen, long AtUnixMs);
+
+/// <summary>A network view that knows when the node's pairing token was seen in clear (preflight's links section reads it).</summary>
+public interface ITokenSightings
+{
+    /// <summary>The latest time the token now in force came in clear from another machine; null when it has not since it was made.</summary>
+    TokenSighting? TokenSeenInClear { get; }
+}
 
 /// <summary>What the network host is made from.</summary>
 public sealed record NetworkHostOptions
@@ -69,10 +81,17 @@ public sealed record NetworkHostOptions
 /// services) and opened once the engine exists. A door that cannot open stays closed and says so in STATE's faults;
 /// the node stays up on the others, and only a node with neither the wire nor the web port refuses to start.
 /// <para>The engine calls the controls on its control lane: each one leaves the lane at once and does its work
-/// beside it, and one link or sync change runs at a time.</para></summary>
-public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IMediaTransfers, INodePairing, IAiDoor, IAsyncDisposable
+/// beside it, and one link or sync change runs at a time.</para>
+/// <para>The Stagewatch key lives in the link keys' store (<see cref="NodeCredentialStore.LinkKeysFileName"/>), this host its one
+/// writer; the settings file holds none (an older file's key is moved across at start, and journalled once the settings file is
+/// written without it). The node's own token arriving in clear from another machine changes no gate's answer: it is journalled once
+/// per address and carrier, and marked for preflight (<see cref="ITokenSightings"/>) until a new token is made.</para></summary>
+public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IMediaTransfers, INodePairing, IAiDoor, ITokenSightings, IAsyncDisposable
 {
     private static readonly TimeSpan WatchEvery = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>At most this many addresses and carriers are journalled for one token seen in clear; the mark keeps the latest.</summary>
+    private const int ClearRowsPerToken = 32;
 
     private readonly NetworkHostOptions _o;
     private readonly ILogger _log;
@@ -92,6 +111,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private readonly CancellationTokenSource _stop = new();
     private readonly HttpClient _http;
     private readonly MediaTransfer _transfer;
+    private readonly NodeCredentialStore _linkKeys;
+    private volatile bool _keyLeftInSettings;
+    private readonly ConcurrentDictionary<string, byte> _clearSaid = new(StringComparer.Ordinal);
+    private volatile TokenSighting? _seenInClear;
     private volatile NodeSettings _stored;
     private volatile NodeSettings _running;
     private volatile EngineCore? _engine;
@@ -126,7 +149,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         _transfer = new MediaTransfer(_http, new TokenBucket(0, options.Mono), options.Pulls, options.Logs.CreateLogger("PlayMap.Net.Media"), options.Mono);
         _transfer.Progress += OnPullProgress;
         _transfer.Trouble += OnPullTrouble;
+        _linkKeys = new NodeCredentialStore(options.Home.KeysFolder, NodeCredentialStore.LinkKeysFileName);
     }
+
+    public TokenSighting? TokenSeenInClear => _seenInClear;
 
     /// <summary>How the node's media pulls ask their peers (<see cref="NetworkHostOptions.Pulls"/>), for the fleet part's pulls.</summary>
     internal MediaTransferOptions? PullOptions => _o.Pulls;
@@ -199,7 +225,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         var logs = _o.Logs;
         var running = _running;
-        var wire = new WireServer(running, engine, _o.Wall, new WireServerOptions(), logs.CreateLogger("PlayMap.Net.Wire"));
+        var wire = new WireServer(running, engine, _o.Wall, new WireServerOptions { SeenInClear = OnTokenSeenInClear }, logs.CreateLogger("PlayMap.Net.Wire"));
         try
         {
             wire.Start();
@@ -220,6 +246,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             LoggerFactory = logs,
             Version = engine.Services.Build.Informational,
             Modules = [.. _modules],
+            SeenInClear = OnTokenSeenInClear,
         });
         try
         {
@@ -262,6 +289,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                 Fault("patterns", ex.Message);
             }
         }
+        MoveStagewatchKeyOutOfSettings();
         if (s.StagewatchEnabled)
             StartStagewatchFromSettings();
         Facts();
@@ -294,13 +322,24 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     {
         if (_patterns is not { } link)
             return null;
+        var live = link.Status == LinkStatus.Live;
         string detail;
         if (link.Pairing == PairState.Refused)
             detail = "wrong token — LINK PATTERNS with the desk's pairing token";
+        else if (link.Pairing == PairState.Unprovable)
+            detail = "it asked for a proof with a NONCE that is not 32 hex — no proof is sent and nothing it says is followed (another machine at its address?)";
+        else if (link.Pairing == PairState.NeedsToken)
+            detail = "it asks for a pairing token and this node holds none — LINK PATTERNS with the desk's pairing token";
+        else if (live && !link.Paired && link.Pairing == PairState.NotNeeded)
+            detail = "it asks for no proof, so it cannot show it is the desk — the token stays on this machine and nothing it says is followed. "
+                + $"A desk that asks for no token is followed open by LINK PATTERNS {link.Address} with no token; otherwise it is a Patterns "
+                + "older than Show Bus 1.1, or another machine at its address";
+        else if (live && !link.Paired)
+            detail = "pairing — nothing it says is followed until it pairs";
         else if (link.Video is { } v)
             detail = v.RemainingMs is { } left ? $"{Label(v)} {ClipTransport.Format((long)(left * 1e6))}" : Label(v);
         else
-            detail = link.Status == LinkStatus.Live ? "no clip on air" : "";
+            detail = live ? "no clip on air" : "";
         return new LinkView(StatusWord(link.Status), link.Address, link.Paired, detail);
 
         static string Label(PatternsVideo v) => v.Tag.Length > 0 ? v.Tag : v.File;
@@ -312,7 +351,8 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             return null;
         var view = _stagewatchView;
         var detail = link.Words + (view.Length > 0 ? (link.Words.Length > 0 ? " · " : "") + "showing " + view : "");
-        return new LinkView(StatusWord(link.Status), link.Address, link.Status == LinkStatus.Live, detail);
+        // A link that holds its key back (no TLS off this machine) reads the timer, and is not paired.
+        return new LinkView(StatusWord(link.Status), link.Address, link.Status == LinkStatus.Live && !link.KeyHeldBack, detail);
     }
 
     public string? StagewatchTimerJson()
@@ -405,15 +445,19 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                 if (_stagewatch is null && !_stored.StagewatchEnabled)
                     throw new InvalidOperationException("this node follows no Stagewatch");
                 await StopStagewatchAsync();
-                Persist(s => s with { StagewatchEnabled = false, StagewatchHost = "", StagewatchKey = "" });
+                KeepStagewatchKey("");
+                if (Persist(s => s with { StagewatchEnabled = false, StagewatchHost = "", StagewatchKey = "" }))
+                    SettingsHoldNoKey();
                 return "stopped following Stagewatch";
             }
-            var keep = key ?? (string.Equals(host, _stored.StagewatchHost, StringComparison.OrdinalIgnoreCase) ? _stored.StagewatchKey : "");
+            var keep = key ?? (string.Equals(host, _stored.StagewatchHost, StringComparison.OrdinalIgnoreCase) ? StagewatchKeyNow() : "");
             if (host.Trim().Length == 0)
             {
                 // No address: the first Stagewatch heard on the show network, now or when one is.
                 await StopStagewatchAsync();
-                Persist(s => s with { StagewatchEnabled = true, StagewatchHost = "", StagewatchKey = keep });
+                KeepStagewatchKey(keep);
+                if (Persist(s => s with { StagewatchEnabled = true, StagewatchHost = "", StagewatchKey = "" }))
+                    SettingsHoldNoKey();
                 StartStagewatchFromSettings();
                 return _stagewatch is { } found
                     ? $"following the Stagewatch heard at {found.Address} as a screen"
@@ -422,8 +466,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             var address = PatternsLinkOptions.ParseAddress(host, ShowBusConstants.StagewatchHttpPort)
                 ?? throw new ArgumentException($"'{host}' is not an address — LINK STAGEWATCH <host>[:<port>] [<key>]");
             await StopStagewatchAsync();
+            KeepStagewatchKey(keep);
             StartStagewatch(StagewatchOptions(address.Host, address.Port, keep));
-            Persist(s => s with { StagewatchEnabled = true, StagewatchHost = host, StagewatchKey = keep });
+            if (Persist(s => s with { StagewatchEnabled = true, StagewatchHost = host, StagewatchKey = "" }))
+                SettingsHoldNoKey();
             return string.Create(CultureInfo.InvariantCulture, $"following Stagewatch at {address.Host}:{address.Port} as a screen");
         }
         finally
@@ -586,6 +632,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             _running = _running with { Token = token };
             _wire?.UpdateSettings(_running);
             _web?.UpdateSettings(_running);
+            // The token seen in clear is gone with it.
+            _seenInClear = null;
+            _clearSaid.Clear();
         }
         Journal("network", "a new pairing token: every paired peer pairs again");
         return $"a new pairing token is in this node's settings ({_o.Home.SettingsPath}) and its Network drawer — every paired peer pairs again with it";
@@ -715,10 +764,82 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         Facts();
     }
 
+    /// <summary>The Stagewatch key this node holds: the link keys' store's, or — while an older settings file's key could not be moved
+    /// into the store — the file's.</summary>
+    private string StagewatchKeyNow() =>
+        _linkKeys.Find(NodeCredentialStore.StagewatchKey)?.Secret is { Length: > 0 } key ? key : _stored.StagewatchKey;
+
+    /// <summary>Keeps the Stagewatch key in the link keys' store ("" forgets it); a store that cannot be written holds it for this run
+    /// and says so in the faults. The settings file is never where it goes. The fault clears only once the store is written and the
+    /// settings file is known to hold no key.</summary>
+    private void KeepStagewatchKey(string key)
+    {
+        if (key.Length > 0)
+            _linkKeys.Set(NodeCredentialStore.StagewatchKey, new Credential("", key));
+        else
+            _linkKeys.Remove(NodeCredentialStore.StagewatchKey);
+        if (_linkKeys.Problem.Length > 0)
+            Fault("stagewatch-key", "the Stagewatch key is held for this run only: " + _linkKeys.Problem);
+        else if (!_keyLeftInSettings)
+            ClearFault("stagewatch-key");
+    }
+
+    /// <summary>The settings file was written with no Stagewatch key: a key an older file held is out of it now.</summary>
+    private void SettingsHoldNoKey()
+    {
+        _keyLeftInSettings = false;
+        if (_linkKeys.Problem.Length == 0)
+            ClearFault("stagewatch-key");
+    }
+
+    /// <summary>A settings file an older node wrote may hold the Stagewatch key in the clear. It is moved into the link keys' store
+    /// and taken out of the settings file only after the store holds it, and the move is journalled only once the settings file is
+    /// written without it. A store that cannot be written leaves the key where it was; a settings file that cannot be written keeps
+    /// it in the clear beside the store's copy (the next start, or LINK STAGEWATCH, takes it out). Each says so as the fault
+    /// <c>stagewatch-key</c>.</summary>
+    private void MoveStagewatchKeyOutOfSettings()
+    {
+        var plain = _stored.StagewatchKey;
+        if (plain.Length == 0)
+            return;
+        _keyLeftInSettings = true;
+        _linkKeys.Set(NodeCredentialStore.StagewatchKey, new Credential("", plain));
+        if (_linkKeys.Problem.Length > 0)
+        {
+            Fault("stagewatch-key", "the Stagewatch key is still in the node's settings file in the clear — it could not be moved into the "
+                + "credential store: " + _linkKeys.Problem);
+            return;
+        }
+        if (!Persist(s => s with { StagewatchKey = "" }))
+        {
+            Fault("stagewatch-key", "the Stagewatch key is in the credential store and still in the node's settings file in the clear — the "
+                + "settings file could not be written without it; the next start, or LINK STAGEWATCH, takes it out");
+            return;
+        }
+        _keyLeftInSettings = false;
+        Journal("network", "the Stagewatch key moved from the node's settings file into its credential store — the settings file holds no key now");
+    }
+
+    /// <summary>The node's own token came in clear from another machine (the wire's and the web port's gates report it): marked for
+    /// preflight, and journalled once per address and carrier for this token (a client that sends it with every request writes one
+    /// row).</summary>
+    internal void OnTokenSeenInClear(ClearSighting seen)
+    {
+        ArgumentNullException.ThrowIfNull(seen);
+        _seenInClear = new TokenSighting(seen, _o.Wall.UnixMs);
+        var said = seen.From + " " + seen.Carrier;
+        if (_clearSaid.ContainsKey(said) || _clearSaid.Count >= ClearRowsPerToken || !_clearSaid.TryAdd(said, 0))
+            return;
+        var words = $"this node's pairing token came in clear from {seen.From} ({seen.How}) — anyone on the network between could have read it; "
+            + "PAIRING NEW makes a new one";
+        _log.LogWarning("The pairing token came in clear from {From} ({How}).", seen.From, seen.How);
+        Journal("network", words, ok: false);
+    }
+
     private StagewatchLinkOptions StagewatchOptions(string host, int port, string key)
     {
-        // A Stagewatch heard at that address is met as itself (TLS pinned by its id, approvals when it is a desk);
-        // a typed address no hello names is plain, pinned by the address.
+        // A Stagewatch heard at that address is met as itself (pinned by its id, TLS or nothing when its hello names a certificate,
+        // approvals when it is a desk); a typed address no hello names is pinned by the address and tries TLS first.
         var heard = (_hello?.Peers.Live(ShowBusConstants.KindStagewatch) ?? [])
             .FirstOrDefault(p => string.Equals(p.Address, host, StringComparison.OrdinalIgnoreCase) || string.Equals(p.Hello.Host, host, StringComparison.OrdinalIgnoreCase));
         if (heard is not null)
@@ -742,13 +863,13 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         if (s.StagewatchHost.Length > 0)
         {
             if (PatternsLinkOptions.ParseAddress(s.StagewatchHost, ShowBusConstants.StagewatchHttpPort) is { } a)
-                StartStagewatch(StagewatchOptions(a.Host, a.Port, s.StagewatchKey));
+                StartStagewatch(StagewatchOptions(a.Host, a.Port, StagewatchKeyNow()));
             else
                 Fault("stagewatch", $"the Stagewatch address '{s.StagewatchHost}' in the node's settings is not an address — LINK STAGEWATCH <host>[:<port>]");
             return;
         }
         if (_hello?.Peers.Live(ShowBusConstants.KindStagewatch) is { Count: > 0 } heard)
-            StartStagewatch(StagewatchLinkOptions.FromPeer(heard[0], s.StagewatchKey, s.NodeId, s.Name));
+            StartStagewatch(StagewatchLinkOptions.FromPeer(heard[0], StagewatchKeyNow(), s.NodeId, s.Name));
     }
 
     private void StartStagewatch(StagewatchLinkOptions options)
@@ -1069,7 +1190,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             _log.LogInformation("The engine refused {Verb} from the {Transport} link: {Why}", line.Verb, session.Transport, reply.Payload);
     }
 
-    private void Persist(Func<NodeSettings, NodeSettings> edit)
+    /// <summary>Makes a link's change to the running settings and keeps it in the settings file; answers whether the file holds it now
+    /// (a write that fails leaves the change running and says so as the fault <c>settings</c>).</summary>
+    private bool Persist(Func<NodeSettings, NodeSettings> edit)
     {
         using (EnterSettings())
         {
@@ -1078,10 +1201,12 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             {
                 _stored = edit(Fresh());
                 WriteSettingsLocked(_stored);
+                return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 Fault("settings", "the node's settings could not be written — the link holds until the node restarts: " + ex.Message);
+                return false;
             }
         }
     }

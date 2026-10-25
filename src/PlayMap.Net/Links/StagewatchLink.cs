@@ -1,9 +1,12 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Http;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Net.WebSockets;
+using System.Security.Authentication;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -24,10 +27,12 @@ public sealed record StagewatchLinkOptions
     public int Port { get; init; } = ShowBusConstants.StagewatchHttpPort;
 
     /// <summary>Stagewatch's key (swk_…; a node key lets this node post its context and collect approvals). It rides
-    /// in Authorization: Bearer — never in the URL.</summary>
+    /// in Authorization: Bearer — never in the URL — over TLS, or over plain ws only to this machine; off this machine a Stagewatch
+    /// that offers no TLS is read without it.</summary>
     public string Key { get; init; } = "";
 
-    /// <summary>Over TLS (wss/https), pinned — never trusted by a name or an authority.</summary>
+    /// <summary>The Stagewatch's hello names a certificate and an https port: the link is TLS or nothing (a hello raises the guard and
+    /// never lowers it). Without it the link still tries TLS first, as it does for a pinned certificate, which is TLS or nothing too.</summary>
     public bool Tls { get; init; }
 
     /// <summary>The certificate fingerprint the Stagewatch's hello names (null for a typed address).</summary>
@@ -58,8 +63,19 @@ public sealed record StagewatchLinkOptions
     /// <summary>After the operator's "disconnect" the link waits this long before it dials again.</summary>
     public TimeSpan DisconnectHold { get; init; } = TimeSpan.FromSeconds(30);
 
-    /// <summary>A Stagewatch heard on the hello: its http (or https) port, TLS when it names a certificate, the
-    /// approval desk when it has the cap.</summary>
+    /// <summary>How long a TLS dial waits, from its socket's connect, for the far end's certificate. A far end that shows none by then
+    /// does not speak TLS on that port and is met as one that offers no TLS. It stays well under the 5 s a Stagewatch with no
+    /// certificate waits for a request's head (it reads the TLS greeting as one and says nothing until then), so the link's own
+    /// deadline, not the far end's, ends the attempt.</summary>
+    public TimeSpan TlsAnswerWithin { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Whether the address a dial reaches is this machine, the only place the key goes over plain ws. It is asked of the address
+    /// the socket dials (the host resolved once per dial, and that address dialled), never of a host name; a test plays another machine
+    /// from loopback by answering false.</summary>
+    public Func<IPAddress, bool> IsLocal { get; init; } = NetAddress.IsLoopback;
+
+    /// <summary>A Stagewatch heard on the hello: its https port and TLS or nothing when it names a certificate, else its ws (or http)
+    /// port, tried over TLS first; the approval desk when it has the cap.</summary>
     public static StagewatchLinkOptions FromPeer(ShowBusPeer peer, string key, string selfId, string selfName)
     {
         ArgumentNullException.ThrowIfNull(peer);
@@ -81,7 +97,12 @@ public sealed record StagewatchLinkOptions
 }
 
 /// <summary>PlayMap as a screen of a Stagewatch (Show Bus §3–§5, §10, §11): its <c>/ws</c> as
-/// <c>?cid=&lt;this node&gt;&amp;page=/playmap&amp;detail=1</c> with the key in the Authorization header, state frames
+/// <c>?cid=&lt;this node&gt;&amp;page=/playmap&amp;detail=1</c> with the key in the Authorization header. Every dial tries TLS first (the
+/// certificate checked against the pin, never a name or an authority); a Stagewatch whose certificate is pinned, or whose hello names
+/// one, is TLS or nothing, and any other falls back to plain ws only when it answers without TLS (no certificate within
+/// <see cref="StagewatchLinkOptions.TlsAnswerWithin"/> of the socket's connect, or a handshake that fails on what came instead). Over
+/// plain ws the key goes only to this machine: off it, the timer is read without the key, and no context is posted and no approval
+/// collected. State frames
 /// taken latest-wins on seq and counted on locally from their arrival, <c>{"type":"beat","live":false}</c> read as
 /// "the time is not a fact" ("?", never a frozen time), the operator's screen commands raised as events, a ping
 /// every 2 s (the clock offset), this node's context posted every 5 s, and — when the Stagewatch is an approval desk —
@@ -90,6 +111,12 @@ public sealed record StagewatchLinkOptions
 public sealed class StagewatchLink : IAsyncDisposable
 {
     private const int MaxMessageBytes = 1024 * 1024;
+
+    /// <summary>The budget of one WebSocket upgrade (a TLS dial's is cut to its options' TLS answer deadline until a certificate comes).</summary>
+    private static readonly TimeSpan UpgradeWithin = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long a dial waits for its host's name to resolve.</summary>
+    private static readonly TimeSpan ResolveWithin = TimeSpan.FromSeconds(4);
 
     private readonly StagewatchLinkOptions _o;
     private readonly IWireEndpoint _endpoint;
@@ -111,6 +138,10 @@ public sealed class StagewatchLink : IAsyncDisposable
     private int _status = (int)LinkStatus.Down;
     private string _presented = "";
     private volatile string _words = "";
+    private volatile bool _overTls;
+    private volatile bool _keyed;
+    private volatile bool _keyHeld;
+    private string _lastMode = "";
     private long _approvalsRun;
     private long _connections;
 
@@ -134,6 +165,12 @@ public sealed class StagewatchLink : IAsyncDisposable
 
     /// <summary>The link's last words (a refusal, the TLS verdict, an approval desk's answer).</summary>
     public string Words => _words;
+
+    /// <summary>The connection up now runs over TLS.</summary>
+    public bool OverTls => _overTls;
+
+    /// <summary>A key is set and the connection up now does not carry it: the Stagewatch offers no TLS and is not this machine.</summary>
+    public bool KeyHeldBack => _keyHeld;
 
     /// <summary>What the pin made of the certificate last presented (null over plain).</summary>
     public PinVerdict? Pin { get; private set; }
@@ -240,12 +277,17 @@ public sealed class StagewatchLink : IAsyncDisposable
             {
                 break;
             }
-            catch (Exception ex) when (ex is WebSocketException or HttpRequestException or IOException or OperationCanceledException or InvalidOperationException or System.Security.Authentication.AuthenticationException)
+            catch (Exception ex) when (ex is WebSocketException or HttpRequestException or IOException or SocketException or OperationCanceledException or InvalidOperationException or AuthenticationException)
             {
-                _words = PendingFingerprint.Length > 0 ? _words : "Stagewatch at " + Address + ": " + Brief(ex);
+                _words = ex is DialEndedException refused ? refused.Message
+                    : PendingFingerprint.Length > 0 ? _words
+                    : "Stagewatch at " + Address + ": " + Brief(ex);
                 _log.LogDebug(ex, "The Stagewatch link to {Address} ended.", Address);
                 attempt++;
             }
+            _overTls = false;
+            _keyed = false;
+            _keyHeld = false;
             SetStatus(LinkStatus.Down);
             if (!await Waits.DelayAsync(hold > TimeSpan.Zero ? hold : Jitter.Shared.Redial(attempt), ct))
                 break;
@@ -258,8 +300,9 @@ public sealed class StagewatchLink : IAsyncDisposable
             ? "refused — check the Stagewatch key"
             : ex.Message.Length > 120 ? ex.Message[..120] : ex.Message;
 
-    private RemoteCertificateValidationCallback Validator() => _pins.Validator(_o.PinKey, _o.Fingerprint, (verdict, presented) =>
+    private RemoteCertificateValidationCallback Validator(DialProbe probe) => _pins.Validator(_o.PinKey, _o.Fingerprint, (verdict, presented) =>
     {
+        probe.Certificate();
         Pin = verdict;
         _presented = presented;
         _words = PinStore.Words(verdict, "Stagewatch", presented);
@@ -267,50 +310,267 @@ public sealed class StagewatchLink : IAsyncDisposable
             PendingFingerprint = presented;
     });
 
+    /// <summary>What one dial saw, and how long its upgrade may take. The upgrade spends a budget of <see cref="UpgradeWithin"/>; on a
+    /// TLS dial its socket reaching the far end cuts that budget to <see cref="StagewatchLinkOptions.TlsAnswerWithin"/>, and a
+    /// certificate gives it back whole. A far end that showed no certificate by the time the budget ran out is <see cref="Silent"/>: it
+    /// does not speak TLS on that port. The side calls' sockets, opened after the upgrade, change no budget.</summary>
+    private sealed class DialProbe(bool tls, TimeSpan tlsWithin)
+    {
+        private readonly Lock _gate = new();
+        private CancellationTokenSource? _budget;
+        private volatile bool _reached;
+        private volatile bool _answered;
+        private volatile bool _silent;
+
+        /// <summary>A socket of this dial reached the far end.</summary>
+        public bool Reached => _reached;
+
+        /// <summary>A TLS handshake of this dial got as far as a certificate.</summary>
+        public bool Answered => _answered;
+
+        /// <summary>The TLS answer's deadline passed with the socket connected and no certificate shown.</summary>
+        public bool Silent => _silent;
+
+        /// <summary>The upgrade under way spends <paramref name="budget"/>; null once it has ended (before the budget is disposed).</summary>
+        public void Arm(CancellationTokenSource? budget)
+        {
+            lock (_gate)
+                _budget = budget;
+        }
+
+        public void Connected()
+        {
+            _reached = true;
+            if (!tls)
+                return;
+            lock (_gate)
+                _budget?.CancelAfter(tlsWithin);
+        }
+
+        public void Certificate()
+        {
+            _answered = true;
+            lock (_gate)
+                _budget?.CancelAfter(UpgradeWithin);
+        }
+
+        /// <summary>The upgrade's budget ran out (not the link's own stop).</summary>
+        public void Expired()
+        {
+            if (tls && _reached && !_answered)
+                _silent = true;
+        }
+    }
+
+    /// <summary>A dial that ended before anything of this node's was sent: its words are the link's.</summary>
+    private sealed class DialEndedException(string words) : IOException(words);
+
+    /// <summary>The address this dial reaches: the host as typed when it is an address, else resolved once (IPv4 first) within
+    /// <see cref="ResolveWithin"/>. The socket dials this address and no other, so whether it is this machine is decided by what is
+    /// dialled.</summary>
+    private async Task<IPAddress> DialAddressAsync(CancellationToken ct)
+    {
+        if (IPAddress.TryParse(_o.Host, out var literal))
+            return literal;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(ResolveWithin);
+        IPAddress[] found;
+        try
+        {
+            // The wait, not only the lookup, is bounded: a resolver that does not take the cancel is left to finish on its own.
+            found = await Dns.GetHostAddressesAsync(_o.Host, deadline.Token).WaitAsync(deadline.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new DialEndedException(string.Create(CultureInfo.InvariantCulture,
+                $"Stagewatch at {Address}: the name {_o.Host} did not resolve within {ResolveWithin.TotalSeconds:0} s — nothing sent"));
+        }
+        return Array.Find(found, a => a.AddressFamily == AddressFamily.InterNetwork) ?? (found.Length > 0 ? found[0] : throw new SocketException((int)SocketError.HostNotFound));
+    }
+
+    /// <summary>The WebSocket and side calls of one dial: every socket it opens goes to <paramref name="address"/>, over TLS checked
+    /// against the pin when <paramref name="tls"/>.</summary>
+    private SocketsHttpHandler Handler(IPAddress address, bool tls, DialProbe probe)
+    {
+        var handler = new SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(4),
+            ConnectCallback = async (context, token) =>
+            {
+                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                try
+                {
+                    await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), token);
+                }
+                catch (Exception ex) when (ex is SocketException or OperationCanceledException or ObjectDisposedException)
+                {
+                    socket.Dispose();
+                    throw;
+                }
+                probe.Connected();
+                return new NetworkStream(socket, ownsSocket: true);
+            },
+        };
+        if (tls)
+            handler.SslOptions.RemoteCertificateValidationCallback = Validator(probe);
+        return handler;
+    }
+
+    private Uri Base(bool tls, bool socket)
+    {
+        var host = _o.Host.Contains(':', StringComparison.Ordinal) ? "[" + _o.Host + "]" : _o.Host;
+        var scheme = (socket, tls) switch
+        {
+            (true, true) => "wss",
+            (true, false) => "ws",
+            (false, true) => "https",
+            _ => "http",
+        };
+        return new Uri($"{scheme}://{host}:{_o.Port.ToString(CultureInfo.InvariantCulture)}");
+    }
+
+    /// <summary>One upgrade through <paramref name="invoker"/>, the key in its header when <paramref name="keyed"/>, on the budget
+    /// <paramref name="probe"/> keeps.</summary>
+    private async Task<ClientWebSocket> UpgradeAsync(HttpMessageInvoker invoker, DialProbe probe, bool tls, bool keyed, CancellationToken ct)
+    {
+        var ws = new ClientWebSocket();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            ws.Options.KeepAliveInterval = TimeSpan.Zero;   // the Show Bus beat is the keep-alive
+            if (keyed)
+                ws.Options.SetRequestHeader("Authorization", "Bearer " + _o.Key);
+            var cid = _o.SelfId.Length is >= 6 and <= 32 && _o.SelfId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? _o.SelfId : "playmap-" + _o.SelfId;
+            var uri = new Uri(Base(tls, socket: true), $"/ws?cid={Uri.EscapeDataString(cid)}&page=/playmap&detail=1");
+            budget.CancelAfter(UpgradeWithin);
+            probe.Arm(budget);
+            await ws.ConnectAsync(uri, invoker, budget.Token);
+            return ws;
+        }
+        catch
+        {
+            if (budget.IsCancellationRequested && !ct.IsCancellationRequested)
+                probe.Expired();
+            ws.Dispose();
+            throw;
+        }
+        finally
+        {
+            probe.Arm(null);
+        }
+    }
+
+    /// <summary>The far end answered a TLS dial without TLS: the socket reached it and no certificate came, and either the TLS answer's
+    /// deadline passed (a server that reads the greeting as a request's head and waits) or the handshake failed on what came instead
+    /// (a server that answers the greeting as a bad request). A cancel of the link's own is never an answer.</summary>
+    private static bool AnsweredWithoutTls(Exception ex, DialProbe probe)
+    {
+        if (!probe.Reached || probe.Answered)
+            return false;
+        if (probe.Silent)
+            return true;
+        var tlsFailed = false;
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (e is OperationCanceledException)
+                return false;
+            tlsFailed |= e is AuthenticationException or IOException;
+        }
+        return tlsFailed;
+    }
+
     /// <summary>One connection; answers how long to wait before the next dial (the operator's disconnect asks for a
     /// longer wait than the backoff).</summary>
     private async Task<TimeSpan> ConnectionAsync(CancellationToken outer)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(outer);
         var ct = linked.Token;
-        using var ws = new ClientWebSocket();
-        ws.Options.KeepAliveInterval = TimeSpan.Zero;   // the Show Bus beat is the keep-alive
-        if (_o.Key.Length > 0)
-            ws.Options.SetRequestHeader("Authorization", "Bearer " + _o.Key);
-        if (_o.Tls)
-            ws.Options.RemoteCertificateValidationCallback = Validator();
-        var host = _o.Host.Contains(':', StringComparison.Ordinal) ? "[" + _o.Host + "]" : _o.Host;
-        var cid = _o.SelfId.Length is >= 6 and <= 32 && _o.SelfId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? _o.SelfId : "playmap-" + _o.SelfId;
-        var uri = new Uri($"{(_o.Tls ? "wss" : "ws")}://{host}:{_o.Port.ToString(CultureInfo.InvariantCulture)}/ws?cid={Uri.EscapeDataString(cid)}&page=/playmap&detail=1");
-        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        var address = await DialAddressAsync(ct);
+        var local = _o.IsLocal(NetAddress.Normal(address));
+        var pinned = _o.PinKey.Length > 0 && TlsFingerprint.IsValid(_pins.Get(_o.PinKey));
+        var tls = true;
+        var keyed = _o.Key.Length > 0;
+        var probe = new DialProbe(tls: true, _o.TlsAnswerWithin);
+        var handler = Handler(address, tls: true, probe);
+        var invoker = new HttpMessageInvoker(handler, disposeHandler: false);
+        ClientWebSocket ws;
+        try
         {
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            await ws.ConnectAsync(uri, timeout.Token);
+            ws = await UpgradeAsync(invoker, probe, tls: true, keyed, ct);
         }
+        catch (Exception ex) when (AnsweredWithoutTls(ex, probe) || (probe.Answered && Pin is PinVerdict.Changed or PinVerdict.Mismatch))
+        {
+            invoker.Dispose();
+            handler.Dispose();
+            if (probe.Answered)
+                throw new DialEndedException(_words);   // the certificate was refused: nothing more goes to that machine
+            if (pinned || _o.Tls)
+            {
+                // A pinned certificate, or one the hello names, is TLS or nothing: a plain answer is not that Stagewatch.
+                throw new DialEndedException(pinned
+                    ? $"Stagewatch at {Address} answered without its pinned certificate — refused, nothing sent (another machine at its address?)"
+                    : $"Stagewatch at {Address} answered without TLS although its hello names a certificate — refused, nothing sent");
+            }
+            // It offers no TLS: plain, and the key goes only to this machine.
+            tls = false;
+            keyed = _o.Key.Length > 0 && local;
+            probe = new DialProbe(tls: false, _o.TlsAnswerWithin);
+            handler = Handler(address, tls: false, probe);
+            invoker = new HttpMessageInvoker(handler, disposeHandler: false);
+            try
+            {
+                ws = await UpgradeAsync(invoker, probe, tls: false, keyed, ct);
+            }
+            catch
+            {
+                invoker.Dispose();
+                handler.Dispose();
+                throw;
+            }
+        }
+        catch
+        {
+            invoker.Dispose();
+            handler.Dispose();
+            throw;
+        }
+        using var owned = handler;
+        using var upgrade = invoker;
+        using var socket = ws;
         Interlocked.Increment(ref _connections);
         lock (_gate)
             _lastSeq = -1;
         Interlocked.Exchange(ref _lastHeardNs, _mono.NowNs);
+        _overTls = tls;
+        _keyed = keyed;
+        _keyHeld = _o.Key.Length > 0 && !keyed;
         SetStatus(LinkStatus.Live);
-        _words = "following Stagewatch at " + Address + (_o.Tls ? " over TLS" : "");
-        if (_o.Tls && _o.Key.Length == 0 && Pin == PinVerdict.FirstUse)
+        _words = tls ? $"following Stagewatch at {Address} over TLS"
+            : _keyHeld ? $"Stagewatch at {Address} offers no TLS — the key stays on this machine, so its timer is read without it (no context posted, no approvals collected)"
+            : local ? $"following Stagewatch at {Address}"
+            : $"following Stagewatch at {Address} over plain ws — it offers no TLS";
+        var mode = tls ? "tls" : _keyHeld ? "keyless" : "plain";
+        if (!string.Equals(mode, _lastMode, StringComparison.Ordinal))
         {
-            // No key: the WebSocket's answer is the first trusted contact. The link says so before the store holds it,
-            // so whoever sees the pin stored sees the link's verdict too.
+            _lastMode = mode;
+            _log.LogInformation("The Stagewatch link to {Address} is {Mode}: {Words}", Address, mode, _words);
+        }
+        if (tls && _o.Key.Length == 0 && Pin == PinVerdict.FirstUse && _o.PinKey.Length > 0 && TlsFingerprint.Normal(_o.Fingerprint).Length > 0)
+        {
+            // No key, and the certificate is the one the hello names: the WebSocket's answer is the first trusted contact. A typed
+            // address, or an id whose hello names none, is pinned only after an authenticated answer, which with no key never comes.
+            // The link says so before the store holds it, so whoever sees the pin stored sees the link's verdict too.
             Pin = PinVerdict.Pinned;
             _pins.Pin(_o.PinKey, _presented);
         }
 
-        using var handler = new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(4) };
-        if (_o.Tls)
-            handler.SslOptions.RemoteCertificateValidationCallback = Validator();
-        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(4), BaseAddress = new Uri($"{(_o.Tls ? "https" : "http")}://{host}:{_o.Port.ToString(CultureInfo.InvariantCulture)}") };
+        using var http = new HttpClient(handler, disposeHandler: false) { Timeout = TimeSpan.FromSeconds(4), BaseAddress = Base(tls, socket: false) };
         using var send = new SemaphoreSlim(1, 1);
-        var beat = Task.Run(() => BeatAsync(ws, send, http, ct), CancellationToken.None);
+        var beat = Task.Run(() => BeatAsync(socket, send, http, ct), CancellationToken.None);
         TimeSpan hold;
         try
         {
-            hold = await ReceiveAsync(ws, ct);
+            hold = await ReceiveAsync(socket, ct);
         }
         finally
         {
@@ -466,9 +726,10 @@ public sealed class StagewatchLink : IAsyncDisposable
                     send.Release();
                 }
             }
-            if (_o.Key.Length > 0 && Due(ref lastContext, now, _o.ContextEvery))
+            // The side calls carry the key, so they run only on a connection that carries it.
+            if (_keyed && Due(ref lastContext, now, _o.ContextEvery))
                 await PostContextAsync(http, ct);
-            if (_o.Approvals && _o.Key.Length > 0 && Due(ref lastApprovals, now, _o.ApprovalsEvery))
+            if (_o.Approvals && _keyed && Due(ref lastApprovals, now, _o.ApprovalsEvery))
                 await ApprovalsAsync(http, ct);
         }
         while (await Waits.DelayAsync(step, ct));
@@ -485,7 +746,7 @@ public sealed class StagewatchLink : IAsyncDisposable
     private HttpRequestMessage Request(HttpMethod method, string path, string? json = null)
     {
         var r = new HttpRequestMessage(method, path);
-        if (_o.Key.Length > 0)
+        if (_keyed)
             r.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _o.Key);
         if (json is not null)
             r.Content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -500,7 +761,7 @@ public sealed class StagewatchLink : IAsyncDisposable
         {
             using var request = Request(HttpMethod.Post, "/api/peers/context", _endpoint.Context());
             using var response = await http.SendAsync(request, ct);
-            if (response.IsSuccessStatusCode && _o.Tls && Pin == PinVerdict.FirstUse && _presented.Length > 0)
+            if (response.IsSuccessStatusCode && _overTls && Pin == PinVerdict.FirstUse && _presented.Length > 0 && _o.PinKey.Length > 0)
             {
                 // The verdict first, then the store (whose lock publishes both): whoever sees the pin stored sees Pinned.
                 Pin = PinVerdict.Pinned;

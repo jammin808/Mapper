@@ -13,9 +13,9 @@ using PlayMap.Net.Links;
 
 namespace PlayMap.Engine.Tests.Host;
 
-/// <summary>A Stagewatch's Screens socket played small: <c>/ws</c> takes a screen, counts it, sends it what the test queues and
-/// answers its pings with pongs, so the link stays live for as long as the test runs. A message is read whole, however many
-/// frames it arrives in, before it is parsed.</summary>
+/// <summary>A Stagewatch's Screens socket played small: <c>/ws</c> takes a screen, counts it and keeps the Authorization it came with,
+/// sends it what the test queues and answers its pings with pongs, so the link stays live for as long as the test runs. A message is
+/// read whole, however many frames it arrives in, before it is parsed.</summary>
 internal sealed class ScreensStagewatch : IAsyncDisposable
 {
     private readonly WebApplication _app;
@@ -28,6 +28,9 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
 
     /// <summary>Screens that have connected so far.</summary>
     public int Screens => Volatile.Read(ref _screens);
+
+    /// <summary>Each screen's Authorization header, in the order they came ("" for none).</summary>
+    public ConcurrentQueue<string> Authorizations { get; } = new();
 
     public static async Task<ScreensStagewatch> StartAsync()
     {
@@ -47,6 +50,7 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
 
     private async Task WsAsync(HttpContext c)
     {
+        Authorizations.Enqueue(c.Request.Headers.Authorization.ToString());
         using var ws = await c.WebSockets.AcceptWebSocketAsync();
         Interlocked.Increment(ref _screens);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(c.RequestAborted);

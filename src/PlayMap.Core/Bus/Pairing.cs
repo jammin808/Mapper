@@ -50,6 +50,11 @@ public static class Pairing
     /// <summary>16 random bytes as 32 lowercase hex.</summary>
     public static string NewNonce() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
+    /// <summary>A NONCE a proof may answer: exactly 32 lowercase hex, as <see cref="NewNonce"/> makes and Patterns sends. A client proves
+    /// no other shape: a proof of a word the peer chose is a proof the peer can replay or guess against.</summary>
+    public static bool IsNonce(string? nonce) =>
+        nonce is { Length: 32 } n && n.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
+
     /// <summary>The proof a client sends: lowercase hex of HMAC-SHA256(token, nonce + name).</summary>
     public static string Proof(string token, string nonce, string? name)
     {
@@ -118,8 +123,11 @@ public sealed partial record NodeSettings(
     /// <summary>Patterns to follow (host[:port]) and its token; empty = none.</summary>
     string PatternsHost,
     string PatternsToken,
-    /// <summary>Stagewatch to follow (host[:port], "" = the first heard) and its swk_ key.</summary>
+    /// <summary>Stagewatch to follow (host[:port], "" = the first heard).</summary>
     string StagewatchHost,
+    /// <summary>"": the Stagewatch key lives in the node's credential store, never in this file. A file an older node wrote may still
+    /// hold it here; the network host moves it into the store at start and only then writes "" (while the store cannot be written, it
+    /// stays here and the node says so).</summary>
     string StagewatchKey,
     bool StagewatchEnabled)
 {

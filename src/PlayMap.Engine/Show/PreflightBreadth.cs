@@ -2,6 +2,7 @@ using System.Globalization;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
+using PlayMap.Engine.Host;
 
 namespace PlayMap.Engine.Show;
 
@@ -93,7 +94,9 @@ public sealed class ClockCheck : IPreflightCheck
 }
 
 /// <summary>The links a show listens to: Patterns and Stagewatch heard and paired (not linked is grey; linked but not heard is red
-/// with the line that links it again; heard but not paired is amber — its token is a secret, so no line carries it).</summary>
+/// with the line that links it again; heard but not paired is amber — its token is a secret, so no line carries it). This node's own
+/// pairing token seen in clear from another machine since it was made is one more row, amber, with PAIRING NEW: a sighting refuses
+/// nothing, and whoever was on the network between could have read the token.</summary>
 public sealed class LinksCheck : IPreflightCheck
 {
     public string Section => "links";
@@ -108,8 +111,12 @@ public sealed class LinksCheck : IPreflightCheck
         var e = context.Engine;
         var node = e.Services.Settings.Name;
         var net = e.Services.Network;
-        IReadOnlyList<PreflightRow> rows = [Row(node, "patterns", "Patterns", net.Patterns(), "LINK PATTERNS"), Row(node, "stagewatch", "Stagewatch", net.Stagewatch(), "LINK STAGEWATCH")];
-        return Task.FromResult(rows);
+        List<PreflightRow> rows = [Row(node, "patterns", "Patterns", net.Patterns(), "LINK PATTERNS"), Row(node, "stagewatch", "Stagewatch", net.Stagewatch(), "LINK STAGEWATCH")];
+        if (net is ITokenSightings { TokenSeenInClear: { } seen })
+            rows.Add(new PreflightRow("links:token", node, Section, "Pairing token", Light.Amber, "seen in clear",
+                $"this node's pairing token came in clear from {seen.Seen.From} ({seen.Seen.How}) — anyone on the network between could have read it",
+                "PAIRING NEW"));
+        return Task.FromResult<IReadOnlyList<PreflightRow>>(rows);
     }
 
     private PreflightRow Row(string node, string key, string name, LinkView? link, string verb)

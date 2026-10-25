@@ -12,14 +12,23 @@ namespace PlayMap.Engine.Devices;
 /// where it runs, an owner-only file (mode 600) elsewhere; written beside and moved over, so a crash never leaves
 /// half a file. Nothing reads a secret back out but a driver's handshake and the assistant's provider: no line,
 /// no journal row, no STATE or context ever carries one, and <see cref="ToString"/> says only what it is.
-/// Thread-safe.
+/// The keys this node holds for its links (<see cref="StagewatchKey"/>) live in a file of their own (<see cref="LinkKeysFileName"/>)
+/// that only the network host writes, so the store the devices and the assistant share never writes over them, and no device, no
+/// <c>CREDENTIAL</c> line and no proposal can name one.
+/// One store per file in a process: each writes its whole file. Thread-safe.
 /// </summary>
 public sealed class NodeCredentialStore : ICredentialStore
 {
     public const string FileName = "playmap-credentials.bin";
 
+    /// <summary>The file of the keys this node holds for its links, beside <see cref="FileName"/>.</summary>
+    public const string LinkKeysFileName = "playmap-link-keys.bin";
+
     /// <summary>The reference under which the assistant's API key is kept.</summary>
     public const string AssistantKey = "assistant";
+
+    /// <summary>The reference under which the Stagewatch key (swk_…) is kept, in the link keys' file.</summary>
+    public const string StagewatchKey = "link.stagewatch";
 
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("PlayMap node credentials");
 
@@ -30,8 +39,16 @@ public sealed class NodeCredentialStore : ICredentialStore
 
     /// <param name="folder">The keys folder; null keeps the secrets in memory only (tests, a node without a home).</param>
     public NodeCredentialStore(string? folder)
+        : this(folder, FileName)
     {
-        _path = folder is null ? null : Path.Combine(folder, FileName);
+    }
+
+    /// <param name="folder">The keys folder; null keeps the secrets in memory only.</param>
+    /// <param name="fileName">The store's file in it: <see cref="FileName"/>, or <see cref="LinkKeysFileName"/> for the links' keys.</param>
+    public NodeCredentialStore(string? folder, string fileName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        _path = folder is null ? null : Path.Combine(folder, fileName);
         Load();
     }
 

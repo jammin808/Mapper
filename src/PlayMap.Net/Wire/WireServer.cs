@@ -7,6 +7,7 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
+using PlayMap.Net.Http;
 
 namespace PlayMap.Net.Wire;
 
@@ -30,6 +31,10 @@ public sealed record WireServerOptions
 
     /// <summary>Plain <c>AUTH &lt;token&gt;</c> is taken from this machine (off in tests that play a remote from loopback).</summary>
     public bool PlainAuthOnLoopback { get; init; } = true;
+
+    /// <summary>Told when a TCP connection that plain AUTH is not taken from sends the node's own token in it: the AUTH is refused, and
+    /// reported, since the token crossed the network in clear; null = not reported.</summary>
+    public Action<ClearSighting>? SeenInClear { get; init; }
 
     /// <summary>The port to listen on; null = <see cref="NodeSettings.WirePort"/>, 0 = any free port.</summary>
     public int? Port { get; init; }

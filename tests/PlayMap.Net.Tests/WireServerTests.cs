@@ -1,8 +1,12 @@
+using System.Collections.Concurrent;
+using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Http;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
+using PlayMap.Net.Http;
 using PlayMap.Net.Wire;
 
 namespace PlayMap.Net.Tests;
@@ -10,7 +14,8 @@ namespace PlayMap.Net.Tests;
 /// <summary>The line wire as Patterns, Stagewatch's VT link and a Patterns "Lines" device meet it: the pairing
 /// transcript, the clock exchange, receipts, the fences (unpaired verbs, wrong proofs, the per-address ceiling,
 /// lines that never end), facts and a peer's own replies never answered, faults that are the line's, and pushes
-/// that are throttled, latest-wins and never repeated.</summary>
+/// that are throttled, latest-wins and never repeated. The node's own token arriving in clear from another machine — plain AUTH on
+/// the wire, a token header on plain HTTP at the web's gate — gets the answer the door gives any such line or request, and is reported.</summary>
 public class WireServerTests
 {
     private static readonly Regex Nonce = new("^NONCE [0-9a-f]{32}$", RegexOptions.None, TimeSpan.FromSeconds(1));
@@ -144,6 +149,59 @@ public class WireServerTests
             await using var c = await LineClient.ConnectAsync(server.Port);
             Assert.Equal("OK " + WireWords.Open, await c.AskAsync("AUTH-PROOF " + new string('a', 64)));
         }
+    }
+
+    [Fact]
+    public async Task TheNodesTokenInClearFromAnotherMachineIsAnsweredAsBeforeAndReported()
+    {
+        var seen = new ConcurrentQueue<ClearSighting>();
+        await using (var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(), new WireServerOptions { PlainAuthOnLoopback = false, SeenInClear = seen.Enqueue }))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            await c.ReadAsync();
+            // A wrong token in clear is no secret of this node's: refused, not reported.
+            Assert.Equal("ERR @a " + WireWords.UseProof, await c.AskAsync("@a AUTH AAAA-BBBB-CCCC"));
+            Assert.Empty(seen);
+            // The node's own (in any spelling the token takes) is refused as any plain AUTH from another machine is, and reported as seen
+            // in clear.
+            Assert.Equal("ERR @b " + WireWords.UseProof, await c.AskAsync("@b AUTH k7qm3xwdp9ra"));
+            var wire = Assert.Single(seen);
+            Assert.Equal(("127.0.0.1", ClearSighting.Wire, "plain AUTH on the line wire"), (wire.From, wire.Carrier, wire.How));
+        }
+        await using (var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(), new WireServerOptions { PlainAuthOnLoopback = true, SeenInClear = seen.Enqueue }))
+        {
+            // On this machine plain AUTH is taken, and the token crossed no network.
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            await c.ReadAsync();
+            Assert.Equal("OK @a paired", await c.AskAsync("@a AUTH " + TestSettings.Token));
+            Assert.Single(seen);
+        }
+
+        // The web's gate: the verdict is what it was; the node's token in a header on plain HTTP from another machine is reported.
+        var gate = new TokenGate(seenInClear: seen.Enqueue);
+        var settings = TestSettings.Make(trustLoopback: true, TestSettings.Token, "10.0.0.7");
+        static DefaultHttpContext From(string address, string? token, bool https = false, string header = "X-PlayMap-Token")
+        {
+            var c = new DefaultHttpContext();
+            c.Connection.RemoteIpAddress = IPAddress.Parse(address);
+            c.Request.IsHttps = https;
+            if (token is not null)
+                c.Request.Headers[header] = header == "Authorization" ? "Bearer " + token : token;
+            return c;
+        }
+        Assert.Equal(GateVerdict.WrongToken, gate.Check(From("10.0.0.9", "AAAA-BBBB-CCCC"), settings));
+        Assert.Equal(GateVerdict.Token, gate.Check(From("10.0.0.9", TestSettings.Token, https: true), settings));
+        Assert.Equal(GateVerdict.Open, gate.Check(From("127.0.0.1", TestSettings.Token), settings));
+        Assert.Single(seen);
+        Assert.Equal(GateVerdict.Token, gate.Check(From("10.0.0.9", TestSettings.Token), settings));
+        Assert.Equal(GateVerdict.Open, gate.Check(From("10.0.0.7", TestSettings.Token, header: "Authorization"), settings));
+        Assert.Equal(GateVerdict.NeedsHttps, gate.Check(From("10.0.0.8", TestSettings.Token), settings with { RequireHttps = true }));
+        // A node that asks no token has none to leak.
+        Assert.Equal(GateVerdict.Open, gate.Check(From("10.0.0.6", TestSettings.Token), settings with { Token = "" }));
+        Assert.Equal(
+            [("10.0.0.9", ClearSighting.Http), ("10.0.0.7", ClearSighting.Http), ("10.0.0.8", ClearSighting.Http)],
+            seen.Skip(1).Select(s => (s.From, s.Carrier)));
+        Assert.Equal("a token header on plain HTTP", seen.Last().How);
     }
 
     [Fact]

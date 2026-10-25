@@ -1534,3 +1534,143 @@ Round 2 W1 notes:
     the disconnect is taken (`StagewatchLink.ReceiveAsync`), `RunAsync` takes its exception path with no hold and dials again on
     the backoff, sooner than the row says. This batch did not cause it; the fix-showbus-node-link batch, whose redial waits for
     the hold on every exit path, closes it and should name this row as what it makes true.
+
+## Integrator notes from the round-2 fix batch (fix-showbus-keys)
+
+- Done: the Stagewatch key and the Patterns token never cross the network in clear, nothing a Patterns desk says is taken before it
+  pairs, and this node's own token arriving in clear is marked (gaps G08, G31's TLS half; the safety subset of the PeerLink profile's
+  PM-PL0).
+  - The Stagewatch link tries TLS first on every dial, the certificate checked against the pin (never a name or an authority). A
+    Stagewatch whose certificate is pinned (by its id, or by the typed address) or whose hello names one is TLS or nothing: a plain
+    answer is refused with words ("… answered without its pinned certificate — refused, nothing sent") and nothing is sent. Any other
+    falls back to plain ws only when it answers without TLS: the socket reached it and no certificate came, either by the link's own
+    deadline (`StagewatchLinkOptions.TlsAnswerWithin`, 2 s from the socket's connect, well under the 5 s a Stagewatch with HTTPS off
+    waits for a request's head after reading the TLS greeting as one, saying nothing) or because the handshake failed on what came
+    instead (a server that answers the greeting as a bad request). A cancel of the link's own is never an answer. Each dial tries TLS
+    first, so a Stagewatch with HTTPS off costs each dial up to that deadline before its plain upgrade. A typed address therefore tries
+    TLS first (patterns-playmap-side D20) and is pinned by the address after the key's first answered side call; with no key it is
+    never pinned (no answer is authenticated, PeerLink profile connector hygiene). A certificate a hello names is pinned at the
+    WebSocket's answer when no key is set, as it was.
+  - The host is resolved once per dial, within 4 s (a resolver that stalls ends the dial with words naming the name), and that address
+    is what every socket of the dial reaches (the handler's connect callback), so whether the Stagewatch is this machine is decided by
+    the address dialled (`StagewatchLinkOptions.IsLocal`, loopback by default), never by a name. Over plain ws the key goes only to
+    this machine. Off it the timer is read without the key: no Authorization on the upgrade, no context posted, no approval collected,
+    `StagewatchLink.KeyHeldBack`, the words "Stagewatch at … offers no TLS — the key stays on this machine, so its timer is read
+    without it (no context posted, no approvals collected)", STATE's `links.stagewatch.paired` false and preflight's
+    `links:stagewatch` row amber with those words.
+  - The key left the plain settings file (`playmap.node.json`'s `StagewatchKey`) for `NodeCredentialStore`, in a file of its own in
+    the keys folder (`NodeCredentialStore.LinkKeysFileName`, `playmap-link-keys.bin`; reference `link.stagewatch`), protected at rest
+    as the node's other secrets are (DPAPI on Windows, mode 600 elsewhere). The network host is its one writer: the devices' and the
+    assistant's store, one per node and writing its whole file, never writes over it, and no device, `CREDENTIAL` line or proposal
+    can name a link's key. An older settings file's key is moved at start, taken out of the settings file only once the store holds
+    it, and journalled with one row ("the Stagewatch key moved from the node's settings file into its credential store …") only once
+    the settings file is written without it. A store that cannot be written leaves the key where it was; a settings file that cannot
+    be written keeps it in the clear beside the store's copy until the next start or `LINK STAGEWATCH` writes it out. Each raises the
+    fault `stagewatch-key` with words saying where the key is, and the fault clears only once the store is written and the settings
+    file is known to hold no key. `LINK STAGEWATCH` keeps a key there (the settings file gets ""), `OFF` forgets it.
+    `NodeSettings.StagewatchKey` stays a field so an older file still reads.
+  - `WireClient` proves only a NONCE of exactly 32 lowercase hex (`Pairing.IsNonce`). Any other shape is the new
+    `PairState.Unprovable`: no proof, and no plain AUTH on that connection; a later NONCE of the right shape gets the one proof. Plain
+    AUTH goes only to a socket whose remote address is this machine (`WireClientOptions.IsLocal` of the socket's remote address);
+    before, the host's name `localhost` was trusted by its spelling.
+  - `PatternsLink` takes nothing before `OK paired`. `Paired` is the desk's "OK paired" on the connection up now, or a desk that asks
+    no proof while this link holds no token. A STATE before that (the desk's greeting among them) is set aside and counted
+    (`SetAsideBeforePairing`); once paired the link asks `STATUS` once and takes the answer as a push. Video, blackout, context and
+    the clock offset read null or nothing while unpaired, the clock estimate is the connection's own
+    (`WireClientOptions.ClockPerConnection`: a new connection starts it empty, so an earlier, unproved answer at the desk's address
+    counts for nothing once a later connection pairs), and `SendAsync` refuses with words and writes nothing. The network host's
+    Patterns detail names each pairing state (a NONCE that is not 32 hex, a token asked and none held, a desk that asks no proof while
+    a token is held, pairing). One behaviour change follows: a desk on another machine that sends no NONCE, with a token typed here,
+    is no longer followed. That is a Patterns older than Show Bus 1.1, and also an open Patterns desk (one that asks for no token
+    sends no NONCE): the detail says so and names the fix, `LINK PATTERNS <host>` with no token, which follows it open. On this
+    machine either pairs by plain AUTH as it did.
+  - The receiver backstop, refusing nothing new: this node's own token in clear from another machine — plain AUTH on TCP 9941 (refused
+    as before) or a token header on plain HTTP (its verdict as before, Require HTTPS's 403 included) — is reported by the gate
+    (`ClearSighting`, through `WireServerOptions.SeenInClear` and `HttpHostOptions.SeenInClear`). The network host journals it once
+    per address and carrier for the token in force (`network`, not ok, words naming the address and the carrier, never the token),
+    and preflight's links section shows one more row, `links:token`, amber "seen in clear" with `PAIRING NEW`, until a new token is
+    made. No STATE field: `StateWriter` is a spine file.
+- Tests (all on loopback, another machine played through the `IsLocal` seams and `PlainAuthOnLoopback = false`). An absence is
+  asserted only after a positive marker says the loop that could have broken it ran (pings the fake Stagewatch read, the context
+  loop's turns, the connection's ended nonce wait, the pings the fake desk heard), and a link watched for an absence counts its
+  silence on Core's `ManualClock`, so a slow runner neither passes the check early nor drops the link. The links take an `IMonoClock`,
+  not a `TimeProvider`, so `tests/Shared/ManualTime.cs` does not fit their seam; Core's `ManualClock` is that seam's hand-moved clock.
+  - `StagewatchLinkTests` (Net): a typed address answering TLS carries the key inside TLS and is pinned by the address after the
+    context post's answer; a typed address with no key answering TLS is never pinned; a plain Stagewatch off this machine is read
+    without the key (the upgrade's Authorization empty, the timer read and counted, no context posted and no approvals asked by the
+    third ping of the beat they share, nothing pinned); a Stagewatch that reads the TLS greeting as a request's head and never
+    answers or closes (`SilentTlsFront`, Stagewatch's own reader with HTTPS off, minus its 5 s timeout) is dialled plain once the
+    link's own deadline passes, with the key on this machine and without it off this machine, after exactly one TLS greeting; a
+    pinned Stagewatch silent to TLS is refused at the deadline with nothing reaching `/ws`; a pinned certificate with a plain answer
+    is refused with nothing reaching `/ws`; a hello that names a certificate is TLS or nothing; a pinned id whose hello names no TLS
+    dials TLS through `FromPeer` and is `Pinned`. The tests from before pass unchanged; the plain ones now reach their Stagewatch
+    after the TLS probe is answered without TLS. Against the dial before the deadline (the attempt cancelled only by the upgrade's
+    5 s, and a cancel never an answer), the silent-front cases never go live.
+  - `LinkTests` (Net): the greeting STATE's blackout set aside and the STATUS asked after the proof taken; a desk that asks no proof
+    off this machine hears no AUTH, no command, no STATUS and no CONTEXT, blacks nothing out and its lines are counted aside, and a
+    command sent to it is refused with nothing written; the same desk on this machine pairs by plain AUTH and is followed; an open
+    desk is followed when no token is held; four NONCE shapes (upper case, 31 and 33 characters, a non-hex letter) get no proof and no
+    plain AUTH, and a later 32-hex NONCE gets the one proof; a clock estimate kept per connection holds the paired connection's
+    exchange and is empty on the next connection, whose desk answers nothing. The fake desk answers STATUS and plain AUTH as Patterns
+    does; the stale and redial test waits for the desk to pair on the third connection before its last command (a command is now
+    refused until the desk pairs), and before it silences the desk waits for the STATE the link asks once paired (an answer still in
+    flight would land after its clock moves and keep it from going stale).
+  - `WireServerTests` (Net): a wrong token in plain AUTH is not reported; the node's own (any spelling) is refused as before and
+    reported once as `wire`; on this machine plain AUTH pairs and nothing is reported; the web's gate keeps each verdict (wrong, HTTPS,
+    loopback, plain, trusted by address, Require HTTPS, an open node) and reports exactly the three plain-HTTP sightings of the node's
+    token from other machines.
+  - `NodeCredentialStoreTests` (Engine, new): the link keys' file read back by a new store, untouched by the devices' store writing
+    and removing beside it, mode 600 (or not the key's text, under DPAPI); an older settings file's key moved at start (one journal
+    row, the settings file without it, the store with it, a Stagewatch on this machine hearing it) and read from the store after a
+    restart with no second row; a key typed with `LINK STAGEWATCH` kept in the store, kept again by the same address with no key,
+    forgotten by `OFF`, never in the settings file; a link keys' file that cannot be written (a folder where its next copy goes,
+    which refuses root too) leaves the key in the settings file, journals no move and raises `stagewatch-key` with words that say so,
+    the link still carrying the key; a settings file that cannot be written (the same, beside it) leaves the key in both, journals
+    no move, raises `stagewatch-key` saying so, and the next start with the file writable takes it out with the one row and no fault.
+  - `PreflightBreadthTests` (Engine): `links:token` amber with `PAIRING NEW` (a catalogue line) while a sighting stands, the links'
+    own rows unchanged, no row without one; on a running node, a client that sends the token on every request journals one row per
+    address and carrier, and `PAIRING NEW` clears the mark and the next sighting is the new token's own row.
+- Files: those the owner's leave names for this batch — `src/PlayMap.Net/Links/{StagewatchLink,PatternsLink,WireClient}.cs` (the leave
+  writes `Net/Wire/WireClient.cs`; the file lives in `Net/Links/`), `src/PlayMap.Net/Wire/WireSession.cs`,
+  `src/PlayMap.Net/Http/HttpParts.cs`, `src/PlayMap.Engine/Host/NetworkHost.cs`, `src/PlayMap.Core/Bus/Pairing.cs`,
+  `src/PlayMap.Engine/Devices/NodeCredentialStore.cs`, `src/PlayMap.Engine/Show/PreflightBreadth.cs` — plus one option each in
+  `src/PlayMap.Net/Wire/WireServer.cs` (`WireServerOptions.SeenInClear`) and `src/PlayMap.Net/Http/HttpHost.cs`
+  (`HttpHostOptions.SeenInClear`, the gate built with the report). Those two lie outside the leave's list: the report starts in
+  `WireSession` and `TokenGate`, whose owners build them from those options, and no file in the list builds either. Both sit beside
+  listed files in folders round 3 names for no wave, neither is a spine file, and each gains one nullable option and nothing else. The
+  leave names files, so this batch asks the owner to extend it to these two before it merges. No catalogue row, STATE key or fixture
+  moves. `tests/PlayMap.Engine.Tests/Host/StagewatchIdentifyTests.cs`' small Stagewatch now keeps each screen's Authorization header
+  for the new tests, and `tests/PlayMap.Engine.Tests/Host/HostRig.cs`' fake Patterns desk answers `STATUS` with its STATE as Patterns
+  does (`HostNetworkTests`' Patterns link reads its clip from that answer now that the desk's greeting is set aside; its assertions
+  are unchanged).
+- Papers notes for the integrator:
+  - `docs/WIRE.md`, `LINK STAGEWATCH`: "the link is kept in the node's settings, its token or key with it" — the Stagewatch key is
+    kept in the node's credential store (the link keys' file), never in the settings file; `OFF` forgets it there.
+  - `docs/WIRE.md`, STATE `links`: `stagewatch.paired` is false while the link holds its key back (no TLS off this machine), and
+    `patterns.paired` false until the desk pairs on the connection (a desk that asks no proof while a token is held never does).
+  - `docs/WIRE.md`, "A connection's life" item 3 (`AUTH <token>` only from loopback): the node's own token sent so from another
+    machine is refused as before, journalled and marked in preflight (`links:token`, `PAIRING NEW`); a token header on plain HTTP
+    from another machine is marked the same way.
+  - `docs/SHOWBUS-NODE.md` §3: the Patterns bullet gains "nothing it says is taken before `OK paired`; its STATE is asked once
+    paired; a proof only for a 32-hex NONCE; plain AUTH only to this machine"; the Stagewatch bullet gains "TLS first, pinned; a
+    pinned or hello-named certificate TLS or nothing; the key over plain ws only to this machine, the timer read without it
+    otherwise". The fix-showbus-1.3 batch takes that file.
+  - No verb, STATE key, fixture, context item or desk control moves, so `README.md` and `docs/ROADMAP.md` have nothing from this
+    batch.
+- Open:
+  - The legacy-bearer confirm rule (PeerLink profile 13.6.8: the key over TLS only to a certificate already pinned, or one a person
+    confirmed on this desk with one press) is not in this batch. Over TLS at first use the key still goes to whatever certificate
+    answers and is pinned after the authenticated answer, as a heard Stagewatch's was before; the press needs a desk control and a
+    catalogue row, which the PeerLink batches (fix-peerlink-core, then wp4-peerlink) carry.
+  - A typed address re-resolved against a later hello, the desk probed once a minute, and a 403 named as Require HTTPS rather than
+    the key stay with the typed-address batch after round 3 (patterns-playmap-side PM-P1, G31's rest).
+  - Plain AUTH on the web port's line channel (`/ws`, `playmap.lines.v1`) from another machine is refused as before but not marked:
+    the channel does not know whether its upgrade came over TLS. The acceptor batch that sniffs TLS on 9941 (wp4-peerlink) gives
+    both doors one rule.
+  - The exact-secret lists of the journal's redactor (`EngineCore.Ops.cs` `KnownSecrets`) and the assistant's
+    (`AssistantService.KnownSecrets`) read `Services.Settings.StagewatchKey`, which is "" from the run after the move; the key's
+    `swk_` shape still masks it there, but `LINK STAGEWATCH` takes any word as a key, so a key of another shape is masked by neither
+    list. The next batch that edits those files adds the link keys' store's `Secrets()` to both.
+  - A Stagewatch link does not remember that its Stagewatch answered plain: each dial pays the TLS answer deadline first. Keeping the
+    answer for the link's life (until a pin or a hello raises the guard) is left for the fix-showbus-node-link batch, which reworks
+    the dial.
