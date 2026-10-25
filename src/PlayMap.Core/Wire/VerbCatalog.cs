@@ -611,9 +611,11 @@ public static class VerbCatalog
     /// key or a password; and so are the secret words of every line it carries — the lines after a binding's TO (or after
     /// BIND LEARN's words) to its end, every string literal of a JSON argument, a word that reads as a line (SET's value) — at
     /// any depth a line may carry lines. A capture URI the grammar refuses (<see cref="Media.CaptureUri"/>: user information, a query,
-    /// an unknown provider…) is shown as <see cref="Media.CaptureUri.RefusedMarker"/> wherever it rides, so nothing of it is written
-    /// down. Read in one pass over the line's words and once over each word that carries a line, so the longest line the wire reads
-    /// is written down at once. Only the line itself, kept where it runs, carries them.</summary>
+    /// an unknown provider…) is shown as <see cref="Media.CaptureUri.RefusedMarker"/> wherever it rides, and a word that holds an address
+    /// carrying a pass (<see cref="Media.PrivateAddress.IsWord"/>: a Stagewatch window's, a PIN's, a key's, a user's, whatever punctuation
+    /// is glued to it) as <see cref="Media.PrivateAddress.Marker"/>, so nothing of either is written down. Read in one pass over the line's words and once
+    /// over each word that carries a line, so the longest line the wire reads is written down at once. Only the line itself, kept
+    /// where it runs, carries them.</summary>
     public static string Redacted(WireLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
@@ -628,9 +630,9 @@ public static class VerbCatalog
     private static string Redacted(WireLine line, int nesting)
     {
         if (SecretAt(line) is int from)
-            return line.Count <= from ? RefusedCapturesHidden(line) ?? line.Raw : WireGrammar.Join([.. line.Words.Take(from).Select(Media.CaptureUri.Shown), SecretMarker]);
+            return line.Count <= from ? HiddenWords(line) ?? line.Raw : WireGrammar.Join([.. line.Words.Take(from).Select(ShownWord), SecretMarker]);
         if (Match(line) is not { } m || line.Count <= m.Words)
-            return RefusedCapturesHidden(line) ?? line.Raw;
+            return HiddenWords(line) ?? line.Raw;
         // The lines it carries to its end: every word from the first secret word any of them holds is kept back.
         var cut = m.Spec.EmbedsLine && CarriedSecretAt(line, m.Spec, m.Words) is int at ? at : line.Count;
         // Each word before that which carries a line of its own: a JSON argument's strings, or a phrase that reads as a line.
@@ -638,7 +640,11 @@ public static class VerbCatalog
         for (var i = m.Words; i < cut; i++)
         {
             var word = line.Word(i);
-            var shown = word.Length > 0 && word[0] is '{' or '[' ? RedactedJson(word, nesting) : RedactedText(word, nesting);
+            // A word that opens as JSON but holds a private address outside its strings (a bare IPv6 host's "[fe80::1]:9924/w/…") is
+            // the marker whole.
+            var shown = word.Length > 0 && word[0] is '{' or '['
+                ? RedactedJson(word, nesting) ?? (Media.PrivateAddress.IsWord(word) ? Media.PrivateAddress.Marker : null)
+                : RedactedText(word, nesting);
             if (shown is null)
                 continue;
             words ??= [.. line.Words];
@@ -693,14 +699,14 @@ public static class VerbCatalog
         }
     }
 
-    /// <summary>The line with each capture URI the grammar refuses shown as its marker; null when it carries none.</summary>
-    private static string? RefusedCapturesHidden(WireLine line)
+    /// <summary>The line with each word <see cref="ShownWord"/> hides shown as its marker; null when it carries none.</summary>
+    private static string? HiddenWords(WireLine line)
     {
         string[]? words = null;
         for (var i = 0; i < line.Count; i++)
         {
             var word = line.Word(i);
-            var shown = Media.CaptureUri.Shown(word);
+            var shown = ShownWord(word);
             if (ReferenceEquals(shown, word))
                 continue;
             words ??= [.. line.Words];
@@ -709,17 +715,29 @@ public static class VerbCatalog
         return words is null ? null : WireGrammar.Join(words);
     }
 
-    /// <summary>A text that reads as a line holding secret words, or a capture URI the grammar refuses, as it may be shown; null when
-    /// it is neither. A line nested past <see cref="MaxShownNesting"/> is shown as the marker whole.</summary>
+    /// <summary>One word as it may be written down: a capture URI the grammar refuses as its marker, an address that carries a pass as
+    /// <see cref="Media.PrivateAddress.Marker"/>, any other word as it came (the same instance).</summary>
+    private static string ShownWord(string word)
+    {
+        var shown = Media.CaptureUri.Shown(word);
+        return ReferenceEquals(shown, word) ? Media.PrivateAddress.Shown(word) : shown;
+    }
+
+    /// <summary>A text that reads as a line holding secret words, a capture URI the grammar refuses or an address that carries a pass, as
+    /// it may be shown; null when it is none of them. A line nested past <see cref="MaxShownNesting"/> is shown as the marker whole.</summary>
     private static string? RedactedText(string text, int nesting)
     {
         if (Media.CaptureUri.Claims(text))
             return ReferenceEquals(Media.CaptureUri.Shown(text), text) ? null : Media.CaptureUri.RefusedMarker;
-        // A line of two words or more is parted by white space or by a quoted phrase's closing quote.
-        if (!text.Any(c => char.IsWhiteSpace(c) || c == '"') || !WireGrammar.TryParse(text, out var inner, out _) || inner.RequestId is not null)
-            return null;
+        // A line of two words or more is parted by white space or by a quoted phrase's closing quote; one word holding a private
+        // address is the marker.
+        if (!text.Any(c => char.IsWhiteSpace(c) || c == '"'))
+            return Media.PrivateAddress.IsWord(text) ? Media.PrivateAddress.Marker : null;
+        // A phrase the grammar reads as no line it may run, or one nested too deep to read on, is the marker whole when it holds one.
+        if (!WireGrammar.TryParse(text, out var inner, out _) || inner.RequestId is not null)
+            return Media.PrivateAddress.InText(text) ? Media.PrivateAddress.Marker : null;
         if (nesting >= MaxShownNesting)
-            return inner.Count > 1 ? SecretMarker : null;
+            return inner.Count > 1 ? SecretMarker : Media.PrivateAddress.InText(text) ? Media.PrivateAddress.Marker : null;
         var shown = Redacted(inner, nesting + 1);
         return string.Equals(shown, inner.Raw, StringComparison.Ordinal) ? null : shown;
     }

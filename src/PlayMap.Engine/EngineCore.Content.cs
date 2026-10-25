@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using PlayMap.Core.Bus;
@@ -6,6 +7,8 @@ using PlayMap.Core.Model;
 using PlayMap.Core.Numerics;
 using PlayMap.Core.Wire;
 
+using MediaCheck = PlayMap.Engine.Show.MediaCheck;
+using PrivateAddress = PlayMap.Core.Media.PrivateAddress;
 using ProjectFile = PlayMap.Core.Model.ProjectJson;
 
 namespace PlayMap.Engine;
@@ -380,20 +383,24 @@ public sealed partial class EngineCore
     {
         if (args.Count < 1)
             return CommandReply.Fail("MEDIA IMPORT <path|url> [<name>]");
+        // An address that carries a pass is never kept, and no word of the line is repeated in the refusal (its row shows the line with
+        // the address as the marker): checked before anything else reads the location.
+        if (KeptPassRefusal(args) is { } pass)
+            return CommandReply.Fail(pass);
         // A survey or model file is never media: no decoder plays it, and the library would keep a clip that cannot play.
         if (Path.GetExtension(args[0]).ToLowerInvariant() is ".obj" or ".ply" or ".gltf" or ".glb" or ".las" or ".laz" or ".e57" or ".xyz" or ".pts")
             return CommandReply.Fail($"{Path.GetFileName(args[0])} is a survey or model, not media — SURVEY IMPORT {WireGrammar.Quote(args[0])} brings it onto the stage");
         if (Services.Media is not { } media)
             return CommandReply.Fail("no media engine on this node");
         var location = args[0];
-        var isUrl = location.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || location.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            || location.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) || location.StartsWith("srt://", StringComparison.OrdinalIgnoreCase);
+        var (kind, refused) = ImportKind(location);
+        if (refused is not null)
+            return CommandReply.Fail(refused);
+        var isUrl = kind == MediaKind.Stream;
         if (!isUrl && !File.Exists(location) && !Directory.Exists(location))
             return CommandReply.Fail($"no file {location}");
         var name = args.Count > 1 ? string.Join(' ', args.Skip(1)) : (isUrl ? location : Path.GetFileNameWithoutExtension(location));
         string id = "";
-        var kind = isUrl ? (location.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || location.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
-            ? MediaKind.Embed : location.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? MediaKind.Web : MediaKind.Stream) : MediaKind.Video;
         // The probe's result lands where the item was added (a blind draft keeps its own).
         var store = Edits;
         var r = store.Apply($"import {name}", p =>
@@ -431,6 +438,172 @@ public sealed partial class EngineCore
         }), $"importing {name}") with { Applied = false };
     }
 
+    /// <summary>What every refusal of an address that carries a pass says of it: no copy of the pass is kept anywhere.</summary>
+    private const string KeptNowhere = "PlayMap keeps no pass in its project, its journal or a reply, so nothing was added";
+
+    /// <summary>Why MEDIA IMPORT refuses a Stagewatch window's address: its token is the window's pass.</summary>
+    internal const string WindowAddressWords = "that is a Stagewatch window's private address: " + KeptNowhere
+        + "; PlayMap draws no Stagewatch window yet — to show a Stagewatch's timer as a timer source, LINK STAGEWATCH <its host>[:<port>],"
+        + " the host alone, never the window's address";
+
+    /// <summary>Why MEDIA IMPORT refuses any other address that carries a pass (<see cref="PrivateAddress"/>).</summary>
+    internal const string PassAddressWords = "that address carries a pass (a user, a PIN, a key, a token or a viewing code): " + KeptNowhere;
+
+    /// <summary>Why MEDIA IMPORT refuses a name that holds an address carrying a pass.</summary>
+    internal const string PassNameWords = "the name holds an address that carries a pass: " + KeptNowhere + "; name the item in words";
+
+    /// <summary>Why MEDIA IMPORT refuses a page: nothing on this node draws one.</summary>
+    internal const string PageImportWords = "an http(s) address is a web page, and PlayMap has no browser source for pages (ROADMAP L10) — nothing was added;"
+        + " send the page as NDI from a browser, or import a media file by its path on this machine";
+
+    /// <summary>Why MEDIA IMPORT refuses an embed: nothing on this node draws one.</summary>
+    internal const string EmbedImportWords = "a YouTube address is an embed, and PlayMap has no browser source for embeds (ROADMAP L10) — nothing was added;"
+        + " send it as NDI from a browser";
+
+    /// <summary>Why MEDIA IMPORT refuses an HLS or DASH address over https: the shipped FFmpeg is not shown to open TLS.</summary>
+    internal const string HttpsStreamWords = "this node's FFmpeg is not known to open https streams — nothing was added; use an http://, rtsp:// or srt://"
+        + " address, or NDI";
+
+    /// <summary>Why MEDIA IMPORT refuses its words, when one is an address that carries a pass (<see cref="PrivateAddress.IsWord"/>):
+    /// the location, or any word of the name; null when none is. The words repeat nothing of the address.</summary>
+    private static string? KeptPassRefusal(List<string> args)
+    {
+        if (PrivateAddress.IsWord(args[0]))
+            return PrivateAddress.IsStagewatchWindow(args[0]) ? WindowAddressWords : PassAddressWords;
+        for (var i = 1; i < args.Count; i++)
+        {
+            if (PrivateAddress.InText(args[i]))
+                return PassNameWords;
+        }
+        return null;
+    }
+
+    /// <summary>The kind MEDIA IMPORT files a location as, and why it refuses it (null when it does not): rtsp://, srt:// and an http://
+    /// HLS or DASH address are streams FFmpeg reads; the same over https is refused (this node's FFmpeg is not shown to open TLS); any
+    /// other http(s) address is a page or an embed, which nothing on this node draws; anything else is a file to probe.</summary>
+    private static (MediaKind Kind, string? Refused) ImportKind(string location)
+    {
+        if (location.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase) || location.StartsWith("srt://", StringComparison.OrdinalIgnoreCase))
+            return (MediaKind.Stream, null);
+        var https = location.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        if (!https && !location.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return (MediaKind.Video, null);
+        if (IsManifest(location))
+            return (MediaKind.Stream, https ? HttpsStreamWords : null);
+        return location.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || location.Contains("youtu.be", StringComparison.OrdinalIgnoreCase)
+            ? (MediaKind.Embed, EmbedImportWords)
+            : (MediaKind.Web, PageImportWords);
+    }
+
+    /// <summary>True for an address whose path names an HLS playlist (.m3u8) or a DASH manifest (.mpd), its query and fragment aside.</summary>
+    private static bool IsManifest(string location)
+    {
+        var end = location.AsSpan().IndexOfAny('?', '#');
+        var path = end < 0 ? location.AsSpan() : location.AsSpan(0, end);
+        return path.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A page or an embed: kept in an older project, never drawn on this node (no browser source, ROADMAP L10), never fetched.</summary>
+    private static bool IsPage(MediaItem item) => item.Kind is MediaKind.Web or MediaKind.Embed;
+
+    /// <summary>What this file says of an item no media edge can make playable — a page, an embed, a stream with no address (one whose
+    /// address carried a pass is cleared) — the same with a media edge and without one: never decodable. Null for any other item, which
+    /// the media edge answers for.</summary>
+    private static MediaReadiness? NeverPlays(MediaItem item)
+    {
+        if (IsPage(item))
+        {
+            var what = item.Kind == MediaKind.Embed ? "an embed" : "a web page";
+            return item.Location.Length > 0
+                ? new MediaReadiness(true, false, false, false, what + " — PlayMap has no browser source for pages and embeds (ROADMAP L10)")
+                : new MediaReadiness(false, false, false, false, what + " whose address carried a pass and was cleared — PlayMap has no browser source for pages and embeds (ROADMAP L10)");
+        }
+        return item.Kind == MediaKind.Stream && item.Location.Length == 0
+            ? new MediaReadiness(false, false, false, false, "a stream with no address (one that carried a pass is cleared) — import it again by an address that carries none")
+            : null;
+    }
+
+    /// <summary>True when an item's location is an address carrying a pass that PlayMap keeps nowhere: any such address but a stream's
+    /// whose only pass is a user in its authority, which it plays from (a stream credential in the node's store is the open fix). A
+    /// capture: location is the capture grammar's.</summary>
+    private static bool ClearsLocation(MediaItem item) =>
+        !Core.Media.CaptureUri.Claims(item.Location)
+        && (item.Kind == MediaKind.Stream ? PrivateAddress.PassBeyondUser(item.Location) : PrivateAddress.IsWord(item.Location));
+
+    /// <summary>True when an item holds an address that carries a pass where PlayMap keeps none: in its name, or as a location it does
+    /// not play from (<see cref="ClearsLocation"/>).</summary>
+    private static bool HoldsKeptPass(MediaItem item) => PrivateAddress.InText(item.Name) || ClearsLocation(item);
+
+    /// <summary>The project with each item that holds a kept pass scrubbed — such a location cleared, each address in a name shown as its
+    /// host and the marker — or the project itself when none does. Each scrubbed item's new name is added to <paramref name="named"/>.</summary>
+    private static Project Scrubbed(Project p, List<string>? named)
+    {
+        if (!p.Media.Any(HoldsKeptPass))
+            return p;
+        var media = p.Media.ToBuilder();
+        for (var i = 0; i < media.Count; i++)
+        {
+            var m = media[i];
+            if (!HoldsKeptPass(m))
+                continue;
+            media[i] = m with
+            {
+                Name = PrivateAddress.ShownText(m.Name),
+                Location = ClearsLocation(m) ? "" : m.Location,
+            };
+            named?.Add(media[i].Name);
+        }
+        return p with { Media = media.ToImmutable() };
+    }
+
+    /// <summary>The media list the last tick read for kept passes: the project's media is read again only when it is another list.</summary>
+    private ImmutableArray<MediaItem> _passesReadIn;
+
+    /// <summary>On the lane, each tick: a project that holds an address carrying a pass (<see cref="HoldsKeptPass"/>), whatever road it
+    /// came by — opened, recovered after a restart, mirrored, made before this node refused one — is scrubbed within the tick by one
+    /// unrecorded edit whose keep scrubs every undo and redo root too, so no undo brings a pass back, with one journal row that names the
+    /// items as they now read and never the pass.</summary>
+    private void ScrubKeptPasses()
+    {
+        var media = Store.Project.Media;
+        if (media == _passesReadIn)
+            return;
+        _passesReadIn = media;
+        if (!media.Any(HoldsKeptPass))
+            return;
+        var named = new List<string>();
+        var r = Store.ApplyUnrecorded("cleared addresses that carry a pass", p => Scrubbed(p, named), (older, _) => Scrubbed(older, null));
+        _passesReadIn = Store.Project.Media;
+        if (!r.Changed)
+            return;
+        var items = named.Count == 1 ? "1 media item" : $"{named.Count} media items";
+        Journal.Add("media", $"{items} held an address that carries a pass, which PlayMap keeps nowhere: {string.Join(", ", named)}"
+            + " — such an address is cleared where the item kept it (a stream whose only pass is a user keeps it to play from), and one in a name"
+            + " reads as its host");
+    }
+
+    /// <summary>A media item an edit (ADD, SET) makes is refused by MEDIA IMPORT's rules, with its words, so no road takes what the
+    /// import refuses: a location or a name that brings an address carrying a pass in; a page or an embed made; and a location given anew,
+    /// or a kind changed, that the import refuses by kind (an https HLS or DASH address, an http(s) address that is a page, whatever kind
+    /// the edit files it as). An item an older project kept is still renamed and removed. A capture: location is the capture grammar's to
+    /// answer (ValidateCapture), with words that repeat nothing of it.</summary>
+    private static void ValidateMedia(Project p, object entity, ref string? why)
+    {
+        if (why is not null || entity is not MediaItem m)
+            return;
+        var was = p.FindMedia(m.Id);
+        var located = !string.Equals(was?.Location, m.Location, StringComparison.Ordinal);
+        var capture = Core.Media.CaptureUri.Claims(m.Location);
+        if (!capture && located && PrivateAddress.IsWord(m.Location))
+            why = PrivateAddress.IsStagewatchWindow(m.Location) ? WindowAddressWords : PassAddressWords;
+        else if (PrivateAddress.InText(m.Name) && !string.Equals(was?.Name, m.Name, StringComparison.Ordinal))
+            why = PassNameWords;
+        else if (IsPage(m) && (was is null || !IsPage(was)))
+            why = m.Kind == MediaKind.Embed ? EmbedImportWords : PageImportWords;
+        else if (!capture && !IsPage(m) && (located || was?.Kind != m.Kind) && ImportKind(m.Location).Refused is { } byKind)
+            why = byKind;
+    }
+
     private CommandReply MediaHas(List<string> args)
     {
         if (args.Count < 1 || !args[0].StartsWith("sha256:", StringComparison.Ordinal))
@@ -441,10 +614,12 @@ public sealed partial class EngineCore
 
     private CommandReply MediaFetch(List<string> args, CancellationToken ct)
     {
-        // A live input, a page or an embed is received or rendered, never a file to copy (its location is not said: it may carry a
-        // password).
+        // A live input is received and a page or an embed is drawn by nothing here: neither is a file to copy (its location is not said:
+        // it may carry a password).
         if (args.Count > 0 && Store.Project.FindMedia(args[0]) is { IsFile: false } live)
-            return CommandReply.Fail($"{live.Name} is {(live.Kind == MediaKind.Stream ? "a live input: it is received from the network" : "no file: it is rendered from its address")}, never fetched");
+            return CommandReply.Fail(IsPage(live)
+                ? $"{live.Name} is {(live.Kind == MediaKind.Embed ? "an embed" : "a web page")}, not a file, and PlayMap has no browser source for it (ROADMAP L10): never fetched"
+                : $"{live.Name} is a live input: it is received from the network, never fetched");
         // With the fleet part, pulls go with the peer's proof over its pinned HTTPS; VERSION fetches one optimised version (wp2-backup).
         if (FleetFetch(args) is { } fleet)
             return fleet;
@@ -504,9 +679,11 @@ public sealed partial class EngineCore
             w.WriteNumber("durationMs", m.Info.DurationNs / 1_000_000);
             w.WriteNumber("width", m.Info.Width);
             w.WriteNumber("height", m.Info.Height);
-            var ready = Services.Media?.Readiness(m);
+            // A page, an embed and a stream with no address read the same with a media edge or without one: never ready.
+            var never = NeverPlays(m);
+            var ready = never ?? Services.Media?.Readiness(m);
             w.WriteBoolean("present", ready?.Present ?? !m.IsFile);
-            w.WriteBoolean("ready", ready is { Present: true, Decodable: true } || !m.IsFile);
+            w.WriteBoolean("ready", ready is { Present: true, Decodable: true } || (!m.IsFile && never is null));
             w.WriteString("words", ready?.Words ?? (m.IsFile ? "no media engine" : "a URL"));
             var (state, progress) = Availability(m, ready, transfers);
             w.WriteString("state", state);
@@ -518,12 +695,14 @@ public sealed partial class EngineCore
 
     /// <summary>Where an item stands on this node, in the desk's words: fetching (with how far); missing (no file here, or
     /// a file whose bytes are not the ones the project names — a fetch brings the right one); unplayable (the right bytes,
-    /// but nothing here decodes them); ready — or unknown while it is not hashed yet, its first check runs, or the node
-    /// has no media engine.</summary>
+    /// but nothing here decodes them; every page and embed, which nothing here draws; a stream with no address); ready — or unknown while it is not
+    /// hashed yet, its first check runs, or the node has no media engine.</summary>
     private static (string State, double Progress) Availability(MediaItem m, MediaReadiness? ready, IReadOnlyList<MediaTransferView> transfers)
     {
         if (transfers.FirstOrDefault(t => t.MediaId == m.Id && t.Moving) is { } pulling)
             return ("fetching", pulling.Progress);
+        if (NeverPlays(m) is not null)
+            return ("unplayable", 0);
         if (!m.IsFile)
             return ("ready", 1);
         return ready switch
@@ -538,14 +717,20 @@ public sealed partial class EngineCore
         };
     }
 
+    /// <summary>The library's readiness: files missing, and items the show uses that never play here (a page, an embed, a stream with
+    /// no address: <see cref="NeverPlays"/>); ready only when there are neither.</summary>
     private string MediaStatusJson() => JsonOut(w =>
     {
-        var media = Store.Project.Media;
+        var p = Store.Project;
+        var media = p.Media;
         var missing = media.Count(m => m.IsFile && Services.Media?.Readiness(m) is not { Present: true });
+        var used = media.Any(m => NeverPlays(m) is not null) ? MediaCheck.UsedMedia(p) : null;
+        var unplayable = used is null ? 0 : media.Count(m => used.Contains(m.Id) && NeverPlays(m) is not null);
         w.WriteStartObject();
         w.WriteNumber("items", media.Length);
         w.WriteNumber("missing", missing);
-        w.WriteBoolean("ready", missing == 0);
+        w.WriteBoolean("ready", missing == 0 && unplayable == 0);
+        w.WriteNumber("unplayable", unplayable);
         w.WriteEndObject();
     });
 
@@ -590,16 +775,25 @@ public sealed partial class EngineCore
 }
 
 /// <summary>wp2-content's hooks into the engine (EngineCore.Modules.cs): its verbs and INDEX sections, the tick that lets a finished
-/// sting leave STATE, STATE.content, the context's content item and a generator's inputs checked on every edit.</summary>
+/// sting leave STATE and scrubs a kept pass, STATE.content, the context's content item, and a generator's inputs and a media item's
+/// addresses checked on every edit.</summary>
 public sealed partial class EngineCore
 {
     partial void RouteContent(VerbRoutes routes) => RouteContentVerbs(routes);
 
-    partial void TickContent(long leaderNs) => TickStings(leaderNs);
+    partial void TickContent(long leaderNs)
+    {
+        TickStings(leaderNs);
+        ScrubKeptPasses();
+    }
 
     partial void StateContent(Utf8JsonWriter w) => WriteContentState(w);
 
     partial void ContextContent(List<ContextItem> items, List<ContextLink> links) => AddContentContext(items);
 
-    partial void ValidateContent(Project p, object entity, ref string? why) => ValidateGenerator(entity, ref why);
+    partial void ValidateContent(Project p, object entity, ref string? why)
+    {
+        ValidateGenerator(entity, ref why);
+        ValidateMedia(p, entity, ref why);
+    }
 }

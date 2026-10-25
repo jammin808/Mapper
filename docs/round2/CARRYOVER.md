@@ -1674,3 +1674,148 @@ Round 2 W1 notes:
   - A Stagewatch link does not remember that its Stagewatch answered plain: each dial pays the TLS answer deadline first. Keeping the
     answer for the link's life (until a pin or a hello raises the guard) is left for the fix-showbus-node-link batch, which reworks
     the dial.
+
+## Integrator notes from the round-2 fix batch (fix-media-page-import)
+
+- Done: a page, an embed, an address that carries a pass and an https stream are refused at import, a pass a project kept is
+  scrubbed when the project is read, and LIST, readiness, FETCH and `MEDIA STATUS` say a page is not drawn (gap G47;
+  patterns-playmap-side PM-F1 and PM-F2, which is windows-for-peers PM-W1). PlayMap imported an http(s) page as "added", named after
+  the full address, kept that address in the project, the reply and the journal (the refusal's row too), and called the item ready
+  while the surface showed nothing; a pasted Stagewatch window address (`/w/<token>`) or a page with `?pin=`/`?view=` was a published
+  pass.
+  - `PlayMap.Core.Media.PrivateAddress` is the private rule Patterns reads (its `WindowAddresses.LooksPrivate` and `LooksPrivateBare`),
+    word for word, in `Looks` and `LooksBare`: a Stagewatch window's path (`/w/` and 26 of its window alphabet), a query or fragment
+    word that names a pass (`win`, `pin`, `token`, `key`, `view`, `code`, `secret`, `password`, `pass`, `apikey`, `api_key`,
+    `access_token`, `auth`, `sig`, `signature`), or a user in the authority. Patterns' two tables are held row for row in
+    `ShownLineTests`. A word, a name or a phrase is read for one the way Patterns reads free text (`RewriteText`, `RewriteBareText`):
+    cut into tokens at white space, a quote, an angle bracket or a backtick; from each `://` the scheme is read back and the address
+    runs to the token's end with its trailing punctuation dropped (`Looks`); the token's text before its first scheme is read bare
+    from past its leading punctuation and from the host before its first path or query mark (`LooksBare`). So `(https://h/w/…)`,
+    `<https://h/w/…>`, `Stage:https://…`, `(10.0.0.5:9924/w/…)`, `Stage:10.0.0.5:9924/w/…` and a return address in a query
+    (`?next=https://user:pw@h/`) are read as the bare address is, and a name such as `ops@venue` or `19:30@foyer` stays a name. A
+    rooted path (`/shows/w/…`) stays a file. Each scheme's address runs to its token's end, so a token is read for at most 16 schemes
+    (`PrivateAddress.MaxSchemesInToken`); past that, one bearing a pass's mark (an `@`, a window's `/w/`, a pass word before an `=`)
+    is private whole, unread, and the longest word the wire reads is read in time. The texts it reads are words and strings the grammar
+    or a JSON reader has already read, so it undoes no escape, which Patterns' log reader does.
+  - The spine lane (§5.7): `VerbCatalog.Redacted` shows every word that holds a private address as `‹private address›`
+    (`PrivateAddress.Marker`) wherever it rides — a line's own word, a word of a line it carries, a word of a phrase, a string of its
+    JSON, a word that opens as JSON but holds one outside its strings (a bare IPv6 host's `[fe80::1]:9924/w/…`), a line no verb names,
+    the words before a secret, and a phrase the grammar cannot read as a line, whole — beside the refused capture URI's marker, so a
+    journal row, a log, a proposal, the MCP tool's line and a refusal's row never hold the pass. The marker holds a space, so a shown
+    line carries it quoted (`MEDIA IMPORT "‹private address›" Stage`), as the grammar reads it back. `VerbSyntax.DroppedBackslash`
+    repeats no phrase of a line that carries one, as for a secret. This hunk is the batch's only spine-file change; the batch lands
+    as one commit whose body names it as the lane's amendment, rather than as a `Spine:` commit of its own ahead of it, so the
+    integrator reviews it at merge as the lane's change.
+  - `MEDIA IMPORT` checks its words before anything reads the location: a Stagewatch window's address is refused with "that is a
+    Stagewatch window's private address: PlayMap keeps no pass in its project, its journal or a reply, so nothing was added; PlayMap
+    draws no Stagewatch window yet — to show a Stagewatch's timer as a timer source, LINK STAGEWATCH <its host>[:<port>], the host
+    alone, never the window's address"; any other private address (`rtsp://user:pass@…` included) with "that address carries a pass
+    (…)"; a name holding one with "the name holds an address that carries a pass (…)". None repeats the address, and the survey
+    refusal and "no file <location>", which echo the path, come after. Then by kind: an http(s) page is refused ("PlayMap has no
+    browser source for pages (ROADMAP L10) — nothing was added; send the page as NDI from a browser, or import a media file by its
+    path on this machine"), a YouTube address as an embed, an https `.m3u8`/`.mpd` with "this node's FFmpeg is not known to open
+    https streams — nothing was added; use an http://, rtsp:// or srt:// address, or NDI"; an http:// `.m3u8`/`.mpd` is filed as a
+    Stream (it was filed as a page), and rtsp:// and srt:// as before.
+  - `ADD media` and `SET` of a media item (the content module's Validate hook) refuse what the import refuses, with its words: a
+    location or a name that brings a private address in; a page or an embed made; and a location given anew, or a kind changed, that
+    the import refuses by kind (an https HLS or DASH address, an http(s) address that is a page), whatever kind the edit files it as
+    (a page filed as a stream or a video is refused as a page). A page or an https stream an older project kept is still renamed and
+    removed: an unchanged location is not read again. A `capture:` location stays the capture grammar's to refuse, with its own words.
+    `INPUT ADD` is the one road that still takes an address with a user (Open).
+  - A project that holds a kept pass is scrubbed within the content tick (10 ms, on the lane) whatever road brought it: the node's own
+    project at start, `PROJECT OPEN`, the recovery record, a mirrored show, or a default name `INPUT ADD` gave. The tick reads the
+    media list again only when it is another list. An address that carries a pass is cleared from every location but a stream's whose
+    only pass is a user in its authority (`rtsp://user:pass@…`, which it plays from): a page's, a file item's, and a stream's that names
+    a window or a pass word (`PrivateAddress.PassBeyondUser`; no player reads a window's token or a viewing code). Each address in a
+    name reads as its host and the marker, the rest of the name kept ("Lobby (10.0.0.5 ‹private address›)"). One unrecorded edit
+    ("cleared addresses that carry a pass") does it; its keep scrubs every undo and redo root too, so no `UNDO` brings a pass back, and
+    it is no undo step. One journal row (`media`, ok) names the items as they now read and never the pass: "6 media items held an
+    address that carries a pass, which PlayMap keeps nowhere: … — such an address is cleared where the item kept it (a stream whose
+    only pass is a user keeps it to play from), and one in a name reads as its host". The project is dirty after it, so the next save
+    writes no pass.
+  - LIST, readiness, FETCH and STATUS: a Web or Embed item reads `present` (while it has an address), `ready:false`,
+    `state:"unplayable"`, words "a web page — PlayMap has no browser source for pages and embeds (ROADMAP L10)" (or "an embed — …"; a
+    scrubbed one "… whose address carried a pass and was cleared — …"), and a stream with no address `present:false`, `ready:false`,
+    `unplayable`, "a stream with no address (one that carried a pass is cleared) — import it again by an address that carries none",
+    the same with a media edge and without one: `MEDIA LIST` answers for them before it asks the edge (it read `ready:true`, "a URL",
+    before). `MEDIA FETCH` of a page says "<name> is a web page, not a file, and PlayMap has no browser source for it (ROADMAP L10):
+    never fetched" (it said "rendered from its address"). `MEDIA STATUS` gains `unplayable` at the end of its object, the items the
+    show uses (preflight's `MediaCheck.UsedMedia`) that never play here, and is `ready` only when that and `missing` are both 0. A
+    stream with an address reads as before.
+- Tests:
+  - `ShownLineTests` (Core): Patterns' private-rule table and bare-token table, row for row, on `PrivateAddress.Looks` and `LooksBare`;
+    a window address, a bare one, a viewing code, a camera's user, an address carried in a binding, a phrase, a JSON string, a line
+    no verb names, one before a secret, and the same glued to brackets, angle brackets, a label and its colon, inside a phrase, as a
+    bare IPv6 host and as a return address in a query, each written down as the marker with nothing of its pass and read back by the
+    grammar; words that carry no pass (a YouTube address, a page with a `w` folder, `ops@venue`, `19:30@foyer`, a source's name, a file
+    in a folder named `w`) written down as they came; names with a wrapped address shown as their host and the marker with the
+    punctuation kept, and names, a bracketed page, a rooted path and a Windows path with none kept as the same instance; the window
+    and the pass beyond a user read inside a word; the bound of 16 schemes (16 read, the 17th private whole only with a pass's mark)
+    and the longest word of schemes written down in time with and without one; the longest line of bindings carrying a window address
+    written down in time.
+  - `MediaImportRefusalTests` (Engine, new): twelve lines carrying a pass (a window address with a scheme, bare, with a survey's
+    extension, in brackets, in angle brackets and bare in brackets; a viewing code, also after a label; an HLS address with a token; a
+    camera's user; a name holding a window address, also in brackets) refused with their words, nothing of the pass in the reply, the
+    media edge never asked, the project the same instance, the refusal's row the shown line with the marker, and no journal row holding
+    any pass; pages, embeds and https HLS/DASH refused with their words and no item; http HLS and DASH, rtsp and srt added as streams;
+    `ADD media` and `SET` bringing a pass, a page, an https stream, a page filed as a stream or a video, or a kind change the import
+    refuses, each refused with the import's words, the revision unmoved, an older page and an older https stream still renamed, the
+    page removed, an http HLS stream added; a node started with a project holding kept passes scrubbed within a tick by one row with
+    those words, the window page and the viewing-code page cleared, the camera renamed with its location kept, a window and a token
+    filed as streams cleared and reading unplayable, a name with a window address in brackets shown as its host, the embed and the
+    file the same instances, no undo step (`UNDO` refused, an edit's undo leaving the pass out), and MEDIA LIST, STATE, the context
+    and the project's JSON holding no pass but the camera's own location; a project file with kept passes opened, scrubbed and saved
+    with none; a page, an embed, a cleared page and a stream with no address reading `unplayable` in MEDIA LIST with the media edge
+    and without one, never fetched, the stream `ready`, and `MEDIA STATUS` ready with nothing the show uses unplayable and not ready,
+    `unplayable` 1, once a SAFE panic's look is the page.
+- Files: `src/PlayMap.Engine/EngineCore.Content.cs` (round 2's until desk-map takes it in W3; W3 has not begun) and
+  `src/PlayMap.Core/Wire/VerbCatalog.cs` (`Redacted` and its helpers, outside every block: the spine lane), which the owner's leave
+  names for this batch, plus the new `src/PlayMap.Core/Media/PrivateAddress.cs`, with `tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs`
+  and the new `tests/PlayMap.Engine.Tests/Content/MediaImportRefusalTests.cs`. `PrivateAddress.cs` lies outside the leave's list
+  (M-PMX names `Engine/EngineCore.Content.cs` and `VerbCatalog.Redacted` through §5.7 for this batch): the source design's exception
+  request (patterns-playmap-side PM-X) named it with `Engine/Host/MediaBackend.cs`, and `Redacted` needs the rule, so it rides with
+  the spine lane's hunk; it is a new pure file in Core's `Media` folder, which round 3 names for no wave. The leave names files, so
+  this batch asks the owner to extend it to `PrivateAddress.cs` before it merges. `MediaBackend.cs` is not touched: `MEDIA LIST` is the
+  only reader that asks the edge for a page's readiness, and it now answers for a page itself. No catalogue row, STATE key, fixture
+  or context item moves; `MEDIA STATUS`'s reply gains `unplayable` at the end of its object.
+- Papers notes for the integrator:
+  - The `MEDIA IMPORT` catalogue row (`VerbCatalog.cs`, `<path|url>`, "Adds a file or URL") should say "a file or a stream URL (rtsp://,
+    srt://, an http:// HLS or DASH address); pages, embeds and addresses carrying a pass are refused". The row lies outside every
+    block, so its words go through the spine lane with the catalogue's next change (the Companion module's fixtures follow the row).
+  - The desk's fake engine (`src/PlayMap.App/Link/FakeEngineLink.cs`, its `MEDIA IMPORT` filing) still files an http(s) address as a
+    page; it should file as the engine does and refuse what the engine refuses. The desk's Play page groups Web and Embed with
+    streams as "network" (`PlayViewModel.cs`); MEDIA LIST's `unplayable` is what it should show. Both are wave-owned App files.
+  - `docs/wire/content.md` (or `docs/WIRE.md`'s MEDIA rows): MEDIA IMPORT's refusals and what is a stream; `ready:false` and
+    `unplayable` for a page and a stream with no address; `MEDIA STATUS`'s `unplayable`; the marker in a shown line.
+    `docs/SHOWBUS-NODE.md`: a Stagewatch window address given to PlayMap is refused, never kept (the fix-showbus-1.3 batch takes that
+    file). `docs/ROADMAP.md` L10: until a browser source exists a page is refused at import and an older one reads unplayable; an
+    https stream waits for a probe of the shipped FFmpeg's protocols.
+- Open:
+  - The scrub runs on the content tick, not where a project is read: for up to one tick (10 ms) after a load the project with its
+    passes is published — `OnProjectChanged` pushes STATE (`video.file` may name a playing item), and `MIRROR PROJECT` lets a backup
+    pull the unscrubbed show. A backup that follows a primary older than this batch scrubs again after every mirrored revision, one
+    journal row per primary edit, and its show stays different from its primary's until the primary runs this batch. The scrub
+    belongs in the load paths themselves — `Store.Replace` in `PROJECT OPEN` (`EngineCore.Edits.cs`) and in the recovery record
+    (`EngineCore.Sync.cs`), and `MirrorEditAsync` (`Show/EngineCore.ShowMode.cs`, `Fleet/BackupNode.cs`) — which are spine or other
+    packages' files: the integration pass moves it there.
+  - `NetworkHost.LinkStagewatchAsync` (`Engine/Host/NetworkHost.cs:467`) refuses a typed host it cannot parse with "'<host>' is not an
+    address — …", which becomes the reply and the refused row's text (only the row's line is redacted); an operator who pastes the
+    window address `MEDIA IMPORT` just refused into `LINK STAGEWATCH` hears the token back. `LINK PATTERNS` (`:422`) and the settings
+    fault (`:868`) echo the same way. The batch that next owns that file (fix-peerlink-core) should repeat no typed host that
+    `PrivateAddress.IsWord` reads as private; this batch's refusal words name the host alone to keep the operator from it.
+  - An https HLS or DASH address is refused because no paper or code shows the shipped LGPL FFmpeg opens TLS; a probe of the build's
+    protocols (`avio_enum_protocols`) would let the import file it as a stream where it does.
+  - `INPUT ADD` (the video I/O hub, `EngineCore.VideoIo.cs`: round 2's, the capture package's in W4) still takes an address with a
+    user (`rtsp://user:pass@…`): the item keeps it as its location, STATE's `videoio.inputs[].uri` publishes it, and the reply's
+    effect, "added <name> (<address>) — …", which the journal's row keeps as its text, repeats it (the shown line itself carries the
+    marker now, and the tick renames an item named by it). A stream credential kept in the node's credential store and written into the
+    address only where FFmpeg opens it closes it; until then `MEDIA IMPORT` refuses such an address and `INPUT ADD` is the road that
+    keeps one.
+  - A stream an older project kept with a user as its only pass keeps playing from it, so its location stays in the project file.
+  - STATE's `media.ready` (`StateWriter.cs:125`, a spine file), the context's media item (`ContextBuilder.cs`, a spine file) and
+    preflight's media rows (`PreflightChecks.cs`) read files only: a surface or output showing a page, or a stream with no address,
+    is not flagged there; `MEDIA LIST` and `MEDIA STATUS` say it. The integration pass gives them `MEDIA STATUS`'s rule.
+  - `MediaBackend.Readiness` still answers a Web or Embed item with "a URL — read from the network when it plays" (present, not
+    decodable); no reader asks it for one now. Its owner may give it the page's words.
+  - A window's token with no host before it (a rooted path's `/w/<token>`) is read as a file, as Patterns' rule reads it; Patterns'
+    log reader also masks such a token (`BareWindowToken`), which a line PlayMap writes down does not.
