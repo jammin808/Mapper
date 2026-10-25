@@ -1490,3 +1490,47 @@ Round 2 W1 notes:
 - Commit 00477fa carries the line sessions' change (the table joined before the session runs, the registrations one at a time)
   under the reseat test's subject; 085deb3, with the same subject, holds the reseat test alone and does not compile without 00477fa
   (`StageResources.BlendInUseFor`), so a bisect skips it.
+
+## Integrator notes from the round-2 fix batch (fix-showbus-identify)
+
+- Done: Stagewatch's screen command `identify` is one journal row on the node (`network`, ok: "Stagewatch's operator asked this
+  screen to identify itself — PlayMap flashes no output for a screen command (OUTPUT IDENTIFY on this node does)") and never a line.
+  The network host ran `OUTPUT IDENTIFY ALL 5` for every identify from the Stagewatch it follows (G06), and a Stagewatch operator's
+  "identify all" reaches every screen it holds: a rehearsing node flashed every output's name over its picture, and an armed one
+  journalled the line refused under Stagewatch's name. `PlayMap.Net.Links.StagewatchScreenCommands` is the pure plan for all four
+  commands: each one's row and, for a redirect, the view the timer shows; a plan carries no line for the engine, so no screen
+  command reaches the air. Redirect, reload and disconnect keep their words; the disconnect's names the hold its link takes
+  (`StagewatchLinkOptions.DisconnectHold`, 30 s) instead of a written number. Each of the four rows names `Stagewatch` as who asked
+  (`StagewatchScreenCommands.Who`, a constant, never the name or id the peer sends), as the identify's verb row did under the old
+  session's name; the redirect, reload and disconnect rows named no one before. The link's `link-stagewatch` session is gone with
+  the line it ran; Stagewatch's VT link on the wire (a client whose HELLO says Stagewatch) still reads as the `stagewatch` transport.
+- Tests: `StagewatchScreenCommandsTests` (Net: each command's row and view, the identify's row the same whatever name or id
+  Stagewatch gives the screen and its asker the constant `Stagewatch`, a type that is none of the four no plan) and `StagewatchIdentifyTests` (Engine: a node following a
+  Stagewatch as a screen, rehearsing and armed; after an identify and a reload, and a desk line's turn on the control lane, the
+  journal holds the identify's one row, naming Stagewatch and no line, and no `OUTPUT IDENTIFY` row, verb or refusal, the reload's
+  row names Stagewatch too, the air's `identify` is off, the show is as it was and the link is live on its first connection; the
+  test's Stagewatch reads each message whole before it parses it). Against a network host that journalled the row and still ran the
+  line, both cases failed at the no-line assertion.
+- Files: `src/PlayMap.Engine/Host/NetworkHost.cs` and the new `src/PlayMap.Net/Links/StagewatchScreenCommands.cs` with their tests,
+  under the owner's leave for the Show Bus fix batches during round 3; no round-3 package owns either, and neither is a spine file.
+- Papers notes for the integrator:
+  - `docs/SHOWBUS-NODE.md` §2's Stagewatch Screens row says `redirect` / `identify` / `reload` "pick which Stagewatch view PlayMap
+    renders as its timer source"; only a redirect picks the view, an identify is a journal row and a reload is noted (the
+    fix-showbus-1.3 batch takes that file).
+  - `docs/WIRE.md`'s "Who sent a line" table: the row `` `patterns`, `stagewatch` `` ("the links this node dials itself: the
+    Patterns desk's blackout fact, a Stagewatch operator's screen command") loses its Stagewatch half and reads `patterns`, the
+    link this node dials itself: the Patterns desk's blackout fact. `stagewatch` is then only the line-wire session that said
+    `HELLO Stagewatch` (the table's own `stagewatch` row); a Stagewatch operator's screen command is a journal row, or for a redirect the
+    timer's view, and never a line.
+  - `src/PlayMap.Net/Links/StagewatchTimer.cs`: `StagewatchScreenCommand`'s summary still calls identify "show this screen's
+    name"; it should read as Stagewatch's ask to show the screen's name, which this node journals and does not show. The file is
+    outside this batch; the next batch that edits it takes the words.
+  - No verb, STATE key, fixture, context item or desk control moves, so `README.md` and `docs/ROADMAP.md` have nothing from this
+    batch.
+- Open:
+  - That Stagewatch sends a show app no screen command at all is Stagewatch's own change (its node links, 2.18); until a node's
+    Stagewatch has it, each identify pressed there is one row here.
+  - The disconnect's row names the hold the link keeps when its connection ends as it should. If `CloseOutputAsync` throws after
+    the disconnect is taken (`StagewatchLink.ReceiveAsync`), `RunAsync` takes its exception path with no hold and dials again on
+    the backoff, sooner than the row says. This batch did not cause it; the fix-showbus-node-link batch, whose redial waits for
+    the hold on every exit path, closes it and should name this row as what it makes true.

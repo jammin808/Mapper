@@ -757,7 +757,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         var link = new StagewatchLink(options, engine, _o.Wall, _o.Pins, _o.Mono, _o.Logs.CreateLogger("PlayMap.Net.Stagewatch"));
         link.StatusChanged += _ => Facts();
         link.FrameReceived += _ => Facts();
-        link.ScreenCommand += OnScreenCommand;
+        link.ScreenCommand += command => OnScreenCommand(command, options.DisconnectHold);
         _stagewatch = link;
         link.Start();
         Facts();
@@ -773,29 +773,18 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         Facts();
     }
 
-    /// <summary>Stagewatch's operator, from its Screens page: identify flashes this node's outputs' names, redirect
-    /// picks the view this node shows as its timer, reload and disconnect are noted (the link redials by itself).</summary>
-    private void OnScreenCommand(StagewatchScreenCommand command)
+    /// <summary>Stagewatch's operator, from its Screens page, through <see cref="StagewatchScreenCommands"/>: redirect picks the
+    /// view this node shows as its timer; each of the four is one journal row naming Stagewatch as who asked (the link redials by
+    /// itself after a disconnect). A screen command runs no line on the engine: this node's outputs are on the air, and no screen
+    /// command is Stagewatch's to flash them with.</summary>
+    private void OnScreenCommand(StagewatchScreenCommand command, TimeSpan disconnectHold)
     {
-        switch (command.Type)
-        {
-            case "identify":
-                Run("OUTPUT IDENTIFY ALL 5", StagewatchSession);
-                break;
-            case "redirect":
-                _stagewatchView = command.To;
-                Journal("network", $"Stagewatch's operator shows {(command.To.Length > 0 ? command.To : "the default view")} on this node's timer");
-                Facts();
-                break;
-            case "reload":
-                Journal("network", "Stagewatch's operator asked this screen to reload: its timer is read afresh from the next frame");
-                Facts();
-                break;
-            case "disconnect":
-                Journal("network", "Stagewatch's operator disconnected this screen; the link dials again in 30 s");
-                Facts();
-                break;
-        }
+        if (StagewatchScreenCommands.Plan(command, disconnectHold) is not { } plan)
+            return;
+        if (plan.View is { } view)
+            _stagewatchView = view;
+        Journal("network", plan.Row, who: StagewatchScreenCommands.Who);
+        Facts();
     }
 
     private void OnPeer(PeerChange change)
@@ -1061,8 +1050,6 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             .Where(p => p.Kind == ShowBusConstants.KindPlayMap)
             .FirstOrDefault(p => p.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
 
-    private SessionInfo StagewatchSession => new("link-stagewatch", "stagewatch", _stagewatch?.Address ?? "", false, "Stagewatch", Paired: true);
-
     private SessionInfo PatternsSession => new("link-patterns", "patterns", _patterns?.Address ?? "", false, "Patterns", Paired: true);
 
     /// <summary>A Patterns fact line ("BLACKOUT 1") through the engine's command path, which takes it in silently.</summary>
@@ -1117,7 +1104,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             Facts();
     }
 
-    private void Journal(string kind, string text, bool ok = true) => _engine?.Journal.Add(kind, text, ok: ok);
+    private void Journal(string kind, string text, bool ok = true, string? who = null) => _engine?.Journal.Add(kind, text, who, ok: ok);
 
     private void Facts() => _engine?.FactsChanged();
 
