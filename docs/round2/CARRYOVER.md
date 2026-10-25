@@ -1774,8 +1774,8 @@ Round 2 W1 notes:
   and the new `tests/PlayMap.Engine.Tests/Content/MediaImportRefusalTests.cs`. `PrivateAddress.cs` lies outside the leave's list
   (M-PMX names `Engine/EngineCore.Content.cs` and `VerbCatalog.Redacted` through §5.7 for this batch): the source design's exception
   request (patterns-playmap-side PM-X) named it with `Engine/Host/MediaBackend.cs`, and `Redacted` needs the rule, so it rides with
-  the spine lane's hunk; it is a new pure file in Core's `Media` folder, which round 3 names for no wave. The leave names files, so
-  this batch asks the owner to extend it to `PrivateAddress.cs` before it merges. `MediaBackend.cs` is not touched: `MEDIA LIST` is the
+  the spine lane's hunk; it is a new pure file in Core's `Media` folder, which round 3 names for no wave. The leave names files; the
+  owner extended it to `PrivateAddress.cs` on 2026-10-25. `MediaBackend.cs` is not touched: `MEDIA LIST` is the
   only reader that asks the edge for a page's readiness, and it now answers for a page itself. No catalogue row, STATE key, fixture
   or context item moves; `MEDIA STATUS`'s reply gains `unplayable` at the end of its object.
 - Papers notes for the integrator:
