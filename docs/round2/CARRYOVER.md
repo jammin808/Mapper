@@ -2113,10 +2113,10 @@ Round 2 W1 notes:
   speaks proto 3, follows the address rule and shows conflicts") are code in those files, not in `HelloService.cs`; spec-1-3 M1,
   this batch's source, names the first two; the leave names `ShowBus.cs` for fix-peerlink-core and `NetworkHost.cs` for
   fix-showbus-identify, fix-showbus-keys, fix-showbus-node-link and fix-peerlink-core; no round-3 package owns any of the three and
-  none is a spine file. The leave names files, so this batch asks the owner to extend it to these three — `NetworkHost.cs` for those
-  two hunks alone — before it merges; that ask is open. Two spine files change through the spine lane (§5.7), as fix-media-page-import
-  and fix-showbus-node-link changed theirs, named in the batch's commit as the lane's amendment rather than a "Spine:" commit of their
-  own: `src/PlayMap.Engine/Seams.cs` (`PeerView` gains the init-only `Conflict`; its positional shape and every caller are unchanged)
+  none is a spine file. The leave names files, so this batch asked the owner to extend it to these three — `NetworkHost.cs` for those
+  two hunks alone — before it merges; the owner extended it so on 2026-10-26. Two spine files change through the spine lane (§5.7),
+  as fix-media-page-import and fix-showbus-node-link changed theirs, named in the batch's commit as the lane's amendment rather than a
+  "Spine:" commit of their own: `src/PlayMap.Engine/Seams.cs` (`PeerView` gains the init-only `Conflict`; its positional shape and every caller are unchanged)
   and `src/PlayMap.Engine/ContextBuilder.cs` (the context's peers line: no row for an id in conflict or this node's own id, at most
   `ContextPeers`, and this node's own clash as the `bus:hello` item; five lines where one was). No verb, catalogue row, STATE key or
   fixture moves (STATE's `peers` fields are unchanged; a peer in conflict is a value of them; the context gains a row-less peer and
