@@ -92,8 +92,12 @@ public interface IScanBackend
     bool Cancel();
 }
 
-/// <summary>A Show Bus peer as STATE and the context show it.</summary>
-public sealed record PeerView(string Kind, string Id, string Name, string Light, string Headline, bool Live);
+/// <summary>A Show Bus peer as STATE and the context show it; <c>Conflict</c> while two running nodes say its id (Show Bus §2), this
+/// node's own among them: STATE shows that row amber, and the context lists none for it (§6).</summary>
+public sealed record PeerView(string Kind, string Id, string Name, string Light, string Headline, bool Live)
+{
+    public bool Conflict { get; init; }
+}
 
 /// <summary>A link to Patterns or Stagewatch as STATE shows it: <c>State</c> live, stale, connecting or down, or held (the far end
 /// refused this node's key, its hold runs and no connection is up); <c>Paired</c> when the far end took this node's proof on the

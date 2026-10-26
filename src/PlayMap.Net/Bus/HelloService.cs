@@ -27,8 +27,9 @@ public sealed record HelloOptions
 /// <summary>The Show Bus hello (§2): this node's hello every 2 s to the broadcast address and loopback on UDP 9928
 /// from a socket bound to the node's bind address (none at all when the node is bound to loopback only, or does not
 /// announce), and every other node's hello taken in on 9928 shared with every other app on this machine
-/// (SO_REUSEADDR, and SO_REUSEPORT where the platform needs it). This process's own hellos are known by the
-/// instance word and ignored. Never sends on Patterns' own beacon port.</summary>
+/// (SO_REUSEADDR, and SO_REUSEPORT where the platform needs it), read by §2's rules into <see cref="Peers"/>. This process's
+/// own hellos are known by the instance word and ignored; another process saying this node's id is a conflict the table
+/// marks. Never sends on Patterns' own beacon port.</summary>
 public sealed class HelloService : IAsyncDisposable
 {
     private readonly NodeSettings _settings;
@@ -54,7 +55,7 @@ public sealed class HelloService : IAsyncDisposable
         _hello = hello ?? throw new ArgumentNullException(nameof(hello));
         _options = options ?? new HelloOptions();
         _log = log ?? NullLogger.Instance;
-        Peers = new PeerTable(clock ?? MonoClock.Instance);
+        Peers = new PeerTable(clock ?? MonoClock.Instance, settings.NodeId);
         _targets = Checked(_options.Targets ??
         [
             new IPEndPoint(IPAddress.Broadcast, ShowBusConstants.HelloPort),
@@ -77,7 +78,8 @@ public sealed class HelloService : IAsyncDisposable
     /// that sees the count sees what the table made of every hello it counts.</summary>
     public long Heard => Interlocked.Read(ref _heard);
 
-    /// <summary>Datagrams on the port that were not a hello (or too big): dropped, never fatal.</summary>
+    /// <summary>Datagrams on the port that were not a hello (or too big), and hellos from a new id while the peer table holds
+    /// <see cref="ShowBusConstants.PeersMax"/>: dropped, never fatal.</summary>
     public long Dropped => Interlocked.Read(ref _dropped);
 
     /// <summary>Whether this node says hello at all: it announces and is not bound to loopback only.</summary>
@@ -90,12 +92,14 @@ public sealed class HelloService : IAsyncDisposable
     }
 
     /// <summary>The capabilities round 2 adds to the contract's: <c>eye</c> (EYE / EYE STATUS answer the board in Patterns' EyeJson
-    /// shape) and <c>show</c> (Show Mode's facts in STATE and the context) — sixteen in all, every one a strict reader keeps.</summary>
+    /// shape) and <c>show</c> (Show Mode's facts in STATE and the context) — sixteen in all, within §14's <c>hello.caps</c>, each a
+    /// <c>cap</c> row that names <c>playmap</c>.</summary>
     public static readonly IReadOnlyList<string> RoundTwoCaps = ["eye", "show"];
 
-    /// <summary>PlayMap's hello: kind playmap, its ports (http, ws and https on one port when it serves TLS, wire,
-    /// sync), its capabilities, its clock, its certificate's fingerprint and the build it runs (<paramref name="build"/>, this
-    /// process's own unless told). No show data, no secret.</summary>
+    /// <summary>PlayMap's hello: kind playmap, <c>proto</c> 3 (Show Bus 1.3), its ports (http, ws and https on one port when it serves
+    /// TLS, wire, sync), its capabilities, its clock, its certificate's fingerprint and the build it runs (<paramref name="build"/>, this
+    /// process's own unless told); its name and host as §2 says them (<see cref="ShowBusHello.NameOf"/>). No show data, no secret. The
+    /// sender sets its instance word and sends it <see cref="ShowBusHello.Fitted"/>, within §14's <c>hello.bytes</c>.</summary>
     public static ShowBusHello PlayMapHello(NodeSettings settings, long clockUnixMs, string? tlsFingerprint, string? host = null, BuildInfo? build = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -108,7 +112,8 @@ public sealed class HelloService : IAsyncDisposable
         };
         if (tlsFingerprint is not null)
             ports["https"] = settings.HttpPort;
-        return new ShowBusHello(ShowBusConstants.KindPlayMap, 1, 1, settings.NodeId, settings.Name, host ?? Environment.MachineName,
+        return new ShowBusHello(ShowBusConstants.KindPlayMap, 1, ShowBusConstants.Proto, settings.NodeId, ShowBusHello.NameOf(settings.Name),
+            ShowBusHello.NameOf(host ?? Environment.MachineName),
             ports, [.. ShowBusHello.PlayMapCaps, .. RoundTwoCaps.Where(c => !ShowBusHello.PlayMapCaps.Contains(c, StringComparer.Ordinal))],
             clockUnixMs, null, tlsFingerprint) { Build = (build ?? BuildInfo.Current).Informational };
     }
@@ -171,7 +176,7 @@ public sealed class HelloService : IAsyncDisposable
         {
             try
             {
-                var bytes = (_hello() with { Instance = Instance }).ToJson();
+                var bytes = (_hello() with { Instance = Instance }).Fitted().ToJson();
                 if (bytes.Length > ShowBusConstants.HelloMaxBytes)
                 {
                     _log.LogWarning("The hello is {Bytes} bytes, past the contract's {Max}: not sent.", bytes.Length, ShowBusConstants.HelloMaxBytes);
@@ -234,7 +239,7 @@ public sealed class HelloService : IAsyncDisposable
                 _log.LogDebug(ex, "A hello receive failed ({Error}).", ex.SocketErrorCode);
                 continue;
             }
-            if (r.ReceivedBytes > 4096 || ShowBusHello.Parse(buffer.AsSpan(0, r.ReceivedBytes)) is not { } hello)
+            if (r.ReceivedBytes > ShowBusConstants.HelloReadBytes || Read(buffer.AsSpan(0, r.ReceivedBytes)) is not { } hello)
             {
                 Interlocked.Increment(ref _dropped);
                 continue;
@@ -242,16 +247,36 @@ public sealed class HelloService : IAsyncDisposable
             if (hello.Instance == Instance)
                 continue;
             var from = r.RemoteEndPoint is IPEndPoint ep ? NetAddress.Text(ep.Address) : "";
+            var taken = true;
             try
             {
-                Peers.Hear(hello, from);
+                taken = Peers.Hear(hello, from);
             }
             catch (Exception ex)
             {
                 // A listener to the peer table that faults must not stop the hello.
                 _log.LogWarning(ex, "A peer-table listener faulted.");
             }
-            Interlocked.Increment(ref _heard);
+            if (taken)
+                Interlocked.Increment(ref _heard);
+            else
+                Interlocked.Increment(ref _dropped);
+        }
+    }
+
+    /// <summary>One datagram read as a hello, or null when it is none. No datagram ends the listener: one the reader faults on is
+    /// dropped like any other that is not a hello, and the next is heard.</summary>
+    private ShowBusHello? Read(ReadOnlySpan<byte> datagram)
+    {
+        try
+        {
+            return ShowBusHello.Parse(datagram);
+        }
+        catch (Exception ex)
+        {
+            // Debug, not warning: any host on the network can send these, and the dropped count already says how many.
+            _log.LogDebug(ex, "A datagram on the hello port faulted the reader: dropped.");
+            return null;
         }
     }
 

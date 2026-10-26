@@ -306,6 +306,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         return hello.Peers.Snapshot().Select(p =>
         {
             var live = p.Liveness == PeerLiveness.Live;
+            // Two machines saying one id (Show Bus §2) are shown amber, naming both, whatever either says of itself.
+            if (p.Conflict is { } conflict)
+                return new PeerView(p.Kind, p.Id, p.Name, "amber", conflict.Words, live) { Conflict = true };
             if (patternsContext is not null && p.Kind == ShowBusConstants.KindPatterns && p.Id == patternsContext.NodeId)
                 return new PeerView(p.Kind, p.Id, p.Name, ShowContext.LightWord(patternsContext.Light), patternsContext.Headline, live);
             var words = p.Liveness switch
@@ -925,7 +928,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private void OnPeer(PeerChange change)
     {
         Facts();
-        if (change.Peer.Kind == ShowBusConstants.KindStagewatch && change.Kind is PeerChangeKind.Added && _stagewatch is null
+        // A Stagewatch first heard, or one whose hello or conflict mark changed, is followed when none is: the follow reads only the
+        // peers no mark stands on (PeerTable.Live; §2 dials no new link to an id in conflict), so a mark clearing is when it is followed.
+        if (change.Peer.Kind == ShowBusConstants.KindStagewatch && change.Kind is PeerChangeKind.Added or PeerChangeKind.Changed && _stagewatch is null
             && _running.StagewatchEnabled && _running.StagewatchHost.Length == 0 && _engine is not null)
             Background(AutoStagewatchAsync(_stop.Token));
     }

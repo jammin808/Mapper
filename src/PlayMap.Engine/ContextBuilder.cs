@@ -121,7 +121,13 @@ public static class ContextBuilder
         headline = engine.ModuleHeadline(headline);
 
         var recent = engine.Journal.Recent(RecentRows).Select(r => new ContextRecent(r.AtUnixMs, r.Ok ? r.Text : "refused: " + r.Text)).ToList();
-        var peers = s.Network.Peers().Select(x => new ContextPeer(x.Kind, x.Id, x.Name, ShowContext.ParseLight(x.Light), x.Headline)).ToList();
+        // §6: an id in conflict (§2), this node's own among them, adds no peer row, and a context lists at most context.peers rows;
+        // another process saying this node's id is an amber item of its own instead.
+        var heard = s.Network.Peers();
+        if (heard.FirstOrDefault(x => x.Conflict && x.Id == s.Settings.NodeId) is { } clash)
+            items.Add(new ContextItem("bus:hello", "bus", "Show Bus hello", Light.Amber, clash.Headline));
+        var peers = heard.Where(x => !x.Conflict && x.Id != s.Settings.NodeId).Take(ShowBusConstants.ContextPeers)
+            .Select(x => new ContextPeer(x.Kind, x.Id, x.Name, ShowContext.ParseLight(x.Light), x.Headline)).ToList();
         return new ShowContext(ShowBusConstants.KindPlayMap, s.Settings.NodeId, s.Settings.Name, s.Wall.UnixMs, headline,
             items, links, recent, ShowContext.CommandsFromCatalog(engine), peers);
     }

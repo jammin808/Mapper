@@ -94,17 +94,21 @@ PlayMap gives them in this order: `show`, `machine`, the outputs (beyond six, th
 with their devices folded in, the playlists that play (idle ones as one `playlists` item), mirrors, sync, media, preflight, links,
 the rest, faults; what an aggregate stands for follows, still there for an assistant. Its links are only the Eye's eleven verbs.
 
-Patterns draws PlayMap as a grey app heard on the network. Three changes on Patterns' side make PlayMap's things appear lit
-(prepared as a patch with tests against Patterns' `ShowBusView` and `EyeGraph`, built and run in a scratch copy of Patterns, not
-applied — Patterns' maintainers take it or not): **P1** its kind reads "PlayMap"; **P2** the context of every live peer
-whose hello offers the `context` cap is read (a PlayMap peer's over its line wire, `CONTEXT` being an open read there, since
-`/api/context` is behind the node's token) and drawn with the peer; **P3** another app's outputs, projectors, surfaces, playlists and
-media sit on the Video band. PlayMap's own `PatternsEyeContractTests` read its context with a copy of Patterns' `ShowContext.Parse`
-and the show-app section of `EyeGraph.Build` and check its things are drawn lit with its own lights.
+Patterns draws PlayMap as a grey app heard on the network. Three changes on Patterns' side make PlayMap's things appear lit:
+**P1** its kind reads "PlayMap"; **P2** the context of every live peer whose hello offers the `context` cap is read (a PlayMap peer's
+over its line wire, `SUBSCRIBE CONTEXT`, since `/api/context` is behind the node's token) and drawn with the peer; **P3** another
+app's outputs, projectors, surfaces, playlists and media sit on the Video band. Show Bus 1.3 makes P1 the contract's (§14's
+`kind playmap PlayMap`, the name every reader shows) and leaves P2 and P3 to Patterns, where they are planned with its Show Bus node
+devices — a device that pairs with a PlayMap node by proof and reads its context over the line wire
+([SHOWBUS-NODE.md](SHOWBUS-NODE.md) §5, items 2 and 3) — and not built yet; a patch for them was once prepared against a scratch copy
+of Patterns' `ShowBusView` and `EyeGraph` and never applied. Until Patterns' devices pair by proof, its Lines devices drive PlayMap
+from a trusted address and read no context. PlayMap's own `PatternsEyeContractTests` read its context with a copy of Patterns'
+`ShowContext.Parse` and the show-app section of `EyeGraph.Build` and check its things are drawn lit with its own lights.
 
-Patterns' Eye keeps the first 64 of a context's commands today, so PlayMap lists the panic, air, transport and Show Mode rows first;
-the request to Patterns for a cap of at least 256 is [SHOWBUS-NODE.md](SHOWBUS-NODE.md) §5 item 7. PlayMap's own context reader
-(`Core/Bus/ShowContext.Parse`, which reads Patterns' context over `LINK PATTERNS`) also keeps 64 commands today; the direction is no
+Show Bus 1.3 §6 has a reader that keeps a context's commands keep at least `context.commands` (256), and Patterns' reader keeps 256
+since its round 91, so every command PlayMap lists reaches it (the request was [SHOWBUS-NODE.md](SHOWBUS-NODE.md) §5 item 7, now
+answered). PlayMap still lists the panic, air, transport and Show Mode rows first, the order §6 has a sender trim in. PlayMap's own
+context reader (`Core/Bus/ShowContext.Parse`, which reads Patterns' context over `LINK PATTERNS`) keeps 64 commands today; the direction is no
 count cap there, since its 512 KB bound already bounds what it holds (docs/round3/PLAN.md §5.6 item 7).
 
 ## The hot backup

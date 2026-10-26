@@ -1991,3 +1991,179 @@ Round 2 W1 notes:
     typed-address batch after round 3 (G31's rest).
   - A keyless link to a 2.18 Stagewatch with a viewing code set is refused, held a minute and dialled again: a node link gives the
     viewing code only with a key, so such a node reads no timer until it is given one.
+
+## Integrator notes from the round-2 fix batch (fix-showbus-1.3)
+
+- Done: PlayMap carries Show Bus 1.3 and its kit, says the 1.3 hello and hears by 1.3 §2, and its node page and fleet paper say
+  what is true (gaps G38, G40, G35's papers, G30's words, G22's words — never paste a window's address; spec-1-3 M1,
+  patterns-playmap-side PM-F5, peers-not-screens PM-3 and playout-links' doc rows).
+  - `docs/SHOWBUS.md` is Stagewatch's master byte for byte, header included, as its last change left it (Stagewatch's ec8ad25,
+    Show Bus 1.3 final): the body hashes to 9ca83889a3735eba9dd948a53be3045b9cd1855c68a3682d5e734adf8f901fd5, which the header's
+    Body line prints, and `tools/showbus/peerlink-peer.mjs`, the scripted peer, byte for byte, hashes to §14's
+    `peerlink.peer.sha256`, f36847cfebeee05e9e76fa4f2071a4c205a544fddb0231c247c6975893dabc28. The header is the master's, so it
+    reads as the master does today ("Landed (§14): Stagewatch", PlayMap keeping no copy until its copy lands and the Landed line
+    names it). `tools/showbus/.gitattributes` keeps the peer LF on every checkout: its hash is byte for byte, and a Windows checkout
+    that converts line ends would change it (the body is read with CRLF as LF, as §14.5 and the master's script read it).
+  - The hello is 1.3's (§2, §14): `proto` 3 (`ShowBusConstants.Proto`); at most 1200 bytes as sent (`HelloMaxBytes`, which was
+    2048, the reader's bound, used as the sender's); its name and host by §2's rule (`ShowBusHello.NameOf`: no control characters,
+    at most 64 UTF-16 units, never ending inside a surrogate pair), and cut to 32, 16, 8 and then no characters until it fits
+    (`ShowBusHello.Fitted`, the sender's last step after it sets its `inst`). It is written as UTF-8
+    (`JavaScriptEncoder.UnsafeRelaxedJsonEscaping`), so a name in any script costs its own bytes rather than six a character, and
+    `build`'s `+` rides as itself (the default encoder wrote `\u002B`). The doors and caps are as before: open doors only, 16 caps,
+    each a §14 `cap` row that names `playmap` (neither `peerlink` nor `window-draw`, which PlayMap does not offer yet).
+  - The reader (`ShowBusHello.Parse`) takes a datagram up to 4096 bytes (`HelloReadBytes`, at least §14's `hello.read.bytes`) and
+    keeps its first 32 caps of §2's shape (it kept 16 of any 1–32 characters), at most 8 doors with token names, its name and host
+    whole up to 64 characters with control characters dropped, and an `inst` only of 8 lowercase hex. A datagram the JSON reader
+    takes but no hello reader can read out is no hello, and `Parse` never throws on one: a `v` that is a number but not a whole one
+    (`GetInt32` threw `FormatException`), and a string or a property name that escapes a lone surrogate or holds bytes that are not
+    UTF-8 (`GetString` and `JsonProperty.Name` threw `InvalidOperationException`: `t`, `id`, `name`, `host`, `inst`, `tls`, `build`,
+    a cap or a door's name). The listener reads every datagram through a guard (`HelloService.Read`) that drops one the reader
+    faults on, counted with the others dropped, so no datagram ends its loop. Before, one such datagram of 60 bytes from any host on
+    the LAN ended the hello's listen loop, nothing restarted it, and the node heard no hello until it restarted: no Stagewatch
+    followed, no fleet, sync or backup peer found, no conflict marked.
+  - The table (`PeerTable`) keeps at most 128 ids (`PeersMax`); a hello from a new id past that, none past the forget time, is
+    dropped, `Hear` says so and the hello counts it with the dropped datagrams. Per id it keeps every address heard within 6 s, at
+    most 4 (`PeerAddresses`), a new one past that taking the place of the one heard longest ago, never of the one dialled
+    (`ShowBusPeer.Addresses`, newest first). `ShowBusPeer.Address`, the address to dial, stays while it is still heard and moves
+    only once it goes stale; an address change alone is not `Changed` but the new `PeerChangeKind.Moved`, raised only when the
+    address to dial moves (the fleet monitor, which takes every change but `Forgotten`, re-reads its dial from it). A node heard on
+    the network and on this machine raised `Changed` on every other hello before (the address flipped), and with it a facts push.
+    The peer's `Hello` is the one last heard at the address dialled, so the certificate a link pins from it (`StagewatchLinkOptions.
+    FromPeer`) is that address's own.
+  - Two nodes, one id: an `inst` heard within 6 s that comes back after another (A, B, A; A, B, C, A), or, from nodes that send no
+    `inst`, a second host within 6 s, marks the id in conflict (`ShowBusPeer.Conflict`, `PeerConflict.Words`: "two machines say they
+    are 3f9c2a1b7d0e: FOH-PC at 10.0.0.5 and FOH-PC2 at 10.0.0.7"); 60 s without an alternation clears it (`ConflictClearMs`, in
+    `Sweep` or the next hello). A restart (A, then only B) and a run of restarts are never one. A hello of this node's own id from
+    another process (the hello's own `inst` is still how its own hellos are known) is marked at once, "… this node and RACK-2 at
+    10.0.0.7". The mark is the two senders (`PeerConflict.SenderA` and `SenderB`: each one's `inst`, or its host when it sends none;
+    none for this node), never their addresses (§2: one `inst` from two addresses is one node): while both are heard within 6 s it
+    keeps the words it first said, so the same two machines taking turns from another of their addresses (a second engine on this
+    machine heard on 127.0.0.1 and on the LAN broadcast), or a third copy taking turns among them, change nothing a reader is told.
+    It raises `Changed` when it stands, when one of its two goes unheard and another pair takes its place, and when it clears;
+    compared by address, as the mark first was, an id heard at two addresses raised `Changed` and a facts push at every hello.
+    `Live(kind)` leaves out an id in conflict, and the network host's Stagewatch follow reads `Live` alone: it follows no Stagewatch
+    so marked, and matches no typed address to its hello (the typed address is then met as itself, pinned by the address); a link
+    it already has keeps running. The readers that find a PlayMap peer by `Snapshot()` still find one in conflict (Open, below).
+  - The network host shows the mark: STATE's `peers` draws a peer in conflict amber with the mark's words as its headline
+    (`NetworkHost.Peers`, which sets `PeerView.Conflict`). The context lists no peer row for an id in conflict, nor for this node's
+    own id, and at most `context.peers` rows (`ShowBusConstants.ContextPeers`, 32; it listed every peer the table held, as many as
+    128 now) — Show Bus 1.3 §6; another process saying this node's id is the context's amber `bus:hello` item with the mark's words
+    instead, as Stagewatch shows its own clash. A Stagewatch whose mark clears is followed if no Stagewatch is (`OnPeer` takes
+    `Changed` as well as `Added`).
+  - `docs/SHOWBUS-NODE.md` is rewritten for 1.3: the hello example is what the builder says for its inputs (it had no `sync` door and
+    `proto` 1, and now a test holds it); the hearing rules; §2's rows — Stagewatch's Patterns integration pairing by proof (2.18), the
+    node link (a show app, never a screen; the verdict read first; a 2.18 Stagewatch sends it no screen command, an older one's
+    `identify` and `reload` are journal rows and only `redirect` picks the timer's view), triggers needing `X-PlayMap-Token` over
+    https or a trusted address (G30), approvals only once paired, Patterns' Lines devices taken by address only because they do not
+    pair by proof (G35: the page said they did), 9941's `STATE` and `CONTEXT` before pairing as §8.3's named exemption, and never
+    pasting a window's address; §3's links as fix-showbus-keys and fix-showbus-node-link left them; §5 answered item by item.
+    `docs/FLEET.md`'s P1–P3: P1 is the contract's (§14's kind row), P2 and P3 Patterns' own, planned with its Show Bus node devices
+    and not built; the 64-command cap is answered by §6's 256, which Patterns' reader keeps since its round 91.
+- Tests:
+  - `ShowBusSpecTests` (Core, new, `tests/PlayMap.Core.Tests/Bus`), reading this tree alone: the copy has no BOM, its body (from
+    `## 1. Rules every node follows`, CRLF as LF) ends in one line end and hashes to the pinned `BodySha256`; the header prints that
+    hash once in the master's exact Body line and has one Landed line, and neither line is in the body; §14 pins `PeerSha256` once
+    and the scripted peer's bytes hash to it (each failure says to copy the master byte for byte and pin its numbers); the
+    ```showbus block is ASCII rows of one-space words, every name once but the five rows that take one a word, every value a whole
+    number but the four word rows, revision 1.3; Core's constants are the block's rows (`proto`, the hello's ten, the hearing's six,
+    the link's beat and redial, the clock's window and apart time, `context.peers`, the redial's jitter by `Liveness.RedialMs`); the
+    kind rows name
+    PlayMap, Patterns and Stagewatch; every one of `PlayMapCaps` is a `cap` row for `playmap` of the cap shape, and none is `peerlink`
+    or `window-draw`; `Parse` keeps 32 of 42 caps (two of the wrong shape left out), 8 of 10 doors, a 64-character name of emoji
+    pairs whole and a 65-character host cut to 64, an `inst` only of its shape (four wrong ones dropped), no control character, and
+    takes a datagram of exactly `hello.read.bytes`; a fitted hello of five worst names (three-byte, emoji, quotes, unassigned and line
+    separator characters, 80 each) is within `hello.bytes` and reads back, an ordinary one is sent whole with its `ü` as UTF-8; the
+    ```peerlink vectors Core answers hold (7 redial waits by `Liveness.RedialMs`, 3 legacy proofs by `Pairing.Proof`, 2 nonces of
+    another shape refused by `Pairing.IsNonce`), every case is one of the twelve §13.19 names, and the two legacy codes whose
+    canonical form refuses them are counted as the PeerLink core's.
+  - `HelloTests` (Net): PlayMap's hello against the copy's block — `proto` the row's, kind `playmap` a row, every cap a `cap` row for
+    `playmap` and every door a `port` row, within `hello.caps` and `hello.ports`; four worst names within `hello.bytes` once fitted,
+    names within `hello.name.chars`; 64-character name and host sent whole; the sender's `inst` of `hello.inst.chars` hex.
+    `docs/SHOWBUS-NODE.md` §1's example equals what the builder makes for its inputs (as JSON). The table: an address flip raises
+    only `Added`, the dial stays while heard and `Moved` (never `Changed`) once it is stale; a fifth address takes the oldest's
+    place, never the dialled one's, and the peer's certificate is the dialled address's; A, B, A marks the id with both machines named,
+    takes it out of `Live`, raises one `Changed` over four more alternations, stands at 58 s and clears past 60 s with a `Changed`;
+    a restart and a run of restarts are no conflict, A, B, C, A is; no `inst` and two hosts is one, one host from two addresses is
+    not; another process saying this node's id is marked at once; A heard at 127.0.0.1 and 10.0.0.5 taking turns with B at 10.0.0.7
+    for five rounds is one `Changed` with the first words kept, a third copy among them raises nothing, and another process saying
+    this node's id from two addresses is one `Added`; 128 ids are taken, the 129th refused until the others are forgotten. Eleven
+    datagrams no reader can read out (`v` 1.5 and 1e40; a lone surrogate escaped in `name`, `t`, `inst`, `host`, a cap, a door's
+    name and `build`; a raw 0xFF and an encoded surrogate in `name`), sent one by one through the live socket, are each counted
+    dropped, the next hello is heard (heard 1), and `Parse` says null for each.
+  - `PeerConflictTests` (Engine, new): on a running node, real datagrams on its hello port. A, B, A turn the peer amber in STATE with
+    the mark's words, live, and out of `Live`, and the context has no peer row for it nor its words; a hello of the node's own id
+    from another process is amber in STATE, "this node and RACK-2 at 127.0.0.1", no peer row of the context, and the context's amber
+    `bus:hello` item with those words; a Stagewatch heard A, B, A on the node's own clock is not followed (`LINK STAGEWATCH ""` ends
+    "none is heard yet" and no link starts), stands with only A heard every 2 s to 58 s, and is followed once its mark clears past
+    60 s; forty peers are forty rows of STATE's `peers` and 32 of the context's.
+  - Each fix was reverted in turn with the rest kept and the tests above failed: `Parse` without its `InvalidOperationException`
+    arm (the datagram test, at `Parse`), and with the listener's guard gone too (the listener dies at the third datagram); `Live`
+    with conflicts in (both Stagewatch and table tests); the mark replaced at every alternation (the two-address test); `OnPeer` on
+    `Added` alone (the Stagewatch is never followed); the context's peers unfiltered (the three context tests).
+  - `EyeContextTests` (16 caps sent, within the bytes) and `WireAndBusTests` (the hello read back) pass unchanged against the new
+    bounds; `HelloMaxBytes` is now 1200, so both hold the hello to the sender's 1.3 limit.
+- Files: the owner's leave for this batch names `docs/SHOWBUS.md` and `tools/showbus/` (new), `src/PlayMap.Net/Bus/HelloService.cs`,
+  `docs/SHOWBUS-NODE.md`, `docs/FLEET.md` and this file, with the tests (`tests/PlayMap.Core.Tests/Bus/ShowBusSpecTests.cs` new,
+  `tests/PlayMap.Net.Tests/HelloTests.cs`, `tests/PlayMap.Engine.Tests/Host/PeerConflictTests.cs` new). Three source files lie outside
+  the leave's list: `src/PlayMap.Core/Bus/ShowBus.cs` (the reader's caps, doors, names and `inst`, its fail-closed read, the hello's
+  encoding and fit, and the 1.3 numbers with `ContextPeers`: the reader the leave calls `HelloService` parses there),
+  `src/PlayMap.Net/Bus/PeerTable.cs` (the 128 ids, the addresses, the sticky dial and the conflict mark live in the table
+  `HelloService` fills), and `src/PlayMap.Engine/Host/NetworkHost.cs`, two hunks only: `Peers()`'s conflict arm (the amber row and
+  `PeerView.Conflict`) and `OnPeer`'s `Changed`. The plan's own words for this batch ("the reader keeps 32 caps and 128 peers,
+  speaks proto 3, follows the address rule and shows conflicts") are code in those files, not in `HelloService.cs`; spec-1-3 M1,
+  this batch's source, names the first two; the leave names `ShowBus.cs` for fix-peerlink-core and `NetworkHost.cs` for
+  fix-showbus-identify, fix-showbus-keys, fix-showbus-node-link and fix-peerlink-core; no round-3 package owns any of the three and
+  none is a spine file. The leave names files, so this batch asks the owner to extend it to these three — `NetworkHost.cs` for those
+  two hunks alone — before it merges; that ask is open. Two spine files change through the spine lane (§5.7), as fix-media-page-import
+  and fix-showbus-node-link changed theirs, named in the batch's commit as the lane's amendment rather than a "Spine:" commit of their
+  own: `src/PlayMap.Engine/Seams.cs` (`PeerView` gains the init-only `Conflict`; its positional shape and every caller are unchanged)
+  and `src/PlayMap.Engine/ContextBuilder.cs` (the context's peers line: no row for an id in conflict or this node's own id, at most
+  `ContextPeers`, and this node's own clash as the `bus:hello` item; five lines where one was). No verb, catalogue row, STATE key or
+  fixture moves (STATE's `peers` fields are unchanged; a peer in conflict is a value of them; the context gains a row-less peer and
+  an item kind, `bus`, only while a clash stands).
+- Papers notes for the integrator:
+  - `docs/WIRE.md`, STATE `peers`: a peer two running nodes say (or another process saying this node's id) is `"light":"amber"` with
+    its `headline` "two machines say they are <id>: <host> at <address> and <host> at <address>" ("this node and …" for this node's
+    own id), the words first said while the same two machines are heard. `CONTEXT`'s `peers`: no row for an id in conflict or for
+    this node's own id, at most 32 rows; another process saying this node's id is an amber item `bus:hello` (kind `bus`, label "Show
+    Bus hello") with the same words. The plan's "WIRE adds `refused` to `links.stagewatch.state`": fix-showbus-node-link published a
+    refused key as `held` (Show Bus 1.3 §13.16's word) and its notes give WIRE that row; `refused` stays §13.16's word for what a
+    person must act on, which fix-peerlink-core brings. Nothing more from this batch on that row.
+  - `docs/ARCHITECTURE.md` §7, the hello: `proto` 3, at most 1200 bytes, names and hosts at most 64 characters; the reader keeps 32
+    caps, 128 ids, every address of an id with the dialled one sticky, and marks two nodes saying one id.
+  - `README.md`, "Talking to Patterns and Stagewatch": Patterns draws PlayMap lit once its Show Bus node devices read PlayMap's
+    context (P1 is now the contract's; P2 and P3 are planned on Patterns' side, `docs/FLEET.md`), not "once it takes a patch"; its
+    Lines devices drive PlayMap from a trusted address, since they do not pair by proof; Stagewatch's Patterns link pairs with
+    PlayMap's token by proof.
+  - `docs/ROADMAP.md`: nothing moves; the Show Bus 1.3 copy is in this tree from this batch.
+- Open:
+  - The master's §8.3 still lists "`proto` 1, and its hello reader's limits (§2) — ends with its 1.3 copy" among what PlayMap does not
+    keep yet; this batch ends it. The words are the master's: Stagewatch's next release takes them and names Mapper on its Landed line
+    (SW20.14), and this copy follows it byte for byte with both hashes. §8.3 also does not say that PlayMap's own context reader
+    (`Core/Bus/ShowContext.Parse`) keeps 64 commands where §6 asks a reader that keeps commands to keep 256 — the integration pass's
+    file (round 3 §5.6 item 7); a note for the master's next release too. Stagewatch's `tools/showbus-copies.sh`, run read-only, says
+    "Mapper not landed: not compared" today; run from a scratch copy of the master whose Landed line names Mapper (its body
+    unchanged), it says "Mapper holds the master".
+  - The fleet board's view (`Engine/Fleet/FleetNetworkView.cs`) gives a PlayMap peer whose HEALTH it reads that health's light and
+    headline, over the network host's: a PlayMap id in conflict that the fleet also reads shows its health in STATE's `peers`, not the
+    mark (its `with` keeps `PeerView.Conflict`, so the context still lists no row for it). The file is
+    outside this batch; the next batch that edits it keeps the mark's amber and words (the fleet monitor keeps its subscription to the
+    address dialled, a door that is not a PeerLink, §8.3).
+  - A link's own state for an id in conflict (§13.15.3: `held`, refusal `conflict`, dialled again when the mark clears) is the PeerLink
+    core's (fix-peerlink-core); here the network host's Stagewatch follow dials no new link to an id in conflict and follows again once
+    the mark clears.
+  - The readers that find a PlayMap peer by the table's `Snapshot()` still find, and dial, an id in conflict: the network host's
+    `FindPeer` (`SYNC FOLLOW`'s leader and the clock it asks, `ClockOf`) and `FetchAsync` (`MEDIA FETCH`), `SyncNode.FindPeer` (the
+    follow's rejoin of its leader by id, `Engine/Sync/SyncNode.cs`), so a cloned id is followed as a sync leader, which takes the clock,
+    the transport and the air from whichever machine's hello the table holds at the dialled address; the fleet monitor
+    (`Net/Fleet/FleetMonitor.cs`, through `Engine/Fleet/FleetExtension.cs`'s table), which subscribes to a PlayMap peer's HEALTH
+    whatever its mark; and `BackupNode`'s peer lookups and its fetch (`Engine/Fleet/BackupNode.cs`). §2 asks that no new link is
+    dialled to an id in conflict while the mark stands. Each is outside this batch's leave and its narrowed `NetworkHost.cs`
+    ask; the batch that next owns each file gates its lookup on `ShowBusPeer.Conflict is null` with words naming the mark
+    (fix-peerlink-core for `NetworkHost.cs`), with a test that hears A, B, A and is refused.
+  - The ```peerlink vectors Core does not answer yet — `canon`, `key`, `proof`, `refuse`, `parse`, `liveness`, `errms`, `clock`,
+    `outcome` and `machine`, and the two legacy codes whose canonical form refuses them (`Pairing.Normalise` reads a no-break space as
+    a space and keeps a byte order mark, so the 1.1 proof would answer both) — and §13.20's scenarios against the scripted peer are
+    fix-peerlink-core's, which brings the PeerLink core they run against.
+  - A peer heard from 127.0.0.1 or from one of this machine's own addresses is not yet dialled at 127.0.0.1 first (§2 says a reader
+    may); every link dials the address its hello came from.
