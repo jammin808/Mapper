@@ -1926,9 +1926,11 @@ Round 2 W1 notes:
   `src/PlayMap.Engine/Host/NetworkHost.cs` (`Stagewatch()`'s view, the `PairingChanged` subscription, and the two `LINK STAGEWATCH`
   replies), with the tests above. `NetworkHost.cs` lies outside the leave's list for this batch: `paired` and the `held` state are
   computed there and nowhere else, and the source design (peers-not-screens PM-2) names those lines; the leave names the file for
-  fix-showbus-identify, fix-showbus-keys and fix-peerlink-core, and no round-3 package owns it. The leave names files, so this batch
-  asks the owner to extend it to `NetworkHost.cs` before it merges; that ask is open. No verb, catalogue row, STATE key or fixture
-  moves (`tests/fixtures/state/main.json`'s `links.stagewatch` is `{"state":"off"}`); `links.stagewatch.state` gains the value `held`.
+  fix-showbus-identify, fix-showbus-keys and fix-peerlink-core, and no round-3 package owns it. The leave names files; the owner
+  extended it on 2026-10-26 to `NetworkHost.cs`, for the change as 616922a made it, and to the `LinkLight` arm alone of
+  `src/PlayMap.App/ViewModels/MainViewModel.cs` (the desk's link lights, the regression this entry names). No verb, catalogue row,
+  STATE key or fixture moves (`tests/fixtures/state/main.json`'s `links.stagewatch` is `{"state":"off"}`); `links.stagewatch.state`
+  gains the value `held`.
 - Papers notes for the integrator:
   - `docs/WIRE.md`, STATE `links`: `stagewatch.state` is live, stale, connecting, down or `held` (Stagewatch refused this node's key, its
     hold runs and no connection is up; Show Bus 1.3 §13.16's word); `stagewatch.paired` is Stagewatch's answer for the key — its
@@ -1949,12 +1951,11 @@ Round 2 W1 notes:
     failed to red, and any other word to grey, so a `held` link — a refused key, its hold running, no connection up, which read `down`
     and red before this batch — is drawn grey (off) for its hold (60 s, or Stagewatch's `retry`). The desk's lights rule wants a
     fault's light red with its shape. The fix is one arm: `"down" or "failed" or "held" => "red"`. `src/PlayMap.App/**` is the wave's
-    desk package's (round 3 §4), not this batch's leave, so this batch does not touch it: either the owner extends this batch's leave
-    by that one arm, as the fix-showbus-keys and fix-media-page-import leaves were extended, or the desk package of the wave this batch
-    merges beside lands it first. The same file draws a live, unpaired link green (it reads `state` alone, as before this batch);
-    preflight and the context draw it amber, and the arm that reads `paired` belongs with the one above. The Links drawer
-    (`DrawerViewModels.cs`) shows the state word as given.
-  - The owner's extension of this batch's leave to `src/PlayMap.Engine/Host/NetworkHost.cs` (above) is asked and not yet given.
+    desk package's (round 3 §4), outside the leave as it was first given. The same file draws a live, unpaired link green (it reads
+    `state` alone, as before this batch); preflight and the context draw it amber, and the arm that reads `paired` belongs with the one
+    above. The Links drawer (`DrawerViewModels.cs`) shows the state word as given. *Answered* (2026-10-26): the owner extended this
+    batch's leave to `MainViewModel.cs`'s `LinkLight` arm only — held draws red, and a live link that is not paired draws amber, as
+    preflight and the context do. The row stands until the arm lands.
   - A refused key's hold lives in the link: a restart, a `LINK STAGEWATCH` or a hello that moves the link starts a new link that
     dials at once and proves the key again. Show Bus 1.3 §13.15 keeps the hold with its end in wall time across a restart, and returns
     the redial's count to 0 only after a verified link stayed up `peerlink.stable.ms`; here the count returns to 0 at every clean
