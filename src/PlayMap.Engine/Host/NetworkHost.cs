@@ -350,9 +350,18 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         if (_stagewatch is not { } link)
             return null;
         var view = _stagewatchView;
-        var detail = link.Words + (view.Length > 0 ? (link.Words.Length > 0 ? " · " : "") + "showing " + view : "");
-        // A link that holds its key back (no TLS off this machine) reads the timer, and is not paired.
-        return new LinkView(StatusWord(link.Status), link.Address, link.Status == LinkStatus.Live && !link.KeyHeldBack, detail);
+        var (pairing, refusal, refusedFor) = link.PairingNow;
+        var status = link.Status;
+        var up = status is LinkStatus.Live or LinkStatus.Stale;
+        // A refused key whose hold runs with no connection up is the link's state, held (Show Bus 1.3 §13.16); past its hold the link
+        // is what its dial says, in the dial's words. While a connection is up, a refusal on it is the detail.
+        var held = pairing == PairState.Refused && refusedFor > TimeSpan.Zero && !up;
+        var words = pairing == PairState.Refused && (up || held) ? refusal : link.Words;
+        var detail = words + (view.Length > 0 ? (words.Length > 0 ? " · " : "") + "showing " + view : "");
+        // Paired is Stagewatch's answer for the key on the connection up now (no key set asks none once the first message is read); a
+        // link that holds its key back (no TLS off this machine) reads the timer and is not paired.
+        var paired = status == LinkStatus.Live && !link.KeyHeldBack && pairing is PairState.Paired or PairState.NotNeeded;
+        return new LinkView(held ? "held" : StatusWord(status), link.Address, paired, detail);
     }
 
     public string? StagewatchTimerJson()
@@ -460,7 +469,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                     SettingsHoldNoKey();
                 StartStagewatchFromSettings();
                 return _stagewatch is { } found
-                    ? $"following the Stagewatch heard at {found.Address} as a screen"
+                    ? $"following the Stagewatch heard at {found.Address} {StagewatchAs()}"
                     : "following the first Stagewatch heard — none is heard yet";
             }
             var address = PatternsLinkOptions.ParseAddress(host, ShowBusConstants.StagewatchHttpPort)
@@ -470,7 +479,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             StartStagewatch(StagewatchOptions(address.Host, address.Port, keep));
             if (Persist(s => s with { StagewatchEnabled = true, StagewatchHost = host, StagewatchKey = "" }))
                 SettingsHoldNoKey();
-            return string.Create(CultureInfo.InvariantCulture, $"following Stagewatch at {address.Host}:{address.Port} as a screen");
+            return string.Create(CultureInfo.InvariantCulture, $"following Stagewatch at {address.Host}:{address.Port} {StagewatchAs()}");
         }
         finally
         {
@@ -836,6 +845,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         Journal("network", words, ok: false);
     }
 
+    /// <summary>How this node is followed, as its link dials: on a node link when its id is a Show Bus id, else as a screen (a Stagewatch
+    /// older than 2.18 reads either as a screen).</summary>
+    private string StagewatchAs() => StagewatchLink.DialsAsNode(_running.NodeId) ? "on a node link" : "as a screen";
+
     private StagewatchLinkOptions StagewatchOptions(string host, int port, string key)
     {
         // A Stagewatch heard at that address is met as itself (pinned by its id, TLS or nothing when its hello names a certificate,
@@ -877,6 +890,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         var engine = _engine ?? throw new InvalidOperationException("the engine is not running yet");
         var link = new StagewatchLink(options, engine, _o.Wall, _o.Pins, _o.Mono, _o.Logs.CreateLogger("PlayMap.Net.Stagewatch"));
         link.StatusChanged += _ => Facts();
+        link.PairingChanged += _ => Facts();
         link.FrameReceived += _ => Facts();
         link.ScreenCommand += command => OnScreenCommand(command, options.DisconnectHold);
         _stagewatch = link;

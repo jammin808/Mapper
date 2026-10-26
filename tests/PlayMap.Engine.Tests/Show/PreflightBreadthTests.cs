@@ -2,11 +2,13 @@ using System.Globalization;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Show;
 using PlayMap.Engine.Tests.Host;
 using PlayMap.Net.Http;
+using PlayMap.Net.Links;
 
 namespace PlayMap.Engine.Tests.Show;
 
@@ -194,6 +196,102 @@ public sealed class PreflightBreadthTests
         net.PatternsNow = new LinkView("live", "10.0.0.5:7000", true, "no clip on air");
         net.StagewatchNow = new LinkView("live", "10.0.0.6", true, "");
         Assert.All(await Check(new LinksCheck(), rig.Engine), r => Assert.Equal(Light.Green, r.Light));
+    }
+
+    private const string SpeaksForPatterns = "this key speaks for patterns 9f8e7d6c — make a key for playmap 0badc0de";
+
+    [Fact]
+    public async Task AStagewatchThatHoldsThisNodesRefusedKeyIsRedWithItsWordsAndNoLine()
+    {
+        var net = new Net { StagewatchNow = new LinkView("held", "10.0.0.6:9924", false, StagewatchLink.KeyRefused + "unknown or revoked API key") };
+        await using var rig = new ShowRig(services: s => s with { Network = net });
+        var row = (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:stagewatch");
+        // The fix is on Stagewatch (a node key for this node, or the key let speak for it): no line here carries it.
+        Assert.Equal((Light.Red, "held", (string?)null), (row.Light, row.Value, row.Fix));
+        Assert.Equal("Stagewatch at 10.0.0.6:9924 refused this node's key — unknown or revoked API key — dialled again when its hold ends", row.Note);
+        var item = ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "link:stagewatch");
+        Assert.Equal((Light.Red, "held, key refused — unknown or revoked API key"), (item.Light, item.State));
+
+        // A refusal that names no key (the viewing code, asked of a node with none) is said as the far end's.
+        net.StagewatchNow = new LinkView("held", "10.0.0.6:9924", false, "viewing code asked — Enter the viewing code");
+        row = (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:stagewatch");
+        Assert.Equal((Light.Red, "held", (string?)null), (row.Light, row.Value, row.Fix));
+        Assert.Equal("Stagewatch at 10.0.0.6:9924 refused this node: viewing code asked — Enter the viewing code — dialled again when its hold ends", row.Note);
+
+        // Live, its key refused: heard but not paired, amber with Stagewatch's words, in preflight and the context alike.
+        net.StagewatchNow = new LinkView("live", "10.0.0.6:9924", false, StagewatchLink.KeyRefused + SpeaksForPatterns);
+        row = (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:stagewatch");
+        Assert.Equal((Light.Amber, "not paired", (string?)null), (row.Light, row.Value, row.Fix));
+        Assert.Equal($"heard at 10.0.0.6:9924 but not paired — key refused — {SpeaksForPatterns}", row.Note);
+        Assert.Equal(Light.Amber, ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "link:stagewatch").Light);
+
+        // Paired: green in both.
+        net.StagewatchNow = new LinkView("live", "10.0.0.6:9924", true, "following Stagewatch at 10.0.0.6:9924 over TLS");
+        Assert.Equal(Light.Green, (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:stagewatch").Light);
+        Assert.Equal(Light.Green, ContextBuilder.Build(rig.Engine).Items.Single(i => i.Id == "link:stagewatch").Light);
+    }
+
+    [Fact]
+    public async Task ANodesStagewatchLinkIsHeldWhileItsRefusedKeysHoldRunsAndThenSaysWhatItsDialMeets()
+    {
+        // A Stagewatch on this machine that refuses the key: the link reads its frames, unpaired, with Stagewatch's words. Once the
+        // connection goes, the link is held, red in preflight with no line. Then Stagewatch itself goes: past the hold, on the node's
+        // own clock, the link is not heard, red with the line that links it again, in what its dial met.
+        var clock = new ManualClock(1_000 * 1_000_000_000L);
+        var sw = await ScreensStagewatch.StartAsync();
+        try
+        {
+            sw.Verdict = "{\"type\":\"auth\",\"ok\":false,\"error\":\"unknown or revoked API key\",\"retry\":60}";
+            await using var rig = await HostRig.StartAsync(mono: clock);
+            var address = "127.0.0.1:" + sw.Port.ToString(CultureInfo.InvariantCulture);
+            await rig.OkAsync($"LINK STAGEWATCH {address} swk_refused0123456789");
+            Assert.True(await Eventually.TrueAsync(() => rig.Journal().Contains($"network: following Stagewatch at {address} on a node link", StringComparison.Ordinal)),
+                rig.Journal());
+            Assert.True(await Eventually.TrueAsync(() => rig.Network.Stagewatch() is { State: "live", Paired: false } v
+                && v.Detail.StartsWith(StagewatchLink.KeyRefused, StringComparison.Ordinal)), rig.LogTail());
+            Assert.Equal(StagewatchLink.KeyRefused + "unknown or revoked API key", rig.Network.Stagewatch()!.Detail);
+            Assert.Equal("live", Link(rig).GetProperty("state").GetString());
+            Assert.False(Link(rig).GetProperty("paired").GetBoolean());
+
+            sw.Drop();
+            Assert.True(await Eventually.TrueAsync(() => rig.Network.Stagewatch()?.State == "held"), rig.LogTail());
+            var row = (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:stagewatch");
+            Assert.Equal((Light.Red, "held", (string?)null), (row.Light, row.Value, row.Fix));
+            Assert.Equal($"Stagewatch at {address} refused this node's key — unknown or revoked API key — dialled again when its hold ends", row.Note);
+            Assert.Equal("held", Link(rig).GetProperty("state").GetString());
+            Assert.Equal(1, sw.Screens);
+
+            await sw.DisposeAsync();
+            clock.Advance((long)StagewatchLink.RefusedHold.TotalMilliseconds * 1_000_000 + 1);
+            Assert.True(await Eventually.TrueAsync(() => rig.Network.Stagewatch() is { State: "down" or "connecting" } v
+                && v.Detail.StartsWith($"Stagewatch at {address}: ", StringComparison.Ordinal), 20_000), rig.LogTail());
+            row = (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:stagewatch");
+            Assert.Equal((Light.Red, $"LINK STAGEWATCH {address}"), (row.Light, row.Fix));
+            Assert.StartsWith($"Stagewatch at {address} is not heard (", row.Note, StringComparison.Ordinal);
+            Assert.NotEqual("held", Link(rig).GetProperty("state").GetString());
+            Assert.Equal(1, sw.Screens);
+        }
+        finally
+        {
+            await sw.DisposeAsync();
+        }
+
+        static System.Text.Json.JsonElement Link(HostRig rig) => rig.State().GetProperty("links").GetProperty("stagewatch");
+    }
+
+    [Fact]
+    public async Task ANodeWithNoStagewatchKeyIsPairedOnceTheLinkIsLive()
+    {
+        await using var sw = await ScreensStagewatch.StartAsync();
+        await using var rig = await HostRig.StartAsync();
+        sw.Verdict = "{\"type\":\"auth\",\"ok\":true,\"scope\":\"none\",\"node\":{\"t\":\"playmap\",\"id\":\"" + rig.Id
+            + "\",\"verified\":\"none\"},\"words\":\"no key — the id is only claimed\"}";
+        var address = "127.0.0.1:" + sw.Port.ToString(CultureInfo.InvariantCulture);
+        await rig.OkAsync($"LINK STAGEWATCH {address}");
+        // No key set asks no proof: live is paired, green in preflight.
+        Assert.True(await Eventually.TrueAsync(() => rig.Network.Stagewatch() is { State: "live", Paired: true }), rig.LogTail());
+        Assert.Equal("", Assert.Single(sw.Authorizations));
+        Assert.Equal(Light.Green, (await Check(new LinksCheck(), rig.Engine)).Single(r => r.Id == "links:stagewatch").Light);
     }
 
     [Fact]

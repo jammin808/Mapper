@@ -1819,3 +1819,155 @@ Round 2 W1 notes:
     decodable); no reader asks it for one now. Its owner may give it the page's words.
   - A window's token with no host before it (a rooted path's `/w/<token>`) is read as a file, as Patterns' rule reads it; Patterns'
     log reader also masks such a token (`BareWindowToken`), which a line PlayMap writes down does not.
+
+## Integrator notes from the round-2 fix batch (fix-showbus-node-link)
+
+- Done: PlayMap dials Stagewatch as a show app on a node link and is paired only by Stagewatch's own answer for its key (gaps G06's
+  PlayMap half, G43, G31's honest `paired`; peers-not-screens PM-2).
+  - The link asks for `/ws?node=<its id>&t=playmap&cid=<its cid>&page=/playmap&detail=1` (`StagewatchLink.SocketPath`) when its id
+    is a Show Bus id as Stagewatch reads one (1–40 letters, digits, `-` or `_`, `StagewatchLink.DialsAsNode`); the `cid` and `page` are
+    what a Stagewatch older than 2.18 reads (it ignores `node`), the `cid` kept as it was (`playmap-<id>` for an id Stagewatch would not
+    keep as a screen's). Any other id dials today's screen query alone. A 2.18 Stagewatch therefore lists the node as a show app, never
+    as a screen, and sends it no screen command (its `identify all` no longer reaches the node at all; fix-showbus-identify made one a
+    journal row).
+  - `StagewatchLink.Pairing` (`PairState`) is what Stagewatch made of the key on the connection up now, set before the link does
+    anything else. A new connection starts it `Unknown`; with no key set, the connection's first message settles it `NotNeeded` unless
+    that message refused it, so a keyless link is never called paired before Stagewatch has said anything. Stagewatch's verdict
+    (`{"type":"auth","ok":true,…,"node":{"t","id","verified"}}`, the first message of a 2.18 node link, sent again when the key, its
+    binding or the PIN changes) pairs the link when `verified` is `key` or `operator`, and refuses the key with Stagewatch's `words`
+    when it is `none` on a link that carried the key; a verdict on a link with no key set leaves `NotNeeded`, and one naming another
+    node is not this link's. `{"type":"auth","ok":false,"error",…,"retry"}` refuses the key and holds it for its `retry`, at least
+    `StagewatchLink.RefusedHold` (60 s, Show Bus 1.3 §13.15's `peerlink.hold.refused.ms`) and at most `MaxRefusedHold` (1 h); the
+    socket stays for the public frame. A keyless link that hears a viewing-code refusal (`"view":true`) is refused with those words, no
+    key named, and held as every refused admission is (Stagewatch closes the socket after it; unheld, the link dialled, was let in,
+    read green and was shut again at the backoff, about twice a second). From a Stagewatch that sends no verdict, a keyed context post
+    answered 2xx pairs the link, unless its body says `"verified":"none"` (the key speaks for no node: refused with words). A side
+    call's answer settles the pairing only when no verdict or refusal came after the call left (`_verdicts`), so a late 2xx never undoes
+    a newer refusal. `PairingNow` reads the pairing, the refusal and its hold as one, under the link's lock.
+  - Nothing keyed is sent before the connection's first message is read (a 2.18 verdict is the first thing Stagewatch sends), and no
+    keyed call (context post, approval collect) goes while a refusal or a rate limit holds the key. Approved lines run as a paired
+    session's, so the queue is collected only while `Pairing` is `Paired` (the context post, which goes first in a beat, pairs a
+    Stagewatch that sends no verdict). A 401 or 403 on the context post or the collect refuses the key with the body's `error`
+    verbatim (bounded to 240 characters), held for its `Retry-After` (at least 60 s): a Stagewatch older than 2.18, which counts an
+    unknown key toward its address lockout, hears one keyed call a minute from a refused PlayMap, under its five. A 429 is Stagewatch's
+    rate limit on a good key (Show Bus 1.3 §13.14 takes its `Retry-After` as a hold, class `busy`): keyed calls and the next dial wait
+    its `Retry-After` (60 s without one, 1 h at most, `StagewatchLink.BusyFor`), the pairing stands, and the words say "Stagewatch at …
+    rate-limits this node's key — next try in N s (<its words>)". The old "the Stagewatch key may not post this node's context — make
+    a node key on the Stagewatch" gives way to Stagewatch's own words ("this key speaks for patterns 9f8e7d6c — make a key for playmap
+    a1b2c3d4"). Any other refused collect or context post is said ("Stagewatch at … refused this node's collect — <its words>") and
+    changes no pairing. A fresh `ok` verdict on the open socket (the operator lets the key speak for this node) lifts the refusal and
+    its hold at once.
+  - The redial waits max(the backoff, the operator's disconnect hold, a refused key's hold, a rate limit's) on every exit path: each
+    hold is recorded in the link's fields as the message that brings it is read, before the close or anything else, so a connection
+    that ends in an exception (a close that races the far end's abort) waits as a clean end does. The wait reads the holds again on the
+    link's clock every 250 ms (the clock that recorded them), so a hold ends the wait when it ends on that clock. This makes true
+    fix-showbus-identify's open row: the disconnect's journal row names the hold the link now keeps, however the connection ends.
+  - A refusal's hold ends: once the wait it caused is over with no connection up, the holds are spent, the refusal stands no longer
+    (`Pairing` returns to `Unknown`, `Refusal` to "", `PairingChanged` raised), and the next dial asks again. Its words stand while its
+    hold runs; a dial that fails after it says what it met ("Stagewatch at …: <the failure>"), never the old refusal, and so does a
+    connection that drops while a refusal with no hold stands. A Stagewatch that refused the key and then went away reads `down` or
+    `connecting` with the dial's words and preflight's not-heard row with its `LINK STAGEWATCH` line, not a key to fix on a machine that
+    does not answer. While a connection is up, a refusal on it is retried after its hold by one keyed call, as Show Bus 1.3 §13.15 has
+    a key proved again when its hold ends.
+  - `StagewatchLink.Refusal` is the refusal as people read it (`key refused — <Stagewatch's words>`, `StagewatchLink.KeyRefused`), and
+    `PairingChanged` is raised on each move, which the network host turns into a facts push, so every reader hears it with the link's
+    status. The side calls' answers are buffered whole and bounded as a message is (1 MiB).
+  - The network host (`NetworkHost.Stagewatch`): `paired` is the link live, its key not held back, and `Pairing` `Paired` or
+    `NotNeeded`; `state` is `held` (Show Bus 1.3 §13.16's word for a refused key whose hold runs) while a refused key's hold runs and
+    no connection is up, else the link's status; `detail` is the refusal while one stands on a connection up or holds the link, else
+    the link's words. The plan's "refused state" is published as `held`: §13.16 (Stagewatch's SHOWBUS.md, landed with SW19.1a) keeps
+    `refused` for what a person must act on (a changed certificate, a floor, another id, an id conflict), which fix-peerlink-core
+    brings, so no reader learns a word for this case that must be renamed. `LINK STAGEWATCH`'s ended row says "following Stagewatch at
+    <host>:<port> on a node link", or "as a screen" for an id that dials as one (it said "as a screen" for both).
+  - Preflight (`LinksCheck`): a `held` link is red, as a link not heard is (preflight takes every link a node follows as one its show
+    needs), value `held`, "Stagewatch at <host> refused this node's key — <Stagewatch's words> — dialled again when its hold ends" (a
+    refusal naming no key: "refused this node: <its words>"), with no fix line (the fix — a node key for this node, or the key let speak
+    for it — is on Stagewatch). A live link whose key is refused stays the amber "heard … but not paired — key refused — <words>".
+  - The spine lane (§5.7), this batch's two spine-file hunks, one line each: `ContextBuilder.cs`'s Stagewatch item is amber while the
+    link is live and not paired (as the Patterns item is; it was green whenever live, so a held-back or refused key read as fine to
+    the Eye, Stagewatch's show network and the assistant); its text was already `state, detail` ("held, key refused — …"), and `held`
+    is red there as `down` is. `Seams.cs`' `LinkView` summary names the states (`held` among them) and what `Paired` and `Detail`
+    mean; the record is unchanged. The batch lands as one commit whose body names both as the lane's amendment, as
+    fix-media-page-import's did, rather than a "Spine:" commit of their own.
+- Tests:
+  - `StagewatchLinkTests` (Net): the asked line is the node link's (`ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1
+    auth=Bearer swk_test0123456789`) in every test that asserts it; `SocketPath` for an 8-hex id, a short id, a 35-character id, an id
+    with a space and a 41-character id (the last two dial as a screen); a verdict of the key pairs the link and the context goes after
+    it; a keyless link stays `NotNeeded` whatever the verdict says, sends no Authorization and posts nothing; a refused key (`ok:false`,
+    `retry 60`) is `Refused` with `key refused — unknown or revoked API key`, held exactly 60 s on the test's clock, posts no context and
+    asks no queue while the frame keeps coming, and — with the socket dropped by the test once the refusal is read, no close — dials
+    once in 3 s with its words kept; a refusal's `retry` held as given between 60 s and 1 h (none and 30 hold 60 s, 90 holds 90 s, 99999
+    holds an hour); a 401 with `Retry-After: 120` held 120 s; a fresh verdict of the key lifts the refusal and the hold, restores the
+    connection's words, lets the context go, and raises `PairingChanged` exactly twice (refused, paired); a verdict of `none` with
+    words refuses the key verbatim and the context's 403 then holds it, one post in four pings; a Stagewatch with no verdict pairs on
+    the keyed 204; a context 2xx held back by the fake and landing after a fresh `ok:false` leaves the link refused; a 403 on the
+    context says Stagewatch's words, holds 60 s, and neither the context nor the queue is asked again in four pings; a 429 with
+    `Retry-After: 30` holds keyed calls 30 s with the link still paired and nothing refused; with a Stagewatch whose context post fails
+    (500) no queue is asked until a 2xx pairs the link; a refused collect (400) is said and changes no pairing, and a 403 on the collect
+    refuses the key and holds every keyed call; a keyless link refused for the viewing code is `Refused` with "viewing code asked — …",
+    held 60 s, its only move, and dials once in 3 s; a refusal with no hold whose connection drops goes down saying the drop; the
+    operator's disconnect, the far end dropping as the command is told, is held 30 s as the command is read and the link dials once in
+    3 s; past a refused key's hold on the link's clock, with Stagewatch gone, the pairing is `Unknown` with no refusal (moves: refused,
+    unknown), the words are the failed dial's, and one connection was made. The fake Stagewatch gains a per-connection verdict, a clean
+    close after it, a drop on the test's cue (only connections still served), a held context answer with a status, body and
+    `Retry-After`, the queue's status and body, and an idempotent stop. Every drop is the test's own cue, after the link has read what
+    it was to read: no fake drops on a timer.
+  - `PreflightBreadthTests` (Engine): a `held` link is red with Stagewatch's words and no line, and the context's item red; a held
+    refusal naming no key is said as the far end's; a live link with its key refused amber in preflight and the context; paired green
+    in both. On a running node on a test clock, a Stagewatch on this machine that refuses the key leaves the link live, unpaired, with
+    `key refused — unknown or revoked API key` as its detail (STATE `links.stagewatch` live, `paired` false); dropped, the link is
+    `held` in STATE and red in preflight with no line, with one connection; then, Stagewatch stopped and the clock moved past the hold,
+    the link reads `down` or `connecting` with the failed dial's words, red in preflight with `LINK STAGEWATCH <address>`, and STATE no
+    longer says `held`. A node with no Stagewatch key is paired once live, green, with no Authorization sent. `ScreensStagewatch` (the
+    Engine tests' small Stagewatch, `StagewatchIdentifyTests.cs`) gains a per-connection verdict, `Drop` (only connections still
+    served) and an idempotent stop. `NodeCredentialStoreTests`' ended row reads "on a node link".
+- Files: `src/PlayMap.Net/Links/StagewatchLink.cs` and `src/PlayMap.Engine/Show/PreflightBreadth.cs`, which the owner's leave names for
+  this batch; `src/PlayMap.Engine/ContextBuilder.cs` and `src/PlayMap.Engine/Seams.cs` (one line each, the spine lane); and
+  `src/PlayMap.Engine/Host/NetworkHost.cs` (`Stagewatch()`'s view, the `PairingChanged` subscription, and the two `LINK STAGEWATCH`
+  replies), with the tests above. `NetworkHost.cs` lies outside the leave's list for this batch: `paired` and the `held` state are
+  computed there and nowhere else, and the source design (peers-not-screens PM-2) names those lines; the leave names the file for
+  fix-showbus-identify, fix-showbus-keys and fix-peerlink-core, and no round-3 package owns it. The leave names files, so this batch
+  asks the owner to extend it to `NetworkHost.cs` before it merges; that ask is open. No verb, catalogue row, STATE key or fixture
+  moves (`tests/fixtures/state/main.json`'s `links.stagewatch` is `{"state":"off"}`); `links.stagewatch.state` gains the value `held`.
+- Papers notes for the integrator:
+  - `docs/WIRE.md`, STATE `links`: `stagewatch.state` is live, stale, connecting, down or `held` (Stagewatch refused this node's key, its
+    hold runs and no connection is up; Show Bus 1.3 §13.16's word); `stagewatch.paired` is Stagewatch's answer for the key — its
+    node-link verdict, or a keyed 2xx from a Stagewatch that sends none — and true for a live link with no key set once its first
+    message is read; `stagewatch.detail` is `key refused — <Stagewatch's words>` while a refusal stands. `LINK STAGEWATCH`'s ended row
+    says "on a node link" (or "as a screen").
+  - `docs/SHOWBUS-NODE.md` §2 and §3: the Stagewatch link dials `/ws?node=<id>&t=playmap&cid=<cid>&page=/playmap&detail=1`, is a show
+    app (never a screen) to a 2.18 Stagewatch, reads its verdict first, sends nothing keyed before it, collects approvals only once
+    paired, holds a refused key 60 s (or its `retry`, at most an hour) before any keyed call or dial, and waits a 429's `Retry-After`.
+    The fix-showbus-1.3 batch takes that file.
+  - `docs/ARCHITECTURE.md` (the Stagewatch link, "as a screen (`cid`, `page=/playmap`)"): as a show app on a node link (`node`,
+    `t=playmap`), with the `cid` and `page` an older Stagewatch reads.
+  - The Companion module's `stagewatch_link` variable passes `held` through as it is; no fixture moves.
+  - No verb or desk control moves, so `README.md` and `docs/ROADMAP.md` have nothing from this batch.
+- Open:
+  - **A regression this batch brings to the desk, to close before it merges.** `MainViewModel.LinkLight`
+    (`src/PlayMap.App/ViewModels/MainViewModel.cs`, the desk's status bar) maps live to green, stale and connecting to amber, down and
+    failed to red, and any other word to grey, so a `held` link — a refused key, its hold running, no connection up, which read `down`
+    and red before this batch — is drawn grey (off) for its hold (60 s, or Stagewatch's `retry`). The desk's lights rule wants a
+    fault's light red with its shape. The fix is one arm: `"down" or "failed" or "held" => "red"`. `src/PlayMap.App/**` is the wave's
+    desk package's (round 3 §4), not this batch's leave, so this batch does not touch it: either the owner extends this batch's leave
+    by that one arm, as the fix-showbus-keys and fix-media-page-import leaves were extended, or the desk package of the wave this batch
+    merges beside lands it first. The same file draws a live, unpaired link green (it reads `state` alone, as before this batch);
+    preflight and the context draw it amber, and the arm that reads `paired` belongs with the one above. The Links drawer
+    (`DrawerViewModels.cs`) shows the state word as given.
+  - The owner's extension of this batch's leave to `src/PlayMap.Engine/Host/NetworkHost.cs` (above) is asked and not yet given.
+  - A refused key's hold lives in the link: a restart, a `LINK STAGEWATCH` or a hello that moves the link starts a new link that
+    dials at once and proves the key again. Show Bus 1.3 §13.15 keeps the hold with its end in wall time across a restart, and returns
+    the redial's count to 0 only after a verified link stayed up `peerlink.stable.ms`; here the count returns to 0 at every clean
+    end. Both are the PeerLink core's (fix-peerlink-core), with the operator's *Link again now* and §13.16's `refused` for what a
+    person must act on.
+  - `held` is red in preflight and the context whenever it stands; §13.16 draws it red only when the show needs the link, else amber.
+    PlayMap has no rule yet for which links a show needs (every link it follows is taken as needed, as `down` is); fix-peerlink-core
+    brings the state set and its lights whole.
+  - fix-showbus-keys left "a Stagewatch link does not remember that its Stagewatch answered plain" for this batch; it moves to
+    fix-peerlink-core, whose redial hygiene decides when a remembered plain answer is forgotten. Each dial still pays the TLS answer
+    deadline first.
+  - A node link Stagewatch refuses before the upgrade (HTTP 400: this Stagewatch's own id, a bad id or kind) ends the dial with the
+    status alone: the client's WebSocket does not read a refused upgrade's body. A 403 named as Require HTTPS stays with the
+    typed-address batch after round 3 (G31's rest).
+  - A keyless link to a 2.18 Stagewatch with a viewing code set is refused, held a minute and dialled again: a node link gives the
+    viewing code only with a key, so such a node reads no timer until it is given one.

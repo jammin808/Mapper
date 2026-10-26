@@ -94,7 +94,7 @@ public sealed class NodeCredentialStoreTests
 
         await rig.OkAsync($"LINK STAGEWATCH {address} {typed}");
         Assert.True(await Eventually.TrueAsync(() => ended.Count == 1 && rig.Network.Stagewatch()?.State == "live" && sw.Screens == 1), rig.LogTail());
-        Assert.Equal($"following Stagewatch at {address} as a screen", ended.Single());
+        Assert.Equal($"following Stagewatch at {address} on a node link", ended.Single());
         Assert.Equal("Bearer " + typed, Assert.Single(sw.Authorizations));
         Assert.Equal(typed, Stored(rig));
         var kept = rig.Home.ReadSettings()!;

@@ -18,13 +18,18 @@ using PlayMap.Net.Tls;
 
 namespace PlayMap.Net.Tests;
 
-/// <summary>A Stagewatch as the tests play it: /ws records how it was asked (path, query, Authorization) and sends what
-/// the test queues, answering pings with pongs; /api/peers/context records the posted context; /api/proposals serves
-/// the approved list for a target; /api/proposals/&lt;id&gt;/result records each answer.</summary>
+/// <summary>A Stagewatch as the tests play it: /ws records how it was asked (path, query, Authorization), sends each connection
+/// its <see cref="Verdict"/> first when one is set (and closes it then when <see cref="CloseAfterVerdict"/>, as Stagewatch does after
+/// a viewing-code refusal), then what the test queues, answering pings with pongs, until the test <see cref="Drop"/>s it;
+/// /api/peers/context records the posted context and answers <see cref="ContextStatus"/> once <see cref="ContextAnswerWhen"/> lets it;
+/// /api/proposals serves the approved list for a target, or <see cref="ApprovalsStatus"/> with its body; /api/proposals/&lt;id&gt;/result
+/// records each answer.</summary>
 internal sealed class FakeStagewatch : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly Channel<string> _outbox = Channel.CreateUnbounded<string>();
+    private readonly ConcurrentDictionary<HttpContext, bool> _open = new();
+    private int _stopped;
 
     private FakeStagewatch(WebApplication app) => _app = app;
 
@@ -39,6 +44,31 @@ internal sealed class FakeStagewatch : IAsyncDisposable
     public ConcurrentQueue<string> Received { get; } = new();
 
     public string ApprovedJson { get; set; } = "{\"proposals\":[]}";
+
+    /// <summary>The first message each connection hears (Stagewatch 2.18's verdict on a node link), or null for none.</summary>
+    public string? Verdict { get; set; }
+
+    /// <summary>The connection is closed, cleanly, just after its verdict is sent.</summary>
+    public bool CloseAfterVerdict { get; set; }
+
+    /// <summary>What a context post is answered: 204, or a status with <see cref="ContextAnswer"/> as its body, and
+    /// <see cref="ContextRetryAfter"/> seconds in its Retry-After when above 0.</summary>
+    public int ContextStatus { get; set; } = 204;
+
+    public string ContextAnswer { get; set; } = "";
+
+    public int ContextRetryAfter { get; set; }
+
+    /// <summary>A context post is answered once this completes (at once by default): a test holds an answer back to land it late.</summary>
+    public Task ContextAnswerWhen { get; set; } = Task.CompletedTask;
+
+    /// <summary>What the approved list is answered: 200 with <see cref="ApprovedJson"/>, or a status with <see cref="ApprovalsAnswer"/>.</summary>
+    public int ApprovalsStatus { get; set; } = 200;
+
+    public string ApprovalsAnswer { get; set; } = "";
+
+    /// <summary>The /ws connections asked for so far.</summary>
+    public int Sockets => Asked.Count(a => a.StartsWith("ws ", StringComparison.Ordinal));
 
     public static async Task<FakeStagewatch> StartAsync(System.Security.Cryptography.X509Certificates.X509Certificate2? certificate = null)
     {
@@ -58,12 +88,22 @@ internal sealed class FakeStagewatch : IAsyncDisposable
         {
             using var r = new StreamReader(c.Request.Body);
             fake.Contexts.Enqueue(c.Request.Headers.Authorization + " " + await r.ReadToEndAsync());
-            c.Response.StatusCode = 204;
+            await fake.ContextAnswerWhen;
+            c.Response.StatusCode = fake.ContextStatus;
+            if (fake.ContextRetryAfter > 0)
+                c.Response.Headers.RetryAfter = fake.ContextRetryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (fake.ContextAnswer.Length > 0)
+            {
+                c.Response.ContentType = "application/json";
+                await c.Response.WriteAsync(fake.ContextAnswer);
+            }
         });
         app.MapGet("/api/proposals", (HttpContext c) =>
         {
             fake.Asked.Enqueue("proposals " + c.Request.QueryString.Value);
-            return Microsoft.AspNetCore.Http.Results.Text(fake.ApprovedJson, "application/json");
+            return fake.ApprovalsStatus == 200
+                ? Microsoft.AspNetCore.Http.Results.Text(fake.ApprovedJson, "application/json")
+                : Microsoft.AspNetCore.Http.Results.Text(fake.ApprovalsAnswer, "application/json", statusCode: fake.ApprovalsStatus);
         });
         app.MapPost("/api/proposals/{id}/result", async (HttpContext c) =>
         {
@@ -78,10 +118,40 @@ internal sealed class FakeStagewatch : IAsyncDisposable
 
     public ValueTask SendAsync(string json) => _outbox.Writer.WriteAsync(json);
 
+    /// <summary>Every connection open now goes, with no close: the link's end is an error.</summary>
+    public void Drop()
+    {
+        foreach (var c in _open.Keys)
+            c.Abort();
+    }
+
     private async Task WsAsync(HttpContext c)
     {
         Asked.Enqueue("ws " + c.Request.Path + c.Request.QueryString.Value + " auth=" + c.Request.Headers.Authorization);
         using var ws = await c.WebSockets.AcceptWebSocketAsync();
+        // Only a connection still served is dropped: a context is let go when its request ends.
+        _open[c] = true;
+        try
+        {
+            await ServeAsync(c, ws);
+        }
+        finally
+        {
+            _open.TryRemove(c, out _);
+        }
+    }
+
+    private async Task ServeAsync(HttpContext c, WebSocket ws)
+    {
+        if (Verdict is { } verdict)
+        {
+            await ws.SendAsync(Encoding.UTF8.GetBytes(verdict), WebSocketMessageType.Text, true, c.RequestAborted);
+            if (CloseAfterVerdict)
+            {
+                await ws.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "viewing code", c.RequestAborted);
+                return;
+            }
+        }
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(c.RequestAborted);
         var sender = Task.Run(async () =>
         {
@@ -122,8 +192,11 @@ internal sealed class FakeStagewatch : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops the Stagewatch: its port refuses every dial from now on. Disposing it after is a no-op.</summary>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _stopped, 1) != 0)
+            return;
         await _app.StopAsync();
         await _app.DisposeAsync();
     }
@@ -223,11 +296,13 @@ internal sealed class SilentTlsFront : IAsyncDisposable
     }
 }
 
-/// <summary>PlayMap as a Stagewatch screen: asked for with its cid, page and the key in a header (never the URL),
-/// frames counted on locally and taken latest-wins, "?" while Stagewatch says it is stuck, the operator's redirect
-/// raised, pings closing a clock exchange, the context posted, and approved lines collected, run once through the
-/// node's own path and answered. Every dial tries TLS first; a pinned certificate, or one the hello names, is TLS or nothing; over
-/// plain ws the key goes only to this machine, and off it the timer is read without the key.</summary>
+/// <summary>PlayMap as a show app on a Stagewatch: asked for as a node link (its id and kind, with the cid and page an older Stagewatch
+/// reads) and the key in a header (never the URL), frames counted on locally and taken latest-wins, "?" while Stagewatch says it is
+/// stuck, the operator's redirect raised, pings closing a clock exchange, the context posted, and approved lines collected, run once
+/// through the node's own path and answered. Every dial tries TLS first; a pinned certificate, or one the hello names, is TLS or
+/// nothing; over plain ws the key goes only to this machine, and off it the timer is read without the key. The pairing is Stagewatch's
+/// verdict, or a keyed answer from one that sends none; a refusal holds keyed calls and the next dial, its words kept, until its hold
+/// ends; a rate limit holds them and refuses nothing; approved lines are collected only once the key is taken.</summary>
 public class StagewatchLinkTests
 {
     private const string Frame5 = "{\"type\":\"state\",\"v\":1,\"seq\":5,\"mode\":\"countdown\",\"state\":\"running\",\"seconds\":750,\"text\":\"12:30\",\"total\":1800,\"phase\":\"warning\",\"color\":\"#F59E0B\",\"title\":\"Keynote\",\"next\":\"Panel\",\"message\":\"Wrap up\",\"urgency\":\"warning\",\"flash\":\"slow\",\"blackout\":false,\"holding\":\"\",\"watermark\":\"REHEARSAL\",\"show\":{\"timer\":true,\"message\":true},\"playout\":{\"title\":\"VT1\",\"remaining\":42,\"duration\":60,\"running\":true,\"source\":\"Patterns\"}}";
@@ -258,7 +333,7 @@ public class StagewatchLinkTests
         link.Start();
         Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live));
         var asked = Assert.Single(sw.Asked);
-        Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", asked);
+        Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", asked);
 
         Assert.Equal("?", link.Reading.Text);
         await sw.SendAsync(Frame5);
@@ -369,7 +444,7 @@ public class StagewatchLinkTests
             link.Start();
             Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
             Assert.Equal((true, false), (link.OverTls, link.KeyHeldBack));
-            Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", Assert.Single(sw.Asked));
+            Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", Assert.Single(sw.Asked));
             // Its certificate is pinned by the address once the key's first side call is answered.
             Assert.True(await Eventually.TrueAsync(() => pins.Get(pinKey) == id.Fingerprint), link.Words);
             Assert.StartsWith("Bearer swk_test0123456789 ", sw.Contexts.First(), StringComparison.Ordinal);
@@ -393,7 +468,7 @@ public class StagewatchLinkTests
         Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
 
         // It offers no TLS and is not this machine: the upgrade carries no key, and the words say why.
-        Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
+        Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
         Assert.Equal((false, true), (link.OverTls, link.KeyHeldBack));
         Assert.StartsWith($"Stagewatch at 127.0.0.1:{sw.Port} offers no TLS — the key stays on this machine", link.Words, StringComparison.Ordinal);
 
@@ -459,7 +534,7 @@ public class StagewatchLinkTests
             link.Start();
             Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
             Assert.Equal((true, (PinVerdict?)PinVerdict.Pinned, false), (link.OverTls, link.Pin, link.KeyHeldBack));
-            Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", Assert.Single(sw.Asked));
+            Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", Assert.Single(sw.Asked));
         }
         finally
         {
@@ -489,7 +564,7 @@ public class StagewatchLinkTests
         Assert.Equal(1, front.TlsGreetings);
         Assert.True(front.Plain >= 1);
         Assert.Equal((false, !local), (link.OverTls, link.KeyHeldBack));
-        Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=" + (local ? "Bearer swk_test0123456789" : ""), Assert.Single(sw.Asked));
+        Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=" + (local ? "Bearer swk_test0123456789" : ""), Assert.Single(sw.Asked));
         Assert.Equal(1, link.Connections);
         Assert.Null(pins.Get(pinKey));
     }
@@ -530,7 +605,7 @@ public class StagewatchLinkTests
             Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 1), link.Words);
             Assert.Equal((true, (PinVerdict?)PinVerdict.FirstUse), (link.OverTls, link.Pin));
             Assert.Null(pins.Get(pinKey));
-            Assert.Equal("ws /ws?cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
+            Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
         }
         finally
         {
@@ -539,6 +614,386 @@ public class StagewatchLinkTests
     }
 
     private static int Pings(FakeStagewatch sw) => sw.Received.Count(m => m.Contains("\"cmd\":\"ping\"", StringComparison.Ordinal));
+
+    private const string VerdictKey = "{\"type\":\"auth\",\"ok\":true,\"scope\":\"node\",\"node\":{\"t\":\"playmap\",\"id\":\"a1b2c3d4\",\"verified\":\"key\"}}";
+
+    private const string Unknown = "{\"type\":\"auth\",\"ok\":false,\"error\":\"unknown or revoked API key\",\"retry\":60}";
+
+    private const string SpeaksForPatterns = "this key speaks for patterns 9f8e7d6c — make a key for playmap a1b2c3d4";
+
+    [Theory]
+    [InlineData("a1b2c3d4", "/ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1")]
+    [InlineData("abc", "/ws?node=abc&t=playmap&cid=playmap-abc&page=/playmap&detail=1")]
+    [InlineData("node_1-of-a-hall-with-a-long-name-x", "/ws?node=node_1-of-a-hall-with-a-long-name-x&t=playmap&cid=playmap-node_1-of-a-hall-with-a-long-name-x&page=/playmap&detail=1")]
+    [InlineData("a b", "/ws?cid=playmap-a%20b&page=/playmap&detail=1")]
+    [InlineData("12345678901234567890123456789012345678901", "/ws?cid=playmap-12345678901234567890123456789012345678901&page=/playmap&detail=1")]
+    public void ANodeLinkNamesTheNodesIdAndKindAndAnIdThatIsNoShowBusIdDialsAsAScreen(string selfId, string path) =>
+        Assert.Equal(path, StagewatchLink.SocketPath(selfId));
+
+    [Fact]
+    public async Task AVerdictOfItsKeyPairsTheLinkAndNothingKeyedGoesBeforeIt()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Words);
+        Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer swk_test0123456789", Assert.Single(sw.Asked));
+        Assert.Equal(("", TimeSpan.Zero), (link.Refusal, link.RefusedFor));
+        Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty), link.Words);
+        Assert.Equal(PairState.Paired, link.Pairing);
+    }
+
+    [Fact]
+    public async Task ALinkWithNoKeyNeedsNoPairingWhateverTheVerdictSays()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = "{\"type\":\"auth\",\"ok\":true,\"scope\":\"none\",\"node\":{\"t\":\"playmap\",\"id\":\"a1b2c3d4\",\"verified\":\"none\"},\"words\":\"no key — the id is only claimed\"}";
+        await using var link = new StagewatchLink(Options(sw) with { Key = "" }, new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
+        // The beat's third ping goes after the verdict was read (its first message): the pairing it left is the verdict's.
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 3), $"{Pings(sw)} pings");
+        Assert.Equal((PairState.NotNeeded, ""), (link.Pairing, link.Refusal));
+        Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
+        Assert.Empty(sw.Contexts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ARefusedKeyIsHeldBeforeAnythingElseAndTheLinkDialsOnceInItsHold(bool dropped)
+    {
+        // Stagewatch refuses the key and keeps the socket for the public frame; or, once the verdict is read, the socket goes with no
+        // close, so the connection ends in an error: the hold was recorded as the verdict was read, and the next dial waits it either way.
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = Unknown;
+        await using var link = new StagewatchLink(Options(sw, approvals: true), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.Equal(StagewatchLink.KeyRefused + "unknown or revoked API key", link.Refusal);
+        Assert.Equal(StagewatchLink.RefusedHold, link.RefusedFor);
+        Assert.StartsWith($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's key — unknown or revoked API key", link.Words, StringComparison.Ordinal);
+        if (dropped)
+        {
+            sw.Drop();
+            Assert.True(await Eventually.TrueAsync(() => link.Status != LinkStatus.Live), link.Words);
+            await Task.Delay(3000);
+            Assert.Equal((1, 1L), (sw.Sockets, link.Connections));
+            Assert.Equal(PairState.Refused, link.Pairing);
+            Assert.StartsWith($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's key", link.Words, StringComparison.Ordinal);
+        }
+        else
+        {
+            // The frame keeps coming; the beat runs, and no keyed call goes while the hold stands.
+            await sw.SendAsync(Frame5);
+            Assert.True(await Eventually.TrueAsync(() => link.Reading.Trusted));
+            Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 3), $"{Pings(sw)} pings");
+            Assert.Equal(LinkStatus.Live, link.Status);
+            Assert.Equal(1, link.Connections);
+        }
+        Assert.Empty(sw.Contexts);
+        Assert.DoesNotContain(sw.Asked, a => a.StartsWith("proposals", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AFreshVerdictOfItsKeyLiftsTheRefusalAndItsHold()
+    {
+        // The operator lets the key speak for this node: Stagewatch says so on the open socket, and the keyed calls go again.
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = Unknown;
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        var moves = new ConcurrentQueue<PairState>();
+        link.PairingChanged += moves.Enqueue;
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 2), $"{Pings(sw)} pings");
+        Assert.Empty(sw.Contexts);
+        await sw.SendAsync(VerdictKey);
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Words);
+        Assert.Equal(("", TimeSpan.Zero), (link.Refusal, link.RefusedFor));
+        Assert.Equal("following Stagewatch at 127.0.0.1:" + sw.Port.ToString(System.Globalization.CultureInfo.InvariantCulture), link.Words);
+        Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty), link.Words);
+        // Each move is told once (the context's answers that only say it again are not), so every reader hears it.
+        Assert.Equal([PairState.Refused, PairState.Paired], moves);
+    }
+
+    [Fact]
+    public async Task AVerdictThatTheKeySpeaksForNoNodeRefusesItWithStagewatchsWords()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = "{\"type\":\"auth\",\"ok\":true,\"scope\":\"node\",\"node\":{\"t\":\"playmap\",\"id\":\"a1b2c3d4\",\"verified\":\"none\"},\"words\":\"" + SpeaksForPatterns + "\"}";
+        // Its node routes refuse the key as its verdict did.
+        sw.ContextStatus = 403;
+        sw.ContextAnswer = "{\"ok\":false,\"error\":\"" + SpeaksForPatterns + "\"}";
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.Equal(StagewatchLink.KeyRefused + SpeaksForPatterns, link.Refusal);
+        // A verdict with no retry holds nothing; the context's 403 then holds the key, so one post is all that goes.
+        Assert.True(await Eventually.TrueAsync(() => link.RefusedFor > TimeSpan.Zero), link.Words);
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 4), $"{Pings(sw)} pings");
+        Assert.Single(sw.Contexts);
+        Assert.Equal((PairState.Refused, StagewatchLink.KeyRefused + SpeaksForPatterns), (link.Pairing, link.Refusal));
+    }
+
+    [Fact]
+    public async Task AStagewatchThatSendsNoVerdictPairsTheLinkOnAKeyedAnswer()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty), link.Words);
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Words);
+        // Nothing keyed went before the connection's first message: the pong to its first ping.
+        Assert.Contains(sw.Received, m => m.Contains("\"cmd\":\"ping\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AContextRefusedWith403SaysStagewatchsWordsAndHoldsEveryKeyedCall()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.ContextStatus = 403;
+        sw.ContextAnswer = "{\"ok\":false,\"error\":\"" + SpeaksForPatterns + "\"}";
+        await using var link = new StagewatchLink(Options(sw, approvals: true), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.Equal(StagewatchLink.KeyRefused + SpeaksForPatterns, link.Refusal);
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's context — {SpeaksForPatterns}", link.Words);
+        Assert.Equal(StagewatchLink.RefusedHold, link.RefusedFor);
+        // The context and the approval queue share the beat: after the 403 the queue is not asked and the context not posted again.
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 4), $"{Pings(sw)} pings");
+        Assert.Single(sw.Contexts);
+        Assert.DoesNotContain(sw.Asked, a => a.StartsWith("proposals", StringComparison.Ordinal));
+        Assert.Equal(LinkStatus.Live, link.Status);
+    }
+
+    [Fact]
+    public async Task ARefusedCollectIsSaidAndOneRefusedForTheKeyHoldsIt()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        sw.ApprovalsStatus = 400;
+        sw.ApprovalsAnswer = "{\"ok\":false,\"error\":\"target must be a node id\"}";
+        await using var link = new StagewatchLink(Options(sw, approvals: true), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Words.Contains("refused this node's collect", StringComparison.Ordinal)), link.Words);
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's collect — target must be a node id", link.Words);
+        // Not the key's refusal: the link stays paired and asks again.
+        Assert.Equal((PairState.Paired, TimeSpan.Zero), (link.Pairing, link.RefusedFor));
+        Assert.True(await Eventually.TrueAsync(() => sw.Asked.Count(a => a.StartsWith("proposals", StringComparison.Ordinal)) >= 2));
+
+        sw.ApprovalsStatus = 403;
+        sw.ApprovalsAnswer = "{\"ok\":false,\"error\":\"" + SpeaksForPatterns + "\"}";
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.Equal(StagewatchLink.KeyRefused + SpeaksForPatterns, link.Refusal);
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's collect — {SpeaksForPatterns}", link.Words);
+        Assert.Equal(StagewatchLink.RefusedHold, link.RefusedFor);
+        var asked = sw.Asked.Count(a => a.StartsWith("proposals", StringComparison.Ordinal));
+        var posted = sw.Contexts.Count;
+        var pings = Pings(sw);
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= pings + 3), $"{Pings(sw)} pings");
+        Assert.Equal((asked, posted), (sw.Asked.Count(a => a.StartsWith("proposals", StringComparison.Ordinal)), sw.Contexts.Count));
+    }
+
+    [Fact]
+    public async Task TheOperatorsDisconnectIsHeldBeforeTheCloseAndWaitedHoweverTheConnectionEnds()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = "{\"type\":\"disconnect\"}";
+        var heldAtCommand = TimeSpan.Zero;
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.ScreenCommand += c =>
+        {
+            if (c.Type != "disconnect")
+                return;
+            // The far end goes as the command is told, racing the link's own close: the connection may end cleanly or in an error.
+            heldAtCommand = link.HeldFor;
+            sw.Drop();
+        };
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => heldAtCommand > TimeSpan.Zero), link.Words);
+        // Recorded as the command was read, before the link closed its end or the far end dropped it.
+        Assert.Equal(Options(sw).DisconnectHold, heldAtCommand);
+        Assert.True(await Eventually.TrueAsync(() => link.Status != LinkStatus.Live), link.Words);
+        await Task.Delay(3000);
+        Assert.Equal((1, 1L), (sw.Sockets, link.Connections));
+    }
+
+    [Theory]
+    [InlineData("", 60)]
+    [InlineData(",\"retry\":30", 60)]
+    [InlineData(",\"retry\":90", 90)]
+    [InlineData(",\"retry\":99999", 3600)]
+    public async Task ARefusalIsHeldForItsRetryAtLeastAMinuteAndAtMostAnHour(string retry, int seconds)
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = "{\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\"" + retry + "}";
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.Equal(TimeSpan.FromSeconds(seconds), link.RefusedFor);
+    }
+
+    [Fact]
+    public async Task AKeyedCallRefusedWithRetryAfterIsHeldThatLong()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.ContextStatus = 401;
+        sw.ContextAnswer = "{\"ok\":false,\"error\":\"too many wrong PINs — wait a minute\"}";
+        sw.ContextRetryAfter = 120;
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.Equal((StagewatchLink.KeyRefused + "too many wrong PINs — wait a minute", TimeSpan.FromSeconds(120)), (link.Refusal, link.RefusedFor));
+    }
+
+    [Fact]
+    public async Task ARateLimitHoldsKeyedCallsForItsRetryAfterAndRefusesNothing()
+    {
+        // A 429 is a good key asked too often: the pairing stands, and the keyed calls wait what Stagewatch asked.
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        sw.ContextStatus = 429;
+        sw.ContextAnswer = "{\"ok\":false,\"error\":\"rate limit: too many requests with this key\"}";
+        sw.ContextRetryAfter = 30;
+        await using var link = new StagewatchLink(Options(sw, approvals: true), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.BusyFor > TimeSpan.Zero), link.Words);
+        Assert.Equal(TimeSpan.FromSeconds(30), link.BusyFor);
+        Assert.Equal((PairState.Paired, "", TimeSpan.Zero), (link.Pairing, link.Refusal, link.RefusedFor));
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} rate-limits this node's key — next try in 30 s (rate limit: too many requests with this key)", link.Words);
+        var posted = sw.Contexts.Count;
+        var asked = sw.Asked.Count(a => a.StartsWith("proposals", StringComparison.Ordinal));
+        var pings = Pings(sw);
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= pings + 3), $"{Pings(sw)} pings");
+        Assert.Equal((posted, asked), (sw.Contexts.Count, sw.Asked.Count(a => a.StartsWith("proposals", StringComparison.Ordinal))));
+    }
+
+    [Fact]
+    public async Task AKeylessLinkAskedForTheViewingCodeIsRefusedInThoseWordsAndHeld()
+    {
+        // Stagewatch says why and closes: the refusal is held as any refused admission, so the link does not dial, get let in and get
+        // shut again at the backoff.
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"Enter the viewing code\"}";
+        sw.CloseAfterVerdict = true;
+        await using var link = new StagewatchLink(Options(sw) with { Key = "" }, new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        var moves = new ConcurrentQueue<PairState>();
+        link.PairingChanged += moves.Enqueue;
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        Assert.Equal(("viewing code asked — Enter the viewing code", StagewatchLink.RefusedHold), (link.Refusal, link.RefusedFor));
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} lets in only what gives its viewing code or a key — Enter the viewing code", link.Words);
+        Assert.True(await Eventually.TrueAsync(() => link.Status != LinkStatus.Live), link.Words);
+        await Task.Delay(3000);
+        Assert.Equal((1, 1L), (sw.Sockets, link.Connections));
+        // Never called needing no proof: its first message was the refusal.
+        Assert.Equal([PairState.Refused], moves);
+    }
+
+    [Fact]
+    public async Task AKeyedAnswerThatLandsAfterANewerRefusalPairsNothing()
+    {
+        // A Stagewatch that sends no verdict: the context post is in flight when its operator revokes the key, and its 2xx lands after.
+        await using var sw = await FakeStagewatch.StartAsync();
+        var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sw.ContextAnswerWhen = answer.Task;
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty), link.Words);
+        Assert.Equal(PairState.Unknown, link.Pairing);
+        await sw.SendAsync("{\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\",\"retry\":60}");
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        var pings = Pings(sw);
+        answer.SetResult();
+        // The beat waits on the post: its pings going again say the late answer was read.
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= pings + 2), $"{Pings(sw)} pings");
+        Assert.Equal((PairState.Refused, StagewatchLink.KeyRefused + "this key was revoked", StagewatchLink.RefusedHold),
+            (link.Pairing, link.Refusal, link.RefusedFor));
+        Assert.Single(sw.Contexts);
+    }
+
+    [Fact]
+    public async Task ApprovedLinesAreCollectedOnlyOnceStagewatchTookTheKey()
+    {
+        // A Stagewatch that sends no verdict and fails the context post: the key is not yet taken, so no approved line is collected
+        // (each runs as a paired session's); its first 2xx pairs the link, and the queue is asked.
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.ContextStatus = 500;
+        await using var link = new StagewatchLink(Options(sw, approvals: true), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => sw.Contexts.Count >= 3), link.Words);
+        Assert.Equal(PairState.Unknown, link.Pairing);
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's context — HTTP 500", link.Words);
+        Assert.DoesNotContain(sw.Asked, a => a.StartsWith("proposals", StringComparison.Ordinal));
+        sw.ContextStatus = 204;
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Words);
+        Assert.True(await Eventually.TrueAsync(() => sw.Asked.Any(a => a.StartsWith("proposals", StringComparison.Ordinal))), link.Words);
+    }
+
+    [Fact]
+    public async Task ARefusalThatHoldsNothingIsNotTheNewsOnceItsConnectionDrops()
+    {
+        // Stagewatch takes the key for no node and holds nothing (no retry, and the context answered with verified none): when the
+        // connection then drops, what the link says as it goes down is the drop, not the refusal.
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = "{\"type\":\"auth\",\"ok\":true,\"scope\":\"node\",\"node\":{\"t\":\"playmap\",\"id\":\"a1b2c3d4\",\"verified\":\"none\"},\"words\":\"" + SpeaksForPatterns + "\"}";
+        sw.ContextStatus = 200;
+        sw.ContextAnswer = "{\"ok\":true,\"verified\":\"none\"}";
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        var down = new ConcurrentQueue<string>();
+        link.StatusChanged += status =>
+        {
+            if (status == LinkStatus.Down)
+                down.Enqueue(link.Words);
+        };
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused && !sw.Contexts.IsEmpty), link.Words);
+        Assert.Equal(TimeSpan.Zero, link.RefusedFor);
+        sw.Drop();
+        Assert.True(await Eventually.TrueAsync(() => !down.IsEmpty), link.Words);
+        var said = down.First();
+        Assert.StartsWith($"Stagewatch at 127.0.0.1:{sw.Port}: ", said, StringComparison.Ordinal);
+        Assert.DoesNotContain(SpeaksForPatterns, said, StringComparison.Ordinal);
+        Assert.DoesNotContain("unverified", said, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PastItsHoldARefusalStandsNoLongerAndTheDialSaysWhatItMet()
+    {
+        // The key refused and the socket gone; then Stagewatch itself goes. Once the hold ends on the link's clock, the refusal is not
+        // the news: the link dials, and says what its dial met.
+        var mono = new ManualClock(1_000_000_000);
+        var sw = await FakeStagewatch.StartAsync();
+        try
+        {
+            sw.Verdict = Unknown;
+            await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), mono);
+            var moves = new ConcurrentQueue<PairState>();
+            link.PairingChanged += moves.Enqueue;
+            link.Start();
+            Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+            sw.Drop();
+            Assert.True(await Eventually.TrueAsync(() => link.Status != LinkStatus.Live), link.Words);
+            Assert.Equal((PairState.Refused, StagewatchLink.RefusedHold), (link.Pairing, link.RefusedFor));
+            Assert.StartsWith($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's key", link.Words, StringComparison.Ordinal);
+            var port = sw.Port;
+            await sw.DisposeAsync();
+
+            mono.Advance((long)StagewatchLink.RefusedHold.TotalMilliseconds * 1_000_000 + 1);
+            Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Unknown
+                && link.Words.StartsWith($"Stagewatch at 127.0.0.1:{port}: ", StringComparison.Ordinal), 15_000), link.Words);
+            Assert.Equal(("", TimeSpan.Zero), (link.Refusal, link.RefusedFor));
+            Assert.NotEqual(LinkStatus.Live, link.Status);
+            Assert.Equal(1, link.Connections);
+            Assert.Equal([PairState.Refused, PairState.Unknown], moves);
+        }
+        finally
+        {
+            await sw.DisposeAsync();
+        }
+    }
 
     [Fact]
     public void AFrameCountsOnFromItsArrivalAndFormatsAsStagewatchDoes()

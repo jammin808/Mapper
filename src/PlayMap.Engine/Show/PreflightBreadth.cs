@@ -3,6 +3,7 @@ using PlayMap.Core.Bus;
 using PlayMap.Core.Model;
 using PlayMap.Core.Preflight;
 using PlayMap.Engine.Host;
+using PlayMap.Net.Links;
 
 namespace PlayMap.Engine.Show;
 
@@ -94,9 +95,11 @@ public sealed class ClockCheck : IPreflightCheck
 }
 
 /// <summary>The links a show listens to: Patterns and Stagewatch heard and paired (not linked is grey; linked but not heard is red
-/// with the line that links it again; heard but not paired is amber — its token is a secret, so no line carries it). This node's own
-/// pairing token seen in clear from another machine since it was made is one more row, amber, with PAIRING NEW: a sighting refuses
-/// nothing, and whoever was on the network between could have read the token.</summary>
+/// with the line that links it again; heard but not paired is amber — its token is a secret, so no line carries it; held, the far end
+/// having refused this node's key with its hold running and no connection up, is red, as a link not heard is, with the far end's words
+/// and no line, since the fix is on the far end; past the hold the link is what its dial says).
+/// This node's own pairing token seen in clear from another machine since it was made is one more row, amber, with PAIRING NEW: a
+/// sighting refuses nothing, and whoever was on the network between could have read the token.</summary>
 public sealed class LinksCheck : IPreflightCheck
 {
     public string Section => "links";
@@ -130,8 +133,15 @@ public sealed class LinksCheck : IPreflightCheck
             "live" when link.Paired => new PreflightRow(id, node, Section, name, Light.Green, "live", $"heard{at}{(link.Detail.Length > 0 ? " · " + link.Detail : "")}", null),
             "live" => new PreflightRow(id, node, Section, name, Light.Amber, "not paired",
                 $"heard{at} but not paired{(link.Detail.Length > 0 ? " — " + link.Detail : "")}", null),
+            "held" => new PreflightRow(id, node, Section, name, Light.Red, "held", Refused(name + at, link.Detail) + " — dialled again when its hold ends", null),
             _ => new PreflightRow(id, node, Section, name, Light.Red, link.State, $"{name}{at} is not heard ({link.State})",
                 link.Host.Length > 0 ? $"{verb} {link.Host}" : null),
         };
     }
+
+    /// <summary>A held link's words: a refused key named as the key's, with the far end's own words.</summary>
+    private static string Refused(string who, string detail) =>
+        detail.StartsWith(StagewatchLink.KeyRefused, StringComparison.Ordinal)
+            ? $"{who} refused this node's key — {detail[StagewatchLink.KeyRefused.Length..]}"
+            : $"{who} refused this node{(detail.Length > 0 ? ": " + detail : "")}";
 }

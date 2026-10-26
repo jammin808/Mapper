@@ -95,7 +95,7 @@ public static class ContextBuilder
         }
         if (s.Network.Stagewatch() is { } sw)
         {
-            var light = sw.State == "live" ? Light.Green : sw.State == "stale" ? Light.Amber : Light.Red;
+            var light = sw.State == "live" ? (sw.Paired ? Light.Green : Light.Amber) : sw.State == "stale" ? Light.Amber : Light.Red;
             items.Add(new ContextItem("link:stagewatch", "link", "Stagewatch", light, sw.State + (sw.Detail.Length > 0 ? ", " + sw.Detail : "")));
         }
         var sync = s.Network.Sync();

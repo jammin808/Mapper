@@ -14,13 +14,16 @@ using PlayMap.Net.Links;
 namespace PlayMap.Engine.Tests.Host;
 
 /// <summary>A Stagewatch's Screens socket played small: <c>/ws</c> takes a screen, counts it and keeps the Authorization it came with,
-/// sends it what the test queues and answers its pings with pongs, so the link stays live for as long as the test runs. A message is
-/// read whole, however many frames it arrives in, before it is parsed.</summary>
+/// sends it its <see cref="Verdict"/> first when one is set, then what the test queues, and answers its pings with pongs, so the link
+/// stays live until the test <see cref="Drop"/>s it. A message is read whole, however many frames it arrives in, before it is
+/// parsed.</summary>
 internal sealed class ScreensStagewatch : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly Channel<string> _outbox = Channel.CreateUnbounded<string>();
+    private readonly ConcurrentDictionary<HttpContext, bool> _open = new();
     private int _screens;
+    private int _stopped;
 
     private ScreensStagewatch(WebApplication app) => _app = app;
 
@@ -31,6 +34,16 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
 
     /// <summary>Each screen's Authorization header, in the order they came ("" for none).</summary>
     public ConcurrentQueue<string> Authorizations { get; } = new();
+
+    /// <summary>The first message each connection hears (Stagewatch 2.18's verdict on a node link), or null for none.</summary>
+    public string? Verdict { get; set; }
+
+    /// <summary>Every connection open now goes, with no close.</summary>
+    public void Drop()
+    {
+        foreach (var c in _open.Keys)
+            c.Abort();
+    }
 
     public static async Task<ScreensStagewatch> StartAsync()
     {
@@ -53,6 +66,22 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
         Authorizations.Enqueue(c.Request.Headers.Authorization.ToString());
         using var ws = await c.WebSockets.AcceptWebSocketAsync();
         Interlocked.Increment(ref _screens);
+        // Only a connection still served is dropped: a context is let go when its request ends.
+        _open[c] = true;
+        try
+        {
+            await ServeAsync(c, ws);
+        }
+        finally
+        {
+            _open.TryRemove(c, out _);
+        }
+    }
+
+    private async Task ServeAsync(HttpContext c, WebSocket ws)
+    {
+        if (Verdict is { } verdict)
+            await ws.SendAsync(Encoding.UTF8.GetBytes(verdict), WebSocketMessageType.Text, true, c.RequestAborted);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(c.RequestAborted);
         var sender = Task.Run(async () =>
         {
@@ -96,8 +125,11 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops the Stagewatch: its port refuses every dial from now on. Disposing it after is a no-op.</summary>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _stopped, 1) != 0)
+            return;
         await _app.StopAsync();
         await _app.DisposeAsync();
     }
