@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Headless.XUnit;
+using Avalonia.VisualTree;
 using PlayMap.App.Controls;
 using PlayMap.App.Infrastructure;
 
@@ -11,8 +12,9 @@ namespace PlayMap.App.Tests.Ux;
 /// in a light's brush is paired with a shape and a word (✓ ok, △ warn, ✕ fault, ■ armed, ○ off, i information), and every light a
 /// canvas draws with its shape; ok, warn and fault each at least 3:1 against every surface a light is drawn on in every theme (dark,
 /// the dark room, daylight, and each one's blind grey) — the plan's pairwise 3:1 cannot hold for lights legible on a dark panel; the
-/// dark palette is Theme/Tokens.axaml's; red marks the air and faults, and among the styles only the air's draw it; no animation
-/// repeats faster than 2 Hz; and the desk's brightness and theme are this desk's, kept in desk.json.</summary>
+/// dark palette is Theme/Tokens.axaml's; red marks the air and faults, and among the styles only the air's draw it; the status bar
+/// draws a held link (a refused key, its hold running) red, a fault, and a live link not paired amber, as preflight and the context
+/// do; no animation repeats faster than 2 Hz; and the desk's brightness and theme are this desk's, kept in desk.json.</summary>
 public partial class StatusRuleTests
 {
     private static readonly string AppDir = Path.Combine(FindRoot(), "src", "PlayMap.App");
@@ -118,6 +120,51 @@ public partial class StatusRuleTests
         mark.Light = "red";
         Assert.Equal("✕", mark.Text);
     }
+
+    /// <summary>Each status bar link light is drawn with its shape beside it and its word as the mark's tooltip. Live and paired ✓
+    /// green, live and not paired △ amber (heard, its pairing not proved: not yet answered, its key held back or refused), and down, or
+    /// held — the far end refused this node's key and its hold runs, a fault — ✕ red, as preflight and the context draw them; stale or
+    /// connecting △ amber; not linked ○ grey.</summary>
+    [AvaloniaFact]
+    public async Task EachLinkStateIsDrawnOnTheStatusBarWithItsShape()
+    {
+        await using var desk = new DeskHarness();
+        var window = MainWindowTests.Open(desk);
+        var stagewatch = LinkMark(window, "Stagewatch link");
+        var patterns = LinkMark(window, "Patterns link");
+        foreach (var (state, paired, light, shape, word) in new[]
+        {
+            ("live", true, "green", "✓", "ok"),
+            ("live", false, "amber", "△", "warn"),
+            ("held", false, "red", "✕", "fault"),
+            ("down", false, "red", "✕", "fault"),
+            ("stale", false, "amber", "△", "warn"),
+            ("connecting", false, "amber", "△", "warn"),
+            ("off", false, "grey", "○", "off"),
+        })
+        {
+            desk.Link.SetSection("links", "{\"stagewatch\":{\"state\":\"" + state + "\",\"host\":\"10.0.0.6:9924\",\"paired\":" + (paired ? "true" : "false") + "}}");
+            DeskHarness.Pump();
+            Assert.Equal((state, paired, light, shape, word),
+                (state, paired, desk.Main.StagewatchLight, stagewatch.Text, Avalonia.Controls.ToolTip.GetTip(stagewatch) as string));
+            Assert.Same(LightBrushConverter.Brushes.For(light), stagewatch.Foreground);
+        }
+
+        // The Patterns light reads its pairing by the same arm: live and not paired amber, paired green.
+        desk.Link.SetSection("links", """{"patterns":{"state":"live","host":"10.0.0.5:9697","paired":false}}""");
+        DeskHarness.Pump();
+        Assert.Equal(("amber", "△"), (desk.Main.PatternsLight, patterns.Text));
+        desk.Link.SetSection("links", """{"patterns":{"paired":true}}""");
+        DeskHarness.Pump();
+        Assert.Equal(("green", "✓"), (desk.Main.PatternsLight, patterns.Text));
+        window.Close();
+    }
+
+    /// <summary>The compact mark drawn beside a status bar light, found by the tooltip of the light's group.</summary>
+    private static StatusMark LinkMark(Avalonia.Controls.Window window, string tip) =>
+        window.GetVisualDescendants().OfType<Avalonia.Controls.StackPanel>()
+            .Single(p => string.Equals(Avalonia.Controls.ToolTip.GetTip(p) as string, tip, StringComparison.Ordinal))
+            .Children.OfType<StatusMark>().Single();
 
     /// <summary>Every surface token a light is drawn on: the window, a panel, a card, a toast, a chip and a secondary button (raised 2,
     /// the attention bar's banners among them), a selected row and a checked tool (the accent's tint), and the danger tint.</summary>

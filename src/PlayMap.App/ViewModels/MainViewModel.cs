@@ -500,11 +500,15 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
     private string _stagewatchLight = "grey";
     private string _syncText = "";
 
-    private static string LinkLight(string state) => state switch
+    /// <summary>A link's light on the status bar. Live and paired green, live and not paired amber (heard, its pairing not proved: not
+    /// yet answered, its key held back or refused), and down, failed or held red (held: the far end refused this node's key and its hold
+    /// runs, a fault), as preflight and the context draw them; stale or connecting amber; not linked, or a word this arm does not know,
+    /// grey.</summary>
+    private static string LinkLight(LinkState link) => link.State switch
     {
-        "live" => "green",
+        "live" => link.Paired ? "green" : "amber",
         "stale" or "connecting" => "amber",
-        "down" or "failed" => "red",
+        "down" or "failed" or "held" => "red",
         _ => "grey",
     };
 
@@ -886,8 +890,8 @@ public sealed partial class MainViewModel : ObservableObject, IAsyncDisposable, 
             _ => "down",
         };
         NetworkText = Session.Link is null ? "Not connected" : $"{Session.LinkLabel} · {linkWord}";
-        PatternsLight = LinkLight(s.Patterns.State);
-        StagewatchLight = LinkLight(s.Stagewatch.State);
+        PatternsLight = LinkLight(s.Patterns);
+        StagewatchLight = LinkLight(s.Stagewatch);
         var sync = s.Sync;
         SyncText = sync.Role switch
         {
