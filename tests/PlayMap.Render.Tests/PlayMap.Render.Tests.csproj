@@ -46,4 +46,11 @@
   <ItemGroup Label="wp3-rhi">
     <Compile Include="..\Shared\GlFence.cs" Link="Shared\GlFence.cs" />
   </ItemGroup>
+
+  <!-- The engine's Stagewatch timer picture and the lease it hands the renderer, compiled here as they are, so its pixels are read
+       through each backend leg's device (TimerViewRenderTests) without this suite referencing the engine. -->
+  <ItemGroup Label="fix-stagewatch-timer-air">
+    <Compile Include="..\..\src\PlayMap.Engine\Rendering\TimerView.cs" Link="Engine\TimerView.cs" />
+    <Compile Include="..\..\src\PlayMap.Engine\Rendering\SourceLeases.cs" Link="Engine\SourceLeases.cs" />
+  </ItemGroup>
 </Project>

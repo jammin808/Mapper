@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 
@@ -141,12 +142,50 @@ public sealed record StagewatchTimer
 
 /// <summary>What a screen shows of the linked Stagewatch now. <see cref="Text"/> is "?" whenever the time is not a
 /// fact — no frame yet, the link stale or down, or Stagewatch saying its own show is stuck: a frozen number on a
-/// speaker's screen is worse than none.</summary>
+/// speaker's screen is worse than none. <see cref="Timer"/> is the last frame (counted on while the time is a fact).</summary>
 public sealed record StagewatchReading(StagewatchTimer? Timer, bool Trusted, string Text, string Why)
 {
     public static readonly StagewatchReading Unknown = new(null, false, "?", "no Stagewatch frame yet");
+
+    /// <summary>The keys of STATE's <c>links.stagewatch.timer</c> in the order <see cref="ToStateJson"/> writes them. STATE is read
+    /// as text by some readers, so a key added later goes after the last of these and none moves.</summary>
+    public static readonly ImmutableArray<string> StateKeys =
+        ["state", "text", "seconds", "phase", "color", "title", "message", "trusted", "why", "blackout", "watermark"];
+
+    /// <summary>Stagewatch's blackout as this node follows it: the last frame's word, held while the time is not a fact (the link
+    /// stale or down, or its show stuck), since a blackout is released only by Stagewatch's live word or a person, never by
+    /// silence (Show Bus 1.3 §13.17). False before the first frame.</summary>
+    public bool Blackout => Timer?.Blackout ?? false;
+
+    /// <summary>The mark Stagewatch asks every picture of its timer to carry (its Free mode's): the last frame's, kept while the time
+    /// is not a fact, so a link going quiet never takes it off the air; "" before the first frame.</summary>
+    public string Watermark => Timer?.Watermark ?? "";
+
+    /// <summary>STATE's <c>links.stagewatch.timer</c>, keys in <see cref="StateKeys"/>' order: the state and the seconds only while
+    /// the time is a fact ("unknown" and null otherwise), the last frame's phase, colour, title and message, whether the time is
+    /// trusted and why not, then the blackout and the watermark this node follows.</summary>
+    public string ToStateJson() => JsonText.Write(w =>
+    {
+        w.WriteStartObject();
+        var t = Timer;
+        w.WriteString("state", Trusted ? t?.State ?? "idle" : "unknown");
+        w.WriteString("text", Text);
+        if (Trusted && t is not null)
+            w.WriteNumber("seconds", Math.Round(t.Seconds, 1));
+        else
+            w.WriteNull("seconds");
+        w.WriteString("phase", t?.Phase ?? "");
+        w.WriteString("color", t?.Color ?? "");
+        w.WriteString("title", t?.Title ?? "");
+        w.WriteString("message", t?.Message ?? "");
+        w.WriteBoolean("trusted", Trusted);
+        w.WriteString("why", Why);
+        w.WriteBoolean("blackout", Blackout);
+        w.WriteString("watermark", Watermark);
+        w.WriteEndObject();
+    });
 }
 
 /// <summary>A screen command from Stagewatch's operator (its Screens page): redirect (show another view), identify
-/// (show this screen's name), reload, disconnect.</summary>
+/// (Stagewatch's ask to show this screen's name, which this node journals and does not show), reload, disconnect.</summary>
 public sealed record StagewatchScreenCommand(string Type, string To, string Name, string Id);

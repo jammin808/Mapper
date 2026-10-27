@@ -2499,3 +2499,144 @@ Round 2 W1 notes:
     (the 403 case) fails now and then because a pull clears `sink.Problem` before the test reads it (fix-proposal-sink-deadline's
     open item on a pull that asks the desk nothing); it failed 1 run in 10 on this tree's base commit as well, untouched by this
     batch. The batch that next owns the sink or that test holds the read to the journal row, or stops the pull before it.
+
+## Integrator notes from the round-2 fix batch (fix-stagewatch-timer-air)
+
+- Done: Stagewatch's blackout and its watermark reach STATE's `links.stagewatch.timer` and the timer surface (G12's air half;
+  owner answer M-PMX; the train's PM-7). The timer object carried state, text, seconds, phase, colour, title, message, trusted and
+  why, and `TimerView` drew the time whatever Stagewatch said: a Stagewatch that blacked out its speaker screens left every PlayMap
+  surface drawing `timer:stagewatch` showing the time, and a Free-mode Stagewatch's mark ("StageWatch by Ben Rohleder", which
+  Stagewatch's own screens and outputs always carry) was on none of PlayMap's. The link already parsed both
+  (`StagewatchTimer.Blackout`, `.Watermark`); nothing read them. Stagewatch's watermark is its licence mark, not the output
+  watermark wp3-stability draws for its observer.
+  - The timer object (`src/PlayMap.Net/Links/StagewatchTimer.cs`): `StagewatchReading.ToStateJson()` writes it, keys in
+    `StagewatchReading.StateKeys`' order: the nine as before, byte for byte (the writer the network host had, on the same writer
+    settings), then `blackout` (a bool) and `watermark` (a string). `StagewatchReading.Blackout` and `.Watermark` are the last
+    frame's; while the time is not a fact (the link stale or down, or Stagewatch's show stuck) both are held, by Show Bus 1.3
+    §13.17: a blackout is released by Stagewatch's live word (its next state frame) or by a person (`LINK STAGEWATCH OFF`, or
+    another source on the surface), never by silence, and the watermark stays, so a link going quiet never takes the mark off the
+    air. Before the first frame both are off (`false`, `""`). The reading already carries the last frame (`StagewatchLink.Reading`),
+    so the link keeps nothing new. Stagewatch's blackout blacks out its timer's picture only, never the node's other sources or
+    outputs: it is Stagewatch's screens' blackout, not the air's (Patterns' blackout keeps its own path).
+  - The hold said with its age (§13.17: "holding … since 20:14:03 — link lost"): while the reading holds a blackout, the network
+    host's `links.stagewatch.detail` begins "holding Stagewatch's blackout (its timer drawn black) since HH:mm:ss (age) — link lost"
+    (the link stale or down) or "— Stagewatch says its show is stuck" (live, its show stuck), then "; Stagewatch's next frame
+    releases it, or LINK STAGEWATCH OFF", before the link's own words and the view it shows; a refusal's words still lead (preflight's
+    held row reads them by their start). The hold's start (`_swBlackoutHeldSince`, wall ms) is kept by `StagewatchHoldMoved`, run on
+    the link's status and frames and on the host's watch (which sees a beat make the show stuck; the link raises nothing for it),
+    cleared once the reading is a fact again or says no blackout, and when the link is stopped. It mirrors PM-6's hold of Patterns'
+    blackout (`HeldBlackout`), whose age words (`HeldFor`) the two now share. The detail reaches STATE, the context item
+    `link:stagewatch` (which carries the detail) and preflight's live rows; the readers it does not reach are below.
+  - The order for wp4-showbus-windows (PM-14): what windows-for-peers §2.11 appends to `links.stagewatch.timer` comes after
+    `watermark`, in §2.11's order less these two: `next`, `urgency`, `flash`, `flashTimer`, `holding`, `holdingName`,
+    `holdingFill`, `timeOfDay`, `show{}`. `blackout` and `watermark` keep the places they landed in (§2.11 lists them among the
+    others).
+  - The surface (`src/PlayMap.Engine/Rendering/TimerView.cs`): `Read` returns a `TimerFace` (the time, its colour, the title, the
+    message, the blackout, the watermark) from that object; `Paint` clears black and, under a blackout, draws nothing but the
+    watermark, otherwise the time, the title and the message as before. The watermark is drawn last in every state (a blackout, a
+    time that is not a fact, any phase) as Stagewatch's own viewer draws it (its `viewer.html`: right edge 2 % of the width in,
+    bottom 1.2 % of the height up, 3.2 % of the height and 14 px at least, SemiBold, white at 70 % over a dark halo); one wider than
+    the picture is drawn smaller to fit between the side insets. Every word the picture draws is bounded in characters, so no
+    redraw costs more than its bound whatever the link carries: the time, the title and the message at 500 (Stagewatch's own bound on
+    a message), the watermark at 120 (Stagewatch's own mark is 26); a longer one is drawn to its bound, never half a surrogate pair,
+    and STATE keeps what Stagewatch sent. A picture is still drawn on the poller and only when the object changes; `Refresh` (one
+    look, the poller's tick) and `TakePicture` (the newest picture, the render thread's take) are its two halves, named so a test
+    draws through them without the poller's clock.
+  - The network host (`src/PlayMap.Engine/Host/NetworkHost.cs`): `StagewatchTimerJson()` is `link.Reading.ToStateJson()`; its own
+    writer of the nine keys is the Net file's now; and the hold above. Outside the leave (Open). `StateWriter` writes the object and
+    the detail as given, so no spine line moves.
+  - fix-showbus-identify's note on this file is taken: `StagewatchScreenCommand`'s summary says an identify is Stagewatch's ask to
+    show the screen's name, which this node journals and does not show.
+- Tests:
+  - New `tests/PlayMap.Net.Tests/StagewatchTimerTests.cs`: `TheTimerObjectsKeysAreFixedInOrderAndBytesAndEndWithTheBlackoutAndTheWatermark`
+    (the exact bytes for a trusted reading of a Stagewatch frame, the keys in `StateKeys`' order with `blackout` at the tenth
+    place, a live blackout with no mark), `ABlackoutAndTheWatermarkAreHeldWhileTheTimeIsNotAFactAndNoneIsSaidBeforeTheFirstFrame`
+    (the quiet, down and stuck readings: state `unknown`, text `?`, seconds null, blackout and mark held; `Unknown` with neither)
+    and `TheLinksReadingHoldsStagewatchsBlackoutThroughAStuckShowAndALostLinkUntilItsLiveWord` (the link against `FakeStagewatch`:
+    a blackout followed, held through a stuck beat, released by the next frame, held again once the socket is dropped and every
+    dial refused, the mark kept throughout).
+  - New `tests/PlayMap.Render.Tests/Content/TimerViewRenderTests.cs` (the `gpu` collection): the engine's own `TimerView` draws the
+    picture for STATE's object, and each `BackendFixture` leg's device uploads it (`VideoTextureSet`) and reads it back; no GL type
+    is named. `UnderABlackoutOnlyTheWatermarkIsDrawnBottomRight` (every pixel outside the bottom right corner black, the mark in
+    it), `WithoutABlackoutTheTimeIsDrawnAndTheWatermarkStillSitsInItsCorner`,
+    `TheWatermarkStaysWhileTheTimeIsNotAFactAndAHeldBlackoutStaysBlack`, `NoWatermarkLeavesTheCornerBlack`,
+    `AWatermarkWiderThanThePictureIsDrawnSmallerWithinItsInsets` (a 232-character mark: cut to 120, no ink past either side inset,
+    ink on both halves of the bottom band, nothing else drawn), `OnASmallPictureTheWatermarkKeepsItsFloor` (640 × 200, where 3.2 %
+    would be 6.4 px: the mark's ink spans 10 rows or more), `NoLinkAndAnUnreadableObjectDrawNoMark` (no link and `{not json`:
+    "--:--" in grey, the corner black) and `APictureIsDrawnAgainOnlyWhenTheTimersObjectChanges`. The suite compiles
+    `src/PlayMap.Engine/Rendering/TimerView.cs` and `SourceLeases.cs` as they are (its project's `fix-stagewatch-timer-air` item
+    group; Open), with CA1812 suppressed for `RemappedLeasePool` alone, which is compiled there and made only in the engine.
+  - New `tests/PlayMap.Engine.Tests/Host/StagewatchTimerAirTests.cs` (beyond the two tests the plan names; it covers the network
+    host's ask): a host on the test's clock following a `ScreensStagewatch` — STATE's object with its keys in order, the blackout and
+    the mark, no hold said; `TimerView.Read` of the host's own JSON blacked out with the mark; both held through a stuck beat (state
+    `unknown`, text `?`) with `links.stagewatch.detail` saying the hold, "Stagewatch says its show is stuck", and its age running
+    from one start as the clock moves 2 s; the blackout lifted by the next frame, the mark kept, no hold said; blacked out again and
+    the link lost: the hold said "link lost", the surface's face black under the mark with `?`; `LINK STAGEWATCH OFF`: the link off,
+    no timer object, no blackout to draw.
+  - Each rule undone alone, the rest kept, made these fail (each built and run): the time drawn under a blackout; the watermark not
+    drawn; the blackout let go while the time is not a fact; the watermark let go while it is not; the watermark written before the
+    blackout; the surface's reader blind to the blackout; the watermark's 14 px floor (6 rows of ink); the shrink to fit (ink past
+    the left inset); the watermark's bound; the hold's start not kept (the age's start moves with the clock).
+  - The fixture tests (`FixtureTest` in the Engine suite) pass unchanged: no fixture under `tests/fixtures/state` holds
+    `links.stagewatch.timer`. The Companion module's `test/fixtures/state.json` does, from `CompanionModuleFixtureTests`'
+    hand-written `OnePeer` (its nine keys); it stays as it is until PM-14 regenerates the fixtures with its fields (the module
+    reads `timer.text` and `timer.phase`, both unchanged).
+- Files: the leave's (M-PMX for this batch: `src/PlayMap.Net/Links/StagewatchTimer.cs`, `src/PlayMap.Engine/Rendering/TimerView.cs`,
+  and the plan's two tests, `tests/PlayMap.Net.Tests/StagewatchTimerTests.cs` and
+  `tests/PlayMap.Render.Tests/Content/TimerViewRenderTests.cs`), this entry, and three asks (Open):
+  `src/PlayMap.Engine/Host/NetworkHost.cs`, `tests/PlayMap.Render.Tests/PlayMap.Render.Tests.csproj` and the third test file
+  `tests/PlayMap.Engine.Tests/Host/StagewatchTimerAirTests.cs`. No verb, catalogue row, card, fixture or context item moves:
+  `links.stagewatch.timer` gains two keys at its end, and `links.stagewatch.detail` says a hold it did not say.
+- Papers notes for the integrator:
+  - `docs/WIRE.md`, by `links.stagewatch.timer.text`: `blackout` is Stagewatch's, held while the time is not a fact, and a surface
+    drawing the timer is black under it but for the watermark; `watermark` is Stagewatch's mark ("" for none), kept while the time
+    is not a fact and drawn bottom right on every timer surface in every state. Both come after `why`. By `links.stagewatch.detail`:
+    a held blackout leads it, "holding Stagewatch's blackout (its timer drawn black) since … (age) — link lost|Stagewatch says its
+    show is stuck; Stagewatch's next frame releases it, or LINK STAGEWATCH OFF".
+  - `docs/SHOWBUS-NODE.md` §2's Stagewatch row ("countdown, colour by phase, messages with urgency and flash, holding images,
+    watermark") says more than is built: today the countdown, its colour by phase, the title and the message, Stagewatch's blackout
+    (held through silence, said with its age) and its watermark; urgency, flash, holding images and next are PM-14's
+    (wp4-showbus-windows).
+  - `docs/ROADMAP.md`: G12's air half (blackout and watermark in STATE and on the surface) has landed; the rest is PM-14's.
+  - Every reader (the readers neither key nor the hold reaches yet, each with its home):
+    - the desk: `StateSnapshot.ReadLink`/`TimerState` (`src/PlayMap.App/State/StateSnapshot.cs`) reads the timer's first seven keys
+      and no `detail` for the Stagewatch link, so the desk shows neither the blackout nor its hold, and `FakeEngineLink.State.cs`
+      writes the nine keys — PM-14 or the integration pass;
+    - the assistant: `StateExplainer` (`src/PlayMap.Assistant/StateExplainer.cs`) never says the timer is blacked out or held
+      (the context it reads does, through `link:stagewatch`'s detail) — PM-14 or the integration pass;
+    - the Companion module (`integrations/companion-module-playmap`): it reads `links.stagewatch.state`, `.timer.text` and
+      `.timer.phase` (`src/state/paths.ts`, `test/state-paths.txt`, `src/state/variables.ts`), not `blackout`, `watermark` or
+      `detail`, so no variable or feedback says the blackout or its hold — the module's next version, with PM-14's fixtures;
+    - preflight: `LinksCheck` (`src/PlayMap.Engine/Show/PreflightBreadth.cs`) carries the detail on its live rows (a stuck show's
+      hold is said there) but not on its not-heard row, so a hold after a lost link is said in STATE and the context, not in
+      preflight — the batch that next owns `PreflightBreadth.cs` (wp4-peerlink's state set).
+- Open:
+  - Asks for the owner before merge, each the least a file outside the leave could take:
+    - `src/PlayMap.Engine/Host/NetworkHost.cs`: `StagewatchTimerJson()` is one line calling the reading's writer, and the host's own
+      22-line writer of the nine keys is gone (the Net file writes them, byte for byte); and the hold said with its age
+      (`_swBlackoutHeldSince`, `StagewatchHoldMoved` on the link's status and frames, the watch and the stop, `HeldStagewatchBlackout`,
+      the detail's order, `HeldFor` lifted out of `HeldBlackout` to be shared). Without the first neither STATE nor the surface sees
+      the two keys: the surface reads the host's JSON (`RenderHost.cs`, `new TimerView(...StagewatchTimerJson)`), and the plan
+      placed the object's writer in the Net file so its own suite holds it. Without the second the batch adds a held fact no reader
+      says, against §13.17; the host already words Patterns' hold the same way, and the link's file (where a start could also live)
+      is PM-8's.
+    - `tests/PlayMap.Render.Tests/PlayMap.Render.Tests.csproj`: the `fix-stagewatch-timer-air` item group, which compiles the
+      engine's `TimerView.cs` and `SourceLeases.cs` into the Render suite so `TimerViewRenderTests` draws the engine's own picture
+      through `BackendFixture`'s legs (the suite references only `PlayMap.Render`, and `TimerView` and `PinnedLease` are the
+      engine's internals). The other ways are the owner's call: the Render suite references the engine and the engine names it in
+      `InternalsVisibleTo` (`PlayMap.Engine.csproj`), the picture moves into `PlayMap.Render` (a new file), or the pixel test moves to
+      the Engine suite (which has no `BackendFixture`).
+    - `tests/PlayMap.Engine.Tests/Host/StagewatchTimerAirTests.cs`: a third new test file, beyond the plan's two; the only test that
+      proves the network host's ask end to end (the host's JSON reaching STATE and `TimerView.Read`, and the hold's words and age).
+  - A person releases a held Stagewatch blackout on this node only by `LINK STAGEWATCH OFF` or by giving the surface another source;
+    §13.16's *Release held fact* control is wp4-peerlink's.
+  - A redialled link reads as a fact before its first frame (found in review, before this batch; `StagewatchLink.cs`, PM-8's file):
+    a new connection is marked live right after the upgrade and resets `_lastSeq` but neither `_timer` nor `_frameAtNs`, so until
+    its first state frame the reading is trusted and counts the previous connection's last frame on from its old arrival, against
+    §13.10.6 and §13.17 (a counting value is never held). A held blackout stays on the surface through it (the safe side), but the
+    hold's words go and the time shows. The batch that next owns `StagewatchLink.cs` (PM-8 or wp4-peerlink): the reading "?" until
+    the connection's first state frame, the last frame kept for its held facts.
+  - The watermark, like the title and the message, is written to STATE as Stagewatch sends it, bounded only by the link's 1 MiB
+    message, and the network host writes the object again for each look (the surface's poller, four a second; the watch, two);
+    the picture's drawing cost is bounded here, STATE's size and the object's writing are fix-stagewatch-context-size's (PM-8)
+    fence.

@@ -138,6 +138,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     /// <summary>When (wall ms) the desk's blackout began to be held — its link no longer live and paired, so no live word of the desk's
     /// stands behind it (Show Bus 1.3 §13.17) — or 0 while none is held.</summary>
     private long _blackoutHeldSince;
+
+    /// <summary>When (wall ms) Stagewatch's blackout began to be held — its time no longer a fact (the link stale or down, or its show
+    /// stuck), so no live word of Stagewatch's stands behind it (Show Bus 1.3 §13.17) — or 0 while none is held.</summary>
+    private long _swBlackoutHeldSince;
     private SyncQuality _lastQuality = SyncQuality.None;
     private int _lastClients;
     private (LinkView?, LinkView?, string?) _lastLinks;
@@ -373,11 +377,40 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         var at = DateTimeOffset.FromUnixTimeMilliseconds(since).ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
         var why = live ? "the desk has not paired on the link back" : "link lost";
         return string.Create(CultureInfo.InvariantCulture,
-            $"holding Patterns' blackout since {at} ({Age(Math.Max(0, now - since))}) — {why}; the desk's own word releases it, or LINK PATTERNS FOLLOW-BLACKOUT OFF");
+            $"holding Patterns' blackout since {at} ({HeldFor(Math.Max(0, now - since))}) — {why}; the desk's own word releases it, or LINK PATTERNS FOLLOW-BLACKOUT OFF");
+    }
 
-        static string Age(long ms) => ms < 60_000
-            ? string.Create(CultureInfo.InvariantCulture, $"{ms / 1000} s")
-            : string.Create(CultureInfo.InvariantCulture, $"{ms / 60_000} min {ms / 1000 % 60} s");
+    /// <summary>A hold's age as its words say it: seconds under a minute, minutes and seconds past one.</summary>
+    private static string HeldFor(long ms) => ms < 60_000
+        ? string.Create(CultureInfo.InvariantCulture, $"{ms / 1000} s")
+        : string.Create(CultureInfo.InvariantCulture, $"{ms / 60_000} min {ms / 1000 % 60} s");
+
+    /// <summary>The words for Stagewatch's blackout this node holds on its timer, or null when it holds none: the last frame's blackout
+    /// is held while the time is not a fact (the link stale or down — "link lost" — or Stagewatch saying its show is stuck), shown with
+    /// its age (Show Bus 1.3 §13.17), and released only by Stagewatch's next state frame on a live link or by a person, never by the
+    /// silence. It only reads: <see cref="StagewatchHoldMoved"/> keeps the hold's start.</summary>
+    private string? HeldStagewatchBlackout(StagewatchReading reading, LinkStatus status)
+    {
+        if (reading is not { Blackout: true, Trusted: false })
+            return null;
+        var now = _o.Wall.UnixMs;
+        // The watch has not looked since the time stopped being a fact: the hold begins now.
+        var since = Interlocked.Read(ref _swBlackoutHeldSince) is > 0 and var started ? started : now;
+        var at = DateTimeOffset.FromUnixTimeMilliseconds(since).ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+        var why = status == LinkStatus.Live ? "Stagewatch says its show is stuck" : "link lost";
+        return string.Create(CultureInfo.InvariantCulture,
+            $"holding Stagewatch's blackout (its timer drawn black) since {at} ({HeldFor(Math.Max(0, now - since))}) — {why}; Stagewatch's next frame releases it, or LINK STAGEWATCH OFF");
+    }
+
+    /// <summary>Keeps the start of Stagewatch's blackout hold: it begins when the last frame's blackout stops having a live word behind
+    /// it (the time no longer a fact) and ends when the reading is a fact again or says no blackout, or when no Stagewatch is followed.
+    /// Run on the link's status and frames and on the watch, which sees a beat make the show stuck (the link raises nothing for it).</summary>
+    private void StagewatchHoldMoved()
+    {
+        if (_stagewatch is { Reading: { Blackout: true, Trusted: false } })
+            Interlocked.CompareExchange(ref _swBlackoutHeldSince, _o.Wall.UnixMs, 0);
+        else
+            Interlocked.Exchange(ref _swBlackoutHeldSince, 0);
     }
 
     /// <summary>Keeps the start of the desk's blackout hold: it begins when the link that took the blackout is no longer live and paired,
@@ -407,38 +440,20 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         // A refused key whose hold runs with no connection up is the link's state, held (Show Bus 1.3 §13.16); past its hold the link
         // is what its dial says, in the dial's words. While a connection is up, a refusal on it is the detail.
         var held = pairing == PairState.Refused && refusedFor > TimeSpan.Zero && !up;
-        var words = pairing == PairState.Refused && (up || held) ? refusal : link.Words;
-        var detail = words + (view.Length > 0 ? (words.Length > 0 ? " · " : "") + "showing " + view : "");
+        var refused = pairing == PairState.Refused && (up || held);
+        var words = refused ? refusal : link.Words;
+        // A held blackout leads the detail, but a refusal's words lead before it (a held link's row reads them by their start).
+        var hold = HeldStagewatchBlackout(link.Reading, status) ?? "";
+        var showing = view.Length > 0 ? "showing " + view : "";
+        string[] parts = refused ? [words, hold, showing] : [hold, words, showing];
+        var detail = string.Join(" · ", parts.Where(p => p.Length > 0));
         // Paired is Stagewatch's answer for the key on the connection up now (no key set asks none once the first message is read); a
         // link that holds its key back (no TLS off this machine) reads the timer and is not paired.
         var paired = status == LinkStatus.Live && !link.KeyHeldBack && pairing is PairState.Paired or PairState.NotNeeded;
         return new LinkView(held ? "held" : StatusWord(status), link.Address, paired, detail);
     }
 
-    public string? StagewatchTimerJson()
-    {
-        if (_stagewatch is not { } link)
-            return null;
-        var reading = link.Reading;
-        return EngineCore.JsonOut(w =>
-        {
-            w.WriteStartObject();
-            var t = reading.Timer;
-            w.WriteString("state", reading.Trusted ? t?.State ?? "idle" : "unknown");
-            w.WriteString("text", reading.Text);
-            if (reading.Trusted && t is not null)
-                w.WriteNumber("seconds", Math.Round(t.Seconds, 1));
-            else
-                w.WriteNull("seconds");
-            w.WriteString("phase", t?.Phase ?? "");
-            w.WriteString("color", t?.Color ?? "");
-            w.WriteString("title", t?.Title ?? "");
-            w.WriteString("message", t?.Message ?? "");
-            w.WriteBoolean("trusted", reading.Trusted);
-            w.WriteString("why", reading.Why);
-            w.WriteEndObject();
-        });
-    }
+    public string? StagewatchTimerJson() => _stagewatch is { } link ? link.Reading.ToStateJson() : null;
 
     /// <summary>The clock sync. A follower's offset is the uncertainty of its leader time (half the best exchange's
     /// round trip): the raw difference between two machines' monotonic clocks says nothing about the show.</summary>
@@ -961,9 +976,18 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     {
         var engine = _engine ?? throw new InvalidOperationException("the engine is not running yet");
         var link = new StagewatchLink(options, engine, _o.Wall, _o.Pins, _o.Mono, _o.Logs.CreateLogger("PlayMap.Net.Stagewatch"));
-        link.StatusChanged += _ => Facts();
+        // The link leaving live, or a frame, moves the hold of Stagewatch's blackout before anything reads it.
+        link.StatusChanged += _ =>
+        {
+            StagewatchHoldMoved();
+            Facts();
+        };
         link.PairingChanged += _ => Facts();
-        link.FrameReceived += _ => Facts();
+        link.FrameReceived += _ =>
+        {
+            StagewatchHoldMoved();
+            Facts();
+        };
         link.ScreenCommand += command => OnScreenCommand(command, options.DisconnectHold);
         _stagewatch = link;
         link.Start();
@@ -976,6 +1000,8 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             return;
         _stagewatch = null;
         _stagewatchView = "";
+        // A Stagewatch this node no longer follows holds nothing on it: a person let it go.
+        Interlocked.Exchange(ref _swBlackoutHeldSince, 0);
         await link.DisposeAsync();
         Facts();
     }
@@ -1209,8 +1235,10 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                     Facts();
                 }
                 // A link's view moves without an event of its own: pairing completes, a clip counts down, a timer is
-                // counted on locally, a frame goes stale. What STATE shows of the links is looked at here, the blackout's hold first.
+                // counted on locally, a frame goes stale, a beat says the show is stuck. What STATE shows of the links is looked at here,
+                // the blackouts' holds first.
                 HoldMoved();
+                StagewatchHoldMoved();
                 var links = (Patterns(), Stagewatch(), StagewatchTimerJson());
                 if (links != _lastLinks)
                 {
