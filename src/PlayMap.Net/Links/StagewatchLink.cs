@@ -131,8 +131,8 @@ public enum StagewatchSideCall
 /// pairs nothing and refuses nothing). State frames
 /// taken latest-wins on seq and counted on locally from their arrival, <c>{"type":"beat","live":false}</c> read as
 /// "the time is not a fact" ("?", never a frozen time), the operator's screen commands raised as events, a ping
-/// every 2 s (the clock offset), this node's context posted every 5 s, and — when the Stagewatch is an approval desk —
-/// the lines approved for this node collected every 2 s, run through the node's own command path and answered.
+/// every 2 s (the clock offset), this node's context posted every 5 s within Stagewatch's 64 KB, and — when the Stagewatch is an
+/// approval desk — the lines approved for this node collected every 2 s, run through the node's own command path and answered.
 /// Stale after 6 s of silence, dropped and redialled after 12 s. Over TLS the certificate is checked against the pin.</summary>
 public sealed class StagewatchLink : IAsyncDisposable
 {
@@ -215,6 +215,9 @@ public sealed class StagewatchLink : IAsyncDisposable
     private int _status = (int)LinkStatus.Down;
     private string _presented = "";
     private volatile string _words = "";
+    private volatile string _contextWords = "";
+    private int _contextOutcome;
+    private int _contextBytes;
     private volatile bool _overTls;
     private volatile bool _keyed;
     private volatile bool _keyHeld;
@@ -265,8 +268,28 @@ public sealed class StagewatchLink : IAsyncDisposable
     /// <summary>Stagewatch says its show thread is stuck: its time is not a fact until a frame comes again.</summary>
     public bool Stuck => _stuck;
 
-    /// <summary>The link's last words (a refusal, the TLS verdict, an approval desk's answer).</summary>
-    public string Words => _words;
+    /// <summary>The link's last words (a refusal, the TLS verdict, an approval desk's answer), then what the connection up now did with
+    /// this node's context when its last post was not the context as built (<see cref="ContextWords"/>).</summary>
+    public string Words
+    {
+        get
+        {
+            var words = _words;
+            var context = _contextWords;
+            return context.Length == 0 ? words : words.Length == 0 ? context : words + " · " + context;
+        }
+    }
+
+    /// <summary>What the connection up now did with this node's context in its last post, when that was not the context as built: fitted
+    /// to Stagewatch's 64 KB by cutting recent lines to §6's size for one, trimmed to it in §6's order (Show Bus 1.3 §6,
+    /// <see cref="ContextFit"/>), not posted because nothing of it fits, or refused by Stagewatch as too large (413). The words say what
+    /// this node sent, whatever Stagewatch answered but a 413: any other refusal's words are the link's own, ahead of these in
+    /// <see cref="Words"/> (a refused key's alone in the network host's detail). "" when the last post carried the context as built,
+    /// before the first post and once the connection ends.</summary>
+    public string ContextWords => _contextWords;
+
+    /// <summary>The last context post's body, as sent, in UTF-8 bytes (0 before the first and when nothing was posted).</summary>
+    public int ContextBytes => Volatile.Read(ref _contextBytes);
 
     /// <summary>The connection up now runs over TLS.</summary>
     public bool OverTls => _overTls;
@@ -457,6 +480,10 @@ public sealed class StagewatchLink : IAsyncDisposable
             _keyed = false;
             _keyHeld = false;
             _heard = false;
+            // What a post did is the connection's: the next connection's first post says it again.
+            _contextWords = "";
+            Volatile.Write(ref _contextOutcome, (int)ContextOutcome.AsBuilt);
+            Volatile.Write(ref _contextBytes, 0);
             SetStatus(LinkStatus.Down);
             if (_stable)
                 failed = 0;
@@ -1302,15 +1329,37 @@ public sealed class StagewatchLink : IAsyncDisposable
     }
 
     /// <summary>This node's context (§6) to Stagewatch's show network (and the key bound to this node's id for the
-    /// approval queue). Its 2xx pairs the link, unless Stagewatch keeps the context unverified (the key speaks for no node); a refusal
+    /// approval queue), as one post carries it: within Stagewatch's 64 KB (Show Bus 1.3 §6, §14 <c>context.bytes</c>), trimmed at this
+    /// poster in §6's order (<see cref="ContextFit"/>), never in the context as built; one nothing of which fits is not posted. A post that
+    /// is not the context as built is said in <see cref="ContextWords"/>, as is a 413 (Stagewatch refusing a body as too large), which
+    /// refuses neither the key nor the pairing. Its 2xx pairs the link, unless Stagewatch keeps the context unverified (the key speaks for no node); any other refusal
     /// is <see cref="RefusedAsync"/>'s. The first authenticated answer over TLS pins the certificate.</summary>
     private async Task PostContextAsync(HttpClient http, CancellationToken ct)
     {
         try
         {
             var asked = Asked();
-            using var request = Request(HttpMethod.Post, "/api/peers/context", _endpoint.Context());
+            var post = ContextFit.ForPost(_endpoint.Context());
+            if (post.Body is null)
+            {
+                Volatile.Write(ref _contextBytes, 0);
+                ContextSaid(ContextOutcome.NotPosted, NotPosted(post));
+                return;
+            }
+            using var request = Request(HttpMethod.Post, "/api/peers/context", post.Body);
+            Volatile.Write(ref _contextBytes, post.Bytes);
             using var response = await http.SendAsync(request, ct);
+            if ((int)response.StatusCode == 413)
+            {
+                ContextSaid(ContextOutcome.TooLarge, await TooLargeAsync(response, post, ct));
+                return;
+            }
+            if (post.OnlyRecentCut)
+                ContextSaid(ContextOutcome.Fitted, Fitted(post.RecentCut));
+            else if (post.Trimmed)
+                ContextSaid(ContextOutcome.Trimmed, "context trimmed for Stagewatch (" + post.What + ")");
+            else
+                ContextSaid(ContextOutcome.AsBuilt, "");
             if (!response.IsSuccessStatusCode)
             {
                 await RefusedAsync(response, "context", asked, ct);
@@ -1339,6 +1388,57 @@ public sealed class StagewatchLink : IAsyncDisposable
             // Said again in five seconds; the frames are what the screen reads.
             _log.LogDebug(ex, "Posting the context to Stagewatch failed.");
         }
+    }
+
+    /// <summary>The words for a post that left nothing out and cut only recent lines, to the size a reader keeps of one.</summary>
+    private static string Fitted(int recentCut) => string.Create(CultureInfo.InvariantCulture,
+        $"context fitted to Stagewatch's 64 KB: {recentCut} recent {(recentCut == 1 ? "line" : "lines")} cut to Show Bus §6's {ContextFit.RecentChars} characters, all its reader keeps of one; nothing left out");
+
+    /// <summary>The words for a context nothing of which fits one post: its size at the least trimming could make it.</summary>
+    private static string NotPosted(ContextPost post) => post.Unreadable
+        ? string.Create(CultureInfo.InvariantCulture, $"this node's context is {Kb(post.Bytes)} KB and not one Show Bus §6 reads, so it cannot be trimmed to Stagewatch's 64 KB; not posted")
+        : string.Create(CultureInfo.InvariantCulture, $"this node's context is {Kb(post.Bytes)} KB after trimming — over Stagewatch's 64 KB; not posted");
+
+    /// <summary>Bytes as whole KB, rounded up: a body one byte over 64 KB never reads as 64 KB.</summary>
+    private static long Kb(long bytes) => (bytes + 1023) / 1024;
+
+    /// <summary>Stagewatch's 413 for a context post: the body was over what it takes. Its words (the most it takes, and what this post
+    /// declared) are kept; nothing is held and the pairing stands, so the next post, trimmed as this one was, is sent on its turn.</summary>
+    private async Task<string> TooLargeAsync(HttpResponseMessage response, ContextPost post, CancellationToken ct)
+    {
+        var error = "";
+        using (var doc = JsonText.TryParse(await response.Content.ReadAsStringAsync(ct), MaxMessageBytes))
+        {
+            if (doc is not null)
+                error = Bounded(JsonText.Str(doc.RootElement, "error"));
+        }
+        var sent = string.Create(CultureInfo.InvariantCulture, $"{post.Bytes} bytes sent");
+        return $"Stagewatch at {Address} refused this node's context as too large (413) — " + (error.Length > 0 ? error : sent);
+    }
+
+    /// <summary>What a context post did, by kind: the words' counts move with the node's journal and its links, the kind only when the
+    /// post's outcome does.</summary>
+    private enum ContextOutcome
+    {
+        AsBuilt,
+        Fitted,
+        Trimmed,
+        NotPosted,
+        TooLarge,
+    }
+
+    /// <summary>Keeps what the last post did with this node's context, its words as they stand; a change of its kind is logged once (a
+    /// warning when nothing reached Stagewatch), and a change of its counts alone is not, so a show whose context is trimmed at every post
+    /// logs it once a connection, never each five seconds.</summary>
+    private void ContextSaid(ContextOutcome outcome, string words)
+    {
+        _contextWords = words;
+        if ((ContextOutcome)Interlocked.Exchange(ref _contextOutcome, (int)outcome) == outcome || outcome == ContextOutcome.AsBuilt)
+            return;
+        if (outcome is ContextOutcome.Fitted or ContextOutcome.Trimmed)
+            _log.LogInformation("The Stagewatch link to {Address}: {Words}.", Address, words);
+        else
+            _log.LogWarning("The Stagewatch link to {Address}: {Words}.", Address, words);
     }
 
     /// <summary>§11: collect what was approved for this node and run each once through the node's own command path (its fences still

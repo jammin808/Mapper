@@ -21,7 +21,9 @@ namespace PlayMap.Net.Tests;
 /// <summary>A Stagewatch as the tests play it: /ws records how it was asked (path, query, Authorization), sends each connection
 /// its <see cref="Verdict"/> first when one is set (and closes it then when <see cref="CloseAfterVerdict"/>, as Stagewatch does after
 /// a viewing-code refusal), then what the test queues, answering pings with pongs, until the test <see cref="Drop"/>s it;
-/// /api/peers/context records the posted context and answers <see cref="ContextStatus"/> once <see cref="ContextAnswerWhen"/> lets it;
+/// /api/peers/context answers a body that declares more than <see cref="MaxContextBytes"/> 413 with Stagewatch's words before it reads
+/// it (as Stagewatch's web server does, 64 KB by default), and records any other posted context and answers <see cref="ContextStatus"/>
+/// once <see cref="ContextAnswerWhen"/> lets it;
 /// /api/proposals serves the approved list for a target, or <see cref="ApprovalsStatus"/> with its body; /api/proposals/&lt;id&gt;/result
 /// records each answer and answers the next of <see cref="ResultStatuses"/> (200 once none is left). A test can have each ping answered
 /// with a t1 it never carried, or every /ws upgrade refused.</summary>
@@ -39,6 +41,12 @@ internal sealed class FakeStagewatch : IAsyncDisposable
     public ConcurrentQueue<string> Asked { get; } = new();
 
     public ConcurrentQueue<string> Contexts { get; } = new();
+
+    /// <summary>The lengths the context posts answered 413 declared.</summary>
+    public ConcurrentQueue<long> Oversize { get; } = new();
+
+    /// <summary>The most a context post's body may declare before it is answered 413 (Stagewatch's own bound by default).</summary>
+    public long MaxContextBytes { get; set; } = 64 * 1024;
 
     public ConcurrentQueue<(string Id, string Body)> Results { get; } = new();
 
@@ -97,6 +105,15 @@ internal sealed class FakeStagewatch : IAsyncDisposable
         app.Map("/ws", fake.WsAsync);
         app.MapPost("/api/peers/context", async (HttpContext c) =>
         {
+            if (c.Request.ContentLength is { } declared && declared > fake.MaxContextBytes)
+            {
+                fake.Oversize.Enqueue(declared);
+                c.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+                c.Response.ContentType = "application/json";
+                await c.Response.WriteAsync(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"{{\"ok\":false,\"error\":\"a request body is at most {fake.MaxContextBytes} bytes; this one declares {declared}\"}}"));
+                return;
+            }
             using var r = new StreamReader(c.Request.Body);
             fake.Contexts.Enqueue(c.Request.Headers.Authorization + " " + await r.ReadToEndAsync());
             await fake.ContextAnswerWhen;
@@ -310,6 +327,34 @@ internal sealed class SilentTlsFront : IAsyncDisposable
             c.Dispose();
         await _accept;
         _stop.Dispose();
+    }
+}
+
+/// <summary>A node whose STATE and context are what a test makes them, every other fact and every line the fake endpoint's.</summary>
+internal sealed class ShapedEndpoint(FakeEndpoint inner) : IWireEndpoint
+{
+    public Func<string>? StateJson { get; init; }
+
+    public Func<string>? ContextJson { get; init; }
+
+    public ValueTask<CommandReply> HandleAsync(WireLine line, SessionInfo session, CancellationToken ct) => inner.HandleAsync(line, session, ct);
+
+    public (string Json, long Revision) State() => StateJson is { } state ? (state(), inner.Seq) : inner.State();
+
+    public string Context() => ContextJson is { } context ? context() : inner.Context();
+
+    public (string Json, long Revision) ProjectJson() => inner.ProjectJson();
+
+    public event Action<long>? StateChanged
+    {
+        add => inner.StateChanged += value;
+        remove => inner.StateChanged -= value;
+    }
+
+    public event Action<long>? ProjectChanged
+    {
+        add => inner.ProjectChanged += value;
+        remove => inner.ProjectChanged -= value;
     }
 }
 
@@ -764,6 +809,185 @@ public class StagewatchLinkTests
         Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Words);
         // Nothing keyed went before the connection's first message: the pong to its first ping.
         Assert.Contains(sw.Received, m => m.Contains("\"cmd\":\"ping\"", StringComparison.Ordinal));
+    }
+
+    /// <summary>A context as the node builds it, with <paramref name="rows"/> journal rows of <paramref name="chars"/> characters each and
+    /// a headline of <paramref name="headline"/> characters.</summary>
+    private static string BigContext(int rows, int chars, int headline = 4) => new ShowContext("playmap", "a1b2c3d4", "Stage left", 1_760_000_000_000,
+        new string('h', headline), [new ContextItem("show", "show", "Show", Light.Green, "rehearsal")], [],
+        [.. Enumerable.Range(0, rows).Select(i => new ContextRecent(1_760_000_000_000 + i, $"Show: {i:00} " + new string('x', chars)))],
+        ShowContext.CommandsFromCatalog(), []).ToJson();
+
+    /// <summary>The body a context post carried, without the Authorization the fake records before it.</summary>
+    private static string Body(string recorded) => recorded[(recorded.IndexOf(' ', "Bearer ".Length) + 1)..];
+
+    /// <summary>A context as the node builds it with <paramref name="links"/> links, too many for Stagewatch's 64 KB even with its journal
+    /// rows within their size, so a post leaves links out.</summary>
+    private static string Crowded(int links) => new ShowContext("playmap", "a1b2c3d4", "Stage left", 1_760_000_000_000, "busy",
+        [new ContextItem("show", "show", "Show", Light.Green, "rehearsal")],
+        [.. Enumerable.Range(0, links).Select(i => new ContextLink("output:" + i, "output:" + (i + 1), "feeds", i % 2 == 0 ? Light.Grey : Light.Green))],
+        [.. Enumerable.Range(0, 20).Select(i => new ContextRecent(1_760_000_000_000 + i, $"Show: {i:00} " + new string('x', 400)))],
+        ShowContext.CommandsFromCatalog(), []).ToJson();
+
+    /// <summary>The state of the context:trimmed item a posted body carries, or null for none.</summary>
+    private static string? TrimmedState(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        return doc.RootElement.GetProperty("items").EnumerateArray()
+            .Where(i => i.GetProperty("id").GetString() == ContextFit.TrimmedId).Select(i => i.GetProperty("state").GetString()).SingleOrDefault();
+    }
+
+    /// <summary>The link's log, each line with its level.</summary>
+    private sealed class KeptLogger : ILogger
+    {
+        public ConcurrentQueue<(LogLevel Level, string Line)> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Enqueue((logLevel, formatter(state, exception)));
+    }
+
+    [Fact]
+    public async Task AContextOverStagewatchsBytesOnlyByItsLongRowsIsPostedFittedAndSaidSo()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        var built = BigContext(rows: 20, chars: 8000);
+        Assert.True(Encoding.UTF8.GetByteCount(built) > 160_000);
+        var endpoint = new ShapedEndpoint(new FakeEndpoint()) { ContextJson = () => built };
+        await using var link = new StagewatchLink(Options(sw), endpoint, TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty && link.ContextWords.Length > 0), link.Words);
+
+        // Stagewatch took it whole: within its 64 KB, every journal row cut to the 200 characters its reader keeps, and nothing else moved,
+        // so nothing was left out and no context:trimmed item says so (§6's sizes, not its trimming).
+        var body = Body(sw.Contexts.First());
+        Assert.Null(TrimmedState(body));
+        Assert.Equal(ContextFit.ForPost(built).Body, body);
+        Assert.InRange(Encoding.UTF8.GetByteCount(body), 1, ContextFit.MaxBytes);
+        Assert.Equal(Encoding.UTF8.GetByteCount(body), link.ContextBytes);
+        Assert.Empty(sw.Oversize);
+        using (var doc = JsonDocument.Parse(body))
+        {
+            var recent = doc.RootElement.GetProperty("recent").EnumerateArray().Select(r => r.GetProperty("text").GetString()!).ToList();
+            Assert.Equal(20, recent.Count);
+            Assert.All(recent, r => Assert.Equal(ContextFit.RecentChars, r.Length));
+            Assert.Equal(ShowContext.CommandsFromCatalog().Count, doc.RootElement.GetProperty("commands").GetArrayLength());
+        }
+
+        // The link says so in its words (and so in STATE's links.stagewatch.detail), as a fit, not a trim, and the post paired it.
+        const string fitted = "context fitted to Stagewatch's 64 KB: 20 recent lines cut to Show Bus §6's 200 characters, all its reader keeps of one; nothing left out";
+        Assert.Equal(fitted, link.ContextWords);
+        Assert.EndsWith(" · " + fitted, " · " + link.Words, StringComparison.Ordinal);
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Words);
+    }
+
+    /// <summary>A show whose context is over Stagewatch's bytes at every post: each post leaves out what it must and says so in the item
+    /// Stagewatch takes and in the link's words, whose counts follow the show; the log says it once, and again only when what the post
+    /// did changes (taken as built, then trimmed again), never at every post.</summary>
+    [Fact]
+    public async Task AContextTrimmedAtEveryPostSaysItsCountsEachTimeAndLogsOnlyAChangeOfWhatThePostDid()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        var calls = 0;
+        var crowded = 1;
+        // Each post's context has one link more than the last: what the post leaves out moves at every post.
+        string Built() => Volatile.Read(ref crowded) == 1 ? Crowded(600 + Interlocked.Increment(ref calls)) : BigContext(rows: 2, chars: 10);
+        var log = new KeptLogger();
+        var endpoint = new ShapedEndpoint(new FakeEndpoint()) { ContextJson = Built };
+        await using var link = new StagewatchLink(Options(sw), endpoint, TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000), log);
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => sw.Contexts.Count >= 4), link.Words);
+
+        var said = sw.Contexts.Select(c => TrimmedState(Body(c))).ToList();
+        Assert.All(said, s => Assert.StartsWith("left out: ", s, StringComparison.Ordinal));
+        Assert.True(said.Distinct(StringComparer.Ordinal).Count() >= 2, string.Join(" | ", said));
+        Assert.All(sw.Contexts, c => Assert.InRange(Encoding.UTF8.GetByteCount(Body(c)), 1, ContextFit.MaxBytes));
+        Assert.StartsWith("context trimmed for Stagewatch (left out: ", link.ContextWords, StringComparison.Ordinal);
+        bool Trims((LogLevel Level, string Line) l) => l.Line.Contains("context trimmed for Stagewatch", StringComparison.Ordinal);
+        Assert.Equal(LogLevel.Information, Assert.Single(log.Lines, Trims).Level);
+
+        // Taken as built: the words go, and nothing is logged for it.
+        Volatile.Write(ref crowded, 0);
+        Assert.True(await Eventually.TrueAsync(() => link.ContextWords.Length == 0), link.Words);
+        Assert.Single(log.Lines, Trims);
+
+        // Trimmed again: said again, and logged once more.
+        var before = sw.Contexts.Count;
+        Volatile.Write(ref crowded, 1);
+        Assert.True(await Eventually.TrueAsync(() => sw.Contexts.Count >= before + 3 && link.ContextWords.Length > 0), link.Words);
+        Assert.Equal(2, log.Lines.Count(Trims));
+        Assert.DoesNotContain(log.Lines, l => l.Level >= LogLevel.Warning && l.Line.Contains("context", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AContextNothingOfWhichFitsIsNotPostedAndSaidSo()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        // The headline is never trimmed: a node whose headline alone is 70 KB has nothing to post.
+        var endpoint = new ShapedEndpoint(new FakeEndpoint()) { ContextJson = () => BigContext(rows: 2, chars: 10, headline: 70_000) };
+        await using var link = new StagewatchLink(Options(sw), endpoint, TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.ContextWords.Length > 0), link.Words);
+        var said = System.Text.RegularExpressions.Regex.Match(link.ContextWords, "^this node's context is ([0-9]+) KB after trimming — over Stagewatch's 64 KB; not posted$",
+            System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+        Assert.True(said.Success, link.ContextWords);
+        Assert.InRange(int.Parse(said.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture), 69, 70);
+        Assert.Contains(link.ContextWords, link.Words, StringComparison.Ordinal);
+        // Pings and the context's turns both come every 200 ms: by the third ping its turn has come again, and nothing was posted.
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 3), $"{Pings(sw)} pings");
+        Assert.Empty(sw.Contexts);
+        Assert.Empty(sw.Oversize);
+        Assert.Equal(0, link.ContextBytes);
+        Assert.Equal(LinkStatus.Live, link.Status);
+        Assert.Equal(0, link.SideCallFaults(StagewatchSideCall.Context));
+    }
+
+    [Fact]
+    public async Task AStagewatchThatAnswers413SaysItsWordsAndHoldsNothing()
+    {
+        // A Stagewatch whose bound is under §14's: it answers a body over it 413, drained, before any route reads it.
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.MaxContextBytes = 1024;
+        var built = BigContext(rows: 3, chars: 100);
+        var bytes = Encoding.UTF8.GetByteCount(built);
+        Assert.InRange(bytes, 1025, ContextFit.MaxBytes);
+        var endpoint = new ShapedEndpoint(new FakeEndpoint()) { ContextJson = () => built };
+        await using var link = new StagewatchLink(Options(sw), endpoint, TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => sw.Oversize.Count >= 2), link.Words);
+
+        // Its words are kept and said; the key is not refused, nothing is held, and the next post goes on its turn.
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} refused this node's context as too large (413) — a request body is at most 1024 bytes; this one declares {bytes}",
+            link.ContextWords);
+        Assert.Contains(link.ContextWords, link.Words, StringComparison.Ordinal);
+        Assert.All(sw.Oversize, declared => Assert.Equal(bytes, declared));
+        Assert.Empty(sw.Contexts);
+        Assert.NotEqual(PairState.Refused, link.Pairing);
+        Assert.Equal((TimeSpan.Zero, TimeSpan.Zero, ""), (link.RefusedFor, link.BusyFor, link.Refusal));
+        Assert.Equal(LinkStatus.Live, link.Status);
+
+        // Taken again once Stagewatch takes it: the words go.
+        sw.MaxContextBytes = ContextFit.MaxBytes;
+        Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty && link.ContextWords.Length == 0), link.Words);
+        Assert.Equal(built, Body(sw.Contexts.First()));
+        Assert.DoesNotContain("413", link.Words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AContextOfTheNodesOwnSizeIsPostedByteForByteAndSaysNothing()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        var built = BigContext(rows: 20, chars: 150);
+        var endpoint = new ShapedEndpoint(new FakeEndpoint()) { ContextJson = () => built };
+        await using var link = new StagewatchLink(Options(sw), endpoint, TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => sw.Contexts.Count >= 2), link.Words);
+        Assert.All(sw.Contexts, c => Assert.Equal(built, Body(c)));
+        Assert.Equal(("", Encoding.UTF8.GetByteCount(built)), (link.ContextWords, link.ContextBytes));
+        Assert.DoesNotContain("context", link.Words, StringComparison.Ordinal);
     }
 
     [Fact]

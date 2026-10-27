@@ -2640,3 +2640,168 @@ Round 2 W1 notes:
     message, and the network host writes the object again for each look (the surface's poller, four a second; the watch, two);
     the picture's drawing cost is bounded here, STATE's size and the object's writing are fix-stagewatch-context-size's (PM-8)
     fence.
+
+## Integrator notes from the round-2 fix batch (fix-stagewatch-context-size)
+
+- Done: the context this node posts to Stagewatch fits Stagewatch's 64 KB by bytes, trimmed at the poster and said when it is
+  (G25), and a `HELLO Stagewatch` session's STATE is fenced within what Stagewatch's reader takes, on one clock (G26's fence; owner
+  answer M-PMX; the train's PM-8). The link posted `_endpoint.Context()` as built: Stagewatch drops a declared body over 64 KB before
+  any route (and, before its 413, closed the connection unanswered), and the link debug-logged the failure only, so the node stayed
+  "following Stagewatch" while its things went stale on Stagewatch's Show network. Measured here: the busy golden
+  (`tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json`) is 43,639 bytes; a stress show (64 outputs, 32 projectors each with
+  its control device, 24 playlists, the hello table full) builds 79,277 bytes with three rows in its journal, so every post of a show
+  that size failed before this batch; with its journal's last twenty rows each a 64 KB line, 1,390,629 bytes.
+  - The fit (`src/PlayMap.Net/Links/ContextFit.cs`, new, pure): `ContextFit.ForPost(json, 65536)` returns a `ContextPost` (the body,
+    or null; its bytes; the context's own bytes; what was left out, `ContextLeftOut`; how many recent lines and item states it cut;
+    `What`, those as words). A context within the bytes, counted in UTF-8 as sent, is posted byte for byte (the same string). One over
+    them is first brought within §6's size for a recent line (`context.recent.chars`, 200, the most Stagewatch's reader keeps of one),
+    then trimmed in Show Bus 1.3 §6's order, each step only until it fits, with room kept for the item it adds: the oldest recent
+    lines; grey links, then the other links; commands other than panic, air and transport, from the end (a command is one of those by
+    its catalogue row's `ShowClass`, the row whose `Syntax` the command is); grey items, then green items, from the end; only while it
+    is still over, each amber item's state cut to 40 characters ending "…", then each red item's; then amber items, red items and the
+    panic, air and transport commands, each from the end. When anything was left out, one grey item ends the items, in §6's words:
+    `{"id":"context:trimmed","kind":"health","label":"Context","light":"grey","state":"left out: 20 recent, 131 links, 17 commands"}`;
+    a fit that only cut recent lines to their size left nothing out and carries none (`ContextPost.OnlyRecentCut`, below). Every
+    element kept is the given one byte for byte but a cut one, and every other field (node, at, light, headline, peers) is kept
+    as given, in its order. When even the context's own fields and that item are over, or the context is not an object with §6's
+    four arrays, nothing is posted. Only bytes are governed: §6's counts and field sizes stay the builder's (below).
+  - Why §6's order and not the design's: decision 11 (recent lines cut to 200, then command words dropped, then green and grey
+    items; a "Context trimmed" item with its own words) predates Show Bus 1.3 final, whose §6 *Trimming* paragraph fixes the order
+    and the item's words, and whose §8.3 PlayMap row says this not-kept rule "ends when it trims at the poster, in §6's order". The
+    contract wins; decision 11's first step stays as §6's *Sizes* rule for a recent line (a reader keeps no more of one, so nothing it
+    reads is lost), applied only to a context over the bytes so a context within them is never touched. The last resort's 40
+    characters (`LastResortChars`) are §6's sender's choice; Stagewatch's own sender chose 40 (`ShowContext.LastResortChars`), and
+    so does this one, so the two senders cut alike.
+  - The plan's "publishes context:trimmed" is read as §6 writes it: the item says what was left out, and is there when anything was.
+    A post whose only change is its recent lines cut to §6's size for one (`context.recent.chars`, 200; Stagewatch's reader keeps no
+    more of one, `PeerContexts` reading `Str(text, 200)`) is §6's *Sizes* rule, not its *Trimming*: it leaves nothing out and carries
+    no item, as Stagewatch's own sender, which sizes its recent lines as it builds them, never carries one for that. So the link says
+    it as fitted, not trimmed, and STATE and Stagewatch's Show network never disagree on whether anything was trimmed (the design's
+    golden-plus-twenty-rows case expected the item; the test holds it absent). The last resort's state cuts with nothing left out
+    would carry no item either, and say "trimmed" on the link; a context this node builds never comes to them, since its commands
+    always list rows that are not panic, air or transport, and those are left out before any state is cut.
+  - The link (`src/PlayMap.Net/Links/StagewatchLink.cs`): `PostContextAsync` posts the fitted body, never in `ContextBuilder` (the
+    context as built is unchanged: STATE's light and headline, `CONTEXT`, MCP and the assistant read it whole). What the connection's
+    last post did, when it was not the context as built, is `ContextWords` and follows the link's own words in `Words` (" · " between):
+    "context fitted to Stagewatch's 64 KB: 20 recent lines cut to Show Bus §6's 200 characters, all its reader keeps of one; nothing
+    left out" (`OnlyRecentCut`); "context trimmed for Stagewatch (left out: …; cut short: …)" (something left out, or a state cut);
+    "this node's context is 69 KB after trimming — over Stagewatch's 64 KB; not posted" (KB rounded up, so a body a byte over never
+    reads as 64); "this node's context is N KB and not one Show Bus §6 reads, so it cannot be trimmed to Stagewatch's 64 KB; not
+    posted"; and Stagewatch's 413 read: "Stagewatch at <address> refused this node's context as too large (413) — a request body is at
+    most 65536 bytes; this one declares 70000" (Stagewatch's words, SW20.9, bounded as a refusal's). A 413 refuses neither the key
+    nor the pairing and holds nothing: the next post goes on its turn.
+    The words say what this node sent whatever Stagewatch answered but a 413: a 429's or a 5xx's words are the link's own, ahead of
+    these in `Words`, and a refused key's (401, 403) stand alone in the network host's detail. A post that carries the context as built
+    clears the words; so does the connection's end. A change of what a post did (as built, fitted, trimmed, not posted, refused 413) is
+    logged once (information for a fit or a trim, a warning when nothing reached Stagewatch), and again on the next connection; a change
+    of its counts alone is not, so a show trimmed at every post, whose counts follow its journal and its links, logs it once, never
+    every five seconds. The context's own text is in no log line. `ContextBytes` is the last post's body in bytes. A post not sent
+    (nothing fits) is no keyed answer, so a Stagewatch that sends no verdict is not paired by it.
+  - The fence, in two halves. The wire's (`WireServerTests`): a `HELLO Stagewatch` session's greeting and pushes are the node's STATE
+    whole, one line, never cut, split or reordered by the wire, at §14's `link.read.min.bytes` (262,144) to the byte and past it; and
+    every whole STATE the node's own tests wrote (`tests/fixtures/state/main.json`, `output.json`, compact as the engine writes them)
+    is one such line within a quarter of the bound, `video` and `playlists` in its first 16 KB, which a reader that keeps only a
+    line's head still reaches (Stagewatch's `PlayoutStateReader`, SW20.3); the PONG's t2 and t3 are the wire's own show clock. The
+    engine's (`ContextLinkTests`, the plan's Engine test for this batch: the Net suite cannot build an engine's STATE): the stress show
+    above, the hello table at §14's `peers.max` (128 peers, names and headlines at their most), both links live with words, and a
+    Stagewatch frame with a 200-character title, a 500-character message (Stagewatch's own bound on one) and its watermark, served by
+    the node's own `WireServer` on the engine's wall as the host does: the `HELLO Stagewatch` greeting is about 114,560 bytes of the
+    reader's 262,144 (44 %; it moves by a few bytes run to run with the machine's own figures), `video` and `playlists` in its first
+    16 KB; STATE's `at`, the PONG's t2 and t3 are one instant on a clock that does not move, and an `AT` a sender works out from that
+    PONG is judged on it (59 s back is now; 60 s and a millisecond back is refused). Measured, then governed: no real show measured reaches the bound, so the video-shaped STATE for a Stagewatch session
+    (G26's fix) is not due; the fence fails first, with the size in its words, if a show grows past it.
+- Tests:
+  - New `tests/PlayMap.Net.Tests/ContextFitTests.cs` (the design's `Links/ContextFitTests`, beside the suite's other link tests):
+    `TheBytesAndARecentLinesSizeAreSection14s` (`MaxBytes` and `RecentChars` are §14's rows as the contract's copy has them; §6's
+    "left out" words, singular and plural); `AContextWithinTheBytesIsPostedByteForByte` (the busy golden, and a context at 65,536
+    bytes exactly, are the same string; one byte over is trimmed); `LongRecentLinesAreCutToWhatAReaderKeepsAndNothingElseMoves` (the
+    golden with twenty 64 KB rows: every row kept, cut to 200 ending "…", every item, link and all 199 commands byte for byte, no
+    trimmed item, `OnlyRecentCut`); `OverTheBytesTheContextIsTrimmedInSection6sOrderOnlyUntilItFits` (a context of every element kind
+    swept down from its size in 613-byte steps: at each, the body within the bound and its bytes the context's own fields and its
+    arrays' elements, kept elements the given ones in order, the counts and the trimmed item's words, each §6 step only once every
+    earlier one is spent, its own fields as given; only until it fits: what it keeps is within the bytes the item leaves, and the last
+    change of the last step it took undone — the last element left out with its comma, or the last state cut put back whole — would be
+    over them again; just over, only the oldest recent lines go); `EachStepOfSection6sOrderTakesOnlyWhatBringsTheContextWithin` (for
+    each of §6's nine leave-out steps a context whose earlier steps have nothing to take, a byte over what its arrays may have and 1,
+    57 and 301 bytes further: exactly the fewest of that step's elements, in its order, that bring it within, and nothing of any other
+    step; for the amber and the red state cuts, exactly the fewest states from the first);
+    `TheLastResortCutsAmberStatesThenRedThenLeavesThemOutAndThePanicAirAndTransportCommandsLast`;
+    `NothingIsPostedWhenTheContextsOwnFieldsAreOver` (a 70 KB headline); `AContextSection6DoesNotReadIsPostedOnlyWithinTheBytes`;
+    `ACutNeverSplitsASurrogatePair`.
+  - `tests/PlayMap.Net.Tests/StagewatchLinkTests.cs`: the fake Stagewatch answers a body that declares more than `MaxContextBytes`
+    (64 KB by default) 413 with Stagewatch's words before reading it, as Stagewatch's web server does, and records the declared length;
+    `ShapedEndpoint` serves a STATE and a context a test makes. New: `AContextOverStagewatchsBytesOnlyByItsLongRowsIsPostedFittedAndSaidSo`
+    (160 KB built: Stagewatch takes the fitted body, which carries no trimmed item; `ContextWords`, `Words` and `ContextBytes` say it
+    fitted; the post pairs the link), `AContextTrimmedAtEveryPostSaysItsCountsEachTimeAndLogsOnlyAChangeOfWhatThePostDid` (a context
+    one link larger at each post: each post's trimmed item and the link's words carry its counts, the log says it once; taken as built,
+    the words go and nothing is logged; trimmed again, logged once more; no warning),
+    `AContextNothingOfWhichFitsIsNotPostedAndSaidSo`, `AStagewatchThatAnswers413SaysItsWordsAndHoldsNothing` (a Stagewatch taking 1 KB:
+    its words kept, no refusal, no hold, the posts go on, and once it takes the body the words go),
+    `AContextOfTheNodesOwnSizeIsPostedByteForByteAndSaysNothing`.
+  - `tests/PlayMap.Net.Tests/WireServerTests.cs`: `AStagewatchSessionHearsTheWholeStateAsOneLineWithinTheReadersBound` (its sized
+    STATE is JSON a reader parses, its seq the node's and its pad taking up the seq's digits),
+    `AStagewatchSessionsPongReadsTheWiresOneClock`; its `StartAsync` takes any endpoint and a wall.
+  - `tests/PlayMap.Engine.Tests/ContextLinkTests.cs`: `ABusyNodesPostKeepsEveryRowCutToWhatStagewatchReadsAndEverythingElseAsBuilt`
+    (the golden's show with twenty 64 KB journal rows: the post fits, every row kept and cut, every item, link and command as built,
+    the context as built unchanged), `AStressShowsPostLeavesOutInSection6sOrderAndEveryLinkItKeepsNamesAnItemItKeeps` (posted 65,289
+    bytes: left out 20 recent, 131 links, 17 commands; every kept link names a kept item),
+    `AStressShowsStateReachesAStagewatchSessionWithinTheReadersBoundOnOneClock`; the two measures are written to the test's output;
+    `WhatAPostDidWithTheContextReachesStateTheContextAndPreflight` (a node on the host rig following `ContextStagewatch`, a Stagewatch
+    played in the same file whose context door answers 413 over a bound the test sets: its 413 words in STATE's
+    `links.stagewatch.detail`, the context's `link:stagewatch` item and preflight's `links:stagewatch` row; then, with twenty 64 KB
+    journal rows and a 64 KB bound, the fitted words in all three and the 413 gone from them).
+  - Each rule undone alone, the rest kept, made a test fail (each built and run): commands trimmed before links; green items before
+    grey; recent lines not cut first; no trimmed item; the link posting the context as built; the 413 not read; the context's words
+    not in `Words` (the Engine test fails too: no reader hears them); grey links, or the commands that are not panic, air or transport,
+    all left out once their step starts (the sweep and the step test); the log said on every change of the words (the log test); a
+    post that only cut recent lines said as a trim (the fitted test).
+- Files: the leave's (M-PMX for this batch: `src/PlayMap.Net/Links/ContextFit.cs` (new), `src/PlayMap.Net/Links/StagewatchLink.cs`,
+  the test fake in `tests/PlayMap.Net.Tests/StagewatchLinkTests.cs`, `tests/PlayMap.Net.Tests/WireServerTests.cs`,
+  `tests/PlayMap.Engine.Tests/ContextLinkTests.cs`, and the design's `ContextFitTests`), and this entry. `ContextLinkTests.cs` is
+  taken as the leave's by the plan's validate line (its Engine filter names it), `ContextFitTests.cs` by the design's file list (at
+  the Net suite's root, beside `StagewatchTimerTests`, not in a `Links/` folder). No file outside the leave and no spine line:
+  `ContextBuilder`, `ShowContext`, `NetworkHost` and `StateWriter` are as they were (the words reach STATE through the link's
+  `Words`, which the network host already writes into `links.stagewatch.detail`). No verb, catalogue row, card, fixture, STATE key or
+  context item of the node's own moves.
+- Papers notes for the integrator:
+  - `docs/SHOWBUS-NODE.md` §2's Stagewatch row: the post fits Stagewatch's 64 KB by bytes, trimmed at the poster in §6's order with
+    a `context:trimmed` item when anything is left out (fitted, with none, when only its recent lines were cut to their size), said
+    in the link's words; a 413 is read and said; a context nothing of which fits is not posted, said.
+  - `docs/WIRE.md`, by `links.stagewatch.detail`: the context words above may follow the link's own words.
+  - Show Bus §8.3's PlayMap row "its posted context is not trimmed to `context.bytes` (§6) — ends when it trims at the poster, in §6's
+    order" has ended with this batch; the copy here is byte for byte, so the row goes from the contract's next text (its owner's
+    master, Stagewatch's).
+  - `docs/ROADMAP.md`: G25 closed; G26's fence in place with its measure (a stress show's STATE 44 % of the reader's bound), its fix not
+    due.
+- Every reader (where the words reach, and where they do not):
+  - reached through `links.stagewatch.detail`: STATE, the context item `link:stagewatch` (its state carries the detail), preflight's
+    live rows (`LinksCheck`) — held end to end by `ContextLinkTests.WhatAPostDidWithTheContextReachesStateTheContextAndPreflight`;
+    the words move, the light does not (Open);
+  - not reached: the desk's `StateSnapshot` reads no Stagewatch detail, the assistant's `StateExplainer` says nothing of it, and the
+    Companion module reads `links.stagewatch.state`, `timer.text` and `timer.phase` only — each the integration pass's or PM-14's,
+    with PM-7's same notes; no journal row says it (a log line does, once per change of what a post did).
+- Open:
+  - A context not posted, or refused 413, moves no light: the link stays ✓ green, live and paired (or △ amber, not paired, as its
+    pairing says) in STATE's `links.stagewatch`, the context's `link:stagewatch` item and preflight's `LinksCheck` row; only the
+    detail's words say it. §13.16 names no flag for it, so this is within the contract, but this node's things go stale on
+    Stagewatch's Show network while every reader here shows green. Whether it is an amber △ flag is for the integration pass or
+    wp4-peerlink to decide (`NetworkHost`, `ContextBuilder` and `LinksCheck` are outside this leave).
+  - `ContextLinkTests.cs` is one of the tests round 3 §5.4's gate runs at every merge. The gate runs it and owns no file, so no ask
+    is open; should the integrator read §5.4's gate tests as its own, this batch's four new tests in it and its `ContextStagewatch`
+    fake are the ask.
+  - §6's counts (`context.items` 200, `links` 400, `recent` 20, `commands` 256, `peers` 32) and field sizes (an item's state 160,
+    label 80, the headline 200, a recent line 200, a command's verb and words 512) are kept by the builder or by nothing: they go into
+    `ShowContext.ToJson`/`ContextBuilder` at the integration pass (spine files), as decision 11 left them. Today a context within the
+    bytes is posted as built, so a recent line or a fault's state past its size reaches Stagewatch whole (its reader keeps the first
+    200 and 160 characters).
+  - §8.3's other not-kept row, a context posted every 5 s rather than on change, is not scheduled.
+  - A redialled link reads as a fact before its first frame (PM-7's Open, `StagewatchLink.cs`): not taken by this batch, whose plan
+    names no change to the reading; it stands for wp4-peerlink.
+  - The timer object's title, message and watermark reach STATE as Stagewatch sends them, bounded only by the link's 1 MiB message
+    (PM-7's Open): the fence measures them at Stagewatch's own sizes; a Stagewatch sending a far longer one would grow STATE past the
+    fence's measure. Bounding what the link keeps of a frame's words is the batch that next owns `StagewatchTimer.cs`'s, or
+    wp4-peerlink's.
+  - Seen while validating this batch, in a test it does not touch: `HostNetworkTests.ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt`
+    (PM-6's) failed once in a whole Engine run, at its 10 s wait for the desk to pair again after its second cut (likely the jittered
+    redial under the suite's load); it passed in the other whole runs and five of five alone. Red only sometimes is a defect for that
+    test's owner (round 3 §5.4), the Patterns link's next batch or wp4-peerlink.

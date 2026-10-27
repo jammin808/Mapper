@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using PlayMap.Core.Bus;
+using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
 using PlayMap.Net.Commands;
 using PlayMap.Net.Http;
@@ -15,14 +16,15 @@ namespace PlayMap.Net.Tests;
 /// transcript, the clock exchange, receipts, the fences (unpaired verbs, wrong proofs, the per-address ceiling,
 /// lines that never end), facts and a peer's own replies never answered, faults that are the line's, and pushes
 /// that are throttled, latest-wins and never repeated. The node's own token arriving in clear from another machine — plain AUTH on
-/// the wire, a token header on plain HTTP at the web's gate — gets the answer the door gives any such line or request, and is reported.</summary>
+/// the wire, a token header on plain HTTP at the web's gate — gets the answer the door gives any such line or request, and is reported.
+/// A Stagewatch session hears the node's STATE whole, one line within what its reader takes, on the wire's one clock.</summary>
 public class WireServerTests
 {
     private static readonly Regex Nonce = new("^NONCE [0-9a-f]{32}$", RegexOptions.None, TimeSpan.FromSeconds(1));
 
-    private static async Task<WireServer> StartAsync(FakeEndpoint endpoint, NodeSettings settings, WireServerOptions? options = null)
+    private static async Task<WireServer> StartAsync(IWireEndpoint endpoint, NodeSettings settings, WireServerOptions? options = null, ShowWallClock? wall = null)
     {
-        var server = new WireServer(settings, endpoint, TestSettings.Wall(), options ?? new WireServerOptions { PlainAuthOnLoopback = false });
+        var server = new WireServer(settings, endpoint, wall ?? TestSettings.Wall(), options ?? new WireServerOptions { PlainAuthOnLoopback = false });
         server.Start();
         await Task.Yield();
         return server;
@@ -88,6 +90,109 @@ public class WireServerTests
         var context = await c.AskAsync("@ctx CONTEXT");
         Assert.StartsWith("OK @ctx {\"v\":1,\"node\":{\"t\":\"playmap\"", context, StringComparison.Ordinal);
         Assert.StartsWith("OK @q {\"v\":1,\"seq\":", await c.AskAsync("@q STATE"), StringComparison.Ordinal);
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))
+            dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("the repository root (PlayMap.sln) is not above the test");
+    }
+
+    /// <summary>A §14 row of the contract's copy (docs/SHOWBUS.md).</summary>
+    private static long Section14(string name)
+    {
+        var row = File.ReadAllText(Path.Combine(RepoRoot(), "docs", "SHOWBUS.md")).Split('\n').Select(l => l.TrimEnd('\r'))
+            .Single(l => l.StartsWith(name + " ", StringComparison.Ordinal));
+        return long.Parse(row[(name.Length + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The most of a STATE line in which a reader that keeps only its head still finds the clip on air and the playlists
+    /// (Stagewatch's playout link reads <c>video</c> and <c>playlists</c> from a line it keeps in part).</summary>
+    private const int HeadBytes = 16 * 1024;
+
+    /// <summary>The wire's half of the fence on what a Stagewatch session hears: the STATE a <c>HELLO Stagewatch</c> session is greeted
+    /// and pushed is the node's STATE whole, one line, never cut, split or reordered by the wire, up to the most a reader takes
+    /// (Show Bus 1.3 §13.14, §14 <c>link.read.min.bytes</c>) and past it as well; and every whole STATE the node's own tests wrote
+    /// (tests/fixtures/state) is one such line well within it, with the clip on air and the playlists in its head. A real show's STATE,
+    /// written by the engine, is measured in the Engine suite's ContextLinkTests.</summary>
+    [Fact]
+    public async Task AStagewatchSessionHearsTheWholeStateAsOneLineWithinTheReadersBound()
+    {
+        var bound = (int)Section14("link.read.min.bytes");
+        Assert.Equal(256 * 1024, bound);
+        var inner = new FakeEndpoint();
+        // A STATE whose line is the bound to the byte (its seq moves with the node; its pad takes up the seq's digits, so its length does
+        // not), then one a byte past it.
+        var extra = 0;
+        string Sized()
+        {
+            var head = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{{\"v\":1,\"seq\":{inner.Seq},\"id\":\"a1b2c3d4\",\"t\":\"playmap\",\"video\":{{\"file\":\"intro.mp4\"}},\"playlists\":[],\"pad\":\"");
+            return head + new string('p', bound - "STATE ".Length - head.Length - 2 + Volatile.Read(ref extra)) + "\"}";
+        }
+        // A line a reader takes as STATE: JSON whose seq is the node's.
+        void IsState(string line, long seq)
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(line["STATE ".Length..]);
+            Assert.Equal(seq, doc.RootElement.GetProperty("seq").GetInt64());
+        }
+        var endpoint = new ShapedEndpoint(inner) { StateJson = Sized };
+        await using (var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true)))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            Assert.Equal("OK", await c.AskAsync("HELLO Stagewatch"));
+            var greeting = await c.ReadAsync();
+            Assert.Equal("STATE " + Sized(), greeting);
+            Assert.Equal(bound, Encoding.UTF8.GetByteCount(greeting!));
+            IsState(greeting!, inner.Seq);
+
+            Volatile.Write(ref extra, 1);
+            inner.Publish();
+            var pushed = await c.ReadAsync();
+            Assert.Equal("STATE " + Sized(), pushed);
+            Assert.Equal(bound + 1, Encoding.UTF8.GetByteCount(pushed!));
+            IsState(pushed!, 2);
+        }
+
+        // The node's own whole STATEs, as its engine tests wrote them, compact as the engine writes them.
+        var dir = Path.Combine(RepoRoot(), "tests", "fixtures", "state");
+        var whole = Directory.GetFiles(dir, "*.json").Where(f => !f.EndsWith(".cards.json", StringComparison.Ordinal))
+            .Select(f => (Name: Path.GetFileName(f), Json: System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(f))))
+            .Where(f => f.Json is System.Text.Json.Nodes.JsonObject o && o["t"]?.GetValue<string>() == "playmap")
+            .Select(f => (f.Name, Json: f.Json!.ToJsonString())).ToList();
+        Assert.Contains(whole, f => f.Name == "main.json");
+        foreach (var (name, json) in whole)
+        {
+            var node = new ShapedEndpoint(new FakeEndpoint()) { StateJson = () => json };
+            await using var server = await StartAsync(node, TestSettings.Make(trustLoopback: true));
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            Assert.Equal("OK", await c.AskAsync("HELLO Stagewatch"));
+            var line = await c.ReadAsync();
+            Assert.Equal("STATE " + json, line);
+            var bytes = Encoding.UTF8.GetByteCount(line!);
+            Assert.True(bytes <= bound / 4, $"{name}: a STATE line of {bytes} bytes, past a quarter of the reader's {bound}");
+            Assert.InRange(line!.IndexOf("\"video\":", StringComparison.Ordinal), 0, HeadBytes);
+            Assert.InRange(line.IndexOf("\"playlists\":", StringComparison.Ordinal), 0, HeadBytes);
+        }
+    }
+
+    /// <summary>One clock: a <c>HELLO Stagewatch</c> session's PONG carries the wire's show clock — the one the node's STATE and its
+    /// <c>AT</c> read (the host hands the wire and the engine one wall) — for both its read and its answer, never this machine's own clock
+    /// beside it.</summary>
+    [Fact]
+    public async Task AStagewatchSessionsPongReadsTheWiresOneClock()
+    {
+        var mono = new ManualClock(1_000_000_000);
+        var wall = new ShowWallClock(mono, 1_700_000_000_000);
+        await using var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true), wall: wall);
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        Assert.Equal("OK", await c.AskAsync("HELLO Stagewatch"));
+        Assert.StartsWith("STATE ", await c.ReadAsync(), StringComparison.Ordinal);
+        Assert.Equal("OK @p1 PONG 1699999999000 1700000000000 1700000000000", await c.AskAsync("@p1 PING 1699999999000"));
+        mono.AdvanceMs(1500);
+        Assert.Equal("OK @p2 PONG 1700000001400 1700000001500 1700000001500", await c.AskAsync("@p2 PING 1700000001400"));
     }
 
     [Fact]
