@@ -7,18 +7,21 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using PlayMap.Assistant;
 using PlayMap.Engine.Assistant;
+using PlayMap.Tests;
 
 namespace PlayMap.Engine.Tests;
 
 /// <summary>A Stagewatch approval desk as Show Bus §11 has it (Stagewatch's own ProposalDesk, played small): POST
 /// /api/proposals takes a proposal and answers its id; GET ?target=&lt;id&gt;&amp;state=approved hands over what was
 /// approved for a node (once); POST /api/proposals/&lt;id&gt;/result records what it did; GET ?from=&lt;id&gt; lists a
-/// proposer's own with their states. Every request's path, query and Authorization are kept.</summary>
+/// proposer's own with their states. Every request's path, query and Authorization are kept. Its answers to proposals can be held
+/// (<see cref="HoldAnswers"/>): a desk that records a proposal at once and answers late.</summary>
 internal sealed class FakeApprovalDesk : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, JsonObject> _proposals = new(StringComparer.Ordinal);
+    private Task? _answer;
     private int _next;
 
     private FakeApprovalDesk(WebApplication app) => _app = app;
@@ -32,6 +35,17 @@ internal sealed class FakeApprovalDesk : IAsyncDisposable
     public ConcurrentQueue<string> Bodies { get; } = new();
 
     public ConcurrentQueue<(string Id, string Body)> Answers { get; } = new();
+
+    /// <summary>The proposals recorded whose answer was held, in the order they came.</summary>
+    public ConcurrentQueue<string> Held { get; } = new();
+
+    /// <summary>From now on each proposal posted is recorded at once (the desk holds it) and its answer waits for
+    /// <paramref name="answer"/>, or ends unsent if the node gives up first.</summary>
+    public void HoldAnswers(Task answer)
+    {
+        lock (_gate)
+            _answer = answer;
+    }
 
     public static async Task<FakeApprovalDesk> StartAsync()
     {
@@ -48,12 +62,19 @@ internal sealed class FakeApprovalDesk : IAsyncDisposable
             desk.Bodies.Enqueue(body);
             var p = JsonNode.Parse(body)!.AsObject();
             string id;
+            Task? answer;
             lock (desk._gate)
             {
                 id = "p" + (++desk._next).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 p["id"] = id;
                 p["state"] = "pending";
                 desk._proposals[id] = p;
+                answer = desk._answer;
+            }
+            if (answer is not null)
+            {
+                desk.Held.Enqueue(id);
+                await Task.WhenAny(answer, Task.Delay(Timeout.Infinite, c.RequestAborted));
             }
             return Microsoft.AspNetCore.Http.Results.Json(new { ok = true, id, state = "pending", risk = p["risk"]?.GetValue<string>() ?? "high" }, statusCode: 201);
         });
@@ -246,6 +267,80 @@ internal sealed class QuietDesk : HttpMessageHandler
     }
 }
 
+/// <summary>An approval desk that never answers: every request waits until its own token is cancelled.</summary>
+internal sealed class SilentDesk : HttpMessageHandler
+{
+    private int _asked;
+
+    public int Asked => Volatile.Read(ref _asked);
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _asked);
+        await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+        throw new InvalidOperationException("an endless wait ended without its cancel");
+    }
+}
+
+/// <summary>An approval desk that answers every offer (POST /api/proposals) with one status and body, and every other request with
+/// an empty list.</summary>
+internal sealed class AnsweringDesk(System.Net.HttpStatusCode status, string body) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var offer = request.Method == HttpMethod.Post;
+        return Task.FromResult(new HttpResponseMessage(offer ? status : System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(offer ? body : "{\"proposals\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            RequestMessage = request,
+        });
+    }
+}
+
+/// <summary>An approval desk that never answers an offer: each POST to /api/proposals waits for its request's cancel and then for
+/// the test to open the gate before it ends as that cancel, so a cancel can reach the request well before the request ends. Every
+/// other request is answered with an empty list.</summary>
+internal sealed class HeldOfferDesk : HttpMessageHandler
+{
+    private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _held;
+    private int _cancelled;
+
+    /// <summary>Offers that reached the desk, each waiting for its cancel.</summary>
+    public int Held => Volatile.Read(ref _held);
+
+    /// <summary>Offers whose cancel has reached the desk.</summary>
+    public int Cancelled => Volatile.Read(ref _cancelled);
+
+    /// <summary>Lets every offer end once its cancel has reached it.</summary>
+    public void Open() => _gate.TrySetResult();
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method == HttpMethod.Post)
+            return HeldAsync(cancellationToken);
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"proposals\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            RequestMessage = request,
+        });
+    }
+
+    private async Task<HttpResponseMessage> HeldAsync(CancellationToken request)
+    {
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var onCancel = request.Register(() =>
+        {
+            Interlocked.Increment(ref _cancelled);
+            cancelled.TrySetResult();
+        });
+        // Counted once its cancel is watched, so an offer the test sees held is one a cancel is seen reaching.
+        Interlocked.Increment(ref _held);
+        await Task.WhenAll(cancelled.Task, _gate.Task).ConfigureAwait(false);
+        throw new OperationCanceledException(request);
+    }
+}
+
 /// <summary>An approval desk whose client fails as no pull expects, at every request.</summary>
 internal sealed class BrokenClientDesk : HttpMessageHandler
 {
@@ -330,11 +425,25 @@ internal sealed class KeptFaults : ILogger
 /// <summary>The node's proposals on a Stagewatch approval desk: offered with the node as proposer and target and the
 /// key in the Authorization header only; what the show caller approves is collected, run through the node's own path
 /// and answered, and completes the node's proposal; what the caller rejects completes it as rejected and nothing runs;
-/// a line approved for this node by another app runs once; a desk that refuses leaves the proposal on the node's own
-/// list.</summary>
+/// a line approved for this node by another app runs once; a desk that refuses (a 4xx) leaves the proposal on the node's own
+/// list; a request the desk does not answer is cut only once the sink's own clock passes its deadline, and an offer so cut,
+/// stopped, failed, answered with a fault or answered without an id is said as one the desk may hold. Every sink here runs its
+/// deadlines on a clock the test moves by hand, so no request is cut however slowly the runner answers.</summary>
 public sealed class StagewatchSinkTests
 {
     private const string Key = "swk_nodekey0123456789";
+
+    /// <summary>How long a wait on the runner (a loopback round trip, a pull's turn) is given, in ms: the 30 s the waits on a
+    /// task here are given. A passing run never waits it out.</summary>
+    private const int Patience = 30_000;
+
+    private const string MayHoldIt = "; the desk may hold it)";
+
+    private static Task<bool> Eventually(Func<bool> condition) => OpsRig.Eventually(condition, Patience);
+
+    /// <summary>The journal's rows that name a proposal.</summary>
+    private static List<string> Rows(OpsRig rig, string id) =>
+        rig.Engine.Journal.Recent(80).Where(r => r.Text.Contains(id, StringComparison.Ordinal)).Select(r => r.Text).ToList();
 
     [Fact]
     public async Task ProposalsGoToTheDeskAndItsDecisionsComeBack()
@@ -356,6 +465,8 @@ public sealed class StagewatchSinkTests
                 SelfId = self,
                 SelfName = "Stage left",
                 PollEvery = TimeSpan.FromMilliseconds(50),
+                // Never moved: a request is never cut by its deadline here, however slowly the runner answers.
+                Time = new ManualTime(),
             });
 
             var first = JsonDocument.Parse(await rig.Ok("ASK black please")).RootElement.GetProperty("queued")[0].GetString()!;
@@ -373,7 +484,7 @@ public sealed class StagewatchSinkTests
             Assert.False(rig.Engine.Air.Blackout);
 
             desk.Decide("p1", "approved", "Caller");
-            Assert.True(await OpsRig.Eventually(() => rig.Assistant.Queue.Find(first)!.State == ProposalState.Done), rig.Assistant.Queue.Find(first)!.Summary);
+            Assert.True(await Eventually(() => rig.Assistant.Queue.Find(first)!.State == ProposalState.Done), rig.Assistant.Queue.Find(first)!.Summary);
             Assert.True(rig.Engine.Air.Blackout);
             var done = rig.Assistant.Queue.Find(first)!;
             Assert.Equal(true, done.ResultOk);
@@ -385,13 +496,13 @@ public sealed class StagewatchSinkTests
 
             var second = JsonDocument.Parse(await rig.Ok("ASK freeze it")).RootElement.GetProperty("queued")[0].GetString()!;
             desk.Decide("p2", "rejected", "Caller");
-            Assert.True(await OpsRig.Eventually(() => rig.Assistant.Queue.Find(second)!.State == ProposalState.Rejected), rig.Assistant.Queue.Find(second)!.Summary);
+            Assert.True(await Eventually(() => rig.Assistant.Queue.Find(second)!.State == ProposalState.Rejected), rig.Assistant.Queue.Find(second)!.Summary);
             Assert.False(rig.Engine.Air.Frozen);
             Assert.Single(desk.Answers);
 
             // A line another app proposed for this node, approved on the desk, runs once and is answered.
             var other = desk.AddApproved(self, "PATTERN grid");
-            Assert.True(await OpsRig.Eventually(() => desk.Answers.Any(r => r.Id == other)));
+            Assert.True(await Eventually(() => desk.Answers.Any(r => r.Id == other)));
             Assert.Equal("pattern.grid", rig.Engine.Air.PatternKind);
             await Task.Delay(200);
             Assert.Single(desk.Answers, r => r.Id == other);
@@ -424,6 +535,8 @@ public sealed class StagewatchSinkTests
                 Key = Key,
                 SelfId = self,
                 PollEvery = TimeSpan.FromMilliseconds(50),
+                // Never moved: a request is never cut by its deadline here, however slowly the runner answers.
+                Time = new ManualTime(),
             });
             var proposal = await rig.Assistant.Queue.EnqueueAsync(new ProposalDraft("LINK PATTERNS host secret-token", PlayMap.Core.Wire.VerbCatalog.Find("LINK PATTERNS")!,
                 "follow the desk", "an assistant over MCP", "mcp", "mcp/1", 0), CancellationToken.None);
@@ -432,13 +545,13 @@ public sealed class StagewatchSinkTests
             Assert.Equal("LINK PATTERNS host " + PlayMap.Core.Wire.VerbCatalog.SecretMarker, offered.GetProperty("line").GetString());
 
             desk.Decide(proposal.RemoteId, "approved", "Caller");
-            Assert.True(await OpsRig.Eventually(() => rig.Assistant.Queue.Find(proposal.Id)!.State == ProposalState.Done), rig.Assistant.Queue.Find(proposal.Id)!.Summary);
-            Assert.True(await OpsRig.Eventually(() => !links.Patterns.IsEmpty));
+            Assert.True(await Eventually(() => rig.Assistant.Queue.Find(proposal.Id)!.State == ProposalState.Done), rig.Assistant.Queue.Find(proposal.Id)!.Summary);
+            Assert.True(await Eventually(() => !links.Patterns.IsEmpty));
             Assert.Equal(("host", "secret-token"), Assert.Single(links.Patterns));
 
             // Another app's copy of a shown line, approved for this node, is refused: only a record holding the words runs.
             var copy = desk.AddApproved(self, "LINK PATTERNS host " + PlayMap.Core.Wire.VerbCatalog.SecretMarker);
-            Assert.True(await OpsRig.Eventually(() => desk.Answers.Any(a => a.Id == copy)));
+            Assert.True(await Eventually(() => desk.Answers.Any(a => a.Id == copy)));
             Assert.False(JsonDocument.Parse(desk.Answers.Single(a => a.Id == copy).Body).RootElement.GetProperty("ok").GetBoolean());
             Assert.Single(links.Patterns);
             Assert.All(desk.Bodies.Concat(desk.Answers.Select(a => a.Body)), b => Assert.DoesNotContain("secret-token", b, StringComparison.Ordinal));
@@ -449,6 +562,225 @@ public sealed class StagewatchSinkTests
             rig.DeleteFolder();
         }
     }
+
+    /// <summary>A desk that records an offer and answers late: once the sink's clock passes the deadline the offer is cut and the
+    /// proposal stays on the node's list, said as unanswered and possibly held by the desk, never as one the desk did not take; an
+    /// answer that comes while the clock has not reached the deadline forwards the proposal, though the runner took longer than the
+    /// deadline to give it.</summary>
+    [Fact]
+    public async Task AnOfferCutAtItsDeadlineMayBeOnTheDeskAndALateAnswerBeforeItForwards()
+    {
+        await using var desk = await FakeApprovalDesk.StartAsync();
+        var clock = new ManualTime();
+        var rig = new OpsRig();
+        var late = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri($"http://127.0.0.1:{desk.Port}/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                // Nothing to collect: while nothing is forwarded the pull asks the desk nothing, so the offer's deadline is the only
+                // one on the clock when it moves.
+                CollectApproved = false,
+                Time = clock,
+            });
+            desk.HoldAnswers(late.Task);
+            var offered = rig.Assistant.Queue.EnqueueAsync(Draft("BLACKOUT ON", "BLACKOUT"), CancellationToken.None);
+            Assert.True(await Eventually(() => desk.Held.Count == 1), "the desk never recorded the offer");
+            Assert.Equal(1, clock.Waiting);
+            clock.Advance(StagewatchProposalSink.RequestDeadline - TimeSpan.FromTicks(1));
+            Assert.Equal(1, clock.Waiting);
+            Assert.False(offered.IsCompleted);
+            clock.Advance(TimeSpan.FromTicks(1));
+            var cut = await offered.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(ProposalState.Pending, cut.State);
+            Assert.Equal("", cut.RemoteId);
+            Assert.Contains(rig.Assistant.Queue.Pending, p => p.Id == cut.Id);
+            // The sink's words, carried into the queue's journal row for the offer.
+            Assert.Contains(rig.Engine.Journal.Recent(80), r => r.Text.Contains(cut.Id, StringComparison.Ordinal)
+                && r.Text.Contains("(no answer within 10 s; the desk may hold it)", StringComparison.Ordinal));
+            // The desk holds what the node lists as its own: the cut is the answer's, not the desk's refusal.
+            Assert.Equal("p1", Assert.Single(desk.Held));
+
+            desk.HoldAnswers(answer.Task);
+            var second = rig.Assistant.Queue.EnqueueAsync(Draft("FREEZE ON", "FREEZE"), CancellationToken.None);
+            Assert.True(await Eventually(() => desk.Held.Count == 2), "the desk never recorded the second offer");
+            // A fixed wait on purpose: the answer comes later on the runner than the deadline, which the sink's clock has not reached.
+            await Task.Delay(StagewatchProposalSink.RequestDeadline + TimeSpan.FromMilliseconds(500));
+            Assert.False(second.IsCompleted);
+            answer.SetResult();
+            var forwarded = await second.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(ProposalState.Forwarded, forwarded.State);
+            Assert.Equal("p2", forwarded.RemoteId);
+        }
+        finally
+        {
+            late.TrySetResult();
+            answer.TrySetResult();
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A pull the desk does not answer is cut once the sink's clock passes the deadline and said as a desk that could not be
+    /// read, the next pull asks again, and letting the desk go while that one waits ends the pull without a word.</summary>
+    [Fact]
+    public async Task APullCutAtItsDeadlineSaysTheDeskCouldNotBeReadAndAStopSaysNothing()
+    {
+        var clock = new ManualTime();
+        var rig = new OpsRig();
+        using var desk = new SilentDesk();
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                Handler = desk,
+                Time = clock,
+            });
+            var sink = rig.Assistant.ApprovalDesk!;
+            Assert.True(await Eventually(() => desk.Asked == 1 && clock.Waiting == 1), $"asked {desk.Asked}, {clock.Waiting} deadlines waiting");
+            clock.Advance(StagewatchProposalSink.RequestDeadline - TimeSpan.FromTicks(1));
+            Assert.Equal(1, clock.Waiting);
+            Assert.Equal("", sink.Problem);
+            clock.Advance(TimeSpan.FromTicks(1));
+            var cut = $"{sink.Name} could not be read: no answer within 10 s";
+            Assert.True(await Eventually(() => sink.Problem.Length > 0), "the cut pull said nothing");
+            Assert.Equal(cut, sink.Problem);
+            Assert.True(await Eventually(() => desk.Asked == 2 && clock.Waiting == 1), $"asked {desk.Asked}, {clock.Waiting} deadlines waiting");
+
+            await rig.DisposeAsync();
+            Assert.Equal(cut, sink.Problem);
+            Assert.Null(rig.Assistant.ApprovalDesk);
+            Assert.Equal(2, desk.Asked);
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>Only a refusal (a 4xx) is said as an offer the desk did not take, by the sink itself, the proposal left on the node's
+    /// list. A fault answered (a 5xx) and a success without an id the node can read (none, one past 64 characters, an answer that is
+    /// not JSON) leave it there too, said as one the desk may hold: neither says the desk did not record it.</summary>
+    [Theory]
+    [InlineData(403, "{\"ok\":false,\"error\":\"not this node's key\"}", true, "403 not this node's key")]
+    [InlineData(503, "{\"ok\":false,\"error\":\"the desk is restarting\"}", false, "the desk answered 503: the desk is restarting")]
+    [InlineData(502, "", false, "the desk answered 502")]
+    [InlineData(201, "{\"ok\":true,\"state\":\"pending\"}", false, "the desk answered 201 without an id the node can read")]
+    [InlineData(201, "{\"ok\":true,\"id\":\"pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq\"}", false,
+        "the desk answered 201 without an id the node can read")]
+    [InlineData(201, "taken", false, "the desk answered 201 without an id the node can read")]
+    public async Task OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk(int status, string body, bool refused, string words)
+    {
+        var rig = new OpsRig();
+        using var desk = new AnsweringDesk((System.Net.HttpStatusCode)status, body);
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                CollectApproved = false,
+                Handler = desk,
+                Time = new ManualTime(),
+            });
+            var sink = rig.Assistant.ApprovalDesk!;
+            var offered = await rig.Assistant.Queue.EnqueueAsync(Draft("BLACKOUT ON", "BLACKOUT"), CancellationToken.None);
+            Assert.Equal(ProposalState.Pending, offered.State);
+            Assert.Equal("", offered.RemoteId);
+            Assert.Contains(rig.Assistant.Queue.Pending, p => p.Id == offered.Id);
+            var rows = Rows(rig, offered.Id);
+            var refusal = $"{sink.Name} did not take {offered.Id}: ";
+            if (refused)
+            {
+                // The desk said so: the sink says it did not take the offer, and nothing says the desk may hold it.
+                Assert.Equal(refusal + words, sink.Problem);
+                Assert.Contains(rows, r => r.Contains(sink.Problem, StringComparison.Ordinal));
+                Assert.DoesNotContain(rows, r => r.Contains("may hold it", StringComparison.Ordinal));
+            }
+            else
+            {
+                Assert.Equal("", sink.Problem);
+                Assert.Contains(rows, r => r.Contains("(" + words + MayHoldIt, StringComparison.Ordinal));
+                Assert.DoesNotContain(rows, r => r.Contains(refusal, StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>An offer its caller stops is said as stopped and as one the desk may hold, never as cut: so is one whose stop lands
+    /// after its deadline has reached the request but before the request has ended, for the stop is the caller's.</summary>
+    [Fact]
+    public async Task AnOfferItsCallerStopsIsSaidAsStoppedThoughItsDeadlineCameFirst()
+    {
+        const string Stopped = "(stopped before the desk answered" + MayHoldIt;
+        var clock = new ManualTime();
+        var rig = new OpsRig();
+        using var desk = new HeldOfferDesk();
+        using var afterTheDeadline = new CancellationTokenSource();
+        using var beforeIt = new CancellationTokenSource();
+        try
+        {
+            await rig.Assistant.UseApprovalDeskAsync(new StagewatchSinkOptions
+            {
+                BaseUri = new Uri("http://127.0.0.1:9/"),
+                Key = Key,
+                SelfId = rig.Engine.Services.Settings.NodeId,
+                PollEvery = TimeSpan.FromMilliseconds(50),
+                // Nothing to collect and nothing forwarded: the pull asks the desk nothing, so the offer's deadline is the only one
+                // on the clock.
+                CollectApproved = false,
+                Handler = desk,
+                Time = clock,
+            });
+
+            // The deadline reaches the request first and the desk holds the request's end; the caller's stop lands before it ends.
+            var first = rig.Assistant.Queue.EnqueueAsync(Draft("BLACKOUT ON", "BLACKOUT"), afterTheDeadline.Token);
+            Assert.True(await Eventually(() => desk.Held == 1 && clock.Waiting == 1), $"held {desk.Held}, {clock.Waiting} deadlines waiting");
+            clock.Advance(StagewatchProposalSink.RequestDeadline);
+            Assert.True(await Eventually(() => desk.Cancelled == 1), "the deadline never reached the request");
+            Assert.False(first.IsCompleted);
+            await afterTheDeadline.CancelAsync();
+            desk.Open();
+            var late = await first.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(ProposalState.Pending, late.State);
+            Assert.Contains(Rows(rig, late.Id), r => r.Contains(Stopped, StringComparison.Ordinal));
+
+            // Stopped while its deadline waits: the same words, and the deadline is let go with the request.
+            var second = rig.Assistant.Queue.EnqueueAsync(Draft("FREEZE ON", "FREEZE"), beforeIt.Token);
+            Assert.True(await Eventually(() => desk.Held == 2 && clock.Waiting == 1), $"held {desk.Held}, {clock.Waiting} deadlines waiting");
+            await beforeIt.CancelAsync();
+            var early = await second.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(ProposalState.Pending, early.State);
+            Assert.Contains(Rows(rig, early.Id), r => r.Contains(Stopped, StringComparison.Ordinal));
+            Assert.Equal(0, clock.Waiting);
+            Assert.All(Rows(rig, late.Id).Concat(Rows(rig, early.Id)), r => Assert.DoesNotContain(StagewatchProposalSink.NoAnswer, r, StringComparison.Ordinal));
+        }
+        finally
+        {
+            desk.Open();
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    private static ProposalDraft Draft(string line, string verb) =>
+        new(line, PlayMap.Core.Wire.VerbCatalog.Find(verb)!, "for the change", "an assistant over MCP", "mcp", "mcp/1", 0);
 
     [Fact]
     public async Task ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList()
@@ -469,9 +801,12 @@ public sealed class StagewatchSinkTests
                 BaseUri = new Uri($"http://127.0.0.1:{port}/"),
                 Key = Key,
                 SelfId = rig.Engine.Services.Settings.NodeId,
+                Time = new ManualTime(),
             });
             var id = JsonDocument.Parse(await rig.Ok("ASK black")).RootElement.GetProperty("queued")[0].GetString()!;
             Assert.Equal(ProposalState.Pending, rig.Assistant.Queue.Find(id)!.State);
+            // The failure is said with its own words and as one the desk may hold: a failure does not say the offer never reached it.
+            Assert.Contains(Rows(rig, id), r => r.Contains("(no answer (", StringComparison.Ordinal) && r.Contains(MayHoldIt, StringComparison.Ordinal));
             await rig.Ok("APPROVE " + id);
             Assert.True(rig.Engine.Air.Blackout);
         }
@@ -500,6 +835,7 @@ public sealed class StagewatchSinkTests
                 SelfId = rig.Engine.Services.Settings.NodeId,
                 PollEvery = TimeSpan.FromMilliseconds(50),
                 Handler = desk,
+                Time = new ManualTime(),
             });
             var sink = rig.Assistant.ApprovalDesk!;
             await spy.Token.WaitAsync(TimeSpan.FromSeconds(30));
@@ -538,10 +874,11 @@ public sealed class StagewatchSinkTests
                 SelfId = rig.Engine.Services.Settings.NodeId,
                 PollEvery = TimeSpan.FromMilliseconds(50),
                 Handler = desk,
+                Time = new ManualTime(),
             });
             var sink = rig.Assistant.ApprovalDesk!;
             // Said on the sink and written to the engine's log first, then in the journal: the journal's row is the last of the three.
-            Assert.True(await OpsRig.Eventually(() => rig.Engine.Journal.Recent(80).Any(r => r.Text.Contains(BrokenClientDesk.Words, StringComparison.Ordinal))),
+            Assert.True(await Eventually(() => rig.Engine.Journal.Recent(80).Any(r => r.Text.Contains(BrokenClientDesk.Words, StringComparison.Ordinal))),
                 $"the sink says \"{sink.Problem}\"");
             Assert.Contains(BrokenClientDesk.Words, sink.Problem, StringComparison.Ordinal);
             var (level, words, fault) = Assert.Single(log.Entries);
@@ -584,6 +921,7 @@ public sealed class StagewatchSinkTests
                 SelfId = rig.Engine.Services.Settings.NodeId,
                 PollEvery = TimeSpan.FromMilliseconds(50),
                 Handler = desk,
+                Time = new ManualTime(),
             });
             var old = rig.Assistant.ApprovalDesk!;
             await spy.Token.WaitAsync(TimeSpan.FromSeconds(30));
@@ -596,6 +934,7 @@ public sealed class StagewatchSinkTests
                 SelfId = rig.Engine.Services.Settings.NodeId,
                 PollEvery = TimeSpan.FromMilliseconds(50),
                 Handler = next,
+                Time = new ManualTime(),
             });
             Assert.True(desk.RaisedAfterTheStop && desk.RaisedBeforeTheRequestsCancel,
                 $"the late refusal was raised after the stop: {desk.RaisedAfterTheStop}, before the request's cancel: {desk.RaisedBeforeTheRequestsCancel}");
@@ -603,7 +942,7 @@ public sealed class StagewatchSinkTests
             var used = rig.Assistant.ApprovalDesk;
             Assert.NotNull(used);
             Assert.Equal("Stagewatch at 127.0.0.1:10", used.Name);
-            Assert.True(await OpsRig.Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
+            Assert.True(await Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
             Assert.Equal("", used.Problem);
         }
         finally
@@ -632,6 +971,7 @@ public sealed class StagewatchSinkTests
                 SelfId = rig.Engine.Services.Settings.NodeId,
                 PollEvery = TimeSpan.FromMilliseconds(50),
                 Handler = desk,
+                Time = new ManualTime(),
             });
             var old = rig.Assistant.ApprovalDesk!;
             await desk.Held.WaitAsync(TimeSpan.FromSeconds(30));
@@ -643,6 +983,7 @@ public sealed class StagewatchSinkTests
                 SelfId = rig.Engine.Services.Settings.NodeId,
                 PollEvery = TimeSpan.FromMilliseconds(50),
                 Handler = next,
+                Time = new ManualTime(),
             });
             // The old desk's collect is held past its stop, so the change waits for it.
             await Task.WhenAny(change, Task.Delay(500));
@@ -655,7 +996,7 @@ public sealed class StagewatchSinkTests
             var used = rig.Assistant.ApprovalDesk;
             Assert.NotNull(used);
             Assert.Equal("Stagewatch at 127.0.0.1:10", used.Name);
-            Assert.True(await OpsRig.Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
+            Assert.True(await Eventually(() => next.Asked >= 2), $"the new desk was asked {next.Asked} times");
             var (level, words, fault) = Assert.Single(log.Entries);
             Assert.Equal(LogLevel.Warning, level);
             Assert.Contains(old.Name, words, StringComparison.Ordinal);

@@ -2167,3 +2167,104 @@ Round 2 W1 notes:
     fix-peerlink-core's, which brings the PeerLink core they run against.
   - A peer heard from 127.0.0.1 or from one of this machine's own addresses is not yet dialled at 127.0.0.1 first (§2 says a reader
     may); every link dials the address its hello came from.
+
+## Integrator notes from the round-2 fix batch (fix-proposal-sink-deadline)
+
+- Done: the approval desk's request limit is a deadline on the sink's own clock, and an offer that ends without the desk's answer
+  is never said as one the desk did not take. Windows CI run 466 failed
+  `StagewatchSinkTests.TheDeskSeesALinkWithoutItsTokenAndTheNodeRunsItsOwnRecordOnce` (Forwarded expected, Pending found): the
+  sink's client had a fixed 10 s limit on the machine's clock (`HttpClient.Timeout`), and `ProposalQueue.OfferAsync` makes one offer
+  and takes any exception as "did not take … it stays on this node's list", leaving the proposal Pending; a loaded runner held one
+  loopback POST past 10 s. A scratch reproduction against the sink as it was (a Kestrel desk that records the offer at once and
+  answers after 10.5 s) gave Pending and "did not take ap1 (The request was canceled due to the configured HttpClient.Timeout of 10
+  seconds elapsing.)" while the desk held p1, on the machine's clock and on a clock that does not move alike. The product does the
+  same once the sink is switched on (no host does so yet: the ops integration's "StagewatchProposalSink not switched on" item above
+  stands): a desk that records a proposal and answers late holds it while the node lists it Pending as not taken.
+  - `StagewatchSinkOptions.Time` (a `TimeProvider`, the machine's when none is given) is the clock every request's deadline runs on;
+    `StagewatchProposalSink.RequestDeadline` is the 10 s, named, and `NoAnswer` its words ("no answer within 10 s"). The client
+    keeps no limit of its own (`Timeout.InfiniteTimeSpan`): each request (the offer's POST, the pull's collect GET and result POST,
+    and its read of this node's proposals) runs under a `CancellationTokenSource(RequestDeadline, Time)` linked to its own token,
+    from its send to the last byte of its answer (`AskAsync`). Once the deadline has passed and the caller's token has not stopped
+    the request, whatever the request ends on is the deadline's, thrown as a `TimeoutException` in those words; a stop ends the
+    request as its own. So a pull the sink's stop ends is said by nobody, as before, and a pull cut at the deadline says
+    "Stagewatch at … could not be read: no answer within 10 s" and asks again at the next pull.
+  - An offer that ends without an answer the node can use throws words that leave open whether the desk holds it: cut at the
+    deadline, "no answer within 10 s; the desk may hold it" (`TimeoutException`); failed once sent, "no answer (<the failure>); the
+    desk may hold it" (`HttpRequestException`); stopped, by its caller or by the sink let go with it in flight, "stopped before the
+    desk answered; the desk may hold it" (`OperationCanceledException`, with the caller's token), and so is one whose stop lands
+    after its deadline has reached the request but before the request has ended (the stop is the caller's). In a pull the two end
+    alike: `PollOnceAsync` leaves whatever a stopped pull ends on to the loop, which ends it silently, so only an offer's words tell
+    them apart. Nothing in the product gives the sink a clock (only tests switch it on), so a node that switches it on has its
+    requests cut at 10 s on the machine's clock, as before, in the new words.
+  - Only a refusal is said as one the desk did not take: a 4xx, as before ("… did not take apN: <status> <error>", the sink's own
+    `Problem` and journal row, null to the queue): the desk said so. Any other status that is not success (a 5xx, a redirect not
+    followed) throws "the desk answered <status>[: <error>]; the desk may hold it", and a success without an id the node can read
+    (none, one past 64 characters, an answer that is not JSON) throws "the desk answered <status> without an id the node can read;
+    the desk may hold it" (both `HttpRequestException`, with the status). Before, the first was said as a refusal, and the second
+    left the proposal Pending with no word (no id, or one too long) or reached the queue's frame as the JSON reader's own words.
+    Stagewatch's `POST /api/proposals` answers 201, 400, 403 or 404, so a 5xx is a fault at the desk or on the way to it, which does
+    not say the desk did not record the offer, and a 201 says it did.
+- Tests:
+  - `StagewatchSinkTests` (Engine): every sink in the file runs its deadlines on a `ManualTime` (`tests/Shared`) that only a test
+    moves. The two Kestrel-backed tests (`ProposalsGoToTheDeskAndItsDecisionsComeBack`,
+    `TheDeskSeesALinkWithoutItsTokenAndTheNodeRunsItsOwnRecordOnce`) and the in-memory desks' tests (the late refusal as the stop is
+    taken, the throwing callback on the stop, the two changes of desk, the client that fails as no pull expects, the closed port)
+    never move it, so no request of theirs is cut however slowly the runner answers; before, the in-memory desks' held requests ran
+    under 10 s on the machine's clock, as under the client's limit before this batch. What they assert is unchanged.
+  - Every wait on the runner in the file (`OpsRig.Eventually`, through the class's own `Eventually`) is given `Patience`, 30 s, the
+    budget the file's waits on a task already had; it was the 10 s default, the size of wait a loaded runner overran in run 466. A
+    passing run never waits it out.
+  - New `AnOfferCutAtItsDeadlineMayBeOnTheDeskAndALateAnswerBeforeItForwards`: the fake desk can hold its answer to each proposal it
+    records (`FakeApprovalDesk.HoldAnswers`, `Held`). With the clock moved to a tick before the deadline the offer still waits and
+    its deadline is the only timer on the clock; one tick more and the proposal is Pending, on the node's list, with a journal row
+    that carries "(no answer within 10 s; the desk may hold it)" while the desk holds p1. A second offer whose answer comes 10.5 s
+    later on the runner, the clock not moved, is Forwarded as p2.
+  - New `APullCutAtItsDeadlineSaysTheDeskCouldNotBeReadAndAStopSaysNothing`, against a desk that never answers (`SilentDesk`): a
+    tick before the deadline the sink says nothing; at it, "… could not be read: no answer within 10 s"; the next pull asks again,
+    and letting the desk go while that one waits keeps the words and throws nothing.
+  - New `AnOfferItsCallerStopsIsSaidAsStoppedThoughItsDeadlineCameFirst`, against a desk that holds an offer's end past its cancel
+    (`HeldOfferDesk`): the deadline reaches the first offer's request, the caller's stop lands, then the request ends, and its row
+    says "(stopped before the desk answered; the desk may hold it)"; a second offer stopped while its deadline waits says the same,
+    and no deadline is left on the clock.
+  - New `OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk` (six cases, `AnsweringDesk`): a 403 is the sink's
+    "… did not take apN: 403 <error>" with no "may hold it"; a 503 with an error, a 502 without one, and a 201 with no id, with an id
+    of 65 characters or with an answer that is not JSON each leave the proposal Pending with the sink's words in the queue's row and
+    no refusal said by the sink. `ADeskThatDoesNotAnswerLeavesTheProposalOnTheNodesOwnList` now also holds the closed port's row to
+    "(no answer (<the failure>); the desk may hold it)".
+  - Both of the implementer's new tests failed against the sink as it was (the option and the named deadline added, unused): the
+    offer test at its first look at the clock, the pull test after its wait for a deadline on the clock. With the fix, each part
+    reverted in turn with the rest kept made a test fail: the client's 10 s limit back (the offer test's second offer Pending), the
+    deadline unlinked (both), the pull's catch without `TimeoutException` (the pull test: the pull ended as one no pull expects), the
+    offer's cut thrown in the deadline's words alone (the offer test's journal row), the cut told apart without the caller's stop
+    (`when (deadline.IsCancellationRequested)`: the stop test's first offer said "no answer within 10 s"), every status that is not
+    success said as a refusal again (the 503 and 502 cases) and a success without an id answered as null again (the three 201
+    cases); the 403 case passes under each.
+  - The real-time waits left, and why. The offer test's fixed wait of about 10.5 s (`RequestDeadline` + 500 ms) is deliberate: it is
+    the only test that catches the client's own 10 s limit coming back (with it back, the second offer is cut at 10 s on the machine's
+    clock), and it adds about 10.5 s to each Engine run. Loopback round trips to the Kestrel desk and the pulls' turns are bounded by
+    `Patience` or a 30 s wait on a task. The closed port's refusal is the system's own (about 2 s on Windows loopback). The short
+    waits that something does not happen (200 ms that a line is answered once, 200 ms that a failing client was asked once, 500 ms
+    that a change of desk waits for the old pull) can pass when the runner is slow but never fail because of it.
+- Files: the leave's two, `src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs` and
+  `tests/PlayMap.Engine.Tests/StagewatchSinkTests.cs`, and this entry. No verb, catalogue row, STATE key, fixture or other paper
+  moves: the sink's `Problem` reaches no STATE reader, and the queue's journal row is the only reader of an offer's words.
+- Open:
+  - The queue's frame words. `ProposalQueue.OfferAsync` (`src/PlayMap.Assistant/Proposals.cs`, outside this leave) wraps every
+    exception an offer throws as "the approval desk <name> did not take <id> (<the sink's words>); it stays on this node's list", so
+    the journal row still opens with "did not take" around "no answer within 10 s; the desk may hold it". An ask for the batch that
+    next owns `Proposals.cs`: a frame that does not say the desk did not take the offer (e.g. "the approval desk <name> gave no
+    answer for <id> (…); it stays on this node's list"), held by a test whose desk holds its answer and that asserts the row does
+    not say "did not take".
+  - A proposal the desk may hold. Pending on the node after a cut, it can be approved on the node while the desk still shows it,
+    and the desk's approval of it is collected by the pull as another app's line (the desk's shown copy, a line with secret words
+    refused): a line without secret words can run twice. The correlation id a pull could match a late offer to the node's own record
+    by (to complete or withdraw it) is Show Bus §11's to name, not this batch's; until it is, the words say the desk may hold it.
+  - A connection never made (`HttpRequestError.ConnectionError`, the closed port) is said as "the desk may hold it" too, though such
+    a request never reached the desk. Saying it as one the desk does not hold is a stronger claim than the owner's words for a failed
+    offer allow, and it rests on how a handler classes its failure (a host's pinning handler, a proxy on the way); the owner's call.
+  - A result whose POST is cut or fails leaves the node's record Forwarded although the line ran, and the result is not sent again:
+    the record is completed after the desk's answer, and the collect does not hand the item over twice. §11 owes a result until the
+    desk takes it (13.12.9); pre-existing for any failure of that POST, the deadline adds the cut to it.
+  - A collect the desk refuses sets "… would not hand over this node's approvals: <status>", which the same pull's end clears, and a
+    pull that asks the desk nothing (no collect, nothing forwarded) clears an offer's refusal words: `Problem` reads "" with no
+    answer from the desk behind it. It reaches no STATE reader yet.

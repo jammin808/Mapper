@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -33,6 +35,11 @@ public sealed record StagewatchSinkOptions
 
     /// <summary>The handler requests go through (TLS pinning from the host; tests). Null: a plain handler.</summary>
     public HttpMessageHandler? Handler { get; init; }
+
+    /// <summary>The clock each request's deadline (<see cref="StagewatchProposalSink.RequestDeadline"/>) runs on: the machine's
+    /// unless one is given. A test hands one it moves by hand, and a request is then cut only once the test moves it past the
+    /// deadline, however slowly the machine answers.</summary>
+    public TimeProvider Time { get; init; } = TimeProvider.System;
 }
 
 /// <summary>
@@ -46,10 +53,22 @@ public sealed record StagewatchSinkOptions
 /// <c>GET /api/proposals?from=&lt;id&gt;</c> tells which of this node's proposals were rejected, done, failed or
 /// undelivered. Each decision completes the node's own record of the proposal
 /// (<see cref="ProposalQueue.CompleteForwarded"/>), so the assistant and STATE say what the desk decided and what
-/// ran. The key is a header, never a URL.
+/// ran. The key is a header, never a URL. Every request is given <see cref="RequestDeadline"/> on the sink's clock and no
+/// other limit.
 /// </summary>
 public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IAsyncDisposable
 {
+    /// <summary>How long one request to the desk is given, on <see cref="StagewatchSinkOptions.Time"/>, from its send to the last byte
+    /// of its answer. Past it the request is cut and said as unanswered (<see cref="NoAnswer"/>), never as refused: a desk can have
+    /// recorded what it was sent and lost only its answer.</summary>
+    public static readonly TimeSpan RequestDeadline = TimeSpan.FromSeconds(10);
+
+    /// <summary>The words for a request cut at <see cref="RequestDeadline"/>.</summary>
+    public static readonly string NoAnswer = string.Create(CultureInfo.InvariantCulture, $"no answer within {RequestDeadline.TotalSeconds:0} s");
+
+    /// <summary>Said of an offer that ended without the desk's answer: whether the desk holds it is not known.</summary>
+    private const string MayHoldIt = "the desk may hold it";
+
     private readonly StagewatchSinkOptions _options;
     private readonly ProposalQueue _queue;
     private readonly IWireEndpoint _endpoint;
@@ -76,7 +95,8 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
         _engineLog = engineLog ?? NullLogger.Instance;
         _http = options.Handler is { } h ? new HttpClient(h, disposeHandler: false) : new HttpClient();
         _http.BaseAddress = options.BaseUri;
-        _http.Timeout = TimeSpan.FromSeconds(10);
+        // Each request's only limit is its own deadline on the sink's clock (AskAsync); the client adds none on the machine's.
+        _http.Timeout = Timeout.InfiniteTimeSpan;
     }
 
     public string Name => "Stagewatch at " + _options.BaseUri.Authority;
@@ -94,6 +114,10 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             _loop ??= Task.Run(() => LoopAsync(_stop.Token), CancellationToken.None);
     }
 
+    /// <summary>Offers a proposal: the desk's id for it, or null when the desk refused it (a 4xx, said in the journal). An offer that
+    /// ends without an answer the node can use (cut at <see cref="RequestDeadline"/>, failed after it was sent, stopped, answered with
+    /// a status that is neither success nor refusal, or answered with success but no id the node can read) throws, in words that
+    /// leave open whether the desk holds it and never say it did not take it.</summary>
     public async Task<string?> OfferAsync(Proposal proposal, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(proposal);
@@ -108,23 +132,65 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             w.WriteString("risk", proposal.RiskWord);
             w.WriteEndObject();
         });
-        using var request = Request(HttpMethod.Post, "api/proposals", body);
-        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        HttpStatusCode status;
+        string text;
+        try
         {
-            Problem = $"{Name} did not take {proposal.Id}: {(int)response.StatusCode} {ErrorOf(text)}";
+            (status, text) = await AskAsync(HttpMethod.Post, "api/proposals", body, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException ex)
+        {
+            throw new TimeoutException(NoAnswer + "; " + MayHoldIt, ex);
+        }
+        catch (OperationCanceledException ex)
+        {
+            // The offer's caller stopped it, or the sink was let go with the offer in flight.
+            throw new OperationCanceledException("stopped before the desk answered; " + MayHoldIt, ex, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            // The failure does not say whether the offer reached the desk before it (a reset, an answer cut short).
+            throw new HttpRequestException("no answer (" + ex.Message + "); " + MayHoldIt, ex);
+        }
+        if ((int)status is >= 400 and <= 499)
+        {
+            // The desk's own refusal: a 4xx says it did not take the offer.
+            Problem = $"{Name} did not take {proposal.Id}: {(int)status} {ErrorOf(text)}";
             _log("assistant: " + Problem);
             return null;
         }
-        using var doc = JsonDocument.Parse(text);
-        var id = Str(doc.RootElement, "id");
+        if ((int)status is < 200 or > 299)
+        {
+            // A fault at the desk or on the way to it (a 5xx, a redirect not followed) does not say the offer was not recorded.
+            var error = ErrorOf(text);
+            throw new HttpRequestException($"the desk answered {(int)status}{(error.Length > 0 ? ": " + error : "")}; {MayHoldIt}", null, status);
+        }
+        if (IdOf(text) is not { } id)
+        {
+            // The desk said it took the offer, under no id this node can read: it holds what the node lists as its own.
+            throw new HttpRequestException($"the desk answered {(int)status} without an id the node can read; {MayHoldIt}", null, status);
+        }
         Problem = "";
-        return id.Length is > 0 and <= 64 ? id : null;
+        return id;
+    }
+
+    /// <summary>The desk's id in its answer to an offer: null when the answer is not JSON or holds no id of 1 to 64 characters.</summary>
+    private static string? IdOf(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return Str(doc.RootElement, "id") is { Length: > 0 and <= 64 } id ? id : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>One pull: the approved lines for this node run and answered, then this node's proposals' ends read
-    /// back. A desk that does not answer is tried again on the next pull; nothing runs twice.</summary>
+    /// back. A desk that does not answer, or does not within <see cref="RequestDeadline"/>, is tried again on the next pull;
+    /// nothing runs twice. A pull the sink's stop ends is the stop's, said by nobody.</summary>
     public async Task PollOnceAsync(CancellationToken ct)
     {
         try
@@ -134,7 +200,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             await ReadOwnAsync(ct).ConfigureAwait(false);
             Problem = "";
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException or TaskCanceledException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException or TaskCanceledException or TimeoutException && !ct.IsCancellationRequested)
         {
             Problem = $"{Name} could not be read: {ex.Message}";
         }
@@ -142,14 +208,14 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
 
     private async Task CollectAsync(CancellationToken ct)
     {
-        using var request = Request(HttpMethod.Get, "api/proposals?target=" + Uri.EscapeDataString(_options.SelfId) + "&state=approved");
-        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        var (status, text) = await AskAsync(HttpMethod.Get, "api/proposals?target=" + Uri.EscapeDataString(_options.SelfId) + "&state=approved", null, ct)
+            .ConfigureAwait(false);
+        if ((int)status is < 200 or > 299)
         {
-            Problem = $"{Name} would not hand over this node's approvals: {(int)response.StatusCode}";
+            Problem = $"{Name} would not hand over this node's approvals: {(int)status}";
             return;
         }
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        using var doc = JsonDocument.Parse(text);
         foreach (var item in Items(doc.RootElement))
         {
             var id = Str(item, "id");
@@ -173,8 +239,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
                 w.WriteEndObject();
             });
             // The desk records the result; its answer adds nothing the node needs.
-            using var answer = Request(HttpMethod.Post, "api/proposals/" + Uri.EscapeDataString(id) + "/result", result);
-            using var _ = await _http.SendAsync(answer, ct).ConfigureAwait(false);
+            await AskAsync(HttpMethod.Post, "api/proposals/" + Uri.EscapeDataString(id) + "/result", result, ct).ConfigureAwait(false);
             Complete(id, ok, words, decidedBy);
         }
     }
@@ -198,11 +263,10 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
         var waiting = _queue.All.Where(p => p.State == ProposalState.Forwarded && p.RemoteDesk == Name).ToList();
         if (waiting.Count == 0)
             return;
-        using var request = Request(HttpMethod.Get, "api/proposals?from=" + Uri.EscapeDataString(_options.SelfId));
-        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        var (status, text) = await AskAsync(HttpMethod.Get, "api/proposals?from=" + Uri.EscapeDataString(_options.SelfId), null, ct).ConfigureAwait(false);
+        if ((int)status is < 200 or > 299)
             return;
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        using var doc = JsonDocument.Parse(text);
         foreach (var item in Items(doc.RootElement))
         {
             var id = Str(item, "id");
@@ -276,6 +340,26 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
     }
 
     private static void Ignore(string line) => _ = line;
+
+    /// <summary>One request to the desk and its answer read whole, given <see cref="RequestDeadline"/> on the sink's clock beside
+    /// <paramref name="ct"/>. Once the deadline has passed and <paramref name="ct"/> has not stopped the request, whatever the request
+    /// ends on (the deadline's cancel, or a reset or an answer cut short by it) is the deadline's: a <see cref="TimeoutException"/>
+    /// saying <see cref="NoAnswer"/>. A stop by <paramref name="ct"/> ends the request as the stop's own.</summary>
+    private async Task<(HttpStatusCode Status, string Body)> AskAsync(HttpMethod method, string path, string? json, CancellationToken ct)
+    {
+        using var deadline = new CancellationTokenSource(RequestDeadline, _options.Time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
+        try
+        {
+            using var request = Request(method, path, json);
+            using var response = await _http.SendAsync(request, linked.Token).ConfigureAwait(false);
+            return (response.StatusCode, await response.Content.ReadAsStringAsync(linked.Token).ConfigureAwait(false));
+        }
+        catch (Exception ex) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(NoAnswer, ex);
+        }
+    }
 
     private HttpRequestMessage Request(HttpMethod method, string path, string? json = null)
     {
