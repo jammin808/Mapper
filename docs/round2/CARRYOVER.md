@@ -2611,7 +2611,8 @@ Round 2 W1 notes:
       hold is said there) but not on its not-heard row, so a hold after a lost link is said in STATE and the context, not in
       preflight — the batch that next owns `PreflightBreadth.cs` (wp4-peerlink's state set).
 - Open:
-  - Asks for the owner before merge, each the least a file outside the leave could take:
+  - Asked of the owner before merge, each the least a file outside the leave could take; the owner extended the leave to all three
+    on 2026-10-27:
     - `src/PlayMap.Engine/Host/NetworkHost.cs`: `StagewatchTimerJson()` is one line calling the reading's writer, and the host's own
       22-line writer of the nine keys is gone (the Net file writes them, byte for byte); and the hold said with its age
       (`_swBlackoutHeldSince`, `StagewatchHoldMoved` on the link's status and frames, the watch and the stop, `HeldStagewatchBlackout`,
