@@ -365,6 +365,40 @@ public class WireAndBusTests
         Assert.DoesNotContain('1', token);
     }
 
+    /// <summary>Show Bus 1.3 §13.5.1: a token is compared in its canonical form — '-' and every listed space and separator dropped, a–z
+    /// upper-cased, nothing else touched — and one typed for a peer is taken only when that form is letters and digits with nothing a 1.1
+    /// desk reads apart (§13.6.8), refused in the contract's own words otherwise, the token never in them.</summary>
+    [Fact]
+    public void ATokenIsComparedInItsCanonicalFormAndOneTypedIsTakenOnlyAsLettersAndDigits()
+    {
+        Assert.Equal("K7QM3XWDP9RA", Pairing.Normalise("k7qm-3xwd p9ra"));
+        Assert.Equal("K7QM3XWDP9RA", Pairing.Normalise("k7qm\u00a03xwd\u2009p9ra"));
+        Assert.Equal("K7QM3XWDP9RA", Pairing.Normalise("\ufeffK7QM-3XWD-P9RA\u0085\u3000"));
+        Assert.Equal("K7QM3XWDP9RÄ", Pairing.Normalise("k7qm-3xwd-p9rÄ"));   // only a–z are upper-cased; anything else stays itself
+        Assert.Equal("K7QMä", Pairing.Normalise("k7qmä"));
+        Assert.Equal("", Pairing.Normalise(null));
+        Assert.Equal("K7QM3XWDP9RA", Pairing.Canon("k7qm-3xwd p9ra"));
+        Assert.Null(Pairing.Canon("k7qm\u20113xwd"));
+        Assert.Null(Pairing.Canon("Bühne-7_a!"));
+        Assert.Null(Pairing.Canon(new string('A', 65)));
+
+        Assert.Null(Pairing.Refusal("k7qm-3xwd p9ra"));
+        Assert.Null(Pairing.Refusal(Pairing.NewToken()));
+        Assert.Null(Pairing.Refusal(""));
+        Assert.Null(Pairing.Refusal(null));
+        Assert.Equal(Pairing.InvisibleCharacter, Pairing.Refusal("k7qm\u00a03xwd-p9ra"));
+        Assert.Equal(Pairing.InvisibleCharacter, Pairing.Refusal("\ufeffK7QM-3XWD-P9RA"));
+        Assert.Equal(Pairing.NotLettersAndDigits, Pairing.Refusal("Bühne-7_a!"));
+        Assert.Equal(Pairing.NotLettersAndDigits, Pairing.Refusal("k7qm\u20113xwd"));
+        Assert.Equal(Pairing.NotLettersAndDigits, Pairing.Refusal("---"));
+        Assert.DoesNotContain("K7QM", Pairing.Refusal("K7QM\u00a03XWD")!, StringComparison.OrdinalIgnoreCase);
+
+        // §7's proof keys a token as 1.1 desks do: the same for every token of letters, digits, dashes and spaces.
+        const string nonce = "00112233445566778899aabbccddeeff";
+        Assert.Equal(PeerLink.LegacyProof("k7qm-3xwd p9ra", nonce, "Stagewatch"), Pairing.Proof("k7qm-3xwd p9ra", nonce, "Stagewatch"));
+        Assert.Equal(PeerLink.LegacyProof("Bühne-7_a!", nonce, "Stagewatch"), Pairing.Proof("Bühne-7_a!", nonce, "Stagewatch"));
+    }
+
     [Fact]
     public void ThePairingProofHasAKnownAnswer()
     {
@@ -378,13 +412,19 @@ public class WireAndBusTests
             Pairing.Proof("K7QM-3XWD-P9RA", "Companion:FOH deck", "00112233445566778899aabbccddeeff"));
     }
 
+    /// <summary>A limit includes itself (Show Bus 1.3 §13): a peer silent 6000 ms is live, 6001 stale, 12000 stale, 12001 gone; and the
+    /// redial waits 13.15.1's wait, the PeerLink core's.</summary>
     [Fact]
     public void LivenessAndRedialFollowTheContract()
     {
         Assert.Equal(PeerLiveness.Live, Liveness.Of(5999));
-        Assert.Equal(PeerLiveness.Stale, Liveness.Of(6000));
-        Assert.Equal(PeerLiveness.Gone, Liveness.Of(12000));
+        Assert.Equal(PeerLiveness.Live, Liveness.Of(6000));
+        Assert.Equal(PeerLiveness.Stale, Liveness.Of(6001));
+        Assert.Equal(PeerLiveness.Stale, Liveness.Of(12000));
+        Assert.Equal(PeerLiveness.Gone, Liveness.Of(12001));
         Assert.InRange(Liveness.RedialMs(0, 0.5), 400, 600);
         Assert.InRange(Liveness.RedialMs(10, 1), 5000, 6000);
+        foreach (var (n, j) in new[] { (0, 0.0), (0, 0.5), (3, 0.25), (10, 0.9999999) })
+            Assert.Equal(PeerLink.RedialWait(n, j), Liveness.RedialMs(n, j));
     }
 }

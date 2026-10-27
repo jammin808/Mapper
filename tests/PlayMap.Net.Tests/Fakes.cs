@@ -42,6 +42,9 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
     /// <summary>STATE itself faults (an engine bug the transports must survive).</summary>
     public bool ThrowOnState { get; set; }
 
+    /// <summary>The context faults each time it is read (a reader's bug a link's side calls must survive).</summary>
+    public bool ThrowOnContext { get; set; }
+
     /// <summary>A BLACKOUT that changed something holds its answer, after publishing the change, until this completes (a slow
     /// verb: the change is a fact before the line is answered); null answers at once.</summary>
     public Task? HoldReplyUntil { get; set; }
@@ -73,7 +76,7 @@ internal sealed class FakeEndpoint : IWireEndpoint, INodeActivity
         }
     }
 
-    public string Context() =>
+    public string Context() => ThrowOnContext ? throw new InvalidOperationException("the fake endpoint's context faults") :
         "{\"v\":1,\"node\":{\"t\":\"playmap\",\"id\":\"" + Id + "\",\"name\":\"" + Name + "\"},\"at\":1,\"light\":\"green\",\"headline\":\"fine\",\"items\":[],\"links\":[],\"recent\":[],\"commands\":[],\"peers\":[]}";
 
     public (string Json, long Revision) ProjectJson()

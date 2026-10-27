@@ -2268,3 +2268,234 @@ Round 2 W1 notes:
   - A collect the desk refuses sets "… would not hand over this node's approvals: <status>", which the same pull's end clears, and a
     pull that asks the desk nothing (no collect, nothing forwarded) clears an offer's refusal words: `Problem` reads "" with no
     answer from the desk behind it. It reaches no STATE reader yet.
+
+## Integrator notes from the round-2 fix batch (fix-peerlink-core)
+
+- Done: PlayMap carries Show Bus 1.3 §13's PeerLink core, and its two dialled links (the line wire's `WireClient`, which the Patterns
+  link, the desk's engine link, the mirror link and the sync anchor follower run on, and the Stagewatch link) keep §13's hygiene at
+  level 0 — none of them speaks LINK yet (owner answer M-PMX; the train's PM-6).
+  - The core: `src/PlayMap.Core/Bus/PeerLink.cs` (new, the runtime only) is Stagewatch's `src/Timer.Core/PeerLink.cs` as its 6f5f71c
+    (SW19.2c) left it, alike in behaviour so one ```peerlink block holds both: the canonical code form, K, kid, the transcript, both
+    proofs, the lid, S and an enrolled K, the level-0 proof (13.6.8: `LegacyKey`, `LegacyProof`), the parsers, liveness, the redial
+    wait, the clock's admission and quality, request ids (13.12.1), 13.12.3's table, the connector machine (13.16,
+    `PeerLinkConnector`), `PeerClock` and `PeerReceipts`. What differs from the master: the numbers both keep have one home
+    (`RedialFirstMs`, `RedialMaxMs`, `ClockWindow`, `ClockApartMs`, `PeerStaleMs`, `ConflictClearMs` read `ShowBusConstants`); j's
+    generator is `Pcg32` seeded from the CSPRNG (`System.Random` is fenced here); `RequestId` checks its id with its own `IsLineId`
+    (Stagewatch's `CommandReceipt.CleanId` has no PlayMap twin); and three things PlayMap's links read: 13.12.9's owed reports
+    (`ReportRetryFirstMs` 3000, `ReportRetryMaxMs` 30 000, `ReportRetryForMs` 1 800 000 as rows `report.retry.first.ms`,
+    `report.retry.max.ms`, `report.retry.for.ms`; `ReportRetryWait(n, j)`, the redial's shape on those numbers; `ReportStillOwed`),
+    `ProcessInst` (8 lowercase hex from the CSPRNG, made once per process) and `CanonRemoves`, internal, so `Pairing` reads 13.5.1's
+    set from one place. The connector machine and the receipts store run in no link yet: the vectors hold them until wp4-peerlink
+    wires LINK.
+  - `Liveness.Of` is inclusive (13.10.3): a peer silent 6000 ms is live, 6001 through 12 000 stale, 12 001 gone (it was stale at
+    6000 and gone at 12 000); `Liveness.RedialMs(n, j)` is `PeerLink.RedialWait` (n held to 0–16, j held into [0, 1)). Its readers —
+    the hello table (`PeerTable`), and through it the fleet monitor, `BackupNode`, `SyncNode` and the network host — move by one
+    millisecond at each edge; `Jitter.Redial` (`Net/Common/Timing.cs`) reads the core's wait (the same numbers as before, rounded
+    as 13.15.1 writes it).
+  - `ClockOffsetEstimator.ForShowBus()` is 13.11.2's admission on a link's Unix-millisecond stamps: the window of 8, any stamp at or
+    before 0 refused, a round trip over 60 000 ms refused (60 000 kept), and t4 before t1 or t3 before t2 refused as before. Both links
+    take it (every `WireClient` keeps one, so each link on the line wire). The other estimators
+    (`ClockSync`'s, the phone session's, any made by the default constructor) admit as they did (`MaxRoundTrip` `long.MaxValue`,
+    `RefusesUnstamped` false): their stamps are nanoseconds from their own origins.
+  - `Pairing` follows 13.5.1 and 13.6.8. `Normalise` is the canonical form: it drops `-` and every space and invisible 13.5.1 lists
+    (tab through CR, space, NEL, NBSP, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F, U+3000, U+FEFF) and upper-cases a–z
+    only (it read a no-break space as a space, kept a byte order mark and upper-cased every letter). `Canon` is the core's (null
+    unless the form is 1–64 letters and digits). `Proof` and `Verify` key a token as §7's 1.1 desks do (`PeerLink.LegacyKey`: drop
+    `-`, space, tab, CR and LF, upper-case each character), so a machine-made token (A–Z, 2–9, dashes) proves the same bytes as
+    before and PlayMap's own wire (`WireSession`, `HttpParts`, `Backup`) answers as it did. `Refusal(token)` says why a typed token is
+    not kept: `InvisibleCharacter`, "this token holds an invisible character — retype it", for one a 1.1 desk reads apart (a
+    no-break space, a byte order mark: 13.6.8 proves nothing for it); `NotLettersAndDigits`, "PeerLink pairs a token of letters and
+    digits — this one reaches only an older build", for one whose canonical form is not letters and digits ("Bühne-7_a!", a
+    non-breaking hyphen); null otherwise, empty included. The words never carry the token.
+  - The line wire's client (`src/PlayMap.Net/Links/WireClient.cs`):
+    - Request ids are `<prefix><n>-<inst>` (13.12.1): the link's prefix (`d` the desk's engine link, `pm` the Patterns link, `m` the
+      mirror link, `s` the anchor follower), a counter from 1, and `WireClientOptions.Inst`, `PeerLink.ProcessInst` unless a test
+      gives one, so no later process repeats an id (`pm7-3fa29c01`; at most 32 characters, which Patterns' and PlayMap's wires take).
+      The counter is the process's for the prefix and inst (a static table of counters), never the link's: a Patterns link made
+      again by `LINK PATTERNS` or a settings reload, a desk's engine link or anchor follower made again, and two mirror links up side
+      by side never repeat an id, so an acceptor that keeps receipts (13.12.6) never answers a new command from an old record.
+      A prefix or inst of another shape fails in the constructor. Pings keep `k<n>` and the proof `pair`, which no command id takes.
+    - `CommandAsync(line)` returns a `WireOutcome` (id, `PeerOutcome`, words, the reply): a command never written is `NotSent` ("the
+      link to <address> is down — nothing is queued; …", or "… dropped before the line was written — nothing was sent"); an answer
+      is read by 13.12.3's table (`PeerLink.ReadLine`, `OK` applied and `ERR` refused when it carries no receipt); a command written
+      that no answer settles is `Unconfirmed`, never failed: no answer within `ReplyTimeout` ("no answer from <address> in 30 s — it
+      may have run; look at its state"), its connection ended first ("the link to <address> dropped before it answered — it may have
+      run; …"), the link closed ("the link was closed before it answered — …"), or the connection broke during the write ("… dropped
+      as the line was written — it may have run; …"). A command's lock orders its write against the connection's end, so one is never
+      written after it was said not-sent and never said not-sent once its write began. `ReplyTimeout` is `receipt.final.ms`, 30 s
+      (it was 10 s), counted on the link's clock from the write, an answer at the limit still counting — on every line-wire link,
+      the doors 13.18 exempts too, so the desk now waits 30 s for its engine before a command is said unconfirmed (Papers notes).
+      Nothing is sent again. `SendAsync` keeps its shape for its readers: the reply as it came, or Ok false with the outcome's words,
+      an unconfirmed one's opening "unconfirmed: " (`WireOutcome.UnconfirmedWord`). A reply's Ok says the outcome: a refusal an `OK`
+      carries (`OK @id {"ok":false,…}`, a refused command's repeat) comes back Ok false with the refusal's words, so a reader of the
+      reply and a reader of the outcome never disagree; an answer that applied or accepted keeps its line.
+    - A pong is a clock sample only when it answers one of the last 8 pings written on this connection by its id and its t1
+      (13.10.2), and only one the Show Bus estimator admits; any other is counted (`UnmatchedPongs`) and taken as no sample.
+    - The redial (13.15.1): n counts the dials that failed since the link was last stable, and only a connection whose pairing
+      settled (OK paired, or a peer that asks no proof of a link that holds no token) and that stayed up `StableAfter`
+      (`peerlink.stable.ms`, 10 s, on the link's clock) starts it over; a dial clears the last connection's stability before any
+      I/O, so every dial that fails after a stable one counts. A peer that answers a line and closes is backed off to 5 s; before,
+      any line heard reset the wait. A peer that asks no proof of a link holding a token settles nothing (the Patterns link does
+      not follow it either: anything at its address could answer so). At level 0 a settled pairing is the nearest a link comes to
+      13.15.2's verified. `Redialling` (internal) raises each wait as the link computes it, n and the wait, for the tests.
+    - Stale past 6 s and dropped past 12 s (`PeerLink.StaleMs`, `DropMs`), the connect deadline `link.connect.timeout.ms` (5 s).
+    - A token the peer asks a proof for that 13.6.8 does not prove (`LegacyProof` null) sends nothing and sets
+      `PairState.TokenUnprovable` (new, the enum's last), logged once per run of it: "… holds an invisible character: none is sent —
+      retype it."
+  - The Stagewatch link (`src/PlayMap.Net/Links/StagewatchLink.cs`):
+    - Only a state frame clears a stuck show (13.10.5): a beat that says the show is not live makes it stuck; a plain beat or a pong
+      never clears it.
+    - The side calls run apart from the beat (13.7.2): the beat task pings and checks liveness and nothing else; the side-call task
+      posts the context every 5 s, collects approvals every 2 s and posts the results owed, one call at a time, each within
+      `SideCallWithin` (4 s, the HTTP client's limit). A side call Stagewatch holds never holds a ping or the drop. A side call's
+      fault that none of its own answers names (a reader of the node's that throws, a bug) is its own: counted on its item
+      (`SideCallFaults(StagewatchSideCall.Context | Results | Approvals)`, public), logged once a connection (Warning, then Debug),
+      and the lane goes on with the next call — before, it ended the lane for the connection while the beat kept the link green.
+      A connection's helper that faults some other way ends with the connection and the link dials again (logged), never stops for
+      good.
+    - The redial is the line wire's rule: only a connection on which Stagewatch settled the pairing (its verdict for the key, or
+      nothing asked of a link with none) and that stayed up 10 s starts it over; a refused connection is never stable, however long
+      it stays up as a public viewer; a dial clears the last connection's stability before any I/O, so a dial that fails anywhere
+      (the name, the socket, TLS, the pin, the upgrade) after a stable connection counts — before, one stable connection left every
+      later failed dial at the first wait. `Redialling` (internal) raises each backoff as the link computes it.
+    - A pong is a sample only when its t1 is one of the last 8 pings', and only one the Show Bus estimator admits.
+    - An approved proposal runs once and its result is owed until Stagewatch takes it (13.12.9): it is remembered by the key's pin
+      (or the address), its id and its `created` before it runs (`RanKept`, the last 1024 kept, never one still owed), and its result
+      is posted at once, then again from 3 s doubling to 30 s (±20 %) for 30 min. A 2xx or a 409 (already reported) delivers it
+      (`ResultsDelivered`); a 401, 403 or 429 starts the key's hold as the other side calls do and keeps it owed for when keyed calls
+      open again; another 4xx lets it go with a log line; a 408 (a timeout, read with the 5xx by 13.12.3), a 5xx, or no answer
+      tries again. A line whose command path faults as it runs, or whose connection ends as it runs, is owed as `{"ok":false}` with
+      "this node's command path faulted as the line ran — it may have run; look at this node's state" (or "the link to Stagewatch
+      ended as the line ran — …"), posted as any other result; before, its result stayed empty and was never posted. One owed past
+      30 min is let go with a log line and stays remembered, so it never runs again. `ResultsOwed` counts what waits.
+  - The network host (`src/PlayMap.Engine/Host/NetworkHost.cs`):
+    - A blackout taken from the desk on a live, paired link is held once the link is no longer live and paired (13.17), and every
+      reader of the link says so with its age: `links.patterns.detail` (and `clip`) read "holding Patterns' blackout since 20:14:03
+      (37 s) — link lost; the desk's own word releases it, or LINK PATTERNS FOLLOW-BLACKOUT OFF" (local time; the age in s, or
+      min and s), from the moment the link left live, and on a link back that is live and has not paired yet "… — the desk has not
+      paired on the link back; …", the hold still counted from the loss. The desk's own word on a live link releases or keeps it as
+      it says, the link live and paired again ends the hold (its word stands behind the blackout once more), and `LINK PATTERNS OFF`
+      lets it go; silence never does. While the follow switch is off the air holds nothing and nothing is said held; the fact and
+      the hold's start are kept, so switching it on blacks out with the words at once. The hold's start is kept by `HoldMoved`, run
+      on the link's status and on the network watch (every 500 ms; the Patterns link raises nothing when its pairing settles); the
+      words only read it.
+    - `LINK PATTERNS <host> <token>` refuses a token `Pairing.Refusal` refuses where it is typed: "the pairing token is not kept:
+      <words>"; nothing is dialled, kept or stopped, and the token is in no reply, row or STATE. A held token that cannot be proved
+      reads "this token holds an invisible character — retype it — LINK PATTERNS with the desk's pairing token as it shows it; no
+      proof is sent" (a 1.1 node's settings may hold one).
+    - The gates PM-4 handed this batch (§2: no new link to an id in conflict while its mark stands): `SYNC FOLLOW` refuses a
+      leader in conflict ("<the mark's words> — no new link to it until that clears"), `ClockOf` asks no clock of one, and
+      `MEDIA FETCH` leaves conflicted peers out, refusing with "… — no new link to it until that clears, so nothing is fetched
+      from it" when only conflicted ones match.
+    - fix-media-page-import's ask for this file: a host `LINK PATTERNS` or `LINK STAGEWATCH` refuses as no address, and a Patterns
+      or Stagewatch address in the settings that does not parse, is repeated only through `PrivateAddress.Shown`, so a window's
+      address pasted there is refused as "'‹private address›' is not an address — …" and its token reaches no reply, row or log.
+  - The desk's engine link stays level 0 on loopback: `EngineLinkClient` dials through `WireClient` with HELLO and §7's proof (or
+    plain AUTH to this machine only, as before), speaks no LINK, and takes the ids, the unconfirmed outcome and the redial rule
+    above with every other line-wire link.
+- Tests:
+  - New `tests/PlayMap.Core.Tests/Bus/PeerLinkVectorsTests.cs`, the master's `PeerLinkVectors` group as xunit facts against
+    PlayMap's core: every row of `docs/SHOWBUS.md`'s ```peerlink block holds on it (canon, key, proof, transcript, refuse, parse,
+    liveness, errms, clock, outcome, machine and the rest; at least 160 checks); the core's numbers, features and label are §14's,
+    every row it keeps is read by its code beyond its declaration, and every §13 row is placed — in `PeerLink.Rows`, or named in
+    `NotInCore` (22 rows a link, a desk or wp4-peerlink keeps: `peerlink.hold.disconnect.ms`, `link.sidecall.timeout.ms`,
+    `receipt.late.ms` and the like, each with its keeper); and the master's checks beyond the block's proof rows (`Beyond`, at least
+    60).
+  - `ShowBusSpecTests`: the vectors the links' own code answers are held to it as before, and the two legacy codes a 1.1 desk reads
+    apart are now refused where they are typed (`Pairing.Refusal` is `InvisibleCharacter`, `LegacyProof` null) rather than named
+    for this batch. `WireAndBusTests`: liveness at 6000, 6001, 12 000 and 12 001 ms and the redial against the core's wait; new
+    `ATokenIsComparedInItsCanonicalFormAndOneTypedIsTakenOnlyAsLettersAndDigits`. `NetworkClockTests`: new
+    `AShowBusLinksEstimatorRefusesWhat13_11_2RefusesAndTheFineClocksAdmitsAsBefore`. `ComputeTests`' reviewed pool jobs:
+    `StagewatchLink.cs` 3 (the side-call task, a wait on the wire like the other two).
+  - Net (`LinkTests`, with the fake desk able to read and answer nothing, forge pongs and close on its greeting):
+    `ACommandCarriesARunUniqueIdAndOneWrittenWithNoAnswerIsUnconfirmedNeverFailed` (the id's shape and inst, unconfirmed a tick past
+    30 s on the link's clock and not at it, the dropped connection's unconfirmed, not-sent while down),
+    `ARedialWaitsLongerForEachFailedDialUntilASettledConnectionStaysUpTenSeconds` (n 0, 1, 2 for a desk that greets and closes, the
+    stable mark at 10 s on the link's clock, then 0, 1, 2 again after the stable connection, each wait inside 13.15.1's), the theory
+    `APeerThatAsksNoProofSettlesOnlyALinkThatHoldsNoToken`, `LinksWithOnePrefixAndInstNeverWriteOneIdTwice` (one after another and
+    two side by side: pm1–pm4), `AnOkThatCarriesARefusalIsARefusedReply`, `APongIsAClockSampleOnlyWhenItAnswersOneOfTheLastPings`
+    and the theory `ATokenADeskReadsApartIsNeverProved`. `StagewatchLinkTests` (the fake Stagewatch able to answer results with
+    given statuses, forge pongs and refuse every upgrade; `FakeEndpoint` able to fault on its context):
+    `OnlyAStateFrameClearsAStuckShowAPlainBeatOrAPongNever`, `ASideCallStagewatchHoldsNeverHoldsTheBeat`,
+    `AResultIsPostedAgainUntilStagewatchTakesItAndTheLineRunsOnce` (a 503 and a 408 tried again on the schedule, the 409 delivered),
+    `ASideCallsFaultIsItsOwnAndALineThatFaultsAsItRunsIsSaidAsOneThatMayHaveRun`,
+    `APongIsAClockSampleOnlyWhenItAnswersOneOfTheLastPings`, `ARedialWaitsLongerForEachDialThatDidNotStayUpUntilOneStaysTenSeconds`
+    (n 0, 1, 2 for sockets closed after the verdict, stable at 10 s, then n 0, 1, 2 for upgrades refused after it) and
+    `TheLinksOwnNumbersAreSection14s`. Each runs on a hand-moved clock where it counts time, and the redial tests read each wait as
+    the link computes it (`Redialling`), never the time between sockets. A forged pong carries a t1 a second before the ping's,
+    which the clock's admission alone would take, so only the matching withholds it.
+  - Engine (`HostRig`'s fake desk can fall silent — it reads every line and answers none — and cut its connection):
+    `HostNetworkTests` `ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt` (the hold's words and age past the
+    stale mark — the Patterns link counts its silence on the runtime's clock in the host — the follow switch off and on, the
+    connection cut two seconds on and the link back unpaired with the hold's start and age kept, then back paired with the desk's
+    word standing), the theory `ATokenTypedForTheDeskIsKeptOnlyAsLettersAndDigits` (both refusals, nothing kept or dialled, the
+    token in no row) and the theory `ALinksRefusedHostNeverRepeatsAWindowsAddress`; `PeerConflictTests`
+    `APlayMapInConflictIsNeitherFollowedForItsClockNorFetchedFrom`.
+  - Each rule undone alone, the rest kept, made one of these tests fail (each built and run): liveness exclusive again; a plain beat
+    clearing a stuck show; the line wire's backoff reset by any connection; the reply limit exclusive; an unmatched pong taken as a
+    sample (on either link, the forged t1 one the admission takes); a written command said not-sent at its connection's end; a 409
+    not taken as delivered; the hold said while the follow switch is off; no hold words at all; the link back unpaired said as lost;
+    the hold's start restarted by a link back that has not paired; a refused host repeated as typed; a typed token kept unrefused; a
+    leader in conflict asked its clock; unstamped samples admitted by the Show Bus estimator; a stable mark kept across a failed
+    dial (either link); a counter per link; the side-call lane without its catch-all; a line's fault leaving no result; a 408 let
+    go; a peer asking no proof settling a link that holds a token; a reply's Ok left as its line said.
+- Files: the leave's (M-PMX for this batch: `src/PlayMap.Core/Bus/{PeerLink,ShowBus,Pairing}.cs`,
+  `src/PlayMap.Core/Time/ClockOffsetEstimator.cs`, the line wire's client — `src/PlayMap.Net/Links/WireClient.cs`, which the leave
+  writes as `Net/Wire/WireClient.cs` — `src/PlayMap.Net/Links/StagewatchLink.cs` and `src/PlayMap.Engine/Host/NetworkHost.cs`), the
+  tests above (`tests/PlayMap.Core.Tests/Bus/PeerLinkVectorsTests.cs` new; `Bus/ShowBusSpecTests.cs`, `WireAndBusTests.cs`,
+  `Time/NetworkClockTests.cs`, `Threading/ComputeTests.cs`; `tests/PlayMap.Net.Tests/LinkTests.cs`, `StagewatchLinkTests.cs`,
+  `Fakes.cs`; `tests/PlayMap.Engine.Tests/Host/HostRig.cs`, `HostNetworkTests.cs`, `PeerConflictTests.cs`) and this entry. No verb,
+  catalogue row, STATE key, fixture or context item moves: `links.patterns.detail` and `clip` gain words, and `LINK PATTERNS` a
+  refusal.
+- Papers notes for the integrator:
+  - `docs/WIRE.md`: by `links.patterns.clip`, the held blackout's words and age (link lost, or the link back unpaired) and that only
+    the desk's word or a person releases it; by `LINK PATTERNS`, the typed token's two refusals ("the pairing token is not kept: …");
+    in the grammar's paragraph, that PlayMap's own dialled links number their requests `<prefix><n>-<inst>` (one counter per process)
+    and that a reply PlayMap did not get is "unconfirmed: …" (it may have run), never a failure.
+  - `docs/DESK.md`: a command the desk sends its engine now waits 30 s (was 10 s) for an answer before it is said "unconfirmed: no
+    answer from … in 30 s — it may have run; look at its state"; the desk toasts it as a refusal today (Open).
+  - `docs/SHOWBUS-NODE.md` and `docs/ROADMAP.md`: PlayMap's PeerLink core has landed (level 0 links: liveness, the redial rule, the
+    clock's admission, matched pongs, ids, unconfirmed, owed results, stuck by frame, held safety facts); LINK, `PEERLINK` verbs and
+    the desk's controls stay wp4-peerlink's. The master's header ("Landed (§14): Stagewatch") is Stagewatch's to move once this
+    merges; PlayMap's copy stays byte for byte.
+- Open:
+  - An ask for the owner before merge: `WireReply` (`src/PlayMap.Core/Wire/Endpoints.cs`, outside the leave) has no outcome, so
+    the desk (`EngineLinkClient` and its readers, `DeskSession`'s toast, the GO guard's Replied) reads an unconfirmed command as Ok
+    false and toasts it as refused, though its words open "unconfirmed: … it may have run" — an operator may send again a command
+    that may have run, which 13.12.7 leaves to a person with the outcome in view. The batch that owns `Endpoints.cs` and the desk's
+    toast carries `PeerOutcome` on the reply and draws unconfirmed amber. Within the leave, a reply's Ok now matches the outcome for
+    every answer (a refusal an OK carries is Ok false).
+  - The desk's engine link (a door 13.18 exempts) takes `receipt.final.ms` (30 s) as every line-wire link does; 10 s, as before, is
+    one line in `EngineLinkClient.cs` (`ReplyTimeout`), outside the leave: an ask for its owner if the desk should keep 10 s.
+  - The exempt doors' proof (desk↔engine, mirror, anchor follower: PlayMap at both ends) follows 13.6.8 too: a token the desk holds
+    with a no-break space or a byte order mark — which both ends' old `Normalise` dropped, so it paired — now proves nothing and the
+    link reads `PairState.TokenUnprovable`, logged once ("… holds an invisible character: none is sent — retype it"); a node that
+    asks a proof then refuses the desk's paired-only commands as unpaired (one that trusts this machine asks none on loopback). The
+    desk reads no `PairState`, so the reason is only in that log line. Either fix needs
+    a file outside the leave: the desk shows `TokenUnprovable`'s words (`src/PlayMap.App`), or the exempt doors prove a token in
+    the canonical form their engine's `Pairing.Verify` keys it by (a `WireClientOptions` switch set in `EngineLinkClient.cs`,
+    `MirrorLink.cs` and `AnchorFollower.cs`). An ask for the owner of those files; a token the machine makes is unaffected.
+  - The ids' inst is `PeerLink.ProcessInst`, not the hello's `inst` (`HelloService.Instance`, `src/PlayMap.Net/Bus/HelloService.cs`,
+    outside the leave); 13.12.1 asks for the sender's process inst, which both are, but one inst per process is cleaner: the batch
+    that owns `HelloService.cs` makes it read `PeerLink.ProcessInst`.
+  - §13.20's scenarios against the scripted peer (S11–S14, S19, S22 name the level-0 rules this batch brings) are not run here: the
+    CI's .NET test step has no pinned Node 22 to start `tools/showbus/peerlink-peer.mjs` (`.github/workflows/build.yml`, outside the
+    leave). The rules are held by the in-process fakes on hand-moved clocks above; wp4-peerlink, which brings LINK, brings the
+    harness and the step.
+  - Owed results live in the link's memory: a restart forgets them (and the proposals that ran), so a result owed at a restart is
+    not posted again; 13.12.9 keeps them for 30 min across one. The node's credential store or a file of its own is the place; the
+    batch that next owns `StagewatchLink.cs` with a store to write.
+  - 13.12.2's `waiting` (no answer at `receipt.deadline.ms`, 3 s) is not surfaced: a command waits silently until it is answered or
+    unconfirmed at 30 s. 13.12.4's in-flight bound (`link.inflight.max`) is not enforced on `WireClient`; the desk sends one command
+    at a time today. `StagewatchLink.SideCallFaults` reaches no STATE reader yet (13.7.2 counts a call's faults on its item; the
+    readers are wp4-peerlink's state set).
+  - The redial's "verified" is read at level 0 as a settled pairing; 13.15.2's verified (a LINK proof, a pinned certificate) and the
+    hold kept in wall time across a restart, the operator's *Link again now*, §13.16's `refused` and the state set and its lights in
+    every reader stay wp4-peerlink's, as fix-showbus-node-link's notes left them. The remembered plain answer of a Stagewatch
+    (fix-showbus-keys' item) is still not kept: each dial pays the TLS deadline first.
+  - The legacy-bearer confirm rule (13.6.8: a key over TLS only to a pinned certificate or one a person confirmed) still needs the
+    desk's control and a catalogue row; wp4-peerlink's.
+  - Seen while validating, not this batch's: `StagewatchSinkTests.OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`
+    (the 403 case) fails now and then because a pull clears `sink.Problem` before the test reads it (fix-proposal-sink-deadline's
+    open item on a pull that asks the desk nothing); it failed 1 run in 10 on this tree's base commit as well, untouched by this
+    batch. The batch that next owns the sink or that test holds the read to the journal row, or stops the pull before it.

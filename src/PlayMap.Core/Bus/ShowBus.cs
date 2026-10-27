@@ -310,15 +310,19 @@ public enum PeerLiveness
 
 public static class Liveness
 {
+    /// <summary>A peer heard <paramref name="silentMs"/> ago: live while the silence is within the stale mark, stale while it is within
+    /// the gone mark, then gone. A limit includes itself (Show Bus 1.3 §13's "within"): 6000 ms is live, 6001 stale, 12000 stale,
+    /// 12001 gone.</summary>
     public static PeerLiveness Of(long silentMs) =>
-        silentMs < ShowBusConstants.StaleMs ? PeerLiveness.Live
-        : silentMs < ShowBusConstants.GoneMs ? PeerLiveness.Stale
+        silentMs <= ShowBusConstants.StaleMs ? PeerLiveness.Live
+        : silentMs <= ShowBusConstants.GoneMs ? PeerLiveness.Stale
         : PeerLiveness.Gone;
 
-    /// <summary>The redial delay for an attempt (0-based) with a jitter draw in [0, 1).</summary>
-    public static int RedialMs(int attempt, double jitter01)
-    {
-        var baseMs = Math.Min(ShowBusConstants.RedialMaxMs, ShowBusConstants.RedialMinMs * Math.Pow(2, Math.Clamp(attempt, 0, 16)));
-        return (int)Math.Round(baseMs * (0.8 + 0.4 * Math.Clamp(jitter01, 0, 1)));
-    }
+    /// <summary>The largest double below 1: a jitter draw of 1 is read as the top of [0, 1).</summary>
+    private static readonly double BelowOne = Math.BitDecrement(1.0);
+
+    /// <summary>The wait before redial <paramref name="attempt"/> (failed dials since the link was last stable, from 0) with a jitter
+    /// draw in [0, 1): 13.15.1's wait, the PeerLink core's (<see cref="PeerLink.RedialWait"/>), one rule for every link.</summary>
+    public static int RedialMs(int attempt, double jitter01) =>
+        (int)PeerLink.RedialWait(Math.Clamp(attempt, 0, 16), Math.Clamp(jitter01, 0, BelowOne));
 }

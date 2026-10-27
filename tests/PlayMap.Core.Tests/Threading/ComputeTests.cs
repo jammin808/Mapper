@@ -204,7 +204,7 @@ public sealed partial class ComputeTests
         ["PlayMap.Net/Fleet/FleetMonitor.cs"] = 1, // feeds
         ["PlayMap.Net/Led/LedSender.cs"] = 1, // a thread joined
         ["PlayMap.Net/Links/PatternsLink.cs"] = 1, // socket loop
-        ["PlayMap.Net/Links/StagewatchLink.cs"] = 2, // socket loops
+        ["PlayMap.Net/Links/StagewatchLink.cs"] = 3, // socket loops and the side-call lane (§13.7.2), each a wait on the wire
         ["PlayMap.Net/Links/WireClient.cs"] = 4, // socket loops
         ["PlayMap.Net/Media/MediaTransfer.cs"] = 1, // transfer workers
         ["PlayMap.Net/Phone/PhoneSession.cs"] = 1, // an ack's failure logged

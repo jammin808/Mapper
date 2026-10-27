@@ -419,4 +419,109 @@ public sealed class HostNetworkTests
         Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("state").GetString() == "off"));
         Assert.True(await Eventually.TrueAsync(() => rig.Home.LoadSettings("unused") is { PatternsHost: "", PatternsToken: "" }));
     }
+
+    /// <summary>Show Bus 1.3 §13.17: a blackout the node follows for safety is held once its link is no longer live and paired, said with
+    /// its age in every reader of the link (STATE's <c>links.patterns.detail</c>) — "link lost", or, on a link back that has not paired
+    /// yet, that the desk has not paired — and released only by the desk's own word on a live link, never by the silence. The hold runs
+    /// from the loss across a redial; back live and paired with the blackout still on, it is the desk's word again, not a hold.</summary>
+    [Fact]
+    public async Task ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt()
+    {
+        const string deskToken = "AAAA-BBBB-CCCC";
+        await using var desk = new FakePatternsDesk(deskToken);
+        var clock = new ManualClock(Base);
+        await using var rig = await HostRig.StartAsync(mono: clock);
+        await using var c = await rig.WireAsync();
+        Assert.StartsWith("OK @l", await c.AskAsync($"@l LINK PATTERNS 127.0.0.1:{desk.Port} {deskToken}"), StringComparison.Ordinal);
+        JsonElement Patterns() => rig.State().GetProperty("links").GetProperty("patterns");
+        bool Blackout() => rig.State().GetProperty("air").GetProperty("blackout").GetBoolean();
+        Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("state").GetString() == "live" && Patterns().GetProperty("paired").GetBoolean()));
+        // Its STATE asked once it paired has been taken (a push before that answer lands could be overtaken by it).
+        Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("clip").GetString()!.StartsWith("VT ", StringComparison.Ordinal)));
+        await desk.PushAsync(FakePatternsDesk.StateWith(blackout: true));
+        Assert.True(await Eventually.TrueAsync(Blackout));
+        Assert.DoesNotContain("holding", Patterns().GetProperty("detail").GetString()!, StringComparison.Ordinal);
+
+        // The desk falls silent: past the stale mark (the link counts its silence on the runtime's clock here; the age is counted on
+        // the node's wall, which the node's clock moves) its blackout is held, with its age, and stays on the air.
+        desk.Silent = true;
+        clock.AdvanceMs(6_001);
+        Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("state").GetString() == "stale"), Patterns().ToString());
+        var lost = Regex.Match(Patterns().GetProperty("detail").GetString()!,
+            @"^holding Patterns' blackout since (\d\d:\d\d:\d\d) \(\d+ s\) — link lost; the desk's own word releases it, or LINK PATTERNS FOLLOW-BLACKOUT OFF$");
+        Assert.True(lost.Success, Patterns().ToString());
+        var since = lost.Groups[1].Value;
+        Assert.True(Blackout());
+        Assert.Equal(Patterns().GetProperty("detail").GetString(), Patterns().GetProperty("clip").GetString());
+
+        // The air's follow switch off, the air holds nothing and nothing is said held; on again, the held blackout and its words are back.
+        Assert.StartsWith("OK @f", await c.AskAsync("@f LINK PATTERNS FOLLOW-BLACKOUT OFF"), StringComparison.Ordinal);
+        Assert.False(Blackout());
+        Assert.True(await Eventually.TrueAsync(() => !Patterns().GetProperty("detail").GetString()!.Contains("holding", StringComparison.Ordinal)),
+            Patterns().ToString());
+        Assert.StartsWith("OK @h", await c.AskAsync("@h LINK PATTERNS FOLLOW-BLACKOUT ON"), StringComparison.Ordinal);
+        Assert.True(Blackout());
+        Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("detail").GetString()!.StartsWith("holding Patterns' blackout since ",
+            StringComparison.Ordinal)), Patterns().ToString());
+
+        // The hold has run two seconds on the node's clock (its wall counts on from it) when the connection is cut and the link dials
+        // again; the desk, still silent, never answers its proof. The link is back and live, the desk has not paired on it: the
+        // blackout is held still, counted from the loss, and said so.
+        clock.AdvanceMs(2_000);
+        desk.Cut();
+        Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("detail").GetString()!.Contains("the desk has not paired on the link back",
+            StringComparison.Ordinal)), Patterns().ToString());
+        Assert.Equal(("live", false), (Patterns().GetProperty("state").GetString(), Patterns().GetProperty("paired").GetBoolean()));
+        var back = Regex.Match(Patterns().GetProperty("detail").GetString()!,
+            @"^holding Patterns' blackout since " + since + @" \((\d+) s\) — the desk has not paired on the link back; the desk's own word releases it, or LINK PATTERNS FOLLOW-BLACKOUT OFF$");
+        Assert.True(back.Success, Patterns().ToString());
+        Assert.True(int.Parse(back.Groups[1].Value, CultureInfo.InvariantCulture) >= 2, Patterns().ToString());
+        Assert.True(Blackout());
+
+        // The desk answers again on a new connection, its blackout still on: it pairs, its word stands, live, and is no hold.
+        desk.Silent = false;
+        desk.State = FakePatternsDesk.StateWith(blackout: true);
+        desk.Cut();
+        Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("state").GetString() == "live" && Patterns().GetProperty("paired").GetBoolean()
+            && !Patterns().GetProperty("detail").GetString()!.Contains("holding", StringComparison.Ordinal)), Patterns().ToString());
+        Assert.True(Blackout());
+
+        // Only its word lets the blackout go.
+        await desk.PushAsync(FakePatternsDesk.StateWith(blackout: false));
+        Assert.True(await Eventually.TrueAsync(() => !Blackout()));
+    }
+
+    /// <summary>Show Bus 1.3 §13.5.1 and §13.6.8: a token typed for the desk is kept only as letters and digits once its dashes and
+    /// spaces are dropped, with nothing a 1.1 desk reads apart; any other is refused where it is typed, in the contract's words, which
+    /// never echo it, and nothing is dialled or kept.</summary>
+    [Theory]
+    [InlineData("AAAA\u00a0BBBB-CCCC", "this token holds an invisible character — retype it")]
+    [InlineData("Bühne-7_a!", "PeerLink pairs a token of letters and digits — this one reaches only an older build")]
+    public async Task ATokenTypedForTheDeskIsKeptOnlyAsLettersAndDigits(string token, string words)
+    {
+        await using var rig = await HostRig.StartAsync();
+        await using var c = await rig.WireAsync();
+        Assert.StartsWith("OK @l", await c.AskAsync("@l LINK PATTERNS 127.0.0.1:9 \"" + token + "\""), StringComparison.Ordinal);
+        Assert.True(await Eventually.TrueAsync(() => rig.Journal().Contains("the pairing token is not kept: " + words, StringComparison.Ordinal)), rig.Journal());
+        Assert.Null(rig.Network.Patterns());
+        Assert.Equal(("", ""), (rig.Home.LoadSettings("unused").PatternsHost, rig.Home.LoadSettings("unused").PatternsToken));
+        Assert.DoesNotContain(token, rig.Journal(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A link's refused host is repeated only when it holds no private address: a Stagewatch window's address pasted into
+    /// LINK PATTERNS or LINK STAGEWATCH is refused as no address in words that carry the marker, never the window's token.</summary>
+    [Theory]
+    [InlineData("LINK PATTERNS", "LINK PATTERNS <host>[:<port>] [<token>]")]
+    [InlineData("LINK STAGEWATCH", "LINK STAGEWATCH <host>[:<port>] [<key>]")]
+    public async Task ALinksRefusedHostNeverRepeatsAWindowsAddress(string verb, string form)
+    {
+        const string window = "q3x7m2k9p4abcdefghjk5n6r8t";
+        await using var rig = await HostRig.StartAsync();
+        await using var c = await rig.WireAsync();
+        Assert.StartsWith("OK @l", await c.AskAsync($"@l {verb} https://10.0.0.5:9924/w/{window}"), StringComparison.Ordinal);
+        Assert.True(await Eventually.TrueAsync(() => rig.Journal().Contains($"'{PlayMap.Core.Media.PrivateAddress.Marker}' is not an address — {form}",
+            StringComparison.Ordinal)), rig.Journal());
+        Assert.DoesNotContain(window, rig.Journal(), StringComparison.Ordinal);
+        Assert.DoesNotContain(window, rig.Engine.State().Json, StringComparison.Ordinal);
+    }
 }

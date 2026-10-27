@@ -29,6 +29,18 @@ public sealed class ClockOffsetEstimator
         _trendCapacity = trendCapacity;
     }
 
+    /// <summary>The longest round trip a sample may have and still be kept, in the link's units (none by default).</summary>
+    public long MaxRoundTrip { get; init; } = long.MaxValue;
+
+    /// <summary>Whether a sample with a stamp at or before zero is refused: on a link whose stamps are Unix milliseconds, zero and
+    /// below are no time.</summary>
+    public bool RefusesUnstamped { get; init; }
+
+    /// <summary>A Show Bus link's estimator (Show Bus 1.3 §13.11.2, Unix milliseconds): the last <c>clock.window</c> samples, each
+    /// refused when any stamp is ≤ 0, t4 &lt; t1, t3 &lt; t2, or its round trip is negative or above <c>clock.rtt.max.ms</c>.</summary>
+    public static ClockOffsetEstimator ForShowBus() =>
+        new(Bus.PeerLink.ClockWindow) { MaxRoundTrip = Bus.PeerLink.ClockRttMaxMs, RefusesUnstamped = true };
+
     public int Samples => _count;
     public bool HasEstimate => _count > 0;
 
@@ -44,10 +56,13 @@ public sealed class ClockOffsetEstimator
     public double Drift { get; private set; }
 
     /// <summary>Adds a sample; one where either clock ran backwards mid-exchange (a negative round trip, a
-    /// reply sent before it was received) is refused.</summary>
+    /// reply sent before it was received), one whose round trip is past <see cref="MaxRoundTrip"/>, and — where
+    /// <see cref="RefusesUnstamped"/> — one with a stamp at or before zero is refused, and nothing of it is kept.</summary>
     public bool Add(ClockSample s)
     {
-        if (s.RoundTrip < 0 || s.T4 < s.T1 || s.T3 < s.T2)
+        if (s.RoundTrip < 0 || s.T4 < s.T1 || s.T3 < s.T2 || s.RoundTrip > MaxRoundTrip)
+            return false;
+        if (RefusesUnstamped && (s.T1 <= 0 || s.T2 <= 0 || s.T3 <= 0 || s.T4 <= 0))
             return false;
         _window[_next] = s;
         _next = (_next + 1) % _window.Length;

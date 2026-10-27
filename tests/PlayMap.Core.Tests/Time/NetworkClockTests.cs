@@ -24,6 +24,30 @@ public sealed class NetworkClockTests
         return e;
     }
 
+    /// <summary>Show Bus 1.3 §13.11.2's admission on a Show Bus link's estimator (Unix milliseconds): a sample with a stamp at or before
+    /// zero, a round trip past <c>clock.rtt.max.ms</c> (60 000 ms, which itself is kept), t4 before t1 or t3 before t2 is refused and
+    /// nothing of it kept; the fine clock's own estimator (nanoseconds) admits as before.</summary>
+    [Fact]
+    public void AShowBusLinksEstimatorRefusesWhat13_11_2RefusesAndTheFineClocksAdmitsAsBefore()
+    {
+        var link = ClockOffsetEstimator.ForShowBus();
+        Assert.True(link.Add(new ClockSample(1000, 1500, 1501, 1010)));
+        Assert.False(link.Add(new ClockSample(0, 1500, 1501, 10)));
+        Assert.False(link.Add(new ClockSample(1000, 0, 0, 1010)));
+        Assert.False(link.Add(new ClockSample(-5, 1500, 1501, 5)));
+        Assert.False(link.Add(new ClockSample(2000, 2500, 2501, 62_002)));   // a round trip of 60 001 ms
+        Assert.True(link.Add(new ClockSample(2000, 2500, 2500, 62_000)));    // 60 000 ms is within
+        Assert.False(link.Add(new ClockSample(3000, 3500, 3400, 3010)));     // t3 before t2
+        Assert.False(link.Add(new ClockSample(3000, 3500, 3501, 2990)));     // t4 before t1
+        Assert.Equal(2, link.Samples);
+        Assert.Equal(9, link.RoundTrip);   // the best of the two kept: (1010 − 1000) − (1501 − 1500)
+
+        var fine = new ClockOffsetEstimator();
+        Assert.True(fine.Add(new ClockSample(0, 5 * Ms, 5 * Ms, 0)));
+        Assert.True(fine.Add(new ClockSample(Ms, 6 * Ms, 6 * Ms, 120_001 * Ms)));
+        Assert.Equal(2, fine.Samples);
+    }
+
     [Fact]
     public void ACorrectionUnderAMillisecondIsSlewedAt200PpmAndTimeStaysContinuous()
     {

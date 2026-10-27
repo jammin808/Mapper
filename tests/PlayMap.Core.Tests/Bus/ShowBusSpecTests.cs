@@ -10,8 +10,8 @@ namespace PlayMap.Core.Tests.Bus;
 /// <summary>This tree's copy of Show Bus 1.3 (<c>docs/SHOWBUS.md</c>) and its scripted peer (<c>tools/showbus/peerlink-peer.mjs</c>),
 /// read from this tree alone and held to the two hashes the master pins (§14.5): the body's, which the header's Body line prints, and the
 /// peer's, §14's <c>peerlink.peer.sha256</c>. Inside the hashed body, the <c>```showbus</c> block's rows are held to the Core code that
-/// keeps each, and the <c>```peerlink</c> vectors Core's code answers today are held to it; every other vector is named as the PeerLink
-/// core's, so a copy that brings a case no one has placed fails here.</summary>
+/// keeps each, and the <c>```peerlink</c> vectors the links' own pairing and redial answer are held to them here; every vector runs on
+/// the PeerLink core in <see cref="PeerLinkVectorsTests"/>, so a copy that brings a case no one has placed fails there and here.</summary>
 public sealed partial class ShowBusSpecTests
 {
     /// <summary>The body's SHA-256 the master's header prints (Stagewatch's <c>docs/SHOWBUS.md</c>, Show Bus 1.3 final). A new master is
@@ -189,8 +189,9 @@ public sealed partial class ShowBusSpecTests
         Assert.Contains("\"name\":\"Bühne links\"", Encoding.UTF8.GetString(plain.ToJson()), StringComparison.Ordinal);
     }
 
-    /// <summary>The ```peerlink vectors Core answers today — the redial's wait and the 1.1 legacy proof with its nonce shape — held to
-    /// its code; every other case is the PeerLink core's (fix-peerlink-core), named so a new case is placed before it lands.</summary>
+    /// <summary>The ```peerlink vectors the links' own code answers — the redial's wait (<see cref="Liveness.RedialMs"/>), and §7's 1.1
+    /// proof (<see cref="Pairing"/>) with its nonce shape and the tokens it never proves, which are refused where they are typed — held
+    /// to it; every case runs on the PeerLink core in <see cref="PeerLinkVectorsTests"/>.</summary>
     [Fact]
     public void TheVectorsCoreAnswersHold()
     {
@@ -223,7 +224,11 @@ public sealed partial class ShowBusSpecTests
             }
             else if (kind == "legacy")
             {
-                codeForms++;   // a code whose canonical form refuses it: the PeerLink core's canonical form (fix-peerlink-core)
+                // A token 13.6.8 does not prove (an invisible character 1.1 desks read apart): never proved, and refused where it is typed.
+                var code = v.GetProperty("code").GetString();
+                Assert.Equal(Pairing.InvisibleCharacter, Pairing.Refusal(code));
+                Assert.Null(PeerLink.LegacyProof(code!, v.GetProperty("nonce").GetString()!, "Stagewatch"));
+                codeForms++;
             }
         }
         Assert.Equal(7 + 3 + 2, held);

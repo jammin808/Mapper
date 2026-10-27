@@ -5,6 +5,7 @@ using System.Net;
 using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Machine;
+using PlayMap.Core.Media;
 using PlayMap.Core.Model;
 using PlayMap.Core.Playback;
 using PlayMap.Core.Storage;
@@ -132,7 +133,11 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private volatile string _stagewatchView = "";
     private volatile string _role = "solo";
     private volatile string? _leader;
-    private bool _patternsBlackedUs;
+    private volatile bool _patternsBlackedUs;
+
+    /// <summary>When (wall ms) the desk's blackout began to be held — its link no longer live and paired, so no live word of the desk's
+    /// stands behind it (Show Bus 1.3 §13.17) — or 0 while none is held.</summary>
+    private long _blackoutHeldSince;
     private SyncQuality _lastQuality = SyncQuality.None;
     private int _lastClients;
     private (LinkView?, LinkView?, string?) _lastLinks;
@@ -327,12 +332,16 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             return null;
         var live = link.Status == LinkStatus.Live;
         string detail;
-        if (link.Pairing == PairState.Refused)
+        if (HeldBlackout(live, link.Paired) is { } held)
+            detail = held;
+        else if (link.Pairing == PairState.Refused)
             detail = "wrong token — LINK PATTERNS with the desk's pairing token";
         else if (link.Pairing == PairState.Unprovable)
             detail = "it asked for a proof with a NONCE that is not 32 hex — no proof is sent and nothing it says is followed (another machine at its address?)";
         else if (link.Pairing == PairState.NeedsToken)
             detail = "it asks for a pairing token and this node holds none — LINK PATTERNS with the desk's pairing token";
+        else if (link.Pairing == PairState.TokenUnprovable)
+            detail = Pairing.InvisibleCharacter + " — LINK PATTERNS with the desk's pairing token as it shows it; no proof is sent";
         else if (live && !link.Paired && link.Pairing == PairState.NotNeeded)
             detail = "it asks for no proof, so it cannot show it is the desk — the token stays on this machine and nothing it says is followed. "
                 + $"A desk that asks for no token is followed open by LINK PATTERNS {link.Address} with no token; otherwise it is a Patterns "
@@ -346,6 +355,45 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         return new LinkView(StatusWord(link.Status), link.Address, link.Paired, detail);
 
         static string Label(PatternsVideo v) => v.Tag.Length > 0 ? v.Tag : v.File;
+    }
+
+    /// <summary>The words for the desk's blackout this node holds, or null when it holds none: a blackout taken from a live, paired link
+    /// is held once that link is no longer live and paired, shown with its age (Show Bus 1.3 §13.17: "holding Patterns' blackout since
+    /// 20:14:03 — link lost", or, while a link back has not paired yet, "— the desk has not paired on the link back"), and released only
+    /// by the desk's own word on a live link or by a person, never by the silence. While the air's follow switch is off the air holds
+    /// nothing, so nothing is said held; the fact and its age are kept for the switch. It only reads: <see cref="HoldMoved"/> keeps the
+    /// hold's start.</summary>
+    private string? HeldBlackout(bool live, bool paired)
+    {
+        if (!_patternsBlackedUs || (live && paired) || _engine is { Air.FollowPatternsBlackout: false })
+            return null;
+        var now = _o.Wall.UnixMs;
+        // The watch has not looked since the link left live and paired: the hold begins now.
+        var since = Interlocked.Read(ref _blackoutHeldSince) is > 0 and var started ? started : now;
+        var at = DateTimeOffset.FromUnixTimeMilliseconds(since).ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+        var why = live ? "the desk has not paired on the link back" : "link lost";
+        return string.Create(CultureInfo.InvariantCulture,
+            $"holding Patterns' blackout since {at} ({Age(Math.Max(0, now - since))}) — {why}; the desk's own word releases it, or LINK PATTERNS FOLLOW-BLACKOUT OFF");
+
+        static string Age(long ms) => ms < 60_000
+            ? string.Create(CultureInfo.InvariantCulture, $"{ms / 1000} s")
+            : string.Create(CultureInfo.InvariantCulture, $"{ms / 60_000} min {ms / 1000 % 60} s");
+    }
+
+    /// <summary>Keeps the start of the desk's blackout hold: it begins when the link that took the blackout is no longer live and paired,
+    /// and ends when it is again (its word stands behind the blackout once more), when the desk's own word moves it, or when no blackout
+    /// is taken. Run on the link's status and on the watch, which sees a pairing settle (the link raises nothing for it).</summary>
+    private void HoldMoved()
+    {
+        if (!_patternsBlackedUs || _patterns is not { } link)
+        {
+            Interlocked.Exchange(ref _blackoutHeldSince, 0);
+            return;
+        }
+        if (link.Status == LinkStatus.Live && link.Paired)
+            Interlocked.Exchange(ref _blackoutHeldSince, 0);
+        else
+            Interlocked.CompareExchange(ref _blackoutHeldSince, _o.Wall.UnixMs, 0);
     }
 
     public LinkView? Stagewatch()
@@ -430,8 +478,14 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                 ClearFault("patterns");
                 return "stopped following Patterns";
             }
+            // A host refused is repeated only when it holds no private address (a window's, a pass in its query): the refusal reaches
+            // the reply, the journal and the log, which carry no private address.
             var address = PatternsLinkOptions.ParseAddress(host)
-                ?? throw new ArgumentException($"'{host}' is not an address — LINK PATTERNS <host>[:<port>] [<token>]");
+                ?? throw new ArgumentException($"'{PrivateAddress.Shown(host)}' is not an address — LINK PATTERNS <host>[:<port>] [<token>]");
+            // A token typed for the desk is taken only as letters and digits once its dashes and spaces are dropped, with nothing a 1.1
+            // desk reads apart (Show Bus 1.3 §13.5.1, §13.6.8): any other is refused here, in words that never echo it.
+            if (Pairing.Refusal(token) is { } refused)
+                throw new ArgumentException("the pairing token is not kept: " + refused);
             var keep = token ?? (string.Equals(host, _stored.PatternsHost, StringComparison.OrdinalIgnoreCase) ? _stored.PatternsToken : "");
             await StopPatternsAsync();
             StartPatterns(host, keep);
@@ -476,7 +530,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                     : "following the first Stagewatch heard — none is heard yet";
             }
             var address = PatternsLinkOptions.ParseAddress(host, ShowBusConstants.StagewatchHttpPort)
-                ?? throw new ArgumentException($"'{host}' is not an address — LINK STAGEWATCH <host>[:<port>] [<key>]");
+                ?? throw new ArgumentException($"'{PrivateAddress.Shown(host)}' is not an address — LINK STAGEWATCH <host>[:<port>] [<key>]");
             await StopStagewatchAsync();
             KeepStagewatchKey(keep);
             StartStagewatch(StagewatchOptions(address.Host, address.Port, keep));
@@ -538,7 +592,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     /// <summary>Where a follow of <paramref name="nodeId"/> would ask its clock now, by the clock port its latest hello names, as
     /// "address:port" ("" when it is not heard).</summary>
     public string ClockOf(string nodeId) =>
-        FindPeer(nodeId) is { } peer && IPAddress.TryParse(peer.Address, out var ip)
+        FindPeer(nodeId) is { Conflict: null } peer && IPAddress.TryParse(peer.Address, out var ip)
             ? new IPEndPoint(ip, peer.Hello.Port("sync") is > 0 and var port ? port : ShowBusConstants.PlayMapSyncPort).ToString()
             : "";
 
@@ -553,6 +607,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                 ?? throw new InvalidOperationException($"no PlayMap node '{nodeId}' is heard on the show network — NODES lists the ones that are");
             if (peer.Id == _running.NodeId)
                 throw new InvalidOperationException($"a node cannot follow itself — SYNC LEAD {group} makes it the leader");
+            // Two machines say this id (Show Bus §2): no new link goes to it until the mark clears.
+            if (peer.Conflict is { } conflict)
+                throw new InvalidOperationException(conflict.Words + " — no new link to it until that clears");
             if (peer.Liveness != PeerLiveness.Live)
                 throw new InvalidOperationException($"{peer.Name} has gone quiet on the show network — it cannot lead until it is heard again");
             if (!IPAddress.TryParse(peer.Address, out var ip))
@@ -591,10 +648,14 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         ArgumentNullException.ThrowIfNull(items);
         ct.ThrowIfCancellationRequested();
         await Task.Yield();   // off the control lane: the pulls ask peers for their manifests
-        var peers = (_hello?.Peers.Snapshot() ?? [])
+        var heard = (_hello?.Peers.Snapshot() ?? [])
             .Where(p => p.Kind == ShowBusConstants.KindPlayMap && p.Id != _running.NodeId && p.Liveness == PeerLiveness.Live && p.Hello.Port("http") > 0)
             .Where(p => fromNode is null || p.Id.Equals(fromNode, StringComparison.OrdinalIgnoreCase) || p.Name.Equals(fromNode, StringComparison.OrdinalIgnoreCase))
             .ToList();
+        // Two machines say an id (Show Bus §2): no new link goes to it until the mark clears.
+        var peers = heard.Where(p => p.Conflict is null).ToList();
+        if (peers.Count == 0 && heard.Find(p => p.Conflict is not null) is { Conflict: { } conflict })
+            throw new InvalidOperationException(conflict.Words + " — no new link to it until that clears, so nothing is fetched from it");
         if (peers.Count == 0)
             throw new InvalidOperationException(fromNode is null
                 ? "no other PlayMap node is heard on the show network to fetch from"
@@ -743,11 +804,16 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     private void StartPatterns(string host, string token)
     {
         var (h, port) = PatternsLinkOptions.ParseAddress(host)
-            ?? throw new ArgumentException($"the Patterns address '{host}' in the node's settings is not an address — LINK PATTERNS <host>[:<port>]");
+            ?? throw new ArgumentException($"the Patterns address '{PrivateAddress.Shown(host)}' in the node's settings is not an address — LINK PATTERNS <host>[:<port>]");
         var link = new PatternsLink(new PatternsLinkOptions { Host = h, Port = port, Token = token }, _o.Wall, _o.Mono, _o.Logs.CreateLogger("PlayMap.Net.Patterns"));
         link.BlackoutChanged += OnPatternsBlackout;
         link.VideoChanged += _ => Facts();
-        link.StatusChanged += _ => Facts();
+        link.StatusChanged += _ =>
+        {
+            // The link leaving live with the desk's blackout on the air: the hold begins now, whoever reads it later.
+            HoldMoved();
+            Facts();
+        };
         _patterns = link;
         link.Start();
     }
@@ -756,6 +822,8 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
     /// Patterns "Lines" device sends): the air follows it while "Follow Patterns' blackout" is on.</summary>
     private void OnPatternsBlackout(bool on)
     {
+        // The desk's own word, on a live paired link: whatever it says stands, held no longer.
+        Interlocked.Exchange(ref _blackoutHeldSince, 0);
         _patternsBlackedUs = on;
         Fact(on ? "BLACKOUT 1" : "BLACKOUT 0");
     }
@@ -769,8 +837,9 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         await link.DisposeAsync();
         if (_patternsBlackedUs)
         {
-            // A desk this node no longer follows does not hold its air.
+            // A desk this node no longer follows does not hold its air: a person let it go.
             _patternsBlackedUs = false;
+            Interlocked.Exchange(ref _blackoutHeldSince, 0);
             Fact("BLACKOUT 0");
         }
         Facts();
@@ -881,7 +950,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             if (PatternsLinkOptions.ParseAddress(s.StagewatchHost, ShowBusConstants.StagewatchHttpPort) is { } a)
                 StartStagewatch(StagewatchOptions(a.Host, a.Port, StagewatchKeyNow()));
             else
-                Fault("stagewatch", $"the Stagewatch address '{s.StagewatchHost}' in the node's settings is not an address — LINK STAGEWATCH <host>[:<port>]");
+                Fault("stagewatch", $"the Stagewatch address '{PrivateAddress.Shown(s.StagewatchHost)}' in the node's settings is not an address — LINK STAGEWATCH <host>[:<port>]");
             return;
         }
         if (_hello?.Peers.Live(ShowBusConstants.KindStagewatch) is { Count: > 0 } heard)
@@ -1140,7 +1209,8 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
                     Facts();
                 }
                 // A link's view moves without an event of its own: pairing completes, a clip counts down, a timer is
-                // counted on locally, a frame goes stale. What STATE shows of the links is looked at here.
+                // counted on locally, a frame goes stale. What STATE shows of the links is looked at here, the blackout's hold first.
+                HoldMoved();
                 var links = (Patterns(), Stagewatch(), StagewatchTimerJson());
                 if (links != _lastLinks)
                 {

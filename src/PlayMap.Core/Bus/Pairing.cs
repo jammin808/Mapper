@@ -6,8 +6,10 @@ namespace PlayMap.Core.Bus;
 /// <summary>Pairing tokens and proofs (Show Bus §7), byte-for-byte Patterns' scheme so one pairing token
 /// format and one proof serve every app: a 12-symbol token over an alphabet without look-alikes, shown
 /// "K7QM-3XWD-P9RA"; on connect the server sends "NONCE &lt;32 hex&gt;"; the client answers
-/// "AUTH-PROOF &lt;hex&gt;" = HMAC-SHA256(key = UTF-8 of the normalised token, message = UTF-8 of nonce + name),
-/// where name is what the client said in HELLO ("" when it said nothing). The token never crosses the wire.</summary>
+/// "AUTH-PROOF &lt;hex&gt;" = HMAC-SHA256(key = UTF-8 of the token as §7's 1.1 desks key it, message = UTF-8 of nonce + name),
+/// where name is what the client said in HELLO ("" when it said nothing). The token never crosses the wire. A token is compared in
+/// Show Bus 1.3 §13.5.1's canonical form (<see cref="Normalise"/>), and one typed for a peer is taken only when it is letters and
+/// digits once that form drops its dashes and spaces, with nothing a 1.1 desk reads apart (<see cref="Refusal"/>).</summary>
 public static class Pairing
 {
     public const string Alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -35,16 +37,42 @@ public static class Pairing
         return sb.ToString();
     }
 
-    /// <summary>Dashes and whitespace removed, upper-cased.</summary>
+    /// <summary>Show Bus 1.3 §13.5.1's canonical form of a token: '-' and every space and separator 13.5.1 names removed (U+0009–U+000D,
+    /// U+0020, U+0085, U+00A0, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF) and a–z upper-cased; every
+    /// other character is kept as it is, so a token that is not letters and digits stays one (<see cref="Canon"/> refuses it). "" for
+    /// none.</summary>
     public static string Normalise(string? token)
     {
         if (string.IsNullOrEmpty(token))
             return "";
         var sb = new StringBuilder(token.Length);
         foreach (var c in token)
-            if (c != '-' && !char.IsWhiteSpace(c))
-                sb.Append(char.ToUpperInvariant(c));
+            if (!PeerLink.CanonRemoves(c))
+                sb.Append(c is >= 'a' and <= 'z' ? (char)(c - 'a' + 'A') : c);
         return sb.ToString();
+    }
+
+    /// <summary>13.5.1: the canonical form when it is <c>[A-Z0-9]{1,64}</c>, else null — a token PeerLink never proves.</summary>
+    public static string? Canon(string? token) => token is null ? null : PeerLink.Canon(token);
+
+    /// <summary>13.5.1's words for a token that is not letters and digits once its dashes and spaces are dropped.</summary>
+    public const string NotLettersAndDigits = "PeerLink pairs a token of letters and digits — this one reaches only an older build";
+
+    /// <summary>13.6.8's words for a token that still holds a character 13.5.1 removes once a 1.1 desk's dashes and spaces are
+    /// dropped (another space, a line or paragraph separator, a byte order mark): 1.1 desks read it apart, so it is never proved.</summary>
+    public const string InvisibleCharacter = "this token holds an invisible character — retype it";
+
+    /// <summary>Why a pairing token typed for a peer is not taken where it is typed (Show Bus 1.3 §13.5.1, §13.6.8), or null when it
+    /// is: one that holds an invisible character a 1.1 desk keys apart is never proved by §7's proof, and one that is not letters and
+    /// digits once its dashes and spaces are dropped is never proved by PeerLink. A token is never echoed in the words. "" (no token)
+    /// is taken.</summary>
+    public static string? Refusal(string? token)
+    {
+        if (string.IsNullOrEmpty(token))
+            return null;
+        if (PeerLink.LegacyKey(token) is null && Normalise(token).Length > 0)
+            return InvisibleCharacter;
+        return Canon(token) is null ? NotLettersAndDigits : null;
     }
 
     /// <summary>16 random bytes as 32 lowercase hex.</summary>
@@ -55,12 +83,17 @@ public static class Pairing
     public static bool IsNonce(string? nonce) =>
         nonce is { Length: 32 } n && n.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 
-    /// <summary>The proof a client sends: lowercase hex of HMAC-SHA256(token, nonce + name).</summary>
+    /// <summary>The key of §7's proof: the token as 1.1 desks key it (Show Bus 1.3 §13.6.8: '-', space, tab, CR and LF removed, every
+    /// other character upper-cased alone), or — for a token 13.6.8 does not prove, which a client never proves (<see cref="Refusal"/>)
+    /// — its canonical form, so this node's own check of one stays the same on both ends. Both are the same for every token of letters,
+    /// digits, dashes and spaces.</summary>
+    private static byte[] Key(string token) => Encoding.UTF8.GetBytes(PeerLink.LegacyKey(token) ?? Normalise(token));
+
+    /// <summary>The proof a client sends: lowercase hex of HMAC-SHA256(the token's key, nonce + name).</summary>
     public static string Proof(string token, string nonce, string? name)
     {
-        var key = Encoding.UTF8.GetBytes(Normalise(token));
         var msg = Encoding.UTF8.GetBytes(nonce + (name ?? ""));
-        return Convert.ToHexStringLower(HMACSHA256.HashData(key, msg));
+        return Convert.ToHexStringLower(HMACSHA256.HashData(Key(token), msg));
     }
 
     /// <summary>Checks a proof in constant time; either hex case is accepted.</summary>
@@ -77,7 +110,7 @@ public static class Pairing
         {
             return false;
         }
-        var expected = HMACSHA256.HashData(Encoding.UTF8.GetBytes(Normalise(token)), Encoding.UTF8.GetBytes(nonce + (name ?? "")));
+        var expected = HMACSHA256.HashData(Key(token), Encoding.UTF8.GetBytes(nonce + (name ?? "")));
         return CryptographicOperations.FixedTimeEquals(given, expected);
     }
 

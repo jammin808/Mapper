@@ -365,7 +365,7 @@ internal sealed class FfmpegFactAttribute : FactAttribute
 
 /// <summary>A Patterns desk as the tests play it (the Net tests' fake): STATE then NONCE on connect, HELLO answered,
 /// AUTH-PROOF checked against the nonce and the HELLO name, PING, STATUS (its STATE, as Patterns answers it) and CONTEXT answered — and
-/// a test can push a STATE.</summary>
+/// a test can push a STATE, have the desk fall silent (it reads every line and answers none), or cut the connection.</summary>
 internal sealed class FakePatternsDesk : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
@@ -373,6 +373,7 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
     private readonly ConcurrentBag<TcpClient> _clients = [];
     private readonly Task _accept;
     private volatile StreamWriter? _current;
+    private volatile TcpClient? _currentClient;
 
     public FakePatternsDesk(string token)
     {
@@ -389,6 +390,9 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
 
     public string State { get; set; } = StateWith(blackout: false);
 
+    /// <summary>The desk reads every line and answers none; a pushed STATE still goes.</summary>
+    public volatile bool Silent;
+
     public static string StateWith(bool blackout) => string.Create(CultureInfo.InvariantCulture,
         $"{{\"blackout\":{(blackout ? "true" : "false")},\"video\":{{\"file\":\"sponsor.mp4\",\"tag\":\"VT\",\"position\":62,\"length\":210,\"playing\":true,\"ended\":false,\"loops\":false,\"positionMs\":62000,\"lengthMs\":210000,\"remainingMs\":148000,\"paused\":false,\"rate\":1,\"seq\":7}}}}");
 
@@ -398,6 +402,9 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
         if (_current is { } w)
             await w.WriteLineAsync("STATE " + state);
     }
+
+    /// <summary>Cuts the connection up now (the link dials again).</summary>
+    public void Cut() => _currentClient?.Client.Close(0);
 
     private async Task AcceptAsync()
     {
@@ -425,6 +432,7 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             using var reader = new StreamReader(stream, new UTF8Encoding(false));
             var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
             _current = writer;
+            _currentClient = client;
             var nonce = Pairing.NewNonce();
             var name = "";
             await writer.WriteLineAsync("STATE " + State);
@@ -432,6 +440,8 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             while (await reader.ReadLineAsync() is { } line)
             {
                 Heard.Enqueue(line);
+                if (Silent)
+                    continue;
                 var (id, rest) = line.StartsWith('@') ? (line[1..line.IndexOf(' ', StringComparison.Ordinal)], line[(line.IndexOf(' ', StringComparison.Ordinal) + 1)..]) : ("", line);
                 var tag = id.Length > 0 ? " @" + id : "";
                 var words = rest.Split(' ');

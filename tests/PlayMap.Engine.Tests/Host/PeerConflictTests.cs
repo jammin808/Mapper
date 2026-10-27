@@ -89,6 +89,27 @@ public sealed class PeerConflictTests
         Assert.True(await Eventually.TrueAsync(() => rig.Network.Stagewatch() is { } link && link.Host.StartsWith("127.0.0.1", StringComparison.Ordinal)), "the Stagewatch was not followed once its mark cleared");
     }
 
+    /// <summary>§2: no new link goes to an id in conflict while the mark stands. A PlayMap two machines say is neither followed for its
+    /// clock (SYNC FOLLOW, and where it would be asked) nor fetched from (MEDIA FETCH), each refused in the mark's own words.</summary>
+    [Fact]
+    public async Task APlayMapInConflictIsNeitherFollowedForItsClockNorFetchedFrom()
+    {
+        await using var rig = await HostRig.StartAsync();
+        using var udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        foreach (var (inst, host) in new[] { ("a41f09c2", "FOH-PC"), ("b7c3d9e1", "FOH-PC2"), ("a41f09c2", "FOH-PC") })
+            await SendAsync(rig, udp, new ShowBusHello("playmap", 1, ShowBusConstants.Proto, "cccc0003", "FOH", host,
+                new Dictionary<string, int> { ["http"] = 9940, ["wire"] = 9941, ["sync"] = 9942 }, ["state"], 1, inst, null).ToJson());
+        Assert.NotNull(rig.Network.Hello!.Peers.Find("cccc0003")!.Conflict);
+        const string Words = "two machines say they are cccc0003: FOH-PC2 at 127.0.0.1 and FOH-PC at 127.0.0.1";
+
+        Assert.Equal("", rig.Network.ClockOf("cccc0003"));
+        var follow = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Network.FollowAsync("g1", "cccc0003", CancellationToken.None));
+        Assert.Equal(Words + " — no new link to it until that clears", follow.Message);
+        var fetch = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Network.FetchAsync([], "cccc0003", CancellationToken.None));
+        Assert.Equal(Words + " — no new link to it until that clears, so nothing is fetched from it", fetch.Message);
+        Assert.Equal("", rig.Network.FollowedClock);
+    }
+
     /// <summary>§6: a context lists at most <c>context.peers</c> peer rows; STATE's peers list every peer the table holds.</summary>
     [Fact]
     public async Task TheContextListsAtMostItsPeerRows()

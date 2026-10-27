@@ -23,7 +23,8 @@ namespace PlayMap.Net.Tests;
 /// a viewing-code refusal), then what the test queues, answering pings with pongs, until the test <see cref="Drop"/>s it;
 /// /api/peers/context records the posted context and answers <see cref="ContextStatus"/> once <see cref="ContextAnswerWhen"/> lets it;
 /// /api/proposals serves the approved list for a target, or <see cref="ApprovalsStatus"/> with its body; /api/proposals/&lt;id&gt;/result
-/// records each answer.</summary>
+/// records each answer and answers the next of <see cref="ResultStatuses"/> (200 once none is left). A test can have each ping answered
+/// with a t1 it never carried, or every /ws upgrade refused.</summary>
 internal sealed class FakeStagewatch : IAsyncDisposable
 {
     private readonly WebApplication _app;
@@ -67,6 +68,16 @@ internal sealed class FakeStagewatch : IAsyncDisposable
 
     public string ApprovalsAnswer { get; set; } = "";
 
+    /// <summary>What each result post is answered, in order; 200 once none is left.</summary>
+    public ConcurrentQueue<int> ResultStatuses { get; } = new();
+
+    /// <summary>Each ping is answered with a t1 a second before the one it carried: a pong for a ping never sent, which the clock's
+    /// admission alone would take as a sample.</summary>
+    public volatile bool ForgedPongs;
+
+    /// <summary>Every /ws upgrade is refused (503): a dial that reaches the server and fails.</summary>
+    public volatile bool RefuseSockets;
+
     /// <summary>The /ws connections asked for so far.</summary>
     public int Sockets => Asked.Count(a => a.StartsWith("ws ", StringComparison.Ordinal));
 
@@ -109,7 +120,8 @@ internal sealed class FakeStagewatch : IAsyncDisposable
         {
             using var r = new StreamReader(c.Request.Body);
             fake.Results.Enqueue(((string)c.Request.RouteValues["id"]!, await r.ReadToEndAsync()));
-            return Microsoft.AspNetCore.Http.Results.Text("{\"ok\":true}", "application/json");
+            var status = fake.ResultStatuses.TryDequeue(out var next) ? next : 200;
+            return Microsoft.AspNetCore.Http.Results.Text(status == 200 ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"not now\"}", "application/json", statusCode: status);
         });
         await app.StartAsync();
         fake.Port = new Uri(app.Urls.First()).Port;
@@ -128,6 +140,11 @@ internal sealed class FakeStagewatch : IAsyncDisposable
     private async Task WsAsync(HttpContext c)
     {
         Asked.Enqueue("ws " + c.Request.Path + c.Request.QueryString.Value + " auth=" + c.Request.Headers.Authorization);
+        if (RefuseSockets)
+        {
+            c.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
         using var ws = await c.WebSockets.AcceptWebSocketAsync();
         // Only a connection still served is dropped: a context is let go when its request ends.
         _open[c] = true;
@@ -171,7 +188,7 @@ internal sealed class FakeStagewatch : IAsyncDisposable
                 using var doc = JsonDocument.Parse(text);
                 if (doc.RootElement.GetProperty("cmd").GetString() == "ping")
                 {
-                    var t = doc.RootElement.GetProperty("t").GetInt64();
+                    var t = doc.RootElement.GetProperty("t").GetInt64() - (ForgedPongs ? 1000 : 0);
                     var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     await _outbox.Writer.WriteAsync($"{{\"type\":\"pong\",\"t\":{t},\"t2\":{now},\"t3\":{now}}}", stop.Token);
                 }
@@ -993,6 +1010,204 @@ public class StagewatchLinkTests
         {
             await sw.DisposeAsync();
         }
+    }
+
+    /// <summary>Show Bus 1.3 §13.10.5: a beat that says the show is not live makes it stuck, and only the next state frame makes it live
+    /// again — a plain beat, one that says live, or a pong never clears it.</summary>
+    [Fact]
+    public async Task OnlyAStateFrameClearsAStuckShowAPlainBeatOrAPongNever()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        await sw.SendAsync(Frame5);
+        Assert.True(await Eventually.TrueAsync(() => link.Reading.Trusted), link.Words);
+        await sw.SendAsync("{\"type\":\"beat\",\"live\":false}");
+        Assert.True(await Eventually.TrueAsync(() => link.Stuck));
+
+        await sw.SendAsync("{\"type\":\"beat\"}");
+        await sw.SendAsync("{\"type\":\"beat\",\"live\":true}");
+        // Two more pings answered after the beats, and time for their pongs to be read: neither beat nor pong cleared it.
+        var pings = Pings(sw);
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= pings + 2), $"{Pings(sw) - pings} pings");
+        await Task.Delay(300);
+        Assert.True(link.Clock.Samples > 0);
+        Assert.True(link.Stuck);
+        Assert.Equal(("?", false), (link.Reading.Text, link.Reading.Trusted));
+
+        await sw.SendAsync(Frame5.Replace("\"seq\":5", "\"seq\":6", StringComparison.Ordinal));
+        Assert.True(await Eventually.TrueAsync(() => !link.Stuck && link.Reading.Trusted));
+    }
+
+    /// <summary>Show Bus 1.3 §13.7.2: the side calls run on a lane of their own, never in the beat's path. A context post Stagewatch holds
+    /// unanswered never holds the pings or the liveness check: they go on every beat while it waits.</summary>
+    [Fact]
+    public async Task ASideCallStagewatchHoldsNeverHoldsTheBeat()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sw.ContextAnswerWhen = held.Task;
+        try
+        {
+            await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+            link.Start();
+            Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty), link.Words);
+            var pings = Pings(sw);
+            // The post waits (up to its own 4 s deadline); a beat every 200 ms goes on beside it.
+            Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= pings + 5, 2_500), $"{Pings(sw) - pings} pings while the post waited");
+            Assert.Single(sw.Contexts);
+            Assert.Equal(LinkStatus.Live, link.Status);
+        }
+        finally
+        {
+            held.TrySetResult();
+        }
+    }
+
+    /// <summary>Show Bus 1.3 §13.12.9: the result of an approved line is owed until Stagewatch takes it — posted once it ran, and again on
+    /// the schedule (3 s, doubling to 30 s, ±20 %, on the link's clock) after an answer that is not one, a 5xx or a 408 (a timeout,
+    /// 13.12.3) — and the line runs once, however often Stagewatch still lists it. A 409 (settled already) counts as taken. A proposal is
+    /// remembered by its desk, id and creation, so one a restarted desk numbers alike is its own.</summary>
+    [Fact]
+    public async Task AResultIsPostedAgainUntilStagewatchTakesItAndTheLineRunsOnce()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        sw.ApprovedJson = "{\"proposals\":[{\"id\":\"p17\",\"target\":{\"t\":\"playmap\",\"id\":\"a1b2c3d4\"},\"line\":\"BLACKOUT ON\",\"state\":\"approved\",\"created\":1761500000000}]}";
+        sw.ResultStatuses.Enqueue(503);
+        sw.ResultStatuses.Enqueue(408);
+        sw.ResultStatuses.Enqueue(409);
+        var endpoint = new FakeEndpoint();
+        var mono = new ManualClock(1_000_000_000);
+        await using var link = new StagewatchLink(Options(sw, approvals: true), endpoint, TestSettings.Wall(), new PinStore(), mono);
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => !sw.Results.IsEmpty), link.Words);
+        await Task.Delay(600);   // several more collects and turns of the lane: the line ran once, and the result waits for its time
+        Assert.Equal((1L, 1, 1, 0L), (link.ApprovalsRun, sw.Results.Count, link.ResultsOwed, link.ResultsDelivered));
+
+        // The first try again is 2.4–3.6 s on: not before. Its 408 is tried again too, 4.8–7.2 s on.
+        mono.AdvanceMs(2_399);
+        await Task.Delay(500);
+        Assert.Single(sw.Results);
+        mono.AdvanceMs(1_202);
+        Assert.True(await Eventually.TrueAsync(() => sw.Results.Count == 2), $"{sw.Results.Count} posts, {link.ResultsOwed} owed");
+        await Task.Delay(300);
+        Assert.Equal((2, 1, 0L), (sw.Results.Count, link.ResultsOwed, link.ResultsDelivered));
+        mono.AdvanceMs(4_799);
+        await Task.Delay(500);
+        Assert.Equal(2, sw.Results.Count);
+        mono.AdvanceMs(2_402);
+        Assert.True(await Eventually.TrueAsync(() => link.ResultsDelivered == 1), $"{sw.Results.Count} posts, {link.ResultsOwed} owed");
+        Assert.Equal(3, sw.Results.Count);
+        Assert.All(sw.Results, r => Assert.Equal(("p17", "{\"ok\":true,\"words\":\"blackout on\"}"), r));
+        Assert.Equal((0, 1L), (link.ResultsOwed, link.ApprovalsRun));
+        Assert.Single(endpoint.Lines);
+
+        // The same id from a desk that started again, made at another time, is another proposal.
+        sw.ApprovedJson = sw.ApprovedJson.Replace("1761500000000", "1761500099000", StringComparison.Ordinal);
+        Assert.True(await Eventually.TrueAsync(() => link.ApprovalsRun == 2 && link.ResultsDelivered == 2), $"{link.ApprovalsRun} run");
+    }
+
+    /// <summary>Show Bus 1.3 §13.10.2: a pong is a clock sample only when it answers one of the last pings; one for a ping never sent is
+    /// counted and gives no sample.</summary>
+    [Fact]
+    public async Task APongIsAClockSampleOnlyWhenItAnswersOneOfTheLastPings()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.ForgedPongs = true;
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.UnmatchedPongs >= 3), link.Words);
+        Assert.Equal(0, link.Clock.Samples);
+        sw.ForgedPongs = false;
+        Assert.True(await Eventually.TrueAsync(() => link.Clock.Samples > 0), link.Words);
+    }
+
+    /// <summary>Show Bus 1.3 §13.15: the backoff starts over only after a connection Stagewatch settled stayed up 10 s on the link's
+    /// clock. One taken and closed at once — a socket that answers and closes — waits longer at each dial; after a stable one, a dial
+    /// that fails anywhere (here its upgrade, refused) counts again from the first wait and doubles the next. Each wait is read as the
+    /// link computes it, so real time decides nothing here.</summary>
+    [Fact]
+    public async Task ARedialWaitsLongerForEachDialThatDidNotStayUpUntilOneStaysTenSeconds()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        sw.CloseAfterVerdict = true;
+        var mono = new ManualClock(1_000_000_000);
+        var waits = new ConcurrentQueue<(int N, TimeSpan Wait)>();
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), mono);
+        link.Redialling += (n, wait) => waits.Enqueue((n, wait));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => waits.Count >= 3, 10_000), $"{waits.Count} redials: {link.Words}");
+        Assert.Equal(new[] { 0, 1, 2 }, waits.Take(3).Select(w => w.N));
+        Assert.All(waits, w => InRedialWait(w.N, w.Wait));
+
+        sw.CloseAfterVerdict = false;
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired && link.Status == LinkStatus.Live, 15_000), link.Words);
+        mono.AdvanceMs(9_999);
+        await Task.Delay(400);
+        Assert.False(link.Stable);
+        mono.AdvanceMs(1);
+        Assert.True(await Eventually.TrueAsync(() => link.Stable), "the settled connection was never marked stable");
+
+        // The stable connection drops, and every dial after it fails at its upgrade: 400–600 ms, then 800–1200, then 1600–2400.
+        var before = waits.Count;
+        sw.RefuseSockets = true;
+        sw.Drop();
+        Assert.True(await Eventually.TrueAsync(() => waits.Count >= before + 3, 15_000), $"{waits.Count - before} redials: {link.Words}");
+        var after = waits.Skip(before).Take(3).ToList();
+        Assert.Equal(new[] { 0, 1, 2 }, after.Select(w => w.N));
+        Assert.All(after, w => InRedialWait(w.N, w.Wait));
+        Assert.False(link.Stable);
+    }
+
+    /// <summary>13.15.1's wait for redial <paramref name="n"/>, ±20 %.</summary>
+    internal static void InRedialWait(int n, TimeSpan wait) =>
+        Assert.InRange(wait.TotalMilliseconds, PeerLink.RedialWait(n, 0), PeerLink.RedialWait(n, 0.9999999));
+
+    /// <summary>Show Bus 1.3 §13.7.2: a side call's fault is its own. A node whose context faults each time it is read still collects
+    /// what its approval desk approved, runs it and posts its result, the link live throughout, and each fault is counted on the
+    /// context's item alone. A line whose command path faults as it runs is said as one that may have run: its result is owed and
+    /// delivered as any other, and the line is never run again.</summary>
+    [Fact]
+    public async Task ASideCallsFaultIsItsOwnAndALineThatFaultsAsItRunsIsSaidAsOneThatMayHaveRun()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.Verdict = VerdictKey;
+        sw.ApprovedJson = "{\"proposals\":[{\"id\":\"p21\",\"target\":{\"t\":\"playmap\",\"id\":\"a1b2c3d4\"},\"line\":\"STATE\",\"state\":\"approved\",\"created\":1761500000000}]}";
+        var endpoint = new FakeEndpoint { ThrowOnContext = true, ThrowOnState = true };
+        await using var link = new StagewatchLink(Options(sw, approvals: true), endpoint, TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.ResultsDelivered == 1),
+            $"{sw.Results.Count} results, {link.SideCallFaults(StagewatchSideCall.Context)} context faults: {link.Words}");
+        Assert.True(await Eventually.TrueAsync(() => link.SideCallFaults(StagewatchSideCall.Context) >= 2), "the context was read once");
+        await Task.Delay(400);   // more turns of the lane: the line is still listed, and never run again
+        var (id, body) = Assert.Single(sw.Results);
+        using var result = JsonDocument.Parse(body);
+        Assert.Equal(("p21", false, StagewatchLink.FaultedAsItRan),
+            (id, result.RootElement.GetProperty("ok").GetBoolean(), result.RootElement.GetProperty("words").GetString()));
+        Assert.Equal((0L, 0L), (link.SideCallFaults(StagewatchSideCall.Approvals), link.SideCallFaults(StagewatchSideCall.Results)));
+        Assert.Empty(sw.Contexts);
+        Assert.Equal((LinkStatus.Live, 0, 1L), (link.Status, link.ResultsOwed, link.Connections));
+    }
+
+    /// <summary>The numbers the link keeps for §13's rows the core does not (PeerLinkVectorsTests names them): each side call's
+    /// deadline (<c>link.sidecall.timeout.ms</c>) and the operator's disconnect hold (<c>peerlink.hold.disconnect.ms</c>).</summary>
+    [Fact]
+    public void TheLinksOwnNumbersAreSection14s()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PlayMap.sln")))
+            dir = dir.Parent;
+        var text = File.ReadAllText(Path.Combine(dir!.FullName, "docs", "SHOWBUS.md"));
+        long Row(string name) => long.Parse(text.Split('\n').Select(l => l.TrimEnd('\r')).Single(l => l.StartsWith(name + " ", StringComparison.Ordinal))[(name.Length + 1)..],
+            System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(Row("link.sidecall.timeout.ms"), (long)StagewatchLink.SideCallWithin.TotalMilliseconds);
+        Assert.Equal(1, Row("link.sidecall.inflight"));
+        Assert.Equal(Row("peerlink.hold.disconnect.ms"), (long)new StagewatchLinkOptions { Host = "h", SelfId = "a1b2c3d4" }.DisconnectHold.TotalMilliseconds);
+        Assert.Equal(Row("peerlink.stable.ms"), (long)new StagewatchLinkOptions { Host = "h", SelfId = "a1b2c3d4" }.StableAfter.TotalMilliseconds);
     }
 
     [Fact]

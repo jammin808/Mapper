@@ -56,12 +56,18 @@ public sealed record StagewatchLinkOptions
 
     public TimeSpan ApprovalsEvery { get; init; } = TimeSpan.FromSeconds(2);
 
-    public TimeSpan StaleAfter { get; init; } = TimeSpan.FromMilliseconds(ShowBusConstants.StaleMs);
+    /// <summary>Live while Stagewatch's silence is within this (<c>link.stale.ms</c>), stale past it.</summary>
+    public TimeSpan StaleAfter { get; init; } = TimeSpan.FromMilliseconds(PeerLink.StaleMs);
 
-    public TimeSpan DropAfter { get; init; } = TimeSpan.FromMilliseconds(ShowBusConstants.GoneMs);
+    /// <summary>Past this silence (<c>link.drop.ms</c>) the connection is dropped and dialled again.</summary>
+    public TimeSpan DropAfter { get; init; } = TimeSpan.FromMilliseconds(PeerLink.DropMs);
 
-    /// <summary>After the operator's "disconnect" the link waits this long before it dials again.</summary>
+    /// <summary>After the operator's "disconnect" the link waits this long before it dials again (<c>peerlink.hold.disconnect.ms</c>).</summary>
     public TimeSpan DisconnectHold { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long a connection stays up once Stagewatch settled its pairing before the redial's backoff starts over
+    /// (<c>peerlink.stable.ms</c>), counted on the link's clock: a connect or a reply alone resets nothing.</summary>
+    public TimeSpan StableAfter { get; init; } = TimeSpan.FromMilliseconds(PeerLink.StableMs);
 
     /// <summary>How long a TLS dial waits, from its socket's connect, for the far end's certificate. A far end that shows none by then
     /// does not speak TLS on that port and is met as one that offers no TLS. It stays well under the 5 s a Stagewatch with no
@@ -94,6 +100,22 @@ public sealed record StagewatchLinkOptions
             SelfName = selfName,
         };
     }
+}
+
+/// <summary>A result owed to Stagewatch for an approved proposal (Show Bus 1.3 §13.12.9): the proposal's id, the result's JSON once its line
+/// ran (null while it runs), since when it is owed (on the link's clock), the tries made and when the next is due.</summary>
+internal sealed record OwedResult(string Id, string? Json, long SinceNs, int Tries, long NextNs);
+
+/// <summary>A Stagewatch link's side calls (Show Bus 1.3 §13.7.2), each an item of its own: a fault of one is counted on it, and never
+/// moves the link's liveness or stops the others.</summary>
+public enum StagewatchSideCall
+{
+    /// <summary>This node's context, posted every five seconds.</summary>
+    Context,
+    /// <summary>The results owed for the approved lines this node ran.</summary>
+    Results,
+    /// <summary>The lines an approval desk approved for this node, collected and run.</summary>
+    Approvals,
 }
 
 /// <summary>PlayMap as a show app on a Stagewatch's <c>/ws</c> (Show Bus §3–§5, §7.1, §10, §11): a node link,
@@ -140,6 +162,14 @@ public sealed class StagewatchLink : IAsyncDisposable
     /// <summary>Stagewatch's words kept in a refusal, at most this many characters.</summary>
     private const int MaxRefusalChars = 240;
 
+    /// <summary>Each side call's own deadline (Show Bus 1.3 §13.7.2, §14 <c>link.sidecall.timeout.ms</c>): the side-call lane runs one call
+    /// at a time (<c>link.sidecall.inflight</c> 1), apart from the beat, so a slow call never holds a ping or the liveness check.</summary>
+    public static readonly TimeSpan SideCallWithin = TimeSpan.FromMilliseconds(4000);
+
+    /// <summary>The most approved proposals the link remembers it ran (each by its desk, id and creation): one still listed is never run
+    /// twice while it is remembered; past this the oldest whose result is not owed is let go.</summary>
+    public const int RanKept = 1024;
+
     private readonly StagewatchLinkOptions _o;
     private readonly IWireEndpoint _endpoint;
     private readonly ShowWallClock _wall;
@@ -147,9 +177,34 @@ public sealed class StagewatchLink : IAsyncDisposable
     private readonly IMonoClock _mono;
     private readonly ILogger _log;
     private readonly CommandRunner _runner;
-    private readonly ClockOffsetEstimator _offset = new(ShowBusConstants.OffsetWindow);
+    private readonly ClockOffsetEstimator _offset = ClockOffsetEstimator.ForShowBus();
     private readonly object _gate = new();
-    private readonly HashSet<string> _ran = new(StringComparer.Ordinal);
+
+    /// <summary>The approved proposals run, by <see cref="RanKey"/>, oldest first (under <see cref="_gate"/>): one still listed is never run
+    /// again while it is here.</summary>
+    private readonly Dictionary<string, long> _ran = new(StringComparer.Ordinal);
+    private readonly Queue<string> _ranOrder = new();
+
+    /// <summary>The results owed to Stagewatch (Show Bus 1.3 §13.12.9), by <see cref="RanKey"/> (under <see cref="_gate"/>): each recorded
+    /// before its line runs, posted once it ran, and posted again on 13.12.9's schedule until Stagewatch takes it or it has been owed
+    /// <c>report.retry.for.ms</c>.</summary>
+    private readonly Dictionary<string, OwedResult> _owed = new(StringComparer.Ordinal);
+
+    /// <summary>The last pings' t1 on the connection up now (under <see cref="_gate"/>): a pong answers one of these or is no sample
+    /// (Show Bus 1.3 §13.10.2).</summary>
+    private readonly List<long> _pings = [];
+
+    private long _unmatched;
+    private long _resultsDelivered;
+
+    /// <summary>The side calls that faulted, by <see cref="StagewatchSideCall"/>.</summary>
+    private readonly long[] _sideCallFaults = new long[Enum.GetValues<StagewatchSideCall>().Length];
+
+    /// <summary>When (on the link's clock) Stagewatch settled the pairing of the connection up now — paired, or nothing asked — or -1.</summary>
+    private long _settledNs = -1;
+
+    /// <summary>The connection up now settled its pairing and stayed up <see cref="StagewatchLinkOptions.StableAfter"/>.</summary>
+    private volatile bool _stable;
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
     private StagewatchTimer? _timer;
@@ -261,6 +316,33 @@ public sealed class StagewatchLink : IAsyncDisposable
 
     public long ApprovalsRun => Interlocked.Read(ref _approvalsRun);
 
+    /// <summary>Pongs that answered none of the last pings (forged, late or another's): no clock sample was taken from them.</summary>
+    public long UnmatchedPongs => Interlocked.Read(ref _unmatched);
+
+    /// <summary>The connection up now settled its pairing and has stayed up long enough that, when it ends, the backoff starts over.</summary>
+    internal bool Stable => _stable;
+
+    /// <summary>Each wait before a redial as the link computes it, before it waits: 13.15.1's n (the dials that failed since the link was
+    /// last stable) and its backoff (a hold standing makes the wait longer). Raised on the link's loop.</summary>
+    internal event Action<int, TimeSpan>? Redialling;
+
+    /// <summary>Results Stagewatch took (or had settled already) for the approved lines this node ran.</summary>
+    public long ResultsDelivered => Interlocked.Read(ref _resultsDelivered);
+
+    /// <summary>Side calls of <paramref name="call"/>'s kind that faulted since start — an exception none of the call's own answers
+    /// names: each was logged and let go, and the lane went on with the next call.</summary>
+    public long SideCallFaults(StagewatchSideCall call) => Interlocked.Read(ref _sideCallFaults[(int)call]);
+
+    /// <summary>Results still owed to Stagewatch: each posted again on Show Bus 1.3 §13.12.9's schedule until it takes it.</summary>
+    public int ResultsOwed
+    {
+        get
+        {
+            lock (_gate)
+                return _owed.Count;
+        }
+    }
+
     public long Connections => Interlocked.Read(ref _connections);
 
     public event Action<LinkStatus>? StatusChanged;
@@ -347,14 +429,16 @@ public sealed class StagewatchLink : IAsyncDisposable
 
     private async Task RunAsync(CancellationToken ct)
     {
-        var attempt = 0;
+        // The dials that failed since the link was last stable (Show Bus 1.3 §13.15.1), from 0. Only a connection on which Stagewatch
+        // settled the pairing (its verdict for the key, or nothing asked of a link with none) and that stayed up for StableAfter starts
+        // it over: a connect, a socket that answers and closes, or a refusal alone resets nothing.
+        var failed = 0;
         while (!ct.IsCancellationRequested)
         {
             SetStatus(LinkStatus.Connecting);
             try
             {
                 await ConnectionAsync(ct);
-                attempt = 0;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -368,17 +452,19 @@ public sealed class StagewatchLink : IAsyncDisposable
                     : PendingFingerprint.Length > 0 || (pairing == PairState.Refused && refusedFor > TimeSpan.Zero) ? _words
                     : "Stagewatch at " + Address + ": " + Brief(ex);
                 _log.LogDebug(ex, "The Stagewatch link to {Address} ended.", Address);
-                attempt++;
             }
             _overTls = false;
             _keyed = false;
             _keyHeld = false;
             _heard = false;
             SetStatus(LinkStatus.Down);
+            if (_stable)
+                failed = 0;
             // A hold was recorded before anything that could throw, so a connection that ends in an exception (a close that races the
             // far end's abort) waits it as a clean end does.
-            if (!await BeforeRedialAsync(attempt, ct))
+            if (!await BeforeRedialAsync(failed, ct))
                 break;
+            failed = Math.Min(failed + 1, 16);
             HoldsSpent();
         }
         SetStatus(LinkStatus.Down);
@@ -389,6 +475,7 @@ public sealed class StagewatchLink : IAsyncDisposable
     private async Task<bool> BeforeRedialAsync(int attempt, CancellationToken ct)
     {
         var backoff = Jitter.Shared.Redial(attempt);
+        Redialling?.Invoke(attempt, backoff);
         var started = Stopwatch.GetTimestamp();
         while (true)
         {
@@ -639,6 +726,10 @@ public sealed class StagewatchLink : IAsyncDisposable
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(outer);
         var ct = linked.Token;
+        // A dial is stable only once this connection settles and stays up: one that fails anywhere — the name, the socket, TLS, the
+        // pin, the upgrade — counts toward the backoff whatever the connection before it was.
+        _stable = false;
+        Interlocked.Exchange(ref _settledNs, -1);
         var address = await DialAddressAsync(ct);
         var local = _o.IsLocal(NetAddress.Normal(address));
         var pinned = _o.PinKey.Length > 0 && TlsFingerprint.IsValid(_pins.Get(_o.PinKey));
@@ -700,6 +791,7 @@ public sealed class StagewatchLink : IAsyncDisposable
             _verdicts++;
             _refusal = "";
             Volatile.Write(ref _pairing, (int)PairState.Unknown);
+            _pings.Clear();
         }
         _heard = false;
         Interlocked.Exchange(ref _lastHeardNs, _mono.NowNs);
@@ -730,12 +822,15 @@ public sealed class StagewatchLink : IAsyncDisposable
         // Every answer is buffered whole before it is read, and bounded as a message is.
         using var http = new HttpClient(handler, disposeHandler: false)
         {
-            Timeout = TimeSpan.FromSeconds(4),
+            Timeout = SideCallWithin,
             BaseAddress = Base(tls, socket: false),
             MaxResponseContentBufferSize = MaxMessageBytes,
         };
         using var send = new SemaphoreSlim(1, 1);
-        var beat = Task.Run(() => BeatAsync(socket, send, http, ct), CancellationToken.None);
+        // The beat (the ping and the liveness check) and the side calls (the context, the approvals, the results owed) run apart: a side
+        // call that waits never holds a ping or the drop (Show Bus 1.3 §13.7.2).
+        var beat = Task.Run(() => BeatAsync(socket, send, ct), CancellationToken.None);
+        var sideCalls = Task.Run(() => SideCallsAsync(http, ct), CancellationToken.None);
         try
         {
             await ReceiveAsync(socket, ct);
@@ -743,15 +838,8 @@ public sealed class StagewatchLink : IAsyncDisposable
         finally
         {
             await linked.CancelAsync();
-            try
-            {
-                await beat;
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or HttpRequestException or IOException)
-            {
-                // The beat ends with the link.
-                _log.LogDebug(ex, "The Stagewatch beat ended with its link.");
-            }
+            await Ended(beat, "beat");
+            await Ended(sideCalls, "side calls");
         }
     }
 
@@ -820,17 +908,13 @@ public sealed class StagewatchLink : IAsyncDisposable
         switch (type)
         {
             case "beat":
-                _stuck = JsonText.Bool(r, "live", true) is false;
+                // A beat that says the show is not live makes it stuck; a plain beat, or a pong, never clears it — only the next state
+                // frame does (Show Bus 1.3 §13.10.5).
+                if (JsonText.Bool(r, "live", true) is false)
+                    _stuck = true;
                 return false;
             case "pong":
-                var t1 = JsonText.Long(r, "t");
-                var t2 = JsonText.Long(r, "t2");
-                var t3 = JsonText.Long(r, "t3");
-                if (t1 > 0 && t2 > 0 && t3 > 0)
-                {
-                    lock (_gate)
-                        _offset.Add(new ClockSample(t1, t2, t3, _wall.UnixMs));
-                }
+                Pong(JsonText.Long(r, "t"), JsonText.Long(r, "t2"), JsonText.Long(r, "t3"));
                 return false;
             case "redirect" or "identify" or "reload" or "disconnect":
                 if (type == "disconnect")
@@ -944,6 +1028,9 @@ public sealed class StagewatchLink : IAsyncDisposable
             _refusal = "";
             Volatile.Write(ref _refusedUntilNs, 0);
             Volatile.Write(ref _pairing, (int)state);
+            // Paired, or nothing asked, settles the connection up now: from then it counts toward the backoff's start over.
+            if (state is PairState.Paired or PairState.NotNeeded)
+                Interlocked.CompareExchange(ref _settledNs, _mono.NowNs, -1);
         }
         if (lifted)
         {
@@ -988,6 +1075,9 @@ public sealed class StagewatchLink : IAsyncDisposable
             changed = !string.Equals(_refusal, refusal, StringComparison.Ordinal) || Volatile.Read(ref _pairing) != (int)PairState.Refused;
             _refusal = refusal;
             Volatile.Write(ref _pairing, (int)PairState.Refused);
+            // A refused connection is not a stable one, however long it stays up as a public viewer.
+            Interlocked.Exchange(ref _settledNs, -1);
+            _stable = false;
         }
         _words = words;
         if (!changed)
@@ -1008,14 +1098,11 @@ public sealed class StagewatchLink : IAsyncDisposable
     /// refusal nor a rate limit holds the key.</summary>
     private bool KeyedCallsOpen() => _keyed && _heard && RefusedFor == TimeSpan.Zero && BusyFor == TimeSpan.Zero;
 
-    /// <summary>Every beat: the ping (clock exchange), the liveness check, the approval queue; every five seconds this
-    /// node's context.</summary>
-    private async Task BeatAsync(ClientWebSocket ws, SemaphoreSlim send, HttpClient http, CancellationToken ct)
+    /// <summary>Every beat: the ping (clock exchange) and the liveness check, nothing else, so no side call ever waits in its path.</summary>
+    private async Task BeatAsync(ClientWebSocket ws, SemaphoreSlim send, CancellationToken ct)
     {
         var lastPing = long.MinValue;
-        var lastContext = long.MinValue;
-        var lastApprovals = long.MinValue;
-        var step = TimeSpan.FromMilliseconds(Math.Clamp(_o.StaleAfter.TotalMilliseconds / 8, 20, 250));
+        var step = Step;
         do
         {
             var silent = TimeSpan.FromTicks((_mono.NowNs - Interlocked.Read(ref _lastHeardNs)) / 100);
@@ -1027,10 +1114,19 @@ public sealed class StagewatchLink : IAsyncDisposable
             }
             if (silent > _o.StaleAfter && Status == LinkStatus.Live)
                 SetStatus(LinkStatus.Stale);
+            if (Interlocked.Read(ref _settledNs) is >= 0 and var settled && _mono.NowNs - settled >= _o.StableAfter.Ticks * 100)
+                _stable = true;
             var now = Stopwatch.GetTimestamp();
             if (Due(ref lastPing, now, _o.BeatEvery))
             {
-                var ping = Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{{\"cmd\":\"ping\",\"t\":{_wall.UnixMs}}}"));
+                var t1 = _wall.UnixMs;
+                lock (_gate)
+                {
+                    _pings.Add(t1);
+                    if (_pings.Count > PeerLink.PingsMatched)
+                        _pings.RemoveAt(0);
+                }
+                var ping = Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{{\"cmd\":\"ping\",\"t\":{t1}}}"));
                 await send.WaitAsync(ct);
                 try
                 {
@@ -1041,16 +1137,96 @@ public sealed class StagewatchLink : IAsyncDisposable
                     send.Release();
                 }
             }
-            // The side calls carry the key, so they run only on a connection that carries it, once its verdict could have been read,
-            // and never while a refusal or a rate limit holds the key. Approved lines run as a paired session's, so they are collected
-            // only once Stagewatch took the key for this node (its verdict, or a keyed 2xx from one that sends none, which the
-            // context post asks for first).
-            if (KeyedCallsOpen() && Due(ref lastContext, now, _o.ContextEvery))
-                await PostContextAsync(http, ct);
-            if (_o.Approvals && KeyedCallsOpen() && Pairing == PairState.Paired && Due(ref lastApprovals, now, _o.ApprovalsEvery))
-                await ApprovalsAsync(http, ct);
         }
         while (await Waits.DelayAsync(step, ct));
+    }
+
+    /// <summary>The step the beat and the side-call lane look again on: an eighth of the stale mark, between 20 and 250 ms.</summary>
+    private TimeSpan Step => TimeSpan.FromMilliseconds(Math.Clamp(_o.StaleAfter.TotalMilliseconds / 8, 20, 250));
+
+    /// <summary>The side-call lane (Show Bus 1.3 §13.7.2): one call at a time, each within <see cref="SideCallWithin"/> — this node's
+    /// context every five seconds, the results owed when each is due, and, when the Stagewatch is an approval desk, the lines approved
+    /// for this node. They carry the key, so they run only on a connection that carries it, once its verdict could have been read, and
+    /// never while a refusal or a rate limit holds the key. Approved lines run as a paired session's, so they are collected only once
+    /// Stagewatch took the key for this node (its verdict, or a keyed 2xx from one that sends none, which the context post asks for
+    /// first). A call's failure is its own: it never moves the link's liveness.</summary>
+    private async Task SideCallsAsync(HttpClient http, CancellationToken ct)
+    {
+        var lastContext = long.MinValue;
+        var lastApprovals = long.MinValue;
+        var said = new bool[_sideCallFaults.Length];
+        var step = Step;
+        do
+        {
+            var now = Stopwatch.GetTimestamp();
+            if (KeyedCallsOpen() && Due(ref lastContext, now, _o.ContextEvery))
+                await SideCallAsync(StagewatchSideCall.Context, () => PostContextAsync(http, ct), said, ct);
+            if (KeyedCallsOpen())
+                await SideCallAsync(StagewatchSideCall.Results, () => PostOwedAsync(http, ct), said, ct);
+            if (_o.Approvals && KeyedCallsOpen() && Pairing == PairState.Paired && Due(ref lastApprovals, now, _o.ApprovalsEvery))
+                await SideCallAsync(StagewatchSideCall.Approvals, () => ApprovalsAsync(http, ct), said, ct);
+        }
+        while (await Waits.DelayAsync(step, ct));
+    }
+
+    /// <summary>One call on the side-call lane. A fault none of the call's own answers names (a reader of this node's that throws, a
+    /// bug) is the call's own (Show Bus 1.3 §13.7.2): counted on its item, logged once a connection (<paramref name="said"/>), and the
+    /// lane goes on with the next call; only the connection's end stops it.</summary>
+    private async Task SideCallAsync(StagewatchSideCall call, Func<Task> run, bool[] said, CancellationToken ct)
+    {
+        try
+        {
+            await run();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Increment(ref _sideCallFaults[(int)call]);
+            if (said[(int)call])
+            {
+                _log.LogDebug(ex, "The Stagewatch link's {Call} side call faulted again.", call);
+                return;
+            }
+            said[(int)call] = true;
+            _log.LogWarning(ex, "The Stagewatch link's {Call} side call faulted: it is counted, and the other side calls go on.", call);
+        }
+    }
+
+    /// <summary>Waits for one of the connection's helpers to end with it. A helper's own fault ends with the connection too: the link
+    /// dials again, never stops for good.</summary>
+    private async Task Ended(Task helper, string what)
+    {
+        try
+        {
+            await helper;
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or HttpRequestException or IOException)
+        {
+            // The connection's helpers end with it.
+            _log.LogDebug(ex, "The Stagewatch {Helper} ended with its link.", what);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "The Stagewatch {Helper} faulted; the link dials again.", what);
+        }
+    }
+
+    /// <summary>A pong: a clock sample only when its t1 is one of the last <see cref="PeerLink.PingsMatched"/> pings this connection
+    /// wrote (Show Bus 1.3 §13.10.2), and only one 13.11.2 admits; any other is counted as unmatched. A pong never clears a stuck show.</summary>
+    private void Pong(long t1, long t2, long t3)
+    {
+        lock (_gate)
+        {
+            if (!_pings.Remove(t1))
+            {
+                Interlocked.Increment(ref _unmatched);
+                return;
+            }
+            _offset.Add(new ClockSample(t1, t2, t3, _wall.UnixMs));
+        }
     }
 
     private static bool Due(ref long last, long now, TimeSpan every)
@@ -1165,8 +1341,10 @@ public sealed class StagewatchLink : IAsyncDisposable
         }
     }
 
-    /// <summary>§11: collect what was approved for this node, run each once through the node's own command path (its
-    /// fences still apply) and answer the result.</summary>
+    /// <summary>§11: collect what was approved for this node and run each once through the node's own command path (its fences still
+    /// apply). Each is remembered by Stagewatch's identity, its id and when it was made (<see cref="RanKey"/>), and its result is recorded
+    /// as owed before its line runs (Show Bus 1.3 §13.12.9), so a proposal still listed is never run twice and a result is never lost to
+    /// a failed post: <see cref="PostOwedAsync"/> posts it, now and again until Stagewatch takes it.</summary>
     private async Task ApprovalsAsync(HttpClient http, CancellationToken ct)
     {
         try
@@ -1179,33 +1357,164 @@ public sealed class StagewatchLink : IAsyncDisposable
                 await RefusedAsync(list, "collect", asked, ct);
                 return;
             }
-            foreach (var (id, target, line) in Proposals(await list.Content.ReadAsStringAsync(ct)))
+            foreach (var (id, target, line, created) in Proposals(await list.Content.ReadAsStringAsync(ct)))
             {
                 if (target.Length > 0 && target != _o.SelfId)
                     continue;
-                lock (_gate)
+                var key = RanKey(id, created);
+                if (!Ran(key, id))
+                    continue;
+                (bool Ok, string Words) ran;
+                try
                 {
-                    if (!_ran.Add(id))
-                        continue;
-                    if (_ran.Count > 1000)
-                        _ran.Clear();
+                    ran = await RunApprovedAsync(id, line, ct);
                 }
-                var (ok, words) = await RunApprovedAsync(id, line, ct);
-                var result = JsonText.Write(w =>
+                catch (Exception ex)
                 {
-                    w.WriteStartObject();
-                    w.WriteBoolean("ok", ok);
-                    w.WriteString("words", words.Length > 256 ? words[..256] : words);
-                    w.WriteEndObject();
-                });
-                using var answer = Request(HttpMethod.Post, "/api/proposals/" + Uri.EscapeDataString(id) + "/result", result);
-                using var _ = await http.SendAsync(answer, ct);
+                    // The line may have run before its path faulted or the connection ended: its result says so, owed as any other.
+                    var ended = ct.IsCancellationRequested;
+                    Owe(key, false, ended ? EndedAsItRan : FaultedAsItRan);
+                    if (ended)
+                        throw;
+                    _log.LogWarning(ex, "An approved line from Stagewatch ({Proposal}) faulted as it ran: its result says it may have run.", id);
+                    continue;
+                }
+                Owe(key, ran.Ok, ran.Words);
             }
+            await PostOwedAsync(http, ct);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException && !ct.IsCancellationRequested)
         {
-            // The queue is asked again in two seconds; nothing ran twice (the ids that ran are kept).
+            // The queue is asked again in two seconds; nothing ran twice (the proposals that ran are remembered) and every result is owed.
             _log.LogDebug(ex, "The approval queue on Stagewatch could not be read this time.");
+        }
+    }
+
+    /// <summary>The result of a line whose command path faulted as it ran: it may have run.</summary>
+    internal const string FaultedAsItRan = "this node's command path faulted as the line ran — it may have run; look at this node's state";
+
+    /// <summary>The result of a line whose connection ended as it ran: it may have run.</summary>
+    internal const string EndedAsItRan = "the link to Stagewatch ended as the line ran — it may have run; look at this node's state";
+
+    /// <summary>The proposal <paramref name="key"/>'s line is done: its result (<paramref name="ok"/>, <paramref name="words"/> cut to
+    /// 256 characters) is owed from now, posted on the lane's next turn.</summary>
+    private void Owe(string key, bool ok, string words)
+    {
+        var result = JsonText.Write(w =>
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", ok);
+            w.WriteString("words", words.Length > 256 ? words[..256] : words);
+            w.WriteEndObject();
+        });
+        lock (_gate)
+        {
+            if (_owed.TryGetValue(key, out var owed))
+                _owed[key] = owed with { Json = result, NextNs = _mono.NowNs };
+        }
+    }
+
+    /// <summary>A proposal as this link remembers it: the Stagewatch it came from (its pin key, or its address), its id and when it was
+    /// made, so a proposal another desk or a restarted one numbers alike is its own.</summary>
+    private string RanKey(string id, long created) =>
+        (_o.PinKey.Length > 0 ? _o.PinKey : "addr:" + Address) + "/" + id + "/" + created.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>Records the proposal <paramref name="key"/> as run and its result as owed — before its line runs — and answers whether it
+    /// is new: false for one remembered, which is never run again. Past <see cref="RanKept"/> the oldest remembered whose result is not
+    /// owed is let go.</summary>
+    private bool Ran(string key, string id)
+    {
+        lock (_gate)
+        {
+            if (_ran.ContainsKey(key))
+                return false;
+            var now = _mono.NowNs;
+            _ran[key] = now;
+            _ranOrder.Enqueue(key);
+            _owed[key] = new OwedResult(id, null, now, 0, long.MaxValue);
+            for (var n = _ranOrder.Count; n > 0 && _ran.Count > RanKept; n--)
+            {
+                var oldest = _ranOrder.Dequeue();
+                if (_owed.ContainsKey(oldest))
+                    _ranOrder.Enqueue(oldest);
+                else
+                    _ran.Remove(oldest);
+            }
+            return true;
+        }
+    }
+
+    /// <summary>Posts each owed result that is due (Show Bus 1.3 §13.12.9): a 2xx, or a 409 (already settled), delivers it; a 404 or
+    /// another refusal of the result itself lets it go, said once; a 401 or 403 refuses the key (its hold stops every keyed call) and a
+    /// 429 waits its Retry-After, the result kept; anything else — no answer within the call's deadline, a 408, a 5xx — tries again from
+    /// <c>report.retry.first.ms</c>, doubling to <c>report.retry.max.ms</c>, ±20 %, until it has been owed <c>report.retry.for.ms</c>.</summary>
+    private async Task PostOwedAsync(HttpClient http, CancellationToken ct)
+    {
+        List<(string Key, OwedResult Owed)> due;
+        var now = _mono.NowNs;
+        lock (_gate)
+        {
+            foreach (var key in _owed.Where(o => !PeerLink.ReportStillOwed((now - o.Value.SinceNs) / Durations.NsPerMs)).Select(o => o.Key).ToList())
+            {
+                // A result whose line is still running past it is let go here too: it may have run, so the proposal stays remembered
+                // and is never run again.
+                _log.LogWarning("Stagewatch at {Address} did not take the result of proposal {Id} in {Minutes} min: it is no longer posted.", Address,
+                    _owed[key].Id, PeerLink.ReportRetryForMs / 60_000);
+                _owed.Remove(key);
+            }
+            due = _owed.Where(o => o.Value.Json is not null && o.Value.NextNs <= now).Select(o => (o.Key, o.Value)).ToList();
+        }
+        foreach (var (key, owed) in due)
+        {
+            if (!KeyedCallsOpen())
+                return;
+            var asked = Asked();
+            int? code;
+            try
+            {
+                using var answer = Request(HttpMethod.Post, "/api/proposals/" + Uri.EscapeDataString(owed.Id) + "/result", owed.Json);
+                using var response = await http.SendAsync(answer, ct);
+                code = (int)response.StatusCode;
+                if (code is 401 or 403 or 429)
+                    await RefusedAsync(response, "result", asked, ct);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException && !ct.IsCancellationRequested)
+            {
+                _log.LogDebug(ex, "Posting a result to Stagewatch failed; it is owed still.");
+                code = null;
+            }
+            Posted(key, owed, code);
+        }
+    }
+
+    /// <summary>What one post of an owed result came to: <paramref name="code"/> its status, null when no answer came.</summary>
+    private void Posted(string key, OwedResult owed, int? code)
+    {
+        lock (_gate)
+        {
+            if (!_owed.ContainsKey(key))
+                return;
+            switch (code)
+            {
+                case >= 200 and < 300 or 409:
+                    _owed.Remove(key);
+                    Interlocked.Increment(ref _resultsDelivered);
+                    return;
+                case 401 or 403 or 429:
+                    // The key's hold or the rate limit stops keyed calls; the result waits for them to open again.
+                    _owed[key] = owed with { NextNs = _mono.NowNs };
+                    return;
+                case >= 400 and < 500 and not 408:
+                    // A 408 is a timeout, read with the 5xx (13.12.3): it is tried again below.
+                    _owed.Remove(key);
+                    _log.LogWarning("Stagewatch at {Address} would not take the result of proposal {Id} (HTTP {Code}): it is no longer posted.", Address,
+                        owed.Id, code.Value);
+                    return;
+                default:
+                    var wait = PeerLink.ReportRetryWait(owed.Tries, Jitter.Shared.Next01());
+                    _owed[key] = owed with { Tries = owed.Tries + 1, NextNs = _mono.NowNs + wait * Durations.NsPerMs };
+                    return;
+            }
         }
     }
 
@@ -1224,10 +1533,11 @@ public sealed class StagewatchLink : IAsyncDisposable
             : (false, reply.Payload ?? "refused");
     }
 
-    /// <summary>A list reply: a bare array or an object with "proposals"; each with its id, target id and line.</summary>
-    private static List<(string Id, string Target, string Line)> Proposals(string json)
+    /// <summary>A list reply: a bare array or an object with "proposals"; each with its id, target id, line and when it was made (0 when
+    /// it says not).</summary>
+    private static List<(string Id, string Target, string Line, long Created)> Proposals(string json)
     {
-        var list = new List<(string, string, string)>();
+        var list = new List<(string, string, string, long)>();
         using var doc = JsonText.TryParse(json, 1024 * 1024);
         if (doc is null)
             return list;
@@ -1243,7 +1553,7 @@ public sealed class StagewatchLink : IAsyncDisposable
             var state = JsonText.Str(e, "state");
             if (id.Length is 0 or > 64 || (state.Length > 0 && state != "approved"))
                 continue;
-            list.Add((id, JsonText.Str(JsonText.Obj(e, "target"), "id"), JsonText.Str(e, "line")));
+            list.Add((id, JsonText.Str(JsonText.Obj(e, "target"), "id"), JsonText.Str(e, "line"), JsonText.Long(e, "created")));
         }
         return list;
     }

@@ -14,7 +14,8 @@ namespace PlayMap.Net.Tests;
 /// <summary>A Patterns desk as the tests play it: STATE then NONCE on connect, HELLO answered OK, AUTH-PROOF checked
 /// against the nonce and the HELLO name, plain AUTH checked against the token, PING answered with its stamps, STATUS answered with its
 /// STATE and CONTEXT answered, VIDEO verbs answered with their id — and a test can push a STATE, fall silent, or cut the connection.
-/// A desk older than proofs (or anything else at its address) sends no NONCE; a test can make the first NONCE any word.</summary>
+/// A desk older than proofs (or anything else at its address) sends no NONCE; a test can make the first NONCE any word, leave one verb
+/// unanswered, answer each PING with a t1 it never sent, or close each connection once it has greeted it.</summary>
 internal sealed class FakePatternsDesk : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
@@ -52,6 +53,16 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
 
     /// <summary>The first NONCE's word on a connection (null: a fresh 32-hex nonce); every later one is fresh.</summary>
     public string? FirstNonce { get; set; }
+
+    /// <summary>A verb the desk reads and never answers (null: every verb is answered).</summary>
+    public string? Unanswered { get; set; }
+
+    /// <summary>Each PING is answered with a t1 a second before the one it carried: a pong for a ping never sent, which the clock's
+    /// admission alone would take as a sample.</summary>
+    public volatile bool ForgedPongs;
+
+    /// <summary>Each connection is closed once the desk has greeted it (its STATE and NONCE): a peer that answers and closes.</summary>
+    public volatile bool CloseOnGreeting;
 
     public static string StateWith(double positionMs, long seq, bool playing, bool blackout) => string.Create(CultureInfo.InvariantCulture,
         $"{{\"blackout\":{(blackout ? "true" : "false")},\"video\":{{\"file\":\"sponsor.mp4\",\"tag\":\"VT\",\"position\":62,\"length\":210,\"playing\":{(playing ? "true" : "false")},\"ended\":false,\"loops\":false,\"positionMs\":{positionMs},\"lengthMs\":210000,\"remainingMs\":148000,\"paused\":false,\"rate\":1,\"seq\":{seq}}}}}");
@@ -107,6 +118,11 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             await writer.WriteLineAsync("STATE " + (Greeting ?? State));
             if (AsksProof)
                 await writer.WriteLineAsync("NONCE " + _nonce);
+            if (CloseOnGreeting)
+            {
+                client.Client.Close(0);
+                return;
+            }
             while (await reader.ReadLineAsync() is { } line)
             {
                 Heard.Enqueue(line);
@@ -115,6 +131,8 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
                 var (id, rest) = line.StartsWith('@') ? (line[1..line.IndexOf(' ', StringComparison.Ordinal)], line[(line.IndexOf(' ', StringComparison.Ordinal) + 1)..]) : ("", line);
                 var tag = id.Length > 0 ? " @" + id : "";
                 var words = rest.Split(' ');
+                if (words[0] == Unanswered)
+                    continue;
                 switch (words[0])
                 {
                     case "HELLO":
@@ -137,7 +155,8 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
                         break;
                     case "PING":
                         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
-                        await writer.WriteLineAsync("OK" + tag + " PONG " + words[1] + " " + now + " " + now);
+                        var t1 = ForgedPongs ? (long.Parse(words[1], CultureInfo.InvariantCulture) - 1000).ToString(CultureInfo.InvariantCulture) : words[1];
+                        await writer.WriteLineAsync("OK" + tag + " PONG " + t1 + " " + now + " " + now);
                         break;
                     case "CONTEXT":
                         await writer.WriteLineAsync("OK" + tag + " {\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"at\":1,\"light\":\"green\",\"headline\":\"Programme: VT1\",\"items\":[],\"links\":[],\"recent\":[],\"commands\":[],\"peers\":[]}");
@@ -558,5 +577,242 @@ public class LinkTests
         first.Start();
         await using var second = new WireServer(TestSettings.Make(), new FakeEndpoint(), TestSettings.Wall(), new WireServerOptions { Port = first.Port });
         Assert.Throws<BindRefusedException>(second.Start);
+    }
+
+    /// <summary>Show Bus 1.3 §13.12: every command carries <c>&lt;prefix&gt;&lt;n&gt;-&lt;inst&gt;</c>, a counter from 1 and the process's inst, and
+    /// ends in one of 13.12.2's outcomes. An answer applies or refuses; a command written that no answer settles within the reply
+    /// timeout — on the link's clock, an answer at the limit still counting — or whose connection ends first is unconfirmed, never
+    /// failed (it may have run), its reply saying so; one never written is not-sent. Nothing is sent again.</summary>
+    [Fact]
+    public async Task ACommandCarriesARunUniqueIdAndOneWrittenWithNoAnswerIsUnconfirmedNeverFailed()
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token) { Unanswered = "VIDEO" };
+        var clock = new ManualClock(1_000_000_000);
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            IdPrefix = "pm",
+            Inst = "a41f09c2",
+            Clock = clock,
+            // Only the reply's deadline is moved here: the peer's silence never drops the link while the clock moves past it.
+            StaleAfter = TimeSpan.FromHours(1),
+            DropAfter = TimeSpan.FromHours(2),
+        }, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Pairing.ToString());
+
+        var status = await link.CommandAsync("STATUS");
+        Assert.Equal(("pm1-a41f09c2", PeerOutcome.Applied, true), (status.Id, status.Outcome, status.Reply.Ok));
+        Assert.Equal(desk.State, status.Reply.Text);
+        var refused = await link.CommandAsync("BOGUS");
+        Assert.Equal(("pm2-a41f09c2", PeerOutcome.Refused, "unknown command", false), (refused.Id, refused.Outcome, refused.Words, refused.Reply.Ok));
+
+        var pause = link.CommandAsync("VIDEO PAUSE");
+        Assert.True(await Eventually.TrueAsync(() => desk.Heard.Contains("@pm3-a41f09c2 VIDEO PAUSE")), string.Join(" | ", desk.Heard));
+        clock.AdvanceMs(30_000);
+        await Task.Delay(400);   // more than one of the beat's steps: an answer at the limit still counts
+        Assert.False(pause.IsCompleted);
+        clock.AdvanceMs(1);
+        var unanswered = await pause.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal((PeerOutcome.Unconfirmed, false), (unanswered.Outcome, unanswered.Reply.Ok));
+        Assert.Equal($"no answer from 127.0.0.1:{desk.Port} in 30 s — it may have run; look at its state", unanswered.Words);
+        Assert.Equal(WireOutcome.UnconfirmedWord + unanswered.Words, unanswered.Reply.Text);
+
+        var play = link.CommandAsync("VIDEO PLAY");
+        Assert.True(await Eventually.TrueAsync(() => desk.Heard.Contains("@pm4-a41f09c2 VIDEO PLAY")), string.Join(" | ", desk.Heard));
+        desk.Cut();
+        var dropped = await play.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(PeerOutcome.Unconfirmed, dropped.Outcome);
+        Assert.Equal($"the link to 127.0.0.1:{desk.Port} dropped before it answered — it may have run; look at its state", dropped.Words);
+
+        var notSent = await link.CommandAsync("@x VIDEO PLAY");
+        Assert.Equal((null, PeerOutcome.NotSent, false), (notSent.Id, notSent.Outcome, notSent.Reply.Ok));
+        // Nothing is sent again: each command reached the desk once, on the connection it was written on.
+        Assert.Single(desk.Heard, l => l.EndsWith(" VIDEO PAUSE", StringComparison.Ordinal));
+        Assert.Single(desk.Heard, l => l.EndsWith(" VIDEO PLAY", StringComparison.Ordinal));
+    }
+
+    /// <summary>Show Bus 1.3 §13.15: a redial waits 13.15.1's wait for the dials that failed since the link was last stable. A desk that
+    /// greets and closes says something on every connection, and still each redial waits longer; only a connection whose pairing
+    /// settled and that stayed up <c>peerlink.stable.ms</c> on the link's clock starts the wait over, and after it each failed dial
+    /// doubles the next again. Each wait is read as the link computes it, so real time decides nothing here.</summary>
+    [Fact]
+    public async Task ARedialWaitsLongerForEachFailedDialUntilASettledConnectionStaysUpTenSeconds()
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token) { CloseOnGreeting = true };
+        var clock = new ManualClock(1_000_000_000);
+        var waits = new ConcurrentQueue<(int N, TimeSpan Wait)>();
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            Clock = clock,
+        }, TestSettings.Wall());
+        link.Redialling += (n, wait) => waits.Enqueue((n, wait));
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => waits.Count >= 3, 10_000), $"{desk.Accepted} dials");
+        // 400–600 ms, then 800–1200, then 1600–2400: each failed dial doubles the next wait.
+        Assert.Equal(new[] { 0, 1, 2 }, waits.Take(3).Select(w => w.N));
+        Assert.All(waits, w => StagewatchLinkTests.InRedialWait(w.N, w.Wait));
+
+        // The desk stays now: the connection pairs, and once it has been up 10 s on the link's clock the next wait starts over.
+        desk.CloseOnGreeting = false;
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired && link.Status == LinkStatus.Live, 15_000), link.Pairing.ToString());
+        Assert.False(link.Stable);
+        clock.AdvanceMs(9_999);
+        await Task.Delay(400);
+        Assert.False(link.Stable);
+        clock.AdvanceMs(1);
+        Assert.True(await Eventually.TrueAsync(() => link.Stable), "the settled connection was never marked stable");
+
+        // The stable connection is cut, and the desk greets and closes again: the first wait is the first, then each doubles.
+        var before = waits.Count;
+        desk.CloseOnGreeting = true;
+        desk.Cut();
+        Assert.True(await Eventually.TrueAsync(() => waits.Count >= before + 3, 15_000), $"{waits.Count - before} redials");
+        var after = waits.Skip(before).Take(3).ToList();
+        Assert.Equal(new[] { 0, 1, 2 }, after.Select(w => w.N));
+        Assert.All(after, w => StagewatchLinkTests.InRedialWait(w.N, w.Wait));
+    }
+
+    /// <summary>A peer that asks no proof settles the pairing of a link that holds no token, which a connection up 10 s then makes stable;
+    /// of a link that holds one it settles nothing — anything at the peer's address could answer so — and no time up makes it stable.</summary>
+    [Theory]
+    [InlineData("", true)]
+    [InlineData(TestSettings.Token, false)]
+    public async Task APeerThatAsksNoProofSettlesOnlyALinkThatHoldsNoToken(string token, bool stable)
+    {
+        await using var desk = new FakePatternsDesk(token) { AsksProof = false };
+        var clock = new ManualClock(1_000_000_000);
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = token,
+            IsLocal = _ => false,
+            Clock = clock,
+            StaleAfter = TimeSpan.FromHours(1),
+            DropAfter = TimeSpan.FromHours(2),
+        }, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.NotNeeded), link.Pairing.ToString());
+        clock.AdvanceMs(10_000);
+        if (stable)
+            Assert.True(await Eventually.TrueAsync(() => link.Stable), "the open peer's connection was never marked stable");
+        else
+        {
+            await Task.Delay(400);   // more than one of the beat's steps
+            Assert.False(link.Stable);
+        }
+        Assert.Equal(1, link.Connections);
+    }
+
+    /// <summary>Show Bus 1.3 §13.12.1: a request id is unique for the process. Links that number with one prefix and inst — made one after
+    /// another, or up side by side — share one counter, so none writes an id another wrote.</summary>
+    [Fact]
+    public async Task LinksWithOnePrefixAndInstNeverWriteOneIdTwice()
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token);
+        WireClient Link() => new(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            IdPrefix = "pm",
+            Inst = "b52c0e19",
+        }, TestSettings.Wall());
+        async Task<string?> StatusAsync(WireClient link)
+        {
+            Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Pairing.ToString());
+            return (await link.CommandAsync("STATUS")).Id;
+        }
+
+        var ids = new List<string?>();
+        await using (var first = Link())
+        {
+            first.Start();
+            ids.Add(await StatusAsync(first));
+        }
+        // Two up side by side (each pairs before the next dials: the desk keeps one nonce at a time).
+        await using var second = Link();
+        second.Start();
+        Assert.True(await Eventually.TrueAsync(() => second.Pairing == PairState.Paired), second.Pairing.ToString());
+        await using var third = Link();
+        third.Start();
+        ids.Add(await StatusAsync(second));
+        ids.Add(await StatusAsync(third));
+        ids.Add(await StatusAsync(second));
+        Assert.Equal(new[] { "pm1-b52c0e19", "pm2-b52c0e19", "pm3-b52c0e19", "pm4-b52c0e19" }, ids);
+        Assert.Equal(4, desk.Heard.Count(l => l.EndsWith(" STATUS", StringComparison.Ordinal)));
+    }
+
+    /// <summary>Show Bus 1.3 §13.12.3: an answer is read by the table, and the reply a reader of OK and ERR takes says the same — a refusal
+    /// an OK carries (a refused command's repeat) is Ok false with the refusal's words; an answer that applied keeps its line.</summary>
+    [Fact]
+    public void AnOkThatCarriesARefusalIsARefusedReply()
+    {
+        var repeat = WireOutcome.Answered("pm9-a41f09c2", "OK @pm9-a41f09c2 {\"ok\":false,\"error\":\"already blacked out\",\"repeat\":true}");
+        Assert.Equal((PeerOutcome.Refused, false), (repeat.Outcome, repeat.Reply.Ok));
+        Assert.Equal(repeat.Words, repeat.Reply.Text);
+        Assert.StartsWith("already blacked out", repeat.Words, StringComparison.Ordinal);
+
+        var applied = WireOutcome.Answered("pm10-a41f09c2", "OK @pm10-a41f09c2 blackout on");
+        Assert.Equal((PeerOutcome.Applied, true, "blackout on"), (applied.Outcome, applied.Reply.Ok, applied.Reply.Text));
+        var refused = WireOutcome.Answered("pm11-a41f09c2", "ERR @pm11-a41f09c2 not blacked out");
+        Assert.Equal((PeerOutcome.Refused, false, "not blacked out"), (refused.Outcome, refused.Reply.Ok, refused.Reply.Text));
+    }
+
+    /// <summary>Show Bus 1.3 §13.10.2: a pong is a clock sample only when it answers one of the last pings — its id and its t1. A desk
+    /// that answers with a t1 never sent gives no sample, and each such pong is counted.</summary>
+    [Fact]
+    public async Task APongIsAClockSampleOnlyWhenItAnswersOneOfTheLastPings()
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token) { ForgedPongs = true };
+        var clock = new ManualClock(1_000_000_000);
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = TestSettings.Token,
+            Clock = clock,
+        }, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.UnmatchedPongs >= 1), link.Pairing.ToString());
+        Assert.Equal(0, link.Clock.Samples);
+
+        desk.ForgedPongs = false;
+        clock.AdvanceMs(2_000);
+        Assert.True(await Eventually.TrueAsync(() => link.Clock.Samples == 1), $"{link.Clock.Samples} samples");
+        Assert.Equal(1, link.UnmatchedPongs);
+    }
+
+    /// <summary>Show Bus 1.3 §13.6.8: §7's proof keys a token as 1.1 desks do, and a token that still holds a character they read apart
+    /// once their dashes and spaces are dropped is never proved: the link says to retype it, and nothing is written for it.</summary>
+    [Theory]
+    [InlineData("K7QM\u00a03XWD-P9RA")]
+    [InlineData("\ufeffK7QM-3XWD-P9RA")]
+    public async Task ATokenADeskReadsApartIsNeverProved(string token)
+    {
+        await using var desk = new FakePatternsDesk(TestSettings.Token);
+        await using var link = new WireClient(new WireClientOptions
+        {
+            Host = "127.0.0.1",
+            Port = desk.Port,
+            ClientName = "PlayMap",
+            Token = token,
+        }, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.TokenUnprovable), link.Pairing.ToString());
+        await Task.Delay(300);
+        Assert.DoesNotContain(desk.Heard, l => l.Contains("AUTH", StringComparison.Ordinal));
+        Assert.Equal(PairState.TokenUnprovable, link.Pairing);
     }
 }
