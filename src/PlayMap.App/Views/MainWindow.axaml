@@ -168,13 +168,15 @@
 
       <views:DrawerHost x:Name="DrawerHost" DataContext="{Binding Drawers}" IsVisible="{Binding IsOpen}" />
 
-      <!-- Toasts: what happened, in plain words; refusals stay longer. -->
+      <!-- Toasts: what happened, in plain words; refusals and unconfirmed commands stay longer. An unconfirmed command (written, never
+           answered: it may have run) is amber with its light and △ warn beside its words, never a refusal. -->
       <ItemsControl ItemsSource="{Binding Session.Toasts}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="16" Width="420">
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="link:Toast">
-            <Border Classes="toast" Classes.refused="{Binding IsRefusal}" Margin="0,6,0,0" Padding="12,8">
+            <Border Classes="toast" Classes.refused="{Binding IsRefusal}" Classes.unconfirmed="{Binding IsUnconfirmed}" Margin="0,6,0,0" Padding="12,8">
               <Grid ColumnDefinitions="*,Auto">
                 <StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding IsUnconfirmed}"><Ellipse Classes="light" Fill="{Binding Light, Converter={StaticResource LightBrush}}" /><ui:StatusMark Light="{Binding Light}" /></StackPanel>
                   <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
                   <TextBlock Classes="faint mono" Text="{Binding Verb}" IsVisible="{Binding HasVerb}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
@@ -202,8 +204,14 @@
           <StackPanel Orientation="Horizontal" Spacing="4"><Ellipse Classes="light" Fill="{Binding NetworkLight, Converter={StaticResource LightBrush}}" /><ui:StatusMark Compact="True" Light="{Binding NetworkLight}" /></StackPanel>
           <TextBlock Classes="faint" Text="{Binding Session.LinkLabel}" VerticalAlignment="Center" />
         </StackPanel>
-        <TextBlock Grid.Column="1" x:Name="StatusLine" Margin="16,0" Classes="dim" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                   Text="{Binding Session.LastToast.Text, FallbackValue=''}" />
+        <!-- The last thing that happened; an unconfirmed command (written, never answered: it may have run) with its light and △ warn
+             beside its words, as its toast draws it, never as a refusal. -->
+        <DockPanel Grid.Column="1" Margin="16,0">
+          <StackPanel x:Name="StatusLineMark" DockPanel.Dock="Left" Orientation="Horizontal" Spacing="4" Margin="0,0,6,0" VerticalAlignment="Center"
+                      IsVisible="{Binding Session.LastToast.IsUnconfirmed, FallbackValue=False}"><Ellipse Classes="light" Fill="{Binding Session.LastToast.Light, Converter={StaticResource LightBrush}}" /><ui:StatusMark Compact="True" Light="{Binding Session.LastToast.Light}" /></StackPanel>
+          <TextBlock x:Name="StatusLine" Classes="dim" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                     Text="{Binding Session.LastToast.Text, FallbackValue=''}" />
+        </DockPanel>
         <TextBlock Grid.Column="2" Classes="faint" Text="F1 shortcuts · right-click anything" VerticalAlignment="Center" />
       </Grid>
     </Border>

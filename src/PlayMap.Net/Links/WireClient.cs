@@ -100,20 +100,20 @@ public enum PairState
 /// <summary>What became of one command sent on a line link (Show Bus 1.3 §13.12.2): its request id (null when none was made), its
 /// outcome by 13.12.3's table, its words, and the reply as the wire's readers take it. Only an answer applies, accepts or refuses; a
 /// command written with no answer within <see cref="WireClientOptions.ReplyTimeout"/>, or whose connection ended first, is unconfirmed —
-/// it may have run — and one never written is not-sent.</summary>
+/// it may have run — and one never written is not-sent. The reply carries the same outcome, so a reader of either never disagrees.</summary>
 public sealed record WireOutcome(string? Id, PeerOutcome Outcome, string Words, WireReply Reply)
 {
     /// <summary>The words an unconfirmed command's reply opens with, so a reader that knows only OK and ERR still reads the outcome.</summary>
-    public const string UnconfirmedWord = "unconfirmed: ";
+    public const string UnconfirmedWord = WireReply.UnconfirmedWord;
 
-    public static WireOutcome NotSent(string? id, string words) => new(id, PeerOutcome.NotSent, words, new WireReply(false, words));
+    public static WireOutcome NotSent(string? id, string words) => new(id, PeerOutcome.NotSent, words, WireReply.NotSent(words));
 
-    public static WireOutcome Unconfirmed(string id, string words) =>
-        new(id, PeerOutcome.Unconfirmed, words, new WireReply(false, UnconfirmedWord + words));
+    public static WireOutcome Unconfirmed(string id, string words) => new(id, PeerOutcome.Unconfirmed, words, WireReply.Unconfirmed(words));
 
-    /// <summary>An answer to the command <paramref name="id"/>, read by 13.12.3's table. Its reply is the line as it came, save that its
-    /// Ok says the outcome: a refusal an <c>OK</c> carries (a refused command's repeat, <c>OK @id {"ok":false,…}</c>) is Ok false with the
-    /// refusal's words, so a reader of the reply and a reader of the outcome never disagree.</summary>
+    /// <summary>An answer to the command <paramref name="id"/>, read by 13.12.3's table. Its reply is the line as it came with the
+    /// outcome read, save that its Ok says the outcome: a refusal an <c>OK</c> carries (a refused command's repeat,
+    /// <c>OK @id {"ok":false,…}</c>) is Ok false with the refusal's words, so a reader of the reply and a reader of the outcome never
+    /// disagree.</summary>
     public static WireOutcome Answered(string id, string line)
     {
         var reply = WireReply.Parse(line);
@@ -121,7 +121,7 @@ public sealed record WireOutcome(string? Id, PeerOutcome Outcome, string Words, 
         var outcome = reading?.Outcome ?? (reply.Ok ? PeerOutcome.Applied : PeerOutcome.Refused);
         var words = reading?.Words ?? reply.Text;
         var ok = outcome is PeerOutcome.Applied or PeerOutcome.Accepted;
-        return new WireOutcome(id, outcome, words, ok == reply.Ok ? reply : new WireReply(ok, words));
+        return new WireOutcome(id, outcome, words, new WireReply(ok, ok == reply.Ok ? reply.Text : words, outcome));
     }
 }
 
@@ -291,9 +291,9 @@ public sealed class WireClient : IAsyncDisposable
     /// <summary>Cuts the connection now (it redials): an operator's "reconnect", a link that moved address.</summary>
     public void Drop() => Abort();
 
-    /// <summary>Sends one line with a request id and returns its reply: the answer as it came, or — for a command never written, or one
-    /// written that no answer settled — Ok false with the words of <see cref="CommandAsync"/>'s outcome (an unconfirmed one's open with
-    /// <see cref="WireOutcome.UnconfirmedWord"/>: it may have run).</summary>
+    /// <summary>Sends one line with a request id and returns its reply, carrying <see cref="CommandAsync"/>'s outcome: the answer as it
+    /// came, or — for a command never written, or one written that no answer settled — Ok false with the outcome's words (an unconfirmed
+    /// one's open with <see cref="WireOutcome.UnconfirmedWord"/>: it may have run, and its reply says unconfirmed, never refused).</summary>
     public async Task<WireReply> SendAsync(string line, CancellationToken ct = default) => (await CommandAsync(line, ct)).Reply;
 
     /// <summary>Sends one line with a request id and returns what became of it (Show Bus 1.3 §13.12.2). A dead link is not-sent at once

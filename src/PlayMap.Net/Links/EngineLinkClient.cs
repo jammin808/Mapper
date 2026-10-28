@@ -39,7 +39,9 @@ public sealed class EngineLinkClient : IEngineLink
             OnConnected = async ct =>
             {
                 var reply = await _wire!.SendAsync("SUBSCRIBE PROJECT", ct);
-                if (!reply.Ok)
+                if (reply.IsUnconfirmed)
+                    _log?.LogWarning("The engine did not answer the project subscription: {Words}", reply.Text);
+                else if (!reply.Ok)
                     _log?.LogWarning("The engine refused the project subscription: {Words}", reply.Text);
             },
         }, wall ?? ShowWallClock.System(), log);
@@ -98,6 +100,8 @@ public sealed class EngineLinkClient : IEngineLink
 
     public void Start() => _wire.Start();
 
+    /// <summary>The line wire's reply with its outcome: a command written that the engine did not answer within the reply wait (30 s), or
+    /// whose connection ended first, is unconfirmed — it may have run — never refused; one never written is not-sent.</summary>
     public Task<WireReply> SendAsync(string line, CancellationToken ct = default) => _wire.SendAsync(line, ct);
 
     private void OnLine(string line)

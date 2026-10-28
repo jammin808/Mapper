@@ -2464,9 +2464,12 @@ Round 2 W1 notes:
     false and toasts it as refused, though its words open "unconfirmed: … it may have run" — an operator may send again a command
     that may have run, which 13.12.7 leaves to a person with the outcome in view. The batch that owns `Endpoints.cs` and the desk's
     toast carries `PeerOutcome` on the reply and draws unconfirmed amber. Within the leave, a reply's Ok now matches the outcome for
-    every answer (a refusal an OK carries is Ok false).
+    every answer (a refusal an OK carries is Ok false). Taken by the round-2 fix batch fix-desk-unconfirmed (owner answer M-PMX,
+    2026-10-27; its entry below): the reply carries the outcome, and the desk's toast and GO guard draw an unconfirmed command amber
+    (△ warn), as one that may have run, never as a refusal.
   - The desk's engine link (a door 13.18 exempts) takes `receipt.final.ms` (30 s) as every line-wire link does; 10 s, as before, is
-    one line in `EngineLinkClient.cs` (`ReplyTimeout`), outside the leave: an ask for its owner if the desk should keep 10 s.
+    one line in `EngineLinkClient.cs` (`ReplyTimeout`), outside the leave: an ask for its owner if the desk should keep 10 s. Answered
+    by the owner (M-PMX, 2026-10-27, fix-desk-unconfirmed's line): the desk's 30 s reply wait stays.
   - The exempt doors' proof (desk↔engine, mirror, anchor follower: PlayMap at both ends) follows 13.6.8 too: a token the desk holds
     with a no-break space or a byte order mark — which both ends' old `Normalise` dropped, so it paired — now proves nothing and the
     link reads `PairState.TokenUnprovable`, logged once ("… holds an invisible character: none is sent — retype it"); a node that
@@ -2806,3 +2809,158 @@ Round 2 W1 notes:
     (PM-6's) failed once in a whole Engine run, at its 10 s wait for the desk to pair again after its second cut (likely the jittered
     redial under the suite's load); it passed in the other whole runs and five of five alone. Red only sometimes is a defect for that
     test's owner (round 3 §5.4), the Patterns link's next batch or wp4-peerlink.
+
+## Integrator notes from the round-2 fix batch (fix-desk-unconfirmed)
+
+- Done: a command the desk sends its engine that the engine never answered — written, and no answer within the desk's 30 s reply wait,
+  or its connection ended first: the line wire's unconfirmed (Show Bus 1.3 §13.12.2) — is said on the desk as one that may have run,
+  amber with △ warn, never as a refusal, and nothing sends it again (owner answer M-PMX, 2026-10-27; PM-6's Open item, marked taken
+  in fix-peerlink-core's entry). Before, `WireReply` carried only Ok and the text, so the desk read it as Ok false and toasted it as
+  refused — "unconfirmed: … it may have run" under a refusal's toast — and an operator could send again a command that may have run,
+  which 13.12.7 leaves to a person with the outcome in view.
+  - The reply (`src/PlayMap.Core/Wire/Endpoints.cs`): `WireReply(bool Ok, string Text, PeerOutcome Outcome)`, the core's
+    `PeerOutcome` (`PlayMap.Core.Bus`). `new WireReply(ok, text)` and `Parse` keep their shape and read applied or refused, as every
+    reply did, so every other caller and every test that builds one is unchanged. Ok and the outcome never disagree: only applied or
+    accepted is Ok, a reply built otherwise throws, and both are get-only, so no copy (`with`) can move one without the other.
+    `WireReply.Unconfirmed(words)` (Ok false, its text opening `UnconfirmedWord`,
+    "unconfirmed: ", which moved here; `WireOutcome.UnconfirmedWord` reads it) and `WireReply.NotSent(words)` make the two a link
+    says; `IsUnconfirmed` reads one; `MayHaveRunWords`, "it may have run; look at its state", is the ending every unconfirmed reason
+    the line wire's client gives has. `IEngineLink.SendAsync` says its reply carries the outcome.
+  - The line wire's client (`src/PlayMap.Net/Links/WireClient.cs`, `WireOutcome` and `SendAsync`'s comment only): each outcome's
+    reply carries it — `NotSent`, `Unconfirmed`, and `Answered`, read by 13.12.3's table (an accepted answer is Ok with `Accepted`, a
+    refusal an OK carries is Ok false with `Refused`) — so `SendAsync`'s reply and `CommandAsync`'s outcome never disagree. No word,
+    wait or rule of the link moved: the reply wait stays `receipt.final.ms`, 30 s, on every line-wire link, the desk's included
+    (M-PMX: the desk's 30 s reply wait stays, which answers PM-6's second Open item).
+  - The desk's engine link (`src/PlayMap.Net/Links/EngineLinkClient.cs`): its replies carry the outcome to the desk; its own reader, the
+    project subscription on connect, logs an unconfirmed `SUBSCRIBE PROJECT` as not answered rather than refused.
+  - The desk (`src/PlayMap.App`):
+    - `DeskSession.SendAsync` (and so `Fire` and every `DeskAction.Send`) toasts an unconfirmed reply as `ToastKind.Unconfirmed`
+      (appended), never `Refused`: "Unconfirmed — no answer from 127.0.0.1:9700 in 30 s — it may have run; look at its state"
+      (`DeskSession.Unconfirmed` and `UnconfirmedReason`: the link's reason without its "unconfirmed: ", `MayHaveRunWords` added when
+      a link's words lack them). The toast (`Views/MainWindow.axaml`) draws the amber border (`Border.toast.unconfirmed`,
+      `Theme/DeskStyles.axaml`) and its light and `StatusMark` (△ warn) beside the words (`Toast.Light`, "amber"; `IsUnconfirmed`);
+      the status strip says the same words with the same light and compact △ beside them (`StatusLineMark`, shown only while the
+      last toast is unconfirmed); it stays as long as a refusal does (twice the window's age). A refusal's toast is as it was. The
+      desk's own "not connected to an engine — nothing was sent" is not-sent.
+    - The drag throttle (`DeskSession`'s `ThrottledSender` send): a drag's line the engine never answered counts as taken, as an
+      applied one does, so the commit at the drag's end never sends that same line again (before, it read as refused and the commit
+      sent it again); its toast says it may have run.
+    - The GO guard (`ViewModels/Ux/GoGuard.cs`, wired in `UxModule.cs`): `Replied(line, WireReply, minGo)` reads the outcome. An
+      unconfirmed GO is neither done nor refused: it opens no window, flashes nothing, and a refusal's words give way to its own,
+      kept per playlist and naming it ("GO unconfirmed on Show — no answer from … in 30 s — it may have run; look at its state"; the
+      playlist's name from STATE, its id when unknown, none for a line naming none). The attention bar's `go-guard` banner (amber,
+      its light and △ warn, as every banner's) says the latest and how many more stand (`UnconfirmedWords`, "… · 1 more GO
+      unconfirmed"); each GO control's tooltip (`DeskAction`) says its own playlist's (`UnconfirmedWordsFor`), or else a line's that
+      named none, which may have been it. Each stands, however long, until the node's STATE shows a GO on its playlist made since it
+      was sent — read before its reply settled (an answer lost after the node pushed) or after — or a later GO of this desk's on that
+      playlist is answered (applied, accepted, or refused by the fence); an answer settles only the playlist its line names (a line
+      naming none only a line's that named none), and another refusal, the window's end or time leaves them, since only an answer or
+      the node's state settles an unconfirmed command (13.12.2). A GO seen in STATE is dated when it was made, the desk's time it was
+      read less its age at the node's push (`agoMs`), so a GO made before the send and read after it is no answer. `DeskSession.Sending`
+      (new, raised as a line is handed to a live link, before anything the node does with it can be pushed) dates a GO's send, read on
+      the desk's clock as it is raised and handed to the guard on the UI thread (`GoGuard.Sending(line, atMs)`). Nothing is sent again.
+    - The demo node (`Link/FakeEngineLink.cs`): `LosesAnswer` (the line runs and its answer is lost) and `LosesLine` (the line never
+      reaches the node) answer as the wire client does, unconfirmed, with its words; its "the link is down — nothing was sent" is
+      not-sent.
+- Every reader:
+  - reached: the toast and the status strip, each with its light and △ (every line the desk sends through `DeskSession.SendAsync`),
+    the drag throttle (`ThrottledSender`, through `DeskSession`'s send), the GO guard's banner and the GO controls' tooltips; the
+    engine link's subscription log line.
+  - read as before, through `Ok` (an unconfirmed reply is not Ok there, and none of them says refused): the quiet readers
+    (`SendQuietAsync`: `BLIND DIFF`, `UNDO LIST`, `PREFLIGHT REPORT`, `CALIBRATION HISTORY`, `VIEW … SHOW`, `VERBS`, `WHOAMI`), which
+    show the link's words plain ("Unconfirmed: …") where they show any and read again on their next turn; `MapViewModel`'s quad keeps
+    its four points as the projector's draft after an unconfirmed quad as after a refused one (the toast says it may have run; the
+    draft sends nothing by itself).
+  - not reached, outside the leave (Open): the line wire's other readers.
+- Tests:
+  - New `tests/PlayMap.Core.Tests/Wire/WireReplyTests.cs`: `AReplyCarriesItsOutcomeAndItsOkNeverDisagreesWithIt` (Parse and the
+    two-word reply read applied or refused; an accepted one is Ok; `Unconfirmed` and `NotSent` say theirs, the unconfirmed text
+    opening "unconfirmed: " and differing from the same words read from ERR; for every outcome Ok is applied or accepted, and a reply
+    built against that throws; Ok and `Outcome` have no setter, and a copy that moves the text keeps both).
+  - `tests/PlayMap.Net.Tests/LinkTests.cs`: new `TheReplyCarriesItsOutcomeToTheDesksEngineLinkAndAnUnansweredCommandIsUnconfirmedNeverRefused`
+    (the desk's `EngineLinkClient` against the fake desk: `STATUS` applied, `BOGUS` refused, a `VIDEO PLAY` read and never answered,
+    its connection cut, unconfirmed — Ok false, never refused, "unconfirmed: the link to … dropped before it answered — it may have
+    run; look at its state" — a line never written not-sent, the `VIDEO PLAY` heard once; and every outcome `WireOutcome` makes, the
+    five of 13.12.2, accepted and a refusal an OK carries among them, is its reply's, with Ok applied or accepted).
+  - `tests/PlayMap.App.Tests/Ux/StatusRuleTests.cs`: new `AnUnconfirmedCommandIsToastedAmberWithItsShapeAndNeverAsARefusal` (a
+    `BLACKOUT ON` the demo node never reads: `ToastKind.Unconfirmed`, not a refusal, light amber, the words above, the status strip
+    the same, its `StatusLineMark` shown with "△" and "warn" in the amber brush; drawn with the `unconfirmed` border and not the
+    `refused` one, its `StatusMark` visible, "△ warn" with "warn" its tooltip, in the amber brush; a refusal after it keeps the
+    `refused` border and no mark, and the strip says its words with no mark; the unconfirmed toast still up at 11.9 s of the
+    session's clock and gone at 12.1 s; the line sent once).
+  - `tests/PlayMap.App.Tests/DeskLogicTests.cs`: new `ADragLineTheEngineNeverAnsweredIsNeverSentAgainByTheCommit` (a drag's `CURSOR`
+    line the demo node never reads, through the session's throttle on a manual clock: toasted unconfirmed; the release posts the same
+    position with the link answering again; the commit sends nothing, the line sent once).
+  - `tests/PlayMap.App.Tests/Ux/GoGuardTests.cs`: new `AnUnconfirmedGoIsNeitherDoneNorRefusedAndIsNeverSentAgain` (with MinGo
+    500 ms: an accepted GO, a fence refusal, then a GO the node never reads — its toast unconfirmed, no second flash, the refusal's
+    words gone, "GO unconfirmed on" the focused playlist's name "— …" in the `go-guard` banner, amber, and on the NEXT and PREV
+    tooltips, the window still the first GO's, closing at 500 ms; the words a minute on, the GO sent once; the next GO answered
+    settles them and opens its window; a GO that ran and whose answer was lost leaves none, its window opened from STATE),
+    `AGoSeenInStateSinceItWasSentAnswersItsUnconfirmedReplyInEitherOrder` (the guard alone: a GO seen in STATE before its unconfirmed
+    reply settled, or after, leaves no words; one seen only before it was sent, or on another playlist, leaves them; one made 30 ms
+    before the send and read 20 ms after it, before the reply or after, leaves them, and one made since settles them; a refusal not
+    the fence's leaves them, the fence's settles them; a line naming no playlist is answered by a GO seen on any) and
+    `EachPlaylistsUnconfirmedGoStandsApartUntilItsOwnPlaylistAnswers` (two playlists' GOs unanswered: the bar says the latest, named,
+    "· 1 more GO unconfirmed", each playlist's controls their own, a third playlist's none; a fence refusal of a GO naming none
+    settles neither; one playlist's answer settles its own only; a GO naming none unanswered stands on the controls of a playlist with
+    none of its own and is settled by a GO seen on any). The three `Replied` calls of
+    `RefusalsFasterThanTwoHertzFlashNoFasterThanTwoHertz` pass a `WireReply`.
+  - Each rule undone alone, the rest kept, made one of these tests fail (each built and run): the unconfirmed `WireOutcome`'s reply
+    built from Ok and words alone (the Net test); the desk toasting an unconfirmed reply as refused (the toast and the GO tests); the
+    guard reading an unconfirmed GO as a plain refusal (both GO tests); a GO seen in STATE never read as since its send (the guard's
+    order test); the toast's light and mark not drawn (the toast test); the throttle reading an unconfirmed line as refused (the
+    drag test); a GO seen in STATE dated when it was read, not made (the guard's order test, at the GO made before the send); an
+    answer settling every playlist's words (the per-playlist test); `Ok` with an init setter (the reply test); the strip's mark not
+    drawn (the toast test, and `EveryLightInEveryTemplateHasItsShapeAndWord`).
+- Files: the leave's (M-PMX for this batch: `src/PlayMap.Core/Wire/Endpoints.cs` and the desk's lines this needs —
+  `src/PlayMap.Net/Links/EngineLinkClient.cs`, `src/PlayMap.App/Link/DeskSession.cs`, `src/PlayMap.App/Link/FakeEngineLink.cs`,
+  `src/PlayMap.App/ViewModels/Ux/GoGuard.cs`, `src/PlayMap.App/ViewModels/Ux/UxModule.cs`, `src/PlayMap.App/ViewModels/DeskAction.cs`,
+  `src/PlayMap.App/Views/MainWindow.axaml`, `src/PlayMap.App/Theme/DeskStyles.axaml`; and `WireOutcome`'s three factories and
+  `SendAsync`'s comment in `src/PlayMap.Net/Links/WireClient.cs`, which make the reply the desk reads), the tests above
+  (`tests/PlayMap.Core.Tests/Wire/WireReplyTests.cs` new; `tests/PlayMap.Net.Tests/LinkTests.cs`,
+  `tests/PlayMap.App.Tests/Ux/StatusRuleTests.cs`, `tests/PlayMap.App.Tests/Ux/GoGuardTests.cs`,
+  `tests/PlayMap.App.Tests/DeskLogicTests.cs`) and this entry. No verb, catalogue
+  row, STATE key, fixture, context item or wire word moves: the outcome is the reading side's, and every line on the wire is as it
+  was.
+- Papers notes for the integrator:
+  - `docs/DESK.md`: a command the desk sends its engine waits 30 s for an answer; one written and not answered in that time, or whose
+    connection ended first, is toasted "Unconfirmed — … — it may have run; look at its state", amber with △ warn, never as a refusal,
+    and nothing sends it again, a drag's commit included; a GO not answered says "GO unconfirmed on <playlist> — …" in the attention
+    bar (the latest, and how many more) and on that playlist's GO controls' tooltips, opens no window and flashes nothing, until the
+    node's STATE shows a GO on its playlist made since it was sent or a later GO on it is answered. PM-6's note "(the desk toasts it as a refusal today (Open))" ends with this batch.
+  - `docs/UX.md` (the status lights): the unconfirmed toast, and the status strip while it is the last, is a light with its shape
+    (△ warn, amber); a refusal's toast keeps its amber border.
+  - `docs/WIRE.md`: nothing on the wire moves; by the grammar's paragraph PM-6 asked for, a reply PlayMap did not get is "unconfirmed:
+    …" (it may have run), and PlayMap's readers carry that outcome, never a refusal.
+- Open:
+  - The line wire's other readers read only Ok, outside the leave: `MirrorLink` (`src/PlayMap.Net/Fleet/MirrorLink.cs`) raises
+    `Refused` with the link's words for an unconfirmed `SUBSCRIBE MIRROR`, and logs "refused the mirror"; `AnchorFollower`
+    (`src/PlayMap.Net/Sync/AnchorFollower.cs`) logs an unconfirmed `SUBSCRIBE ANCHORS` as refused, and its `ReceiptAsync` returns
+    false (read by its leader as silent) for a receipt that may have been delivered; `PatternsLink`'s not-paired reply
+    (`NotPairedWords`, `src/PlayMap.Net/Links/PatternsLink.cs`) is built from Ok alone and so reads refused, though nothing was sent
+    (`WireReply.NotSent` says it). Each is one line for the batch that next owns the file: read `IsUnconfirmed`/`Outcome` beside Ok.
+  - A refusal's and a fault's toast keep their amber border with no shape beside it (as before this batch: only the unconfirmed toast
+    draws a light). Whether every toast carries its light and mark — a refusal △ warn, a fault ✕ red — is the desk package's call
+    with `StatusRuleTests`.
+  - The GO guard settles an unconfirmed GO's words by any GO the node's STATE shows made on its playlist since it was sent, which
+    another client's GO also is: STATE's `lastGo` row names its session, but a desk's session id changes with its connection (the
+    common unconfirmed case is a dropped one), so the desk cannot tell its own GO apart; a receipt's `frame` (13.12.2) or 13.12.6's
+    `RECEIPTS` would, and are wp4-peerlink's. A GO whose words stand and that the operator has looked into is cleared by the next GO
+    on its playlist the node answers; no control clears them by hand (a desk action for that is the desk package's call).
+  - The guard keeps one send time per playlist, the latest: a GO still in flight when a later one on its playlist is sent is dated
+    from the later send, so its words stand longer, never shorter. Dating each request apart needs `DeskSession`'s `Sending` and
+    `Replied` to carry a request of their own, the desk package's call.
+  - After the link was down, the first push's `lastGo` rows are taken as seen (`UxModule.OnLastGo`: that push may be the STATE the
+    node wrote last, so its `at` does not date them), so a GO whose connection dropped — the common unconfirmed case — is not settled
+    by the row its own run left; its words stand until a later GO on that playlist is answered or seen made since. Reading those
+    rows needs a date the node's push does not give, wp4-peerlink's receipts or the desk package's.
+  - The quiet readers above show an unconfirmed reply's words plain where they show a refusal's, with no light; none of them says
+    refused, and each reads again on its next turn.
+  - Seen while validating, not this batch's: the Net suite's three Chromium page tests (`Phone/PageTests.InChromium…`) fail on this
+    machine before any PlayMap code runs, at `tests/e2e/phonescan/page.mjs:12` (`chromium` undefined). The folder has no
+    `node_modules`, so `load.mjs` falls back to the machine's global Playwright (1.63, installed 2026-10-22), whose CommonJS
+    namespace under Node 22.22 lists fourteen named exports beside `default` with `chromium` only on `default`; `load.mjs` unwraps
+    `default` only when it is the namespace's one key. The batch that next owns `tests/e2e/phonescan/load.mjs` takes `default` when the
+    asked export is missing (or `npm ci` there keeps it moot). With the folder's `node_modules/playwright` linked to the global
+    package for one run (and removed after), `PageTests` passed on this batch's tree (5 passed, 1 skipped); the rest of the Net suite
+    passes as it is.

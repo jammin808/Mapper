@@ -1,4 +1,5 @@
 using System.Globalization;
+using Avalonia.Headless.XUnit;
 using PlayMap.App.Infrastructure;
 using PlayMap.App.Link;
 using PlayMap.App.Scene;
@@ -10,7 +11,7 @@ using PlayMap.Core.Numerics;
 namespace PlayMap.App.Tests;
 
 /// <summary>The desk's logic without a window: STATE reads leniently in WIRE.md's shape, lines are written
-/// in the invariant culture, a drag's edits coalesce, the engine supervisor backs off, the pen tool's
+/// in the invariant culture, a drag's edits coalesce (a line that may have run never sent again), the engine supervisor backs off, the pen tool's
 /// gestures make the path they should, and the generic edits refuse what they cannot do with the reason.</summary>
 public class DeskLogicTests
 {
@@ -156,6 +157,30 @@ public class DeskLogicTests
         throttle.Post("other", "SURFACE CORNER sf TR TO 30 30 RASTER");
         await throttle.CommitAsync(Ct);
         Assert.Equal(["SURFACE CORNER sf TR TO 30 30 RASTER", "SURFACE CORNER sf TR TO 31 30 RASTER", "SURFACE CORNER sf TR TO 30 30 RASTER"], sent[4..]);
+    }
+
+    /// <summary>A drag's line the engine never answered (the link's unconfirmed: it may have run) counts as taken: the commit at the
+    /// drag's end, its last position the same line, never sends it again, and the line is said as unconfirmed, never as a refusal.</summary>
+    [AvaloniaFact]
+    public async Task ADragLineTheEngineNeverAnsweredIsNeverSentAgainByTheCommit()
+    {
+        var time = new ManualTime();
+        await using var desk = new DeskHarness(time: time);
+        var line = $"CURSOR {desk.Session.State.Outputs[0].Id} 0.25 0.5";
+        desk.Link.LosesLine = l => l == line;
+        desk.Session.Throttle.Post("cursor", line);
+        time.Advance(TimeSpan.FromMilliseconds(16));
+        await desk.Session.Throttle.Pump;
+        DeskHarness.Pump();
+        Assert.Equal(ToastKind.Unconfirmed, desk.Session.LastToast!.Kind);
+
+        // The link is answering again by the release; the release posts the same position.
+        desk.Link.LosesLine = null;
+        desk.Session.Throttle.Post("cursor", line);
+        await desk.Session.Throttle.CommitAsync(Ct);
+        DeskHarness.Pump();
+        Assert.Single(desk.Link.SentLines, l => l == line);
+        Assert.Equal(ToastKind.Unconfirmed, desk.Session.LastToast!.Kind);
     }
 
     [Fact]

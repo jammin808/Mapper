@@ -13,6 +13,9 @@ public enum ToastKind
     Done,
     Refused,
     Fault,
+    /// <summary>A command written that the engine never answered (Show Bus 1.3 §13.12.2's unconfirmed): it may have run — neither done
+    /// nor refused.</summary>
+    Unconfirmed,
 }
 
 /// <summary>One line on the status strip: what happened, in plain words, and the verb that caused it; <see cref="At"/> is when it
@@ -21,7 +24,13 @@ public sealed record Toast(ToastKind Kind, string Text, string Verb, long Id, lo
 {
     public bool IsRefusal => Kind is ToastKind.Refused or ToastKind.Fault;
 
-    /// <summary>"refused", "fault", "done", "info" — the strip's colour key.</summary>
+    /// <summary>A command that may have run: drawn amber with its △ warn beside its words, never as a refusal.</summary>
+    public bool IsUnconfirmed => Kind == ToastKind.Unconfirmed;
+
+    /// <summary>The light drawn beside the words: amber for an unconfirmed command; none ("") for the others.</summary>
+    public string Light => IsUnconfirmed ? "amber" : "";
+
+    /// <summary>"refused", "fault", "done", "info", "unconfirmed" — the strip's colour key.</summary>
     public string KindWord => Kind.ToString().ToLowerInvariant();
 
     public bool HasVerb => Verb.Length > 0;
@@ -62,7 +71,9 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         _post = post;
         _time = time ?? TimeProvider.System;
         // Drags and fields go through the throttle; a refusal of what it sends is said (once — the same
-        // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said.
+        // refusal repeated by a drag folds into one toast). A step the gate refuses is not sent: its words are said. A line the engine
+        // never answered may have run, so it counts as taken: the drag's commit never sends it again (its toast says to look at the
+        // engine's state).
         Throttle = new ThrottledSender(async (line, ct) =>
         {
             if (GateWords(line) is { } why)
@@ -70,7 +81,8 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
                 _post(() => Notify(ToastKind.Refused, why, line));
                 return false;
             }
-            return (await SendAsync(line, ct)).Ok;
+            var reply = await SendAsync(line, ct);
+            return reply.Ok || reply.IsUnconfirmed;
         }, time: time);
     }
 
@@ -331,12 +343,15 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         StatusUpdated?.Invoke(_status);
     }
 
-    /// <summary>Sends a verb. A refusal (or a dead link) becomes a toast with the reason; the reply comes back
-    /// either way so a caller can read an id (ADD, PLAYLIST NEW) or a payload.</summary>
+    /// <summary>Sends a verb. A refusal (or a dead link) becomes a toast with the reason; a command the engine never answered becomes an
+    /// unconfirmed toast — it may have run; look at its state — never a refusal, and is never sent again; the reply comes back either way
+    /// so a caller can read an id (ADD, PLAYLIST NEW) or a payload.</summary>
     public async Task<WireReply> SendAsync(string line, CancellationToken ct = default)
     {
         var reply = await SendCoreAsync(line, ct);
-        if (!reply.Ok)
+        if (reply.IsUnconfirmed)
+            Notify(ToastKind.Unconfirmed, Unconfirmed(reply.Text), line);
+        else if (!reply.Ok)
             Notify(ToastKind.Refused, Plain(reply.Text), line);
         return reply;
     }
@@ -353,8 +368,9 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
     {
         var link = _link;
         if (link is null || link.Status is not (LinkStatus.Live or LinkStatus.Stale))
-            return new WireReply(false, "not connected to an engine — nothing was sent");
+            return WireReply.NotSent("not connected to an engine — nothing was sent");
         WireReply reply;
+        Sending?.Invoke(line);
         try
         {
             reply = await link.SendAsync(line, ct);
@@ -371,9 +387,14 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         return reply;
     }
 
-    /// <summary>Raised when the node answered a line this session sent (on the thread the reply came back on): what the node accepted
-    /// or refused, for the parts of the desk that show the node's answer (the GO guard).</summary>
+    /// <summary>Raised when a line this session sent to a live link settled (on the thread the reply came back on): what the node
+    /// applied, accepted or refused, or that it never answered (unconfirmed: it may have run), for the parts of the desk that show the
+    /// node's answer (the GO guard).</summary>
     public event Action<string, WireReply>? Replied;
+
+    /// <summary>Raised as a line this session sends is handed to a live link (on the sender's thread), before anything the node does with
+    /// it can be pushed: the GO guard dates a GO's send from it.</summary>
+    public event Action<string>? Sending;
 
     private bool _mapAnything;
 
@@ -421,13 +442,14 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
 
     public void Dismiss(Toast toast) => Toasts.Remove(toast);
 
-    /// <summary>Takes away toasts older than the given age of the session's clock (the window's tick); refusals stay twice as long.</summary>
+    /// <summary>Takes away toasts older than the given age of the session's clock (the window's tick); refusals and unconfirmed
+    /// commands stay twice as long.</summary>
     public void Expire(TimeSpan age)
     {
         for (var i = Toasts.Count - 1; i >= 0; i--)
         {
             var t = Toasts[i];
-            if (_time.GetElapsedTime(t.At) > (t.IsRefusal ? age * 2 : age))
+            if (_time.GetElapsedTime(t.At) > (t.IsRefusal || t.IsUnconfirmed ? age * 2 : age))
                 Toasts.RemoveAt(i);
         }
     }
@@ -444,6 +466,23 @@ public sealed class DeskSession : ObservableObject, IAsyncDisposable
         if (t.Length == 0)
             return "The engine refused that.";
         return char.ToUpperInvariant(t[0]) + t[1..];
+    }
+
+    /// <summary>An unconfirmed command in plain words: "Unconfirmed — " and the link's reason, which always ends that it may have run and
+    /// to look at its state (<see cref="WireReply.MayHaveRunWords"/>) — never a refusal's words.</summary>
+    public static string Unconfirmed(string text) => "Unconfirmed — " + UnconfirmedReason(text);
+
+    /// <summary>Why a command is unconfirmed, without the reply's "unconfirmed: " opening, ending with
+    /// <see cref="WireReply.MayHaveRunWords"/> (added when the link's words lack them).</summary>
+    public static string UnconfirmedReason(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var t = text.Trim();
+        if (t.StartsWith(WireReply.UnconfirmedWord, StringComparison.OrdinalIgnoreCase))
+            t = t[WireReply.UnconfirmedWord.Length..].TrimStart();
+        if (t.Contains(WireReply.MayHaveRunWords, StringComparison.OrdinalIgnoreCase))
+            return t;
+        return t.Length == 0 ? WireReply.MayHaveRunWords : t + " — " + WireReply.MayHaveRunWords;
     }
 
     private void OnStatus(LinkStatus status)

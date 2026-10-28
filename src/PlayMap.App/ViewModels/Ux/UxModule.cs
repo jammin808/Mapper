@@ -46,7 +46,7 @@ public sealed class UxModule : DeskModule
         _session = session;
         _prefs = prefs;
         _ownsDraft = ownsDraft;
-        Guard = new GoGuard(nowMs);
+        Guard = new GoGuard(nowMs, id => session.State.FindPlaylist(id)?.Name);
         session.GoGuard = Guard;
         // A link that went down comes back with the node's STATE as it last wrote it: its first push is read as the first of a link.
         session.StatusUpdated += status =>
@@ -54,7 +54,14 @@ public sealed class UxModule : DeskModule
             if (status is PlayMap.Core.Wire.LinkStatus.Down or PlayMap.Core.Wire.LinkStatus.Connecting)
                 _goFirst = true;
         };
-        session.Replied += (line, reply) => session.OnUi(() => Guard.Replied(line, reply.Ok, reply.Text, MinGoMs(session.State)));
+        // A GO's send is dated as it is handed to the link, so a wait on the UI thread never dates it after the GO the node's STATE
+        // then shows for it.
+        session.Sending += line =>
+        {
+            var at = nowMs();
+            session.OnUi(() => Guard.Sending(line, at));
+        };
+        session.Replied += (line, reply) => session.OnUi(() => Guard.Replied(line, reply, MinGoMs(session.State)));
         Guard.Changed += () => GuardMoved?.Invoke();
         Oops = new OopsPanelViewModel(session);
         // Map anything is greyed with the node's words while the gate refuses a learn (armed: BIND LEARN is setup), and ends when the
@@ -254,11 +261,15 @@ public sealed class UxModule : DeskModule
     /// <summary>The line the gate is asked for Map anything: a learn's class (BIND LEARN is setup; OFF stands for every learn).</summary>
     private const string LearnProbe = "BIND LEARN OFF";
 
-    /// <summary>The GO the node refused, in its words, while the window it hit is open.</summary>
+    /// <summary>The GO the node refused, in its words, while the window it hit is open; or the latest GO it never answered, on which
+    /// playlist and how many more stand (it may have run; look at its state), until each is seen or a later GO on its playlist is
+    /// answered — each amber, never the air's red.</summary>
     public override IEnumerable<Banner> Banners(StateSnapshot state)
     {
         if (Guard.RefusedWords is { } words)
             yield return new Banner("go-guard", "amber", "GO refused — " + words, _noActions, 5);
+        else if (Guard.UnconfirmedWords is { } unconfirmed)
+            yield return new Banner("go-guard", "amber", unconfirmed, _noActions, 5);
     }
 
     public override IEnumerable<Shortcut> Shortcuts() =>

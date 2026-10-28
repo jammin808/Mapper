@@ -222,8 +222,9 @@ public sealed class DeskAction : ObservableObject
     /// <summary>True for the one flash of a GO the node's fence refused (this action's line a GO).</summary>
     public bool IsGoFlash => _session?.GoGuard is { } g && g.IsFlashing(Verb);
 
-    /// <summary>The node's words for the GO it refused while the window that refused it is open, on a GO control; null otherwise.</summary>
-    private string? GoWords => _session?.GoGuard is { RefusedWords: { } w } && Ux.GoGuard.GoPlaylist(Verb) is not null ? w : null;
+    /// <summary>On a GO control: the node's words for the GO it refused while the window that refused it is open, or the words of the
+    /// GO on this control's playlist it never answered (it may have run; look at its state) until that is settled; null otherwise.</summary>
+    private string? GoWords => _session?.GoGuard is { } g && Ux.GoGuard.GoPlaylist(Verb) is { } playlist ? g.RefusedWords ?? g.UnconfirmedWordsFor(playlist) : null;
 
     /// <summary>The menu's words: the label, and the gate's tag while it refuses ("· armed", "· locked", "· mirror", "· fenced",
     /// "· not paired", "· blind draft").</summary>

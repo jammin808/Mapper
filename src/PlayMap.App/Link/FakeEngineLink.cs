@@ -275,11 +275,45 @@ public sealed partial class FakeEngineLink : IEngineLink
         StateChanged?.Invoke(stateRev);
     }
 
-    /// <summary>Sends a line, as the wire client does: carried while the link is live or stale (quiet, still open).</summary>
+    /// <summary>A line the node takes and runs whose answer never reaches the desk: its reply is the wire client's unconfirmed one (it
+    /// may have run). For tests; null answers every line.</summary>
+    public Func<string, bool>? LosesAnswer { get; set; }
+
+    /// <summary>A line written that never reaches the node: nothing runs, and its reply is the wire client's unconfirmed one. For tests;
+    /// null lets every line through.</summary>
+    public Func<string, bool>? LosesLine { get; set; }
+
+    /// <summary>The wire client's words for a command it wrote and the node did not answer within its reply wait.</summary>
+    public const string UnansweredWords = "no answer from the demo node in 30 s — " + WireReply.MayHaveRunWords;
+
+    /// <summary>Sends a line, as the wire client does: carried while the link is live or stale (quiet, still open); one written and
+    /// never answered is unconfirmed, never refused.</summary>
     public Task<WireReply> SendAsync(string line, CancellationToken ct = default)
     {
-        var reply = SendNow(line, ct);
+        Task<WireReply> reply;
+        if (LosesLine?.Invoke(line) == true)
+        {
+            reply = Lost(line, ct);
+        }
+        else
+        {
+            var written = _status is LinkStatus.Live or LinkStatus.Stale;
+            reply = SendNow(line, ct);
+            if (written && LosesAnswer?.Invoke(line) == true)
+                reply = Task.FromResult(WireReply.Unconfirmed(UnansweredWords));
+        }
         return ReplyAfter is { } after ? Later(reply, after(line)) : reply;
+    }
+
+    /// <summary>A line written while the link is up that the node never reads: recorded as sent, nothing acts on it.</summary>
+    private Task<WireReply> Lost(string line, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (_status is not (LinkStatus.Live or LinkStatus.Stale))
+            return Task.FromResult(WireReply.NotSent("the link is down — nothing was sent"));
+        lock (_gate)
+            _sent.Add(line);
+        return Task.FromResult(WireReply.Unconfirmed(UnansweredWords));
     }
 
     private static async Task<WireReply> Later(Task<WireReply> reply, Task after)
@@ -292,7 +326,7 @@ public sealed partial class FakeEngineLink : IEngineLink
     {
         ct.ThrowIfCancellationRequested();
         if (_status is not (LinkStatus.Live or LinkStatus.Stale))
-            return Task.FromResult(new WireReply(false, "the link is down — nothing was sent"));
+            return Task.FromResult(WireReply.NotSent("the link is down — nothing was sent"));
         WireReply reply;
         long stateRev;
         long projectRev = -1;

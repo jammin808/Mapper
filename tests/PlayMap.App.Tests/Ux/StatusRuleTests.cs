@@ -14,7 +14,8 @@ namespace PlayMap.App.Tests.Ux;
 /// the dark room, daylight, and each one's blind grey) — the plan's pairwise 3:1 cannot hold for lights legible on a dark panel; the
 /// dark palette is Theme/Tokens.axaml's; red marks the air and faults, and among the styles only the air's draw it; the status bar
 /// draws a held link (a refused key, its hold running) red, a fault, and a live link not paired amber, as preflight and the context
-/// do; no animation repeats faster than 2 Hz; and the desk's brightness and theme are this desk's, kept in desk.json.</summary>
+/// do; a command the engine never answered is toasted amber with △ warn, never as a refusal; no animation repeats faster than 2 Hz;
+/// and the desk's brightness and theme are this desk's, kept in desk.json.</summary>
 public partial class StatusRuleTests
 {
     private static readonly string AppDir = Path.Combine(FindRoot(), "src", "PlayMap.App");
@@ -165,6 +166,69 @@ public partial class StatusRuleTests
         window.GetVisualDescendants().OfType<Avalonia.Controls.StackPanel>()
             .Single(p => string.Equals(Avalonia.Controls.ToolTip.GetTip(p) as string, tip, StringComparison.Ordinal))
             .Children.OfType<StatusMark>().Single();
+
+    /// <summary>A command the engine never answered (the link's unconfirmed: written, and no answer within the desk's 30 s wait, or its
+    /// connection ended first) may have run: its toast is drawn amber with its light and △ warn beside words that say it may have run and
+    /// to look at the engine's state — never a refusal's border or words — the status strip says the same words with the same light and
+    /// △ beside them, and it stays as long as a refusal does. A refusal keeps its own toast, with no light, and the strip draws none for
+    /// it. Nothing is sent again.</summary>
+    [AvaloniaFact]
+    public async Task AnUnconfirmedCommandIsToastedAmberWithItsShapeAndNeverAsARefusal()
+    {
+        var time = new ManualTime();
+        await using var desk = new DeskHarness(time: time);
+        var window = MainWindowTests.Open(desk);
+        desk.Link.LosesLine = line => line == "BLACKOUT ON";
+        var reply = await desk.Session.SendAsync("BLACKOUT ON", Ct);
+        DeskHarness.Pump();
+        Assert.Equal((false, PlayMap.Core.Bus.PeerOutcome.Unconfirmed), (reply.Ok, reply.Outcome));
+        var toast = desk.Session.LastToast!;
+        Assert.Equal((Link.ToastKind.Unconfirmed, false, true, "amber"), (toast.Kind, toast.IsRefusal, toast.IsUnconfirmed, toast.Light));
+        Assert.Equal("Unconfirmed — no answer from the demo node in 30 s — it may have run; look at its state", toast.Text);
+        Assert.Equal("BLACKOUT ON", toast.Verb);
+        Assert.Equal(toast.Text, MainWindowTests.Find<Avalonia.Controls.TextBlock>(window, "StatusLine").Text);
+        var strip = MainWindowTests.Find<Avalonia.Controls.StackPanel>(window, "StatusLineMark");
+        Assert.True(strip.IsEffectivelyVisible);
+        var stripMark = strip.Children.OfType<StatusMark>().Single();
+        Assert.Equal(("△", "warn"), (stripMark.Text, Avalonia.Controls.ToolTip.GetTip(stripMark) as string));
+        Assert.Same(LightBrushConverter.Brushes.For("amber"), stripMark.Foreground);
+        var drawn = ToastBorder(window, toast);
+        Assert.Contains("unconfirmed", drawn.Classes);
+        Assert.DoesNotContain("refused", drawn.Classes);
+        var mark = drawn.GetVisualDescendants().OfType<StatusMark>().Single();
+        Assert.True(mark.IsEffectivelyVisible);
+        Assert.Equal(("△ warn", "warn"), (mark.Text, Avalonia.Controls.ToolTip.GetTip(mark) as string));
+        Assert.Same(LightBrushConverter.Brushes.For("amber"), mark.Foreground);
+        // The line never reached the node, and nothing sends it again.
+        Assert.Single(desk.Link.SentLines, l => l == "BLACKOUT ON");
+
+        // A refusal keeps its own toast: the refusal's border, no light.
+        var refused = await desk.Session.SendAsync("PLAYLIST GO pl_nope", Ct);
+        DeskHarness.Pump();
+        Assert.Equal((false, PlayMap.Core.Bus.PeerOutcome.Refused), (refused.Ok, refused.Outcome));
+        var refusal = desk.Session.LastToast!;
+        Assert.Equal((Link.ToastKind.Refused, true, false, ""), (refusal.Kind, refusal.IsRefusal, refusal.IsUnconfirmed, refusal.Light));
+        var refusalDrawn = ToastBorder(window, refusal);
+        Assert.Contains("refused", refusalDrawn.Classes);
+        Assert.DoesNotContain("unconfirmed", refusalDrawn.Classes);
+        Assert.False(refusalDrawn.GetVisualDescendants().OfType<StatusMark>().Single().IsEffectivelyVisible);
+        Assert.Equal(refusal.Text, MainWindowTests.Find<Avalonia.Controls.TextBlock>(window, "StatusLine").Text);
+        Assert.False(strip.IsEffectivelyVisible);
+
+        // The unconfirmed toast stays twice the window's age, as a refusal does.
+        time.Advance(TimeSpan.FromSeconds(11.9));
+        desk.Session.Expire(TimeSpan.FromSeconds(6));
+        Assert.Contains(toast, desk.Session.Toasts);
+        time.Advance(TimeSpan.FromSeconds(0.2));
+        desk.Session.Expire(TimeSpan.FromSeconds(6));
+        Assert.DoesNotContain(toast, desk.Session.Toasts);
+        Assert.Single(desk.Link.SentLines, l => l == "BLACKOUT ON");
+        window.Close();
+    }
+
+    /// <summary>The border a toast is drawn in on the window.</summary>
+    private static Avalonia.Controls.Border ToastBorder(Avalonia.Controls.Window window, Link.Toast toast) =>
+        window.GetVisualDescendants().OfType<Avalonia.Controls.Border>().Single(b => ReferenceEquals(b.DataContext, toast) && b.Classes.Contains("toast"));
 
     /// <summary>Every surface token a light is drawn on: the window, a panel, a card, a toast, a chip and a secondary button (raised 2,
     /// the attention bar's banners among them), a selected row and a checked tool (the accent's tint), and the danger tint.</summary>

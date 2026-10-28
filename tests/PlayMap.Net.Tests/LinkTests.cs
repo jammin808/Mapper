@@ -769,6 +769,48 @@ public class LinkTests
         Assert.Equal((PeerOutcome.Refused, false, "not blacked out"), (refused.Outcome, refused.Reply.Ok, refused.Reply.Text));
     }
 
+    /// <summary>The reply carries its command's outcome (Show Bus 1.3 §13.12.2) to the desk's engine link and every reader past it: an
+    /// applied answer and a refusal as they came, a command the engine never answered (its connection ended first) unconfirmed — Ok false,
+    /// never a refusal, its words that it may have run and to look at the engine's state — and one never written not-sent; and every
+    /// outcome the line wire's client makes, an answer 13.12.3's table reads as accepted or a refusal an OK carries among them, is its
+    /// reply's, so a reader of the reply and a reader of the outcome never disagree. Nothing is sent again.</summary>
+    [Fact]
+    public async Task TheReplyCarriesItsOutcomeToTheDesksEngineLinkAndAnUnansweredCommandIsUnconfirmedNeverRefused()
+    {
+        await using var engine = new FakePatternsDesk(TestSettings.Token) { Unanswered = "VIDEO" };
+        await using var link = new EngineLinkClient("127.0.0.1", engine.Port, TestSettings.Token, TestSettings.Wall());
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired && link.Status == LinkStatus.Live), link.Pairing.ToString());
+
+        var status = await link.SendAsync("STATUS");
+        Assert.Equal((true, PeerOutcome.Applied, false), (status.Ok, status.Outcome, status.IsUnconfirmed));
+        var refused = await link.SendAsync("BOGUS");
+        Assert.Equal((false, PeerOutcome.Refused, "unknown command"), (refused.Ok, refused.Outcome, refused.Text));
+
+        var play = link.SendAsync("VIDEO PLAY");
+        Assert.True(await Eventually.TrueAsync(() => engine.Heard.Any(l => l.EndsWith(" VIDEO PLAY", StringComparison.Ordinal))), string.Join(" | ", engine.Heard));
+        engine.Cut();
+        var unanswered = await play.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal((false, PeerOutcome.Unconfirmed, true), (unanswered.Ok, unanswered.Outcome, unanswered.IsUnconfirmed));
+        Assert.Equal($"unconfirmed: the link to 127.0.0.1:{engine.Port} dropped before it answered — {WireReply.MayHaveRunWords}", unanswered.Text);
+
+        var notSent = await link.SendAsync("@d1 VIDEO PLAY");
+        Assert.Equal((false, PeerOutcome.NotSent), (notSent.Ok, notSent.Outcome));
+        Assert.Single(engine.Heard, l => l.EndsWith(" VIDEO PLAY", StringComparison.Ordinal));
+
+        var made = new[]
+        {
+            WireOutcome.Answered("d7-a41f09c2", "OK @d7-a41f09c2 {\"ok\":true,\"stage\":\"accepted\",\"effect\":\"scan queued\"}"),
+            WireOutcome.Answered("d8-a41f09c2", "OK @d8-a41f09c2 {\"ok\":false,\"error\":\"already blacked out\",\"repeat\":true}"),
+            WireOutcome.Answered("d9-a41f09c2", "OK @d9-a41f09c2 blackout on"),
+            WireOutcome.Answered("d10-a41f09c2", "ERR @d10-a41f09c2 not blacked out"),
+            WireOutcome.Unconfirmed("d11-a41f09c2", "no answer from 127.0.0.1:9700 in 30 s — " + WireReply.MayHaveRunWords),
+            WireOutcome.NotSent(null, "the link to 127.0.0.1:9700 is down — nothing is queued"),
+        };
+        Assert.Equal(Enum.GetValues<PeerOutcome>().Order(), made.Select(m => m.Outcome).Distinct().Order());
+        Assert.All(made, m => Assert.Equal((m.Outcome, m.Outcome is PeerOutcome.Applied or PeerOutcome.Accepted), (m.Reply.Outcome, m.Reply.Ok)));
+    }
+
     /// <summary>Show Bus 1.3 §13.10.2: a pong is a clock sample only when it answers one of the last pings — its id and its t1. A desk
     /// that answers with a t1 never sent gives no sample, and each such pong is counted.</summary>
     [Fact]

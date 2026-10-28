@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using PlayMap.App.Link;
+using PlayMap.Core.Wire;
 
 namespace PlayMap.App.Tests.Ux;
 
@@ -100,6 +101,200 @@ public class GoGuardTests
         Assert.True(next.IsGoGuarded);
         Assert.Equal(1, desk.Main.Ux.Guard.Flashes);
         window.Close();
+    }
+
+    /// <summary>A GO the node never answered (the link's unconfirmed: written, and no answer within its wait, or its connection ended
+    /// first) may have run, so it is neither done nor refused: it opens no window and flashes nothing, the last refusal's words give way to
+    /// its own — "GO unconfirmed on" its playlist, why, that it may have run and to look at the node's state — amber in the attention bar
+    /// and on every GO control of its playlist's tooltip, and they stand, however long, until the node's STATE shows a GO on its playlist
+    /// since it was sent or a later GO on it is answered. Nothing is sent again.</summary>
+    [AvaloniaFact]
+    public async Task AnUnconfirmedGoIsNeitherDoneNorRefusedAndIsNeverSentAgain()
+    {
+        await using var desk = Desk();
+        var window = MainWindowTests.Open(desk);
+        Assert.True((await desk.Session.SendAsync("SHOW SET MINGO 500", Ct)).Ok);
+        DeskHarness.Pump();
+        var next = desk.Main.Master.Next;
+        var guard = desk.Main.Ux.Guard;
+        var focused = desk.Session.State.FocusedPlaylist!;
+        var go = "PLAYLIST NEXT " + focused.Id;
+
+        // An accepted GO opens the window; a second inside it is refused by the fence: one flash, its words in the bar.
+        await next.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Advance(desk, 100);
+        await next.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.Equal(1, guard.Flashes);
+        Assert.NotNull(guard.RefusedWords);
+
+        // A third never reaches the node. Not refused: no flash, and the refusal's words give way to its own, amber, naming its playlist.
+        // Not done: the window is still the first GO's.
+        Advance(desk, 250);
+        desk.Link.ClearSent();
+        desk.Link.LosesLine = line => line == go;
+        await next.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.Equal(go, Assert.Single(desk.Verbs()));
+        Assert.Equal(PlayMap.App.Link.ToastKind.Unconfirmed, desk.Session.LastToast!.Kind);
+        Assert.Equal(1, guard.Flashes);
+        Assert.Null(guard.RefusedWords);
+        var words = Assert.IsType<string>(guard.UnconfirmedWords);
+        Assert.Equal($"GO unconfirmed on {focused.Name} — no answer from the demo node in 30 s — it may have run; look at its state", words);
+        var banner = Assert.Single(desk.Main.Banners, b => b.Id == "go-guard");
+        Assert.Equal((words, "amber"), (banner.Words, banner.Light));
+        Assert.Contains(words, next.Tip, StringComparison.Ordinal);
+        Assert.Contains(words, desk.Main.Master.Prev.Tip, StringComparison.Ordinal);
+        Advance(desk, 149);
+        Assert.True(next.IsGoGuarded);
+        Advance(desk, 1);
+        Assert.False(next.IsGoGuarded);
+
+        // Its words stand a minute on, nothing opens and nothing is sent again.
+        Advance(desk, 60_000);
+        Assert.Equal(words, guard.UnconfirmedWords);
+        Assert.False(next.IsGoGuarded);
+        Assert.Equal(1, guard.Flashes);
+        Assert.Equal(go, Assert.Single(desk.Verbs()));
+
+        // The next GO the node answers settles them, and opens its window.
+        desk.Link.LosesLine = null;
+        await next.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.Null(guard.UnconfirmedWords);
+        Assert.True(next.IsGoGuarded);
+        Assert.DoesNotContain(desk.Main.Banners, b => b.Id == "go-guard");
+        Assert.DoesNotContain("GO unconfirmed", next.Tip, StringComparison.Ordinal);
+
+        // One that ran and whose answer was lost: the node's STATE shows the GO on its playlist since it was sent, so no words stand, and
+        // its window opens from the STATE.
+        Advance(desk, 600);
+        Assert.False(next.IsGoGuarded);
+        desk.Link.LosesAnswer = line => line == go;
+        await next.Command.ExecuteAsync();
+        DeskHarness.Pump();
+        Assert.Equal(PlayMap.App.Link.ToastKind.Unconfirmed, desk.Session.LastToast!.Kind);
+        Assert.Null(guard.UnconfirmedWords);
+        Assert.True(next.IsGoGuarded);
+        Assert.Equal(1, guard.Flashes);
+        window.Close();
+    }
+
+    /// <summary>The guard alone, in either order the node's STATE and an unconfirmed reply reach it: a GO on the playlist made since the
+    /// GO was sent — read before its reply settled (a reply lost after the node pushed) or after — leaves no unconfirmed words; one made
+    /// before it was sent, though read after (its age at the node's push reaching back before the send), or on another playlist, leaves
+    /// them; a GO line naming no playlist is answered by a GO made on any since.</summary>
+    [Fact]
+    public void AGoSeenInStateSinceItWasSentAnswersItsUnconfirmedReplyInEitherOrder()
+    {
+        long now = 1000;
+        var guard = new PlayMap.App.ViewModels.Ux.GoGuard(() => now);
+        var lost = WireReply.Unconfirmed("the link to 127.0.0.1:9700 dropped before it answered — " + WireReply.MayHaveRunWords);
+        // Seen before the reply settled.
+        guard.Sending("PLAYLIST NEXT pl_show", now);
+        now += 10;
+        guard.Published("pl_show", 0, 0);
+        now += 30_000;
+        guard.Replied("PLAYLIST NEXT pl_show", lost, 0);
+        Assert.Null(guard.UnconfirmedWords);
+        // Seen after it.
+        now += 1000;
+        guard.Sending("PLAYLIST NEXT pl_show", now);
+        guard.Replied("PLAYLIST NEXT pl_show", lost, 0);
+        Assert.Equal("GO unconfirmed on pl_show — the link to 127.0.0.1:9700 dropped before it answered — it may have run; look at its state", guard.UnconfirmedWords);
+        guard.Published("pl_other", 0, 0);
+        Assert.NotNull(guard.UnconfirmedWords);
+        guard.Published("pl_show", 0, 0);
+        Assert.Null(guard.UnconfirmedWords);
+        // Seen only before it was sent: the words stand.
+        now += 1000;
+        guard.Sending("PLAYLIST NEXT pl_show", now);
+        guard.Replied("PLAYLIST NEXT pl_show", lost, 0);
+        Assert.NotNull(guard.UnconfirmedWords);
+        // A GO made before the send and read after it — its age at the node's push reaching back before the send — is no answer, read
+        // before the reply or after it; one made since is.
+        now += 1000;
+        var sent = now;
+        guard.Sending("PLAYLIST NEXT pl_show", sent);
+        now = sent + 20;
+        guard.Published("pl_show", 50, 0);
+        guard.Replied("PLAYLIST NEXT pl_show", lost, 0);
+        Assert.NotNull(guard.UnconfirmedWords);
+        now = sent + 40;
+        guard.Published("pl_show", 60, 0);
+        Assert.NotNull(guard.UnconfirmedWords);
+        guard.Published("pl_show", 30, 0);
+        Assert.Null(guard.UnconfirmedWords);
+        // A refusal that is not the fence's leaves them; the fence's, or an answer, settles them.
+        now += 1000;
+        guard.Sending("PLAYLIST NEXT pl_show", now);
+        guard.Replied("PLAYLIST NEXT pl_show", lost, 0);
+        Assert.NotNull(guard.UnconfirmedWords);
+        guard.Replied("PLAYLIST NEXT pl_show", new WireReply(false, "ERR not paired"), 0);
+        Assert.NotNull(guard.UnconfirmedWords);
+        guard.Replied("PLAYLIST NEXT pl_show", new WireReply(false, "ERR double GO protection: 0.10 s since the last GO on Show"), 500);
+        Assert.Null(guard.UnconfirmedWords);
+        Assert.NotNull(guard.RefusedWords);
+        // The focused playlist's GO (no playlist named) is answered by a GO seen on any playlist since.
+        now += 1000;
+        guard.Sending("PLAYLIST NEXT", now);
+        guard.Replied("PLAYLIST NEXT", lost, 0);
+        Assert.Null(guard.RefusedWords);
+        Assert.Equal("GO unconfirmed — the link to 127.0.0.1:9700 dropped before it answered — it may have run; look at its state", guard.UnconfirmedWords);
+        now += 10;
+        guard.Published("pl_other", 0, 0);
+        Assert.Null(guard.UnconfirmedWords);
+        Assert.Equal(1, guard.Flashes);
+    }
+
+    /// <summary>Each playlist's unconfirmed GO stands apart, named by its playlist: the attention bar says the latest and how many more
+    /// stand, each playlist's GO controls say their own (or a line's that named none, which may have been theirs); an answer settles only
+    /// the playlist its line names — a line naming none only a line's that named none — and a GO seen in STATE its own playlist's and a
+    /// line's that named none.</summary>
+    [Fact]
+    public void EachPlaylistsUnconfirmedGoStandsApartUntilItsOwnPlaylistAnswers()
+    {
+        long now = 1000;
+        var names = new Dictionary<string, string>(StringComparer.Ordinal) { ["pl_show"] = "Show", ["pl_walk"] = "Walk-in" };
+        var guard = new PlayMap.App.ViewModels.Ux.GoGuard(() => now, id => names.GetValueOrDefault(id));
+        var lost = WireReply.Unconfirmed("no answer from 127.0.0.1:9700 in 30 s — " + WireReply.MayHaveRunWords);
+        const string Why = " — no answer from 127.0.0.1:9700 in 30 s — it may have run; look at its state";
+        guard.Sending("PLAYLIST NEXT pl_show", now);
+        guard.Sending("PLAYLIST GO pl_walk it_2", now + 5);
+        now += 30_000;
+        guard.Replied("PLAYLIST NEXT pl_show", lost, 0);
+        guard.Replied("PLAYLIST GO pl_walk it_2", lost, 0);
+        Assert.Equal("GO unconfirmed on Walk-in" + Why + " · 1 more GO unconfirmed", guard.UnconfirmedWords);
+        Assert.Equal("GO unconfirmed on Show" + Why, guard.UnconfirmedWordsFor("pl_show"));
+        Assert.Equal("GO unconfirmed on Walk-in" + Why, guard.UnconfirmedWordsFor("pl_walk"));
+        Assert.Null(guard.UnconfirmedWordsFor("pl_other"));
+        Assert.Equal(guard.UnconfirmedWords, guard.UnconfirmedWordsFor(""));
+
+        // A fence refusal of a GO naming no playlist settles neither playlist's words.
+        guard.Replied("PLAYLIST NEXT", new WireReply(false, "ERR double GO protection: 0.10 s since the last GO on Show"), 500);
+        Assert.Equal("GO unconfirmed on Show" + Why, guard.UnconfirmedWordsFor("pl_show"));
+        Assert.Equal("GO unconfirmed on Walk-in" + Why, guard.UnconfirmedWordsFor("pl_walk"));
+
+        // Walk-in's answer settles Walk-in's words only.
+        guard.Replied("PLAYLIST GO pl_walk it_3", new WireReply(true, ""), 0);
+        Assert.Null(guard.UnconfirmedWordsFor("pl_walk"));
+        Assert.Equal("GO unconfirmed on Show" + Why, guard.UnconfirmedWords);
+
+        // A GO naming no playlist, unanswered: its words stand on the controls of a playlist with none of its own, and Show's on Show's.
+        guard.Sending("PLAYLIST NEXT", now);
+        guard.Replied("PLAYLIST NEXT", lost, 0);
+        Assert.Equal("GO unconfirmed" + Why + " · 1 more GO unconfirmed", guard.UnconfirmedWords);
+        Assert.Equal("GO unconfirmed on Show" + Why, guard.UnconfirmedWordsFor("pl_show"));
+        Assert.Equal("GO unconfirmed" + Why, guard.UnconfirmedWordsFor("pl_walk"));
+
+        // Walk-in's answer leaves the line's that named none; a GO seen in STATE on Show since both were sent settles Show's and it.
+        guard.Replied("PLAYLIST GO pl_walk it_4", new WireReply(true, ""), 0);
+        Assert.Equal("GO unconfirmed" + Why, guard.UnconfirmedWordsFor("pl_walk"));
+        now += 10;
+        guard.Published("pl_show", 0, 0);
+        Assert.Null(guard.UnconfirmedWords);
+        Assert.Null(guard.UnconfirmedWordsFor("pl_walk"));
     }
 
     /// <summary>STATE.show.lastGo as the node writes it: one playlist's last GO, from the session named.</summary>
@@ -337,15 +532,15 @@ public class GoGuardTests
         {
             now = at;
             guard.Tick();
-            guard.Replied("PLAYLIST NEXT pl_show", ok: false, "ERR double GO protection: 0.10 s since the last GO on Show", 1000);
+            guard.Replied("PLAYLIST NEXT pl_show", new WireReply(false, "ERR double GO protection: 0.10 s since the last GO on Show"), 1000);
         }
         Assert.Equal(2, guard.Flashes);
         Assert.Equal([0L, 680L], starts);
         Assert.All(starts.Zip(starts.Skip(1)), p => Assert.True(p.Second - p.First >= PlayMap.App.Infrastructure.StatusShapes.MinAlarmPeriodMs));
         // A refusal that is no GO, or no fence refusal, never flashes.
         now = 2000;
-        guard.Replied("BLACKOUT ON", ok: false, "ERR double GO protection", 1000);
-        guard.Replied("PLAYLIST NEXT pl_show", ok: false, "ERR no such playlist", 1000);
+        guard.Replied("BLACKOUT ON", new WireReply(false, "ERR double GO protection"), 1000);
+        guard.Replied("PLAYLIST NEXT pl_show", new WireReply(false, "ERR no such playlist"), 1000);
         Assert.Equal(2, guard.Flashes);
     }
 
