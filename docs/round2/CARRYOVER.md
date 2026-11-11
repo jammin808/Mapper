@@ -3088,7 +3088,7 @@ Round 2 W1 notes:
     name never named. A playlist played again inside itself was not run this time (the walk does not end); following an idle
     playlist's item moves nothing, since an idle lane holds no source, so that check is the render's own rule said twice.
 - Files: the leave's — `src/PlayMap.Engine/ContextBuilder.cs` through the spine lane, `tests/PlayMap.Engine.Tests/ContextLinkTests.cs`
-  and this entry — and two files outside it, an ask open for the owner before this merges (the commit says so; nothing is pushed):
+  and this entry — and two files outside it, asked of the owner before the push; the owner extended the leave to both on 2026-11-11:
   - `src/PlayMap.Engine/Seams.cs` (a spine file, through the same lane): `LinkView` gains the init-only `PeerId`, "" by default; its
     positional shape and every caller are unchanged, as `PeerView.Conflict` was added by fix-showbus-1.3. Six lines in, two out.
   - `src/PlayMap.Engine/Host/NetworkHost.cs` (no round-3 package's and no spine file; in the leave of six batches before this
@@ -3131,7 +3131,8 @@ Round 2 W1 notes:
     wp4-peerlink's), the desk, the Companion module, preflight's `LinksCheck` and the assistant's `StateExplainer` (none reads the
     context's links; the assistant reads the context whole through MCP).
 - Open:
-  - The ask above (`Seams.cs`' property; `NetworkHost.cs`' `HeardId` and its two call sites).
+  - The ask above (`Seams.cs`' property; `NetworkHost.cs`' `HeardId` and its two call sites) is answered: the owner extended the
+    leave to both on 2026-11-11.
   - The id is a hello's alone. A link to a typed address no hello is heard from — another subnet, or one machine with no network,
     where §2 has no hello — names no node, so on a one-laptop rig neither row appears. The desk's `CONTEXT` answer names its id too
     (`PatternsLink.ContextJson`'s `node.id`, read only once paired); taking it costs a parse of the desk's context at every read or a
