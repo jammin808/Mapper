@@ -356,9 +356,26 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
             detail = v.RemainingMs is { } left ? $"{Label(v)} {ClipTransport.Format((long)(left * 1e6))}" : Label(v);
         else
             detail = live ? "no clip on air" : "";
-        return new LinkView(StatusWord(link.Status), link.Address, link.Paired, detail);
+        return new LinkView(StatusWord(link.Status), link.Address, link.Paired, detail) { PeerId = HeardId(ShowBusConstants.KindPatterns, link.Address) };
 
         static string Label(PatternsVideo v) => v.Tag.Length > 0 ? v.Tag : v.File;
+    }
+
+    /// <summary>The Show Bus id the hello table gives the far end of a link, whose address is its host, a colon and its port: that of
+    /// the one peer of the kind, still heard, whose hello came from that address — or, where the link's host is a name, says that
+    /// host name — and names that port among its doors, or names no door; "" when no hello fits or more than one does. A hello
+    /// proves nothing: the id is the far end's claim until a link proves it.</summary>
+    private string HeardId(string kind, string address)
+    {
+        var colon = address.LastIndexOf(':');
+        if (_hello is not { } hello || colon <= 0 || !int.TryParse(address.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out var port))
+            return "";
+        var host = address[..colon];
+        var named = !IPAddress.TryParse(host, out var at);
+        var fits = hello.Peers.Snapshot().Where(p => p.Kind == kind && p.Liveness != PeerLiveness.Gone
+            && (named ? string.Equals(p.Hello.Host, host, StringComparison.OrdinalIgnoreCase) : IPAddress.TryParse(p.Address, out var from) && from.Equals(at))
+            && (p.Hello.Ports.Count == 0 || p.Hello.Ports.Values.Contains(port))).Take(2).ToList();
+        return fits.Count == 1 ? fits[0].Id : "";
     }
 
     /// <summary>The words for the desk's blackout this node holds, or null when it holds none: a blackout taken from a live, paired link
@@ -450,7 +467,7 @@ public sealed class NetworkHost : INetworkView, INetworkControl, INodeFaults, IM
         // Paired is Stagewatch's answer for the key on the connection up now (no key set asks none once the first message is read); a
         // link that holds its key back (no TLS off this machine) reads the timer and is not paired.
         var paired = status == LinkStatus.Live && !link.KeyHeldBack && pairing is PairState.Paired or PairState.NotNeeded;
-        return new LinkView(held ? "held" : StatusWord(status), link.Address, paired, detail);
+        return new LinkView(held ? "held" : StatusWord(status), link.Address, paired, detail) { PeerId = HeardId(ShowBusConstants.KindStagewatch, link.Address) };
     }
 
     public string? StagewatchTimerJson() => _stagewatch is { } link ? link.Reading.ToStateJson() : null;

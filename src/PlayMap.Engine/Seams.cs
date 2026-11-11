@@ -101,8 +101,12 @@ public sealed record PeerView(string Kind, string Id, string Name, string Light,
 
 /// <summary>A link to Patterns or Stagewatch as STATE shows it: <c>State</c> live, stale, connecting or down, or held (the far end
 /// refused this node's key, its hold runs and no connection is up); <c>Paired</c> when the far end took this node's proof on the
-/// connection up now, or asks none; <c>Detail</c> the link's words, the far end's own while its refusal stands.</summary>
-public sealed record LinkView(string State, string Host, bool Paired, string Detail);
+/// connection up now, or asks none; <c>Detail</c> the link's words, the far end's own while its refusal stands; <c>PeerId</c> the far
+/// end's Show Bus id as a hello gave it, "" while none has: a claim no proof stands behind, which the context words so.</summary>
+public sealed record LinkView(string State, string Host, bool Paired, string Detail)
+{
+    public string PeerId { get; init; } = "";
+}
 
 /// <summary>The clock sync as STATE shows it.</summary>
 public sealed record SyncView(string Role, string? Leader, double OffsetMs, double RttMs, double DriftPpm);

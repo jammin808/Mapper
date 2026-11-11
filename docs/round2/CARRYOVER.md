@@ -2964,3 +2964,213 @@ Round 2 W1 notes:
     asked export is missing (or `npm ci` there keeps it moot). With the folder's `node_modules/playwright` linked to the global
     package for one run (and removed after), `PageTests` passed on this batch's tree (5 passed, 1 skipped); the rest of the Net suite
     passes as it is.
+
+## Integrator notes from the round-2 fix batch (fix-context-peer-rows)
+
+- Done: the context names the nodes this node's links reach and the timer it draws, as Show Bus 1.3 §6's P2 and P3 say them, and
+  says which playlist is on which output (G24's PlayMap half; owner answer M-eye-spine; the train's PM-11, the Eye design's PM-EYE.1
+  less what the plan took out). It is the spine lane's amendment "Spine: the context names its peers and the timer it draws" (round 3
+  §5.7): `ContextBuilder.cs` is a spine file. Before it, `link:patterns` had one row, to `air`; `link:stagewatch` had none; an output
+  that drew a `timer:` source named no Stagewatch thing; and no row said what a playlist was on. An Eye therefore drew PlayMap's card
+  with no edge to the desk it follows or to the Stagewatch whose timer it puts on the wall.
+  - P2, one row a link (`ContextBuilder.Build`): `{"from":"link:patterns","to":"@<the desk's id>","kind":"follows"}` and
+    `{"from":"link:stagewatch","to":"@<Stagewatch's id>","kind":"follows"}`, each in its link item's own light, whatever the link's
+    state (green live and paired, amber not paired or stale, red down or held). K is `follows` by §6's order: this node runs none of
+    the far end's show verbs on either link; it reads the desk's state (its blackout, its clip) and Stagewatch's frames. It also posts
+    its context to Stagewatch and collects approved lines there, which a link's one row does not say (reading comes before sending in
+    K's order). `link:patterns -controls-> air` stays, a row between two of this node's own things (the show package still moves its
+    end to `show`).
+  - "not proved": both links are level 0 (§8.3's "its links to Stagewatch and Patterns prove at level 0"), so the id a row names is
+    the one a hello gave, and the item that carries the row says so, as §6 P2 asks of a link not yet proved: `live · not proved`,
+    `not paired · not proved`, `live · not proved, <the link's words>` (the words lead the detail, so a reader that keeps an item's
+    first 160 characters keeps them). An item with no row says nothing new.
+  - No row, and the item's words as they were, while a reader could not place the end (`ContextBuilder.PeerEnd`): no hello named the
+    far end; the id is no §2 id (`PeerLink.IsId`: 6 to 40 letters, digits, `-` and `_`); it is this node's own; or two machines say it
+    (§2's mark: §6 gives such an id no peers row, so a row to it would point at whichever of the two a reader shows — Patterns' own
+    builder leaves it out for the same reason). Unknown stays unknown: nothing is guessed from the kind of a peer heard.
+  - P3, the timer: `{"from":"@<Stagewatch's id>/timer","to":"output:<id>","kind":"feeds"}` for every listed output (enabled, not
+    virtual) that draws a `timer:` source, in the Stagewatch link's light — the time on the wall is only as good as the link — and
+    only while the link names Stagewatch's id. `timer` is the id Stagewatch's own context gives its timer
+    (`ContextBuilder.StagewatchTimerItem`). It is this node's claim about its own output: no item of this node's is Stagewatch's
+    thing (P1).
+  - Which playlist is on which output: `{"from":"playlist:<id>","to":"output:<id>","kind":"feeds"}`, in the playlist item's own light
+    (grey while idle, green playing, red with its file missing), in the project's order of playlists.
+  - What an output draws (`ContextBuilder.Drawn`) is read as the render reads the project (`SourceResolver`, `EngineSources.Route`,
+    `StageRenderer`), so a row is claimed only for what the render draws of the project as the builder sees it (what the walk does
+    not see is under Open): a source output its source; a canvas output the canvas its source's id names, layer by layer; a
+    projector output, when its projector exists, the stage's surfaces. A layer is followed while it is visible, has some opacity
+    and a rectangle, on a canvas with a size; a surface while it is visible, has some opacity and lies on a mesh the project holds
+    (`StageRenderer.DrawSurfaces` skips a surface with no mesh) or, pixel-mapped, sits on that output's projector, where it is
+    drawn as its quad with or without a mesh. A playlist on the way is on the output, idle or not; past it only its item on the air
+    is followed, and only where the render routes a playlist to its item — a canvas or another playlist — both items while one
+    mixes into the next. Canvases nest four deep and playlists eight, never inside themselves (`CanvasDepth`, `PlaylistDepth`: the
+    render's own `MaxCanvasDepth` and `MaxPlaylistDepth`, held equal by a test). A canvas is read once, where the output first
+    reaches it, as the render composes it once a frame (`SourceResolver.Canvas` hands back the frame's picture before it looks at
+    the depth): reached again it is that same picture, whatever was too deep to draw in it the first time; one reached too deep is
+    black there, is not composed, and is read where it is next reached within the depth. The air's blackout, a test pattern and a
+    panic's safe look stand over all of it and are said by the `air` and `show` items; the rows are what is drawn under them, and
+    a timer's row stays in its link's light while one of them covers the output.
+  - The rows with an end on another node lead `links`, ahead of every other row: a reader that keeps the first of a long list
+    (Stagewatch's keeps the first 400 valid ones, Patterns' the first 400), this node's own bound and a post trimmed from its end
+    (fix-stagewatch-context-size) leave them out last. Last is not never: `ContextFit` leaves out every link before it leaves out a
+    command, so a post that has to leave out commands carries no link at all (measured below).
+  - §6's size for links is kept (`ContextBuilder.MaxLinks`, 400, §14 `context.links`, held to the contract's copy by a test): these
+    rows are one per playlist on an output and one per output that draws the timer, so a wall of 16 canvas outputs showing 30
+    playlists says 480 by itself. Past 400 the builder leaves links out as §6 orders its trimming — the last grey rows first, then
+    the last of the others — after every hook has added its rows (`AddOpsContext`, `AddModuleContext` and `ContextShape`'s
+    `show → outputs`), so the rows between nodes, which lead the list and are never grey (a link item's light is green, amber or
+    red), go last; and one grey item says how many: `{"id":"context:links","kind":"health","label":"Context","light":"grey",
+    "state":"left out: 80 links (a context lists at most 400)"}` (`LinksLeftOutId`; its own id, since a post `ContextFit` trims
+    further adds §6's `context:trimmed` beside it, and the two say different things). A context at or under the bound is whole and
+    carries no such item.
+  - Taken out by the plan, and not here: the rows for drawn Stagewatch windows (PlayMap draws none until wp4-showbus-windows; the
+    train's PM-15c), and the held blackout's age (said by the link's words since fix-peerlink-core and fix-stagewatch-timer-air).
+- Tests (`tests/PlayMap.Engine.Tests/ContextLinkTests.cs`, the plan's validate class; ten new beside its five, 23 cases with the
+  two theories' ten rows):
+  - `EachLinkIsOneRowToTheNodeItsHelloNamedAndItsItemSaysNotProved`: the two rows, leading the list, the items' words, the
+    `controls` row kept, no item that is another node's, every other end §6's link end within §14's sizes
+    (`context.link.end.chars`, `hello.id.min`/`max`, `context.item.id.chars` read from the contract's copy), the row as sent and as
+    this tree's reader reads it back, and the row's light in each state of the link.
+  - `ALinkWhoseFarEndNoReaderCouldPlaceNamesNoNode` (eight rows: no id, this node's id, an id in conflict, five that are no §2 id): no
+    row with an `@` end, the items' words as before; the id in conflict is named once its mark is gone.
+  - `EveryOutputThatDrawsTheTimerIsFedByStagewatchsTimer`: a source output, a canvas output through a layer and a projector output
+    through a surface each have their row; an output that draws none, a disabled one and a virtual one have none; the rows amber
+    with the link not paired and red with it down; none with no Stagewatch named or followed; the desk's id never stands for
+    Stagewatch's.
+  - `WhatTheRenderDoesNotDrawIsNotClaimed`: a hidden layer, a transparent one, one with no rectangle, a canvas with no width or no
+    height; a hidden surface, a transparent one, one whose mesh the project does not hold (none listed, or another id), a
+    pixel-mapped one on another projector (and its row on its own, with or without a mesh); a projector output whose projector is
+    gone; a canvas output whose source is no canvas; a source output set to none; a timer left on a projector output's source. The
+    tests' stage holds the mesh its surfaces lie on (`WallMesh`).
+  - `APlaylistFeedsTheOutputsItIsOnAndOnlyItsItemOnTheAirIsFollowedPastIt`: playlists as a source, on a layer and on a surface, grey
+    idle and green playing; a GO into a fading canvas item that carries the timer (both pictures on the air) and a cut to it; the
+    timer as a playlist's own item (no row); an item that plays another playlist, idle and playing; a playlist on no output.
+  - `TheWalkOfWhatAnOutputDrawsStopsWhereTheRenderDoes`: the two depths equal the render's; the timer four canvases deep is claimed
+    and five deep is not; a canvas that holds itself; sixteen layers of sixteen layers three deep; a canvas first reached where its
+    timer is too deep and shown again by a nearer layer (no row: it is the one picture, black where the timer would be), the same
+    two layers the other way round (a row), and a canvas reached too deep and then within the depth (a row: it was not composed
+    the first time); eight playlists playing one another all on the output with the last one's timer, the ninth of nine with no
+    row and no timer; two playlists that play each other, each on the output once.
+  - `AContextListsAtMostSection14sLinksTheRowsBetweenNodesKeptAndWhatWasLeftOutSaid`: `MaxLinks` is §14's `context.links`; a show
+    under the bound and one exactly at it are whole with no `context:links` item; one row past it lists 400, the same 400, and
+    says "left out: 1 link"; 21 outputs each showing twenty idle playlists and the timer (420 grey rows) list 400 with the two
+    links' rows and the 21 timer rows whole and first, the grey rows gone from the end and their number said; one playlist
+    playing keeps its 21 green rows, the last output's among them; every playlist playing (no grey row) loses the last rows and
+    keeps the rows between nodes whole and first; every kept link names an item the context lists or another node.
+  - `AStressShowsFittedPostLeavesTheRowsBetweenNodesUntilLast` (two rows; the stress show with both links naming their far ends,
+    sixteen outputs drawing the timer, eight showing a playlist that plays and eight an idle one, 165 links, twenty 64 KB journal
+    rows): the 18 rows between nodes lead the built list; the post is within 65,536 bytes; a row between nodes is left out only
+    once every other link is. With the hello table full (128 peers heard) the post is 65,325 bytes and leaves out 20 recent, all
+    165 links and 17 commands — no link is posted, the rows between nodes with the rest. With 8 peers heard it is 65,428 bytes,
+    leaves out 20 recent and 112 links, no command and no grey link kept, and all 18 rows between nodes are in it, first, byte for
+    byte.
+  - `TheBusyNodesContextClaimsNothingItsOutputsDoNotDraw`: the busy show's canvas outputs name a playlist's id, which is no canvas,
+    and its projector outputs see no surface, so its golden (`Fleet/Golden/context-busy.json`) has no new row and is unchanged.
+  - `TheIdALinkNamesIsTheOneAHelloGaveFromItsAddressAndDoor` (a node on the host rig, a Stagewatch and a Patterns desk played beside
+    it): with no hello neither live link names a node, nor with a hello of another kind from the link's address and door or a
+    Stagewatch's from another machine; a Stagewatch hello from the link's address with the link's port among its doors gives the
+    link's row and the timer's, in `CONTEXT` on the wire and in the context the played Stagewatch takes at
+    `/api/peers/context`; a hello from another machine that says the link's address as its host name names nothing and takes no
+    name away; a Patterns hello on another door names nothing and one from the link's address on the link's door does; STATE's
+    `links` rows keep their keys; a second Stagewatch hello that fits takes the name away again; the Patterns link dialled again by
+    name (`localhost`) is named only by a hello that says that host name, whatever address it came from, still while that hello is
+    stale and no longer once it is gone.
+  - Each rule undone alone, the rest kept, made a test of the class fail (41 changes on the tree as committed, each built and run):
+    the rows not leading; "not proved" not said; an id in conflict, this node's own, or any text taken as an id; the timer's row
+    always green; the link's row `controls`; a hidden layer, a transparent one, one with no rectangle, a canvas with no size, one
+    with no height; a hidden surface, a transparent one, one with no mesh, a pixel-mapped one needing a mesh, one on any
+    projector; a projector that is gone; a canvas output's source followed whatever its kind; every kind of item followed past a
+    playlist; the mix not followed; five canvases deep and nine playlists deep, by the constants and by the walk's own
+    comparisons; a canvas reached too deep remembered; a canvas read again where it is reached again; a playlist's row always
+    green; an idle playlist given no row; no bound on the links; grey rows not left out first; grey rows left out from the front;
+    the left-out item not added; the bound one late; and in the host, a hello on any door, the first hello that fits, a hello
+    of any kind, a hello that is gone, a live hello alone, a claimed host name taken for a link to an address, and a link to a
+    name never named. A playlist played again inside itself was not run this time (the walk does not end); following an idle
+    playlist's item moves nothing, since an idle lane holds no source, so that check is the render's own rule said twice.
+- Files: the leave's — `src/PlayMap.Engine/ContextBuilder.cs` through the spine lane, `tests/PlayMap.Engine.Tests/ContextLinkTests.cs`
+  and this entry — and two files outside it, an ask open for the owner before this merges (the commit says so; nothing is pushed):
+  - `src/PlayMap.Engine/Seams.cs` (a spine file, through the same lane): `LinkView` gains the init-only `PeerId`, "" by default; its
+    positional shape and every caller are unchanged, as `PeerView.Conflict` was added by fix-showbus-1.3. Six lines in, two out.
+  - `src/PlayMap.Engine/Host/NetworkHost.cs` (no round-3 package's and no spine file; in the leave of six batches before this
+    one): `Patterns()` and `Stagewatch()` fill `PeerId` from `HeardId`, new, which reads the hello table: the id of the one peer of
+    the link's kind, still heard (live or stale, not gone), whose hello names the link's port among its doors, or names no door,
+    and that came from the link's address — or, where the link's host is a name and not an address, says that host name; ""
+    when none fits or more than one does. A link to an address is never named by what a hello says of itself: a machine elsewhere
+    on the show network that says the address as its host name names nothing and takes no name away. The link's address is read
+    as its host, a colon and its port, split at the last colon, and an address is compared as an address, so an IPv6 host is read
+    whole. Nineteen lines in, two out. It is more than a line: it is the one rule that says which hello a link's far end is,
+    and it has no smaller form the leave could hold (below).
+  - Why they are needed: the seam gave the context a link's state, host, pairing and words, and no id; a peers row has no address
+    (`PeerView`), so the builder could not tell which Patterns or Stagewatch heard is the one a link dials without guessing by kind.
+    Carrying the hello's address and doors on `PeerView` instead, with the rule in `ContextBuilder`, edits the same two files and
+    puts addresses on a seam the context reads. Without the two hunks every row of this batch but the playlists' stays unsaid:
+    `ContextBuilder` reads `PeerId` and names nobody while it is "", so the leave's own lines stand with or without them.
+  - No verb, catalogue row, card, STATE key or fixture moves: STATE's `links` rows are as they were (the id is not written there),
+    and the golden context is byte for byte the same.
+- Papers notes for the integrator:
+  - `docs/SHOWBUS-NODE.md` (what PlayMap publishes; the train's PM-12 writes it with the posted context): the two P2 rows and
+    their "not proved" words, the P3 timer rows, the playlist rows, what counts as drawn and what the walk does not see (Open's
+    list: a live input's fallback, what covers or hides a picture), that a timer's row keeps its link's light under the air's
+    blackout, that the rows lead `links`, the 400 bound with its `context:links` item, and that a post which leaves out commands
+    carries no link.
+  - `docs/WIRE.md`, by `CONTEXT`: a link's end may be `@<node id>` or `@<node id>/<item id>` (§6); at most 400 links, and the
+    `context:links` item when some were left out.
+  - `docs/FLEET.md`'s P1–P3 notes on what Patterns draws of PlayMap: with Patterns' Round 98 an Eye places these ends; the copy of
+    Patterns' reader this tree's `PatternsEyeContractTests` holds (`PatternsEyeCopy`, patterns-svc bcdbf28) leaves a link out
+    whose end it cannot place, as §6 says a reader that predates P1–P8 does.
+  - `docs/ROADMAP.md`: G24's PlayMap half done but for P7 and the windows rows (Open).
+  - Stagewatch's copy of `context-busy.json` and Patterns' need no refresh: the golden did not move.
+- Every reader (where the rows reach, and where they do not):
+  - reached, since each takes the context as built: `CONTEXT` on the wire and `/ws`, `GET /api/context`, MCP's `get_context`, the
+    context posted to Stagewatch (fitted by `ContextFit`, which leaves links out the last first, grey ones before the rest, so
+    the rows between nodes are the last links to go — and go with the rest once a post has to leave out commands), and Patterns
+    once it reads this node's context;
+  - a link's view moving (a hello first heard from its address) is seen by the network host's watch, which compares the views, so
+    the node's facts move and a subscribed `CONTEXT` is pushed;
+  - not reached, by design: STATE (`links.patterns`, `links.stagewatch` carry no peer id; the 13.16.3 record with its `peer` is
+    wp4-peerlink's), the desk, the Companion module, preflight's `LinksCheck` and the assistant's `StateExplainer` (none reads the
+    context's links; the assistant reads the context whole through MCP).
+- Open:
+  - The ask above (`Seams.cs`' property; `NetworkHost.cs`' `HeardId` and its two call sites).
+  - The id is a hello's alone. A link to a typed address no hello is heard from — another subnet, or one machine with no network,
+    where §2 has no hello — names no node, so on a one-laptop rig neither row appears. The desk's `CONTEXT` answer names its id too
+    (`PatternsLink.ContextJson`'s `node.id`, read only once paired); taking it costs a parse of the desk's context at every read or a
+    cache in the host, and nothing a Stagewatch says at level 0 names its own id (its verdict names this node). Both end with
+    wp4-peerlink: LINK's verdict carries the far end's id and the 13.16.3 record its `peer`, which then fills `PeerId`.
+  - A link to a name is named by the hello that says that host name, and a hello says what it likes: at level 0 any machine on
+    the show network can have its id named as such a link's far end, or say the name too so that none is. §6 P2 lets a link not
+    yet proved name the id a hello gave, and the item says "not proved"; it ends with LINK's verdict (wp4-peerlink).
+  - The hello's address is the one the table dials for that id (`ShowBusPeer.Address`), not every address it was heard from: a
+    link that keeps an address the table has moved off names no node until they agree again.
+  - What the walk does not see, each a place the rows and the wall can differ:
+    - a live input's loss fallback (`LiveSettings.Fallback`, routed by `EngineSources.LossOf`) may be a canvas, a playlist or the
+      timer; while the feed is lost the output draws it and no row says so (the builder has no seam that says a feed is lost);
+    - the air's blackout, a test pattern and a panic's safe look cover an output while its timer and playlist rows keep their
+      lights. Greying the timer's row under a blackout was weighed and left: a playing playlist's row stays green under the same
+      blackout, a pattern or a safe look would need the same and is not one flag, and a grey row is the first a trimmed post and
+      this node's own bound leave out, so the edges between nodes would go first exactly while the air is covered. The `air` and
+      `show` items say the cover; a reader words the row as this node's claim;
+    - a layer or surface wholly behind an opaque one, and a surface outside its projector's picture or masked away, are claimed
+      as drawn;
+    - a mesh asset the project lists whose file failed to load on this node is taken as there (the render skips its surface);
+    - past four canvases deep the claim follows each output alone, in its own order: the render's canvas pictures are one a
+      frame for the whole node (`SourceResolver`'s cache), so which output composes a canvas first — and a surface with no mesh,
+      whose source the render still resolves — can decide what a later one shows of it; a playlist's mix is likewise one a
+      frame, where the walk reads the playlist again from each place.
+  - P7 is not kept: `ContextShape` puts `link:*` tenth of its twelve buckets and folds green outputs into `outputs`, so a link
+    item or an output the timer feeds can fall outside the first twelve. The owner left `ContextShape.cs` and `EyeContextTests` out
+    of this round (M-eye-spine: they are not spine files); Patterns' Round 98 forces link items and chain ends whatever their place.
+    §8.3 has no "not kept" row for it yet: one for the contract's next text.
+  - The item's words carry no scope ("scope post") and no 13.16.3 state words, and the lights are today's (a live, paired level-0
+    link is green, where 13.16.2's `legacy` flag is amber): the record and its lights are wp4-peerlink's.
+  - §6's other counts and field sizes (`context.items` 200, `recent`, `commands`, an item's state and label) are as
+    fix-stagewatch-context-size's Open left them; only `context.links` is kept here. The `context:links` item is one more item
+    of a context that may already list 200.
+  - Seen while reading the render for `Drawn`, not this batch's: a `timer:` source as a playlist's own item is given a length
+    (`EngineCore.Transport.cs`, with generators and colours) and draws black — `EngineSources.Route` routes a playlist only to a
+    drawn picture or another playlist, and `ItemFrame` reads only media and live inputs — so `PLAYLIST ADD <list> timer:stagewatch`
+    is taken and shows nothing. The context claims no row for it. For the package that owns `Rendering/EngineSources.cs`.
+  - `EngineCore.PlaylistsShownBy` (the panic's, `Show/EngineCore.Panic.cs`) answers a nearby question more widely — every playlist
+    an output's picture could come from, any item, an output's source whatever its mode — which is right for a panic's release and
+    too wide for a claim. `ShowingWords` (wp3-desk-map's hook, empty in this tree) will say what each output shows; when it lands
+    the integrator may want one walk behind both it and `Drawn`.
