@@ -320,8 +320,8 @@ integrations/companion-module-playmap/src/
    - `@c9 EVENTS SINCE <last seq>`;
    - `@c10 SUBSCRIBE THUMBS <placed refs>`;
    - and, if Companion is recording, `@c11 RECORD ON`.
-4. The greeting STATE arrives right after `OK paired`, on TCP as on `/ws` (a connection paired when it says HELLO hears it
-   right after HELLO's `OK`).
+4. The greeting STATE arrives right after `OK paired`, on TCP as on `/ws` (a connection paired when it says HELLO, which says
+   nothing more until HELLO's `OK` as the module does, hears it right after that `OK`; docs/WIRE.md "A connection's life").
 5. **Upgrade refused with 400 or 404** (an older node) → fall back to TCP `host:<wire>`, where `wire` comes from config
    or 9941. Same lines.
 

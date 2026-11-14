@@ -41,7 +41,8 @@ public sealed record WireServerOptions
 }
 
 /// <summary>PlayMap's line wire (TCP, Patterns' grammar, docs/WIRE.md): a NONCE for a peer that has something to
-/// prove, HELLO makes a STATE listener, AUTH-PROOF pairs, PING exchanges clocks, queries are open and mutating verbs
+/// prove, HELLO owes a STATE greeting that a paired session hears once its handshake is over (WireSession says when) and
+/// that makes it a STATE listener, AUTH-PROOF pairs, PING exchanges clocks, queries are open and mutating verbs
 /// need pairing, fact lines and a peer's own OK/ERR lines are never answered, a fault is that line's. Each
 /// connection has one writer (ordered replies, latest-wins pushes). The listener honours the bind address and stays
 /// closed when it cannot (fail closed).</summary>

@@ -83,7 +83,8 @@ interface Pending {
 	resolve(reply: Reply): void
 	reject(error: Error): void
 	timer: ReturnType<typeof setTimeout>
-	/** The HELLO: its OK is read in the same tick as the greeting STATE that follows it, so it marks the hello answered at once. */
+	/** The HELLO: its OK marks the hello answered the moment it is read, so the greeting STATE after it is kept for the pairing —
+	 * right behind the OK when the node pairs this link at HELLO (the link says nothing more until the OK), after OK paired when not. */
 	hello: boolean
 }
 

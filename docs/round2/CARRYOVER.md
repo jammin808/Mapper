@@ -3225,6 +3225,8 @@ Round 2 W1 notes:
     cleared, while it is connected — is never greeted (it was before, on TCP, from HELLO on), as the web port's channel never was:
     it hears STATE when it asks (`STATE`, `SUBSCRIBE STATE`) or on its next connection. Greeting it from `Refresh` was weighed and
     left: such a dialler is still in its handshake (no "OK paired" came), so §13.6.3 has it discard what it would hear.
+    Moved by fix-wire-greeting-after-handshake: it is now greeted right before the answer to its next line that is no handshake
+    word, once it is paired (its handshake is over by then); still never from `Refresh`.
   - A desk on another machine whose token is missing or wrong (pairing NeedsToken or Refused) now draws no STATE from the node
     until it pairs, where before it showed the node's state read-only from the greeting; its pairing light says why. Whether the
     desk asks `STATE` while it waits for a token is the desk package's call.
@@ -3234,7 +3236,8 @@ Round 2 W1 notes:
     hears its greeting STATE right after HELLO's OK, as the batch keeps. A level-0 PeerLink dialler that says HELLO and then LINK
     hears that STATE between HELLO's OK and LINK's ERR, while its handshake is still open, and may still discard and count it
     (Stagewatch's PlayoutLink on the one-laptop topology over loopback). Holding that greeting too moves the paired-at-HELLO
-    order the desk and Patterns' Lines devices read, and is the owner's call.
+    order the desk and Patterns' Lines devices read, and is the owner's call. Taken by fix-wire-greeting-after-handshake (the
+    owner's "Yes" of 2026-11-14): see that entry.
   - A session that paired and was greeted, then unpaired by a new token (`WireServer.UpdateSettings` → `Refresh`), keeps
     `_wantsState` and goes on hearing STATE's pushes while unpaired, on TCP and on the web port alike; it predates this batch.
     Holding it means dropping the listener when `Paired` turns false unless the client asked with `SUBSCRIBE STATE`, and re-arming
@@ -3244,6 +3247,112 @@ Round 2 W1 notes:
     (the class summary, "HELLO PlayMapDesk (which makes it a STATE listener)") and
     `integrations/companion-module-playmap/src/link/session.ts` (the pending HELLO's comment, "its OK is read in the same tick as
     the greeting STATE that follows it"). Suggested words: "HELLO makes a session that is paired a STATE listener; one that is not
-    becomes one at OK paired". Behaviour is right either way; left unedited for whoever owns each file.
+    becomes one at OK paired". Behaviour is right either way; left unedited for whoever owns each file. Taken by
+    fix-wire-greeting-after-handshake (the owner's "Yes" of 2026-11-14): the three comments reworded, comment lines only.
   - Seen while validating, not this batch's: the Net suite's three Chromium page tests fail on this machine before any PlayMap code
     runs, as fix-desk-unconfirmed's entry says (`tests/e2e/phonescan/load.mjs`); the rest of the Net suite passes.
+
+## Integrator notes from the round-2 fix batch (fix-wire-greeting-after-handshake)
+
+- Done: a connection paired when it says HELLO no longer hears its greeting STATE inside a dialler's open handshake (the owner's
+  second answer of 2026-11-14 in Stagewatch's `docs/ecosystem/owner-answers.md`: "should PlayMap hold the greeting there too?" —
+  "Yes"). Before, such a connection heard STATE right after HELLO's OK, so a PeerLink dialler that says HELLO and then LINK — or,
+  as Stagewatch's PlayoutLink at level 0 does on one machine, HELLO and then its probe `@hi PING`, then plain AUTH or, with no
+  token asked, `@st STATUS` — heard a STATE before its handshake ended and discarded and counted it (Show Bus 1.3 §13.6.3).
+  - The rule, one sentence in `WireSession`'s class comment and in `docs/WIRE.md` step 2: the greeting STATE is owed from the
+    first HELLO, said once a connection and only to a paired one, at the first of — at once when the connection is paired and no
+    line of it waits behind its HELLO (a listener); right after "OK paired" or "OK open"; or right before the answer to its first
+    line, once paired, that is not a handshake word (HELLO, NONCE, AUTH, AUTH-PROOF, PING, and LINK in 13.6.4's two forms,
+    `LINK <offer> …` and `LINK PROOF …`, never the node's own `LINK STAGEWATCH|PATTERNS`). Until it is said the connection is no
+    STATE listener, so no push reaches it either.
+  - The bytes it rests on (Stagewatch at a12fb02, read-only): `PlayoutLink` sets `OffersLink = false`, so its core's `Greet`
+    (`src/Timer.Core/PeerLink.cs`) writes HELLO alone and goes to level 0; the link then writes its probe `@hi PING <t>`, each line
+    its own `Stream.WriteAsync` on a socket with `NoDelay`, so HELLO and the probe leave as separate segments; then plain AUTH (one
+    machine, with a token) or, when no proof is asked, `@st STATUS` and `@ctx CONTEXT` once its pairing settles (`Settle`). The
+    connector discards every line while its phase is the handshake, which at level 0 ends only when its carrier settles the
+    pairing (`OK paired` to its AUTH or AUTH-PROOF, or `AsksNoProof` after the probe's answer). A connector that offers LINK
+    (13.6.4: HELLO, then LINK) is a future one; the tests model its order, and LINK's ERR is not the end of its handshake
+    either. So the greeting waits for "OK paired" or for the dialler's first other line.
+  - No timer and nothing waited on: whether a line waits behind HELLO is read as the session asks its next read (the channel's
+    `ReadLineAsync` is already complete when a line is in), never waited for. No verb, word or catalogue row; no line any other
+    client reads moves but the greeting. The proof path (cb9be004) and the strict channel's rules are as they were; a greeting
+    that faults is the HELLO's fault, said with its id, and the line being read goes on. A second HELLO greets nothing (before,
+    a paired connection's second HELLO greeted again).
+  - `src/PlayMap.Net/Wire/WireSession.cs`: `_greetOnPairing` gives way to a `Greeting` state (none, owed, dialling, said), the
+    HELLO case owes it instead of saying it, `RunAsync` greets a listener when nothing waits behind its HELLO, `HandleAsync` greets
+    before a paired line that is no handshake word (`IsHandshake`) and marks a dialler at its first handshake word behind HELLO,
+    `Greet()` is said once (as before after OK paired / OK open), `GreetFor` says it with the HELLO's fault handling. A line the
+    session skips unanswered right behind HELLO (blank, a peer's own answer, an `OK`/`ERR` verb) is no line: `Skipped` leaves
+    the listener question open for the next read, so `HELLO x\n\n` then silence is still greeted.
+- Every reader of the paired-at-HELLO order still hears its STATE, traced: the desk's `EngineLinkClient` (HELLO PlayMapDesk, its
+  first PING and SUBSCRIBE PROJECT race behind it: greeted at once if nothing is in yet, else right before SUBSCRIBE's answer; the
+  NONCE that asks a trusted desk to prove now comes before the greeting when the greeting is deferred); `WireClient`'s other
+  readers, `MirrorLink` and `AnchorFollower` (they read their own feed, not STATE, and subscribe at once); `PatternsLink` and the
+  Stagewatch links read peers, not a PlayMap; the Companion module on `/ws` and on its TCP fallback (it says nothing after HELLO
+  until its OK, so it is greeted right behind the OK as before, and its fake node, `test/fake-node.ts`, greets a paired session
+  right after HELLO's OK, the same order); Patterns' Lines devices never say HELLO (no greeting, as before) and its Show Bus node
+  devices do not read PlayMap at Patterns' HEAD c265352 (its 97.2 work in progress does: see Open); Stagewatch's PlayoutLink at
+  level 0, which offers no LINK (HELLO, `@hi PING`, then plain AUTH on one machine, or with no token `@st STATUS` once settled):
+  when its probe is already in behind HELLO as the node next reads, it is greeted right after its "OK paired" or right before
+  `@st STATUS`'s answer, both after its pairing settles, so its greeting is taken; when the probe is not in yet, it is greeted
+  at HELLO as before, discards and counts that STATE, and loses nothing, because it asks `@st STATUS` once it settles (no
+  measurement this round of which way the race goes on one laptop). A future connector that offers LINK is greeted after
+  LINK's ERR the same way when its lines are in behind HELLO; AGMessage's
+  `peerlinks.js` reads PlayMap over HTTP, not the line wire; Stagewatch's interop lane (`tests/interop/lib/wire.cjs`) pairs by
+  proof and asks STATE.
+- Tests (`tests/PlayMap.Net.Tests/WireServerTests.cs`, on the real TCP wire; each new one fails with the HEAD session, built and
+  run):
+  - new `ATrustedDiallerThatSaysHelloThenLinkHearsItsGreetingOnlyOnceItsHandshakeEnds`: trusted loopback, HELLO + LINK + the probe
+    in one write → OK, LINK's ERR (whose words do not begin with LINK, so a 13.6.8 connector reads level 0), the PONG, no STATE and
+    no push of a change; plain AUTH → "OK @pa paired" then exactly one greeting STATE (the node's now, seq 2), then pushes. On a
+    node that asks no token: HELLO + LINK → OK, ERR, nothing; its next line `@st STATE` → the greeting, then the answer.
+  - new `ATrustedConnectionWithALineBehindHelloHearsItsGreetingBeforeThatLinesAnswer`: the desk's order (HELLO PlayMapDesk,
+    `@d1 PING`, `@d2 SUBSCRIBE PROJECT`) → OK, NONCE, PONG, STATE, "OK @d2 subscribed project", PROJECT; HELLO + a CONTEXT query →
+    OK, STATE, the query's answer (that half is a guard of the order, which the greeting at HELLO kept too).
+  - new `AListenerIsGreetedAtHelloAndASecondHelloGreetsNoSecondTime`: trusted, and paired by proof: one greeting, then a change
+    held in the push throttle (the test's clock), a second HELLO → OK and nothing, then the push once the window ends.
+  - new `ATrustedDiallerThatSaysLinkProofHearsNoStateUntilItsFirstOtherLine`: HELLO + `@l2 LINK PROOF …` + `@p PING 1` in one
+    write → OK, ERR, PONG, no STATE and no push; `@st STATE` → the greeting (seq 2), then the answer.
+  - new `ATrustedDiallerThatAsksNonceBehindHelloIsGreetedRightAfterOkPaired`: HELLO + `@n NONCE` in one write → OK, the nonce,
+    nothing; AUTH-PROOF over it → "OK paired", then one greeting.
+  - new `AConnectionPairedBySettingsAfterHelloIsGreetedBeforeItsNextLinesAnswer`: unpaired HELLO → OK and nothing; the token
+    cleared by `UpdateSettings` → nothing; `@c CONTEXT` → the greeting, then the answer (the "Moved" line above).
+  - new `ASkippedLineBehindHelloLeavesAListenerGreeted`: HELLO followed in one write by a blank line, a bare `OK`, or `@x OK 1`,
+    then silence → OK, then the greeting (fails with `Skipped` disabled, built and run).
+  - Unchanged and green: cb9be004's three (`AnUnpairedTcpConnectionHearsItsGreetingStateOnlyRightAfterOkPaired`,
+    `AWrongProofOnTcpHearsNoState`, `AConnectionPairedWhenItSaysHelloHearsStateRightAfterHello` — a listener, nothing behind its
+    HELLO), the strict channel's `Companion/LineWebSocketTests` (`OnATrustedAddressItIsPairedAtOnce…` is a listener too),
+    `DeskIdentityTests`, the Stagewatch-style transcripts, and the Engine suite's ContextLinkTests, Companion, Fleet, Sync and
+    StagewatchSink tests. No test elsewhere asserted the old order; none was edited. The module: eslint, prettier and typecheck of
+    `session.ts` and its 176 tests pass.
+- Files: the leave's — `src/PlayMap.Net/Wire/WireSession.cs`, `tests/PlayMap.Net.Tests/WireServerTests.cs`, `docs/WIRE.md` ("A
+  connection's life", steps 2 and 3), `docs/SHOWBUS-NODE.md` (§2's AI row), `docs/round2/design/companion.md` (the handshake's
+  step 4), the comment lines of `src/PlayMap.Net/Wire/WireServer.cs` (class summary), `src/PlayMap.Net/Links/EngineLinkClient.cs`
+  (class summary) and `integrations/companion-module-playmap/src/link/session.ts` (the pending HELLO's comment), and this entry.
+  `docs/COMPANION.md` and `docs/wire/companion.md` word only the unpaired order, which holds.
+- Open:
+  - A dialler whose next line is not in when the node next reads after its HELLO — one that waits for HELLO's OK before it says
+    LINK (the order 13.6.4's transcript draws), or whose lines cross a network in segments far apart — is taken for a listener and
+    greeted at HELLO, inside its handshake, as every paired connection was before. The session cannot tell it from a listener
+    without waiting, which the batch does not do. Stagewatch's PlayoutLink writes HELLO and its probe as two writes back to back
+    on a NoDelay socket, so whether the probe is in when the node next reads on one machine is a race, unmeasured (no
+    measurement this round); when the race is lost PlayoutLink loses only a counted discard, because it asks `@st STATUS` after
+    it settles. Closing it fully needs a listener to say so (a word the wire has not got) or the node to wait (a clock): the
+    owner's call.
+  - A dialler that waits for HELLO's OK before NONCE or AUTH-PROOF, on a trusted address, is greeted at HELLO, inside its
+    handshake, and (the greeting said once) hears no STATE after its "OK paired". The first such reader is Patterns' Show Bus
+    node session of its 97.2 work in progress (`src/Patterns.Core/Services/ShowBusNodeSession.cs`, untracked at Patterns'
+    c265352): `@dh HELLO …`, its OK, then `@dn NONCE` and the proof when it holds a Secret; it discards and counts that STATE with
+    words (`DiscardedWords`) that would call a current PlayMap "an older build". The owner's options, with their costs: (a)
+    Patterns writes HELLO and its NONCE ask in one write — a Patterns-side change, and still a race; (b) PlayMap greets once
+    more right after "OK paired" for a connection it greeted at HELLO that then proves — no clock, but STATE is no longer said
+    exactly once a connection; (c) accept the counted discard — once paired Patterns sends `SUBSCRIBE OFF` and `SUBSCRIBE CONTEXT`, so
+    it loses nothing it reads, but its discard words are then wrong about PlayMap and want rewording on Patterns' side.
+  - A connection that says HELLO and then only handshake words (a PING loop) and listens is greeted at its first other line, or at
+    "OK paired", and never otherwise; `SUBSCRIBE STATE` or `STATE` greets it at once.
+  - When the greeting is deferred for the desk, the NONCE that asks a trusted desk to prove comes before the greeting rather than
+    after it; `WireClient` reads them apart, so nothing it does changes.
+  - What the engine itself answers to `LINK 1 …` was read, not run: `EngineCore.Router` refuses a line the catalogue does not match
+    with `unknown verb '<word>' — HELP lists the vocabulary`, and no catalogue row is LINK alone, so a connector reads it as level 0
+    (13.6.8: an ERR to LINK whose words do not begin with LINK); the tests' fake answers "unknown word". An Engine test of it is
+    worth having when PlayMap's LINK acceptor is built.

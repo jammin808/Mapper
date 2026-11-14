@@ -14,15 +14,29 @@ namespace PlayMap.Net.Wire;
 /// one at a time, so replies leave in the order their lines came; the session's writer is its only voice.
 /// Pairing is the connection's: a proof answers this connection's nonce, a nonce answers one proof, and the token
 /// a proof matched is compared with the node's token on every verb (a new token unpairs at once). On every channel the greeting
-/// STATE is the node's: a connection paired when it says HELLO hears it right after HELLO's OK, and one that is not hears it right
-/// after "OK paired" (or "OK open"), never before, so a dialler that discards what it hears before its proof (Show Bus 1.3 §13.6.3)
-/// has nothing to discard, and nothing is pushed to a connection that has not been greeted. On the web port's line channel (a
+/// STATE is the node's, said once a connection and only to a paired one: it is owed from HELLO and said at the first of these — at
+/// once when the connection is paired and no line of it waits behind its HELLO, right after "OK paired" or "OK open", or right before
+/// the answer to the first line of a paired connection that is not a handshake word (HELLO, NONCE, AUTH, AUTH-PROOF, PING, LINK's two
+/// forms) — so a dialler that discards what it hears before its handshake ends (Show Bus 1.3 §13.6.3) has nothing to discard, and
+/// nothing is pushed to a connection that has not been greeted. Whether a line waits behind HELLO is read as the next read is asked,
+/// never waited for (a line the session skips unanswered, blank or a peer's own answer, is no line): a dialler whose next line is
+/// not in yet is greeted as a listener is. On the web port's line channel (a
 /// WebSocket) nothing but NONCE, HELLO, AUTH-PROOF and PING is answered until it pairs, plain AUTH is never taken, and wrong proofs
 /// count against the address in the web port's ledger. On TCP, plain AUTH from another machine is refused, and when it carries the
 /// node's own token it is reported as seen in clear.</summary>
 internal sealed class WireSession : IAsyncDisposable
 {
     private static readonly TimeSpan LastWordWait = TimeSpan.FromSeconds(2);
+
+    /// <summary>A connection's greeting: not asked (no HELLO yet), owed from HELLO, owed to a dialler whose handshake came behind its
+    /// HELLO (so it waits for the handshake's end), or said.</summary>
+    private enum Greeting
+    {
+        None,
+        Owed,
+        Dialling,
+        Said,
+    }
 
     /// <summary>The desk's HELLO name: the desk role needs more than the name (<see cref="IsDesk"/>).</summary>
     public const string DeskName = "PlayMapDesk";
@@ -41,7 +55,15 @@ internal sealed class WireSession : IAsyncDisposable
     private string _nonce = Pairing.NewNonce();
     private string _helloName = "";
     private volatile bool _saidHello;
-    private bool _greetOnPairing;
+
+    /// <summary>Where this connection's greeting STATE stands (the session's own thread only).</summary>
+    private Greeting _greeting;
+
+    /// <summary>A HELLO that made the greeting owed was just answered: the next read says whether a line waits behind it.</summary>
+    private bool _afterHello;
+
+    /// <summary>The request id of the HELLO the greeting answers: a greeting that faults is that line's fault.</summary>
+    private string? _helloId;
     private volatile bool _registered;
     private readonly Lock _registerGate = new();
 
@@ -187,9 +209,21 @@ internal sealed class WireSession : IAsyncDisposable
         while (!ct.IsCancellationRequested && !Writer.Closed && !_close)
         {
             string? raw;
+            bool behindHello;
             try
             {
-                raw = await _channel.ReadLineAsync(ct);
+                var reading = _channel.ReadLineAsync(ct);
+                behindHello = _afterHello;
+                if (_afterHello)
+                {
+                    _afterHello = false;
+                    if (!reading.IsCompleted)
+                    {
+                        behindHello = false;
+                        GreetFor(ct);   // nothing waits behind HELLO: a listener, greeted now
+                    }
+                }
+                raw = await reading;
             }
             catch (InvalidDataException ex)
             {
@@ -200,7 +234,7 @@ internal sealed class WireSession : IAsyncDisposable
             }
             if (raw is null)
                 return;
-            await HandleAsync(raw, ct);
+            await HandleAsync(raw, behindHello, ct);
         }
         if (_close)
         {
@@ -209,20 +243,39 @@ internal sealed class WireSession : IAsyncDisposable
         }
     }
 
-    private async Task HandleAsync(string raw, CancellationToken ct)
+    /// <param name="behindHello">The line was already in when the read after an owed HELLO was asked: a line the session skips
+    /// unanswered (blank, a peer's own answer) is no line, so the next read asks again whether anything waits behind HELLO.</param>
+    private async Task HandleAsync(string raw, bool behindHello, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(raw))
+        {
+            Skipped(behindHello);
             return;
+        }
         var readAt = _server.Wall.UnixMs;
         if (IsPeerReply(raw.TrimStart()))
+        {
+            Skipped(behindHello);
             return;   // a peer's own answer is never a command, and answering it would be matched to its next line
+        }
         if (!WireGrammar.TryParse(raw, out var line, out var error))
         {
+            GreetFor(ct);   // a line that is not one is no handshake word
             Writer.Say(WireGrammar.Err(error!.RequestId, error.Reason));
             return;
         }
         if (line.Verb is "OK" or "ERR" or "ERROR")
+        {
+            Skipped(behindHello);
             return;
+        }
+        if (_greeting is Greeting.Owed or Greeting.Dialling)
+        {
+            if (!IsHandshake(line))
+                GreetFor(ct);   // the handshake is over: the greeting comes before this line's answer
+            else if (_greeting == Greeting.Owed)
+                _greeting = Greeting.Dialling;
+        }
         if (FactLines.IsFact(line))
         {
             // A fact is taken in from a paired peer and never answered, whatever the endpoint makes of it.
@@ -269,15 +322,12 @@ internal sealed class WireSession : IAsyncDisposable
                 _helloName = Pairing.HelloName(line.RestAfter(1));
                 _saidHello = true;
                 Writer.Say(WireGrammar.Ok(id));
-                if (!Paired)
+                if (_greeting == Greeting.None)
                 {
-                    // STATE is the node's: a connection that has not paired, on TCP as on the web port, hears it right after "OK paired".
-                    _greetOnPairing = true;
-                }
-                else
-                {
-                    Writer.SayPush(PushKind.State, "STATE " + _server.Endpoint.State().Json);
-                    _wantsState = true;
+                    // The greeting is owed from the first HELLO and said once (see the class comment for when).
+                    _greeting = Greeting.Owed;
+                    _helloId = id;
+                    _afterHello = true;
                 }
                 if (!_strict && _helloName == DeskName && Paired && !ProvedToken() && Pairing.Normalise(_server.Settings.Token).Length > 0)
                 {
@@ -378,15 +428,49 @@ internal sealed class WireSession : IAsyncDisposable
             Writer.Say("NONCE " + _nonce);
     }
 
-    /// <summary>The greeting STATE an unpaired connection's HELLO waited for, right after "OK paired"; from here on it hears STATE's pushes.</summary>
+    /// <summary>The greeting STATE a HELLO made owed, said once; from here on the connection hears STATE's pushes. Right after
+    /// "OK paired" or "OK open" it is said as part of that line's answer.</summary>
     private void Greet()
     {
-        if (!_greetOnPairing)
+        if (_greeting is not (Greeting.Owed or Greeting.Dialling))
             return;
-        _greetOnPairing = false;
+        _greeting = Greeting.Said;
         Writer.SayPush(PushKind.State, "STATE " + _server.Endpoint.State().Json);
         _wantsState = true;
     }
+
+    /// <summary>The greeting, said now if it is owed and the connection is paired; a fault is the HELLO's, said with its id, and the
+    /// line being read goes on.</summary>
+    private void GreetFor(CancellationToken ct)
+    {
+        if (_greeting is not (Greeting.Owed or Greeting.Dialling) || !Paired)
+            return;
+        try
+        {
+            Greet();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            Writer.Say(CommandRunner.WireLineFor(_helloId, _server.Runner.Fault(ex, Info()))!);
+        }
+    }
+
+    /// <summary>A line skipped unanswered right behind an owed HELLO leaves the question of a listener open for the next read.</summary>
+    private void Skipped(bool behindHello)
+    {
+        if (behindHello && _greeting == Greeting.Owed)
+            _afterHello = true;
+    }
+
+    /// <summary>A word of the handshake a dialler may say between its HELLO and the end of its pairing: HELLO, NONCE, AUTH,
+    /// AUTH-PROOF, PING, and LINK in 13.6.4's two forms (<c>LINK &lt;offer&gt; …</c>, <c>LINK PROOF …</c>), never the node's own
+    /// <c>LINK STAGEWATCH</c> or <c>LINK PATTERNS</c>.</summary>
+    private static bool IsHandshake(WireLine line) => line.Verb switch
+    {
+        "HELLO" or "NONCE" or "AUTH" or "AUTH-PROOF" or "PING" => true,
+        "LINK" => line.WordUpper(1) == "PROOF" || (line.Word(1).Length > 0 && line.Word(1).All(char.IsAsciiDigit)),
+        _ => false,
+    };
 
     private void Subscribe(WireLine line, string? id)
     {

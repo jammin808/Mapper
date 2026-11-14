@@ -300,6 +300,186 @@ public class WireServerTests
         }
     }
 
+    /// <summary>A PeerLink dialler that offers LINK (13.6.4) with its lines in behind HELLO: HELLO, LINK, then a level-0 carrier's
+    /// probe (Stagewatch's PlayoutLink, which offers no LINK yet, says HELLO and the probe alone). A connection the node trusts is
+    /// paired at HELLO, yet its greeting STATE waits for the handshake's end, never between HELLO's OK and LINK's answer: right after "OK paired" when it then pairs by plain AUTH, or right before the answer to its
+    /// first line that is no handshake word when it asks for no pairing. Until then a change pushes nothing to it, and the greeting is
+    /// the node's STATE as it is when said.</summary>
+    [Fact]
+    public async Task ATrustedDiallerThatSaysHelloThenLinkHearsItsGreetingOnlyOnceItsHandshakeEnds()
+    {
+        const string Link = "@l1 LINK 1 main 3f9c2a1b7d0e ffeeddccbbaa99887766554433221100 code";
+        var endpoint = new FakeEndpoint();
+        await using (var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true), new WireServerOptions { PlainAuthOnLoopback = true }))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            await c.SendRawAsync(Encoding.UTF8.GetBytes("HELLO Stagewatch\n" + Link + "\n@hi PING 1700000000000\n"));
+            Assert.Equal("OK", await c.ReadAsync());
+            var linkAnswer = await c.ReadAsync();
+            Assert.StartsWith("ERR @l1 ", linkAnswer, StringComparison.Ordinal);
+            Assert.False(linkAnswer!.StartsWith("ERR @l1 LINK", StringComparison.Ordinal), "an ERR to LINK whose words begin LINK reads as a refusal (13.6.8)");
+            Assert.StartsWith("OK @hi PONG 1700000000000 ", await c.ReadAsync(), StringComparison.Ordinal);
+            endpoint.Publish();
+            Assert.Null(await c.TryReadAsync(600));
+
+            await c.SendAsync("@pa AUTH " + TestSettings.Token);
+            Assert.Equal("OK @pa paired", await c.ReadAsync());
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":2,", await c.ReadAsync(), StringComparison.Ordinal);
+            Assert.StartsWith("OK @p2 PONG 6 ", await NextAfterAsync(c, "@p2 PING 6"), StringComparison.Ordinal);
+            Assert.Null(await c.TryReadAsync(400));
+            endpoint.Publish();
+            Assert.Contains("\"seq\":3,", await c.ReadAsync(), StringComparison.Ordinal);
+        }
+
+        // A node that asks no token: the dialler's handshake ends with its first other line, and the greeting comes right before its answer.
+        await using (var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(token: "")))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            await c.SendRawAsync(Encoding.UTF8.GetBytes("HELLO Stagewatch\n" + Link + "\n"));
+            Assert.Equal("OK", await c.ReadAsync());
+            Assert.StartsWith("ERR @l1 ", await c.ReadAsync(), StringComparison.Ordinal);
+            Assert.Null(await c.TryReadAsync(600));
+            await c.SendAsync("@st STATE");
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+            Assert.StartsWith("OK @st {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+            Assert.Null(await c.TryReadAsync(400));
+        }
+    }
+
+    /// <summary>A trusted connection whose HELLO has another line behind it hears its greeting no later than right before the answer
+    /// to its first line that is no handshake word: the desk's own order (HELLO, its first PING, SUBSCRIBE PROJECT) hears HELLO's OK,
+    /// the NONCE that asks the desk to prove, the PONG, then the greeting, then the subscription's answer and its push. A query behind
+    /// HELLO hears the greeting right before its answer (a guard of the order, which the greeting at HELLO kept as well).</summary>
+    [Fact]
+    public async Task ATrustedConnectionWithALineBehindHelloHearsItsGreetingBeforeThatLinesAnswer()
+    {
+        await using var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true));
+        await using (var desk = await LineClient.ConnectAsync(server.Port))
+        {
+            await desk.SendRawAsync(Encoding.UTF8.GetBytes("HELLO PlayMapDesk\n@d1 PING 5\n@d2 SUBSCRIBE PROJECT\n"));
+            Assert.Equal("OK", await desk.ReadAsync());
+            Assert.Matches(Nonce, (await desk.ReadAsync())!);
+            Assert.StartsWith("OK @d1 PONG 5 ", await desk.ReadAsync(), StringComparison.Ordinal);
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await desk.ReadAsync(), StringComparison.Ordinal);
+            Assert.Equal("OK @d2 subscribed project", await desk.ReadAsync());
+            Assert.StartsWith("PROJECT {\"revision\":1,", await desk.ReadAsync(), StringComparison.Ordinal);
+            Assert.Null(await desk.TryReadAsync(400));
+        }
+        await using var asks = await LineClient.ConnectAsync(server.Port);
+        await asks.SendRawAsync(Encoding.UTF8.GetBytes("HELLO Interop\n@c CONTEXT\n"));
+        Assert.Equal("OK", await asks.ReadAsync());
+        Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await asks.ReadAsync(), StringComparison.Ordinal);
+        Assert.StartsWith("OK @c {\"v\":1", await asks.ReadAsync(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A trusted connection that says HELLO and then only listens is greeted at once, nothing behind its HELLO, and from then
+    /// hears STATE's pushes; the greeting is said once a connection, so a second HELLO is answered OK and greets nothing, whether the
+    /// first greeting came at HELLO or at "OK paired" — not even while a change waits in the push throttle (the clock the test holds),
+    /// which reaches it as the push it is once the window ends.</summary>
+    [Fact]
+    public async Task AListenerIsGreetedAtHelloAndASecondHelloGreetsNoSecondTime()
+    {
+        foreach (var trusted in new[] { true, false })
+        {
+            var endpoint = new FakeEndpoint();
+            var time = new ManualTime();
+            var options = new WireServerOptions { PlainAuthOnLoopback = false, Time = time };
+            await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: trusted), options);
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            var nonce = trusted ? null : (await c.ReadAsync())![6..];
+            await c.SendAsync("HELLO Booth");
+            Assert.Equal("OK", await c.ReadAsync());
+            if (nonce is not null)
+            {
+                await c.SendAsync("AUTH-PROOF " + Pairing.Proof(TestSettings.Token, nonce, "Booth"));
+                Assert.Equal("OK paired", await c.ReadAsync());
+            }
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+
+            endpoint.Publish();
+            Assert.True(await Eventually.TrueAsync(() => time.Waiting >= 1), "no push window stands");
+            await c.SendAsync("HELLO Booth");
+            Assert.Equal("OK", await c.ReadAsync());
+            Assert.Null(await c.TryReadAsync(600));
+            time.Advance(options.PushThrottle);
+            Assert.Contains("\"seq\":2,", await c.ReadAsync(), StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>LINK's proof form (13.6.4) is a handshake word too: a trusted dialler that says HELLO, <c>LINK PROOF …</c> and a PING
+    /// hears their answers and no STATE, and is greeted right before the answer to its first other line.</summary>
+    [Fact]
+    public async Task ATrustedDiallerThatSaysLinkProofHearsNoStateUntilItsFirstOtherLine()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: true));
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        await c.SendRawAsync(Encoding.UTF8.GetBytes("HELLO Stagewatch\n@l2 LINK PROOF 00112233445566778899aabbccddeeff\n@p PING 1\n"));
+        Assert.Equal("OK", await c.ReadAsync());
+        Assert.StartsWith("ERR @l2 ", await c.ReadAsync(), StringComparison.Ordinal);
+        Assert.StartsWith("OK @p PONG 1 ", await c.ReadAsync(), StringComparison.Ordinal);
+        endpoint.Publish();
+        Assert.Null(await c.TryReadAsync(600));
+        await c.SendAsync("@st STATE");
+        Assert.StartsWith("STATE {\"v\":1,\"seq\":2,", await c.ReadAsync(), StringComparison.Ordinal);
+        Assert.StartsWith("OK @st {\"v\":1,\"seq\":2,", await c.ReadAsync(), StringComparison.Ordinal);
+        Assert.Null(await c.TryReadAsync(400));
+    }
+
+    /// <summary>A trusted dialler that asks NONCE behind its HELLO and proves (Show Bus 1.1's pairing over a trusted address) hears
+    /// HELLO's OK and the nonce and no STATE, then its greeting right after "OK paired", once.</summary>
+    [Fact]
+    public async Task ATrustedDiallerThatAsksNonceBehindHelloIsGreetedRightAfterOkPaired()
+    {
+        await using var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true));
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        await c.SendRawAsync(Encoding.UTF8.GetBytes("HELLO Booth\n@n NONCE\n"));
+        Assert.Equal("OK", await c.ReadAsync());
+        var answer = await c.ReadAsync();
+        Assert.StartsWith("OK @n ", answer, StringComparison.Ordinal);
+        var nonce = answer![6..];
+        Assert.Matches(Nonce, "NONCE " + nonce);
+        Assert.Null(await c.TryReadAsync(600));
+        await c.SendAsync("AUTH-PROOF " + Pairing.Proof(TestSettings.Token, nonce, "Booth"));
+        Assert.Equal("OK paired", await c.ReadAsync());
+        Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+        Assert.Null(await c.TryReadAsync(400));
+    }
+
+    /// <summary>A connection not paired at HELLO and paired later by the node's settings (here the token cleared) is greeted right
+    /// before the answer to its next line that is no handshake word, never from the settings change itself.</summary>
+    [Fact]
+    public async Task AConnectionPairedBySettingsAfterHelloIsGreetedBeforeItsNextLinesAnswer()
+    {
+        await using var server = await StartAsync(new FakeEndpoint(), TestSettings.Make());
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        Assert.Matches(Nonce, (await c.ReadAsync())!);
+        await c.SendAsync("HELLO Booth");
+        Assert.Equal("OK", await c.ReadAsync());
+        Assert.Null(await c.TryReadAsync(400));
+        server.UpdateSettings(server.Settings with { Token = "" });
+        Assert.Null(await c.TryReadAsync(400));
+        await c.SendAsync("@c CONTEXT");
+        Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+        Assert.StartsWith("OK @c {\"v\":1", await c.ReadAsync(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A line the session skips unanswered right behind HELLO (a blank line, a peer's own answer) is no line: a trusted
+    /// connection that sends one with its HELLO and then only listens is still greeted as a listener.</summary>
+    [Fact]
+    public async Task ASkippedLineBehindHelloLeavesAListenerGreeted()
+    {
+        await using var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true));
+        foreach (var behind in new[] { "\n", "OK\n", "@x OK 1\n" })
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            await c.SendRawAsync(Encoding.UTF8.GetBytes("HELLO Booth\n" + behind));
+            Assert.Equal("OK", await c.ReadAsync());
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+            Assert.Null(await c.TryReadAsync(400));
+        }
+    }
+
     [Fact]
     public async Task AWrongProofGetsAFreshNonceAndTheRightProofForItPairs()
     {

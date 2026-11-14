@@ -7,8 +7,9 @@ using PlayMap.Core.Wire;
 namespace PlayMap.Net.Links;
 
 /// <summary>The desk's view of an engine over the line wire — its own engine on loopback or a node across the
-/// network (docs/ARCHITECTURE.md §1: the desk has no private API). It says HELLO PlayMapDesk (which makes it a STATE
-/// listener), proves the node's token when the node asks, subscribes to PROJECT pushes, and mirrors STATE and the
+/// network (docs/ARCHITECTURE.md §1: the desk has no private API). It says HELLO PlayMapDesk (a STATE listener from the
+/// greeting the node says once the link is paired and its handshake is over: at HELLO, at OK paired, or before its
+/// subscription's answer), proves the node's token when the node asks, subscribes to PROJECT pushes, and mirrors STATE and the
 /// project latest-wins (a reader takes the newest; nothing is queued per change). Lines carry request ids and their
 /// replies are matched by them; nothing is queued while the link is down; it redials with the contract's backoff.</summary>
 public sealed class EngineLinkClient : IEngineLink
