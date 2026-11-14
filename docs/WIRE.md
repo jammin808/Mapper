@@ -86,15 +86,21 @@ The router journals who did what and the transports fence by it. The transport i
 
 1. On connect: if the node has a pairing token and the peer is neither loopback (when trusted) nor in the
    trusted-address list, the first line is `NONCE <32 hex>`.
-2. `HELLO <name>` → `OK`; the session becomes a **state listener**: `STATE {json}` at once, then on every change
-   (trailing 200 ms throttle, identical pushes skipped) and at least every second while any playlist plays or
-   anything else STATE shows moves on its own (a rolling timecode with nothing playing).
+2. `HELLO <name>` → `OK`. A session paired at that moment (the node asks no token, the address is trusted, or it
+   proved already) becomes a **state listener** at once: its greeting `STATE {json}` right after the `OK`, then a push on
+   every change (trailing 200 ms throttle, identical pushes skipped) and at least every second while any playlist plays
+   or anything else STATE shows moves on its own (a rolling timecode with nothing playing). A session that has not
+   paired hears nothing after the `OK`: its greeting `STATE` comes right after `OK paired` (step 3), and only from then
+   is it pushed STATE's changes — the same rule as the web port's line channel, so a dialler that discards what it hears
+   before its proof (Show Bus 1.3 §13.6.3) has nothing to discard. A `STATE` query or a `SUBSCRIBE STATE` is a read it
+   asks for (step 4), answered as before.
    `SUBSCRIBE STATE|CONTEXT|PROJECT|OFF` adds or stops pushes (`CONTEXT {json}`, and
    `PROJECT {"revision":N,"project":{…}}` — the revision rides beside the document, which does not carry it; a
    reader compares revisions, never contents). Each subscription answers `OK subscribed …` and pushes at once.
-3. `AUTH-PROOF <hex>` = HMAC-SHA256(token, nonce + name) → `OK paired`; wrong → `ERR wrong token — …` and a fresh
-   `NONCE` line; five wrong → closed. `AUTH <token>` only from loopback. Open node: `OK open — this node asks for
-   no token`.
+3. `AUTH-PROOF <hex>` = HMAC-SHA256(token, nonce + name) → `OK paired`, then the greeting `STATE` a HELLO before
+   it waited for; wrong → `ERR wrong token — …` and a fresh `NONCE` line, and no `STATE`; five wrong → closed.
+   `AUTH <token>` only from loopback (its `OK paired` greets as a proof's does). Open node: `OK open — this node asks
+   for no token`.
 4. Queries (STATE, CONTEXT, PING, HELP, VERBS, GET, *LIST*, *STATUS*) are open; mutating verbs need pairing:
    `ERR not paired — this node asks for its pairing token first: AUTH-PROOF on the wire, X-PlayMap-Token on the web`.
 5. `PING <t1>` → `OK PONG t1 t2 t3` (Unix ms on the node's show clock; t2 at read, t3 at write).

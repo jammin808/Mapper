@@ -13,10 +13,13 @@ namespace PlayMap.Net.Wire;
 /// <summary>One connection's life on the line wire (docs/WIRE.md "A connection's life"). Lines are read and run
 /// one at a time, so replies leave in the order their lines came; the session's writer is its only voice.
 /// Pairing is the connection's: a proof answers this connection's nonce, a nonce answers one proof, and the token
-/// a proof matched is compared with the node's token on every verb (a new token unpairs at once). On the web port's line
-/// channel (a WebSocket) nothing but NONCE, HELLO, AUTH-PROOF and PING is answered until it pairs, the greeting STATE waits
-/// for "OK paired", plain AUTH is never taken, and wrong proofs count against the address in the web port's ledger. On TCP, plain AUTH
-/// from another machine is refused, and when it carries the node's own token it is reported as seen in clear.</summary>
+/// a proof matched is compared with the node's token on every verb (a new token unpairs at once). On every channel the greeting
+/// STATE is the node's: a connection paired when it says HELLO hears it right after HELLO's OK, and one that is not hears it right
+/// after "OK paired" (or "OK open"), never before, so a dialler that discards what it hears before its proof (Show Bus 1.3 §13.6.3)
+/// has nothing to discard, and nothing is pushed to a connection that has not been greeted. On the web port's line channel (a
+/// WebSocket) nothing but NONCE, HELLO, AUTH-PROOF and PING is answered until it pairs, plain AUTH is never taken, and wrong proofs
+/// count against the address in the web port's ledger. On TCP, plain AUTH from another machine is refused, and when it carries the
+/// node's own token it is reported as seen in clear.</summary>
 internal sealed class WireSession : IAsyncDisposable
 {
     private static readonly TimeSpan LastWordWait = TimeSpan.FromSeconds(2);
@@ -266,9 +269,9 @@ internal sealed class WireSession : IAsyncDisposable
                 _helloName = Pairing.HelloName(line.RestAfter(1));
                 _saidHello = true;
                 Writer.Say(WireGrammar.Ok(id));
-                if (_strict && !Paired)
+                if (!Paired)
                 {
-                    // STATE is the node's: an unpaired line channel hears it right after "OK paired".
+                    // STATE is the node's: a connection that has not paired, on TCP as on the web port, hears it right after "OK paired".
                     _greetOnPairing = true;
                 }
                 else
@@ -375,7 +378,7 @@ internal sealed class WireSession : IAsyncDisposable
             Writer.Say("NONCE " + _nonce);
     }
 
-    /// <summary>The greeting STATE an unpaired line channel's HELLO waited for, right after "OK paired".</summary>
+    /// <summary>The greeting STATE an unpaired connection's HELLO waited for, right after "OK paired"; from here on it hears STATE's pushes.</summary>
     private void Greet()
     {
         if (!_greetOnPairing)

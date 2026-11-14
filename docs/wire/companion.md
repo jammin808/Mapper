@@ -120,8 +120,8 @@ adds nothing to the node's wire.
   `test/section-lines.txt`, which `CompanionContractTests` parses with `VerbCatalog.Match` and fits to its row; no line it sends
   exceeds 64 KiB.
 - **Reads**: the replies (`OK @c<n> …`, `ERR @c<n> words`, `{"stage":"accepted",…}` receipts), and the pushes `STATE`, `INDEX`, `EVENT`
-  and `THUMBS`, taken once the session is paired (what comes between HELLO's `OK` and the pairing, such as the TCP wire's greeting
-  `STATE`, is held, the latest of each, until then); the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the
+  and `THUMBS`, taken once the session is paired (anything that comes between HELLO's `OK` and the pairing is held, the latest of
+  each, until then; the node greets an unpaired session, on either channel, only right after `OK paired`); the STATE paths it reads are `test/state-paths.txt`, each found in a STATE the
   engine wrote. Unknown pushes are ignored.
 - **A line with no answer**: every line waits 5 s for its `OK`/`ERR`. A line that got none — the time ran out, or the link dropped
   after it was written — left the module, so the node may have run it: the module reports it `unanswered` (red on its key, its error

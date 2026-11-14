@@ -30,6 +30,13 @@ public class WireServerTests
         return server;
     }
 
+    /// <summary>Says a line and reads the very next line heard, push or reply, so a test sees the wire's order whole.</summary>
+    private static async Task<string?> NextAfterAsync(LineClient c, string line)
+    {
+        await c.SendAsync(line);
+        return await c.ReadAsync();
+    }
+
     [Fact]
     public async Task ThePatternsTranscriptReplaysExactly()
     {
@@ -193,6 +200,104 @@ public class WireServerTests
         Assert.Equal("OK @p1 PONG 1699999999000 1700000000000 1700000000000", await c.AskAsync("@p1 PING 1699999999000"));
         mono.AdvanceMs(1500);
         Assert.Equal("OK @p2 PONG 1700000001400 1700000001500 1700000001500", await c.AskAsync("@p2 PING 1700000001400"));
+    }
+
+    /// <summary>The greeting STATE is the node's on TCP as on the web port: a connection that has not paired when it says HELLO hears
+    /// HELLO's OK and nothing more — no greeting, and no push of a STATE that changes while it is unpaired (a paired connection beside it
+    /// hears that push) — and right after "OK paired" exactly one greeting STATE, the node's STATE now, then its replies again. A dialler
+    /// that discards what it hears before its proof (Show Bus 1.3 §13.6.3) so hears nothing to discard.</summary>
+    [Fact]
+    public async Task AnUnpairedTcpConnectionHearsItsGreetingStateOnlyRightAfterOkPaired()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: false));
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        var nonceLine = await c.ReadAsync();
+        Assert.Matches(Nonce, nonceLine!);
+
+        await c.SendAsync("HELLO Stagewatch");
+        Assert.Equal("OK", await c.ReadAsync());
+        Assert.Null(await c.TryReadAsync(600));
+
+        // A witness that pairs hears the push of a change; the unpaired connection hears none of it.
+        await using var witness = await LineClient.ConnectAsync(server.Port);
+        var witnessNonce = (await witness.ReadAsync())![6..];
+        Assert.Equal("OK", await witness.AskAsync("HELLO Witness"));
+        Assert.Equal("OK paired", await witness.AskAsync("AUTH-PROOF " + Pairing.Proof(TestSettings.Token, witnessNonce, "Witness")));
+        Assert.Contains("\"seq\":1,", await witness.ReadAsync(), StringComparison.Ordinal);
+        endpoint.Publish();
+        Assert.Contains("\"seq\":2,", await witness.ReadAsync(), StringComparison.Ordinal);
+        Assert.StartsWith("OK @p1 PONG 5 ", await NextAfterAsync(c, "@p1 PING 5"), StringComparison.Ordinal);
+
+        await c.SendAsync("AUTH-PROOF " + Pairing.Proof(TestSettings.Token, nonceLine![6..], "Stagewatch"));
+        Assert.Equal("OK paired", await c.ReadAsync());
+        var greeting = await c.ReadAsync();
+        Assert.StartsWith("STATE {\"v\":1,\"seq\":2,", greeting, StringComparison.Ordinal);
+        Assert.StartsWith("OK @p2 PONG 6 ", await NextAfterAsync(c, "@p2 PING 6"), StringComparison.Ordinal);
+        Assert.Null(await c.TryReadAsync(400));
+
+        // From the greeting on, it is a STATE listener as any greeted connection is.
+        endpoint.Publish();
+        Assert.Contains("\"seq\":3,", await c.ReadAsync(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A wrong proof pairs nothing, so it greets nothing: the connection hears the refusal and its next NONCE, and no STATE.</summary>
+    [Fact]
+    public async Task AWrongProofOnTcpHearsNoState()
+    {
+        var endpoint = new FakeEndpoint();
+        await using var server = await StartAsync(endpoint, TestSettings.Make(trustLoopback: false));
+        await using var c = await LineClient.ConnectAsync(server.Port);
+        Assert.Matches(Nonce, (await c.ReadAsync())!);
+        await c.SendAsync("HELLO Stagewatch");
+        Assert.Equal("OK", await c.ReadAsync());
+        await c.SendAsync("AUTH-PROOF " + new string('0', 64));
+        Assert.Equal("ERR " + WireWords.WrongToken, await c.ReadAsync());
+        Assert.Matches(Nonce, (await c.ReadAsync())!);
+        Assert.StartsWith("OK @p PONG 7 ", await NextAfterAsync(c, "@p PING 7"), StringComparison.Ordinal);
+        Assert.Null(await c.TryReadAsync(600));
+    }
+
+    /// <summary>A connection paired when it says HELLO — trusted by address, on a node that asks no token, or having proved before its
+    /// HELLO — hears the greeting STATE right after HELLO's OK, as it always has; plain AUTH from this machine greets right after its
+    /// "OK paired" as a proof does.</summary>
+    [Fact]
+    public async Task AConnectionPairedWhenItSaysHelloHearsStateRightAfterHello()
+    {
+        await using (var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: true)))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            await c.SendAsync("HELLO Stagewatch");
+            Assert.Equal("OK", await c.ReadAsync());
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+        }
+        await using (var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(token: "")))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            await c.SendAsync("HELLO Stagewatch");
+            Assert.Equal("OK", await c.ReadAsync());
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+        }
+        await using (var server = await StartAsync(new FakeEndpoint(), TestSettings.Make()))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            var nonce = (await c.ReadAsync())![6..];
+            await c.SendAsync("AUTH-PROOF " + Pairing.Proof(TestSettings.Token, nonce, ""));
+            Assert.Equal("OK paired", await c.ReadAsync());
+            await c.SendAsync("HELLO Stagewatch");
+            Assert.Equal("OK", await c.ReadAsync());
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+        }
+        await using (var server = await StartAsync(new FakeEndpoint(), TestSettings.Make(), new WireServerOptions { PlainAuthOnLoopback = true }))
+        {
+            await using var c = await LineClient.ConnectAsync(server.Port);
+            Assert.Matches(Nonce, (await c.ReadAsync())!);
+            await c.SendAsync("HELLO Stagewatch");
+            Assert.Equal("OK", await c.ReadAsync());
+            await c.SendAsync("@a AUTH " + TestSettings.Token);
+            Assert.Equal("OK @a paired", await c.ReadAsync());
+            Assert.StartsWith("STATE {\"v\":1,\"seq\":1,", await c.ReadAsync(), StringComparison.Ordinal);
+        }
     }
 
     [Fact]

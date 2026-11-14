@@ -25,7 +25,7 @@ pushes, `PING` clock exchange and pairing — one text frame per line. Three thi
 
 - The web's header token is not asked at the upgrade (a WebSocket client cannot always set one), so the line session itself gates the
   connection: until it proves the token (`NONCE`, then `AUTH-PROOF` — HMAC-SHA256 of the nonce and the HELLO name keyed by the token)
-  it is answered nothing but pairing, and its greeting `STATE` waits for `OK paired`. The address's wrong-token lockout and
+  it is answered nothing but pairing (its greeting `STATE` waits for `OK paired`, as an unpaired TCP connection's does). The address's wrong-token lockout and
   `RequireHttps` hold before the upgrade, and a wrong proof counts against the address like a wrong header token.
 - A web page from another site never reaches it: an upgrade whose `Origin` is not this node's own is refused (403) before it opens,
   since on a trusted address it would be paired at once. Controllers (Companion's module, scripts) send no `Origin`; pages the node
@@ -129,8 +129,9 @@ neither runs nor waits for a person; what it holds for a person goes to the node
 
 **The link.** It opens `/ws` with `playmap.lines.v1` on the node's web port (or wss, keeping the certificate's fingerprint on the first
 link and refusing another — a refusal's status and words included — and never falling back to plain TCP), says `HELLO Companion:<connection label> module=<version>` and answers a `NONCE` with `AUTH-PROOF`: the token
-is a Companion secret and never rides a line. Nothing the node says before the pairing is published: what it pushes then (the TCP
-wire's greeting `STATE`) is held, the latest of each, and taken when it pairs. A node whose web port has no line channel (an older node: its `/ws` takes no subprotocol, or the
+is a Companion secret and never rides a line. Nothing the node says before the pairing is published: anything it pushes then is
+held, the latest of each, and taken when it pairs (the node itself greets an unpaired session, on `/ws` and on TCP alike, only right
+after `OK paired`). A node whose web port has no line channel (an older node: its `/ws` takes no subprotocol, or the
 upgrade is answered 400, 401 or 404) is reached on the TCP wire. An upgrade the node refuses (a foreign `Origin` — the module sends none — a host name the node does not answer to, HTTPS
 required) shows the node's own words from the body. Every line carries `@c<n>`; replies are matched by it, never by order. `PING` every
 2 s is the watchdog and the clock (the round trip with the least delay of the last eight gives the node's offset). No line for 4 s is

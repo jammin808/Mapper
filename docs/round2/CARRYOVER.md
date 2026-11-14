@@ -3175,3 +3175,75 @@ Round 2 W1 notes:
     an output's picture could come from, any item, an output's source whatever its mode — which is right for a panic's release and
     too wide for a claim. `ShowingWords` (wp3-desk-map's hook, empty in this tree) will say what each output shows; when it lands
     the integrator may want one walk behind both it and `Drawn`.
+
+## Integrator notes from the round-2 fix batch (fix-wire-state-after-proof)
+
+- Done: on the TCP line wire a connection that has not paired when it says HELLO hears its greeting STATE only right after
+  "OK paired", never before (the owner's answer of 2026-11-14: "PlayMap changes: hold the STATE until the proof"; Stagewatch's
+  WHATS_NEXT finding "PlayMap's early STATE counted malformed"). Before, the HELLO case greeted every TCP session at once, paired or
+  not; only the web port's line channel waited. A PeerLink dialler discards and counts what it hears before its proof (Show Bus 1.3
+  §13.6.3), so every level-0 line-wire link to PlayMap that pairs by proof carried the malformed flag from its first moment though
+  it read every line whole, and a client that never proved heard the node's STATE and every later push of it. A link paired at
+  HELLO keeps its greeting there (Open says what that leaves).
+  - `src/PlayMap.Net/Wire/WireSession.cs`: the HELLO case asks `Paired` alone, no longer `_strict && Paired`: an unpaired session
+    sets `_greetOnPairing`, and `Greet()` — the one path the strict channel already had — says the greeting STATE right after
+    "OK paired" (a proof, or plain AUTH from this machine) and only then makes the session a STATE listener (`_wantsState`). A
+    session paired at HELLO (no token asked, an address the settings trust, loopback when the settings trust it, or a proof before
+    HELLO) is greeted right after HELLO's OK as before; the desk's NONCE after a trusted HELLO still follows the greeting. The
+    class comment states the rule for every channel.
+  - Later pushes: an unpaired TCP session was a STATE listener from HELLO on, so the push fan-out (`LineSessions.PushState`, which
+    pushes to every session whose `WantsState` holds) sent it every change before it paired — the same finding, held by the same
+    line: `_wantsState` stays false until `Greet()`. A wrong proof pairs nothing and greets nothing.
+  - Nothing else moves: no verb, word, catalogue row, STATE key or order of other replies. An unpaired TCP session's own `STATE`
+    query and `SUBSCRIBE STATE` are reads it asks for (WIRE.md's "queries are open") and are answered as before.
+- Every reader of the TCP wire in this tree still gets its STATE: the desk's `EngineLinkClient` (on this machine trusted, so greeted
+  at HELLO; elsewhere greeted after its proof's "OK paired", which `WireClient` takes beside the STATE line as any line); the
+  backup's `MirrorLink` and the sync member's `AnchorFollower` (each reads only the feed it subscribes to, `MIRROR …` or `ANCHOR …`
+  lines, and no STATE line, so when its greeting comes changes nothing it reads); the Companion module (it opens `/ws`, which already held the greeting; on its TCP fallback it holds anything heard
+  before the pairing, and its own fake node, `integrations/companion-module-playmap/test/fake-node.ts`, already greets an unpaired
+  session only after "OK paired", so its tests model the rule now kept). `PatternsLink` and the Stagewatch links read peers, not a
+  PlayMap. The assistant runs in the engine and reads no wire.
+- Tests (`tests/PlayMap.Net.Tests/WireServerTests.cs`, on the real TCP wire; helper `NextAfterAsync` reads the very next line):
+  - new `AnUnpairedTcpConnectionHearsItsGreetingStateOnlyRightAfterOkPaired`: NONCE, HELLO → OK and nothing within 600 ms; a change
+    pushed to a paired witness beside it (seq 2) reaches it not at all (its next line is its PING's PONG); AUTH-PROOF → "OK paired"
+    then exactly one greeting STATE, the node's STATE now (seq 2), then its PING's PONG and nothing more; from then a change is
+    pushed to it (seq 3).
+  - new `AWrongProofOnTcpHearsNoState`: HELLO, a wrong AUTH-PROOF → the refusal and its fresh NONCE, then its PING's PONG, no STATE.
+  - new `AConnectionPairedWhenItSaysHelloHearsStateRightAfterHello`: trusted loopback, a node with no token, a proof before HELLO:
+    STATE right after HELLO's OK; plain AUTH from this machine after an unpaired HELLO: "OK @a paired" then STATE.
+  - Existing tests unchanged and green: the TCP transcripts (`ThePatternsTranscriptReplaysExactly` reads STATE among the pushes
+    after pairing, as it always could), the strict channel's `Companion/LineWebSocketTests`, and the Engine suite's Fleet, Companion,
+    Host and Sync tests, `ContextLinkTests` and `StagewatchSinkTests`. No test elsewhere asserted the old order.
+  - With the HELLO case's `_strict &&` put back alone, all three new tests fail (built and run).
+- Files: the leave's — `src/PlayMap.Net/Wire/WireSession.cs`, `tests/PlayMap.Net.Tests/WireServerTests.cs`, the papers that word a
+  connection's life (`docs/WIRE.md` "A connection's life", steps 2 and 3; `docs/COMPANION.md`, the door and the link;
+  `docs/wire/companion.md`, the module's reads; `docs/round2/design/companion.md`, the handshake's step 4; `docs/SHOWBUS-NODE.md`,
+  §2's AI row and §5 item 2, which said 9941 sends STATE on HELLO) and this entry. `docs/round2/research/companion.md` ("`HELLO`
+  makes the session a STATE listener") is a dated research record, not the wire's description, and is left as it was.
+- Open:
+  - A session unpaired at HELLO that becomes paired without a proof — its address added to the trusted list, or the node's token
+    cleared, while it is connected — is never greeted (it was before, on TCP, from HELLO on), as the web port's channel never was:
+    it hears STATE when it asks (`STATE`, `SUBSCRIBE STATE`) or on its next connection. Greeting it from `Refresh` was weighed and
+    left: such a dialler is still in its handshake (no "OK paired" came), so §13.6.3 has it discard what it would hear.
+  - A desk on another machine whose token is missing or wrong (pairing NeedsToken or Refused) now draws no STATE from the node
+    until it pairs, where before it showed the node's state read-only from the greeting; its pairing light says why. Whether the
+    desk asks `STATE` while it waits for a token is the desk package's call.
+  - An unpaired TCP session's explicit `SUBSCRIBE STATE` still makes it a listener before it pairs (step 4's open queries). Whether
+    a subscription also waits for the proof on TCP, as on the web port, moves a verb's answer and is the owner's call.
+  - A dialler paired at HELLO — its address trusted, loopback when the settings trust it, or a node that asks no token — still
+    hears its greeting STATE right after HELLO's OK, as the batch keeps. A level-0 PeerLink dialler that says HELLO and then LINK
+    hears that STATE between HELLO's OK and LINK's ERR, while its handshake is still open, and may still discard and count it
+    (Stagewatch's PlayoutLink on the one-laptop topology over loopback). Holding that greeting too moves the paired-at-HELLO
+    order the desk and Patterns' Lines devices read, and is the owner's call.
+  - A session that paired and was greeted, then unpaired by a new token (`WireServer.UpdateSettings` → `Refresh`), keeps
+    `_wantsState` and goes on hearing STATE's pushes while unpaired, on TCP and on the web port alike; it predates this batch.
+    Holding it means dropping the listener when `Paired` turns false unless the client asked with `SUBSCRIBE STATE`, and re-arming
+    the greeting for a new proof; `Refresh` runs off the session's thread, so it is a change of its own, left for the wire's owner.
+  - Ask for the owner — comments outside this leave that now state the old order, each true only for a session paired at HELLO:
+    `src/PlayMap.Net/Wire/WireServer.cs` (the class summary, "HELLO makes a STATE listener"), `src/PlayMap.Net/Links/EngineLinkClient.cs`
+    (the class summary, "HELLO PlayMapDesk (which makes it a STATE listener)") and
+    `integrations/companion-module-playmap/src/link/session.ts` (the pending HELLO's comment, "its OK is read in the same tick as
+    the greeting STATE that follows it"). Suggested words: "HELLO makes a session that is paired a STATE listener; one that is not
+    becomes one at OK paired". Behaviour is right either way; left unedited for whoever owns each file.
+  - Seen while validating, not this batch's: the Net suite's three Chromium page tests fail on this machine before any PlayMap code
+    runs, as fix-desk-unconfirmed's entry says (`tests/e2e/phonescan/load.mjs`); the rest of the Net suite passes.
