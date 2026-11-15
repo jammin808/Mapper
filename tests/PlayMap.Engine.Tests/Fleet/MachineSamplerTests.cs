@@ -88,23 +88,24 @@ public sealed class MachineSamplerTests
     }
 
     /// <summary>A reading that stalls holds one tick: the ticks that come while it is held take no reading of their own (each returns
-    /// at once), and the next tick after it returns reads again.</summary>
+    /// at once, the five within the bound that is the test's point), and the next tick after it returns reads again. The ticks run on
+    /// threads of their own, so no bound waits for a pool worker.</summary>
     [Fact]
-    public async Task TicksWhileAReadingStallsTakeNoneOfTheirOwn()
+    public void TicksWhileAReadingStallsTakeNoneOfTheirOwn()
     {
         var time = new ManualTime();
-        var reader = new HeldReader();
+        using var reader = new HeldReader();
         using var sampler = new MachineSampler(reader, time);
         sampler.Start();
-        var first = Task.Run(() => time.Advance(TimeSpan.Zero));
-        await reader.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        var first = OwnThread.Start("first tick", () => time.Advance(TimeSpan.Zero));
+        Assert.True(reader.Entered.Wait(TimeSpan.FromSeconds(30)), "the first tick's reading never began");
 
         // Five ticks while the first reading is held.
-        await Task.Run(() => time.Advance(TimeSpan.FromSeconds(5))).WaitAsync(TimeSpan.FromSeconds(10));
+        OwnThread.Run("five ticks while a reading is held", TimeSpan.FromSeconds(10), () => time.Advance(TimeSpan.FromSeconds(5)));
         Assert.Equal(1, reader.Reads);
 
         reader.Release();
-        await first.WaitAsync(TimeSpan.FromSeconds(30));
+        first.Join(TimeSpan.FromSeconds(30));
         Assert.Equal(8000, sampler.Latest.MemFreeMb);
         time.Advance(TimeSpan.FromSeconds(1));
         Assert.Equal(2, reader.Reads);
@@ -120,7 +121,8 @@ public sealed class MachineSamplerTests
         private int _in;
         private int _most;
 
-        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Set once a read has begun.</summary>
+        public ManualResetEventSlim Entered { get; } = new(false);
 
         public int Reads
         {
@@ -148,7 +150,7 @@ public sealed class MachineSamplerTests
                 _in++;
                 _most = Math.Max(_most, _in);
             }
-            Entered.TrySetResult();
+            Entered.Set();
             _ = _go.Wait(TimeSpan.FromSeconds(60));
             lock (_gate)
                 _in--;
@@ -157,7 +159,11 @@ public sealed class MachineSamplerTests
 
         public void Release() => _go.Set();
 
-        public void Dispose() => _go.Dispose();
+        public void Dispose()
+        {
+            _go.Dispose();
+            Entered.Dispose();
+        }
     }
 
     private sealed class StepReader : IMachineReader

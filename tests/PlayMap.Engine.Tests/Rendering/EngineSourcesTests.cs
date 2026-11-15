@@ -11,6 +11,9 @@ namespace PlayMap.Engine.Tests.Rendering;
 /// disposed, a source that could not open is opened again later, and an idle playlist routes to black.</summary>
 public sealed class EngineSourcesTests
 {
+    /// <summary>Far longer than a dispose takes once the closes it waits for are let go.</summary>
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
     private sealed class OneFrame(string key) : VideoFrameLease
     {
         public override PixelLayout Layout => PixelLayout.Rgba8;
@@ -265,16 +268,17 @@ public sealed class EngineSourcesTests
         Assert.Null(sources.Acquire(SourceRef.Media("md_c"), 0));
 
         var closedWhenDisposeReturned = -1;
-        var disposing = Task.Run(() =>
+        // The dispose runs on a thread of its own, so the wait for it to be under way waits for no pool worker.
+        var disposing = OwnThread.Start("dispose", () =>
         {
             sources.Dispose();
             closedWhenDisposeReturned = media.Made.Count(m => m.Disposed);
         });
         // Held behind the gate: md_c's open and the two closes.
         Assert.True(await Host.Eventually.TrueAsync(() => work.Count == 3 && sources.Closing == 3), $"{work.Count} {sources.Closing}");
-        Assert.False(disposing.IsCompleted);
+        Assert.True(disposing.Running);
         gate.Set();
-        await disposing;
+        disposing.Join(Patience);
         work.CompleteAdding();
         worker.Join();
         Assert.Equal(3, media.Made.Count);

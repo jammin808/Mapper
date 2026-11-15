@@ -10,16 +10,16 @@ public sealed class ToolProbeTests
     /// that waits for the pipe cannot end within it however the machine is paced.</summary>
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
 
+    /// <summary>The probe runs on a thread of its own, so the patience counts the probe alone and never a wait for a pool worker.</summary>
     [Fact]
     public async Task AProbeEndsWithItsToolWhileAProcessItStartedHoldsItsOutput()
     {
         await using var holder = new PipeHolder();
         var (tool, args) = holder.Tool(Path.Combine(holder.Folder, "made"), "the-global-root");
-        var probe = Task.Run(() => ToolProbe.Run(tool, args, ToolProbe.Deadline));
-        var ended = await Task.WhenAny(probe, Task.Delay(Patience));
-        Assert.True(ReferenceEquals(ended, probe), "the probe was still waiting for the end of the tool's output");
+        var answer = OwnThread.Run("probe, still waiting for the end of the tool's output,", Patience,
+            () => ToolProbe.Run(tool, args, ToolProbe.Deadline));
         // What the tool said before it exited is behind the helper's hold of the pipe, so the probe says it has no answer.
-        Assert.Null(await probe);
+        Assert.Null(answer);
     }
 
     [Fact]

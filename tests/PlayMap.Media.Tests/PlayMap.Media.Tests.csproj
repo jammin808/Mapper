@@ -40,4 +40,9 @@
     <Compile Include="..\Shared\PipeHolder.cs" Link="Shared\PipeHolder.cs" />
   </ItemGroup>
 
+  <!-- A test's bounded work on a thread of its own, never the pool's, shared by the Engine, Media and Net suites. -->
+  <ItemGroup Label="fix-pool-bound-tests">
+    <Compile Include="..\Shared\OwnThread.cs" Link="Shared\OwnThread.cs" />
+  </ItemGroup>
+
 </Project>

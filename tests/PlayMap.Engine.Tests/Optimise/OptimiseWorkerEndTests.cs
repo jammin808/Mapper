@@ -273,11 +273,12 @@ public sealed class OptimiseWorkerEndTests
         };
 
         // The worker's end, as its reader reports it, is under way: its write is made, and it is held where it says so.
-        var heard = Task.Run(() => rig.Service.OnExited(1, expected: false));
+        // The reader's report runs on a thread of its own, so the patience for its start waits for no pool worker.
+        var heard = OwnThread.Start("worker's end", () => rig.Service.OnExited(1, expected: false));
         Assert.True(await inside.WaitAsync(Patience));
         await rig.Service.DisposeAsync().AsTask().WaitAsync(Patience);
         order.Enqueue("stopped");
-        await heard.WaitAsync(Patience);
+        heard.Join(Patience);
 
         // The stop waited for the end, then stopped the worker (asked, and killed once its grace passed), then returned.
         Assert.Equal(["waits", "heard", "killed", "stopped"], order.ToArray());

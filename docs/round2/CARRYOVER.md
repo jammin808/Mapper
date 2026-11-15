@@ -3473,7 +3473,8 @@ Round 2 W1 notes:
     `ASixteenChannelPersonalityInstalledByOneLineDrivesSurfaceOpacityThroughTheGate` (the console's refresh loop under
     `ControlRig.Until`). Ten tests in nine files of three suites: the owner's call whether one batch mends them file by file or a
     shared helper in `tests/Shared` (beside `Allocations.cs` and `LockWaitProbe.cs`) serves them all; the seven alike are each a
-    few lines.
+    few lines. Taken by fix-pool-bound-tests (the owner's "mend those ten too" of 2026-11-15), one shared helper for all ten: see
+    that entry.
   - Read and not counted: the fakes' accept, serve and send loops started with `Task.Run` (`tests/PlayMap.Devices.Tests/Simulators`,
     `Engine.Tests/Host/HostRig.cs`, `Net.Tests/LinkTests.cs`, `Net.Tests/StagewatchLinkTests.cs`,
     `Engine.Tests/Host/StagewatchIdentifyTests.cs`, `Engine.Tests/Phone/PhoneScanKit.cs` and `PhoneScanE2ETests.cs`,
@@ -3485,3 +3486,149 @@ Round 2 W1 notes:
     `Supervisor.Tests/Windows/SupervisorPipeTests`, whose answer is the client's reading of the server's identity at connect, not
     the squatter's delegate. The App, Render, Assistant and Platform suites have no `Task.Run`, `Task.Factory.StartNew`,
     `ThreadPool` queueing or `Parallel` loop in a test.
+
+## Integrator notes from the round-2 fix batch (fix-pool-bound-tests)
+
+- Done: the ten tests in nine files that fix-shownline-test-threads' Open list named, in the Engine, Media and Net suites, start the
+  work their deadlines wait on on a thread of their own, never a thread-pool worker (the owner's second answer of 2026-11-15 in
+  Stagewatch's `docs/ecosystem/owner-answers.md`: "mend those ten too"; test-only, no product line). One shared helper serves all
+  ten, as the Open list offered: `tests/Shared/OwnThread.cs` (`PlayMap.Tests.OwnThread`), named in the three suites' csprojs, each
+  of which names its shared files one by one (no wildcard), under the label `fix-pool-bound-tests`.
+  - The helper, in the form `Sharer` and `InTime` proved: `Start(what, work)` runs a piece of work on a background thread named
+    `what` and hands back the thread for the test to `Join(bound)`, which fails with "the {what} ran past its bound of {n} s" when
+    it has not ended and throws on the test's thread what the work threw (`ExceptionDispatchInfo`, read after the join); `Running`
+    says it has not ended. `Run(what, bound, work)` and `Run<T>` start and join at once, answering the work's result. For the
+    start-only cases, `StartAsync(what, work)` invokes an async delegate on a thread of its own and hands back the task it returns
+    (completed on that thread, never queued to the pool), for the test to wait on under its own deadline. Its comment states the
+    invariant, including that only the work's own thread is its own: an async delegate runs there up to its first await that has not
+    finished and continues where that await continues. No wait in it is a sleep; it owns no disposable. A thread that runs past its
+    bound is left to end with the test process, as `InTime`'s was. `GpuDeviceLockTests`' `Sharer` and `ShownLineTests`' `InTime`
+    keep their own helpers (outside this leave).
+  - What each bound is for, and what moved:
+    - `Fleet/MachineSamplerTests` `TicksWhileAReadingStallsTakeNoneOfTheirOwn`: the 10 s bound on the five ticks made while a
+      reading is held is the test's point (each such tick returns at once); the 30 s on the first tick's reading beginning and on
+      its end is patience. Both ticks run on threads of their own (`OwnThread.Run` under the 10 s, `OwnThread.Start` joined under
+      the 30 s), and the reader's `Entered` is a `ManualResetEventSlim` waited on under the 30 s where it was a
+      `TaskCompletionSource` whose asynchronous continuation (and `WaitAsync`'s) waited for a pool worker of its own. The test is
+      `void` now; every assertion stays (the reading began, one read while held, the latest sample, two reads after, never two at
+      once), and the reader is disposed with its event.
+    - `Optimise/OptimiseWorkerEndTests` `AStopWaitsForAWorkersEndBeingHeardBeforeItStopsTheWorker`: the 60 s Patience on the
+      worker's end being under way and on its end is patience (the test's point is the order: waits, heard, killed, stopped). The
+      reader's report (`OnExited`) runs on a thread of its own, joined under the Patience where it was awaited.
+    - `Rendering/FactsSignalTests` `StoppingWhileARunHoldsAndARaiseIsPendingEndsTheThread`: the stop's start (under
+      `OpsRig.Eventually`'s 10 s) is patience; its end within the 30 s Patience is the test's point (the stop must not wait on a
+      wake that never comes, so a stop that hangs is what the test exists to catch). The stop runs on a thread of its own, joined
+      under the Patience, so the bound stays on the stop's own work.
+    - `Rendering/EngineSourcesTests` `WhenDisposeReturnsEverySourceHasClosed`: the dispose's start under
+      `Host.Eventually.TrueAsync`'s 10 s is patience; the point is that every source has closed when dispose returns. The dispose
+      runs on a thread of its own; `Assert.False(disposing.IsCompleted)` reads `Assert.True(disposing.Running)`, and the end, an
+      unbounded await before, is joined under a 30 s Patience the class names now.
+    - `Video/NativeBuildTests` `ABuildEndsWithItsCompilerWhileAProcessItStartedHoldsItsPipes` and `Phone/ToolProbeTests`
+      `AProbeEndsWithItsToolWhileAProcessItStartedHoldsItsOutput`: the 60 s Patience is the test's point (the run ends with the
+      compiler or tool, never with the pipes its helper holds). The build and the probe run on a thread of their own under the
+      Patience (`OwnThread.Run`), where a `Task.Run` raced a `Task.Delay`; the words name the bound ("the build, still waiting for
+      the end of the compiler's pipes, ran past its bound of 60 s"), and the answer is asserted as before.
+    - `Companion/LineWebSocketTests.cs` `DeskIdentityTests.ANewTokenReachesASessionStillInItsFirstStretch`: the minute on
+      `Holding.Wait` is patience for the session's first stretch. `ServeAsync` starts on a thread of its own (`StartAsync`), whose
+      first stretch runs there up to the held read, which keeps that thread until it is released; `await serve` stays unbounded.
+    - The three async starts, `Phone/FolderCameraTests` `ATetheredFolderScansAProjectorAndAPhotoOfTheWrongPatternIsRefusedWithWords`
+      and `AManualFolderTakesTheNewestPictureOnScanNext`, and `Control/DmxPersonalityTests`
+      `ASixteenChannelPersonalityInstalledByOneLineDrivesSurfaceOpacityThroughTheGate`: each delegate starts on a thread of its own
+      (`StartAsync`), and what each proves is unchanged (the photographer and the person at the camera are the same delegates; the
+      console the same loop). What a thread of its own mends is only the start, which is exactly this much: the photographer's and
+      the person's first check of their condition in `OpsRig.Eventually`, and the console's first frame. Everything after a
+      delegate's first unfinished await still waits for a pool worker: in the tethered scan, `Eventually`'s 20 ms delays and so the
+      re-shot photo the scan waits for under its 5 s pattern timeout; in the manual scan, the delays, the dropped picture and each
+      SCAN NEXT (`rig.Run`) the scan waits for; at the console, every frame after the first, each behind its 50 ms delay, which
+      `ControlRig.Until` (10 s) waits on. No private scheduler or blocking wrapper hides it.
+  - The cause, reproduced without CI, once or more per suite: a scratch xunit project under tmpfs (outside the tree, removed) held a
+    test that invoked each of the ten by reflection from the suite's built assembly, copied from the unmended build at 46129380,
+    once as it is and once after starving the pool — 4,000 work items queued, each blocking on one gate that the test's end, or a
+    thread of its own 100 s after the start, opens, and a probe item queued behind them — on this four-core machine. Unstarved, all
+    ten passed. Starved, under the suites' own setting (xunit's conservative algorithm, the test body on a pool worker): Net's
+    `ANewTokenReachesASessionStillInItsFirstStretch` failed after 60 s with its own words, "the session never read past its first
+    lines" (its body blocks the worker whose own queue held the `Task.Run`), and `AProbeEndsWithItsTool…` with "the probe was still
+    waiting for the end of the tool's output" when the gate opened at 100 s (the 60 s delay's own continuation had waited for a pool
+    thread too); Media's `ABuildEndsWithItsCompiler…` passed in 0.6 s (a `Task.Run` from a pool worker goes to that worker's own
+    queue, which it runs once the body awaits). Starved under xunit's aggressive algorithm (the body on one of xunit's own threads,
+    so a `Task.Run` from it goes to the pool's global queue behind the 4,000): Media's failed at the gate's 100 s with "the build
+    was still waiting for the end of the compiler's pipes"; Engine's `StoppingWhileARunHolds…` after 10.6 s (`Eventually` never saw
+    the stop begin), `TicksWhileAReadingStalls…` after 30.9 s with `TimeoutException` (the first tick's reading never began) and
+    `WhenDisposeReturns…` after 11 s ("1 1": the dispose never began). The same three Engine tests starved under the conservative
+    algorithm, in a second scratch harness (an xunit 2.9.3 test under tmpfs that loads the suite's assembly through its own
+    dependency file, its body on a pool worker under xunit's `AsyncTestSyncContext`, the same 4,000 items and 100 s gate; the
+    unmended assembly built from an export of 46129380 under tmpfs): `TicksWhileAReadingStalls…` failed after 30.6 s with
+    `TimeoutException` (the first tick's `Task.Run` and its reader's asynchronous `Entered` continuation queue to the local queue of
+    the worker the body or the held read keeps), while `StoppingWhileARunHolds…` and `WhenDisposeReturns…` passed in 0.67 s (their
+    `Task.Run` goes to the body's worker's own queue, which it runs once the body awaits). Unstarved, all three passed in that
+    harness. Not reproduced that way, and said plainly: the two
+    FolderCamera tests (FFmpeg), `DmxPersonalityTests`' and `OptimiseWorkerEndTests`' do not fail on their bound under this
+    starvation (aggressive algorithm); each stalls until the gate opens and then passes (100 to 105 s; Optimise's at 240 s with the
+    gate held to 240 s), because the engine's own work in them — its rig, scan runner, control receivers and stop — runs on the pool
+    too, as do the waits on their deadlines. Whether CI met such a pool is not measured; no CI run is on record as failing one of
+    the ten.
+  - The mend, proved under the same starvation (the mended build copied the same way): five of the seven plain tests passed starved
+    under both algorithms — MachineSampler's in 0 to 1 ms, FactsSignal's in 4 to 14 ms, EngineSources' in 12 to 983 ms,
+    NativeBuild's in 0.5 to 0.6 s and ToolProbe's in 5.6 to 5.9 s (its tool takes 5 s unstarved) — the probe item not run; the Net
+    session test (aggressive algorithm) passed its minute and then waited in its unbounded `await serve` until the gate opened at
+    100 s (the session's end, after the held read is released, continues on the pool); in the second harness, under the
+    conservative algorithm that failed it unmended, the mended session test passed its minute the same way (the test passed, its
+    unbounded `await serve` ending when the gate opened at 100 s), and the mended `TicksWhileAReadingStalls…`,
+    `StoppingWhileARunHolds…` and `WhenDisposeReturns…` passed starved in 16 ms, 7 ms and 0.65 s, the probe item not run;
+    Optimise's and the three async ones stalled
+    the same way mended (aggressive algorithm). A slow path planted in a scratch copy of the mended tests, inside the bounded work
+    (a spin of 15 s after the five ticks; of 70 s after the build and after the probe), failed each on its bound with the helper's
+    words, "the five ticks while a reading is held ran past its bound of 10 s" at 10 s, "the build, still waiting for the end of the
+    compiler's pipes, ran past its bound of 60 s" and "the probe, still waiting for the end of the tool's output, ran past its bound
+    of 60 s" at 60 s; a fault planted at the same place failed each at once with the planted `InvalidOperationException`, not with a
+    timeout. A hang planted in a scratch copy of the mended `StoppingWhileARunHolds…` (the stop's own thread held 35 s after
+    `Dispose` returns), run unstarved in the second harness, failed after 30.0 s with "the stop ran past its bound of 30 s".
+  - Swept again in the three suites: no other test of the nine files hands its bounded work to the pool; one wait in them still
+    takes a pool worker for a continuation, `OptimiseWorkerEndTests` `AStepUnderWayAsTheStopBeginsHandsOutNoJobAndStartsNoWorker`
+    (in Open, with why it is left). Elsewhere,
+    `tests/PlayMap.Engine.Tests/VerbRowTests.cs` has one the earlier sweep missed (in Open); the rest are the fakes' loops, awaits
+    with no deadline and threads of their own the earlier entry listed, and product tasks the tests await (`BackupPullTests`,
+    `HostFetchStopTests`, `HealthFeedsTests`, the `Task.WhenAny` reads), whose awaits are the product's.
+- Tests: the touched classes 20 runs each in a loop, green — Engine's `MachineSamplerTests`, `OptimiseWorkerEndTests`,
+  `FactsSignalTests`, `EngineSourcesTests`, `FolderCameraTests` and `DmxPersonalityTests` (26 tests a run), Media's
+  `NativeBuildTests` (3), Net's `ToolProbeTests` and `DeskIdentityTests` (9). The whole Engine suite green in five parts that name
+  its 1,355 tests once (the folders Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 204 and 2 skipped, the phone
+  scan's two `BrowserFact`s that need `PLAYMAP_E2E=1`; Rendering to Wall, 498 and 4 skipped, `SupervisorStopTests`; and the root
+  namespace, 167; in the closing validate the root part failed once, on
+  `StagewatchSinkTests.OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`'s 403 case (`sink.Problem` read empty),
+  and passed whole on its rerun: the cause is the one fix-peerlink-core's entry records, the sink's own pull, every 50 ms on a real delay,
+  ending with `Problem = ""` between the offer's refusal and the test's read; it failed 1 run in 30 alone here, it is untouched by
+  this batch, and it stays that entry's open item), on a build made with `PLAYMAP_DXC_DIR` set (a first run of the shader tests on a build made without it failed for
+  want of `libdxcompiler.so` beside the worker, as the loop in `CLAUDE.md` says it would); the whole Media suite green (236, 4
+  skipped: the Direct3D 11, Spout and NDI runtime tests); the Net suite 328 passed and 1 skipped, and its three Chromium page tests
+  (`Phone/PageTests.InChromiumThePageJoinsWithTheTicket…`, `InChromiumTheNextProjectorsFirstLocateFrame…`,
+  `InChromiumACameraWithoutExposureControls…`) failed before any PlayMap code ran, at `tests/e2e/phonescan/page.mjs:12` (`chromium`
+  undefined), as fix-desk-unconfirmed's entry records — not counted green. The build carries no warning; the Core suite does not
+  compile the helper and was not run.
+- Files: `tests/Shared/OwnThread.cs` (new); `tests/PlayMap.Engine.Tests/PlayMap.Engine.Tests.csproj`,
+  `tests/PlayMap.Media.Tests/PlayMap.Media.Tests.csproj`, `tests/PlayMap.Net.Tests/PlayMap.Net.Tests.csproj` (the helper named);
+  `tests/PlayMap.Engine.Tests/Fleet/MachineSamplerTests.cs`, `Optimise/OptimiseWorkerEndTests.cs`, `Rendering/FactsSignalTests.cs`,
+  `Rendering/EngineSourcesTests.cs`, `Phone/FolderCameraTests.cs`, `Control/DmxPersonalityTests.cs`;
+  `tests/PlayMap.Media.Tests/Video/NativeBuildTests.cs`; `tests/PlayMap.Net.Tests/Phone/ToolProbeTests.cs`,
+  `Companion/LineWebSocketTests.cs`; this entry and the taken mark in fix-shownline-test-threads' Open list. No file under `src/`.
+- Open:
+  - `tests/PlayMap.Engine.Tests/VerbRowTests.cs`
+    `WorkALaneHandlerLeftRunningHandsOverThroughItsCallAfterTheAnswerStillFollowsTheLinesRow` (outside this leave): its `answered`
+    completion source runs its continuations asynchronously, so the `ContinueWith` that hands the work's row over through the call
+    is queued to the pool when the row is held, and the hold waits for it under `handed.Task.WaitAsync(TimeSpan.FromSeconds(30))`: a
+    pool starved for 30 s fails it however fast the work is. The mend is the file owner's (the hand-over run where the hold
+    completes `answered`, or on a thread of its own); not reproduced here.
+  - `tests/PlayMap.Engine.Tests/Optimise/OptimiseWorkerEndTests.cs`
+    `AStepUnderWayAsTheStopBeginsHandsOutNoJobAndStartsNoWorker` (the Theory, both legs): `await led.HoldNext().WaitAsync(Patience)`
+    waits on `HeldLed.HoldNext`'s completion source, made with `RunContinuationsAsynchronously`, so its completion queues the
+    test's continuation to the pool, the shape mended in `MachineSamplerTests`' `Entered`. Left as it is: the hold is set from the
+    optimise step's read of the view, and that step runs on the service's loop, itself started with `Task.Run`
+    (`src/PlayMap.Engine/Optimise/OptimiseService.cs`), so under a starved pool the step never reaches the hold and a waited event
+    in its place would mend nothing; the test stalls on the product's pool work, like the stop test of the same class.
+  - What still waits for the pool in the ten, by design of what they test: the three async delegates after their first unfinished
+    await, as above; the session's end in `ANewTokenReachesASessionStillInItsFirstStretch`; and in the four that stall
+    (`FolderCameraTests`' two, `DmxPersonalityTests`', `OptimiseWorkerEndTests`'), the engine's own pool work and the test's own
+    awaits. None of these is a deadline counting a test's pool start any more; a pool starved past their patience still fails them,
+    as it would any test of the engine's own async work.
+  - Whether `GpuDeviceLockTests`' `Sharer` and `ShownLineTests`' `InTime` move onto `OwnThread` (the Core suite would then name the
+    file) is the owner's call; this batch left them, outside its leave.

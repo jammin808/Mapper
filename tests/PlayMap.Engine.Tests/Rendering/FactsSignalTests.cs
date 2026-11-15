@@ -87,10 +87,11 @@ public sealed class FactsSignalTests
         Assert.True(entered.Wait(Patience));
         // A raise is pending (its release outstanding) when the stop comes: the stop must not wait on a wake that never comes.
         signal.Raise();
-        var stopping = Task.Run(signal.Dispose);
+        // The stop runs on a thread of its own, so neither its start nor its end waits for a pool worker.
+        var stopping = OwnThread.Start("stop", signal.Dispose);
         Assert.True(await OpsRig.Eventually(() => signal.IsStopping));
         release.Set();
-        await stopping.WaitAsync(Patience);
+        stopping.Join(Patience);
         Assert.Equal(1, Interlocked.Read(ref runs));
         signal.Raise();
         signal.Dispose();

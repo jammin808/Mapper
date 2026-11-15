@@ -104,7 +104,9 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
                 wrongDone = true;
                 var stale = last;
                 Drop(folder, ++shot, camera.RenderRaster(stale, (ulong)shot), camera.CameraWidth, camera.CameraHeight);
-                tether.Enqueue(Task.Run(async () =>
+                // The photographer starts on a thread of its own, so its first look for the refusal waits for no pool worker; the
+                // re-shot photo comes after its first unfinished await and continues where that await continues.
+                tether.Enqueue(OwnThread.StartAsync("photographer", async () =>
                 {
                     Assert.True(await OpsRig.Eventually(() => messages.Contains("photo 17 shows pattern 16: re-shoot"), 30_000), "the wrong photo was not refused");
                     Drop(folder, Interlocked.Increment(ref shot), camera.RenderRaster(now, (ulong)shot), camera.CameraWidth, camera.CameraHeight);
@@ -157,7 +159,10 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
             var rig = rigRef!;
             var (now, _) = rig.Display.Glass;
             var n = Interlocked.Increment(ref shot);
-            nexts.Enqueue(Task.Run(async () =>
+            // The person starts on a thread of its own, so their first look for the view's "then SCAN NEXT" waits for no pool
+            // worker; the dropped picture and SCAN NEXT come after their first unfinished await and continue where that await
+            // continues.
+            nexts.Enqueue(OwnThread.StartAsync("person at the camera", async () =>
             {
                 // The person sees the pattern, shoots, and presses Next once the picture is in the folder.
                 Assert.True(await OpsRig.Eventually(() => rig.Runner.View?.Message.EndsWith("then SCAN NEXT", StringComparison.Ordinal) == true));

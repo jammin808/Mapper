@@ -12,16 +12,16 @@ public sealed class NativeBuildTests
     /// run that waits for the pipes cannot end within it however the machine is paced.</summary>
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
 
+    /// <summary>The build runs on a thread of its own, so the patience counts the build alone and never a wait for a pool worker.</summary>
     [Fact]
     public async Task ABuildEndsWithItsCompilerWhileAProcessItStartedHoldsItsPipes()
     {
         await using var holder = new PipeHolder();
         var output = Path.Combine(holder.Folder, "made.bin");
         var (compiler, args) = holder.Tool(output, "built");
-        var run = Task.Run(() => NativeBuild.Run(compiler, args, output, "the test's output"));
-        var ended = await Task.WhenAny(run, Task.Delay(Patience));
-        Assert.True(ReferenceEquals(ended, run), "the build was still waiting for the end of the compiler's pipes");
-        Assert.Equal("", await run);
+        var words = OwnThread.Run("build, still waiting for the end of the compiler's pipes,", Patience,
+            () => NativeBuild.Run(compiler, args, output, "the test's output"));
+        Assert.Equal("", words);
         Assert.True(File.Exists(output));
     }
 

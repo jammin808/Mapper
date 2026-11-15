@@ -55,9 +55,10 @@ public sealed class DmxPersonalityTests
         channels[113] = 102;
         var packet = new byte[18 + 512];
         var n = ArtNet.WriteDmx(packet, 1, 3, channels);
-        // A console refreshes its universe (Art-Net 4: at least every 4 s; here every 50 ms).
+        // A console refreshes its universe (Art-Net 4: at least every 4 s; here every 50 ms). Its loop starts on a thread of its own,
+        // so its first frame never waits for a pool worker; each delay between frames continues where its await continues.
         using var refresh = new CancellationTokenSource();
-        var console = Task.Run(async () =>
+        var console = OwnThread.StartAsync("console", async () =>
         {
             byte sequence = 1;
             while (!refresh.IsCancellationRequested)

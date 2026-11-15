@@ -390,7 +390,9 @@ public sealed class DeskIdentityTests
         await using var sessions = new LineSessions(() => settings, endpoint, TestSettings.Wall(), new WireServerOptions { Port = 0 },
             Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, "t");
         await using var channel = new HeldChannel(["HELLO Companion:FOH", "AUTH " + TestSettings.Token]);
-        var serve = Task.Run(() => sessions.ServeAsync(channel, CancellationToken.None));
+        // The session's run starts on a thread of its own, so the minute counts its first stretch alone and never a wait for a pool
+        // worker; the held read keeps that thread until it is released.
+        var serve = OwnThread.StartAsync("session", () => sessions.ServeAsync(channel, CancellationToken.None));
         Assert.True(channel.Holding.Wait(TimeSpan.FromMinutes(1)), "the session never read past its first lines");
         Assert.True(endpoint.Hellos.Last().Item1.Paired);
 
