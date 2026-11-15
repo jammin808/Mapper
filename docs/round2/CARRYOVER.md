@@ -3356,3 +3356,54 @@ Round 2 W1 notes:
     with `unknown verb '<word>' — HELP lists the vocabulary`, and no catalogue row is LINK alone, so a connector reads it as level 0
     (13.6.8: an ERR to LINK whose words do not begin with LINK); the tests' fake answers "unknown word". An Engine test of it is
     worth having when PlayMap's LINK acceptor is built.
+
+## Integrator notes from the round-2 fix batch (fix-devicelock-test-thread)
+
+- Done: `GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound` runs its sharer on a thread of its own,
+  so its start waits on no thread-pool worker (the owner's third answer of 2026-11-14 in Stagewatch's
+  `docs/ecosystem/owner-answers.md`: the test may be mended so that taker runs on its own thread — "Yes"; test-only, no product
+  line). CI's run 473 (on cb9be004) was red on the Windows job there with "the sharer never waited for the holder (waits 1)"
+  after the test's ten-second Patience; neither the test nor `src/PlayMap.Core/Media/GpuDeviceLock.cs` had changed since the
+  green run 472, and it passed unchanged on run 474 (on 031c9a3d).
+  - The cause, read: `Waits` moves only in `Enter` and `TryEnter`, each counting before it blocks, and only when the lock's
+    `TryEnter()` finds it held by another thread. The holder is a dedicated thread that holds from before the bounded take until
+    `Release`, which the test calls only after the spin, and the sharer cannot be the holder's thread; the bounded take counted
+    the one wait the message shows. So `Waits` stays at 1 only if the sharer's delegate never reached its `Enter` within the ten
+    seconds. No product path leaves it there.
+  - The cause, reproduced without CI: a scratch xunit project (outside the tree, referencing the built `PlayMap.Core.dll`) held
+    lines 14-118 of the test file at HEAD byte for byte, run once as they are and once in a subclass whose constructor starved the
+    pool before the test body began — 4,000 work items queued, each blocking on one gate until the test's end, and a probe item
+    queued behind them — on this four-core machine. Unstarved, the test passed (28 ms). Starved, it failed after 10 s with the
+    same words, `the sharer never waited for the holder (waits 1)`; the pool had grown from 5 to 15 threads in those ten seconds,
+    every one holding a gate item, and the probe had not run. The same test with the mend, copied from the working file into the
+    same scratch project, passed under the same starvation (about 0.7 s, the probe again not run), ten runs out of ten. So the
+    failure matches, with the same words, the sharer's delegate not being given a pool thread within the Patience (reproduced);
+    the code reading proves only that the delegate never reached `Enter` in ten seconds, and CI's own starvation (on Windows,
+    1,668 tests, four cores) was not measured, so a pool thread picked up but not run by the system for ten seconds is not ruled
+    out, only unlikely; the mend removes the pool from the sharer's start whatever CI's cause was.
+  - The mend, in the file's own form (as `Holder` and `OnOtherThread` are written): a `Sharer` helper starts a background thread
+    named "device lock unbounded sharer" that takes the lock with `Enter`, marks that it took it, and lets go; what it throws is captured and
+    thrown on the test's thread (`ThrowIfFaulted`; `Join` joins under the Patience, then throws it). The spin, still a
+    `SpinWait.SpinUntil` under the Patience, also ends when the sharer has thrown, so a sharer that throws before it waits fails at
+    once with its own exception rather than after ten seconds as a missing wait. Every assertion stays: the sharer is seen to wait
+    while the holder holds (`Waits` grows), it has not taken the lock while the holder holds (now `Took`, set the moment it holds
+    the lock, where before `IsCompleted` was read after its exit), it has taken it once the holder let go (new, asserted after the
+    join), `Waits` grows by exactly one and `TimedOut` stays 1. The test no longer awaits (it is `void`), and no wait became a sleep.
+  - Swept: in this file the test was the only one whose deadline counted a pool delegate's start (the others use `Holder` and
+    `OnOtherThread`, dedicated threads, and `LockWaits.Prepare` in the lock's constructor uses one too). Elsewhere in the Core
+    suite, `Media/UploadArenaTests` awaits `Task.Run` work with no deadline (a starved pool slows it, never fails it) and
+    `Threading/ComputeTests` hands its holds to `Compute.Scheduler`, the compute threads of its own, with unbounded waits: neither
+    depends on the pool under a deadline. The ones that do are in Open.
+- Tests: `tests/PlayMap.Core.Tests/Media/GpuDeviceLockTests.cs` (the class's five tests): 50 runs of the class in a loop, green;
+  the whole Core suite green (1,668 passed). Scratch checks, outside the tree and removed: the unmended copy failed under the
+  starvation with CI's words; the mended copy passed under it ten times; a fault planted in the scratch copy's sharer, before its
+  take and after it, failed the test at once with the planted exception, not with a timeout.
+- Files: `tests/PlayMap.Core.Tests/Media/GpuDeviceLockTests.cs` and this entry. No file under `src/`.
+- Open:
+  - The same dependency outside this leave, each a `Task.Run` whose `WaitAsync(TimeSpan.FromSeconds(30))` counts the delegate's
+    start as well as its work, so a pool starved for 30 s fails it however fast the work is: in
+    `tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs`, `ALineOfBindingsCarryingBindingsIsWrittenDownInOnePassOverItsWords`,
+    `ALinesRiskIsReadInWorkTheLongestLineCannotRunAwayWith`, `AWordOfManySchemesIsReadInTimeAndPrivateWholePastTheBoundOnlyWithAPasssMark`
+    and `ALineOfBindingsCarryingAPrivateAddressIsWrittenDownInTime`. Not mended here (outside the leave); the same mend — the
+    work on a thread of its own, joined under the bound — is the file owner's.
+  - Not swept: the Net, Engine, App and other suites' thread tests; this batch read only the Core suite.

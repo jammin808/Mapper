@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using PlayMap.Core.Media;
 using PlayMap.Core.Time;
 using PlayMap.Tests;
@@ -48,6 +49,51 @@ public sealed class GpuDeviceLockTests
         }
     }
 
+    /// <summary>Another thread takes the lock as a sharer does (<see cref="GpuDeviceLock.Enter"/>, no bound) and lets go at once. It is a
+    /// thread of its own, never the pool's, so it starts however busy the pool is; what it threw reaches the test's thread at
+    /// <see cref="Join"/>.</summary>
+    private sealed class Sharer
+    {
+        private readonly Thread _thread;
+        private volatile bool _took;
+        private ExceptionDispatchInfo? _fault;
+
+        public Sharer(GpuDeviceLock deviceLock)
+        {
+            _thread = new Thread(() =>
+            {
+                try
+                {
+                    deviceLock.Enter();
+                    _took = true;
+                    deviceLock.Exit();
+                }
+                catch (Exception e)
+                {
+                    Volatile.Write(ref _fault, ExceptionDispatchInfo.Capture(e));
+                }
+            })
+            { IsBackground = true, Name = "device lock unbounded sharer" };
+            _thread.Start();
+        }
+
+        /// <summary>The sharer has held the lock.</summary>
+        public bool Took => _took;
+
+        /// <summary>The sharer threw.</summary>
+        public bool Faulted => Volatile.Read(ref _fault) is not null;
+
+        /// <summary>Throws on the test's thread what the sharer threw, if it threw.</summary>
+        public void ThrowIfFaulted() => Volatile.Read(ref _fault)?.Throw();
+
+        /// <summary>Waits for the sharer to finish, within the test's patience, and throws on the test's thread what it threw.</summary>
+        public void Join()
+        {
+            Assert.True(_thread.Join(Patience), "the sharer did not finish");
+            ThrowIfFaulted();
+        }
+    }
+
     /// <summary>Runs <paramref name="body"/> on a thread of its own and answers its result (the lock is the thread's, so a test that
     /// holds it never awaits: it would come back on another thread).</summary>
     private static bool OnOtherThread(Func<bool> body)
@@ -83,7 +129,7 @@ public sealed class GpuDeviceLockTests
     }
 
     [Fact]
-    public async Task ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound()
+    public void ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound()
     {
         var l = new GpuDeviceLock();
         using var holder = new Holder(l);
@@ -102,17 +148,16 @@ public sealed class GpuDeviceLockTests
 
         // A sharer's take has no bound: it waits, counted, while the holder holds, and gets the lock only once the holder lets go. The
         // holder lets go only once the sharer's own wait is counted (the bounded take above counted one already), so the sharer is
-        // seen to wait however late its thread runs.
+        // seen to wait however late its thread runs; it is a thread of its own, so its start waits on no pool worker.
         var waits = l.Waits;
-        var sharer = Task.Run(() =>
-        {
-            l.Enter();
-            l.Exit();
-        });
-        Assert.True(SpinWait.SpinUntil(() => l.Waits > waits, Patience), $"the sharer never waited for the holder (waits {l.Waits})");
-        Assert.False(sharer.IsCompleted, "the sharer took the lock while the holder held it");
+        var sharer = new Sharer(l);
+        _ = SpinWait.SpinUntil(() => l.Waits > waits || sharer.Faulted, Patience);
+        sharer.ThrowIfFaulted();
+        Assert.True(l.Waits > waits, $"the sharer never waited for the holder (waits {l.Waits})");
+        Assert.False(sharer.Took, "the sharer took the lock while the holder held it");
         holder.Release();
-        await sharer.WaitAsync(Patience);
+        sharer.Join();
+        Assert.True(sharer.Took, "the sharer never took the lock once the holder let go");
         Assert.Equal(waits + 1, l.Waits);
         Assert.Equal(1, l.TimedOut);
     }
