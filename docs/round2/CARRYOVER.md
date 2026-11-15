@@ -3405,5 +3405,83 @@ Round 2 W1 notes:
     `tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs`, `ALineOfBindingsCarryingBindingsIsWrittenDownInOnePassOverItsWords`,
     `ALinesRiskIsReadInWorkTheLongestLineCannotRunAwayWith`, `AWordOfManySchemesIsReadInTimeAndPrivateWholePastTheBoundOnlyWithAPasssMark`
     and `ALineOfBindingsCarryingAPrivateAddressIsWrittenDownInTime`. Not mended here (outside the leave); the same mend — the
-    work on a thread of its own, joined under the bound — is the file owner's.
-  - Not swept: the Net, Engine, App and other suites' thread tests; this batch read only the Core suite.
+    work on a thread of its own, joined under the bound — is the file owner's. Taken by fix-shownline-test-threads (the owner's
+    "Yes, mend the four ShownLineTests" of 2026-11-15): see that entry.
+  - Not swept: the Net, Engine, App and other suites' thread tests; this batch read only the Core suite. Swept by
+    fix-shownline-test-threads: what it found is that entry's Open list.
+
+## Integrator notes from the round-2 fix batch (fix-shownline-test-threads)
+
+- Done: the four tests of `tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs` that bound the longest line's work run that work on a
+  thread of its own, so their bound counts the work alone and never a wait for a thread-pool worker to start it (the owner's
+  answer M-PMX of 2026-11-15 in Stagewatch's `docs/ecosystem/owner-answers.md`: "Yes, mend the four ShownLineTests"; test-only,
+  no product line). The four: `ALineOfBindingsCarryingBindingsIsWrittenDownInOnePassOverItsWords`,
+  `ALinesRiskIsReadInWorkTheLongestLineCannotRunAwayWith`, `AWordOfManySchemesIsReadInTimeAndPrivateWholePastTheBoundOnlyWithAPasssMark`
+  and `ALineOfBindingsCarryingAPrivateAddressIsWrittenDownInTime`.
+  - What each bound is for: each reads a line as long as the wire reads (`WireGrammar.MaxLineBytes`, built by `Longest`) — bindings
+    carrying bindings, a line's risk, a word of many schemes, bindings carrying a private address — and the 30 s bound is the
+    test's point: a writing-down or a risk read that runs away on such a line is the defect they guard (the work takes 12 to 46 ms
+    here). Each started that work with `Task.Run` and bounded it with `.WaitAsync(TimeSpan.FromSeconds(30))`, so the bound counted
+    the delegate's wait for a pool worker as well as the work.
+  - The cause, reproduced without CI: a scratch xunit project (outside the tree, under tmpfs, referencing the built
+    `PlayMap.Core.dll`, xunit 2.9.3 and its VSTest adapter 2.8.2 as the suite uses) held the test file at HEAD byte for byte but
+    for `sealed`, run once as it is and once in a subclass whose constructor starved the pool before each test's body — 4,000 work
+    items queued, each blocking on one gate that a thread of its own opens 45 s after the test's start (or the test's end opens),
+    and a probe item queued behind them — on this four-core machine. Unstarved, the four passed (12 to 46 ms). Starved, under the
+    suite's own setting (no `xunit.runner.json`: xunit's default, conservative, algorithm), three of the four failed with
+    `System.TimeoutException : The operation has timed out.` after 30 s (one ended at 45 s, when the gate opened: its timeout's
+    own callback had waited for a pool thread too), the pool grown from 4 to 37, 83 and 113 threads with the probe not run; the
+    fourth, the first to run, passed in 77 ms. With `parallelAlgorithm` set to aggressive, all four failed the same way. A
+    thread probe this batch ran says a test body starts on a pool worker under the conservative algorithm and on one of xunit's
+    own threads under the aggressive one; why one of the four escaped under the conservative algorithm and three did not is not
+    established (a `Task.Run` from a pool worker going to that worker's own queue would have all four pass there, which the runs
+    do not bear out). What is measured: a starved pool fails these tests on their bound though their work takes milliseconds.
+    Whether CI's runs met such a pool has not been measured, and no CI run is on record as failing one of the four.
+  - The mend, in the file's own style: one private helper, `InTime`, runs the work on a background thread named "shown line
+    work", joins it within `Bound` (the 30 s the tests had, one constant now), fails with "the work ran past its bound of 30 s"
+    if it has not ended, and throws on the test's thread what the work threw (`ExceptionDispatchInfo`, read after the join). The
+    four tests call it where they awaited `Task.Run(...).WaitAsync(...)` and are `void` now; the work in each is the same
+    expression it was, and every assertion each test made stays. No wait became a sleep, and nothing reaches into
+    `GpuDeviceLockTests`' `Sharer` or a shared test utility.
+  - Swept: in this file the four were the only tests that bound pool work (the others are synchronous). The other suites are in
+    Open.
+- Tests: `tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs` (the class's 101 tests): 30 runs of the class in a loop, green; the
+  whole Core suite green (1,668 passed). Scratch checks, outside the tree and removed: the unmended copy failed under the
+  starvation as above; the mended copy (the working file, `sealed` dropped) passed under the same starvation under both
+  algorithms, each of the four in 15 to 68 ms with the probe not run; a slow path planted in the mended copy's `Parsed` (a 40 s
+  spin for a line past half the wire's length, so only the four's long lines) failed each of the four on its bound at 30 s with
+  "the work ran past its bound of 30 s"; a fault planted at the same place failed each at once (1 to 11 ms) with the planted
+  `InvalidOperationException`, not with a timeout.
+- Files: `tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs` and this entry. No file under `src/`.
+- Open:
+  - The same shape outside this leave — a test that hands work to the thread pool and bounds its start or its end with a deadline
+    a starved pool's recovery outruns. Seven are the plain shape, mended the same way (the work on a thread of its own, joined
+    under the bound): `tests/PlayMap.Engine.Tests/Fleet/MachineSamplerTests.cs` `TicksWhileAReadingStallsTakeNoneOfTheirOwn`
+    (two `Task.Run`s, bounded at 30 s and at 10 s); `tests/PlayMap.Engine.Tests/Optimise/OptimiseWorkerEndTests.cs`
+    `AStopWaitsForAWorkersEndBeingHeardBeforeItStopsTheWorker` (`heard`, 60 s); `tests/PlayMap.Engine.Tests/Rendering/FactsSignalTests.cs`
+    `StoppingWhileARunHoldsAndARaiseIsPendingEndsTheThread` (`stopping`: its start under `OpsRig.Eventually`'s 10 s, its end 30 s);
+    `tests/PlayMap.Engine.Tests/Rendering/EngineSourcesTests.cs` `WhenDisposeReturnsEverySourceHasClosed` (`disposing`, its start
+    under `Host.Eventually.TrueAsync`'s 10 s); `tests/PlayMap.Media.Tests/Video/NativeBuildTests.cs`
+    `ABuildEndsWithItsCompilerWhileAProcessItStartedHoldsItsPipes` and `tests/PlayMap.Net.Tests/Phone/ToolProbeTests.cs`
+    `AProbeEndsWithItsToolWhileAProcessItStartedHoldsItsOutput` (each `Task.WhenAny` with a 60 s `Task.Delay`);
+    `tests/PlayMap.Net.Tests/Companion/LineWebSocketTests.cs` `ANewTokenReachesASessionStillInItsFirstStretch` (`serve`, its start
+    under `Holding.Wait` of one minute). Three more start an async delegate on the pool whose own awaits continue on the pool, so a
+    thread of its own mends only their start: `tests/PlayMap.Engine.Tests/Phone/FolderCameraTests.cs`
+    `ATetheredFolderScansAProjectorAndAPhotoOfTheWrongPatternIsRefusedWithWords` (the re-shot photo the scan waits for under its
+    5 s pattern timeout) and `AManualFolderTakesTheNewestPictureOnScanNext` (each SCAN NEXT the scan waits for), and
+    `tests/PlayMap.Engine.Tests/Control/DmxPersonalityTests.cs`
+    `ASixteenChannelPersonalityInstalledByOneLineDrivesSurfaceOpacityThroughTheGate` (the console's refresh loop under
+    `ControlRig.Until`). Ten tests in nine files of three suites: the owner's call whether one batch mends them file by file or a
+    shared helper in `tests/Shared` (beside `Allocations.cs` and `LockWaitProbe.cs`) serves them all; the seven alike are each a
+    few lines.
+  - Read and not counted: the fakes' accept, serve and send loops started with `Task.Run` (`tests/PlayMap.Devices.Tests/Simulators`,
+    `Engine.Tests/Host/HostRig.cs`, `Net.Tests/LinkTests.cs`, `Net.Tests/StagewatchLinkTests.cs`,
+    `Engine.Tests/Host/StagewatchIdentifyTests.cs`, `Engine.Tests/Phone/PhoneScanKit.cs` and `PhoneScanE2ETests.cs`,
+    `Engine.Tests/Wall/ResolveCameraTests.cs`' phone, `Vision.Tests/ModelStoreTests.cs`' server), whose socket awaits continue on
+    the pool whatever thread starts them; awaits with no deadline (`Core.Tests/Media/UploadArenaTests`,
+    `Engine.Tests/Spine/IndexContributorTests`, `Engine.Tests/Show/PreflightTests`, `Engine.Tests/Fleet/PromoteTests`' sampler,
+    `Supervisor.Tests/Windows/SupervisorStopTests`); work on threads of its own (`Engine.Tests/Rendering/DeviceLockHostTests`' and
+    `Engine.Tests/Host/SettingsGateTests`' `LongRunning` tasks, `Core.Tests/Threading/ComputeTests`' `Compute.Scheduler`); and
+    `Supervisor.Tests/Windows/SupervisorPipeTests`, whose answer is the client's reading of the server's identity at connect, not
+    the squatter's delegate. The App, Render, Assistant and Platform suites have no `Task.Run`, `Task.Factory.StartNew`,
+    `ThreadPool` queueing or `Parallel` loop in a test.

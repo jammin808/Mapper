@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text;
 using PlayMap.Core.Media;
 using PlayMap.Core.Wire;
@@ -29,16 +30,44 @@ public sealed class ShownLineTests
         return sb.Append(end).ToString();
     }
 
+    /// <summary>What the longest line's work is given: a read or a writing-down that runs past it has run away.</summary>
+    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
+
+    /// <summary>Answers what <paramref name="work"/> answered, done on a thread of its own and joined within <see cref="Bound"/>. The
+    /// thread is never the pool's, so the bound holds the work alone and no wait for a pool worker to start it: a busy pool cannot fail
+    /// it, a run-away read still does. What the work threw is thrown on the test's thread; a thread that runs past the bound is left to
+    /// end with the test process, as a managed thread cannot be stopped safely.</summary>
+    private static T InTime<T>(Func<T> work)
+    {
+        var result = default(T);
+        ExceptionDispatchInfo? fault = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                result = work();
+            }
+            catch (Exception e)
+            {
+                fault = ExceptionDispatchInfo.Capture(e);
+            }
+        })
+        { IsBackground = true, Name = "shown line work" };
+        thread.Start();
+        Assert.True(thread.Join(Bound), $"the work ran past its bound of {Bound.TotalSeconds:0} s");
+        fault?.Throw();
+        return result!;
+    }
+
     [Fact]
-    public async Task ALineOfBindingsCarryingBindingsIsWrittenDownInOnePassOverItsWords()
+    public void ALineOfBindingsCarryingBindingsIsWrittenDownInOnePassOverItsWords()
     {
         // Each TO of a binding starts a line it may carry, and each of those may carry the rest again: written down, every such start is
         // read once, so the longest line the wire reads is shown at once, with its secret kept back however deep it rides.
         var plain = Longest("BIND ADD OSC /x TO ", "PLAYLIST GO pl0a1b2c3d");
         var keyed = Longest("BIND ADD OSC /x TO ", "LINK PATTERNS 10.0.0.5 " + Token);
         var learned = Longest("BIND LEARN ", "AUTH " + Token);
-        var shown = await Task.Run(() => (VerbCatalog.Redacted(Parsed(plain)), VerbCatalog.Redacted(Parsed(keyed)), VerbCatalog.Redacted(Parsed(learned))))
-            .WaitAsync(TimeSpan.FromSeconds(30));
+        var shown = InTime(() => (VerbCatalog.Redacted(Parsed(plain)), VerbCatalog.Redacted(Parsed(keyed)), VerbCatalog.Redacted(Parsed(learned))));
         Assert.Equal(plain, shown.Item1);
         Assert.EndsWith("LINK PATTERNS 10.0.0.5 " + VerbCatalog.SecretMarker, shown.Item2, StringComparison.Ordinal);
         Assert.DoesNotContain(Token, shown.Item2, StringComparison.Ordinal);
@@ -47,12 +76,12 @@ public sealed class ShownLineTests
     }
 
     [Fact]
-    public async Task ALinesRiskIsReadInWorkTheLongestLineCannotRunAwayWith()
+    public void ALinesRiskIsReadInWorkTheLongestLineCannotRunAwayWith()
     {
         // The risk of a line carrying lines is the highest of every line it could be read to carry; past what is worth reading, a line is
         // high (it then waits for a person), never read on and on.
         var plain = Longest("BIND ADD OSC /x TO ", "PLAYLIST GO pl0a1b2c3d");
-        var risk = await Task.Run(() => VerbCatalog.RiskOf(Parsed(plain))).WaitAsync(TimeSpan.FromSeconds(30));
+        var risk = InTime(() => VerbCatalog.RiskOf(Parsed(plain)));
         Assert.Equal(VerbRisk.High, risk);
         // A binding of an ordinary depth keeps its carried line's risk.
         Assert.Equal(VerbRisk.Review, VerbCatalog.RiskOf(Parsed("BIND ADD OSC /a TO BIND ADD OSC /b TO SET sf0a0b0c01 opacity *")));
@@ -249,7 +278,7 @@ public sealed class ShownLineTests
     }
 
     [Fact]
-    public async Task AWordOfManySchemesIsReadInTimeAndPrivateWholePastTheBoundOnlyWithAPasssMark()
+    public void AWordOfManySchemesIsReadInTimeAndPrivateWholePastTheBoundOnlyWithAPasssMark()
     {
         // Each scheme's address runs to its token's end, so a token is read for at most MaxSchemesInToken of them; past that, a token that
         // bears a pass's mark (an @, a window's /w/, a pass word before an =) is private whole, unread, and one bearing none is a word.
@@ -262,16 +291,16 @@ public sealed class ShownLineTests
 
         var marked = "MEDIA IMPORT " + Longest("a://", "b/x@h")[13..];
         var plain = "MEDIA IMPORT " + Longest("a://", "b/x.h")[13..];
-        var shown = await Task.Run(() => (VerbCatalog.Redacted(Parsed(marked)), VerbCatalog.Redacted(Parsed(plain)))).WaitAsync(TimeSpan.FromSeconds(30));
+        var shown = InTime(() => (VerbCatalog.Redacted(Parsed(marked)), VerbCatalog.Redacted(Parsed(plain))));
         Assert.Equal("MEDIA IMPORT \"" + PrivateAddress.Marker + "\"", shown.Item1);
         Assert.Equal(plain, shown.Item2);
     }
 
     [Fact]
-    public async Task ALineOfBindingsCarryingAPrivateAddressIsWrittenDownInTime()
+    public void ALineOfBindingsCarryingAPrivateAddressIsWrittenDownInTime()
     {
         var keyed = Longest("BIND ADD OSC /x TO ", "MEDIA IMPORT https://10.0.0.5:9924/w/" + Window);
-        var shown = await Task.Run(() => VerbCatalog.Redacted(Parsed(keyed))).WaitAsync(TimeSpan.FromSeconds(30));
+        var shown = InTime(() => VerbCatalog.Redacted(Parsed(keyed)));
         Assert.EndsWith("MEDIA IMPORT \"" + PrivateAddress.Marker + "\"", shown, StringComparison.Ordinal);
         Assert.DoesNotContain(Window, shown, StringComparison.Ordinal);
     }
