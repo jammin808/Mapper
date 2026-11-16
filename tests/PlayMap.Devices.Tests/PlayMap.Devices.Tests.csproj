@@ -28,4 +28,10 @@
     <Compile Include="..\Shared\ManualTime.cs" Link="Shared\ManualTime.cs" />
   </ItemGroup>
 
+  <!-- The scheduling probe: a row every 50 ms of this host's wake overshoot and pool dispatch latency, only where CI sets
+       PLAYMAP_SCHEDULING_PROBE=1. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\SchedulingProbe.cs" Link="Shared\SchedulingProbe.cs" />
+  </ItemGroup>
+
 </Project>

@@ -3851,3 +3851,123 @@ Round 2 W1 notes:
     pool worker, so the test's wake-up is queued to the held worker's own queue: the shape mended here. That item left it because
     under a starved pool the step never reaches the hold; under a pool that never goes idle it does, so the same mend (an event
     set in `View()` before the wait, seen with `OwnThread.WaitAsync`) would answer that case. Read, not run here.
+
+## Integrator notes from the round-2 fix batch (fix-ci-windows-bounds)
+
+- Done: the Windows job is bounded, each test project's `dotnet test` on it runs under a deadline the step outlives, the hang
+  guard's Windows dump path has a proof run on demand, and every test host on both jobs measures the machine it runs on (the
+  owner's second answer of 2026-11-16, "PlayMap's Windows job and what it showed", item 1, in Stagewatch's
+  `docs/ecosystem/owner-answers.md`: the batch fix-ci-windows-bounds; workflow, tools and test-only files, no file under `src/`).
+  CI's run 479 (on cf576ffc) held its Windows test step open 85 minutes on its first attempt, cancelled with no log anywhere (the
+  job's log answered 404); its re-run took the step's normal 14 minutes and was red on `FolderCameraTests` (fix-foldercamera-cue-words'
+  item). PlayMap's Windows job has been red or hung on five of its last six runs, each on a different test.
+  - The limit: `timeout-minutes: 60` on the windows job. Its whole run is under 25 minutes: 23 min 36 s in run 478 (the test step
+    17 min 4 s), 19 min 24 s in run 475 (13 min 4 s), 19 min 50 s in run 479's second attempt (14 min 21 s, the publish steps
+    skipped after its red).
+  - The deadlines (`tools/ci-tests.ps1`): the Test step is now `./tools/ci-tests.ps1 -Suites`, the loop it held moved there whole.
+    Each project's `dotnet test` is started as a process of its own (`Invoke-DotnetTest`); one that ends inside its deadline is
+    judged as before (its exit code, then its `.trx`, `<name>(no results)` without one, the failed tests listed from the results at
+    the log's end); one still running at its deadline has its process tree printed, is stopped whole (`Kill(entireProcessTree)`,
+    then any process of the printed tree still running with the same start, never a reused id) and is failed as
+    `<name>(deadline)`, and the next project runs. Each project's start and end (UTC, seconds, exit code) are printed. The deadline
+    is three times the project's longest normal run on windows-2025, rounded up to five minutes, never under a 10-minute floor (the
+    blame collector's 5-minute hang timeout, then 5 minutes for its dump and the host's end, so blame always has its turn first).
+    The numbers read: Engine 10 min 10 s (run 478) and 8 min 30 s (run 479's second attempt), so 30 minutes; App 1 min 46 s at
+    most, Core 1 min 31 s, Render 1 min 29 s, Net 55 s, Media 29 s, Platform.Windows 15 s, Supervisor 11 s, the rest under 5 s, so
+    the floor. The Direct3D 12 leg (`tools/ci-d3d12.ps1 -Leg`, its projects 2 to 3 s each) dot-sources the script and runs each
+    project's `dotnet test` under the floor the same way. A deadline run out on Engine still ends the job inside its limit
+    (normal 24 minutes, less Engine's 10, plus 30); several projects run out together (Engine's 30 and two others' 10 on top of the
+    normal run) end at the job's limit instead, before the failed list and the summary at the log's end, with each project's start
+    and end and each deadline's error line already in the log and the `always()` uploads run on the cancellation.
+  - The process tree is printed by process id, parent id, name and start time, never by command line: the suites start node with
+    a phone page's join ticket among its arguments (`tests/PlayMap.Net.Tests/Phone/PageTests.cs`' `page.mjs`,
+    `tests/PlayMap.Engine.Tests/Phone/PhoneScanE2ETests.cs`' `loop.mjs` with the page's address), so a command line in this job
+    can carry a secret.
+  - The proof (`hangproof`, a boolean `workflow_dispatch` input beside `d3d12`): a job of its own, `hangproof` on windows-2025
+    with a 30-minute limit, in place of every other (the test, windows and installer jobs are skipped when it is given; given with
+    `d3d12`, its step refuses with "say one"). It builds `tools/hang-probe` (`PlayMap.HangProbe`, in no solution and met by no `*.csproj` search
+    of the tree: its project file is kept as `PlayMap.HangProbe.csproj.in`, which the step copies with `NeverEndsTests.cs` to
+    `$RUNNER_TEMP/hang-probe` as `PlayMap.HangProbe.csproj` and builds there, where the tree's `Directory.Build.props` does not
+    reach, so the file names `net10.0` and its settings itself; `ModuleRuleTests.TheSolutionBuildsEveryProjectAndNoInstallerProject`
+    holds every `*.csproj` under `src/`, `tests/` and `tools/` to `PlayMap.sln`, and the probe in the solution would put a test
+    that never ends into every build's test run), whose one test waits on an event nobody sets, and runs it under `--blame-hang --blame-hang-timeout 1m
+    --blame-hang-dump-type mini` twice, with `VSTEST_DUMP_FORCENETDUMP=1` and without, each under a 6-minute deadline of its own.
+    For each leg the log and the summary say whether blame ended the host and after how long, `dotnet test`'s exit code, each hang
+    dump's name and size, and whether the pinned dotnet-dump (the stacks step's package and hash) reads a stack naming the test's
+    method from it (each dump's `clrstack -all` is printed; when dotnet-dump answers non-zero its first line is in the summary's
+    cell, so a tool that could not start is not read as an unreadable dump); a leg the deadline ended prints its process tree. The step fails when
+    a leg's host outlived blame or the test that never ends passed. It was run on Linux here once, outside CI: blame ended the host
+    at 60 s and wrote a 19 MB hang dump. The workflow's `VSTEST_DUMP_FORCENETDUMP=1` is unchanged: the proof decides it.
+  - The measurement (`tests/Shared/SchedulingProbe.cs`, named in all twelve test projects): a module initializer starts it only when
+    `PLAYMAP_SCHEDULING_PROBE` is `1` (absent or empty, nothing starts; any other word is refused and the host does not load). One
+    background thread at normal priority writes a row every 50 ms to `tests/<project>/TestResults/<assembly>-<start>-<pid>.latency.csv`
+    (the project found as the nearest folder above the host holding `<assembly>.csproj`; none refuses): the UTC time; the wake
+    overshoot past a 10 ms timed wait on an event; the pool dispatch latency of the one work item it keeps queued (queued again only
+    once it has started; while it has not, the time since it was queued, marked pending); `ThreadPool.ThreadCount` and
+    `PendingWorkItemCount`. Each row is formatted culture-invariant into one reused buffer and written straight to the file at its
+    offset (`RandomAccess.Write`), so a killed host keeps every row it wrote. The fences it could meet were read: every allocation
+    fence counts the measuring thread's own bytes (`Allocations` and `EnginePidRecordTests` read `GetAllocatedBytesForCurrentThread`;
+    `RenderHost`'s frame path its render thread's), so another thread's bytes cannot reach them, and the probe allocates nothing per
+    row anyway (a scratch console run outside the tree: 1,000 bytes in the whole process across 61 rows and the same 1,000 across
+    182, none per row); no test counts the process's threads or handles or the pool's (`HostNetworkTests` only prints the pool's
+    counts in a failure's words). Both test jobs set the variable on their suites' step alone and upload the files as
+    `scheduling-probe-linux` (the control) and `scheduling-probe-windows`; a suites step that ran and left none fails its upload.
+  - What a reading would mean, read around the timestamps of the reds (GpuDeviceLock, run 473; StagewatchLink, 476; BackupMirror,
+    477; FolderCamera, 479), each against its own job's floor (on Windows, where no process has raised the timer's resolution, a 10 ms wait ends on the
+    next 15.6 ms tick, so its normal overshoot is anywhere up to one tick; on Linux it was 0.09 ms at the median on this bench):
+    - Pool dispatch spiking to hundreds of milliseconds or more while the wake overshoot stays near its floor: a pool held or busy
+      is the shared cause, the pool-free mends were the right family, and any pool-bound deadline left is next.
+    - Wake overshoot spiking too, on Windows and not on Linux: the 4-vCPU runner is oversubscribed by parallel collections, a
+      measured cause the owner may govern (xUnit's `maxParallelThreads`, say), which would also say why rare races surface there.
+    - Both near their floors around the reds: the reds are separate test-logic defects, each read on its own, and no governor is
+      warranted.
+    - No governor, parallelism setting or pool setting follows without a reading.
+- Tests: `SchedulingProbeTests` (Core, three): off without the variable (no folder asked for or made, this host's own probe
+  follows the variable) and every other word refused; on, a header and rows whose UTC times rise and whose six columns parse
+  invariantly; a host's rows go to the TestResults of the project that built it, and a host with no project above it is refused.
+  The validate, after the review's fold-in, on the 10.0.404 SDK: the build whole (no warning, no error; its analysis reported
+  nothing in any file); the probe project built as its step builds it (its two files copied to a folder outside the tree, the
+  `.csproj.in` as `PlayMap.HangProbe.csproj`, then `dotnet build -c Release` there: no warning, no error). With the variable
+  unset: Core whole (1,671 passed), Net whole (330 passed, 1 skipped; its three Chromium page tests failed before any PlayMap code
+  ran, `chromium.launch` on an undefined module, as fix-desk-unconfirmed's entry records, not counted green), and Engine whole in
+  four parts that together name every test once (Host, Spine and Phone: 256 passed, 6 skipped, `ModuleRuleTests` among them
+  green with the probe's `.csproj.in`; Fleet, Facade, Rendering and Show: 309; Sync, Align, Wall, VideoIo, Machine, Control and
+  Companion: 314; the rest: 470), and no file written. With it set: Core whole (1,671 passed; its host wrote 1,765 rows, times
+  rising: wake overshoot p50 0.09 ms, p99 3.9 ms, max 36 ms; pool dispatch p50 0.85 ms, p99 2.7 s, max 3.5 s, 187 rows pending,
+  up to 8 pool threads and 133 queued items: Core's own tests hold the pool, which the probe sees and does not cause), Net whole
+  (the same 330 and 1 skipped, the same three Chromium tests not counted; 1,044 rows, overshoot p99 0.3 ms), the classes that
+  fence allocations, threads or handles in Engine (with `HostNetworkTests`, 58), Media (52) and Render (114), all green, and the
+  other seven projects whole, each host loading and writing its file: App (259; three files, two from hosts of under a second
+  beside its test host), Assistant (102), Devices (112), Supervisor (95, 33 skipped), Vision (61), Platform.Windows (88, 8
+  skipped) and Render.D3D12 (41, 1 skipped), green; every file's times rise, and no overshoot on this 4-core bench passed 228 ms
+  (App's), most hosts' p99 under 5 ms. The workflow parsed as YAML; each job's `if` and each new step's read against them. There
+  is no PowerShell and no actionlint on this bench: `tools/ci-tests.ps1` and the `tools/ci-d3d12.ps1` change were read line by
+  line twice, not run; the push's own CI run is their proof, and the dispatched `hangproof` run the proof's.
+- Files: `.github/workflows/build.yml`; `tools/ci-tests.ps1` (new); `tools/ci-d3d12.ps1` (the leg's `dotnet test` through the
+  deadline); `tools/hang-probe/PlayMap.HangProbe.csproj.in` and `NeverEndsTests.cs` (new); `tests/Shared/SchedulingProbe.cs` (new);
+  `tests/PlayMap.Core.Tests/Threading/SchedulingProbeTests.cs` (new); the twelve `tests/*/*.csproj`, each naming the shared file;
+  `README.md` (Build: the Windows job's limit and deadlines, the `hangproof` run, the probe); `docs/ROADMAP.md` (the CI line on
+  what stops a hung host); this entry. No file under `src/`.
+- Open:
+  - Run 479's first attempt (85 minutes) stays unexplained: no log was read (404). The best-supported suspect is the guard's own
+    dump path on Windows (`VSTEST_DUMP_FORCENETDUMP=1`: blame fired and the dump or the kill after it never returned); a wait
+    outside blame's reach (a child holding the host's output pipe, a host hung at exit) or a hang before any host started are not
+    ruled out. The deadline ends a `dotnet test` that does not return, with its tree printed, and the next such run names where; a
+    wait after `dotnet test` has returned (a child still holding the step's output pipe) is ended only by the job's 60-minute
+    limit, with no tree printed.
+  - What the dispatched proof will decide: blame ends the host and the dump reads with the variable, it stays; it ends the host
+    only without it, or the dump with it is never written or never read, the variable goes (a change to the windows job's `env`,
+    the papers' words with it, a batch of its own); neither leg ends, blame's Windows path is not a guard and the deadlines are.
+    The orchestrator dispatches it once this batch's push is green. It runs as a job of its own on an idle runner, not after the
+    windows job's build and suites and without that job's other `env` (only the variable under test is set or cleared per leg), so
+    its reading is of blame's Windows path on a quiet machine; the decision says so.
+  - What the probe's first files will be read for: the four reds' timestamps against both columns, Windows against the Linux
+    control, each against its floor, as above; and whether any host's file stops early (a host that ended or hung).
+  - The other jobs' limits, not named by the owner, left without one: the Linux `test` job (18 min in run 478, 17 min 50 s in run
+    475) and the `installer` job (16 min 31 s in run 478, 16 min 12 s in run 475). A 60-minute limit on each would bound them the
+    same way.
+  - The Linux Test step's deadline per project: its loop still has only blame's guard (Engine there about 8 minutes); the same
+    `Invoke-DotnetTest` cannot list a process tree on Linux (`Get-CimInstance Win32_Process` is Windows-only): a bash form with
+    `timeout --kill-after` and a `ps -o pid,ppid,comm --ppid` walk would be its design.
+  - Whether the runner waits for a step's output pipe after the step's own process ends (a grandchild holding it) is not read;
+    the deadline waits for the `dotnet test` process alone, not its pipes.

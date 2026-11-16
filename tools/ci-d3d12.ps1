@@ -9,7 +9,9 @@
 #                              12 tests assert the pinned WARP made their devices.
 #   -Leg [-Filter <f>]         runs every test project's Backend=D3D12 tests (narrowed by a dotnet test filter when given) with
 #                              their own results files (<project>.d3d12.trx), lists each result apart in the job's summary with the
-#                              leg's minutes, and fails when one failed or none ran.
+#                              leg's minutes, and fails when one failed or none ran. Each project's dotnet test runs under the
+#                              floor deadline of tools/ci-tests.ps1 (the leg's projects take seconds): one that runs out has its
+#                              process tree printed and stopped and is listed '<name>(deadline)'.
 # WARP's binaries are CI's only: nothing here reaches a published artifact.
 param(
     [switch] $Restore,
@@ -106,6 +108,8 @@ if ($Leg) {
         if ($depth -ne 0) { throw "the Direct3D 12 filter '$Filter' has unbalanced parentheses: it would not stay within Backend=D3D12" }
     }
     $expression = if ($Filter) { "Backend=D3D12&($Filter)" } else { 'Backend=D3D12' }
+    # Invoke-DotnetTest and the floor deadline, shared with the suites' step.
+    . (Join-Path $PSScriptRoot 'ci-tests.ps1')
     $clock = [System.Diagnostics.Stopwatch]::StartNew()
     $failed = @()
     $projects = @(Get-ChildItem tests/*/*.csproj)
@@ -113,9 +117,11 @@ if ($Leg) {
     foreach ($project in $projects) {
         $name = $project.BaseName
         Write-Host "::group::$name (Direct3D 12)"
-        dotnet test $project.FullName -c $Configuration --no-build --filter $expression --logger "trx;LogFileName=$name.d3d12.trx" `
-            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
-        if ($LASTEXITCODE -ne 0) { $failed += $name }
+        $run = Invoke-DotnetTest -Name "$name (Direct3D 12)" -Deadline $TestDeadlineFloor -Arguments @(
+            $project.FullName, '-c', $Configuration, '--no-build', '--filter', $expression, '--logger', "trx;LogFileName=$name.d3d12.trx",
+            '--blame-hang', '--blame-hang-timeout', '5m', '--blame-hang-dump-type', 'mini')
+        if (-not $run.Ended) { $failed += "$name(deadline)" }
+        elseif ($run.ExitCode -ne 0) { $failed += $name }
         Write-Host '::endgroup::'
     }
     $clock.Stop()

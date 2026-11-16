@@ -315,7 +315,12 @@ retail hash. Then:
   publishes the portable exe, which `DxcNativesTests` read again before it is named with its version and `-unsigned` (Versions,
   below); the folder carries its notices (`installer/notices.ps1`) and its `SHA256SUMS` and no file of the Agility SDK,
   `LicenceTests` hold it to DXC's compiler alone and to notices naming every package and native library it carries (their results
-  uploaded on their own, pass or fail), and it is uploaded.
+  uploaded on their own, pass or fail), and it is uploaded. The job ends at 60 minutes (its whole run is under 25), and each test
+  project's `dotnet test`, in the suites and in the Direct3D 12 leg, runs under a deadline of its own (`tools/ci-tests.ps1`: three
+  times its longest normal run, never under 10 minutes, so the blame collector's 5-minute hang timeout and its dump come first;
+  30 minutes for Engine): one still running then has its process tree printed (process and parent ids, names, start times; never a
+  command line, which can carry a phone's join ticket), stopped and failed as `<name>(deadline)`, and the next project runs. Each
+  project's start and end are in the log.
 - **The installer job** (`windows-2025`, elevated) publishes the exe with ReadyToRun and the supervisor, fetches the same pinned LGPL
   FFmpeg, the Agility SDK's runtime and SPIRV-Tools, builds libvmx from its vendored source with its upstream Windows command, and
   builds this build's installer and the one numbered before it with
@@ -327,6 +332,20 @@ retail hash. Then:
   `SHA256SUMS` and `SHA256SUMS.payload`. It is a hard gate for every merge (`docs/round3/PLAN.md` §5.4 item 5).
 - **A dispatched run** with the `d3d12` input runs only the Windows job's Direct3D 12 leg, narrowed by that test filter. It
   uploads the leg's results, diff images, info-queue log and DRED output, and gives the leg's minutes in the summary.
+- **A dispatched run** with the `hangproof` input runs only the hang guard's proof, a job of its own on `windows-2025` in place of
+  every other (given with `d3d12`, it refuses): `tools/hang-probe`'s one test, which waits on an event nobody sets and is in no
+  solution and no suite (its project file is kept as `PlayMap.HangProbe.csproj.in`, which no `*.csproj` search of the tree meets;
+  the step builds a copy of it outside the checkout), under the blame collector (a 1-minute hang timeout, a mini dump), once with `VSTEST_DUMP_FORCENETDUMP=1` as
+  the Windows job sets it and once without, each under a 6-minute deadline. For each leg it says whether blame ended the host and
+  when, the hang dumps written and their sizes, and whether the pinned dotnet-dump reads the test's managed stack from each; it
+  fails when a host outlived blame. Its outcome decides whether the Windows job keeps `VSTEST_DUMP_FORCENETDUMP`.
+
+Both test jobs set `PLAYMAP_SCHEDULING_PROBE=1` on their suites' step: every test host then runs `tests/Shared/SchedulingProbe.cs`,
+a thread of its own that every 50 ms writes a row to `tests/<project>/TestResults/<assembly>-<start>-<pid>.latency.csv` (the UTC
+time, its wake overshoot past a 10 ms wait, the pool dispatch latency of a work item it queued, the pool's threads and queued items),
+uploaded as `scheduling-probe-linux` and `scheduling-probe-windows` (a suites step that ran and left none fails the upload). Without
+the variable, as on every desk and in every local run, nothing starts; any value but `1` is refused and the host does not load. It
+is a measurement only: no governor follows it without a reading (`docs/round2/CARRYOVER.md`, fix-ci-windows-bounds).
 
 A test whose subject exists on one platform only (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Direct3D 12, Spout and D3D11VA on
 Windows) carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words.

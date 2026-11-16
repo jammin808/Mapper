@@ -14,6 +14,14 @@ on:
         required: false
         default: ""
         type: string
+      hangproof:
+        description: >-
+          Run only the hang guard's proof on windows-2025 (tools/ci-tests.ps1 -HangProof): a test that never ends under the blame
+          collector, with VSTEST_DUMP_FORCENETDUMP=1 and without it, each leg's outcome in the summary. Every other job is skipped;
+          given with d3d12, the proof refuses to run.
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   # Every suite on Linux: headless OpenGL through Mesa (llvmpipe) under Xvfb, and FFmpeg 9.0's shared
@@ -21,8 +29,8 @@ jobs:
   # user machine with Microsoft's .NET: no VA-API, no system OpenAL (a sound server is not installed: Ubuntu's
   # PulseAudio pulls the distro FFmpeg and with it libva), so the suites prove the node falls back with words there.
   test:
-    # A dispatched Direct3D 12 leg (the d3d12 input) is the Windows job's alone.
-    if: ${{ !inputs.d3d12 }}
+    # A dispatched Direct3D 12 leg (the d3d12 input) is the Windows job's alone; a dispatched proof (hangproof) its own job's.
+    if: ${{ !inputs.d3d12 && !inputs.hangproof }}
     runs-on: ubuntu-latest
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}/.ffmpeg/lib
@@ -100,6 +108,11 @@ jobs:
           present=$(ldconfig -p | grep -oE '(libva(-drm)?|libopenal)\.so\.[0-9]+' | sort -u | tr '\n' ' ')
           if [ -n "$present" ]; then echo "::error::the runner has $present; run the suites through tools/without-libs.sh"; exit 1; fi
       - name: Test (every project to its end; one crash hides no other result)
+        id: suites
+        env:
+          # Every test host writes its scheduling rows (tests/Shared/SchedulingProbe.cs) to its project's TestResults: the Linux
+          # control beside the Windows job's.
+          PLAYMAP_SCHEDULING_PROBE: "1"
         run: |
           # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
           # reads, written by the runtime: tens of megabytes, never the heap), read into the log below, and the next project runs.
@@ -167,15 +180,27 @@ jobs:
           name: test-results
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
+      - name: Upload the scheduling probe's rows
+        # One file per test host of the Test step (wake overshoot, pool dispatch latency, pool counts every 50 ms); a Test step that
+        # ran and left none fails here.
+        if: ${{ always() && steps.suites.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: scheduling-probe-linux
+          path: tests/*/TestResults/*.latency.csv
+          if-no-files-found: error
 
   # The Windows build: the exe the show machine runs, and every suite to its end on a runner with no GPU and no audio
   # endpoint. Each project's exit code is checked on its own line: a multi-line pwsh step otherwise answers only its last
   # command's, and a failed suite before it would read as green. The runner is pinned to Windows Server 2025 (build 26100, the
   # floor the node's installer asks), and Direct3D 12 runs on WARP from NuGet beside the Agility SDK (tools/ci-d3d12.ps1): the
   # Backend=D3D12 tests are a leg of their own, listed apart in the summary. Dispatched with the d3d12 input, the job runs that
-  # leg alone, narrowed by the input, and uploads what a reader on Linux needs to see a failure.
+  # leg alone, narrowed by the input, and uploads what a reader on Linux needs to see a failure. The job ends at 60 minutes (its whole
+  # run is under 25), and each dotnet test in it runs under a deadline of its own (tools/ci-tests.ps1).
   windows:
+    if: ${{ !inputs.hangproof }}
     runs-on: windows-2025
+    timeout-minutes: 60
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
       GALLIUM_DRIVER: llvmpipe
@@ -185,6 +210,7 @@ jobs:
       D3D12_FILTER: ${{ inputs.d3d12 }}
       # A hung test host's dump is written by the runtime through its diagnostics port, as on Linux, so it carries what a managed stack
       # walk reads; the blame collector's own Windows dumper writes a mini dump of thread information alone, which no stack walk reads.
+      # Whether a host blame stops this way on Windows ends at all is what the hangproof job asks.
       VSTEST_DUMP_FORCENETDUMP: "1"
     steps:
       - uses: actions/checkout@v5
@@ -331,34 +357,16 @@ jobs:
           Copy-Item $dlls (Split-Path (Get-Command dotnet).Source)
       - name: Test (every project to its end; one crash hides no other result)
         if: ${{ !inputs.d3d12 }}
+        id: suites
         shell: pwsh
-        run: |
-          # A test host that hangs is stopped after 5 minutes with a mini dump (its threads' stacks and what a managed stack walk
-          # reads: tens of megabytes, never the heap), read into the log after the Direct3D 12 leg, and the next project runs. No test
-          # project fails the step, and so does a suite that answers 0 but leaves no results file. The Backend=D3D12 tests run in the
-          # Direct3D 12 leg below, so each result is counted once.
-          $failed = @()
-          $projects = @(Get-ChildItem tests/*/*.csproj)
-          if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
-          foreach ($project in $projects) {
-            $name = $project.BaseName
-            Write-Host "::group::$name"
-            dotnet test $project.FullName -c Release --no-build --filter "Backend!=D3D12" --logger "trx;LogFileName=$name.trx" `
-              --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
-            if ($LASTEXITCODE -ne 0) { $failed += $name }
-            elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
-            Write-Host "::endgroup::"
-          }
-          # Every failed test with the first lines of its message, read from the results, so the whole list is at the log's end.
-          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
-          foreach ($trx in Get-ChildItem tests/*/TestResults/*.trx -Exclude *.d3d12.trx) {
-            foreach ($hit in Select-Xml -Path $trx.FullName -XPath "//t:UnitTestResult[@outcome='Failed']" -Namespace $ns) {
-              $message = ($hit.Node.Output.ErrorInfo.Message -split "`n" | Select-Object -First 4) -join ' | '
-              Write-Host "FAILED $($trx.BaseName): $($hit.Node.testName) :: $message"
-            }
-          }
-          if ($failed.Count -gt 0) { Write-Host "::error::failed: $($failed -join ' ')"; exit 1 }
-          exit 0
+        env:
+          # Every test host writes its scheduling rows (tests/Shared/SchedulingProbe.cs) to its project's TestResults.
+          PLAYMAP_SCHEDULING_PROBE: "1"
+        # A test host that hangs is stopped after 5 minutes with a mini dump, read into the log after the Direct3D 12 leg; a dotnet test
+        # still running at its project's deadline (tools/ci-tests.ps1: 30 minutes for Engine, 10 for the rest) has its process tree
+        # printed and stopped and is failed as '<name>(deadline)'; either way the next project runs. Each project's start and end are
+        # in the log, and the failed tests are listed from the results at its end.
+        run: ./tools/ci-tests.ps1 -Suites
       - name: Direct3D 12 beside the test hosts
         # After the suites above, so they ran on Windows' own WARP as before: d3d10warp.dll beside every test project's Release
         # host and dotnet.exe, and the Agility runtime in a D3D12 folder beside each; PLAYMAP_D3D12_REQUIRED=1 then makes the
@@ -458,6 +466,14 @@ jobs:
           name: test-results-windows
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
+      - name: Upload the scheduling probe's rows
+        # As on Linux: one file per test host of the Test step; a Test step that ran and left none fails here.
+        if: ${{ always() && steps.suites.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: scheduling-probe-windows
+          path: tests/*/TestResults/*.latency.csv
+          if-no-files-found: error
       - name: Upload the Direct3D 12 evidence
         # Diff images, the info queue's messages and DRED's output, one folder per Direct3D 12 test, with the leg's results.
         if: always()
@@ -550,7 +566,7 @@ jobs:
   # elevated on the runner, holds its payload to its licences, checks the release order, and publishes the unsigned installer with
   # its SHA256SUMS.
   installer:
-    if: ${{ !inputs.d3d12 }}
+    if: ${{ !inputs.d3d12 && !inputs.hangproof }}
     runs-on: windows-2025
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
@@ -822,3 +838,24 @@ jobs:
           name: test-results-installer
           path: "installer/tests/**/TestResults/*.trx"
           if-no-files-found: ignore
+
+  # The hang guard's proof, run only when dispatched with the hangproof input, in place of every other job: tools/hang-probe's one test
+  # never ends, and tools/ci-tests.ps1 -HangProof runs it under the blame collector (a 1-minute hang timeout, a mini dump) with
+  # VSTEST_DUMP_FORCENETDUMP=1 as the windows job sets it and without, each leg under a 6-minute deadline of its own: whether blame
+  # ended the host and when, the hang dumps and their sizes, and whether the pinned dotnet-dump reads the test's managed stack from
+  # each, in the log and the summary. It fails when a leg's host outlived blame or the test that never ends passed. Its outcome decides
+  # whether the windows job keeps VSTEST_DUMP_FORCENETDUMP.
+  hangproof:
+    if: ${{ inputs.hangproof }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      D3D12_FILTER: ${{ inputs.d3d12 }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - name: The hang guard's proof (blame on a test that never ends, with the dump setting and without)
+        shell: pwsh
+        run: ./tools/ci-tests.ps1 -HangProof

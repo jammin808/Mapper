@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The hang guard's proof (the hangproof job, dispatched by hand): one test that never ends, run under dotnet test's blame
+       collector to see whether it ends the test host on Windows. This file is named .csproj.in so that no *.csproj search of the tree
+       meets it (no solution, no suite's tests/*/*.csproj, no fence that holds every project to PlayMap.sln): tools/ci-tests.ps1
+       -HangProof copies it, beside NeverEndsTests.cs, to a folder outside the checkout as PlayMap.HangProbe.csproj and builds that
+       copy. The tree's Directory.Build.props does not reach that folder, so this file names its own framework and settings. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>PlayMap.HangProbe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
