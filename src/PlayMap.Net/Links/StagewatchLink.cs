@@ -131,8 +131,9 @@ public enum StagewatchSideCall
 /// pairs nothing and refuses nothing). State frames
 /// taken latest-wins on seq and counted on locally from their arrival, <c>{"type":"beat","live":false}</c> read as
 /// "the time is not a fact" ("?", never a frozen time), the operator's screen commands raised as events, a ping
-/// every 2 s (the clock offset), this node's context posted every 5 s within Stagewatch's 64 KB, and — when the Stagewatch is an
-/// approval desk — the lines approved for this node collected every 2 s, run through the node's own command path and answered.
+/// every 2 s once the connection's first message is read (the clock offset), this node's context posted every 5 s within
+/// Stagewatch's 64 KB, and — when the Stagewatch is an approval desk — the lines approved for this node collected every 2 s, run
+/// through the node's own command path and answered.
 /// Stale after 6 s of silence, dropped and redialled after 12 s. Over TLS the certificate is checked against the pin.</summary>
 public sealed class StagewatchLink : IAsyncDisposable
 {
@@ -811,7 +812,7 @@ public sealed class StagewatchLink : IAsyncDisposable
         using var socket = ws;
         Interlocked.Increment(ref _connections);
         // A new connection asks again: its pairing is unknown until Stagewatch answers for the key it carries, or — with no key set —
-        // until its first message is read and brings no refusal; nothing keyed goes until that message is read.
+        // until its first message is read and brings no refusal; nothing keyed, and no ping, goes until that message is read.
         lock (_gate)
         {
             _lastSeq = -1;
@@ -1125,7 +1126,11 @@ public sealed class StagewatchLink : IAsyncDisposable
     /// refusal nor a rate limit holds the key.</summary>
     private bool KeyedCallsOpen() => _keyed && _heard && RefusedFor == TimeSpan.Zero && BusyFor == TimeSpan.Zero;
 
-    /// <summary>Every beat: the ping (clock exchange) and the liveness check, nothing else, so no side call ever waits in its path.</summary>
+    /// <summary>Every beat: the ping (clock exchange) and the liveness check, nothing else, so no side call ever waits in its path. The
+    /// liveness check runs from the connection's first step, its silence counted from the connection's start; the ping is written only
+    /// once the connection's first message is read (<see cref="_heard"/>), so nothing of this node's is on the wire before Stagewatch's
+    /// first word: a Stagewatch that sends one refusal and closes without reading has nothing unread to answer with a reset, which would
+    /// drop the refusal before it is read. A Stagewatch that never sends a first message hears no ping and is dropped by the silence.</summary>
     private async Task BeatAsync(ClientWebSocket ws, SemaphoreSlim send, CancellationToken ct)
     {
         var lastPing = long.MinValue;
@@ -1144,7 +1149,7 @@ public sealed class StagewatchLink : IAsyncDisposable
             if (Interlocked.Read(ref _settledNs) is >= 0 and var settled && _mono.NowNs - settled >= _o.StableAfter.Ticks * 100)
                 _stable = true;
             var now = Stopwatch.GetTimestamp();
-            if (Due(ref lastPing, now, _o.BeatEvery))
+            if (_heard && Due(ref lastPing, now, _o.BeatEvery))
             {
                 var t1 = _wall.UnixMs;
                 lock (_gate)

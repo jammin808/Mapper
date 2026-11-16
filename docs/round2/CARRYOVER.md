@@ -3632,3 +3632,94 @@ Round 2 W1 notes:
     as it would any test of the engine's own async work.
   - Whether `GpuDeviceLockTests`' `Sharer` and `ShownLineTests`' `InTime` move onto `OwnThread` (the Core suite would then name the
     file) is the owner's call; this batch left them, outside its leave.
+
+## Integrator notes from the round-2 fix batch (fix-link-first-ping)
+
+- Done: the Stagewatch link writes no ping before the connection's first message is read (a refusal, a verdict or a frame), so a
+  Stagewatch that sends one refusal and closes without reading has nothing of the link's unread to answer with a reset (the owner's
+  first answer of 2026-11-16, "The six open calls", item 1, in Stagewatch's `docs/ecosystem/owner-answers.md`: the batch
+  fix-link-first-ping; a product line, low severity). CI's run 476 (on 46129380) was red on the Windows job at
+  `StagewatchLinkTests.AKeylessLinkAskedForTheViewingCodeIsRefusedInThoseWordsAndHeld` (two sockets and two connections where the
+  held refusal allows one).
+  - What the code showed, at 2ae7ac7b (`src/PlayMap.Net/Links/StagewatchLink.cs`): `ConnectionAsync` starts `BeatAsync` on
+    `Task.Run` beside `ReceiveAsync`, once the upgrade is up; the beat's first turn finds `lastPing` at `long.MinValue`, so `Due`
+    answers true at once and the ping (`{"cmd":"ping","t":…}`) is the connection's first write, made before any delay and with no
+    regard to whether anything was read; the side calls write nothing before the first message (`KeyedCallsOpen` needs `_heard`), so
+    the ping is the only write that can come before it. `ReceiveAsync`'s first read is the first message, and only `Take` → `Verdict`
+    → `Refuse` records the refusal's hold. Stagewatch (`WebServer.cs`, a socket its viewing code shuts out) sends that one refusal,
+    then its close, and returns without reading, so the link's ping lies unread at a socket being closed, and its close is a reset.
+    Read, not measured on Windows: Windows drops the data a socket has not yet read when a reset arrives, so the link's first read
+    fails, `Refuse` never runs, no hold is recorded, and `RunAsync` dials again on its backoff (the second socket and connection);
+    Linux keeps queued data readable past a reset, which is why the red test stayed green there. Measured here (Linux): against a
+    Stagewatch that waits 600 ms before it writes, the link at the parent wrote 114 bytes in that time — three masked ping frames
+    of 38 bytes, one each 200 ms beat the tests set.
+  - The mend, the smallest of the two forms: the beat still starts beside the receive loop, and its first turn still runs at once;
+    only its ping waits, `if (_heard && Due(…))`. `_heard` is the field `ReceiveAsync`'s `Heard` sets once the connection's first
+    message is read whole (a JSON message after `Take` has recorded what it says, a refusal's hold included; a message that is not
+    JSON too), reset as each connection comes up and as it ends. Starting the beat only once the first message is in was the other
+    form, refused: the beat holds the silence rule, so a Stagewatch that never spoke would then never be dropped. Nothing else of
+    the link moved: no word, no hold time, no redial rule; the beat's period (`BeatEvery`, 2 s), its step and the liveness rule are
+    as they were. The first ping goes on the beat's first step after the first message (within `Step`, 250 ms at the default
+    stale mark), and every 2 s after.
+  - Show Bus 1.3 §13.10, the rows the link keeps, and why the mend breaks none: 13.10.1's "the connector pings every
+    `ping.min.ms`–`ping.max.ms`" holds from the first message on (a conforming `ws` acceptor speaks first and then at least every
+    `link.beat.ms`, and Stagewatch sends its verdict, refusal or current frame as a socket comes up); 13.10.2's "any complete message
+    counts as heard" and the matched pongs are unchanged (no ping before the first message means no pong to match before it; one that
+    comes is unmatched, as before); 13.10.3's live, stale and down by the silence since the last complete message are unchanged,
+    the silence counted from the connection's start (`_lastHeardNs`, set as it comes up) until a message is read. A peer that never
+    sends a first message is dropped by the rule that drops it today: `BeatAsync`'s silence check, stale past `StaleAfter`
+    (`link.stale.ms`, 6000) and, past `DropAfter` (`link.drop.ms`, 12000), the socket aborted and the link dialling again; its test
+    is the new `AStagewatchThatNeverSpeaksIsWrittenNothingAndIsDroppedByItsSilence` (no `StagewatchLink` test held that rule
+    before; `LinkTests` holds the Patterns link's own). What did change for such a peer: one that sends nothing of its own but answers
+    pings was kept live by its pongs and is now dropped at 12 s; no Stagewatch is that peer.
+  - Followed down the chains, read: STATE's links block (`StateWriter.WriteLink` through `NetworkHost.Stagewatch()` and
+    `StagewatchTimerJson()`), preflight's `LinksCheck` (`PreflightBreadth`, the same `LinkView`), the context
+    (`ContextBuilder`, the same `LinkView`) and the desk's link light (STATE's links block) read the link's `Status`, `PairingNow`,
+    `Words`, `KeyHeldBack` and `Reading`; none counts a ping, a pong, `Clock` or `UnmatchedPongs`, and no field of theirs moved
+    (`Status` is live from the connection's start as before). No paper words the beat's order (docs/ searched for the link's ping:
+    `SHOWBUS-NODE.md`'s Stagewatch row says the first message is read before anything keyed is sent, which stays true); the link's
+    own comments say it now (its summary, the connection's start and `BeatAsync`'s).
+- Tests (`tests/PlayMap.Net.Tests/StagewatchLinkTests.cs`):
+  - New fake, `OneMessageStagewatch`: a raw TCP Stagewatch that answers a TLS greeting as a bad request (so the link dials plain),
+    takes the upgrade by hand, waits its quiet (600 ms here) keeping every byte the link sends after its upgrade request, then sends
+    one message and a close (1008) and reads nothing more; it counts its upgrades.
+  - New `AStagewatchThatRefusesAndClosesUnreadIsWrittenNothingBeforeItsRefusalAndItIsHeld`: no byte from the link before the
+    refusal, exactly one upgrade and one connection after 3 s, the hold recorded with the refusal's words
+    (`viewing code asked — Enter the viewing code`, `RefusedHold`, the link's words), and the pairing moved once, to refused. It
+    fails at the parent on Linux, deterministically: the `src` file at 2ae7ac7b put back, the Net tests built and the two new tests
+    run, it failed with "the link wrote 114 bytes to Stagewatch before its first message" (and the silence test with "(3, 3)" pings
+    and messages where none may go); with the mend both pass. The red test keeps its exact assertions and passes.
+  - New `AStagewatchThatNeverSpeaksIsWrittenNothingAndIsDroppedByItsSilence`, on the link's clock: nothing written in three beats,
+    nothing keyed, live at 6000 ms of silence, stale at 6001, stale at 12000, dropped at 12001 and dialled again (two sockets, the
+    second live), still no ping and no message from the link.
+  - `FakeStagewatch` follows Stagewatch: with no verdict set it says a plain beat first (`First`, null for a Stagewatch that never
+    speaks), so the tests whose fake said nothing until a pong (the keyless pairing, the keyed side calls, the clock) read a first
+    message as against a real Stagewatch. `AStagewatchThatSendsNoVerdictPairsTheLinkOnAKeyedAnswer` read a ping at once once the link
+    paired, its positive marker that the first message (then the pong to the first ping) had come; the first ping now goes on the
+    beat's step after the first message and can come after the keyed answer pairs the link (seen: one run in five of the class
+    failed there), so the marker waits for it (`Eventually`), and the comment says the first message is the beat. `Options` takes a
+    port as well as a fake.
+  - Run: the build whole (no warning); the class with `StagewatchTimerTests`, green (56); the class alone six runs green after the
+    marker above waited, and the new tests with the red one, the keyless one and the typed-address ones ten runs green; the whole
+    Net suite, 330 passed and 1 skipped, its three Chromium page tests (`Phone/PageTests.InChromium…`) failing before any PlayMap
+    code runs, as fix-desk-unconfirmed's entry records, not counted green; the Engine classes that drive or read the link
+    (`StagewatchIdentifyTests`, `StagewatchTimerAirTests`, `NodeCredentialStoreTests`, `PreflightBreadthTests`, `ContextLinkTests`,
+    `StagewatchSinkTests`, `HostNetworkTests`, `PeerConflictTests`, `HostStopTests`), green (87).
+  - The review's fold-in: two test comments in the leave reworded to what their tests prove (the keyless test's pings follow the
+    verdict, so the pairing read after them is the verdict's; the keyed-answer test points at the never-speaks test for "nothing
+    keyed or pinged before a first message"); the review's third item, `ScreensStagewatch`, is outside the leave and stays Open below.
+  - The closing validate, once after the fold-in: the build whole (no warning, `PLAYMAP_DXC_DIR` set); the whole Net suite, 330
+    passed and 1 skipped, the same three Chromium page tests failing before any PlayMap code runs (`chromium` undefined in
+    `tests/e2e/phonescan/page.mjs`), not counted green; the whole Engine suite green in five parts that name its 1,355 tests once
+    (Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 204 and 2 skipped; Rendering to Wall, 498 and 4 skipped; the
+    root namespace, 167). No Core file moved.
+- Files: `src/PlayMap.Net/Links/StagewatchLink.cs`, `tests/PlayMap.Net.Tests/StagewatchLinkTests.cs` and this entry.
+- Open:
+  - `tests/PlayMap.Engine.Tests/Host/StagewatchIdentifyTests.cs`' `ScreensStagewatch` (outside this leave) says nothing first when no
+    verdict is set, as `FakeStagewatch` did: against it the link now writes no ping, so nothing keeps it live past 6 s of silence
+    on the link's clock, and on a real clock it would go stale at 6 s and redial at 12 s. `StagewatchIdentifyTests`' theory and the
+    four `NodeCredentialStoreTests` that use it with no verdict (`Assert.Single(sw.Authorizations)`, `Screens == 1`) read only "live",
+    the screen count and the Authorization within a second or two, and pass (above); a run slowed past 12 s between the connect and
+    those reads would see a second screen, which before the mend the pongs kept from happening. The mend is the file owner's, the
+    same as here: in `ServeAsync`, `else await ws.SendAsync("{\"type\":\"beat\"}"…)` after the verdict's `if`, its summary saying so.
+    `ContextLinkTests`' `ContextStagewatch` sends a frame first and needs nothing.

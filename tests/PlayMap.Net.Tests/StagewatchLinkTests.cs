@@ -20,7 +20,9 @@ namespace PlayMap.Net.Tests;
 
 /// <summary>A Stagewatch as the tests play it: /ws records how it was asked (path, query, Authorization), sends each connection
 /// its <see cref="Verdict"/> first when one is set (and closes it then when <see cref="CloseAfterVerdict"/>, as Stagewatch does after
-/// a viewing-code refusal), then what the test queues, answering pings with pongs, until the test <see cref="Drop"/>s it;
+/// a viewing-code refusal), or else its <see cref="First"/> (a plain beat unless the test says otherwise: Stagewatch always speaks
+/// first, and the link pings only once it has), then what the test queues, answering pings with pongs, until the test
+/// <see cref="Drop"/>s it;
 /// /api/peers/context answers a body that declares more than <see cref="MaxContextBytes"/> 413 with Stagewatch's words before it reads
 /// it (as Stagewatch's web server does, 64 KB by default), and records any other posted context and answers <see cref="ContextStatus"/>
 /// once <see cref="ContextAnswerWhen"/> lets it;
@@ -59,6 +61,10 @@ internal sealed class FakeStagewatch : IAsyncDisposable
 
     /// <summary>The connection is closed, cleanly, just after its verdict is sent.</summary>
     public bool CloseAfterVerdict { get; set; }
+
+    /// <summary>The first message a connection hears when no <see cref="Verdict"/> is set: a plain beat by default (a real Stagewatch's
+    /// first is its current frame, which a test that needs one sends itself), or null for a Stagewatch that never speaks first.</summary>
+    public string? First { get; set; } = "{\"type\":\"beat\"}";
 
     /// <summary>What a context post is answered: 204, or a status with <see cref="ContextAnswer"/> as its body, and
     /// <see cref="ContextRetryAfter"/> seconds in its Retry-After when above 0.</summary>
@@ -186,6 +192,8 @@ internal sealed class FakeStagewatch : IAsyncDisposable
                 return;
             }
         }
+        else if (First is { } first)
+            await ws.SendAsync(Encoding.UTF8.GetBytes(first), WebSocketMessageType.Text, true, c.RequestAborted);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(c.RequestAborted);
         var sender = Task.Run(async () =>
         {
@@ -330,6 +338,143 @@ internal sealed class SilentTlsFront : IAsyncDisposable
     }
 }
 
+/// <summary>A Stagewatch that answers a socket as Stagewatch answers one its viewing code shuts out: it takes the upgrade, says one message
+/// and closes, and reads nothing after it. Before it writes it waits its quiet and keeps every byte the link sends it after its upgrade
+/// request (<see cref="HeardBeforeItWrote"/>, one entry per socket). A TLS greeting is answered as a plain web server answers one, a bad
+/// request, so the link dials it plain. Each upgrade is counted.</summary>
+internal sealed class OneMessageStagewatch : IAsyncDisposable
+{
+    /// <summary>RFC 6455's key the upgrade's accept is made with.</summary>
+    private const string Rfc6455Guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+    private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+    private readonly CancellationTokenSource _stop = new();
+    private readonly ConcurrentQueue<TcpClient> _clients = new();
+    private readonly ConcurrentQueue<byte[]> _heard = new();
+    private readonly byte[] _message;
+    private readonly TimeSpan _quiet;
+    private readonly Task _accept;
+    private int _upgrades;
+
+    public OneMessageStagewatch(string message, TimeSpan quiet)
+    {
+        _message = Encoding.UTF8.GetBytes(message);
+        _quiet = quiet;
+        _listener.Start();
+        Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+        _accept = AcceptAsync();
+    }
+
+    public int Port { get; }
+
+    /// <summary>The sockets upgraded so far.</summary>
+    public int Upgrades => Volatile.Read(ref _upgrades);
+
+    /// <summary>For each upgraded socket, every byte the link sent after its upgrade request and before this Stagewatch wrote its message.</summary>
+    public IReadOnlyList<byte[]> HeardBeforeItWrote => [.. _heard];
+
+    private async Task AcceptAsync()
+    {
+        try
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                var client = await _listener.AcceptTcpClientAsync(_stop.Token);
+                _clients.Enqueue(client);
+                _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
+        {
+            // The Stagewatch stops.
+        }
+    }
+
+    private async Task ServeAsync(TcpClient client)
+    {
+        var ct = _stop.Token;
+        try
+        {
+            var stream = client.GetStream();
+            var buffer = new byte[16 * 1024];
+            var length = await stream.ReadAsync(buffer, ct);
+            if (length == 0)
+                return;
+            if (buffer[0] == 0x16)
+            {
+                // A TLS greeting read as a request's head: a bad request, and the socket closed.
+                await stream.WriteAsync("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray(), ct);
+                return;
+            }
+            int end;
+            while ((end = HeadEnd(buffer, length)) < 0)
+            {
+                var more = await stream.ReadAsync(buffer.AsMemory(length), ct);
+                if (more == 0)
+                    return;
+                length += more;
+            }
+            var key = Header(Encoding.ASCII.GetString(buffer, 0, end), "Sec-WebSocket-Key");
+            var accept = Convert.ToBase64String(System.Security.Cryptography.SHA1.HashData(Encoding.ASCII.GetBytes(key + Rfc6455Guid)));
+            await stream.WriteAsync(Encoding.ASCII.GetBytes(
+                $"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"), ct);
+            Interlocked.Increment(ref _upgrades);
+
+            // Its quiet: what comes is kept, read only as it is there, so nothing waits on a read when the quiet ends.
+            using var heard = new MemoryStream();
+            heard.Write(buffer, end, length - end);
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            while (System.Diagnostics.Stopwatch.GetElapsedTime(started) < _quiet || client.Available > 0)
+            {
+                if (client.Available > 0)
+                    heard.Write(buffer, 0, await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, client.Available)), ct));
+                else
+                    await Task.Delay(10, ct);
+            }
+            _heard.Enqueue(heard.ToArray());
+
+            // One message, then the close (1008, as Stagewatch closes a socket its viewing code shuts out), and nothing more is read.
+            await stream.WriteAsync(Frame(0x1, _message), ct);
+            await stream.WriteAsync(Frame(0x8, [0x03, 0xF0, .. "viewing code"u8]), ct);
+            client.Client.Shutdown(SocketShutdown.Send);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or SocketException or ObjectDisposedException)
+        {
+            // Either end closed.
+        }
+        finally
+        {
+            client.Dispose();
+        }
+    }
+
+    /// <summary>Where a request's head ends (just past its blank line) in the first <paramref name="length"/> bytes, or -1.</summary>
+    private static int HeadEnd(byte[] buffer, int length) =>
+        buffer.AsSpan(0, length).IndexOf("\r\n\r\n"u8) is >= 0 and var at ? at + 4 : -1;
+
+    private static string Header(string head, string name) => head.Split("\r\n")
+        .Where(l => l.StartsWith(name + ":", StringComparison.OrdinalIgnoreCase)).Select(l => l[(name.Length + 1)..].Trim()).Single();
+
+    /// <summary>One unmasked frame, as a server sends it, of a payload under 64 KiB.</summary>
+    private static byte[] Frame(byte opcode, byte[] payload)
+    {
+        byte[] head = payload.Length < 126
+            ? [(byte)(0x80 | opcode), (byte)payload.Length]
+            : [(byte)(0x80 | opcode), 126, (byte)(payload.Length >> 8), (byte)payload.Length];
+        return [.. head, .. payload];
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _stop.CancelAsync();
+        _listener.Stop();
+        while (_clients.TryDequeue(out var c))
+            c.Dispose();
+        await _accept;
+        _stop.Dispose();
+    }
+}
+
 /// <summary>A node whose STATE and context are what a test makes them, every other fact and every line the fake endpoint's.</summary>
 internal sealed class ShapedEndpoint(FakeEndpoint inner) : IWireEndpoint
 {
@@ -369,10 +514,12 @@ public class StagewatchLinkTests
 {
     private const string Frame5 = "{\"type\":\"state\",\"v\":1,\"seq\":5,\"mode\":\"countdown\",\"state\":\"running\",\"seconds\":750,\"text\":\"12:30\",\"total\":1800,\"phase\":\"warning\",\"color\":\"#F59E0B\",\"title\":\"Keynote\",\"next\":\"Panel\",\"message\":\"Wrap up\",\"urgency\":\"warning\",\"flash\":\"slow\",\"blackout\":false,\"holding\":\"\",\"watermark\":\"REHEARSAL\",\"show\":{\"timer\":true,\"message\":true},\"playout\":{\"title\":\"VT1\",\"remaining\":42,\"duration\":60,\"running\":true,\"source\":\"Patterns\"}}";
 
-    private static StagewatchLinkOptions Options(FakeStagewatch sw, bool approvals = false) => new()
+    private static StagewatchLinkOptions Options(FakeStagewatch sw, bool approvals = false) => Options(sw.Port, approvals);
+
+    private static StagewatchLinkOptions Options(int port, bool approvals = false) => new()
     {
         Host = "127.0.0.1",
-        Port = sw.Port,
+        Port = port,
         Key = "swk_test0123456789",
         SelfId = "a1b2c3d4",
         SelfName = "Stage left",
@@ -714,7 +861,7 @@ public class StagewatchLinkTests
         await using var link = new StagewatchLink(Options(sw) with { Key = "" }, new FakeEndpoint(), TestSettings.Wall(), new PinStore(), new ManualClock(1_000_000_000));
         link.Start();
         Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
-        // The beat's third ping goes after the verdict was read (its first message): the pairing it left is the verdict's.
+        // Every ping follows the verdict (the connection's first message): once pings come, the pairing it left is the verdict's.
         Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 3), $"{Pings(sw)} pings");
         Assert.Equal((PairState.NotNeeded, ""), (link.Pairing, link.Refusal));
         Assert.Equal("ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=", Assert.Single(sw.Asked));
@@ -807,8 +954,10 @@ public class StagewatchLinkTests
         link.Start();
         Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty), link.Words);
         Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Paired), link.Words);
-        // Nothing keyed went before the connection's first message: the pong to its first ping.
-        Assert.Contains(sw.Received, m => m.Contains("\"cmd\":\"ping\"", StringComparison.Ordinal));
+        // The keyed answer paired the link. The beat's pings follow the connection's first message (the beat Stagewatch says first),
+        // on the beat's own step, which may come after that answer; that nothing keyed or pinged goes before a first message is
+        // AStagewatchThatNeverSpeaksIsWrittenNothingAndIsDroppedByItsSilence's.
+        Assert.True(await Eventually.TrueAsync(() => Pings(sw) >= 1), $"{Pings(sw)} pings");
     }
 
     /// <summary>A context as the node builds it, with <paramref name="rows"/> journal rows of <paramref name="chars"/> characters each and
@@ -1131,6 +1280,68 @@ public class StagewatchLinkTests
         Assert.Equal((1, 1L), (sw.Sockets, link.Connections));
         // Never called needing no proof: its first message was the refusal.
         Assert.Equal([PairState.Refused], moves);
+    }
+
+    /// <summary>A Stagewatch that says one refusal and closes without reading, as Stagewatch does with a node link its viewing code shuts
+    /// out, is written nothing before its refusal: the link's first write, its ping, waits for the connection's first message, so none
+    /// of the link's bytes lies unread for that close to answer with a reset (which on Windows drops the refusal unread, so no hold is
+    /// recorded and the link dials again at its backoff). The refusal is read and held with its words, and the link dials once.</summary>
+    [Fact]
+    public async Task AStagewatchThatRefusesAndClosesUnreadIsWrittenNothingBeforeItsRefusalAndItIsHeld()
+    {
+        // It waits 600 ms before it writes: three beats, in each of which a link that pinged before its first read would have.
+        await using var sw = new OneMessageStagewatch("{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"Enter the viewing code\"}",
+            TimeSpan.FromMilliseconds(600));
+        await using var link = new StagewatchLink(Options(sw.Port) with { Key = "" }, new FakeEndpoint(), TestSettings.Wall(), new PinStore(),
+            new ManualClock(1_000_000_000));
+        var moves = new ConcurrentQueue<PairState>();
+        link.PairingChanged += moves.Enqueue;
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Pairing == PairState.Refused), link.Words);
+        var heard = Assert.Single(sw.HeardBeforeItWrote);
+        Assert.True(heard.Length == 0, $"the link wrote {heard.Length} bytes to Stagewatch before its first message: {Convert.ToHexString(heard)}");
+        Assert.Equal(("viewing code asked — Enter the viewing code", StagewatchLink.RefusedHold), (link.Refusal, link.RefusedFor));
+        Assert.Equal($"Stagewatch at 127.0.0.1:{sw.Port} lets in only what gives its viewing code or a key — Enter the viewing code", link.Words);
+        Assert.True(await Eventually.TrueAsync(() => link.Status != LinkStatus.Live), link.Words);
+        await Task.Delay(3000);
+        Assert.Equal((1, 1L), (sw.Upgrades, link.Connections));
+        Assert.Equal([PairState.Refused], moves);
+    }
+
+    /// <summary>Show Bus 1.3 §13.10.3 on a Stagewatch that takes the socket and never says a word: the link writes it nothing (no ping
+    /// before a first message, nothing keyed), shows it stale past <c>link.stale.ms</c> of silence counted from the connection's start,
+    /// and past <c>link.drop.ms</c> drops it and dials again — the beat's silence rule, which drops a link gone quiet, drops one that never
+    /// spoke.</summary>
+    [Fact]
+    public async Task AStagewatchThatNeverSpeaksIsWrittenNothingAndIsDroppedByItsSilence()
+    {
+        await using var sw = await FakeStagewatch.StartAsync();
+        sw.First = null;
+        var mono = new ManualClock(1_000_000_000);
+        await using var link = new StagewatchLink(Options(sw), new FakeEndpoint(), TestSettings.Wall(), new PinStore(), mono);
+        var seen = new ConcurrentQueue<LinkStatus>();
+        link.StatusChanged += seen.Enqueue;
+        link.Start();
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Live), link.Words);
+        await Task.Delay(600);   // three beats of 200 ms
+        Assert.Equal((0, 0), (Pings(sw), sw.Received.Count));
+        Assert.Empty(sw.Contexts);
+
+        mono.AdvanceMs(6_000);
+        await Task.Delay(600);
+        Assert.Equal(LinkStatus.Live, link.Status);
+        mono.AdvanceMs(1);
+        Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Stale), link.Words);
+        mono.AdvanceMs(5_999);
+        await Task.Delay(600);
+        Assert.Equal((LinkStatus.Stale, 1L), (link.Status, link.Connections));
+        mono.AdvanceMs(1);
+        Assert.True(await Eventually.TrueAsync(() => link.Connections == 2 && link.Status == LinkStatus.Live), link.Words);
+        var order = seen.ToList();
+        var stale = order.IndexOf(LinkStatus.Stale);
+        Assert.True(stale >= 0 && order.IndexOf(LinkStatus.Down, stale) > stale, string.Join(", ", order));
+        Assert.Equal((2, 0, 0), (sw.Sockets, Pings(sw), sw.Received.Count));
+        Assert.Empty(sw.Contexts);
     }
 
     [Fact]
