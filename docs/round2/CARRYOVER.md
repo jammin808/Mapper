@@ -3617,7 +3617,9 @@ Round 2 W1 notes:
     completion source runs its continuations asynchronously, so the `ContinueWith` that hands the work's row over through the call
     is queued to the pool when the row is held, and the hold waits for it under `handed.Task.WaitAsync(TimeSpan.FromSeconds(30))`: a
     pool starved for 30 s fails it however fast the work is. The mend is the file owner's (the hand-over run where the hold
-    completes `answered`, or on a thread of its own); not reproduced here.
+    completes `answered`, or on a thread of its own); not reproduced here. Taken by fix-hold-tests (the owner's second answer of
+    2026-11-16, "The six open calls", item 2): the hand-over runs on a thread of its own, let go by an event the hold sets; see that
+    entry.
   - `tests/PlayMap.Engine.Tests/Optimise/OptimiseWorkerEndTests.cs`
     `AStepUnderWayAsTheStopBeginsHandsOutNoJobAndStartsNoWorker` (the Theory, both legs): `await led.HoldNext().WaitAsync(Patience)`
     waits on `HeldLed.HoldNext`'s completion source, made with `RunContinuationsAsynchronously`, so its completion queues the
@@ -3723,3 +3725,129 @@ Round 2 W1 notes:
     those reads would see a second screen, which before the mend the pongs kept from happening. The mend is the file owner's, the
     same as here: in `ServeAsync`, `else await ws.SendAsync("{\"type\":\"beat\"}"…)` after the verdict's `if`, its summary saying so.
     `ContextLinkTests`' `ContextStagewatch` sends a frame first and needs nothing.
+
+## Integrator notes from the round-2 fix batch (fix-hold-tests)
+
+- Done: every test hold of `BackupMirrorLinkTests`, `HelloTests` and `VerbRowTests` is seen without a pool worker: the hold sets an
+  event where it is entered (no continuation queued) and the test waits for it on a thread of its own under a named patience; in
+  `VerbRowTests` the work left running hands over on a thread of its own, let go by an event the hold sets (the owner's second answer of 2026-11-16,
+  "The six open calls", item 2, in Stagewatch's `docs/ecosystem/owner-answers.md`: the batch fix-hold-tests; test-only, no product
+  line, no file under `src/`). CI's run 477 (on 2ae7ac7b) was red on the Windows job at
+  `BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew`
+  (the ten-second wait for the greeting's hold ran out).
+  - What the code showed, at 9b7d1fca, each hold read for the thread that completes its source, where its continuation is queued
+    and who must run it:
+    - `BackupMirrorLinkTests.HoldNextLine` (three tests) and `HoldNextPairing`: `MirrorLink.Line` and `PairingChanged` are raised on
+      `WireClient.ConnectionAsync`'s read loop (`Line` through `Raise` after `await reader.ReadLineAsync`; `PairingChanged` from
+      `SetPairing(Paired)` in `TakeReply`), on the pool worker that runs the read's continuation. The handler's `TrySetResult` on a
+      source made with `RunContinuationsAsynchronously` queues the test's wake-up (`WaitAsync`'s completion) to that worker's own
+      local queue; the handler then blocks that worker in `release.Wait()`. The wake-up runs only if another worker steals it, and
+      a worker steals only when its own queue and the pool's global queue are empty, which a pool that never goes idle never is.
+    - `HoldNextSubscribe`: `Subscribing` is raised in `MirrorLink`'s greeting (`OnConnected`), started with `Task.Run` and continued
+      after `Waits.DelayAsync`'s 50 ms polls for the pairing, on a pool worker: the same shape, the greeting's worker blocked.
+    - `HelloTests.AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn`: `PeerTable.Changed` is raised in `Peers.Hear` from
+      `HelloService.ListenAsync` (started with `Task.Run`, continued after `ReceiveFromAsync`) on a pool worker; `telling` is set
+      there and the worker blocks in `told.Wait(20 s)`: the same shape. Its 20 s wait for `telling` runs out just before the
+      listener's own 20 s, so it fails on its wait.
+    - `VerbRowTests.WorkALaneHandlerLeftRunningHandsOverThroughItsCallAfterTheAnswerStillFollowsTheLinesRow`: `answered` is set in
+      `RowHeldForTests`, which `EngineCore.HandleOnLaneAsync` runs after `await _lane.RunAsync(...)` (the lane's source continues on
+      the pool); `answered` runs its continuations asynchronously, so the `ContinueWith` that hands over (its `ExecuteSynchronously`
+      overruled) is queued to that worker's local queue. That worker does not block: the hold awaits `handed`, so it runs its own
+      queue as soon as it unwinds. Not the blocked-worker shape; its 30 s counts one pool start, the shape fix-pool-bound-tests
+      mended elsewhere.
+    - Read and left, not this shape: `VerbRowTests.HoldRowUntil` (its source is set from `Journal.Written` on whichever thread writes
+      the matched row, and that thread goes on; the engine's hold and the test await it), `LateHook.Started`, `done` and `learnt`
+      (set by threads that go on). `HelloTests` and `BackupMirrorLinkTests` hold nothing else.
+    - Read in other files and not this shape (each held thread is not a pool worker, or the waiter is not bounded), so nothing of
+      them is open: `FanoutTests`' and `HostStopTests`' lane holds and `ResolveTests`' (the control lane's own thread),
+      `SettingsGateTests` (a thread of its own), `BlindRenderTests` (the render thread), the scan holds in `ScanEngineTests`,
+      `ScanSuggestRaceTests` and `ScanCancelIntoTests` (the simulated capture runs on `Compute`'s threads), and
+      `LineWebSocketTests`' `HeldChannel` (an event already).
+  - The shape, reproduced without CI (not run 477's own pool, which nothing here can show), once or more per suite: a scratch console harness under tmpfs (outside the tree, removed)
+    loaded the suite's test assembly, copied from the unmended build at 9b7d1fca, from a folder of its own, resolved the rest
+    through the suite's own dependency file, and invoked the test by reflection, its body on a thread of its own (as xunit's
+    aggressive algorithm) or on a pool worker (as its conservative one). The pool was kept from ever going idle without being
+    starved: 64 work items, each spinning 1 ms and queuing itself again to the global queue, so the product's own work items still
+    ran in turn behind at most 64 others. On this four-core machine:
+    - Unflooded, all passed (the red test in 8.1 s, the Hello test in 0.14 s).
+    - Flooded, `AMirrorQuietBeforeItsNewConnection…` failed with `TimeoutException` at its 10 s wait for the pairing hold (line 166)
+      after 19.2 s (body on its own thread) and 18.6 s (on a pool worker): one wait before the one CI's run failed at, the greeting
+      hold's (line 167), which the flood never reached. The greeting hold's shape (a `Task.Run` greeting continued on a pool worker
+      after `Waits.DelayAsync`, then blocked) is established by reading the code, not by a run that failed there, and it is mended
+      the same way; the other three Backup tests each at their 10 s wait for
+      the line hold (lines 58, 109, 209) after 18.8 to 20.3 s; the Hello test with `TimeoutException` at its 20 s wait (line 97)
+      after 20.1 s and 20.2 s.
+    - The control: with two spinning items (the pool's other workers go idle and steal), `AMirrorQuietBeforeItsNewConnection…`
+      passed flooded in 8.0 s.
+    - The `VerbRowTests` case was not reproduced, said plainly: it passed flooded (0.33 s), and under the earlier batches'
+      starvation (4,000 work items blocked on one gate opened at 45 s) it stalled on the product's own pool work, the lane's answer
+      continuing on the pool, and passed when the gate opened (45.0 s and 45.3 s), both body placements.
+  - The mend:
+    - `tests/Shared/OwnThread.cs` gains `WaitAsync(what, signal, patience, then)`: it waits on a thread of its own for an event
+      within the patience, failing with "{what} was not seen within its patience of {n} s", then does `then` on that thread and
+      hands back a task that ends there. Its comment states the invariant: an event set queues nothing to the held thread's pool
+      queue and no pool worker is needed to see it or to do `then`, so the patience counts the product's way to the hold alone,
+      and what `then` reads is read while the hold stands.
+    - `BackupMirrorLinkTests`: the three helpers take a `held` event beside `release` and set it where the hold is entered, then
+      block as before; each test declares its events beside `release` (so they outlive the nodes) and waits with
+      `OwnThread.WaitAsync` under the class's `HoldPatience` (10 s, as before). A comment above the helpers says why an event and
+      not a task source.
+    - `HelloTests`: `telling` is an event set where the listener is held; the test sees it and reads the table (`Peers.Count`,
+      `Heard`) on a thread of its own (`then`), so the read is made while the listener is held however late the test's own
+      continuation runs; the listener's own wait and the test's are one named `HoldPatience` (20 s, as before).
+    - `VerbRowTests`: the work the lane handler leaves running is an `OwnThread` it starts, which waits for `answered` (an event
+      the hold sets, declared before the engine so it outlives its close) within the class's named `HandOverPatience` (30 s, as
+      before) and then hands its row over through the call; the hold sets `answered` and joins that thread within the same
+      patience. No pool worker stands between the hold and the hand-over, and the hand-over still comes from a thread other than
+      the dispatcher's, the test's own point (the neighbouring Theory hands over on the hold's thread). The review's first form,
+      `answered` without `RunContinuationsAsynchronously` so the `ContinueWith` ran inline where the hold completed it, was
+      dropped in the fold-in: it put the hand-over on the hold's thread, and `ExecuteSynchronously` may still queue when the
+      runtime declines to inline.
+    - Every assertion is kept; no sleep, no scheduler of the test's own, no change under `src/`.
+  - Proved: the mended assembly, copied the same way, passed under the same flood: the four Backup tests in 10.2 to 12.0 s with
+    either body placement, the Hello test in 0.21 to 0.42 s, the `VerbRowTests` case in its first form in 0.56 to 0.68 s (its
+    final form, a thread of its own, was not run under the flood: the harness was gone by then; it holds no pool step between the
+    hold and the hand-over by construction). Faults planted in a scratch
+    copy of `src` (built there and loaded ahead of the tree's assembly; none in the tree) each failed the mended tests that exist to
+    catch them, unflooded and flooded alike:
+    - A line heard on a stale connection no longer moving the link live again (`WireClient`'s read loop) failed
+      `AMirrorQuietPastTheStaleMark…`, `AQuietMirrorIsOfferedNoLine…` and `APrimaryLightsABackup…` at their wait for the mirror to
+      be identical again ("the mirror link is Stale on connection 1"). To plant it again: in
+      `src/PlayMap.Net/Links/WireClient.cs` `ConnectionAsync`, remove `if (Status == LinkStatus.Stale) SetStatus(LinkStatus.Live);`
+      after `Interlocked.Exchange(ref _lastHeard, …)`.
+    - `MirrorLink` saying `Subscribed` before it subscribes failed `AMirrorQuietBeforeItsNewConnection…` at its assertion of the
+      not-subscribed words and the line that joins it anew. To plant it again: in `src/PlayMap.Net/Fleet/MirrorLink.cs`'s greeting,
+      raise `Subscribed?.Invoke();` before `Subscribing?.Invoke();` instead of after the `SUBSCRIBE MIRROR` reply.
+    - A hello counted heard before the table took it in (`HelloService.ListenAsync`) failed the Hello test at its
+      `Assert.Equal((1, 0L), …)`. To plant it again: in `src/PlayMap.Net/Bus/HelloService.cs` `ListenAsync`, do
+      `Interlocked.Increment(ref _heard);` before `taken = Peers.Hear(hello, from);`.
+    - The lane's dispatcher beginning the line's held work before it writes the line's row (`EngineCore.HandleOnLaneAsync`) failed
+      the `VerbRowTests` case at its row order ("Collections differ"), in its first form and, planted again in the fold-in on its
+      final form (built in the tree with the file saved outside it, then put back and rebuilt), alike: the work's row came first.
+      To plant it again: in `src/PlayMap.Engine/EngineCore.cs` `HandleOnLaneAsync`, call `BeginAfterRow(turn.TakeWork());` before
+      the `RowHeldForTests` hold instead of in the `finally` after the row is written.
+    - The first three are written from the implementer's report against the lines as they stand; only the fourth was planted
+      again in the fold-in.
+- Tests: the build whole on the 10.0.404 SDK (no warning, no error; its analysis reported nothing in any file); before the fold-in
+  `BackupMirrorLinkTests` and `VerbRowTests` (22 tests, the FFmpeg one run with `PLAYMAP_FFMPEG_DIR` set) 20 runs in a loop,
+  green (24 to 26 s a run), and `HelloTests` (16) 20 runs in a loop, green; after the fold-in moved `VerbRowTests`' hand-over onto
+  a thread of its own, `VerbRowTests` (18) 20 runs in a loop, green.
+  - The closing validate, once after the fold-in: the build whole (`PLAYMAP_DXC_DIR` set); the whole Engine suite green in five
+    parts that name its tests once (Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 204 and 2 skipped; Rendering
+    to Wall, 498 and 4 skipped; the root namespace, 167). The root part failed once, on
+    `StagewatchSinkTests.OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`'s 403 case (`sink.Problem` read empty
+    at line 708), and passed whole on its rerun: the cause is the one fix-peerlink-core's and fix-pool-bound-tests' entries record,
+    the sink's own pull every 50 ms ending with `Problem = ""` between the offer's refusal and the test's read; untouched by this
+    batch, it stays that entry's open item. The whole Net suite, 330 passed and 1 skipped; its three Chromium page tests failed
+    before any PlayMap code ran (`chromium` undefined at `tests/e2e/phonescan/page.mjs:12`), as fix-desk-unconfirmed's entry
+    records, not counted green. The Media suite compiles the helper: its `NativeBuildTests` (3, the helper's users there) green.
+    The Core suite does not compile the helper and was not run.
+- Files: `tests/Shared/OwnThread.cs`; `tests/PlayMap.Engine.Tests/Fleet/BackupMirrorLinkTests.cs`; `tests/PlayMap.Net.Tests/HelloTests.cs`;
+  `tests/PlayMap.Engine.Tests/VerbRowTests.cs`; this entry and the taken mark in fix-pool-bound-tests' Open list. No csproj moved
+  (the helper's file is named in the three suites already); no file under `src/`.
+- Open:
+  - `OptimiseWorkerEndTests`' `HeldLed`: fix-pool-bound-tests' Open item for it stands (outside this leave); one reading to add
+    to it. `View()` completes `HoldNext`'s source and then blocks in `_letGo.Wait(Patience)` on the optimise service's loop, a
+    pool worker, so the test's wake-up is queued to the held worker's own queue: the shape mended here. That item left it because
+    under a starved pool the step never reaches the hold; under a pool that never goes idle it does, so the same mend (an event
+    set in `View()` before the wait, seen with `OwnThread.WaitAsync`) would answer that case. Read, not run here.

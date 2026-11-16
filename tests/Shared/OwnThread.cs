@@ -8,7 +8,8 @@ namespace PlayMap.Tests;
 /// bound that is the test's point still does. What the work threw is thrown on the test's thread when it is joined; a thread still
 /// running past its bound is left to end with the test process, as a managed thread cannot be stopped safely. Only the work's own
 /// thread is its own: an async delegate started here runs on it up to its first await that has not finished, and continues where
-/// that await continues (for a plain await, on the pool).</summary>
+/// that await continues (for a plain await, on the pool). A hold a test sets in a product callback is waited for here too
+/// (<see cref="WaitAsync"/>), its signal an event set where the hold is entered.</summary>
 internal sealed class OwnThread
 {
     private readonly Thread _thread;
@@ -67,6 +68,21 @@ internal sealed class OwnThread
         });
         return started.Task.Unwrap();
     }
+
+    /// <summary>Waits on a thread of its own for <paramref name="signal"/> within <paramref name="patience"/>, failing with words that
+    /// name <paramref name="what"/> and the patience, then does <paramref name="then"/> on that thread, and hands back a task that ends
+    /// there. For a hold that sets its signal and then holds the thread it was entered on: the signal queues nothing to that thread's
+    /// pool queue, and no pool worker is needed to see it or to do <paramref name="then"/>, so the patience counts the product's way to
+    /// the hold alone, and what <paramref name="then"/> reads is read while the hold stands, however late the test's own continuation
+    /// runs.</summary>
+    public static Task WaitAsync(string what, ManualResetEventSlim signal, TimeSpan patience, Action? then = null) =>
+        StartAsync("wait for " + what, () =>
+        {
+            Xunit.Assert.True(signal.Wait(patience), string.Create(CultureInfo.InvariantCulture,
+                $"{what} was not seen within its patience of {patience.TotalSeconds:0.###} s"));
+            then?.Invoke();
+            return Task.CompletedTask;
+        });
 
     /// <summary>The work has not ended.</summary>
     public bool Running => _thread.IsAlive;

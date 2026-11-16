@@ -25,12 +25,18 @@ public sealed class BackupMirrorLinkTests
 
     private const string NotSubscribed = "FOH-A's mirror is not subscribed — the last show and air hold here";
 
+    /// <summary>How long a test waits to see the backup's reader or greeting held: the product's way to the hold, on a thread of the
+    /// test's own (<see cref="OwnThread.WaitAsync"/>).</summary>
+    private static readonly TimeSpan HoldPatience = TimeSpan.FromSeconds(10);
+
     [Fact]
     public async Task AMirrorQuietPastTheStaleMarkIsFollowedAgainWithItsNextLineAndADroppedOneSubscribesAnew()
     {
         // The gate the backup's reader is held on: declared before the nodes, so it outlives their close, and set on every way out
         // before they stop (the finally below), so a failing assertion reports instead of holding the backup's close on its reader.
+        // The reader sets held as it is held; declared here too, so no reader sets it once it is gone.
         using var release = new ManualResetEventSlim();
+        using var held = new ManualResetEventSlim();
         var clock = new ManualClock(1_000 * Second);
         var time = new ManualTime();
         await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
@@ -50,12 +56,12 @@ public sealed class BackupMirrorLinkTests
                 var m = node.Mirror()!;
                 seen.Enqueue((s, m.State, m.Words));
             };
-            var holding = HoldNextLine(link, release);
+            HoldNextLine(link, held, release);
 
             // An edit on the primary, its line read and the reader held there; the backup's clock moves past the stale mark: the
             // mirror is lost while it is quiet, on the same connection.
             await primary.OkAsync("SET op_1 name Quiet");
-            await holding.WaitAsync(TimeSpan.FromSeconds(10));
+            await OwnThread.WaitAsync("the backup's reader held on the primary's line", held, HoldPatience);
             clock.Advance(6 * Second + Second / 2);
             Assert.True(await Eventually.TrueAsync(() => !seen.IsEmpty), BackupRig.Saw(backup));
             Assert.Equal((LinkStatus.Stale, "lost", Quiet), seen.First());
@@ -88,8 +94,10 @@ public sealed class BackupMirrorLinkTests
     [Fact]
     public async Task AQuietMirrorIsOfferedNoLineInPreflightAndADroppedOneTheLineThatJoinsItAnew()
     {
-        // The gate the backup's reader is held on, as above: it outlives the nodes and is set on every way out before they stop.
+        // The gate the backup's reader is held on, as above: it outlives the nodes and is set on every way out before they stop; held
+        // with it.
         using var release = new ManualResetEventSlim();
+        using var held = new ManualResetEventSlim();
         var clock = new ManualClock(1_000 * Second);
         var time = new ManualTime();
         await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
@@ -101,12 +109,12 @@ public sealed class BackupMirrorLinkTests
             await BackupRig.MeetAsync(primary, backup);
             await BackupRig.BackUpAsync(primary, backup);
             var link = backup.Engine.Services.Backup!.Link!;
-            var holding = HoldNextLine(link, release);
+            HoldNextLine(link, held, release);
 
             // The primary's line read and the reader held there, the backup's clock past the stale mark: preflight reads the mirror lost
             // with the quiet words and offers no line, its subscription standing; FLEET BACKUP is refused then and changes nothing.
             await primary.OkAsync("SET op_1 name Quiet");
-            await holding.WaitAsync(TimeSpan.FromSeconds(10));
+            await OwnThread.WaitAsync("the backup's reader held on the primary's line", held, HoldPatience);
             clock.Advance(6 * Second + Second / 2);
             Assert.True(await Eventually.TrueAsync(() => link.Status == LinkStatus.Stale), BackupRig.Saw(backup));
             var quiet = await MirrorRowAsync(backup);
@@ -134,8 +142,11 @@ public sealed class BackupMirrorLinkTests
     [Fact]
     public async Task AMirrorQuietBeforeItsNewConnectionIsSubscribedSaysItIsNotSubscribedAndIsOfferedTheLineThatJoinsItAnew()
     {
-        // The gate the backup's reader and greeting are held on: it outlives the nodes and is set on every way out before they stop.
+        // The gate the backup's reader and greeting are held on: it outlives the nodes and is set on every way out before they stop;
+        // what each sets as it is held, with it.
         using var release = new ManualResetEventSlim();
+        using var paired = new ManualResetEventSlim();
+        using var greeting = new ManualResetEventSlim();
         var clock = new ManualClock(1_000 * Second);
         var time = new ManualTime();
         await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
@@ -155,16 +166,16 @@ public sealed class BackupMirrorLinkTests
                 var m = node.Mirror()!;
                 seen.Enqueue((s, m.State, m.Words, m.Rejoin));
             };
-            var paired = HoldNextPairing(link, release);
-            var greeting = HoldNextSubscribe(link, release);
+            HoldNextPairing(link, paired, release);
+            HoldNextSubscribe(link, greeting, release);
 
             // The connection ends; the next one pairs, its reader held on the primary's answer to the proof and its greeting held before
             // it subscribes, so nothing more is heard on it (the primary's STATE pushes and answers wait unread) and no subscription
             // stands; the backup's clock moves past the stale mark: the mirror is lost and not subscribed, and offered the line that
             // joins it anew.
             link.Drop();
-            await paired.WaitAsync(TimeSpan.FromSeconds(10));
-            await greeting.WaitAsync(TimeSpan.FromSeconds(10));
+            await OwnThread.WaitAsync("the backup's reader held on the primary's answer that pairs it", paired, HoldPatience);
+            await OwnThread.WaitAsync("the backup's greeting held before it subscribes", greeting, HoldPatience);
             clock.Advance(6 * Second + Second / 2);
             Assert.True(await Eventually.TrueAsync(() => seen.Any(e => e.Status == LinkStatus.Stale)), BackupRig.Saw(backup));
             var quiet = seen.FirstOrDefault(e => e.Status == LinkStatus.Stale);
@@ -189,8 +200,9 @@ public sealed class BackupMirrorLinkTests
     [Fact]
     public async Task APrimaryLightsABackupWhoseMirrorIsLostRedInStateOnItsKeyAndInPreflightAlike()
     {
-        // The gate the backup's reader is held on: it outlives the nodes and is set on every way out before they stop.
+        // The gate the backup's reader is held on: it outlives the nodes and is set on every way out before they stop; held with it.
         using var release = new ManualResetEventSlim();
+        using var held = new ManualResetEventSlim();
         var clock = new ManualClock(1_000 * Second);
         var time = new ManualTime();
         await using var primary = await BackupRig.StartAsync("FOH-A", BackupRig.PrimaryId, new OffsetClock(clock, 2 * Second), time);
@@ -201,12 +213,12 @@ public sealed class BackupMirrorLinkTests
             await primary.OkAsync("SYNC LEAD show");
             await BackupRig.MeetAsync(primary, backup);
             await BackupRig.BackUpAsync(primary, backup);
-            var holding = HoldNextLine(backup.Engine.Services.Backup!.Link!, release);
+            HoldNextLine(backup.Engine.Services.Backup!.Link!, held, release);
 
             // The backup's reader held on the primary's line and its clock past the stale mark: its mirror is lost, its health says so, and
             // the primary lights it red alike in STATE, on INDEX's key for it and in preflight's row for it.
             await primary.OkAsync("SET op_1 name Quiet");
-            await holding.WaitAsync(TimeSpan.FromSeconds(10));
+            await OwnThread.WaitAsync("the backup's reader held on the primary's line", held, HoldPatience);
             clock.Advance(6 * Second + Second / 2);
             Assert.True(await Eventually.TrueAsync(() => BackupState(primary) == "lost"), BackupRig.Fleet(primary).ToString());
             Assert.Equal(("lost", "red", "lost", "red", "lost", Light.Red), await LightsAsync(primary, backup.Id));
@@ -238,55 +250,53 @@ public sealed class BackupMirrorLinkTests
     private static async Task<PreflightRow> MirrorRowAsync(HostRig backup) =>
         (await BackupRig.PreflightAsync(backup)).Single(r => r.Id == "backup:mirror");
 
+    // Each hold below sets its held event where the hold is entered, then holds the link's thread there (a pool worker: the reader or
+    // the greeting) until release is set. An event set queues nothing, so the held worker's own queue keeps nothing the test needs;
+    // a task source's continuation, queued there, would wait until another worker took it, which a pool that never goes idle does not.
+
     /// <summary>Holds the backup's reader on the link's next connection as it reads the primary's answer that pairs it, until
-    /// <paramref name="release"/> is set, so nothing more is heard from the primary on that connection meanwhile; the task ends once the
-    /// reader is held.</summary>
-    private static Task HoldNextPairing(MirrorLink link, ManualResetEventSlim release)
+    /// <paramref name="release"/> is set, so nothing more is heard from the primary on that connection meanwhile; sets
+    /// <paramref name="held"/> as the reader is held.</summary>
+    private static void HoldNextPairing(MirrorLink link, ManualResetEventSlim held, ManualResetEventSlim release)
     {
-        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var hold = 1;
         link.PairingChanged += s =>
         {
             if (s == PairState.Paired && Interlocked.Exchange(ref hold, 0) == 1)
             {
-                holding.TrySetResult();
+                held.Set();
                 release.Wait();
             }
         };
-        return holding.Task;
     }
 
     /// <summary>Holds the backup's greeting on the link's next connection just before it subscribes, until <paramref name="release"/> is
-    /// set, so no subscription stands on that connection meanwhile; the task ends once the greeting is held.</summary>
-    private static Task HoldNextSubscribe(MirrorLink link, ManualResetEventSlim release)
+    /// set, so no subscription stands on that connection meanwhile; sets <paramref name="held"/> as the greeting is held.</summary>
+    private static void HoldNextSubscribe(MirrorLink link, ManualResetEventSlim held, ManualResetEventSlim release)
     {
-        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var hold = 1;
         link.Subscribing += () =>
         {
             if (Interlocked.Exchange(ref hold, 0) == 1)
             {
-                holding.TrySetResult();
+                held.Set();
                 release.Wait();
             }
         };
-        return holding.Task;
     }
 
     /// <summary>Holds the backup's reader on the next mirror line it reads (after the node has taken it) until <paramref name="release"/>
-    /// is set, so nothing more is heard from the primary meanwhile; the task ends once the reader is held.</summary>
-    private static Task HoldNextLine(MirrorLink link, ManualResetEventSlim release)
+    /// is set, so nothing more is heard from the primary meanwhile; sets <paramref name="held"/> as the reader is held.</summary>
+    private static void HoldNextLine(MirrorLink link, ManualResetEventSlim held, ManualResetEventSlim release)
     {
-        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var hold = 1;
         link.Line += _ =>
         {
             if (Interlocked.Exchange(ref hold, 0) == 1)
             {
-                holding.TrySetResult();
+                held.Set();
                 release.Wait();
             }
         };
-        return holding.Task;
     }
 }

@@ -73,29 +73,37 @@ public class HelloTests
         Assert.Equal(0, a.Peers.Count);
     }
 
+    /// <summary>How long a test waits to see a's listener held while the table tells it of the new peer, and how long that listener
+    /// waits to be let go before it goes on by itself.</summary>
+    private static readonly TimeSpan HoldPatience = TimeSpan.FromSeconds(20);
+
     [Fact]
     public async Task AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn()
     {
         // Heard says what the table holds: while the table's listener is still being told of the new peer, the hello is not counted.
+        // The listener (a pool worker) sets telling where it is held and holds there: an event set queues nothing to that worker, and
+        // the test sees it and reads the table on a thread of its own, so neither the hold being seen nor the read waits for a worker.
         var clock = new ManualClock(1_000_000_000);
         using var told = new ManualResetEventSlim();
+        using var telling = new ManualResetEventSlim();
         await using var a = Make(Node("aaaa0001", "Stage left"), clock);
         await using var b = Make(Node("bbbb0002", "Stage right"), clock);
-        var telling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         a.Peers.Changed += change =>
         {
             if (change.Kind != PeerChangeKind.Added)
                 return;
-            telling.TrySetResult();
-            told.Wait(TimeSpan.FromSeconds(20));
+            telling.Set();
+            told.Wait(HoldPatience);
         };
         a.Start();
         b.Start();
         b.Targets = [new IPEndPoint(IPAddress.Loopback, a.ListenPort)];
         try
         {
-            await telling.Task.WaitAsync(TimeSpan.FromSeconds(20));
-            Assert.Equal((1, 0L), (a.Peers.Count, a.Heard));
+            var counted = (Peers: -1, Heard: -1L);
+            await OwnThread.WaitAsync("a's listener held while the table tells it of the new peer", telling, HoldPatience,
+                then: () => counted = (a.Peers.Count, a.Heard));
+            Assert.Equal((1, 0L), counted);
         }
         finally
         {

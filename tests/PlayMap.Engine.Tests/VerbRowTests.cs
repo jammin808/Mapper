@@ -31,6 +31,10 @@ public sealed class VerbRowTests
 
     private const string Refused = "Dead list's media list could not be read: Response status code does not indicate success: 503 (Refused).";
 
+    /// <summary>How long a row's hold waits for the work a lane handler left running to hand its row over through the call, and how
+    /// long that work waits for the row to be held.</summary>
+    private static readonly TimeSpan HandOverPatience = TimeSpan.FromSeconds(30);
+
     [Fact]
     public async Task AFetchsRowComesBeforeEveryRowOfItsPullsWhenTheyAllEndBeforeTheFetchIsAnswered()
     {
@@ -381,26 +385,31 @@ public sealed class VerbRowTests
     {
         // A lane handler answers and leaves work running that holds its call; that work hands its row over through the call only
         // once the handler has answered, just before the line's row is written. The line's dispatcher takes the call after the row,
-        // so the work's row still follows it.
+        // so the work's row still follows it. The work runs on a thread of its own, never the hold's or a pool worker: the hold sets
+        // answered (an event, which queues nothing) and joins the work within its patience, so the hold waits for no pool worker to
+        // begin the hand-over, and the hand-over comes from a thread other than the dispatcher's.
+        // The event the work waits on: declared before the engine, so it outlives the engine's close.
+        using var answered = new ManualResetEventSlim();
         await using var engine = new EngineCore(EngineServices.ForTests());
         var spec = RoutesTests.Unrouted(engine, v => v.Mutates && !v.Ephemeral && !v.Gesture);
-        var answered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var handed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        OwnThread? work = null;
         engine.Routes.Lane(spec.Name, call =>
         {
-            _ = answered.Task.ContinueWith(_ =>
+            work = OwnThread.Start("work the lane handler left running", () =>
             {
+                Assert.True(answered.Wait(HandOverPatience), "the line's row was not held within the work's patience");
                 call.AfterRow(() => engine.Journal.Add("test", "the work's row"));
-                handed.TrySetResult();
-            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            });
             return CommandReply.Success(effect: "the line's row");
         });
-        engine.RowHeldForTests = async (line, _) =>
+        engine.RowHeldForTests = (line, _) =>
         {
-            if (!line.Raw.StartsWith(spec.Name, StringComparison.Ordinal))
-                return;
-            answered.TrySetResult();
-            await handed.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            if (line.Raw.StartsWith(spec.Name, StringComparison.Ordinal))
+            {
+                answered.Set();
+                work!.Join(HandOverPatience);
+            }
+            return Task.CompletedTask;
         };
         var before = engine.Journal.Recent(200).Count;
 
