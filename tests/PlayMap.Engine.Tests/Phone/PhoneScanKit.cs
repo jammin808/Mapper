@@ -688,11 +688,19 @@ internal sealed class PhoneScanRig : IAsyncDisposable
         return phone;
     }
 
-    /// <summary>Waits for the scan to end (a published fact), then answers its view.</summary>
-    public async Task<ScanView> EndedAsync(int timeoutMs = 120_000)
+    /// <summary>Waits for the scan to end (a published fact), then answers its view. A task of <paramref name="people"/> (a simulated
+    /// person acting on the scan's cues) that faults ends the wait at once and throws what that person threw, never a wait the scan
+    /// cannot end without them; a scan not ended within the bound fails with its view's state, stage and message.</summary>
+    public async Task<ScanView> EndedAsync(int timeoutMs = 120_000, IEnumerable<Task>? people = null)
     {
-        Assert.True(await OpsRig.Eventually(() => Runner.View is { IsRunning: false }, timeoutMs), "the scan never ended");
-        return Runner.View!;
+        Task? Fault() => people?.FirstOrDefault(p => p.IsFaulted);
+        var ended = await OpsRig.Eventually(() => Runner.View is { IsRunning: false } || Fault() is not null, timeoutMs);
+        if (Fault() is { } fault)
+            await fault;
+        var view = Runner.View;
+        Assert.True(ended, view is null ? "the scan never ended: no scan was published"
+            : $"the scan never ended: {view.State} at {view.Stage}, \"{view.Message}\"");
+        return view!;
     }
 
     /// <summary>Leaves the rig's folder after it is disposed (a test reads the journal file, then calls <see cref="DeleteFolder"/>).</summary>

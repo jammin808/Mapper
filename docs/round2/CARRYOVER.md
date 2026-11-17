@@ -3971,3 +3971,106 @@ Round 2 W1 notes:
     `timeout --kill-after` and a `ps -o pid,ppid,comm --ppid` walk would be its design.
   - Whether the runner waits for a step's output pipe after the step's own process ends (a grandchild holding it) is not read;
     the deadline waits for the `dotnet test` process alone, not its pipes.
+
+## Integrator notes from the round-2 fix batch (fix-foldercamera-cue-words)
+
+- Done: the simulated person in `FolderCameraTests.AManualFolderTakesTheNewestPictureOnScanNext` waits for its own cue's words,
+  and a person's fault ends the test's wait for the scan at once with that person's own exception (the owner's second answer of
+  2026-11-16, "PlayMap's Windows job and what it showed", item 2, in Stagewatch's `docs/ecosystem/owner-answers.md`: the batch
+  fix-foldercamera-cue-words; test-only, no product line, no file under `src/`). CI's run 479 (on cf576ffc) was red on its re-run
+  at this test, "the scan never ended", after `[2 m]`, which is `EndedAsync`'s 120 s bound; its first attempt is fix-ci-windows-bounds'
+  item and is not this.
+  - What the code showed, at f8e038a7, step by step:
+    - The stale words. Before each locate frame the scan publishes a Step ("finding the tag places (k of 14)",
+      `CuedCapture.cs` 204-205), so a locate cue's person never finds "then SCAN NEXT" on its first look. After the last locate frame
+      is taken nothing publishes: the tag decode (224, a `Compute` hop), the notes and `SetSitesAsync` (226), then the pattern loop's
+      first `SeenAsync` (247: `AskAsync` arms the camera, shows the pattern and calls `CueAsync`, 86-97); `track.Pattern` runs only
+      after the picture (250). So while the first pattern is cued, STATE's scan message still reads "Night camera: shoot locate
+      frame 14, then SCAN NEXT". It is the only such point in a passing run: the verify stage begins with a "checking" Step (257),
+      the closing check comes after it, and the test asserts no retake.
+    - Cued before the camera waits. `FolderCamera.CueAsync` invokes `Cued` (190) before it makes the completion source and sets
+      `_next` under its gate (196-198), and only then says its own words through `Say` (200, `track.Step` at `ScanRunner.cs` 827,
+      published synchronously). Its comment, "a SCAN NEXT answering these words always finds the camera waiting", holds for this
+      cue's words, not for the cue before's.
+    - The person's first look is synchronous on its own thread. `Shoot` starts the person with `OwnThread.StartAsync`, which runs the
+      delegate on a new thread (`OwnThread.cs` 54-62) up to its first unfinished await; `OpsRig.Eventually` checks its condition once
+      before any await (`OpsRig.cs` 115-120). The condition was any message ending "then SCAN NEXT" (`FolderCameraTests.cs` 168 at
+      f8e038a7), true at once on the stale words. The person then drops its picture and sends SCAN NEXT through the engine to the
+      control lane's own thread, no pool worker on the way.
+    - The refusal. The SCAN NEXT route (`EngineCore.Phone.cs` 29-33) asks `TakeByHand` (`FolderCamera.TakeNow`, null `_next`:
+      false), then `CameraByHand` (true) and answers "the folder camera is not waiting for a picture yet — SCAN NEXT once the
+      pattern is up and shot". `Assert.True(next.Ok, next.Payload)` faults the person's task; nobody presses again.
+    - The patience against the bound. The camera then waits under its `Patience`, 10 minutes by default (`FolderCamera.cs` 18,
+      `CuedCapture.cs` 88), and `EndedAsync` gives up at 120 s with the bare words; the faulted task in `nexts` was awaited only after
+      `EndedAsync`, so its words were never shown.
+  - The cause, shown by a plant (not observed on the runner): in a scratch copy of the tree under tmpfs (outside the tree, removed),
+    the test's `Shoot` held the scan's thread for the first pattern's cue (kind `pattern`, index 0), before the camera sets `_next`,
+    until that person's task completed (3 s at most, a bound reached only when the person waits), and wrote what the view said and
+    how the person ended. At f8e038a7, five runs of five failed (one run on the build of f8e038a7 with the plant; four more on that
+    same build, run after the first rebuild for the mend failed at S1121 and so counted here, not as mend runs) with "the scan never ended" after `[2 m]`, each with the person
+    refused: the view said "Night camera: shoot locate frame 14, then SCAN NEXT", the person was done within the hold, faulted,
+    "the folder camera is not waiting for a picture yet — SCAN NEXT once the pattern is up and shot". With the old look and only the
+    new wait for the end, the same plant failed in about 1 s with the person's own refusal (two runs of two). With the whole mend and
+    the same plant, five runs of five passed in 7 s each: the person was still waiting when the hold's 3 s ran out, and pressed once
+    the camera said "shoot pattern 1". Run 479's re-run is read as this race from the code and the timing (one test, its 120 s bound,
+    nothing else red); the run printed neither the person's fault nor the view, so it is the cause as far as shown, now shown to
+    produce exactly that failure.
+  - The correction to fix-pool-bound-tests' entry: its line "in the manual scan, the delays, the dropped picture and each SCAN NEXT
+    (`rig.Run`) the scan waits for" come after the first unfinished await is false for the first pattern: there the stale words let
+    the first look pass synchronously, and the drop and SCAN NEXT run on the person's own thread at once. That move to a thread of its
+    own (2ae7ac7b) is read as having made the race likelier (under `Task.Run` the person's first look usually waited for a pool
+    dequeue, by which time `_next` was set); not measured.
+  - The mend:
+    - `FolderCameraTests`: the person waits for `View.Message` equal to its own cue's words, made as `FolderCamera`'s `Describe`
+      makes them, invariant culture: "{rig name}: shoot pattern {index + 1}, then SCAN NEXT", or "locate frame {index + 1}" for a
+      locate cue (the closing check's cue is a locate cue of index 0). The camera says them only after it waits, so the SCAN NEXT
+      that answers them finds it waiting. The rig's name is the class's `RigName` constant, used where the rig is added. Every
+      assertion stays, `Assert.True(next.Ok, next.Payload)` among them; the person's wait names the words it never saw.
+    - `PhoneScanKit.EndedAsync` takes the people acting on the scan's cues (optional; the other eighteen callers unchanged): a
+      faulted task among them ends the wait at once and is awaited, so the test fails with that person's own exception; a scan not
+      ended within the bound fails with "the scan never ended: {state} at {stage}, \"{message}\"". Its 120 s bound stays.
+    - Not done, as the check's list says: no wait lengthened or patience changed, no sleep before the first look, no retry of SCAN
+      NEXT on the refusal, no return to `Task.Run`, no change to the product's refusal or words, no skip.
+  - The same shape looked for elsewhere:
+    - The class's tethered test (`ATetheredFolderScansAProjectorAndAPhotoOfTheWrongPatternIsRefusedWithWords`): not this shape, left
+      as it is. Its camera takes new files (`FolderAdvance.NewFile`), so a picture dropped before the camera lists the folder is still
+      a file it did not hold at `Arm`; and the photographer waits for "photo 17 shows pattern 16: re-shoot" in the queue of every
+      published message, words said only once, after the wrong photo was read, never stale.
+    - `DmxPersonalityTests`' console start: not this shape, left as it is. The console sends its frame every 50 ms from its first
+      look on, without waiting for any word, and the test waits on the project's facts (`ControlRig.Until`), so a first frame the
+      listener misses is followed by the next.
+    - No other test waits on "then SCAN NEXT" or scans with a manual folder camera (searched under `tests/`);
+      `FolderCameraWriteTests` drops its pictures in a new-file folder with no person.
+- Tests: the mended test and its class, 20 runs of the class in a row, each green (3 passed, 7 s); every test that uses the kit
+  (`Phone` and `Facade`: 146 passed, 2 skipped, the two `PhoneScanE2ETests` that need a browser; `Wall`, under the virtual display:
+  43 passed). The build on the 10.0.404 SDK: no warning, no error (its analysis reported one finding in the batch's own first draft,
+  S1121 on an assignment inside the wait's condition, mended, not silenced). The validate after the review's fold-in: the build,
+  no warning, no error; the whole Engine suite in four parts that together name its 1355 tests once (`Phone`, `Facade`, `Wall`,
+  `Align`: 220 passed, 2 skipped, the two browser `PhoneScanE2ETests`; `Fleet`, `Spine`, `Host`, `Rendering`: 320 passed, 4
+  skipped; `Show`, `Sync`, `Tc`, `Control`, `Companion`, `Audio`, `Content`, `Decode`: 408 passed; the rest: 401 passed, after a
+  first run of it failed six DXC tests because the build before it ran without `PLAYMAP_DXC_DIR`, so no `libdxcompiler.so` sat
+  beside the outputs; rebuilt with it set, all green); the Net suite 330 passed, 1 skipped, and its three Chromium page tests
+  failed before any PlayMap code ran, as fix-desk-unconfirmed's entry says (not counted green).
+- Files: `tests/PlayMap.Engine.Tests/Phone/FolderCameraTests.cs`, `tests/PlayMap.Engine.Tests/Phone/PhoneScanKit.cs`, this entry.
+  No file under `src/`.
+- Open:
+  - The product line, the owner's item 3 (fix-scan-cue-words): STATE's scan message still names the last locate frame's wait while
+    the tags decode and the first pattern goes up. This test no longer depends on it either way.
+  - The person answers only `Cued`. A camera that asks again without a new cue ("no new picture … then SCAN NEXT", "could not be
+    read …: re-shoot", "photo N shows pattern M: re-shoot", `FolderCamera.cs` 209, 227, 236) would leave the scan waiting under its
+    10-minute patience and the test failing at its 120 s, now with that message in its words; not seen in any run read.
+  - The tethered test does not hand its photographers to `EndedAsync`: a photographer's fault there still shows as the scan's bound,
+    now with the view's stage and message; `EndedAsync(people: tether)` is the one-word change.
+  - Both tests delete their folder in `finally` before the rig (and its scan's watcher) is disposed; on Windows the delete could
+    throw over a failure's own words while a scan still holds the folder. Not seen in run 479 (its assertion was reported).
+  - Run 479's first attempt (85 minutes) stays unexplained, and fix-ci-windows-bounds' Open list keeps it. Read, not shown: this
+    race fails the test at `EndedAsync`'s 120 s, and the rig's dispose is read to cancel the scan still inside the camera's 10-minute
+    patience, so the suite goes on; that dispose was not measured on Windows (and the folder is deleted before it, above).
+  - No fence in the tree holds the mend: the race needs the scan's thread to stall between `Cued` and `_next`, so a person's look
+    put back to any "then SCAN NEXT" would pass in almost every run, here and on CI. The fence's design is the plant made a test-only
+    hold: `Shoot` holds the scan's thread for cue (pattern, 0) until that person's task ends, under a bound of its own (the mended
+    person waits through it, so the hold cannot be unbounded); the bound is the open choice, so it is not built in this batch.
+  - A retake of the same index carries the words of the cue before it (the verify stage's round 1 and on, `CuedCapture.cs` 285;
+    `SeenAsync`'s retake after patience, 360; `TakeAsync`'s ask again, 388): no Step comes between, so that cue's person passes on
+    stale words and is refused. Such a run already fails on the test's zero-retake assertion; only its failure reads as the
+    person's refusal, not the retake. No code change.

@@ -18,6 +18,9 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
 {
     internal const string Rig = "cm0000f01d";
 
+    /// <summary>The folder camera rig's name, which begins the words the camera says.</summary>
+    internal const string RigName = "Night camera";
+
     /// <summary>A minimal uncompressed grey TIFF (8 or 16 bits a sample, little-endian), as a tethering tool writes.</summary>
     internal static byte[] Tiff(int width, int height, ReadOnlySpan<ushort> samples, int bits)
     {
@@ -75,7 +78,7 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
         var cam = rig.Truth.Camera;
         var r = await rig.Engine.EditAsync(PhoneScanRig.Desk, "the tethered camera", p => p.WithStage(s => s with
         {
-            Cameras = s.Cameras.Add(new CameraRig(Rig, "Night camera", CameraSourceKind.Folder, folder, cam.Intrinsics, cam.Lens, cam.Pose, true)
+            Cameras = s.Cameras.Add(new CameraRig(Rig, RigName, CameraSourceKind.Folder, folder, cam.Intrinsics, cam.Lens, cam.Pose, true)
             {
                 Folder = new FolderCapture(folder, advance, 30),
             }),
@@ -159,13 +162,17 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
             var rig = rigRef!;
             var (now, _) = rig.Display.Glass;
             var n = Interlocked.Increment(ref shot);
-            // The person starts on a thread of its own, so their first look for the view's "then SCAN NEXT" waits for no pool
-            // worker; the dropped picture and SCAN NEXT come after their first unfinished await and continue where that await
-            // continues.
+            // The person's go is this cue's own words, made as the camera makes them. The camera says them only once it waits for
+            // the picture, so the SCAN NEXT that answers them finds it waiting; the words of the cue before, still on the view while
+            // this cue's pattern goes up (after the last locate frame, before the first pattern), are not this person's go.
+            var words = string.Create(CultureInfo.InvariantCulture,
+                $"{RigName}: shoot {(cue.Kind == "pattern" ? "pattern" : "locate frame")} {cue.Index + 1}, then SCAN NEXT");
+            // The person starts on a thread of its own, so their first look for the words waits for no pool worker; a look that does
+            // not find them waits, and what follows continues where that await continues.
             nexts.Enqueue(OwnThread.StartAsync("person at the camera", async () =>
             {
                 // The person sees the pattern, shoots, and presses Next once the picture is in the folder.
-                Assert.True(await OpsRig.Eventually(() => rig.Runner.View?.Message.EndsWith("then SCAN NEXT", StringComparison.Ordinal) == true));
+                Assert.True(await OpsRig.Eventually(() => rig.Runner.View?.Message == words), $"the view never said \"{words}\"");
                 Drop(folder, n, rig.Camera.RenderRaster(now, (ulong)n), rig.Camera.CameraWidth, rig.Camera.CameraHeight);
                 var next = await rig.Run("SCAN NEXT");
                 Assert.True(next.Ok, next.Payload);
@@ -182,7 +189,8 @@ public sealed class FolderCameraTests(ITestOutputHelper output)
             // Nothing waits on a picture yet: SCAN NEXT says so.
             Assert.Equal("no scan is waiting for a picture", (await rig.Run("SCAN NEXT")).Payload);
             await rig.Ok($"SCAN START {Rig} pj00000001 MODE FAST");
-            var view = await rig.EndedAsync();
+            // A person refused or never told their words fails the test at once, with their own words.
+            var view = await rig.EndedAsync(people: nexts);
             Assert.True(view.State == "done", view.Message);
             await Task.WhenAll(nexts);
             // Every picture was taken by SCAN NEXT, and no pattern was ever put up again for the camera.
