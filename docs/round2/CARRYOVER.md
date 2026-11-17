@@ -4747,3 +4747,164 @@ Round 2 W1 notes:
     them under the gate) and whether the words follow the desk's last decision rather than the last answer to arrive.
   - `Problem` still reaches no reader: when a host switches the sink on (round 2's decision 7, `docs/round2/PLAN.md` §9) and a reader
     (STATE, the desk, the context, the assistant's facts) shows it, that reader's fixture and words follow the rule above.
+
+## Integrator notes from the round-2 fix batch (fix-ci-nodehost-measure)
+
+- Done: measurement only, test-only and CI-only, no file under `src/`, no assertion, wait, bound or kill of any test changed, no
+  governor (the orchestrator's batch on the owner's standing answer, "no governor follows without a reading", and the adversarial
+  check's mends 1 and 2 on runs 487 and 488; the owner's second answer of 2026-11-16, "PlayMap's Windows job and what it showed", in
+  Stagewatch's `docs/ecosystem/owner-answers.md`, did not name this batch, so its leave is the list the orchestrator gave:
+  `tests/PlayMap.Engine.Tests/Spine/NodeHostTests.cs` and `NodeExe.cs`, `tools/ci-tests.ps1`, `.github/workflows/build.yml`,
+  `tools/probe-read.py` only if a node host column it prints moved (none did: it reads the row by column name, and every new column
+  is at the row's end, so it was not edited), README's Build section and this entry; nothing outside it was edited).
+  - What runs 487 and 488 showed (kept here because the files they were read from do not last). Run 487 (dispatched on 158d0b32,
+    2026-11-17 13:09Z; Windows red at `NodeCredentialStoreTests.AnOlderSettingsFilesStagewatchKeyMovesIntoTheStoreOnceAndTheLinkStillCarriesIt`,
+    14.2 s): `NodeHostTests`' child engine was up 3.18 s after its process start (13:18:57.944) and seen 21 ms later; then the child
+    (`dotnet[5844]` in the machine sampler) read 377 % of one processor (about all four of the runner's) over a sample that took
+    8,749 ms where one takes about 1,000, while the Engine test host read 13 %; the probe's own thread wrote no row for 7.96 s from
+    13:18:57.99, and from 13:19:05.96 to 13:19:11.92 every one of its rows read zero processor time and zero completed pool items for
+    the test host while its Highest-priority beat thread went 1.09 to 2.09 s between runs; the sampler's next sample took 6,994 ms;
+    memory stayed at 11.6 GB free or more, the disk queue at 0 and Defender at 0; the test host came back at 13:19:11.9 and the test
+    ended at 13:19:11.983, a time that includes the kill, the wait for the exit, the row's keeping and the home's removal (the kill's
+    own instant was not recorded). Run 488 (the push of
+    f8282af0, 13:24Z; Windows red at `ClockSlewTests`, 48 s): the child was up 2.6 s after its start (13:33:30.401) but seen by the
+    test 17.0 s later (one gap of 17,044 ms between two reads of its log); the sampler's three rows from 13:33:30.4 to 13:34:16.3
+    took 18,044, 16,844 and 11,005 ms and read the child at 393, 390 and 395 % with the machine at 100 % and the test host at 0 %,
+    about 46 s in all; the probe's episodes ran 13:33:39 to 13:33:57 and 13:34:04 to 13:34:16; `NodeHostTests`' PING test took 48.6 s;
+    from 13:34:17.4 the child is gone and the test host back at 138 to 255 %.
+  - The root cause as read, in the check's own standings (its ruling is the later word where a reader differed). Observed, across
+    two instruments that agree: once up, the child held all four processors and nothing else on the runner was scheduled (the test
+    host, its Highest beat, the sampler's own process); the test host came back at 13:19:11.9 and the test ended at 11.983. Read, at
+    0.6, not observed: that the kill ended it (the kill's own instant was not recorded; `kill_asked_utc` records it from now on). Read from the code, NOT yet recorded
+    on the runner: the child claims HIGH priority class by default (`src/PlayMap.Core/Machine/MachineSettings.cs` 23, the home's
+    default through `NodeSettings.Machine`; claimed in `src/PlayMap.Engine/Machine/MachineParts.cs` `Configure` before the "is up"
+    line; `WindowsMachinePlatform.cs` 76 calls SetPriorityClass), and it draws its default project's one enabled 1920 × 1080 60 Hz
+    display output offscreen through Mesa llvmpipe, which the Windows job copies beside `dotnet.exe` (`GALLIUM_DRIVER=llvmpipe`), so
+    llvmpipe's rasteriser threads run in a HIGH class process; on Linux the child claims nothing (`NullMachinePlatform`) and never
+    stalls. Unknown: the child's actual class on the runner, its renderer, what burns its processors, when the saturation starts against
+    up, PING and the kill, whether its frame sits at the period, why a Normal probe thread ran every 60 ms while the Highest beat did
+    not, whether runs 480 and 482 had the same cause, and the ~1.18 s release lattice of 480 and 482. Refuted by the check: that the
+    loop never waits on this runner; that the stall is a race against the loop's start; that the ~1.2 s cadence is the balance-set
+    manager's pass; that the stall ended before the kill, or that the kill did not end it (the kill's instant was not recorded); pool
+    sizing, paging, the disk or Defender as 487's cause; MMCSS alone; equal-priority competition; that a shipped node on a software
+    adapter would hit the same thing (a shipped node carries no Mesa). Not to do, kept: no `DisableParallelization` or last-place for
+    `NodeHostTests`, no `LP_NUM_THREADS` for the whole job, Mesa stays beside `dotnet.exe`, the test never lowers its child's class from
+    outside, no wider bound or retry, no skip, no pool minimum, and no product default changed on CI's strength alone.
+  - (1) The node host row says what the child was (`NodeExe.cs`: `NodeChildReadings`; `NodeHostTests.cs`). Twenty-three columns
+    follow the existing nine, which keep their order: `child_priority_class` (`Process.PriorityClass` read once the test has seen the
+    child up: a reading, never a set; on Linux the runtime maps the process's nice value, so this bench reads `Normal`),
+    `child_renderer` (the name after `renderer ` in the "is up" line the test already matches, up to its `;`, kept to letters, digits,
+    dots, spaces and brackets, at most 120 characters: never the line), `child_up_read_utc`, `child_cpu_up_ms` and
+    `child_threads_up` (`TotalProcessorTime` and `Threads.Count` after a `Refresh`; each sample's time is taken just after its
+    processor time is read, so a test host held before the read holds the stamp too, and a rise between two samples is over the span
+    between their stamps), `hold_ms`, `hold_end_utc`,
+    `child_cpu_hold_end_ms`, `child_threads_hold_end` and `hold_processors` (the processor time's rise over the hold divided by its
+    length: near 4 is four processors), `connect_utc`, `ping_utc` and `state_utc` (when the connection opened and the PING and
+    STATE were answered), `state_output_id`, `state_output_enabled`, `state_output_fps` and `state_output_frame_ms_p95` (STATE's
+    first `outputs` entry: `id`, `enabled`, `fps`, `frameMsP95`, as `StateWriter.WriteOutput` writes them), `kill_asked_utc`,
+    `child_cpu_kill_ms` and `child_threads_kill` (read just before the kill), `child_exited_utc` (`Process.ExitTime`), and
+    `leg_process` and `leg_output` (the leg's words, empty unset). Every read is guarded: a process that is gone or will not say
+    leaves an empty cell (`InvalidOperationException`, `Win32Exception`, `NotSupportedException`, `IOException`,
+    `UnauthorizedAccessException`), never a throw into the test. The readings are said in the test's output too, pass or fail. The
+    reads before the kill sit in the `finally` before `Kill`, the exit's after `WaitForExitAsync`, so the kill is as it was.
+  - (2) The sampler says who was ready (`tools/ci-tests.ps1`). Two counters join the others and are checked against what the runner
+    lists the same way (a missing set or counter is a `::warning::` and left out): `\Process(*)\Priority Base` for the processes
+    already listed (testhost, dotnet, MsMpEng, PlayMap*), and `\System\Processor Queue Length`. Their columns are at the row's end,
+    after `note`: `process_priority_base` (`instance=value;…`: 8 a normal class process's base, 13 a high class's) and
+    `processor_queue_length`.
+  - (3) One job that settles it (`.github/workflows/build.yml`, `tools/ci-tests.ps1 -NodeHostAB`). A boolean `workflow_dispatch` input
+    `nodehostab` runs only the `nodehostab` job on `windows-2025`, 30 minutes at most; every other job's condition leaves it out, as
+    `hangproof` does, and the `hangproof` job also stands aside when both are given. Given with `d3d12` or `hangproof`, its first step
+    refuses with words (and the script refuses again on its own). It prepares what the windows job's Test step has for this test:
+    `setup-dotnet` 10.0.x, the windows job's FFmpeg and Mesa steps themselves by YAML anchors (`&windows-ffmpeg`, `&windows-mesa`,
+    one text for both jobs), `GALLIUM_DRIVER=llvmpipe`, `PLAYMAP_FFMPEG_DIR`, `VSTEST_DUMP_FORCENETDUMP=1`, the Engine tests' Release
+    build (with the node host built beside them), and Mesa beside their host and `dotnet.exe` in a step of its own (the windows job's
+    copy step fails on any test project with no Release output, and this job builds one). It is not the windows job's whole
+    preparation, and the child is not byte for byte the suite's: it leaves out the Agility SDK and WARP (the Direct3D 12 leg's), the
+    SPIRV-Tools copy (`PLAYMAP_SPIRV_TOOLS_DIR` unset, no `SPIRV-Tools-shared.dll` beside the engine) and the `DXC_DXIL_DLL_PATH`
+    guard, none of which reaches this test because the shader worker starts only with a project's first effect source and the test's
+    project (the default, or leg C's) has none; the native test doubles' compiler (the Media suite's); and the restore and
+    whole-solution build (it builds the Engine tests' project alone). The script then runs
+    `FullyQualifiedName=PlayMap.Engine.Tests.Spine.NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing` alone, with the suite's own
+    blame settings, three times under the floor deadline, each with `PLAYMAP_SCHEDULING_PROBE=1` and a machine sampler of its own,
+    each leg's trx, probe file, node host row and sampler rows in `tests/TestResults/nodehostab/leg-<A|B|C>`, all uploaded as
+    `nodehostab`: A as the suite runs it; B the child's home saved with `Machine.Process` `normal` (the settings type's own field,
+    through `MachineSettings with`); C the default class, the child started with `--project` on the default project with its one
+    output not enabled, written through `ProjectJson.Serialize` (never hand-written JSON). In every leg the test holds the child 5 s
+    after it is seen up and before its PING. The legs are chosen by three variables the test reads (`NodeHostLeg`), set only by this
+    job: `PLAYMAP_NODEHOST_HOLD_MS` (whole milliseconds, 0 to 60,000), `PLAYMAP_NODEHOST_PROCESS` (MACHINE SET PROCESS's own words,
+    `high` or `normal`, read from `PlatformPolicy.Defaults`) and `PLAYMAP_NODEHOST_OUTPUT` (`off`); unset or empty, the test is today's
+    byte for byte (the same home object saved, the same child arguments, no hold, the same waits, assertions and kill); any other
+    value fails the test with the variable, the value and the words it takes, never defaulted. The summary prints per leg the test's
+    outcome, the child's priority class, renderer, whether STATE's first output was enabled, processors over the hold (with the
+    hold's measured length), the probe's largest gap between two rows and largest beat gap inside the hold (the rows from the child
+    seen up to the hold's end and the first row after it, read inline) and over the whole window from the child's own up stamp
+    (`child_up_utc`) to the kill asked (`kill_asked_utc`), how long after it was up the test saw it (`test_saw_up_utc` less
+    `child_up_utc`: run 488's child was seen 17 s late, and its stall fell before any hold would have begun), and the sampler's longest
+    sample. The readings are never a pass mark. What each would mean: A starved and B not, the class is the amplifier; A starved and C
+    quiet, the drawn output is the demand; all three quiet (quiet over the whole window from up to the kill, not only in the hold),
+    the hold did not reproduce it and the next step is a longer hold. Each leg is shown to have run on its project: with a leg set,
+    the test asserts from the STATE it reads that no output is enabled in C and the first is in A and B (a `--project` that will not
+    open leaves the engine on its default project, whose output is enabled: `EngineHost.PutProjectBackAsync`), and the script counts a
+    `state_output_enabled` cell that is not the leg's as broken. The job fails only when a leg's test failed for another reason than
+    a wait running out (a failure whose words carry `TimeoutException` or "the node did not come up" is a `::warning::`, the
+    starvation measured), ran other than the one test, left no results, ran past its deadline, wrote no node host row or probe file,
+    or ran on another project than its leg's.
+  - This bench's own reading of the three legs (Linux, four processors, Mesa llvmpipe under Xvfb, the child claiming nothing, so
+    `Normal` in every leg; one run each, a reading, not the runner's): A 3.76 processors over the 5 s hold (the first output 54.1 fps,
+    frame p95 20.50 ms), B 3.77 (55.2 fps, 19.97 ms), C 0.23 (the output not enabled, 0 fps); the test host was not starved in any
+    (over each whole run no probe gap over 500 ms, no episode, the largest beat gap 10.4, 14.8 and 8.8 ms, the longest pool dispatch
+    5.1, 5.8 and 3.1 ms). So on this bench the drawn output is the demand, and at equal priority it starves
+    nothing; the runner's legs say whether the class turns it into the stall.
+- Tests (`tests/PlayMap.Engine.Tests/Spine/NodeHostTests.cs`): `TheLegIsTodaysUnsetAndRefusesAWordItDoesNotTake` (unset and empty are
+  `NodeHostLeg.Today`; the three words read; `5s`, `-1`, `60001`, ` 5000`, `realtime`, `Normal`, `on`, `OFF` each refused with the
+  variable and the value; a leg with no process class saves the very settings object it was given, one with `normal` changes only
+  `Machine.Process`); `ALegWithoutAnOutputWritesTheDefaultProjectWithItsOutputNotEnabled` (written and read back through
+  `ProjectJson`, the same ids, every output not enabled); `TheRendererIsTheUpLinesNameAndNothingElse` (four lines: llvmpipe's name
+  with its comma dropped, `none`, quotes, commas and a carriage return dropped, a line with no renderer); and
+  `TheChildsReadingsOfAProcessThatHasGoneAreCellsNeverAThrow` (every read of an exited child is a cell, the row has a cell per column;
+  the test host's own process reads a class, processor time and threads; STATE's first output read, and wrong-typed or absent fields
+  left empty; and the kept file's header is the up times' columns then the child's, with a cell under each, through
+  `NodeUpTimes.Lines`, the two lines `Keep` writes). The PING test, with a leg set, asserts from STATE that its child ran on the leg's
+  project (no output enabled in C, the first enabled in A and B); unset it asserts nothing new. `TheNodesUpTimesReadTheStampsItsLogWrites` is as it was (its nine-column row still has no empty cell). Validated on
+  this bench (SDK 10.0.404): the build whole, no warning; `NodeHostTests` (12 tests) green with the variables unset, and the PING test
+  green in each leg's variables (A, B, C: rows above), its row read by `tools/probe-read.py`; the Engine classes that fence
+  allocations, threads or handles (`EngineFenceTests`, `DeadlineThreadTests`, `RenderThreadClaimTests`, `AirAudioTests`,
+  `AlignHostTests`, `ArtNetInTests`, `CursorTests`, `DeviceLockHostTests`, `FactsSignalTests`, `FxHostTests`, `HostNetworkTests`,
+  `OmtLoopbackTests`, `RenderHostLockTests`, `RenderHostTests`: 65) green; the whole Engine suite with the variables unset in five
+  parts that name its 1,371 tests once (Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 209 and 2 skipped;
+  Rendering to Wall, 532 and 4 skipped; the root namespace, 144), green. On the way: a first run of the first part had
+  `ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame` fail once ("no GPU time reached STATE", 30 s) with
+  another tree building beside it; the class passed alone three times and the part passed whole when run again (a file this batch
+  does not touch, said, not mended); and the Rendering to Wall part's six DXC tests failed in a build made without `PLAYMAP_DXC_DIR`
+  (the loop says to set it before the build) and passed after the build was made with it (the ContentHostTests failure's cause is
+  not named: not read, not believed; it did not recur in the run after the review's fold-in). After the fold-in, once, on the whole
+  build with `PLAYMAP_DXC_DIR` set: the build whole, no warning; `NodeHostTests` (12) green unset; the PING test green in each leg's
+  variables with the probe on (A 3.63, B 3.79, C 0.20 processors over the hold; STATE's first output enabled true, true, false; each
+  row 32 columns under a 32-column header, read by `tools/probe-read.py`); a mutation that wrote leg C's project with its output
+  enabled failed the PING test on the new assertion and was reverted; the whole Engine suite unset in five parts that name its 1,371
+  tests once (Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 209 and 2 skipped; Rendering to Wall, 506 and 4
+  skipped; every other namespace, 170), green at the first attempt. The YAML parsed with python3 (the jobs' conditions, the anchors
+  resolving to the windows job's own two steps, the three inputs). There is no PowerShell and no actionlint on this bench:
+  `tools/ci-tests.ps1`'s new lines were read line by line twice, not run.
+- Files: `tests/PlayMap.Engine.Tests/Spine/NodeHostTests.cs`, `tests/PlayMap.Engine.Tests/Spine/NodeExe.cs`, `tools/ci-tests.ps1`,
+  `.github/workflows/build.yml`, `README.md` (Build), this entry. No file under `src/`, no csproj, `tools/probe-read.py` unchanged.
+- Open:
+  - The dispatched run itself: the orchestrator dispatches `nodehostab` once this lands (the owner's "up to three runs" covers the
+    normal build; a `nodehostab` run is a dispatch of its own and is put to that allowance or asked). Until it runs, every "read from
+    the code" above stays read, not recorded; and the first push of this file is also the first time GitHub reads its YAML anchors
+    (supported by GitHub Actions, not proven here: no actionlint on this bench).
+  - The owner's calls from the check, none taken here: the default priority class (HIGH, NORMAL, or HIGH only under named conditions:
+    an installed node, an armed show, a hardware adapter on the air; round 3 §9 decision 12, and `docs/PLATFORM.md` says a default
+    changes only with L10's record); whether a headless node with no window draws display outputs nobody sees (already put to the
+    owner in this file, the `NodeHostTests` paragraph of fix-tests4's integrator notes: "whether a node with no display draws an output
+    nobody sees is the owner's call"); whether a render loop that misses its period keeps going back to back (`RenderHost.Pace`) or
+    yields a bounded slice; whether a processor floor is kept for the rest of the machine (process-default CPU sets, or caps and lower
+    priorities on Compute's cores-1 threads, FFmpeg's `thread_count 0` and HAP's cores-1 AboveNormal workers under a HIGH process);
+    whether R13 (platform claims starve the desk or the system) gets a measurement of its own subject, the desk's and the
+    supervisor's latency beside a saturating HIGH engine; whether the supervisor and the desk run above Normal; and whether
+    `NodeHostTests` may start its child with no output (the check's mend 3) or at normal class (mend 4), either of which leaves the
+    product behaviour seen in CI untested unless the hazard gets a test of its own (mend 5).
+  - Still unknown after this batch until a run reads it: why the probe's Normal thread ran every 60 ms while the Highest beat did not
+    (the probe and beat threads' current priority as probe columns would say; not needed to choose a mend); whether runs 480 and 482
+    had the same cause; the ~1.18 s release lattice.

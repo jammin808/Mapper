@@ -22,18 +22,25 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
     [Fact]
     public async Task TheNodeHostRunsAnEngineThatAnswersPing()
     {
+        // The dispatched measurement's leg (NodeHostLeg): with its three variables unset, as everywhere but that job, no hold, the
+        // home's defaults and no project, the test as it always ran.
+        var leg = NodeHostLeg.Read(Environment.GetEnvironmentVariable);
         var dir = Directory.CreateTempSubdirectory("playmap-node-");
         try
         {
             var home = new NodeHome(dir.FullName);
-            home.SaveSettings(NodeSettings.CreateDefault("Node host") with
+            home.SaveSettings(leg.Home(NodeSettings.CreateDefault("Node host") with
             {
                 Bind = "127.0.0.1", HttpPort = 0, WirePort = 0, SyncPort = 0, Token = HostRig.Token, TrustLoopback = true, Announce = false,
-            });
+            }));
             var id = home.LoadSettings("Node host").NodeId;
+            string[] words = ["engine", "--headless", "--home", dir.FullName, "--no-recover"];
+            if (leg.WriteProject(dir.FullName, "Node host") is { } project)
+                words = [.. words, "--project", project];
             var startedChild = DateTime.UtcNow;
-            using var node = NodeExe.Start("engine", "--headless", "--home", dir.FullName, "--no-recover");
+            using var node = NodeExe.Start(words);
             var times = new NodeUpTimes(startedChild, node);
+            var child = new NodeChildReadings(leg);
             var said = new NodeOutput(node);
             try
             {
@@ -50,16 +57,46 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
                     var m = WireUp().Match(text);
                     port = m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
                     if (port > 0)
+                    {
                         times.SawUp(text, m.Index, log);
+                        child.SawUp(text, m.Index);
+                    }
                     return port > 0;
                 }, timeoutMs: 60_000), $"the node did not come up (exited: {node.HasExited}); {times.Words()}; its output ends:\n{said.Tail}");
+                child.Up(node);
+                if (leg.HoldMs > 0)
+                {
+                    // The leg's hold: the child runs unasked for a set time, so every leg measures the same exposure.
+                    await Task.Delay(leg.HoldMs);
+                    child.Held(node);
+                }
 
                 await using var c = await LineClient.ConnectAsync(port);
+                child.Connect();
                 Assert.StartsWith("OK @p PONG 1760101234567 ", await AskAsync(c, "@p PING 1760101234567"), StringComparison.Ordinal);
+                child.Ping();
                 var state = await AskAsync(c, "@s STATE");
                 Assert.StartsWith("OK @s {\"v\":1,", state, StringComparison.Ordinal);
                 // The answer is this node's: the id and the name its fresh folder's settings hold.
                 using var doc = JsonDocument.Parse(state!["OK @s ".Length..]);
+                child.State(doc.RootElement);
+                if (leg != NodeHostLeg.Today)
+                {
+                    // A leg is read only when it ran on the project it names: with no output, every output STATE lists is not enabled
+                    // (a project that would not open leaves the engine on its default, whose output is); otherwise the first is.
+                    var listed = doc.RootElement.GetProperty("outputs");
+                    var outputs = listed.EnumerateArray().ToList();
+                    if (leg.Output == NodeHostLeg.OutputOff)
+                    {
+                        Assert.True(outputs.TrueForAll(o => !o.GetProperty("enabled").GetBoolean()),
+                            $"the leg {leg} started its child on a project whose output is not enabled, and STATE's outputs say one is: {listed.GetRawText()}");
+                    }
+                    else
+                    {
+                        Assert.True(outputs.Count > 0 && outputs[0].GetProperty("enabled").GetBoolean(),
+                            $"the leg {leg} started its child on the default project, and STATE's first output is not enabled: {listed.GetRawText()}");
+                    }
+                }
                 Assert.Equal(id, doc.RootElement.GetProperty("id").GetString());
                 Assert.Equal("Node host", doc.RootElement.GetProperty("name").GetString());
 
@@ -93,9 +130,11 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
             }
             finally
             {
+                child.BeforeKill(node);
                 node.Kill(entireProcessTree: true);
                 await node.WaitForExitAsync();
-                times.Keep(output);
+                child.Ended(node);
+                times.Keep(output, child);
             }
         }
         finally
@@ -201,6 +240,115 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
         {
             dir.Delete(recursive: true);
         }
+    }
+
+    /// <summary>The measurement's leg is today's test with its variables unset or empty; a value outside a variable's words is refused
+    /// with the variable and the words it takes, never defaulted; a leg that names no process class saves the home it was given.</summary>
+    [Fact]
+    public void TheLegIsTodaysUnsetAndRefusesAWordItDoesNotTake()
+    {
+        Assert.Equal(NodeHostLeg.Today, NodeHostLeg.Read(_ => null));
+        Assert.Equal(NodeHostLeg.Today, NodeHostLeg.Read(_ => ""));
+        var asked = new Dictionary<string, string>
+        {
+            [NodeHostLeg.HoldVariable] = "5000", [NodeHostLeg.ProcessVariable] = "normal", [NodeHostLeg.OutputVariable] = "off",
+        };
+        Assert.Equal(new NodeHostLeg(5000, "normal", "off"), NodeHostLeg.Read(n => asked.GetValueOrDefault(n)));
+        Assert.Equal("high", NodeHostLeg.Read(n => n == NodeHostLeg.ProcessVariable ? "high" : null).ProcessClass);
+        foreach (var (name, word) in new[]
+                 {
+                     (NodeHostLeg.HoldVariable, "5s"), (NodeHostLeg.HoldVariable, "-1"), (NodeHostLeg.HoldVariable, "60001"),
+                     (NodeHostLeg.HoldVariable, " 5000"), (NodeHostLeg.ProcessVariable, "realtime"), (NodeHostLeg.ProcessVariable, "Normal"),
+                     (NodeHostLeg.OutputVariable, "on"), (NodeHostLeg.OutputVariable, "OFF"),
+                 })
+        {
+            var refused = Assert.Throws<ArgumentException>(() => NodeHostLeg.Read(n => n == name ? word : null));
+            Assert.Contains($"{name} is '{word}'", refused.Message, StringComparison.Ordinal);
+        }
+
+        var settings = NodeSettings.CreateDefault("Node host");
+        Assert.Same(settings, NodeHostLeg.Today.Home(settings));
+        Assert.Equal("normal", new NodeHostLeg(0, "normal", null).Home(settings).Machine.Process);
+        Assert.Equal(settings.Machine with { Process = "normal" }, new NodeHostLeg(0, "normal", null).Home(settings).Machine);
+        Assert.Null(NodeHostLeg.Today.WriteProject(Path.GetTempPath(), "Node host"));
+    }
+
+    /// <summary>The project a leg without an output starts its child on is the default project with its one output not enabled, written
+    /// by the product's serializer and read back by it.</summary>
+    [Fact]
+    public void ALegWithoutAnOutputWritesTheDefaultProjectWithItsOutputNotEnabled()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-node-leg-");
+        try
+        {
+            var path = new NodeHostLeg(0, null, NodeHostLeg.OutputOff).WriteProject(dir.FullName, "Node host");
+            Assert.NotNull(path);
+            var read = PlayMap.Core.Model.ProjectJson.Read(File.ReadAllText(path)).Project;
+            var made = PlayMap.Core.Model.Project.CreateDefault("Node host");
+            Assert.Equal(made.Outputs.Select(o => o.Id), read.Outputs.Select(o => o.Id));
+            Assert.All(read.Outputs, o => Assert.False(o.Enabled));
+            Assert.Equal(made.Canvases.Select(c => c.Id), read.Canvases.Select(c => c.Id));
+            Assert.Equal(made.Generators.Select(g => g.Id), read.Generators.Select(g => g.Id));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>The renderer is copied from the "is up" line's name alone, kept to letters, digits, dots, spaces and brackets, so a cell
+    /// never carries a comma or a line of its own.</summary>
+    [Theory]
+    [InlineData("2026-11-17T13:18:57.944Z info Node host (n1) is up: wire 41234, web 41235, renderer llvmpipe (LLVM 21.1.4, 256 bits); facts.\nnext",
+        "llvmpipe (LLVM 21.1.4 256 bits)")]
+    [InlineData("x is up: wire 1, web 2, renderer none; facts.", "none")]
+    [InlineData("x is up: wire 1, web 2, renderer Mesa \"evil\",=1,\r; facts.", "Mesa evil1")]
+    [InlineData("x is up: wire 1, web 2; facts.\nrenderer later", "")]
+    public void TheRendererIsTheUpLinesNameAndNothingElse(string text, string renderer)
+    {
+        var at = text.IndexOf("is up", StringComparison.Ordinal);
+        Assert.Equal(renderer, NodeChildReadings.RendererOf(text, at));
+    }
+
+    /// <summary>The child's readings are reads, never a throw into the test: a process that has exited reads as empty or as the system
+    /// says, the row has a cell for every column, and STATE's first output is read where it is and left empty where it is not.</summary>
+    [Fact]
+    public async Task TheChildsReadingsOfAProcessThatHasGoneAreCellsNeverAThrow()
+    {
+        using var gone = NodeExe.Start();
+        _ = await gone.StandardError.ReadToEndAsync();
+        await gone.WaitForExitAsync();
+        var readings = new NodeChildReadings(new NodeHostLeg(5000, "normal", "off"));
+        readings.Up(gone);
+        readings.Held(gone);
+        readings.BeforeKill(gone);
+        readings.Ended(gone);
+        Assert.Equal(NodeChildReadings.Header.Split(',').Length, readings.Row().Split(',').Length);
+        Assert.Contains("the leg: process normal, output off", readings.Words(), StringComparison.Ordinal);
+        // The kept file's two lines: the up times' columns then the child's, and a cell under each.
+        var (header, row) = new NodeUpTimes(DateTime.UtcNow, gone).Lines(readings);
+        Assert.Equal(NodeUpTimes.Header + "," + NodeChildReadings.Header, header);
+        Assert.Equal(header.Split(',').Length, row.Split(',').Length);
+
+        using var self = Process.GetCurrentProcess();
+        var mine = new NodeChildReadings(NodeHostLeg.Today);
+        mine.Up(self);
+        Assert.NotNull(mine.PriorityClass);
+        Assert.NotNull(mine.CpuUpMs);
+        Assert.True(mine.ThreadsUp > 0);
+        using (var state = JsonDocument.Parse("{\"outputs\":[{\"id\":\"op_1\",\"enabled\":false,\"fps\":59.9,\"frameMsP95\":9.17}]}"))
+            mine.State(state.RootElement);
+        Assert.Equal(("op_1", false, 59.9, 9.17), (mine.OutputId, mine.OutputEnabled, mine.OutputFps, mine.OutputFrameMsP95));
+        Assert.Equal(NodeChildReadings.Header.Split(',').Length, mine.Row().Split(',').Length);
+        Assert.EndsWith(",op_1,false,59.9,9.17,,,,,,", mine.Row(), StringComparison.Ordinal);
+
+        var odd = new NodeChildReadings(NodeHostLeg.Today);
+        using (var state = JsonDocument.Parse("{\"outputs\":[{\"id\":7,\"enabled\":\"yes\",\"fps\":\"60\"}]}"))
+            odd.State(state.RootElement);
+        Assert.Equal((null, null, null, null), (odd.OutputId, odd.OutputEnabled, odd.OutputFps, odd.OutputFrameMsP95));
+        using (var state = JsonDocument.Parse("[]"))
+            odd.State(state.RootElement);
+        Assert.NotNull(odd.Stated);
     }
 
     [Theory]

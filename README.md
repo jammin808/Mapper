@@ -340,6 +340,26 @@ retail hash. Then:
   when, the hang dumps written and their sizes, and whether the pinned dotnet-dump reads the test's managed stack from each; it
   fails when a host outlived blame. Its run (CI run 481) ended the host at 60 s with and without
   `VSTEST_DUMP_FORCENETDUMP=1` (`dotnet test` back at 63 s, a 4.2 MB dump whose stack names the test), so the Windows job keeps it.
+- **A dispatched run** with the `nodehostab` input runs only the node host measurement, a job of its own on `windows-2025` in place of
+  every other (given with `d3d12` or `hangproof`, it refuses), 30 minutes at most. It prepares what the Windows job's Test step has
+  for that test (the same SDK, FFmpeg and Mesa steps, `GALLIUM_DRIVER=llvmpipe`, the Engine tests' Release build, Mesa beside their
+  host and `dotnet.exe`) and leaves out what does not reach it (the Agility SDK and WARP, SPIRV-Tools and the `DXC_DXIL_DLL_PATH`
+  guard, since the shader worker starts only with a project's first effect source and the test's project has none, the native test
+  doubles' compiler and the whole-solution build), then `tools/ci-tests.ps1 -NodeHostAB` runs `NodeHostTests`' PING test alone three times with the scheduling
+  probe and the machine sampler, each leg's files apart under `tests/TestResults/nodehostab/leg-<A|B|C>` and uploaded as
+  `nodehostab`: A as the suite runs it, B with the child's home saved at process class `normal`, C with the child on a project whose
+  one output is not enabled; in every leg the test holds the child 5 s after it is seen up, before its PING. The legs are chosen by
+  `PLAYMAP_NODEHOST_HOLD_MS`, `PLAYMAP_NODEHOST_PROCESS` (`high` or `normal`) and `PLAYMAP_NODEHOST_OUTPUT` (`off`), which only
+  this job sets: unset, the test runs as it always has, and any other value fails the test with words. The summary gives per leg the
+  child's priority class, its renderer, whether STATE's first output was enabled (the leg's project), the processors it used over
+  the hold (its processor time's rise over the hold's length: near 4 is all four), the probe's largest gap and largest beat gap
+  inside the hold and over the whole window from the child's own up stamp to the kill, how long after it was up the test saw it,
+  and the sampler's longest sample. These are readings, never a pass mark: A starved and B not says the class is the amplifier; A
+  starved and C quiet says the drawn output is the demand; all three quiet (quiet from the child up to the kill, not only in the
+  hold) says the hold did not reproduce it, and the next step is a longer hold. The job fails only when a leg's test failed for
+  another reason than a wait running out, ran past its deadline, wrote no files, or ran on another project than its leg's (a set leg's
+  test also asserts it from STATE: the first output enabled in A and B, none enabled in C) (`docs/round2/CARRYOVER.md`,
+  fix-ci-nodehost-measure).
 
 Both test jobs set `PLAYMAP_SCHEDULING_PROBE=1` on their suites' step: every test host then runs `tests/Shared/SchedulingProbe.cs`,
 which writes to `tests/<project>/TestResults/<assembly>-<start>-<pid>.latency.csv` a first line of the machine's facts (the
@@ -352,11 +372,16 @@ priority that only stamps the time after each 5 ms wait (so a row tells one thre
 how long this row's process reads took. A row
 allocates nothing. The node host test (`NodeHostTests`) writes beside it, as `<assembly>-<start>-<pid>.nodehost.csv` and in its
 output on every run, when it started the child engine, the child's own process start, the child log's stamps on its first line and
-on its "is up" line, the log's last write when the test saw that line, and when it saw it. On Windows the suites' step also prints
+on its "is up" line, the log's last write when the test saw that line, and when it saw it; and, at the row's end, what the child
+was, each read from the test host and never set: its priority class as the OS reports it once seen up (on Linux what the runtime
+maps its nice value to), the renderer its "is up" line names, its processor time and thread count when seen up, at a leg's hold's end
+and before the kill, the times of the connect, the PING's and STATE's answers, the kill and its exit, and the first output's `fps`
+and `frameMsP95` from that STATE. On Windows the suites' step also prints
 Defender's status once (`Get-MpComputerStatus`, `Get-MpPreference`: a reading, nothing is changed) and runs a machine sampler from
 before the first project to after the last (`tools/ci-tests.ps1`, `Get-Counter`): one row a second to
 `tests/TestResults/machine-<start>.sampler.csv` of memory available, pages input per second, each physical disk's queue length and
-seconds per transfer, total processor time, and the processor time of the processes named testhost, dotnet, MsMpEng and PlayMap.
+seconds per transfer, total processor time, the processor time of the processes named testhost, dotnet, MsMpEng and PlayMap, and,
+at the row's end, their base priority (8 normal class, 13 high) and the system's processor queue length.
 All of it is uploaded as `scheduling-probe-linux` and `scheduling-probe-windows` (a suites step that ran and left no probe file
 fails the upload; a sampler that did not start or wrote nothing is a warning, never a failure). Without the variable, as on every
 desk and in every local run, the probe starts nothing; any value but `1` is refused and the host does not load. `tools/probe-read.py`

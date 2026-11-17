@@ -22,6 +22,16 @@ on:
         required: false
         default: false
         type: boolean
+      nodehostab:
+        description: >-
+          Run only the node host measurement on windows-2025 (tools/ci-tests.ps1 -NodeHostAB): NodeHostTests' PING test alone,
+          three times with the scheduling probe and the machine sampler, its child held 5 s after it is up: as the suite runs it,
+          with the child's home at process class normal, and with the child on a project whose output is not enabled. Each leg's
+          priority class, renderer, processors over the hold, probe gaps and longest sample in the summary. Every other job is
+          skipped; given with d3d12 or hangproof, it refuses to run.
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   # Every suite on Linux: headless OpenGL through Mesa (llvmpipe) under Xvfb, and FFmpeg 9.0's shared
@@ -29,8 +39,9 @@ jobs:
   # user machine with Microsoft's .NET: no VA-API, no system OpenAL (a sound server is not installed: Ubuntu's
   # PulseAudio pulls the distro FFmpeg and with it libva), so the suites prove the node falls back with words there.
   test:
-    # A dispatched Direct3D 12 leg (the d3d12 input) is the Windows job's alone; a dispatched proof (hangproof) its own job's.
-    if: ${{ !inputs.d3d12 && !inputs.hangproof }}
+    # A dispatched Direct3D 12 leg (the d3d12 input) is the Windows job's alone; a dispatched proof (hangproof) or measurement
+    # (nodehostab) its own job's.
+    if: ${{ !inputs.d3d12 && !inputs.hangproof && !inputs.nodehostab }}
     runs-on: ubuntu-latest
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}/.ffmpeg/lib
@@ -201,7 +212,7 @@ jobs:
   # leg alone, narrowed by the input, and uploads what a reader on Linux needs to see a failure. The job ends at 60 minutes (its whole
   # run is under 25), and each dotnet test in it runs under a deadline of its own (tools/ci-tests.ps1).
   windows:
-    if: ${{ !inputs.hangproof }}
+    if: ${{ !inputs.hangproof && !inputs.nodehostab }}
     runs-on: windows-2025
     timeout-minutes: 60
     env:
@@ -221,7 +232,9 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
-      - name: FFmpeg 9.0 shared libraries (LGPL, as the installer carries them)
+      # The nodehostab job runs this step and the next as they are here, by their anchors: one text for both jobs.
+      - &windows-ffmpeg
+        name: FFmpeg 9.0 shared libraries (LGPL, as the installer carries them)
         shell: pwsh
         run: |
           # wp3-installer: FFmpeg 9.0.2 as built by FFmpeg-Builds (https://github.com/BtbN/FFmpeg-Builds), pinned by hash. The LGPL
@@ -246,7 +259,8 @@ jobs:
           Copy-Item (Join-Path $lgpl 'bin\*.dll') .ffmpeg\lib
           Copy-Item (Join-Path $gpl 'bin\ffmpeg.exe'), (Join-Path $gpl 'bin\ffprobe.exe') .ffmpeg\bin
           Get-ChildItem .ffmpeg -Recurse | Select-Object FullName, Length
-      - name: OpenGL 3.3 in software (Mesa llvmpipe)
+      - &windows-mesa
+        name: OpenGL 3.3 in software (Mesa llvmpipe)
         shell: pwsh
         run: |
           # The runner has no GPU, and Windows' own opengl32 is GDI's OpenGL 1.1. Mesa 25.2.5 (MIT licence,
@@ -578,7 +592,7 @@ jobs:
   # elevated on the runner, holds its payload to its licences, checks the release order, and publishes the unsigned installer with
   # its SHA256SUMS.
   installer:
-    if: ${{ !inputs.d3d12 && !inputs.hangproof }}
+    if: ${{ !inputs.d3d12 && !inputs.hangproof && !inputs.nodehostab }}
     runs-on: windows-2025
     env:
       PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
@@ -858,7 +872,8 @@ jobs:
   # each, in the log and the summary. It fails when a leg's host outlived blame or the test that never ends passed. Its outcome decides
   # whether the windows job keeps VSTEST_DUMP_FORCENETDUMP.
   hangproof:
-    if: ${{ inputs.hangproof }}
+    # Given with nodehostab, the measurement's job refuses for both.
+    if: ${{ inputs.hangproof && !inputs.nodehostab }}
     runs-on: windows-2025
     timeout-minutes: 30
     env:
@@ -871,3 +886,64 @@ jobs:
       - name: The hang guard's proof (blame on a test that never ends, with the dump setting and without)
         shell: pwsh
         run: ./tools/ci-tests.ps1 -HangProof
+
+  # The node host measurement, run only when dispatched with the nodehostab input, in place of every other job: runs 487 and 488 showed
+  # the child engine NodeHostTests starts holding all four processors once it is up while nothing else on the runner ran
+  # (docs/round2/CARRYOVER.md, fix-ci-nodehost-measure). It prepares what the windows job's Test step has for that test: the same SDK,
+  # the same FFmpeg and Mesa steps (by their anchors above), GALLIUM_DRIVER, the Engine tests' Release build, Mesa beside their test
+  # host and dotnet.exe. It leaves out what does not reach that test: the Agility SDK and WARP (the Direct3D 12 leg's), SPIRV-Tools
+  # and the DXC_DXIL_DLL_PATH guard (the shader worker starts only with a project's first effect source, and the test's project has
+  # none), the native test doubles' compiler (the Media suite's) and the whole-solution build. Then tools/ci-tests.ps1 -NodeHostAB runs the PING test alone in three legs (A as the suite runs it, B the
+  # child's home at process class normal, C the child on a project whose output is not enabled), each held 5 s after the child is up,
+  # each with the scheduling probe and the machine sampler, each leg's files apart and all uploaded. The readings are never a pass mark:
+  # the job fails only when a leg's test failed for another reason than a wait the starvation ran out, or a leg wrote no files.
+  nodehostab:
+    if: ${{ inputs.nodehostab }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      PLAYMAP_FFMPEG_DIR: ${{ github.workspace }}\.ffmpeg\lib
+      GALLIUM_DRIVER: llvmpipe
+      VSTEST_DUMP_FORCENETDUMP: "1"
+      D3D12_FILTER: ${{ inputs.d3d12 }}
+      HANGPROOF: ${{ inputs.hangproof }}
+    steps:
+      - name: One dispatched input at a time
+        shell: pwsh
+        run: |
+          if ($env:D3D12_FILTER -or $env:HANGPROOF -eq 'true') {
+            Write-Host '::error::the run was dispatched with nodehostab and another input (d3d12 or hangproof): say one'
+            exit 1
+          }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - *windows-ffmpeg
+      - *windows-mesa
+      - name: Build the Engine tests (and the node host built with them)
+        run: dotnet build tests/PlayMap.Engine.Tests/PlayMap.Engine.Tests.csproj -c Release -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
+      - name: OpenGL beside the Engine test host and dotnet.exe
+        # Its own step, not the windows job's: that one copies beside every test project's Release output and fails on a project with
+        # none, and this job builds the Engine tests alone.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dlls = 'opengl32.dll', 'libgallium_wgl.dll' | ForEach-Object { (Get-Item "mesa/$_").FullName }
+          $dir = 'tests/PlayMap.Engine.Tests/bin/Release/net10.0'
+          if (-not (Test-Path $dir -PathType Container)) { throw "PlayMap.Engine.Tests has no Release output at $dir" }
+          Copy-Item $dlls $dir
+          Copy-Item $dlls (Split-Path (Get-Command dotnet).Source)
+      - name: The node host test in three legs (a measurement, never a pass mark)
+        id: legs
+        shell: pwsh
+        env:
+          PLAYMAP_SCHEDULING_PROBE: "1"
+        run: ./tools/ci-tests.ps1 -NodeHostAB
+      - name: Upload the legs' files
+        if: ${{ always() && steps.legs.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: nodehostab
+          path: tests/TestResults/nodehostab/**
+          if-no-files-found: error

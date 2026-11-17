@@ -8,6 +8,16 @@
 #                 VSTEST_DUMP_FORCENETDUMP=1 as the windows job sets it and once without, each under a deadline of its own; for each leg,
 #                 whether blame ended the host and when, the hang dumps written and their sizes, and whether the pinned dotnet-dump
 #                 reads the test's managed stack from them, each dump said once (blame's copy beside the results names it twice).
+#   -NodeHostAB   the node host measurement, run only when the workflow is dispatched with the nodehostab input: NodeHostTests' PING
+#                 test alone (on the Engine tests' Release build, with Mesa beside their host and dotnet.exe and the scheduling probe
+#                 on, as the nodehostab job prepares them), three times, each leg with the machine sampler running and its files in a folder of its own
+#                 under tests/TestResults/nodehostab: A as the suite runs it, B with the child's home at process class normal, C with
+#                 the child on a project whose output is not enabled; each held 5 s after it is seen up. Per leg, the child's priority
+#                 class, renderer, first output enabled (the leg's project, from STATE), processors used over the hold, the probe's
+#                 largest gap and beat gap in the hold and from the child's up stamp to the kill, the child's up to the test's seeing
+#                 it, and the sampler's longest sample, in the log and the summary. The readings are never a pass mark: it fails only
+#                 when a leg's test failed for another reason than a wait the starvation ran out, ran past its deadline, wrote no
+#                 files, or ran on another project than its leg's (STATE's first output enabled in A and B, not enabled in C).
 #   -Sample <csv> -Parent <pid> -Counters <a|b>
 #                 the machine sampler -Suites starts as a process of its own (never run by hand): one row a second of the named
 #                 performance counters to <csv> until its parent is gone or 75 minutes have passed. A measurement, never a gate.
@@ -15,10 +25,11 @@
 # A process tree is printed by process id, parent id, name and start time, never by command line: the suites start node with a phone
 # page's join ticket among its arguments (tests/PlayMap.Net.Tests/Phone/PageTests.cs, tests/PlayMap.Engine.Tests/Phone/PhoneScanE2ETests.cs).
 # The suites run the Release build the job made. Dot-sourced, this script sets no variable its caller names but $Suites,
-# $HangProof, $Sample, $Parent and $Counters (its own parameters), $TestConfiguration, $MachineCounters and the two deadline variables.
+# $HangProof, $NodeHostAB, $Sample, $Parent and $Counters (its own parameters), $TestConfiguration, $MachineCounters and the two deadline variables.
 param(
     [switch] $Suites,
     [switch] $HangProof,
+    [switch] $NodeHostAB,
     [string] $Sample,
     [int] $Parent,
     [string] $Counters
@@ -143,12 +154,16 @@ function Invoke-DotnetTest {
     }
 }
 
-if (@(@($Suites.IsPresent, $HangProof.IsPresent, [bool]$Sample) | Where-Object { $_ }).Count -gt 1) { throw 'say one of -Suites, -HangProof or -Sample' }
+if (@(@($Suites.IsPresent, $HangProof.IsPresent, $NodeHostAB.IsPresent, [bool]$Sample) | Where-Object { $_ }).Count -gt 1) {
+    throw 'say one of -Suites, -HangProof, -NodeHostAB or -Sample'
+}
 
 # The machine sampler's loop, in a process of its own: one row a second, each the counters one Get-Counter call read (it waits a
 # second between its two collections, so the rates are over that second), the varying instances as name=value lists: every
 # physical disk's queue length and seconds per transfer, and the processor time and process id of each process named testhost,
-# dotnet, MsMpEng or PlayMap* (a process's processor time is in one processor's percent, so up to 100 times the processor count).
+# dotnet, MsMpEng or PlayMap* (a process's processor time is in one processor's percent, so up to 100 times the processor count);
+# after the note, at the row's end, the base priority of the same processes (8 for a normal class process's threads, 13 for a high
+# class's) and the system's processor queue length (threads ready and waiting for a processor).
 # Get-Counter, not typeperf: each call expands \Process(*) afresh, so a test host started after the sampler is read (typeperf
 # expands a wildcard once, at its start: recalled, not run here). A call that fails writes its words in the row's note and the
 # loop goes on; sample_ms is how long the call took (about 1000: much more is the sampler itself held). It ends when its parent is
@@ -162,13 +177,14 @@ if ($Sample) {
     $stream = [IO.FileStream]::new($Sample, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
     $writer = [IO.StreamWriter]::new($stream, [Text.UTF8Encoding]::new($false))
     $writer.AutoFlush = $true
-    $writer.WriteLine('utc,available_mb,pages_input_per_s,processor_pct,disk_queue,disk_sec_per_transfer,process_pct,process_pid,sample_ms,note')
+    $writer.WriteLine('utc,available_mb,pages_input_per_s,processor_pct,disk_queue,disk_sec_per_transfer,process_pct,process_pid,sample_ms,note,process_priority_base,processor_queue_length')
     try {
         while ([DateTime]::UtcNow -lt $end -and (Get-Process -Id $Parent -ErrorAction SilentlyContinue)) {
             $clock = [Diagnostics.Stopwatch]::StartNew()
-            $available = ''; $pages = ''; $processor = ''; $note = ''
+            $available = ''; $pages = ''; $processor = ''; $note = ''; $ready = ''
             $queue = [Collections.Generic.List[string]]::new(); $transfer = [Collections.Generic.List[string]]::new()
             $percent = [Collections.Generic.List[string]]::new(); $ids = [Collections.Generic.List[string]]::new()
+            $bases = [Collections.Generic.List[string]]::new()
             try {
                 $problems = $null
                 $read = Get-Counter -Counter $paths -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue -ErrorVariable problems
@@ -185,9 +201,11 @@ if ($Sample) {
                     elseif ($path.Contains('\processor(') -and $path.EndsWith('\% processor time')) { $processor = $value }
                     elseif ($path.EndsWith('\current disk queue length')) { $queue.Add("$instance=$value") }
                     elseif ($path.EndsWith('\avg. disk sec/transfer')) { $transfer.Add("$instance=$value") }
+                    elseif ($path.EndsWith('\system\processor queue length')) { $ready = $value }
                     elseif ($path.Contains('\process(') -and $instance -match $named) {
                         if ($path.EndsWith('\% processor time')) { $percent.Add("$instance=$value") }
                         elseif ($path.EndsWith('\id process')) { $ids.Add("$instance=$value") }
+                        elseif ($path.EndsWith('\priority base')) { $bases.Add("$instance=$value") }
                     }
                 }
             }
@@ -195,7 +213,7 @@ if ($Sample) {
             $note = ($note -replace '[,\r\n]+', ' ').Trim()
             $took = $clock.Elapsed.TotalMilliseconds.ToString('0', $invariant)
             $writer.WriteLine((@([DateTime]::UtcNow.ToString('o', $invariant), $available, $pages, $processor, ($queue -join ';'),
-                        ($transfer -join ';'), ($percent -join ';'), ($ids -join ';'), $took, $note) -join ','))
+                        ($transfer -join ';'), ($percent -join ';'), ($ids -join ';'), $took, $note, ($bases -join ';'), $ready) -join ','))
             $left = 1000 - $clock.ElapsedMilliseconds
             if ($left -gt 0) { Start-Sleep -Milliseconds $left }
         }
@@ -212,7 +230,8 @@ $MachineCounters = @(
     '\Memory\Available MBytes', '\Memory\Pages Input/sec',
     '\PhysicalDisk(*)\Current Disk Queue Length', '\PhysicalDisk(*)\Avg. Disk sec/Transfer',
     '\Processor(_Total)\% Processor Time',
-    '\Process(*)\% Processor Time', '\Process(*)\ID Process')
+    '\Process(*)\% Processor Time', '\Process(*)\ID Process',
+    '\Process(*)\Priority Base', '\System\Processor Queue Length')
 
 # Starts the machine sampler as a process of its own beside the suites, writing to $Csv: its parent is this script, never a test's
 # dotnet test, so no deadline's tree stop (Get-ProcessTree from a dotnet test's id) takes it. It returns the process, or $null with a
@@ -416,6 +435,181 @@ if ($HangProof) {
         $summary += $line
     }
     $summary += ''
+    if ($env:GITHUB_STEP_SUMMARY) { $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM }
+    if ($broken.Count -gt 0) { Write-Host "::error::$($broken -join '; ')"; exit 1 }
+    exit 0
+}
+
+# Sets a leg's variable for the dotnet test it starts (its test host and the child engine inherit it), or removes it when the leg
+# names no value, so an unset leg variable is unset as everywhere else, never empty.
+function Set-LegVariable([string] $Name, [string] $Value) {
+    if ($Value) { Set-Item -Path "env:$Name" -Value $Value } else { Remove-Item "env:$Name" -ErrorAction SilentlyContinue }
+}
+
+# The probe's rows inside a window (the hold, from the child seen up to the hold's end; or the whole, from the child's own up stamp to
+# the kill asked) and the first row after it, so a gap that began in the window and ended after it is counted: the largest gap between two rows and the largest beat gap a row carries, in milliseconds, or $null
+# each when no row falls there. A row that does not read (a torn last line) is left out.
+function Read-HoldWindow([string] $Latency, [DateTime] $From, [DateTime] $To) {
+    $invariant = [Globalization.CultureInfo]::InvariantCulture
+    $lines = @(Get-Content $Latency | Where-Object { $_ -and -not $_.StartsWith('#') })
+    if ($lines.Count -lt 2) { return [pscustomobject]@{ Gap = $null; Beat = $null; Rows = 0 } }
+    $columns = $lines[0] -split ','
+    $beatAt = [Array]::IndexOf($columns, 'beat_gap_ms')
+    $previous = $null; $gap = $null; $beat = $null; $rows = 0
+    foreach ($line in ($lines | Select-Object -Skip 1)) {
+        $cells = $line -split ','
+        if ($cells.Count -ne $columns.Count) { continue }
+        $at = [DateTimeOffset]::MinValue
+        if (-not [DateTimeOffset]::TryParse($cells[0], $invariant, [Globalization.DateTimeStyles]::AssumeUniversal, [ref] $at)) { continue }
+        $utc = $at.UtcDateTime
+        if ($utc -le $From) { $previous = $utc; continue }
+        $rows++
+        if ($null -ne $previous) { $gap = [math]::Max([double]$(if ($null -eq $gap) { 0 } else { $gap }), ($utc - $previous).TotalMilliseconds) }
+        $value = 0.0
+        if ($beatAt -ge 0 -and [double]::TryParse($cells[$beatAt], [Globalization.NumberStyles]::Float, $invariant, [ref] $value)) {
+            $beat = [math]::Max([double]$(if ($null -eq $beat) { 0 } else { $beat }), $value)
+        }
+        $previous = $utc
+        if ($utc -gt $To) { break }
+    }
+    return [pscustomobject]@{ Gap = $gap; Beat = $beat; Rows = $rows }
+}
+
+if ($NodeHostAB) {
+    if ($env:D3D12_FILTER -or $env:HANGPROOF -eq 'true') { throw 'the run was dispatched with nodehostab and another input (d3d12 or hangproof): say one' }
+    if ($env:PLAYMAP_SCHEDULING_PROBE -ne '1') { throw 'the node host legs run with the scheduling probe on: PLAYMAP_SCHEDULING_PROBE=1' }
+    $invariant = [Globalization.CultureInfo]::InvariantCulture
+    $project = (Resolve-Path tests/PlayMap.Engine.Tests/PlayMap.Engine.Tests.csproj).Path
+    # The probe and the node host row are written to the project's own TestResults (tests/Shared/SchedulingProbe.cs), emptied before
+    # each leg and moved into the leg's folder after it.
+    $projectResults = Join-Path (Split-Path $project) 'TestResults'
+    $test = 'PlayMap.Engine.Tests.Spine.NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing'
+    $root = Join-Path (Get-Location) 'tests/TestResults/nodehostab'
+    if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+    $holdMs = '5000'
+    $uri = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'
+    $legs = @(
+        [pscustomobject]@{ Name = 'A'; Label = 'as the suite runs it'; Process = ''; Output = ''; Enabled = 'true' },
+        [pscustomobject]@{ Name = 'B'; Label = "the home's process class normal"; Process = 'normal'; Output = ''; Enabled = 'true' },
+        [pscustomobject]@{ Name = 'C'; Label = 'the default class, its one output not enabled'; Process = ''; Output = 'off'; Enabled = 'false' })
+    $summary = @('### The node host test held 5 s after its child is up, in three legs (a measurement, never a pass mark)', '',
+        ('| Leg | Test | Priority class | Renderer | First output enabled | Processors over the hold | Probe''s largest gap in the hold | ' +
+            'Largest beat gap in the hold | Probe''s largest gap, child up to kill | Largest beat gap, child up to kill | Child up to seen | ' +
+            'Sampler''s longest sample |'),
+        '|---|---|---|---|---|---|---|---|---|---|---|---|')
+    $broken = @()
+    foreach ($leg in $legs) {
+        $dir = Join-Path $root "leg-$($leg.Name)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        if (Test-Path $projectResults) { Remove-Item $projectResults -Recurse -Force }
+        $csv = Join-Path $dir 'machine.sampler.csv'
+        Set-LegVariable 'PLAYMAP_NODEHOST_HOLD_MS' $holdMs
+        Set-LegVariable 'PLAYMAP_NODEHOST_PROCESS' $leg.Process
+        Set-LegVariable 'PLAYMAP_NODEHOST_OUTPUT' $leg.Output
+        $sampler = Start-MachineSampler $csv
+        Write-Host "::group::leg $($leg.Name), $($leg.Label)"
+        try {
+            $run = Invoke-DotnetTest -Name "leg $($leg.Name)" -Deadline $TestDeadlineFloor -Arguments @(
+                $project, '-c', $TestConfiguration, '--no-build', '--filter', "FullyQualifiedName=$test", '--results-directory', $dir,
+                '--logger', 'trx;LogFileName=leg.trx', '--blame-hang', '--blame-hang-timeout', '5m', '--blame-hang-dump-type', 'mini')
+        }
+        finally {
+            Stop-MachineSampler $sampler $csv
+            foreach ($name in 'PLAYMAP_NODEHOST_HOLD_MS', 'PLAYMAP_NODEHOST_PROCESS', 'PLAYMAP_NODEHOST_OUTPUT') { Set-LegVariable $name '' }
+        }
+        Write-Host '::endgroup::'
+        if (Test-Path $projectResults) {
+            Get-ChildItem $projectResults -File | Where-Object { $_.Name -like '*.latency.csv' -or $_.Name -like '*.nodehost.csv' } |
+                Move-Item -Destination $dir
+        }
+
+        # The test's outcome: a failure whose words are a wait that ran out (the starvation measured) is said, never failed on.
+        $outcome = '-'
+        $trx = Join-Path $dir 'leg.trx'
+        if (-not $run.Ended) { $outcome = 'past its deadline'; $broken += "leg $($leg.Name) ran past its deadline" }
+        elseif (-not (Test-Path $trx)) { $outcome = 'no results'; $broken += "leg $($leg.Name) left no results (exit $($run.ExitCode))" }
+        else {
+            $results = @(Select-Xml -Path $trx -XPath '//t:UnitTestResult' -Namespace @{ t = $uri })
+            if ($results.Count -ne 1) { $outcome = "$($results.Count) tests"; $broken += "leg $($leg.Name) ran $($results.Count) tests, not the one" }
+            else {
+                $result = $results[0].Node
+                $outcome = $result.GetAttribute('outcome')
+                if ($outcome -eq 'Failed') {
+                    $names = [System.Xml.XmlNamespaceManager]::new($result.OwnerDocument.NameTable)
+                    $names.AddNamespace('t', $uri)
+                    $node = $result.SelectSingleNode('t:Output/t:ErrorInfo/t:Message', $names)
+                    $message = if ($node) { ($node.InnerText -split "`n" | Select-Object -First 3) -join ' | ' } else { '' }
+                    if ($message -match 'TimeoutException|the node did not come up') {
+                        $outcome = 'Failed: a wait ran out'
+                        Write-Host "::warning::leg $($leg.Name)'s test failed as the starvation measured does (a wait ran out): $message"
+                    }
+                    else { $broken += "leg $($leg.Name)'s test failed: $message" }
+                }
+                elseif ($outcome -ne 'Passed') { $broken += "leg $($leg.Name)'s test ended $outcome" }
+            }
+        }
+
+        # The readings: the node host row, the probe's rows inside the hold, the sampler's longest sample.
+        $nodehost = @(Get-ChildItem $dir -Filter *.nodehost.csv)
+        $latency = @(Get-ChildItem $dir -Filter *.latency.csv)
+        if ($nodehost.Count -eq 0 -or $latency.Count -eq 0) {
+            $broken += "leg $($leg.Name) wrote no files: node host rows $($nodehost.Count), probe files $($latency.Count)"
+        }
+        $class = '-'; $renderer = '-'; $enabled = '-'; $processors = '-'; $gapWords = '-'; $beatWords = '-'; $sampleWords = '-'
+        $wholeGapWords = '-'; $wholeBeatWords = '-'; $seenWords = '-'
+        if ($nodehost.Count -gt 0) {
+            $row = @(Import-Csv $nodehost[0].FullName) | Select-Object -First 1
+            if ($row) {
+                $class = if ($row.child_priority_class) { $row.child_priority_class } else { '(not read)' }
+                $renderer = if ($row.child_renderer) { $row.child_renderer } else { '(not named)' }
+                # The project the leg ran on, from the STATE the test read: a cell that is not the leg's means the leg did not run as
+                # set (a project that would not open leaves the engine on its default, whose output is enabled), never a reading.
+                $enabled = if ($row.state_output_enabled) { $row.state_output_enabled } else { '(not read)' }
+                if ($row.state_output_enabled -and $row.state_output_enabled -ne $leg.Enabled) {
+                    $broken += "leg $($leg.Name) ran with its first output enabled $($row.state_output_enabled), not $($leg.Enabled): not the leg it was set to be"
+                }
+                $from = [DateTimeOffset]::MinValue; $to = [DateTimeOffset]::MinValue
+                $styles = [Globalization.DateTimeStyles]::AssumeUniversal
+                # The whole window, from the child's own up stamp to the kill asked: a stall before the test saw the child up (run
+                # 488's child was seen 17 s after it was up) falls outside the hold and inside this.
+                $up = [DateTimeOffset]::MinValue; $kill = [DateTimeOffset]::MinValue; $seen = [DateTimeOffset]::MinValue
+                if ([DateTimeOffset]::TryParse($row.child_up_utc, $invariant, $styles, [ref] $up)) {
+                    if ([DateTimeOffset]::TryParse($row.test_saw_up_utc, $invariant, $styles, [ref] $seen)) {
+                        $seenWords = "$(($seen - $up).TotalMilliseconds.ToString('0', $invariant)) ms"
+                    }
+                    if ($latency.Count -gt 0 -and [DateTimeOffset]::TryParse($row.kill_asked_utc, $invariant, $styles, [ref] $kill)) {
+                        $whole = Read-HoldWindow $latency[0].FullName $up.UtcDateTime $kill.UtcDateTime
+                        $wholeGapWords = if ($null -ne $whole.Gap) { "$($whole.Gap.ToString('0', $invariant)) ms ($($whole.Rows) rows)" } else { '(no row)' }
+                        $wholeBeatWords = if ($null -ne $whole.Beat) { "$($whole.Beat.ToString('0', $invariant)) ms" } else { '(no row)' }
+                    }
+                }
+                if ([DateTimeOffset]::TryParse($row.child_up_read_utc, $invariant, $styles, [ref] $from) -and
+                    [DateTimeOffset]::TryParse($row.hold_end_utc, $invariant, $styles, [ref] $to)) {
+                    $seconds = ($to - $from).TotalSeconds.ToString('0.0', $invariant)
+                    $processors = if ($row.hold_processors) { "$($row.hold_processors) (over $seconds s)" } else { "(not read; hold $seconds s)" }
+                    if ($latency.Count -gt 0) {
+                        $window = Read-HoldWindow $latency[0].FullName $from.UtcDateTime $to.UtcDateTime
+                        $gapWords = if ($null -ne $window.Gap) { "$($window.Gap.ToString('0', $invariant)) ms ($($window.Rows) rows)" } else { '(no row)' }
+                        $beatWords = if ($null -ne $window.Beat) { "$($window.Beat.ToString('0', $invariant)) ms" } else { '(no row)' }
+                    }
+                }
+            }
+        }
+        if (Test-Path $csv) {
+            $longest = @(Import-Csv $csv | ForEach-Object { $v = 0.0; if ([double]::TryParse($_.sample_ms, [Globalization.NumberStyles]::Float, $invariant, [ref] $v)) { $v } }) |
+                Measure-Object -Maximum
+            if ($longest.Count -gt 0) { $sampleWords = "$($longest.Maximum.ToString('0', $invariant)) ms" }
+        }
+        $line = ("| $($leg.Name), $($leg.Label) | $outcome | $class | $($renderer.Replace('|', '/')) | $enabled | $processors | $gapWords | " +
+            "$beatWords | $wholeGapWords | $wholeBeatWords | $seenWords | $sampleWords |")
+        Write-Host $line
+        $summary += $line
+    }
+    $summary += '', ('Read beside one another: A starved and B not, the class is the amplifier; A starved and C quiet, the drawn output is ' +
+        'the demand; all three quiet (quiet from the child up to the kill, not only in the hold), the hold did not reproduce it and ' +
+        'the next step is a longer hold. Processors over the hold near 4 ' +
+        'is all four of the runner''s; a probe gap or beat gap of a second or more, or a sample far over 1,000 ms, is the starvation ' +
+        'runs 487 and 488 recorded (docs/round2/CARRYOVER.md, fix-ci-nodehost-measure).'), ''
     if ($env:GITHUB_STEP_SUMMARY) { $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM }
     if ($broken.Count -gt 0) { Write-Host "::error::$($broken -join '; ')"; exit 1 }
     exit 0
