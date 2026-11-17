@@ -9,20 +9,24 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using PlayMap.Core.Bus;
+using PlayMap.Core.Time;
 using PlayMap.Net.Links;
 
 namespace PlayMap.Engine.Tests.Host;
 
 /// <summary>A Stagewatch's Screens socket played small: <c>/ws</c> takes a screen, counts it and keeps the Authorization it came with,
-/// sends it its <see cref="Verdict"/> first when one is set, then what the test queues, and answers its pings with pongs, so the link
-/// stays live until the test <see cref="Drop"/>s it. A message is read whole, however many frames it arrives in, before it is
-/// parsed.</summary>
+/// speaks first as Stagewatch does — its <see cref="Verdict"/> when one is set, else a plain beat — then sends what the test queues,
+/// and answers its pings with pongs. The link pings only once a connection's first message is read and drops a peer silent past its
+/// drop mark, so the first word and the pongs after it keep the link live until the test <see cref="Drop"/>s it. A message is read
+/// whole, however many frames it arrives in, before it is parsed.</summary>
 internal sealed class ScreensStagewatch : IAsyncDisposable
 {
     private readonly WebApplication _app;
     private readonly Channel<string> _outbox = Channel.CreateUnbounded<string>();
     private readonly ConcurrentDictionary<HttpContext, bool> _open = new();
     private int _screens;
+    private int _pings;
     private int _stopped;
 
     private ScreensStagewatch(WebApplication app) => _app = app;
@@ -32,10 +36,13 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
     /// <summary>Screens that have connected so far.</summary>
     public int Screens => Volatile.Read(ref _screens);
 
+    /// <summary>Pings read so far, on every connection; each is counted as it is read, before its pong is queued.</summary>
+    public int Pings => Volatile.Read(ref _pings);
+
     /// <summary>Each screen's Authorization header, in the order they came ("" for none).</summary>
     public ConcurrentQueue<string> Authorizations { get; } = new();
 
-    /// <summary>The first message each connection hears (Stagewatch 2.18's verdict on a node link), or null for none.</summary>
+    /// <summary>The first message each connection hears (Stagewatch 2.18's verdict on a node link), or null for a plain beat.</summary>
     public string? Verdict { get; set; }
 
     /// <summary>Every connection open now goes, with no close.</summary>
@@ -80,8 +87,9 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
 
     private async Task ServeAsync(HttpContext c, WebSocket ws)
     {
-        if (Verdict is { } verdict)
-            await ws.SendAsync(Encoding.UTF8.GetBytes(verdict), WebSocketMessageType.Text, true, c.RequestAborted);
+        // Stagewatch speaks first on every socket: its verdict on a node link, else a beat.
+        var first = Verdict ?? "{\"type\":\"beat\"}";
+        await ws.SendAsync(Encoding.UTF8.GetBytes(first), WebSocketMessageType.Text, true, c.RequestAborted);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(c.RequestAborted);
         var sender = Task.Run(async () =>
         {
@@ -104,6 +112,7 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
                 message.ResetWrittenCount();
                 if (doc.RootElement.TryGetProperty("cmd", out var cmd) && cmd.GetString() == "ping")
                 {
+                    Interlocked.Increment(ref _pings);
                     var t = doc.RootElement.GetProperty("t").GetInt64();
                     var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     await _outbox.Writer.WriteAsync(string.Create(CultureInfo.InvariantCulture, $"{{\"type\":\"pong\",\"t\":{t},\"t2\":{now},\"t3\":{now}}}"), stop.Token);
@@ -138,18 +147,42 @@ internal sealed class ScreensStagewatch : IAsyncDisposable
 /// <summary>Stagewatch's "identify" (its Screens page, often "identify all") on a node that follows it as a screen: one journal
 /// row that says nothing flashed and names Stagewatch as who asked, and no OUTPUT IDENTIFY line reaches the engine — rehearsing
 /// (where the line would flash every output) or armed (where it would be a refusal in the journal) — while the air's identify stays
-/// off and the link stays live.</summary>
+/// off and the link stays live, on its first connection, past its drop mark on the node's clock.</summary>
 public sealed class StagewatchIdentifyTests
 {
+    /// <summary>How far the node's clock moves in one step of the hold: half the link's stale mark, so one pong the link has not yet
+    /// read when the next step comes still leaves its silence within the stale mark.</summary>
+    private const int StepMs = 3_000;
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task StagewatchsIdentifyIsOneJournalRowAndNoOutputIdentifyReachesTheEngine(bool armed)
     {
+        // The node's clock is the test's: the link's silence grows only when the test moves it.
+        var clock = new ManualClock(1_000 * 1_000_000_000L);
         await using var sw = await ScreensStagewatch.StartAsync();
         var address = "127.0.0.1:" + sw.Port.ToString(CultureInfo.InvariantCulture);
-        await using var rig = await HostRig.StartAsync("Stage left", settings: s => s with { StagewatchEnabled = true, StagewatchHost = address });
+        await using var rig = await HostRig.StartAsync("Stage left", mono: clock,
+            settings: s => s with { StagewatchEnabled = true, StagewatchHost = address });
         Assert.True(await Eventually.TrueAsync(() => rig.Network.Stagewatch()?.State == "live" && sw.Screens == 1), rig.LogTail());
+
+        // The link is held past its drop mark on its clock by what Stagewatch says: its first word lets the link ping, and each pong
+        // is a message heard. Each step waits for a ping Stagewatch read after it, whose pong is heard at the step's time; the hold
+        // ends once a second ping after the last step has come, a beat period after the first, so the beat has looked at the silence
+        // after that step and, pinging, has dropped nothing.
+        for (var held = 0L; held <= PeerLink.DropMs; held += StepMs)
+        {
+            clock.AdvanceMs(StepMs);
+            var pings = sw.Pings;
+            Assert.True(await Eventually.TrueAsync(() => sw.Pings > pings), $"no ping read once the node's clock had moved {held + StepMs} ms");
+        }
+        var last = sw.Pings;
+        Assert.True(await Eventually.TrueAsync(() => sw.Pings > last), "no second ping after the hold's last step");
+        // A stale moment (two pongs not yet read) is live again on the next message heard; a drop dials a second screen.
+        Assert.True(await Eventually.TrueAsync(() => rig.Network.Stagewatch()?.State == "live"), rig.LogTail());
+        Assert.Equal(1, sw.Screens);
+
         if (armed)
             await rig.OkAsync("SHOW ARM");
         Assert.Equal(armed, rig.State().GetProperty("show").GetProperty("armed").GetBoolean());

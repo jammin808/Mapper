@@ -312,11 +312,16 @@ public sealed class OptimiseWorkerEndTests
                 p.Kill(entireProcessTree: true);
             },
         };
+        // Declared first, so it outlives the sender and the service that may still read the view as they stop.
+        using var held = new ManualResetEventSlim();
         await using var led = new HeldLed();
         var project = Project.CreateDefault("Optimise");
         await using var rig = OptimiseRig.Start(itemInProject ? project with { Media = [Clip(dir)] } : project, options: options, dir: dir, led: led);
 
-        await led.HoldNext().WaitAsync(Patience);
+        // The step's thread (the service's loop, a pool worker) is held where it reads the view: it sets the event and blocks, so the
+        // test sees the hold on a thread of its own, with no pool worker between the step reaching the hold and the test seeing it.
+        led.HoldNext(held);
+        await OwnThread.WaitAsync("the optimise step held where it reads the air", held, Patience);
         Assert.Equal(["ojwait01"], rig.Service.Hold("ojwait01", paused: false).Jobs);
         var stop = rig.Service.DisposeAsync().AsTask();
         led.LetGo();
@@ -420,29 +425,26 @@ public sealed class OptimiseWorkerEndTests
     }
 
     /// <summary>An LED sender that sends nothing and whose view a test can hold: the next read of it after <see cref="HoldNext"/>
-    /// says so and waits until <see cref="LetGo"/> (the optimise step reads it as it weighs the air, before it hands out a job).</summary>
+    /// says so and waits until <see cref="LetGo"/> (the optimise step reads it as it weighs the air, before it hands out a job). The
+    /// hold is said with an event, never a task source: the read blocks the thread it runs on, and a task's continuation queued to
+    /// that thread's pool queue would wait for a worker to steal it, which a pool that never goes idle never does.</summary>
     private sealed class HeldLed : Core.Led.ILedOutput
     {
         private readonly SemaphoreSlim _letGo = new(0);
-        private TaskCompletionSource? _hold;
+        private ManualResetEventSlim? _hold;
 
         public Core.Led.ILedFrameSink Sink { get; } = new Core.Led.LedFramePool();
 
-        /// <summary>Holds the next read of the view: the answer completes once that read is held.</summary>
-        public Task HoldNext()
-        {
-            var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            Volatile.Write(ref _hold, hold);
-            return hold.Task;
-        }
+        /// <summary>Holds the next read of the view: <paramref name="held"/> is set where that read is held, before it waits.</summary>
+        public void HoldNext(ManualResetEventSlim held) => Volatile.Write(ref _hold, held);
 
         public void LetGo() => _letGo.Release();
 
         public Core.Led.LedOutputView View()
         {
-            if (Interlocked.Exchange(ref _hold, null) is { } hold)
+            if (Interlocked.Exchange(ref _hold, null) is { } held)
             {
-                hold.SetResult();
+                held.Set();
                 Assert.True(_letGo.Wait(Patience), "the held read was never let go");
             }
             return Core.Led.LedOutputView.Off;

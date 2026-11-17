@@ -2267,7 +2267,8 @@ Round 2 W1 notes:
     desk takes it (13.12.9); pre-existing for any failure of that POST, the deadline adds the cut to it.
   - A collect the desk refuses sets "… would not hand over this node's approvals: <status>", which the same pull's end clears, and a
     pull that asks the desk nothing (no collect, nothing forwarded) clears an offer's refusal words: `Problem` reads "" with no
-    answer from the desk behind it. It reaches no STATE reader yet.
+    answer from the desk behind it. It reaches no STATE reader yet. Answered, not taken, by fix-small-test-items: read to a product
+    defect (the pull's `Problem = ""` clears an offer's refusal); put to the owner there, the test left as it is; see that entry.
 
 ## Integrator notes from the round-2 fix batch (fix-peerlink-core)
 
@@ -2501,7 +2502,9 @@ Round 2 W1 notes:
   - Seen while validating, not this batch's: `StagewatchSinkTests.OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`
     (the 403 case) fails now and then because a pull clears `sink.Problem` before the test reads it (fix-proposal-sink-deadline's
     open item on a pull that asks the desk nothing); it failed 1 run in 10 on this tree's base commit as well, untouched by this
-    batch. The batch that next owns the sink or that test holds the read to the journal row, or stops the pull before it.
+    batch. The batch that next owns the sink or that test holds the read to the journal row, or stops the pull before it. Answered,
+    not taken, by fix-small-test-items: read to a product defect (the pull's `Problem = ""` clears an offer's refusal); put to the
+    owner there, the test left as it is; see that entry.
 
 ## Integrator notes from the round-2 fix batch (fix-stagewatch-timer-air)
 
@@ -3626,7 +3629,10 @@ Round 2 W1 notes:
     test's continuation to the pool, the shape mended in `MachineSamplerTests`' `Entered`. Left as it is: the hold is set from the
     optimise step's read of the view, and that step runs on the service's loop, itself started with `Task.Run`
     (`src/PlayMap.Engine/Optimise/OptimiseService.cs`), so under a starved pool the step never reaches the hold and a waited event
-    in its place would mend nothing; the test stalls on the product's pool work, like the stop test of the same class.
+    in its place would mend nothing; the test stalls on the product's pool work, like the stop test of the same class. Taken by
+    fix-small-test-items (the owner's second answer of 2026-11-16, "PlayMap's Windows job and what it showed", item 3): under a pool
+    that never goes idle, unlike a starved one, the step does reach the hold, and the unmended test then fails at this wait; the hold
+    sets an event and the test sees it on a thread of its own; see that entry.
   - What still waits for the pool in the ten, by design of what they test: the three async delegates after their first unfinished
     await, as above; the session's end in `ANewTokenReachesASessionStillInItsFirstStretch`; and in the four that stall
     (`FolderCameraTests`' two, `DmxPersonalityTests`', `OptimiseWorkerEndTests`'), the engine's own pool work and the test's own
@@ -3724,7 +3730,9 @@ Round 2 W1 notes:
     the screen count and the Authorization within a second or two, and pass (above); a run slowed past 12 s between the connect and
     those reads would see a second screen, which before the mend the pongs kept from happening. The mend is the file owner's, the
     same as here: in `ServeAsync`, `else await ws.SendAsync("{\"type\":\"beat\"}"…)` after the verdict's `if`, its summary saying so.
-    `ContextLinkTests`' `ContextStagewatch` sends a frame first and needs nothing.
+    `ContextLinkTests`' `ContextStagewatch` sends a frame first and needs nothing. Taken by fix-small-test-items (the owner's second
+    answer of 2026-11-16, "PlayMap's Windows job and what it showed", item 3): the fake says a plain beat first when no verdict is
+    set, and the class's theory holds the link past its drop mark on a clock it moves; see that entry.
 
 ## Integrator notes from the round-2 fix batch (fix-hold-tests)
 
@@ -3850,7 +3858,8 @@ Round 2 W1 notes:
     to it. `View()` completes `HoldNext`'s source and then blocks in `_letGo.Wait(Patience)` on the optimise service's loop, a
     pool worker, so the test's wake-up is queued to the held worker's own queue: the shape mended here. That item left it because
     under a starved pool the step never reaches the hold; under a pool that never goes idle it does, so the same mend (an event
-    set in `View()` before the wait, seen with `OwnThread.WaitAsync`) would answer that case. Read, not run here.
+    set in `View()` before the wait, seen with `OwnThread.WaitAsync`) would answer that case. Read, not run here. Taken by
+    fix-small-test-items, in that form, and reproduced under a pool that never goes idle; see that entry.
 
 ## Integrator notes from the round-2 fix batch (fix-ci-windows-bounds)
 
@@ -4074,3 +4083,123 @@ Round 2 W1 notes:
     `SeenAsync`'s retake after patience, 360; `TakeAsync`'s ask again, 388): no Step comes between, so that cue's person passes on
     stale words and is refused. Such a run already fails on the test's zero-retake assertion; only its failure reads as the
     person's refusal, not the retake. No code change.
+
+## Integrator notes from the round-2 fix batch (fix-small-test-items)
+
+- Done: `StagewatchIdentifyTests`' fake Stagewatch speaks first as Stagewatch does, and the class's theory holds the link past its
+  drop mark on a clock it moves; `OptimiseWorkerEndTests`' held view is seen on a thread of its own; `StagewatchSinkTests`' 403 case is
+  read to a product defect, written below and put to the owner, not mended (the owner's second answer of 2026-11-16, "PlayMap's
+  Windows job and what it showed", item 3, in Stagewatch's `docs/ecosystem/owner-answers.md`: the batch fix-small-test-items;
+  test-only, no file under `src/`).
+  - (a) The fake that said nothing first. What the code showed, at 1a6386db: `ScreensStagewatch.ServeAsync` sent its `Verdict` when
+    one was set and nothing otherwise. The link (`src/PlayMap.Net/Links/StagewatchLink.cs`) counts its silence on the node's
+    monotonic clock from the connection's start (`_lastHeardNs`, 825) and from each whole message after (890); its beat
+    (`BeatAsync`, 1134-1174) marks it stale past 6 s (1147) and aborts and dials again past 12 s (1141), and pings only once the
+    first message is read (`_heard && Due`, 1152; `Due` on the machine's `Stopwatch`, every 2 s). A `HostRig` hands its `mono` to
+    the link (`NetworkHost.cs` 995). So against the fake with no verdict nothing is ever heard and nothing is pinged: the link's
+    silence is the whole clock since it connected. The fake's users with no verdict: `StagewatchIdentifyTests`' theory (both
+    legs), the four `NodeCredentialStoreTests` (lines 48, 81, 118, 142) and `StagewatchTimerAirTests` (its first message was the
+    frame the test sends once the link is live); `PreflightBreadthTests`' two set a verdict.
+  - The mend, fix-link-first-ping's design: the fake's first message is its verdict, else a plain beat (`{"type":"beat"}`, no
+    `live`, so nothing is made stuck and no frame is taken), so the link is heard at once, pings every 2 s and hears its pongs. It
+    counts the pings it reads (`Pings`, counted as each is read, before its pong is queued). Its summary says it speaks first. The
+    four `NodeCredentialStoreTests` needed nothing: with a key and no verdict their keyed side calls now open on the beat; since
+    9b7d1fca they never opened (no ping, so no pong and nothing heard, and the link was dropped at 12 s), and before it they opened on
+    the first pong. The fake answers those posts 404, which sets only the link's words (`RefusedAsync`), which none of the four reads;
+    `NodeCredentialStoreTests.cs` is unchanged. `StagewatchTimerAirTests` reads after its own frames as before.
+  - The test, in the theory, not a new one: the class's summary already says the link stays live, and a test of link liveness alone
+    would be `StagewatchLinkTests`' (Net), which holds the never-speaks rule. The rig runs on a `ManualClock`; once the link is live
+    the theory moves the clock in steps of 3 s (`StepMs`, half the stale mark) to 15 s, past the 12 s drop mark, each step only once
+    the fake has read a ping after it (its pong is heard at the step's time), then waits for one more ping (a beat period later, so
+    the beat has looked at the silence after the last step and, pinging, dropped nothing), waits for the link to read live (a stale
+    link is live again on the next message it hears) and asserts `Screens == 1`: on its first connection, since a dropped link
+    dials a second screen. Everything after (the identify, the reload, the final `("live", "")` and `Screens == 1`) is as it was, every
+    assertion kept. Each leg now takes 11 to 12 s here (six pings 2 s apart).
+  - Shown to fail before and pass after (a temporary build in the tree, the files saved outside it and put back, the build redone):
+    with the fake as it was (nothing first unless a verdict) and the mended theory, both legs failed at the first step, "no ping
+    read once the node's clock had moved 3000 ms" (10 s each); with the hold's per-step waits replaced by 300 ms on the runner, both
+    legs failed at the hold's end with `("live", 2)` where `("live", 1)` was asserted (the closing check as it was then, one read of
+    both): the 12 s rule dropped the silent link and it dialled a second screen. With the mend, the theory, the four `NodeCredentialStoreTests`, `StagewatchTimerAirTests`,
+    `PreflightBreadthTests` and `OptimiseWorkerEndTests` (27 tests) six runs in a row, green.
+  - What the hold does not make deterministic, said: the link reading a pong is not awaited (nothing outside the link shows it; its
+    clock samples reach no reader the rig has). A step can come before the last step's pong is read; one unread pong leaves the
+    silence at 6 s, not past the stale mark; two in a row unread make it stale until the next is read (the closing wait for live
+    waits that out, so a stale moment is not a failure); and the link drops only if it leaves four in a row unread across the steps
+    (its reader stalled for about 8 s on the runner), which the closing `Screens == 1` fails.
+  - (b) `OptimiseWorkerEndTests.AStepUnderWayAsTheStopBeginsHandsOutNoJobAndStartsNoWorker`. What the code showed: the step reads the
+    LED view in `OptimiseService.Step` (`engine.Led.Output?.View()`, 504), from `StepOnce` on the service's loop (`LoopAsync`, 451,
+    started with `Task.Run` at 188), a pool worker. `HeldLed.View()` completed `HoldNext`'s source (made with
+    `RunContinuationsAsynchronously`), which queues the test's wake-up to that worker's own local queue, then blocked that worker in
+    `_letGo.Wait(Patience)`: the shape fix-hold-tests mended. The wake-up runs only if another worker steals it, which a pool that
+    never goes idle never does.
+  - Reproduced without CI, as fix-hold-tests did (not CI's own pool, which nothing here can show): a scratch console harness under
+    tmpfs (outside the tree, removed) loaded the Engine test assembly from a folder of its own, resolving the rest through the
+    suite's own dependency file, and invoked the test by reflection, its body on a thread of its own or on a pool worker; the pool
+    was kept from ever going idle without being starved (64 work items, each spinning 1 ms and queuing itself again to the global
+    queue). The unmended assembly was the build of the tree before this batch's edit (the two files unchanged since 2026-11-15).
+    On this four-core machine:
+    - Unmended, unflooded: both legs passed (0.31 s, 0.33 s).
+    - Unmended, flooded: all four (both legs, both body placements) failed with `TimeoutException` at the wait for the hold
+      (`await led.HoldNext().WaitAsync(Patience)`, line 319) after 60.4 to 60.6 s, the class's `Patience`.
+    - The control: unmended with two spinning items (the pool's other workers go idle and steal), both legs passed (0.40 s, 0.30 s).
+    - Mended, flooded: all four passed, in 0.38 to 0.64 s; mended, unflooded, 0.32 and 0.33 s.
+  - The mend: `HeldLed.HoldNext(held)` takes a `ManualResetEventSlim` that `View()` sets where the read is held, before it blocks;
+    the test declares the event first (so it outlives the sender and the service), and waits for it with `OwnThread.WaitAsync`
+    under the class's named `Patience` (60 s, as before). The summary says why an event and not a task source. Every assertion is
+    kept; no sleep, no scheduler of the test's own. Not done: a fault planted in the product to show the mended test still catches
+    a step that hands out a job after the stop began (the assertions are the same lines as before).
+  - (c) `StagewatchSinkTests.OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`, its 403 case (`sink.Problem` read
+    empty, line 708). Read, at 1a6386db (`src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs`):
+    - Who writes `Problem` (an auto-property, 108, written with no lock from two threads): the offer, `OfferAsync`, on the thread that
+      continues it after the desk's answer (`AskAsync` with `ConfigureAwait(false)`; with this test's desk, whose answers are made at
+      once, read to be the caller's own, inside the test's `EnqueueAsync`, before it returns; not observed): a 4xx sets "… did not
+      take apN: 403 not this node's key" (158) and journals it once (159); a taken offer clears it (173). And the pull, `LoopAsync`
+      (315) on a pool worker, started by `UseApprovalDeskAsync` (`AssistantService.cs` 153) and then every `PollEvery` (50 ms here,
+      2 s by default): `PollOnceAsync` collects when `CollectApproved` (here off), reads this node's forwarded proposals when there are
+      any (`ReadOwnAsync` returns at once with none, 263-265; the refused proposal stays Pending, never Forwarded) and then sets
+      `Problem = ""` (201) whether or not it asked the desk anything; a collect the desk refuses sets its own words (215), which the
+      same pull's end clears; a pull's failure sets "could not be read" (205) or "is no longer read" (334).
+    - When: the refusal is written once, as the offer's answer is taken; the first pull after it, at most `PollEvery` and a pool
+      dispatch later, clears it with no request made. The test reads `sink.Problem` after `EnqueueAsync` has returned, three
+      assertions and its read of the journal (`Rows`, 703); there is no earlier point at which it can read it (the refusal is
+      written inside the offer). Whether it sees the words depends only on whether a pull fell in that window, which is why it failed
+      1 run in 10 (fix-peerlink-core), 1 in 30 alone (fix-pool-bound-tests) and once in a whole Engine run (fix-hold-tests). Its next
+      line (709) reads `Problem` again, and a cleared `""` passes `Contains` there vacuously.
+    - Shown deterministic: with the read made 200 ms later (a temporary edit, put back), the 403 case failed three runs of three,
+      `Actual: ""`, the other five cases green.
+    - So the moment is one the product allows a reader to see: a product defect, not a read the test makes too early or too late. It
+      is not mended here, and the test is left as it is (it shows the defect now and then; a test that waited on the journal row or
+      stopped the pull first, as fix-peerlink-core's open line suggested, would hide it). Put to the owner, below.
+- Tests: the build whole on the 10.0.404 SDK (`PLAYMAP_DXC_DIR` set): no warning, no error; its analysis reported nothing in any
+  file. The touched classes and every user of the fake (`StagewatchIdentifyTests`, `NodeCredentialStoreTests`,
+  `StagewatchTimerAirTests`, `PreflightBreadthTests`, `OptimiseWorkerEndTests`: 27 tests) six runs in a row, green, 21 to 24 s a run.
+  The review's fold-in: this entry's history of the four `NodeCredentialStoreTests` corrected; the theory's closing check waits
+  for live and asserts `Screens == 1` (a stale moment no longer fails it, a drop still does); fix-proposal-sink-deadline's and
+  fix-peerlink-core's open lines on the 403 case marked answered, not taken; one comment's words in `OptimiseWorkerEndTests`.
+  The closing validate, once after the fold-in: the build whole (10.0.404, `PLAYMAP_DXC_DIR` set), no warning, no error; the
+  whole Engine suite green in five parts that name its tests once (Align to Facade, 309; Fleet to Hot, 171; Install to
+  Presentation, 204 and 2 skipped; Rendering to Wall, 498 and 4 skipped; the root namespace, 167). The root part failed once, on
+  `StagewatchSinkTests.OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`'s 403 case (`Actual: ""` at line 708),
+  and passed whole on its rerun: the cause is the product defect read in (c) and put to the owner below, the test left as it is.
+  The whole Net suite, 330 passed and 1 skipped; its three Chromium page tests failed before any PlayMap code ran (`chromium`
+  undefined at `tests/e2e/phonescan/page.mjs:12`), as fix-desk-unconfirmed's entry records, not counted green.
+- Files: `tests/PlayMap.Engine.Tests/Host/StagewatchIdentifyTests.cs`, `tests/PlayMap.Engine.Tests/Optimise/OptimiseWorkerEndTests.cs`,
+  this entry and the taken marks in fix-pool-bound-tests', fix-link-first-ping's and fix-hold-tests' Open lists. No csproj and no
+  file under `src/` moved; `NodeCredentialStoreTests.cs`, `StagewatchSinkTests.cs` and `tests/Shared` are unchanged.
+- Open:
+  - For the owner, a product line, low severity: the approval desk's `Problem` reads "" beside a refusal that stands. Path:
+    `src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs`, `PollOnceAsync`'s `Problem = ""` (201) after a pull that asked the desk
+    nothing, and any pull the desk answered, clears an offer's refusal (158) within one `PollEvery`. Its consequence for a reader:
+    today none in the product (nothing under `src/` reads `Problem`; `AssistantService.ApprovalDesk` is read only by tests, and no
+    host switches the sink on: the one call of `UseApprovalDeskAsync` under `src/` passes null); the journal row stays. A reader
+    wired later (STATE, the desk, the context, the assistant's facts) would show the desk as answering within 2 s of a refusal while
+    the proposal sits Pending on the node's list and the journal says the desk did not take it. The design of its mend: keep the
+    offer's words apart from the pull's (an offer's refusal, set by a 4xx and cleared only when the desk takes an offer; the pull's
+    own problem, set by its failures and cleared only by a pull that asked the desk and had its answer), `Problem` the pull's if any,
+    else the offer's; a pull that asks nothing changes neither; both written under the sink's gate. Whether a pull the desk answers
+    clears an offer's refusal ("" while it answers, as `Problem`'s summary says today) is the owner's choice; this entry's reading is
+    that it should not. Its tests: this case unchanged, then deterministic (a read after several pulls keeps the words); a new one
+    in which a pull that asks nothing leaves the refusal and a second offer the desk takes clears it. fix-proposal-sink-deadline's
+    open item on a pull that asks the desk nothing is this one, now read to its threads.
+  - The identify theory's hold depends on the link reading its pongs within a few seconds of the runner's time (above); a stalled
+    reader past four steps fails it as a drop, which is the rule it holds.
