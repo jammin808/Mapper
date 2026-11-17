@@ -2269,6 +2269,9 @@ Round 2 W1 notes:
     pull that asks the desk nothing (no collect, nothing forwarded) clears an offer's refusal words: `Problem` reads "" with no
     answer from the desk behind it. It reaches no STATE reader yet. Answered, not taken, by fix-small-test-items: read to a product
     defect (the pull's `Problem = ""` clears an offer's refusal); put to the owner there, the test left as it is; see that entry.
+    Taken by fix-sink-refusal-words (the owner's answers of 2026-11-17, item 1): the offer's refusal and the pull's own problem are
+    kept apart, a pull that asks nothing changes neither, and a refused collect stands until a pull has its approvals handed over;
+    see that entry.
 
 ## Integrator notes from the round-2 fix batch (fix-peerlink-core)
 
@@ -2504,7 +2507,8 @@ Round 2 W1 notes:
     open item on a pull that asks the desk nothing); it failed 1 run in 10 on this tree's base commit as well, untouched by this
     batch. The batch that next owns the sink or that test holds the read to the journal row, or stops the pull before it. Answered,
     not taken, by fix-small-test-items: read to a product defect (the pull's `Problem = ""` clears an offer's refusal); put to the
-    owner there, the test left as it is; see that entry.
+    owner there, the test left as it is; see that entry. Taken by fix-sink-refusal-words, in the product (the test unchanged and now
+    deterministic); see that entry.
 
 ## Integrator notes from the round-2 fix batch (fix-stagewatch-timer-air)
 
@@ -4200,7 +4204,8 @@ Round 2 W1 notes:
     clears an offer's refusal ("" while it answers, as `Problem`'s summary says today) is the owner's choice; this entry's reading is
     that it should not. Its tests: this case unchanged, then deterministic (a read after several pulls keeps the words); a new one
     in which a pull that asks nothing leaves the refusal and a second offer the desk takes clears it. fix-proposal-sink-deadline's
-    open item on a pull that asks the desk nothing is this one, now read to its threads.
+    open item on a pull that asks the desk nothing is this one, now read to its threads. Taken by fix-sink-refusal-words (the
+    owner's answers of 2026-11-17, item 1, "Mend it", with a pull the desk answers not clearing an offer's refusal); see that entry.
   - The identify theory's hold depends on the link reading its pongs within a few seconds of the runner's time (above); a stalled
     reader past four steps fails it as a drop, which is the rule it holds.
 
@@ -4637,3 +4642,108 @@ Round 2 W1 notes:
     misses these waits. The other form, the smaller change to what an operator sees: in manual mode drop the refusal (`Instruct`
     already drops words said while nothing waits) and let the cue's own words stand at the re-wait, the reason then said nowhere.
     The owner picks.
+
+## Integrator notes from the round-2 fix batch (fix-sink-refusal-words)
+
+- Done: the approval desk sink keeps an offer's refusal apart from its pull's own problem (the owner's answers of 2026-11-17,
+  "Three calls after PlayMap's batches", item 1, in Stagewatch's `docs/ecosystem/owner-answers.md`: "Mend it", the batch
+  fix-sink-refusal-words, a product line; the design is fix-small-test-items' entry, item (c) and its first Open line, with the
+  owner's choice that a pull the desk answers does not clear an offer's refusal). No verb, no STATE field, no journal row's shape.
+  - What the code showed at 158d0b32 (`src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs`), as that entry read it:
+    - `Problem` was an auto-property (108) written with no lock; the sink's `_gate` guarded only `_ran` and `_loop`.
+    - Its writers: the offer (`OfferAsync`, on the thread that continues it after the desk's answer, `ConfigureAwait(false)`): a 4xx
+      set "<desk> did not take apN: <status> <error>" (158) and journalled it (159, reading `Problem` back); an offer the desk took
+      set "" (173). The pull (`PollOnceAsync`, from `LoopAsync` on a pool worker, started by `Start` with `Task.Run` (114), which
+      `AssistantService.UseApprovalDeskAsync` calls (153), then every `PollEvery`): "" at the end of every pull that did not throw
+      (201), whether or not it asked the desk anything (`ReadOwnAsync` returned at once with nothing of this node's forwarded,
+      263-265, and a refused proposal stays Pending, never Forwarded); "<desk> could not be read: …" on a request's failure (205);
+      "<desk> would not hand over this node's approvals: <status>" on a refused collect (215), which the same pull's end cleared at
+      201; and "<desk> is no longer read: …" when the pull faulted and ended (334, journalled at 336 reading `Problem` back).
+    - Its readers: none under `src/` (searched: `Problem` of the sink, `ApprovalDesk`, `UseApprovalDeskAsync`); `AssistantService.ApprovalDesk`
+      (113) is read only by tests; and no host switches the sink on (the one call of `UseApprovalDeskAsync` under `src/` is
+      `AssistantService.DisposeAsync`'s, with null, 273). The tests' readers: `StagewatchSinkTests` only (the pull cut at its
+      deadline, the theory's 403 case and the five 5xx and 201 cases, the refusal as the stop is taken, the pull that faults).
+      `PollOnceAsync` has no caller outside the sink.
+    So, as that entry said: within one `PollEvery` after a refusal a reader saw "" while the proposal stood Pending on the node's
+    list and the journal said the desk did not take it; the theory's 403 case read it so now and then.
+  - The mend (`StagewatchProposalSink.cs`):
+    - Two fields under the sink's `_gate`: `_offerProblem`, set by a refused offer (a 4xx, as before, 179) and cleared only when the
+      desk takes an offer (195); `_pullProblem`, set by the pull's failures and cleared only by a pull that asked the desk and had
+      its answer (`SayPull`, 240). `Problem` (120) reads both under the gate: the pull's while one stands, else the offer's.
+    - `PollOnceAsync` notes whether it asked the desk (a collect asks every pull when `CollectApproved`; `ReadOwnAsync` now answers
+      whether it asked, false when nothing of this node's is forwarded) and changes the pull's problem only then (232). A pull that
+      asks nothing changes neither; a pull the desk answers clears only the pull's own.
+    - A refused collect is the pull's failure: `CollectAsync` answers its words, which stand until a later pull has its approvals
+      handed over (before, the same pull's end cleared them at once). Its words are unchanged.
+    - The journal's two rows (the refusal, the faulted pull) take the words from a local, not by reading `Problem` back, so each
+      row is the words it journals whatever the other field holds. Their text is as before.
+    - Nothing new per poll: two lock entries on the sink's `Lock` and two locals in the pull's state machine; `ReadOwnAsync`
+      answers false synchronously from the runtime's cached `Task<bool>` when nothing of this node's is forwarded (the one call that
+      can ask nothing), and `CollectAsync`, called only when `CollectApproved` is set and then always asking the desk, returns its
+      `Task<string?>` from the box its async run already had. No wait added; the sink's `Task.Run` count (`ComputeTests`) is
+      unchanged.
+    - `Problem`'s summary, the two fields' and `PollOnceAsync`'s state the invariant as it now is; `Problem`'s names each of the
+      pull's failures, the pull that faulted and ended (`LoopAsync`, "<desk> is no longer read: …", 374) among them, which stands
+      for the sink's life since no pull follows it.
+  - Followed down the chains: `Problem` reaches no reader under `src/` (above), so no STATE fixture, context, MCP, desk or menu
+    words move; `AssistantService.ApprovalDesk` is unchanged. Papers: none says when the approval desk's problem clears (searched
+    `docs/`, `README.md`: the desk's papers, `docs/SHOWBUS-NODE.md`, `docs/WIRE.md`, `docs/UX.md`, `docs/ROADMAP.md`, quote no
+    `Problem` and name no clearing), so only this file moves.
+- Tests (`tests/PlayMap.Engine.Tests/StagewatchSinkTests.cs`): the theory `OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`
+  is unchanged byte for byte; its 403 case is now deterministic, its loop's pulls asking nothing (nothing to collect, nothing
+  forwarded). `AnsweringDesk` keeps its constructor and its answers to the theory, and lets a test change the offers' answer
+  (`AnswerOffers`), refuse the pulls with a status (`RefusePulls`), fail them before any answer (`FailPulls`) or answer them again
+  (`AnswerPulls`), and counts the pulls' requests (`Pulls`). Three new tests drive a sink that is never started (`SinkOn`: its own
+  list, the engine as its endpoint, the class's `ManualTime` never moved, its journal words kept), each pull made by the test with
+  `PollOnceAsync`, so no pull of the sink's own loop runs beside them; no sleep, no wall-time wait:
+  - `APullThatAsksTheDeskNothingLeavesAnOffersRefusalStanding`: a 403 offer, then five pulls that ask the desk nothing (`Pulls` 0);
+    the refusal is `Problem` after each, the proposal Pending, the journal's one row the refusal.
+  - `APullTheDeskAnswersLeavesAnOffersRefusalStandingAndAnOfferTheDeskTakesClearsIt`: three pulls the desk answers (one collect
+    each) leave the refusal; an offer the desk takes (201, `p7`) clears it; a pull then collects and reads `p7` back (`Pulls` 5)
+    and says nothing; the refused proposal stays Pending.
+  - `APullsOwnFailureIsSaidWhileItStandsAndItsRecoverySaysTheOffersRefusalAgain`: pulls that fail ("could not be read: the desk is
+    down") are said over the refusal, twice, and the answered pull after them says the refusal again; so does a collect refused
+    503 ("would not hand over this node's approvals: 503", twice) and its recovery; with an offer taken, a failure and its recovery
+    leave "". The journal holds the refusal once.
+  - Shown to fail without the mend, in a scratch copy of the tree under tmpfs (outside it, removed), the product file put back to
+    158d0b32's and the Engine tests built there: the three new tests failed, each at its first pull after the refusal —
+    `Expected: Tuple (1, "Stagewatch at 127.0.0.1:9 did not take ap1: 403 no"···) Actual: Tuple (1, "")`, `Expected: Tuple (1, 1,
+    "Stagewatch at 127.0.0.1:9 did not take ap1: 403 no"···) Actual: Tuple (1, 1, "")`, and, the failure test at its first
+    recovery, `Expected: "Stagewatch at 127.0.0.1:9 did not take ap"··· Actual: ""`; the other 16 passed. With the mend but a
+    refused collect cleared by its own pull (the pull's words set to "" whatever the collect said), only the failure test failed, at
+    the refused collect: `Expected: ···"would not hand over t"··· Actual: ···"did not take ap1: 403"···`.
+  - The 200 ms variant fix-small-test-items ran (the theory with `await Task.Delay(200)` before its read of the journal and of
+    `Problem`), in the scratch copy: against the mend, 30 runs of the theory, each of its six cases green 30 times; against the
+    product file put back, three runs of three, the 403 case `Actual: ""` at its read, the other five green.
+  - In the tree: the class (19 tests) ten runs in a row, green, 13 to 14 s a run; the build whole on the 10.0.404 SDK
+    (`PLAYMAP_DXC_DIR` set), no warning, no error; its analysis reported nothing in any file. The whole Engine suite green in five
+    parts that name its tests once (Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 209 and 2 skipped; Rendering to
+    Wall, 499 and 4 skipped; the root namespace, 170), Xvfb, FFmpeg and DXC set as `tools/setup-dev.sh start` prints them. Net
+    and Core reference nothing that moved (Net's projects reference Core only) and were not run by this stage.
+  - After the review's fold-in (papers and comments only: `Problem`'s summary names the pull that faulted and ended; this entry's
+    line numbers, its note on what is allocated per poll, and an Open line), the build whole on 10.0.404, no warning, no error;
+    the class (19 tests) ten runs in a row, green, 13 s a run; the whole Engine suite green in five parts that name its 1364 tests
+    once (Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 209 and 2 skipped; Rendering to Wall, 525 and 4
+    skipped; the root namespace, 144); the Net suite whole, 330 passed, 1 skipped, and its three Chromium page tests failed before
+    any PlayMap code ran (`chromium.launch` on an undefined browser in `tests/e2e/phonescan/page.mjs`, as fix-desk-unconfirmed's
+    entry records), not counted green. Core: nothing in it moved, not run.
+- Files: `src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs`, `tests/PlayMap.Engine.Tests/StagewatchSinkTests.cs`, this entry and
+  the taken marks in fix-proposal-sink-deadline's, fix-peerlink-core's and fix-small-test-items' Open lists. No paper outside this
+  file, no csproj, no other `src/` file.
+- Open:
+  - A read-own answered with a status that is not success (`ReadOwnAsync`, `api/proposals?from=`) is still said by nobody, as before:
+    it counts as a pull that had its answer and clears the pull's problem. Saying it as the pull's failure (its own words, as the
+    refused collect has) would give the node words the wire has not had; not this batch's, and no reader shows `Problem` yet.
+  - A pull's problem left by a pull that asked the desk stands through later pulls that ask nothing (with `CollectApproved` off and
+    nothing forwarded any more); no test holds that case on its own (it needs a forwarded proposal completed between two pulls).
+  - An offer's refusal outlives its proposal: a refused proposal stays Pending (`ProposalQueue.OfferAsync`, `Proposals.cs` 178-179),
+    and when it then ends by another path (a person approves or rejects it on the node's list, `ExpireStale` marks it Expired,
+    `Proposals.cs` 291-301), `Problem` still reads "<desk> did not take apN: …" until the desk takes some later offer, or for the
+    sink's life if none is. And two offers in flight at once (`ProposalQueue.EnqueueAsync`, `Proposals.cs` 141, from two sessions)
+    settle the offer's words by the order their answers arrive, not the order the desk decided them: a refusal answered after a take
+    stands though the desk's last decision was the take. Both follow the owner's rule (cleared only when the desk takes an offer)
+    and show nowhere today, `Problem` having no reader. When a reader shows it, the owner decides whether the refused proposal's own
+    end clears its refusal (the design: the offer's words carry the proposal's id, and `ProposalQueue`'s end of that proposal clears
+    them under the gate) and whether the words follow the desk's last decision rather than the last answer to arrive.
+  - `Problem` still reaches no reader: when a host switches the sink on (round 2's decision 7, `docs/round2/PLAN.md` §9) and a reader
+    (STATE, the desk, the context, the assistant's facts) shows it, that reader's fixture and words follow the rule above.

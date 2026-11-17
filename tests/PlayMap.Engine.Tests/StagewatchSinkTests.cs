@@ -282,16 +282,60 @@ internal sealed class SilentDesk : HttpMessageHandler
     }
 }
 
-/// <summary>An approval desk that answers every offer (POST /api/proposals) with one status and body, and every other request with
-/// an empty list.</summary>
+/// <summary>An approval desk that answers every offer (POST /api/proposals) with one status and body, and every other request (a
+/// pull's) with an empty list. A test may change the offers' answer (<see cref="AnswerOffers"/>), have the pulls refused with a status
+/// (<see cref="RefusePulls"/>) or fail before any answer (<see cref="FailPulls"/>), and put them back (<see cref="AnswerPulls"/>).</summary>
 internal sealed class AnsweringDesk(System.Net.HttpStatusCode status, string body) : HttpMessageHandler
 {
+    private readonly Lock _gate = new();
+    private System.Net.HttpStatusCode _offerStatus = status;
+    private string _offerBody = body;
+    private System.Net.HttpStatusCode _pullStatus = System.Net.HttpStatusCode.OK;
+    private string? _pullFault;
+    private int _pulls;
+
+    /// <summary>The pulls' requests that reached the desk (every request but an offer).</summary>
+    public int Pulls => Volatile.Read(ref _pulls);
+
+    /// <summary>From now on each offer is answered with this status and body.</summary>
+    public void AnswerOffers(System.Net.HttpStatusCode offerStatus, string offerBody)
+    {
+        lock (_gate)
+            (_offerStatus, _offerBody) = (offerStatus, offerBody);
+    }
+
+    /// <summary>From now on each pull's request is answered with this status and an empty list.</summary>
+    public void RefusePulls(System.Net.HttpStatusCode pullStatus)
+    {
+        lock (_gate)
+            (_pullStatus, _pullFault) = (pullStatus, null);
+    }
+
+    /// <summary>From now on each pull's request fails with these words before any answer, as a connection that is refused.</summary>
+    public void FailPulls(string words)
+    {
+        lock (_gate)
+            _pullFault = words;
+    }
+
+    /// <summary>From now on each pull's request is answered with 200 and an empty list.</summary>
+    public void AnswerPulls() => RefusePulls(System.Net.HttpStatusCode.OK);
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var offer = request.Method == HttpMethod.Post;
-        return Task.FromResult(new HttpResponseMessage(offer ? status : System.Net.HttpStatusCode.OK)
+        System.Net.HttpStatusCode answer;
+        string text;
+        string? fault;
+        lock (_gate)
+            (answer, text, fault) = offer ? (_offerStatus, _offerBody, null) : (_pullStatus, "{\"proposals\":[]}", _pullFault);
+        if (!offer)
+            Interlocked.Increment(ref _pulls);
+        if (fault is not null)
+            return Task.FromException<HttpResponseMessage>(new HttpRequestException(HttpRequestError.ConnectionError, fault));
+        return Task.FromResult(new HttpResponseMessage(answer)
         {
-            Content = new StringContent(offer ? body : "{\"proposals\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            Content = new StringContent(text, System.Text.Encoding.UTF8, "application/json"),
             RequestMessage = request,
         });
     }
@@ -718,6 +762,148 @@ public sealed class StagewatchSinkTests
         }
         finally
         {
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A sink on <paramref name="desk"/> whose pulls the test makes one by one (it is never started), offering through a list of
+    /// its own, its journal's words kept in <paramref name="said"/>; its deadlines on a clock never moved.</summary>
+    private static (StagewatchProposalSink Sink, ProposalQueue Queue) SinkOn(OpsRig rig, AnsweringDesk desk, bool collect, ConcurrentQueue<string> said)
+    {
+        var queue = new ProposalQueue(rig.Engine);
+        var sink = new StagewatchProposalSink(new StagewatchSinkOptions
+        {
+            BaseUri = new Uri("http://127.0.0.1:9/"),
+            Key = Key,
+            SelfId = rig.Engine.Services.Settings.NodeId,
+            CollectApproved = collect,
+            Handler = desk,
+            Time = new ManualTime(),
+        }, queue, rig.Engine, said.Enqueue);
+        queue.Sink = sink;
+        return (sink, queue);
+    }
+
+    private const string Refused403 = "{\"ok\":false,\"error\":\"not this node's key\"}";
+
+    /// <summary>A pull that asks the desk nothing (nothing to collect, nothing of this node's on the desk) leaves an offer's refusal
+    /// standing, pull after pull: the proposal waits on the node's list and the journal says the desk did not take it, and so does
+    /// the sink.</summary>
+    [Fact]
+    public async Task APullThatAsksTheDeskNothingLeavesAnOffersRefusalStanding()
+    {
+        var rig = new OpsRig();
+        using var desk = new AnsweringDesk(System.Net.HttpStatusCode.Forbidden, Refused403);
+        var said = new ConcurrentQueue<string>();
+        var (sink, queue) = SinkOn(rig, desk, collect: false, said);
+        try
+        {
+            var offered = await queue.EnqueueAsync(Draft("BLACKOUT ON", "BLACKOUT"), CancellationToken.None);
+            var refusal = $"{sink.Name} did not take {offered.Id}: 403 not this node's key";
+            Assert.Equal(refusal, sink.Problem);
+            for (var pull = 1; pull <= 5; pull++)
+            {
+                await sink.PollOnceAsync(CancellationToken.None);
+                Assert.Equal((pull, refusal), (pull, sink.Problem));
+            }
+            Assert.Equal(0, desk.Pulls);
+            Assert.Equal(ProposalState.Pending, queue.Find(offered.Id)!.State);
+            Assert.Equal("assistant: " + refusal, Assert.Single(said));
+        }
+        finally
+        {
+            await sink.DisposeAsync();
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A pull the desk answers leaves an offer's refusal standing too: only the desk taking an offer clears it.</summary>
+    [Fact]
+    public async Task APullTheDeskAnswersLeavesAnOffersRefusalStandingAndAnOfferTheDeskTakesClearsIt()
+    {
+        var rig = new OpsRig();
+        using var desk = new AnsweringDesk(System.Net.HttpStatusCode.Forbidden, Refused403);
+        var said = new ConcurrentQueue<string>();
+        var (sink, queue) = SinkOn(rig, desk, collect: true, said);
+        try
+        {
+            var refused = await queue.EnqueueAsync(Draft("BLACKOUT ON", "BLACKOUT"), CancellationToken.None);
+            var refusal = $"{sink.Name} did not take {refused.Id}: 403 not this node's key";
+            for (var pull = 1; pull <= 3; pull++)
+            {
+                await sink.PollOnceAsync(CancellationToken.None);
+                Assert.Equal((pull, pull, refusal), (pull, desk.Pulls, sink.Problem));
+            }
+
+            desk.AnswerOffers(System.Net.HttpStatusCode.Created, "{\"ok\":true,\"id\":\"p7\",\"state\":\"pending\"}");
+            var taken = await queue.EnqueueAsync(Draft("FREEZE ON", "FREEZE"), CancellationToken.None);
+            Assert.Equal((ProposalState.Forwarded, "p7"), (taken.State, taken.RemoteId));
+            Assert.Equal("", sink.Problem);
+            // Now each pull collects and reads this node's forwarded proposal back, and the desk answers both.
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal((5, ""), (desk.Pulls, sink.Problem));
+            Assert.Equal(ProposalState.Pending, queue.Find(refused.Id)!.State);
+        }
+        finally
+        {
+            await sink.DisposeAsync();
+            await rig.DisposeAsync();
+            rig.DeleteFolder();
+        }
+    }
+
+    /// <summary>A pull's own failure is said while it stands, over an offer's refusal; a pull the desk answers clears it, and the
+    /// offer's refusal is said again while it stands, or nothing once the desk has taken an offer. A desk that would not hand over
+    /// this node's approvals is the pull's failure as well, said until a pull has its approvals handed over.</summary>
+    [Fact]
+    public async Task APullsOwnFailureIsSaidWhileItStandsAndItsRecoverySaysTheOffersRefusalAgain()
+    {
+        const string Down = "the desk is down";
+        var rig = new OpsRig();
+        using var desk = new AnsweringDesk(System.Net.HttpStatusCode.Forbidden, Refused403);
+        var said = new ConcurrentQueue<string>();
+        var (sink, queue) = SinkOn(rig, desk, collect: true, said);
+        try
+        {
+            var refused = await queue.EnqueueAsync(Draft("BLACKOUT ON", "BLACKOUT"), CancellationToken.None);
+            var refusal = $"{sink.Name} did not take {refused.Id}: 403 not this node's key";
+            var unread = $"{sink.Name} could not be read: {Down}";
+            var withheld = $"{sink.Name} would not hand over this node's approvals: 503";
+
+            desk.FailPulls(Down);
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(unread, sink.Problem);
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(unread, sink.Problem);
+            desk.AnswerPulls();
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(refusal, sink.Problem);
+
+            desk.RefusePulls(System.Net.HttpStatusCode.ServiceUnavailable);
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(withheld, sink.Problem);
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(withheld, sink.Problem);
+            desk.AnswerPulls();
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(refusal, sink.Problem);
+
+            // With no refusal standing, a pull's recovery leaves nothing said.
+            desk.AnswerOffers(System.Net.HttpStatusCode.Created, "{\"ok\":true,\"id\":\"p7\",\"state\":\"pending\"}");
+            Assert.Equal(ProposalState.Forwarded, (await queue.EnqueueAsync(Draft("FREEZE ON", "FREEZE"), CancellationToken.None)).State);
+            desk.FailPulls(Down);
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(unread, sink.Problem);
+            desk.AnswerPulls();
+            await sink.PollOnceAsync(CancellationToken.None);
+            Assert.Equal("", sink.Problem);
+            Assert.Equal("assistant: " + refusal, Assert.Single(said));
+        }
+        finally
+        {
+            await sink.DisposeAsync();
             await rig.DisposeAsync();
             rig.DeleteFolder();
         }

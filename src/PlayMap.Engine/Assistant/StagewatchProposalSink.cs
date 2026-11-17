@@ -81,6 +81,14 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
     private Task? _loop;
     private int _disposed;
 
+    /// <summary>The desk's refusal of the last offer it refused, while no offer since has been taken; "" otherwise. Written under
+    /// <see cref="_gate"/>.</summary>
+    private string _offerProblem = "";
+
+    /// <summary>The last pull's own failure, while no pull since has asked the desk and had its answer; "" otherwise. Written under
+    /// <see cref="_gate"/>.</summary>
+    private string _pullProblem = "";
+
     /// <param name="log">The journal's words.</param>
     /// <param name="engineLog">Where a fault nothing in the sink expects is written with its trace (the engine's log).</param>
     public StagewatchProposalSink(StagewatchSinkOptions options, ProposalQueue queue, IWireEndpoint endpoint, Action<string>? log = null, ILogger? engineLog = null)
@@ -104,8 +112,19 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
     /// <summary>Lines run from the desk's approvals (this node's own and other proposers').</summary>
     public long Ran { get; private set; }
 
-    /// <summary>The last failure talking to the desk, in words ("" while it answers).</summary>
-    public string Problem { get; private set; } = "";
+    /// <summary>What stands between the node and the desk, in words: the pull's own failure while one stands (a pull that could not
+    /// read the desk, or that the desk would not hand this node's approvals to, until a later pull asks the desk and has its answer;
+    /// a pull that faulted and ended the sink's pulling, for the sink's life, since no pull follows it), else the desk's refusal of
+    /// an offer while it stands (until the desk takes an offer); "" when neither does. A pull that asks the desk nothing changes
+    /// neither, and a pull the desk answers clears only its own.</summary>
+    public string Problem
+    {
+        get
+        {
+            lock (_gate)
+                return _pullProblem.Length > 0 ? _pullProblem : _offerProblem;
+        }
+    }
 
     /// <summary>Starts pulling decisions every <see cref="StagewatchSinkOptions.PollEvery"/>.</summary>
     public void Start()
@@ -154,9 +173,11 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
         }
         if ((int)status is >= 400 and <= 499)
         {
-            // The desk's own refusal: a 4xx says it did not take the offer.
-            Problem = $"{Name} did not take {proposal.Id}: {(int)status} {ErrorOf(text)}";
-            _log("assistant: " + Problem);
+            // The desk's own refusal: a 4xx says it did not take the offer, and it stands until the desk takes one.
+            var refusal = $"{Name} did not take {proposal.Id}: {(int)status} {ErrorOf(text)}";
+            lock (_gate)
+                _offerProblem = refusal;
+            _log("assistant: " + refusal);
             return null;
         }
         if ((int)status is < 200 or > 299)
@@ -170,7 +191,8 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             // The desk said it took the offer, under no id this node can read: it holds what the node lists as its own.
             throw new HttpRequestException($"the desk answered {(int)status} without an id the node can read; {MayHoldIt}", null, status);
         }
-        Problem = "";
+        lock (_gate)
+            _offerProblem = "";
         return id;
     }
 
@@ -190,31 +212,45 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
 
     /// <summary>One pull: the approved lines for this node run and answered, then this node's proposals' ends read
     /// back. A desk that does not answer, or does not within <see cref="RequestDeadline"/>, is tried again on the next pull;
-    /// nothing runs twice. A pull the sink's stop ends is the stop's, said by nobody.</summary>
+    /// nothing runs twice. A pull the sink's stop ends is the stop's, said by nobody. A pull that asked the desk sets the pull's
+    /// own problem to its failure, or clears it once the desk has answered; a pull that asked nothing leaves it as it stands. An
+    /// offer's refusal is never the pull's to set or clear.</summary>
     public async Task PollOnceAsync(CancellationToken ct)
     {
         try
         {
+            var asked = false;
+            string? refused = null;
             if (_options.CollectApproved)
-                await CollectAsync(ct).ConfigureAwait(false);
-            await ReadOwnAsync(ct).ConfigureAwait(false);
-            Problem = "";
+            {
+                asked = true;
+                refused = await CollectAsync(ct).ConfigureAwait(false);
+            }
+            if (await ReadOwnAsync(ct).ConfigureAwait(false))
+                asked = true;
+            if (asked)
+                SayPull(refused ?? "");
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException or TaskCanceledException or TimeoutException && !ct.IsCancellationRequested)
         {
-            Problem = $"{Name} could not be read: {ex.Message}";
+            SayPull($"{Name} could not be read: {ex.Message}");
         }
     }
 
-    private async Task CollectAsync(CancellationToken ct)
+    /// <summary>The pull's own problem, as the last pull that asked the desk left it.</summary>
+    private void SayPull(string words)
+    {
+        lock (_gate)
+            _pullProblem = words;
+    }
+
+    /// <summary>The approved lines collected, run and answered: null when the desk handed them over, else its refusal in words.</summary>
+    private async Task<string?> CollectAsync(CancellationToken ct)
     {
         var (status, text) = await AskAsync(HttpMethod.Get, "api/proposals?target=" + Uri.EscapeDataString(_options.SelfId) + "&state=approved", null, ct)
             .ConfigureAwait(false);
         if ((int)status is < 200 or > 299)
-        {
-            Problem = $"{Name} would not hand over this node's approvals: {(int)status}";
-            return;
-        }
+            return $"{Name} would not hand over this node's approvals: {(int)status}";
         using var doc = JsonDocument.Parse(text);
         foreach (var item in Items(doc.RootElement))
         {
@@ -242,6 +278,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             await AskAsync(HttpMethod.Post, "api/proposals/" + Uri.EscapeDataString(id) + "/result", result, ct).ConfigureAwait(false);
             Complete(id, ok, words, decidedBy);
         }
+        return null;
     }
 
     /// <summary>The approved line through the node's own command path, as the desk's approval.</summary>
@@ -258,14 +295,16 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
         return (reply.Ok, ProposalQueue.ReplyWords(reply));
     }
 
-    private async Task ReadOwnAsync(CancellationToken ct)
+    /// <summary>This node's forwarded proposals' ends read back: true when the desk was asked (something of this node's waits there),
+    /// false when nothing was asked.</summary>
+    private async Task<bool> ReadOwnAsync(CancellationToken ct)
     {
         var waiting = _queue.All.Where(p => p.State == ProposalState.Forwarded && p.RemoteDesk == Name).ToList();
         if (waiting.Count == 0)
-            return;
+            return false;
         var (status, text) = await AskAsync(HttpMethod.Get, "api/proposals?from=" + Uri.EscapeDataString(_options.SelfId), null, ct).ConfigureAwait(false);
         if ((int)status is < 200 or > 299)
-            return;
+            return true;
         using var doc = JsonDocument.Parse(text);
         foreach (var item in Items(doc.RootElement))
         {
@@ -288,6 +327,7 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
                     break;
             }
         }
+        return true;
     }
 
     /// <summary>This node's proposal the desk holds under its id, while it waits there; null for another proposer's.</summary>
@@ -331,9 +371,10 @@ public sealed class StagewatchProposalSink : PlayMap.Assistant.IProposalSink, IA
             {
                 // A failure no pull expects ends the pull: said at once on the sink, written with its trace to the engine's log and
                 // said in the journal, never thrown at whoever lets the desk go.
-                Problem = $"{Name} is no longer read: {ex.Message}";
+                var ended = $"{Name} is no longer read: {ex.Message}";
+                SayPull(ended);
                 _engineLog.LogWarning(ex, "The approval desk's pull from {Desk} faulted and ended.", Name);
-                _log("assistant: " + Problem);
+                _log("assistant: " + ended);
                 return;
             }
         }
