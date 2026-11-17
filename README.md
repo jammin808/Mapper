@@ -338,14 +338,31 @@ retail hash. Then:
   the step builds a copy of it outside the checkout), under the blame collector (a 1-minute hang timeout, a mini dump), once with `VSTEST_DUMP_FORCENETDUMP=1` as
   the Windows job sets it and once without, each under a 6-minute deadline. For each leg it says whether blame ended the host and
   when, the hang dumps written and their sizes, and whether the pinned dotnet-dump reads the test's managed stack from each; it
-  fails when a host outlived blame. Its outcome decides whether the Windows job keeps `VSTEST_DUMP_FORCENETDUMP`.
+  fails when a host outlived blame. Its run (CI run 481) ended the host at 60 s with and without
+  `VSTEST_DUMP_FORCENETDUMP=1` (`dotnet test` back at 63 s, a 4.2 MB dump whose stack names the test), so the Windows job keeps it.
 
 Both test jobs set `PLAYMAP_SCHEDULING_PROBE=1` on their suites' step: every test host then runs `tests/Shared/SchedulingProbe.cs`,
-a thread of its own that every 50 ms writes a row to `tests/<project>/TestResults/<assembly>-<start>-<pid>.latency.csv` (the UTC
-time, its wake overshoot past a 10 ms wait, the pool dispatch latency of a work item it queued, the pool's threads and queued items),
-uploaded as `scheduling-probe-linux` and `scheduling-probe-windows` (a suites step that ran and left none fails the upload). Without
-the variable, as on every desk and in every local run, nothing starts; any value but `1` is refused and the host does not load. It
-is a measurement only: no governor follows it without a reading (`docs/round2/CARRYOVER.md`, fix-ci-windows-bounds).
+which writes to `tests/<project>/TestResults/<assembly>-<start>-<pid>.latency.csv` a first line of the machine's facts (the
+processor count, the pool's minimum and maximum threads, the periods), the columns, and every 50 ms a row from a thread of its own:
+the UTC time, its wake overshoot past a 10 ms wait, the pool dispatch latency of a work item it queued, the pool's threads (threads
+that exist, not threads that work) and queued items, then, each since the row before, the pool's completed work items, the
+collector's pause and its gen2 count, the working set, the process's user and kernel time, the overshoot of the row's rest wait, how
+long the row before took to write and this row's pool reads took, the age and longest stop of a second thread at the highest
+priority that only stamps the time after each 5 ms wait (so a row tells one thread held from the whole process stood still), and
+how long this row's process reads took. A row
+allocates nothing. The node host test (`NodeHostTests`) writes beside it, as `<assembly>-<start>-<pid>.nodehost.csv` and in its
+output on every run, when it started the child engine, the child's own process start, the child log's stamps on its first line and
+on its "is up" line, the log's last write when the test saw that line, and when it saw it. On Windows the suites' step also prints
+Defender's status once (`Get-MpComputerStatus`, `Get-MpPreference`: a reading, nothing is changed) and runs a machine sampler from
+before the first project to after the last (`tools/ci-tests.ps1`, `Get-Counter`): one row a second to
+`tests/TestResults/machine-<start>.sampler.csv` of memory available, pages input per second, each physical disk's queue length and
+seconds per transfer, total processor time, and the processor time of the processes named testhost, dotnet, MsMpEng and PlayMap.
+All of it is uploaded as `scheduling-probe-linux` and `scheduling-probe-windows` (a suites step that ran and left no probe file
+fails the upload; a sampler that did not start or wrote nothing is a warning, never a failure). Without the variable, as on every
+desk and in every local run, the probe starts nothing; any value but `1` is refused and the host does not load. `tools/probe-read.py`
+(Python's standard library alone) reads a probe file with the project's `.trx`: the episodes where queued work waited, with the
+tests running in each, the gaps where the probe's own thread wrote nothing, and a summary line. These are measurements, never
+gates: no governor follows them without a reading (`docs/round2/CARRYOVER.md`, fix-ci-windows-bounds and fix-ci-stall-measure).
 
 A test whose subject exists on one platform only (EGL, GLX, dmabufs and VA-API on Linux; DXGI, Direct3D 12, Spout and D3D11VA on
 Windows) carries that platform's category (`Category=Linux`, `Category=Windows`) and is skipped on the other with the words.

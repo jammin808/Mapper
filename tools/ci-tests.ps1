@@ -7,15 +7,21 @@
 #                 which never ends, under the blame collector (a one-minute hang timeout, a mini dump) twice, once with
 #                 VSTEST_DUMP_FORCENETDUMP=1 as the windows job sets it and once without, each under a deadline of its own; for each leg,
 #                 whether blame ended the host and when, the hang dumps written and their sizes, and whether the pinned dotnet-dump
-#                 reads the test's managed stack from them.
-# Dot-sourced with neither (tools/ci-d3d12.ps1's leg), it only defines Invoke-DotnetTest and the deadlines.
+#                 reads the test's managed stack from them, each dump said once (blame's copy beside the results names it twice).
+#   -Sample <csv> -Parent <pid> -Counters <a|b>
+#                 the machine sampler -Suites starts as a process of its own (never run by hand): one row a second of the named
+#                 performance counters to <csv> until its parent is gone or 75 minutes have passed. A measurement, never a gate.
+# Dot-sourced with none of them (tools/ci-d3d12.ps1's leg), it only defines Invoke-DotnetTest and the deadlines.
 # A process tree is printed by process id, parent id, name and start time, never by command line: the suites start node with a phone
 # page's join ticket among its arguments (tests/PlayMap.Net.Tests/Phone/PageTests.cs, tests/PlayMap.Engine.Tests/Phone/PhoneScanE2ETests.cs).
-# The suites run the Release build the job made. Dot-sourced, this script sets no variable its caller names but $Suites and
-# $HangProof (its own switches), $TestConfiguration and the two deadline variables.
+# The suites run the Release build the job made. Dot-sourced, this script sets no variable its caller names but $Suites,
+# $HangProof, $Sample, $Parent and $Counters (its own parameters), $TestConfiguration, $MachineCounters and the two deadline variables.
 param(
     [switch] $Suites,
-    [switch] $HangProof
+    [switch] $HangProof,
+    [string] $Sample,
+    [int] $Parent,
+    [string] $Counters
 )
 $ErrorActionPreference = 'Stop'
 # A native command's exit code is read on its own line, never thrown, whatever the runner's PowerShell defaults to.
@@ -137,7 +143,167 @@ function Invoke-DotnetTest {
     }
 }
 
-if ($Suites -and $HangProof) { throw 'say -Suites or -HangProof, not both' }
+if (@(@($Suites.IsPresent, $HangProof.IsPresent, [bool]$Sample) | Where-Object { $_ }).Count -gt 1) { throw 'say one of -Suites, -HangProof or -Sample' }
+
+# The machine sampler's loop, in a process of its own: one row a second, each the counters one Get-Counter call read (it waits a
+# second between its two collections, so the rates are over that second), the varying instances as name=value lists: every
+# physical disk's queue length and seconds per transfer, and the processor time and process id of each process named testhost,
+# dotnet, MsMpEng or PlayMap* (a process's processor time is in one processor's percent, so up to 100 times the processor count).
+# Get-Counter, not typeperf: each call expands \Process(*) afresh, so a test host started after the sampler is read (typeperf
+# expands a wildcard once, at its start: recalled, not run here). A call that fails writes its words in the row's note and the
+# loop goes on; sample_ms is how long the call took (about 1000: much more is the sampler itself held). It ends when its parent is
+# gone or after 75 minutes, whichever is first, and its parent stops it after the last project in any case.
+if ($Sample) {
+    $ErrorActionPreference = 'Continue'
+    $paths = @($Counters -split '\|' | Where-Object { $_ })
+    $named = '^(testhost|dotnet|msmpeng|playmap[^#]*)(#\d+)?$'
+    $invariant = [Globalization.CultureInfo]::InvariantCulture
+    $end = [DateTime]::UtcNow.AddMinutes(75)
+    $stream = [IO.FileStream]::new($Sample, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    $writer = [IO.StreamWriter]::new($stream, [Text.UTF8Encoding]::new($false))
+    $writer.AutoFlush = $true
+    $writer.WriteLine('utc,available_mb,pages_input_per_s,processor_pct,disk_queue,disk_sec_per_transfer,process_pct,process_pid,sample_ms,note')
+    try {
+        while ([DateTime]::UtcNow -lt $end -and (Get-Process -Id $Parent -ErrorAction SilentlyContinue)) {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $available = ''; $pages = ''; $processor = ''; $note = ''
+            $queue = [Collections.Generic.List[string]]::new(); $transfer = [Collections.Generic.List[string]]::new()
+            $percent = [Collections.Generic.List[string]]::new(); $ids = [Collections.Generic.List[string]]::new()
+            try {
+                $problems = $null
+                $read = Get-Counter -Counter $paths -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue -ErrorVariable problems
+                if ($problems) { $note = "$($problems[0].Exception.Message)" }
+                $samples = if ($read) { @($read.CounterSamples) } else { @() }
+                # Not $sample: names ignore case, and a loop variable named as -Sample would take its [string] type.
+                foreach ($point in $samples) {
+                    if ($point.Status -ne 0) { continue }
+                    $path = "$($point.Path)".ToLowerInvariant()
+                    $value = ([double]$point.CookedValue).ToString('G6', $invariant)
+                    $instance = "$($point.InstanceName)"
+                    if ($path.EndsWith('\memory\available mbytes')) { $available = $value }
+                    elseif ($path.EndsWith('\memory\pages input/sec')) { $pages = $value }
+                    elseif ($path.Contains('\processor(') -and $path.EndsWith('\% processor time')) { $processor = $value }
+                    elseif ($path.EndsWith('\current disk queue length')) { $queue.Add("$instance=$value") }
+                    elseif ($path.EndsWith('\avg. disk sec/transfer')) { $transfer.Add("$instance=$value") }
+                    elseif ($path.Contains('\process(') -and $instance -match $named) {
+                        if ($path.EndsWith('\% processor time')) { $percent.Add("$instance=$value") }
+                        elseif ($path.EndsWith('\id process')) { $ids.Add("$instance=$value") }
+                    }
+                }
+            }
+            catch { $note = $_.Exception.Message }
+            $note = ($note -replace '[,\r\n]+', ' ').Trim()
+            $took = $clock.Elapsed.TotalMilliseconds.ToString('0', $invariant)
+            $writer.WriteLine((@([DateTime]::UtcNow.ToString('o', $invariant), $available, $pages, $processor, ($queue -join ';'),
+                        ($transfer -join ';'), ($percent -join ';'), ($ids -join ';'), $took, $note) -join ','))
+            $left = 1000 - $clock.ElapsedMilliseconds
+            if ($left -gt 0) { Start-Sleep -Milliseconds $left }
+        }
+    }
+    finally {
+        $writer.Dispose()
+    }
+    exit 0
+}
+
+# The counters the sampler reads, each checked against the sets this runner lists first, since one path Get-Counter does not know can
+# make the whole call refuse: a set or a counter the runner lacks is left out with a warning, and the rest are read.
+$MachineCounters = @(
+    '\Memory\Available MBytes', '\Memory\Pages Input/sec',
+    '\PhysicalDisk(*)\Current Disk Queue Length', '\PhysicalDisk(*)\Avg. Disk sec/Transfer',
+    '\Processor(_Total)\% Processor Time',
+    '\Process(*)\% Processor Time', '\Process(*)\ID Process')
+
+# Starts the machine sampler as a process of its own beside the suites, writing to $Csv: its parent is this script, never a test's
+# dotnet test, so no deadline's tree stop (Get-ProcessTree from a dotnet test's id) takes it. It returns the process, or $null with a
+# warning when it could not start; nothing here fails the step or waits on the sampler.
+function Start-MachineSampler([string] $Csv) {
+    try {
+        if (-not (Get-Command Get-Counter -ErrorAction SilentlyContinue)) {
+            Write-Host '::warning::the machine sampler did not start: Get-Counter is not on this runner (a measurement, never a gate)'
+            return $null
+        }
+        $sets = @{}
+        $paths = [Collections.Generic.List[string]]::new()
+        foreach ($path in $MachineCounters) {
+            $parts = $path -split '\\'
+            $set = $parts[1] -replace '\(.*\)$', ''
+            if (-not $sets.ContainsKey($set)) {
+                $sets[$set] = @()
+                try {
+                    $listed = Get-Counter -ListSet $set -ErrorAction Stop
+                    foreach ($name in 'Paths', 'Counter') {
+                        if ($listed.PSObject.Properties[$name]) { $sets[$set] = @($listed.$name); break }
+                    }
+                    if ($sets[$set].Count -eq 0) { Write-Host "::warning::the machine sampler leaves out the counter set $set`: the runner listed no counters for it" }
+                }
+                catch { Write-Host "::warning::the machine sampler leaves out the counter set $set ($($_.Exception.Message))" }
+            }
+            if (@($sets[$set] | Where-Object { "$_".EndsWith('\' + $parts[-1], [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) { $paths.Add($path) }
+            elseif ($sets[$set].Count -gt 0) { Write-Host "::warning::the machine sampler leaves out $path`: this runner lists no such counter" }
+        }
+        if ($paths.Count -eq 0) { Write-Host '::warning::the machine sampler did not start: none of its counters is listed on this runner'; return $null }
+        New-Item -ItemType Directory -Path (Split-Path $Csv) -Force | Out-Null
+        $info = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+        $info.UseShellExecute = $false
+        # Its output and errors are its own pipes, drained and dropped (it writes nothing on its normal path), never the step's: a
+        # sampler that outlived its stop could otherwise hold the step's output open until its own parent check ended it.
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $PSCommandPath, '-Sample', $Csv, '-Parent', "$PID", '-Counters', ($paths -join '|'))) {
+            $info.ArgumentList.Add($a)
+        }
+        $sampler = [Diagnostics.Process]::Start($info)
+        $sampler.BeginOutputReadLine()
+        $sampler.BeginErrorReadLine()
+        Write-Host "the machine sampler started at $(Get-UtcStamp) (pid $($sampler.Id)), one row a second to $Csv`: $($paths -join ', ')"
+        return $sampler
+    }
+    catch {
+        Write-Host "::warning::the machine sampler did not start: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Stops the sampler by its own process (never a tree: it starts none) and says what it wrote; a sampler that ended early or wrote no
+# row is said with a warning, never failed on.
+function Stop-MachineSampler($Sampler, [string] $Csv) {
+    if (-not $Sampler) { return }
+    try {
+        if ($Sampler.HasExited) { Write-Host "::warning::the machine sampler (pid $($Sampler.Id)) ended before the last project, exit $($Sampler.ExitCode)" }
+        else {
+            $Sampler.Kill()
+            if (-not $Sampler.WaitForExit(5000)) { Write-Host "::warning::the machine sampler (pid $($Sampler.Id)) still runs 5 s after it was stopped" }
+        }
+        $rows = if (Test-Path $Csv) { [math]::Max(0, @(Get-Content $Csv).Count - 1) } else { 0 }
+        if ($rows -eq 0) { Write-Host "::warning::the machine sampler wrote no row to $Csv" }
+        else { Write-Host "the machine sampler stopped at $(Get-UtcStamp) after $rows rows in $Csv" }
+    }
+    catch { Write-Host "::warning::the machine sampler could not be stopped or read: $($_.Exception.Message)" }
+    finally { $Sampler.Dispose() }
+}
+
+# Defender as the runner reports it, read once before the suites: a reading, nothing is changed.
+function Write-DefenderReading {
+    $words = @()
+    foreach ($pair in @(
+            @('Get-MpComputerStatus', @('AMServiceEnabled', 'AntivirusEnabled', 'RealTimeProtectionEnabled', 'OnAccessProtectionEnabled',
+                    'IoavProtectionEnabled', 'BehaviorMonitorEnabled', 'NISEnabled', 'IsTamperProtected', 'AMRunningMode')),
+            @('Get-MpPreference', @('DisableRealtimeMonitoring', 'MAPSReporting', 'SubmitSamplesConsent', 'CloudBlockLevel', 'CloudExtendedTimeout')))) {
+        $command = $pair[0]
+        $fields = $pair[1]
+        if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { $words += "$command is not on this runner"; continue }
+        try {
+            $read = & $command -ErrorAction Stop
+            $words += "$command`: " + (($fields | ForEach-Object {
+                        $field = $read.PSObject.Properties[$_]
+                        "$_=$(if ($field) { $field.Value } else { '(not given)' })"
+                    }) -join ' ')
+        }
+        catch { $words += "$command answered: $($_.Exception.Message)" }
+    }
+    Write-Host "Defender as this runner reports it (a reading; nothing is changed): $($words -join '; ')"
+}
 
 if ($Suites) {
     # No test project fails the step, and so does a suite that answers 0 but leaves no results file, or one that runs past its
@@ -145,16 +311,26 @@ if ($Suites) {
     $failed = @()
     $projects = @(Get-ChildItem tests/*/*.csproj)
     if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
-    foreach ($project in $projects) {
-        $name = $project.BaseName
-        Write-Host "::group::$name"
-        $run = Invoke-DotnetTest -Name $name -Deadline (Get-TestDeadline $name) -Arguments @(
-            $project.FullName, '-c', $TestConfiguration, '--no-build', '--filter', 'Backend!=D3D12', '--logger', "trx;LogFileName=$name.trx",
-            '--blame-hang', '--blame-hang-timeout', '5m', '--blame-hang-dump-type', 'mini')
-        if (-not $run.Ended) { $failed += "$name(deadline)" }
-        elseif ($run.ExitCode -ne 0) { $failed += $name }
-        elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
-        Write-Host "::endgroup::"
+    # The machine beside the tests, measured, never a gate: Defender's reading once, and the sampler from before the first project to
+    # after the last, its rows uploaded with the probe's (tests/TestResults/*.sampler.csv).
+    try { Write-DefenderReading } catch { Write-Host "::warning::Defender's reading failed: $($_.Exception.Message)" }
+    $samplerCsv = Join-Path (Get-Location) "tests/TestResults/machine-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmss', [Globalization.CultureInfo]::InvariantCulture)).sampler.csv"
+    $sampler = Start-MachineSampler $samplerCsv
+    try {
+        foreach ($project in $projects) {
+            $name = $project.BaseName
+            Write-Host "::group::$name"
+            $run = Invoke-DotnetTest -Name $name -Deadline (Get-TestDeadline $name) -Arguments @(
+                $project.FullName, '-c', $TestConfiguration, '--no-build', '--filter', 'Backend!=D3D12', '--logger', "trx;LogFileName=$name.trx",
+                '--blame-hang', '--blame-hang-timeout', '5m', '--blame-hang-dump-type', 'mini')
+            if (-not $run.Ended) { $failed += "$name(deadline)" }
+            elseif ($run.ExitCode -ne 0) { $failed += $name }
+            elseif (-not (Test-Path (Join-Path $project.DirectoryName "TestResults/$name.trx"))) { $failed += "$name(no results)" }
+            Write-Host "::endgroup::"
+        }
+    }
+    finally {
+        Stop-MachineSampler $sampler $samplerCsv
     }
     # Every failed test with the first lines of its message, read from the results, so the whole list is at the log's end. Elements
     # and attributes are read by name, so a result without a message reads as empty under strict mode.
@@ -215,7 +391,8 @@ if ($HangProof) {
         $ended = if ($run.Ended) { "yes, dotnet test returned after $seconds s" } else { "no: the step's $($legDeadline.TotalMinutes) min deadline ended it ($seconds s)" }
         if ($run.Ended -and $run.ExitCode -eq 0) { $broken += "$($leg.Label): the test that never ends passed" }
         if (-not $run.Ended) { $broken += "$($leg.Label): blame did not end the host within $($legDeadline.TotalMinutes) min" }
-        $dumps = @(Get-ChildItem $results -Recurse -Filter '*_hangdump.dmp' -ErrorAction SilentlyContinue)
+        # Blame writes each dump in a folder of its own and copies it beside the results as their attachment: one name, said once.
+        $dumps = @(Get-ChildItem $results -Recurse -Filter '*_hangdump.dmp' -ErrorAction SilentlyContinue | Sort-Object Name -Unique)
         $dumpWords = if ($dumps.Count -eq 0) { 'none' } else { ($dumps | ForEach-Object { "$($_.Name) ($([math]::Round($_.Length / 1MB, 1)) MB)" }) -join '; ' }
         $read = @()
         foreach ($dump in $dumps) {

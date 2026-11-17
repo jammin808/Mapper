@@ -3,15 +3,18 @@ using System.Globalization;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using PlayMap.Core.Bus;
 using PlayMap.Engine.Host;
 using PlayMap.Engine.Tests.Host;
+using Xunit.Abstractions;
 
 namespace PlayMap.Engine.Tests.Spine;
 
 /// <summary>The node without the desk: "PlayMap.Node engine headless" runs the node through the same entry the desk's exe uses and
-/// answers PING on its wire; a command line that names no entry exits 2 and says what it reads.</summary>
-public sealed partial class NodeHostTests
+/// answers PING on its wire; a command line that names no entry exits 2 and says what it reads. The node's start is said in the test's
+/// output, pass or fail (<see cref="NodeUpTimes"/>).</summary>
+public sealed partial class NodeHostTests(ITestOutputHelper output)
 {
     [GeneratedRegex(@"is up: wire (\d+)", RegexOptions.CultureInvariant)]
     private static partial Regex WireUp();
@@ -28,20 +31,28 @@ public sealed partial class NodeHostTests
                 Bind = "127.0.0.1", HttpPort = 0, WirePort = 0, SyncPort = 0, Token = HostRig.Token, TrustLoopback = true, Announce = false,
             });
             var id = home.LoadSettings("Node host").NodeId;
+            var startedChild = DateTime.UtcNow;
             using var node = NodeExe.Start("engine", "--headless", "--home", dir.FullName, "--no-recover");
-            var output = new NodeOutput(node);
+            var times = new NodeUpTimes(startedChild, node);
+            var said = new NodeOutput(node);
             try
             {
                 var log = Path.Combine(dir.FullName, NodeLogProvider.FileName);
                 var port = 0;
                 Assert.True(await Eventually.TrueAsync(() =>
                 {
+                    times.Poll();
                     if (node.HasExited || !File.Exists(log))
                         return false;
-                    var m = WireUp().Match(Tail(log, int.MaxValue));
+                    var read = Stopwatch.StartNew();
+                    var text = Tail(log, int.MaxValue);
+                    times.Read(text, read.Elapsed);
+                    var m = WireUp().Match(text);
                     port = m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+                    if (port > 0)
+                        times.SawUp(text, m.Index, log);
                     return port > 0;
-                }, timeoutMs: 60_000), $"the node did not come up (exited: {node.HasExited}); its output ends:\n{output.Tail}");
+                }, timeoutMs: 60_000), $"the node did not come up (exited: {node.HasExited}); {times.Words()}; its output ends:\n{said.Tail}");
 
                 await using var c = await LineClient.ConnectAsync(port);
                 Assert.StartsWith("OK @p PONG 1760101234567 ", await AskAsync(c, "@p PING 1760101234567"), StringComparison.Ordinal);
@@ -76,7 +87,7 @@ public sealed partial class NodeHostTests
                         }
                         var other = await SecondConnectionAsync(port);
                         throw new TimeoutException($"{line}: {ex.Message}; {later}; {other}; the node {(node.HasExited ? "has exited" : "runs")}"
-                            + $"\nits journal ends:\n{Tail(home.JournalPath, 12)}\nits log ends:\n{Tail(log, 12)}\nits output ends:\n{output.Tail}", ex);
+                            + $"\nits journal ends:\n{Tail(home.JournalPath, 12)}\nits log ends:\n{Tail(log, 12)}\nits output ends:\n{said.Tail}", ex);
                     }
                 }
             }
@@ -84,6 +95,7 @@ public sealed partial class NodeHostTests
             {
                 node.Kill(entireProcessTree: true);
                 await node.WaitForExitAsync();
+                times.Keep(output);
             }
         }
         finally
@@ -149,6 +161,46 @@ public sealed partial class NodeHostTests
         using var read = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var text = new StreamReader(read);
         return string.Join("\n", text.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries).TakeLast(lines));
+    }
+
+    /// <summary>The node host test's times read the stamps the node's own log writes: a heading and an "is up" line written through
+    /// <see cref="NodeLogProvider"/> are read back as times between the moments before and after they were logged, so a change to the
+    /// log's stamp is seen here rather than as empty cells in CI's rows.</summary>
+    [Fact]
+    public void TheNodesUpTimesReadTheStampsItsLogWrites()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-node-times-");
+        try
+        {
+            var path = Path.Combine(dir.FullName, NodeLogProvider.FileName);
+            var before = DateTime.UtcNow;
+            using (var log = new NodeLogProvider(path))
+            {
+                log.CreateLogger("PlayMap.Test").LogInformation("{Name} ({Id}) is up: wire {Wire}, web {Web}", "Node host", "n1", 41234, 41235);
+            }
+            var after = DateTime.UtcNow;
+            using var self = Process.GetCurrentProcess();
+            var times = new NodeUpTimes(before, self);
+            var text = Tail(path, int.MaxValue);
+            times.Read(text, TimeSpan.Zero);
+            var m = WireUp().Match(text);
+            Assert.True(m.Success, text);
+            times.SawUp(text, m.Index, path);
+
+            // The log stamps to the millisecond, cut, so a stamp may read up to 1 ms before the moment it was made.
+            foreach (var (name, stamp) in new[] { ("heading", times.LogFirst), ("is up", times.Up) })
+            {
+                Assert.True(stamp is { } at && at >= before.AddMilliseconds(-1) && at <= after,
+                    string.Create(CultureInfo.InvariantCulture, $"the {name} stamp {stamp:O} is not between {before:O} and {after:O}: {text}"));
+            }
+            Assert.NotNull(times.LogWritten);
+            Assert.NotNull(times.Seen);
+            Assert.DoesNotContain(",,", times.Row(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
     }
 
     [Theory]

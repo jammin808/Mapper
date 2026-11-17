@@ -181,13 +181,16 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
       - name: Upload the scheduling probe's rows
-        # One file per test host of the Test step (wake overshoot, pool dispatch latency, pool counts every 50 ms); a Test step that
-        # ran and left none fails here.
+        # One file per test host of the Test step (wake overshoot, pool dispatch latency, pool counts, the collector, the process's
+        # time and a second beat, every 50 ms), and the node host test's times (*.nodehost.csv); a Test step that ran and left none
+        # fails here.
         if: ${{ always() && steps.suites.outcome != 'skipped' }}
         uses: actions/upload-artifact@v5
         with:
           name: scheduling-probe-linux
-          path: tests/*/TestResults/*.latency.csv
+          path: |
+            tests/*/TestResults/*.latency.csv
+            tests/*/TestResults/*.nodehost.csv
           if-no-files-found: error
 
   # The Windows build: the exe the show machine runs, and every suite to its end on a runner with no GPU and no audio
@@ -210,7 +213,8 @@ jobs:
       D3D12_FILTER: ${{ inputs.d3d12 }}
       # A hung test host's dump is written by the runtime through its diagnostics port, as on Linux, so it carries what a managed stack
       # walk reads; the blame collector's own Windows dumper writes a mini dump of thread information alone, which no stack walk reads.
-      # Whether a host blame stops this way on Windows ends at all is what the hangproof job asks.
+      # The hangproof job shows blame ending a host that never ends on Windows with this and without it, and dotnet-dump naming the
+      # test from the dump (docs/round2/CARRYOVER.md, fix-ci-stall-measure): it stays.
       VSTEST_DUMP_FORCENETDUMP: "1"
     steps:
       - uses: actions/checkout@v5
@@ -365,7 +369,10 @@ jobs:
         # A test host that hangs is stopped after 5 minutes with a mini dump, read into the log after the Direct3D 12 leg; a dotnet test
         # still running at its project's deadline (tools/ci-tests.ps1: 30 minutes for Engine, 10 for the rest) has its process tree
         # printed and stopped and is failed as '<name>(deadline)'; either way the next project runs. Each project's start and end are
-        # in the log, and the failed tests are listed from the results at its end.
+        # in the log, and the failed tests are listed from the results at its end. Beside the suites, measured and never a gate:
+        # Defender's status as the runner reports it, printed once, and a machine sampler (memory, paging, disks, processors and the
+        # test hosts' processor time, one row a second) from before the first project to after the last, its rows uploaded with the
+        # probe's; one that does not start or writes nothing is a warning.
         run: ./tools/ci-tests.ps1 -Suites
       - name: Direct3D 12 beside the test hosts
         # After the suites above, so they ran on Windows' own WARP as before: d3d10warp.dll beside every test project's Release
@@ -467,12 +474,17 @@ jobs:
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
       - name: Upload the scheduling probe's rows
-        # As on Linux: one file per test host of the Test step; a Test step that ran and left none fails here.
+        # As on Linux: one file per test host of the Test step and the node host test's times; a Test step that ran and left none fails
+        # here. With them, the machine sampler's rows (tests/TestResults/*.sampler.csv), whose absence fails nothing: the rule above
+        # counts every path together, and the probe's files are there whenever the step ran.
         if: ${{ always() && steps.suites.outcome != 'skipped' }}
         uses: actions/upload-artifact@v5
         with:
           name: scheduling-probe-windows
-          path: tests/*/TestResults/*.latency.csv
+          path: |
+            tests/*/TestResults/*.latency.csv
+            tests/*/TestResults/*.nodehost.csv
+            tests/TestResults/*.sampler.csv
           if-no-files-found: error
       - name: Upload the Direct3D 12 evidence
         # Diff images, the info queue's messages and DRED's output, one folder per Direct3D 12 test, with the leg's results.

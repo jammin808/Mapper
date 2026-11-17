@@ -4203,3 +4203,304 @@ Round 2 W1 notes:
     open item on a pull that asks the desk nothing is this one, now read to its threads.
   - The identify theory's hold depends on the link reading its pongs within a few seconds of the runner's time (above); a stalled
     reader past four steps fails it as a drop, which is the rule it holds.
+
+## Integrator notes from the round-2 fix batch (fix-ci-stall-measure)
+
+- Done: measurement only, test-only and CI-only, no file under `src/`, no test's assertion or wait changed, no governor (the
+  orchestrator's batch on the owner's standing answer, the scheduling probe of the second answer of 2026-11-16, "PlayMap's Windows
+  job and what it showed", item 1, in Stagewatch's `docs/ecosystem/owner-answers.md`: "no governor follows without a reading"; the
+  owner has not named this batch, so its leave is the list the orchestrator gave and nothing outside it was edited).
+  - What run 480 showed (CI run 480 on f8e038a7, 2026-11-16 23:2x to 23:4x UTC; Linux and the installer green, Windows red in the
+    Test step at two Engine tests, 2 of 1,355, every project to its end, no deadline hit), kept here because the files it was read
+    from do not last:
+    - `SettingsWriterTests.ASyncRoleAnEpochTheLinkAndANewTokenSurviveEachOther` failed at `BackupRig.MeetAsync` (`BackupRig.cs` 110,
+      "0badc0de has no health of 9f8e7d6c …") after 52 s; its wait is `FleetWait.UntilAsync`, a 10 s wall-clock budget whose every
+      step needs a pool dispatch (`FleetWait.cs` 29-40). It ran 23:34:16.635 to 23:35:09.013, wholly inside a 52 s window
+      (23:34:15 to 23:35:09) in which the Windows Engine host's pool stopped serving its queue: the first item that waited was
+      queued at 23:34:15.04 and the last released at 23:35:08.571; a queued item waited up to 12,659 ms (12.7 s); the pool's thread
+      count rose from 8 to 16, about one every 5 to 6 s (threads that exist, not threads at work); the queue held 1 to 39 items;
+      while the probe's wake overshoot stayed at its floor (the Windows tick, about 5.7 ms, at most 29 ms in the window's long
+      episode). The probe's own dedicated thread stopped twice: no row for 7.75 s from 23:34:18.07, and for 7.27 s from
+      23:34:54.17 (its row after carried a 7,261 ms overshoot). In the second stop, the pool item queued at 23:34:51.949 started
+      at about 23:34:59.07 while the probe's thread was still stopped until about 23:35:01.43, so it was not one whole-process
+      suspension. Four tests in the window each took 52 to 56 s, three of them normal at seconds elsewhere:
+      `Spine.NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing` 54.3 s (23:34:14.450 to 23:35:08.749, the first to start),
+      `Align.AlignRunTests.MissingFilesAreSaidInStateTheContextAndPreflight` 55.2 s, `Align.MeasuredWarpTests.AStackedPairConverges`
+      56.1 s, and the failed `SettingsWriterTests` case 52.4 s; every co-victim started within 4 s after NodeHost's start, and the
+      window ended as NodeHost's child was seen up. Run 465 has the same shape (NodeHost 18:50:29.54 to 18:51:14.51, the fleet
+      monitor's test ending 2 ms after it). The Linux Engine host of run 480 had no episode (dispatch p99 39.7 ms, at most 252 ms).
+    - `NodeLogTests.EveryFileTheLogStartsBeginsWithTheBuild` failed separately, "line 1 was not moved aside" at line 48 after its
+      10 s deadline (23:36:20 to 23:36:32): the probe saw no stall there (no row over 100 ms, dispatch at most 15.7 ms).
+    - What the adversarial check refuted: that the kill ended the stall (the probe's recovery row, 23:35:08.571, is 0.178 s before
+      NodeHost ended at 23:35:08.749, and the kill runs in the test's `finally` after PING and STATE: recovery, then "is up" seen,
+      then the kill); that the pool's thread count is a count of blocked workers (`ThreadPool.ThreadCount` counts existing threads,
+      among them those hill climbing has stopped from working); that the release grid is the runtime's starvation injection (most
+      releases were served by workers that already existed); that a pool minimum, a parallelism cap or a bigger runner would cure it
+      (a higher minimum cannot bring a child process up sooner, restart a dedicated thread the OS stopped or speed a synchronous read
+      stalled on the disk); and "the processors were idle" (the overshoot says only that the probe's own thread got a core).
+    - What stays unknown: what held the Engine host's workers (blocked in synchronous I/O, parked, or waiting on dedicated threads
+      that were themselves stalled: no stack, no completions, no goal count); whether the child engine came up about 53 s late or
+      came up at once and was seen late (its "is up" line carries a UTC stamp, in a temporary home nobody kept); what stopped the
+      probe's dedicated thread for 7.75 s and 7.26 s (paging, the disk, a scanner and the host's steal not told apart); what runs on
+      a period of about 1.19 s and releases one worker during the stall; whether Defender's real-time or cloud protection is on in
+      the image (windows-2025-vs2026 20261103.298.1); and whether the NodeLog move threw.
+    - The hang guard's proof (the dispatched `hangproof` run, CI run 481): blame ended a test host that never ends at 60 s on Windows
+      with `VSTEST_DUMP_FORCENETDUMP=1` and without it, `dotnet test` back at 63 s, a 4.2 MB dump from which dotnet-dump names the test.
+      The setting stays; the workflow's comment on it now says so.
+    - The second reading, CI run 482 on 1a6386db, green on all three jobs, the same stall in a run that passed: NodeHost's PING test
+      took 56.3 s (00:27:36.813 to 00:28:33.096); queued pool work waited up to 11.9 s between 00:27:38 and 00:28:40; the probe's own
+      thread wrote nothing for 9.31 s (from 00:27:40.90), 12.87 s (from 00:28:12.81) and 7.35 s (from 00:28:25.69); the episodes end
+      as NodeHost ends; the tests beside it had long waits and passed (`MultiscanReconcileTests` 88.4 s, `AlignStateFixtureTest`
+      67.0 s, a `LineWordTests` case 23.9 s). So the stall comes with NodeHostTests' child engine on Windows in runs 465, 480 and 482
+      (not 466 or 467), and a run is red only when a test with a short wall-clock wait runs beside it. Runs 473, 477 and 479 had no
+      probe; their shape is not credited to it. Run 483 (ab22f621, green on all three jobs) had no stall: NodeHost's PING test
+      took 2.7 s, no gap in the probe's rows over 1 s, the longest wait of a queued pool item 2.4 s. Across the six Windows runs
+      with a reading of NodeHost's duration the stall and a slow NodeHost child come together both ways: 465 (45 s), 480 (54 s)
+      and 482 (56 s) with the stall; 466 (3.9 s), 467 (8.1 s) and 483 (2.7 s) without. A reading, not a cause.
+    - The check's ruling, kept: measure next; no pool minimum, no parallelism cap, no wider wait, no runner tweak, until a reading
+      names the cause.
+  - (1) The probe says more (`tests/Shared/SchedulingProbe.cs`). The file's first line is now the machine's facts, after the mark
+    `# PlayMap scheduling probe:` as `key=value` pairs (`processors`, `pool_min_workers`, `pool_min_io`, `pool_max_workers`,
+    `pool_max_io`, `period_ms`, `wait_ms`, `beat_wait_ms`, `beat_priority`, `pid`, `os`, `runtime`); its second line the columns. The
+    first six columns keep their order and meaning; twelve follow, at the end of the row: `pool_completed` (the pool's completed work
+    items since the row before), `gc_pause_ms` (`GC.GetTotalPauseDuration` since the row before), `gc_gen2` (the count),
+    `working_set_mb` (`Environment.WorkingSet` on Windows; on Linux, where that builds a `Process` and allocates about 3 KB a read, the
+    resident pages of `/proc/self/statm` read into a reused buffer), `cpu_user_ms` and `cpu_kernel_ms` (`Environment.CpuUsage`, a
+    struct, since the row before), `rest_overshoot_ms` (how far past the row's rest wait the probe woke; the rest is now asked in
+    whole milliseconds so its overshoot is read against what was asked), `last_write_ms` (how long the row before's
+    `RandomAccess.Write` took: a row cannot carry its own), `pool_read_ms` (how long this row's three pool reads took),
+    `beat_age_ms` and `beat_gap_ms`: a second dedicated thread at `ThreadPriority.Highest`, the beat, does nothing but stamp the time
+    after each 5 ms timed wait on the probe's stop event, keeping the longest gap between two stamps, which the probe takes and
+    clears at each row; and `process_read_ms` (how long this row's process reads took: the collector's pause and count, the working
+    set and the processor times, so a gap spent in them is told from one spent in the waits, the write or the pool reads). A row
+    whose `beat_gap_ms` is as long as the probe's own gap says the whole process stood still; a beat that kept stamping while the
+    probe's thread gapped says one thread was held. The probe stays what it was: off unless the variable is `1`, its write off the
+    pool and under no lock a test takes, the beat's gap kept by a compare-and-swap. One read shares a lock with the pool it
+    measures: `ThreadPool.CompletedWorkItemCount` takes the pool's own counter lock, as the pool's hill climbing does, held for a
+    walk of the pool's per-thread counts, and `pool_read_ms` times it. Nothing is allocated per row (read in Tests below). On Linux the runtime
+    is not read to raise a thread's priority (recalled, not read); the beat's priority is Windows' to honour, and the facts line
+    says what was asked.
+  - (2) The child's own times (`tests/PlayMap.Engine.Tests/Spine/NodeExe.cs`, `NodeUpTimes`; `NodeHostTests.cs`). On every run,
+    pass or fail, `TheNodeHostRunsAnEngineThatAnswersPing` records: when it started the child (UTC, read just before the start); the
+    child process's own start (`Process.StartTime`, empty when the system will not say); the stamp on the child log's first line
+    (its heading, stamped by the log's own thread as it writes it); the stamp on its "is up: wire" line (`NodeLogProvider.Line`
+    stamps a line with `DateTimeOffset.UtcNow` as the node makes it, before the log's thread writes it, so the stamp is the child's
+    own); the log file's last write time at the moment the test first saw that line; and when the test saw it; beside them, how
+    often the test's wait read the log, the longest it went between two reads and the longest one read took. They are said in the
+    test's output (so in the `.trx` each job uploads, red or green) and, when the probe runs, kept as one row of
+    `<assembly>-<start>-<pid>.nodehost.csv` beside the probe's file (a file that cannot be written is said, never failed on); both
+    jobs' probe uploads take `tests/*/TestResults/*.nodehost.csv`. No assertion, wait or bound changed; the home folder's handling
+    is as it was (the times are read before the `finally` kills the child and kept after it has exited, so a keep that throws
+    cannot skip the kill). `TheNodesUpTimesReadTheStampsItsLogWrites` holds the times to the log's stamp: a heading and an "is up"
+    line written through `NodeLogProvider` read back as times between the moments before and after they were logged, so a change
+    to the log's stamp fails there, not as empty cells in CI's rows. The clocks: every time is UTC from the same machine's
+    clock; the process start comes from the system and the log's last write from the file system, each at its own resolution (here
+    the process start read 5 ms before the test's own stamp of the moment before it, and the file's write time 2 ms before the
+    line's stamp).
+  - (3) The machine beside the tests (`tools/ci-tests.ps1`, the Windows Test step only). Once before the first project, Defender's
+    status as the runner reports it: `Get-MpComputerStatus`' `AMServiceEnabled`, `AntivirusEnabled`, `RealTimeProtectionEnabled`,
+    `OnAccessProtectionEnabled`, `IoavProtectionEnabled`, `BehaviorMonitorEnabled`, `NISEnabled`, `IsTamperProtected` and
+    `AMRunningMode`, and the cloud fields, which are `Get-MpPreference`'s (`DisableRealtimeMonitoring`, `MAPSReporting`,
+    `SubmitSamplesConsent`, `CloudBlockLevel`, `CloudExtendedTimeout`), or the words that a command is not there or what it
+    answered: a reading, nothing is changed. Then a machine sampler, started before the first project and stopped in a `finally`
+    after the last: the script started again as a process of its own (`-Sample <csv> -Parent <pid> -Counters <a|b>`, the step's
+    own pwsh), one row a second to `tests/TestResults/machine-<start>.sampler.csv`: `utc`, `available_mb`, `pages_input_per_s`,
+    `processor_pct` (`_Total`), `disk_queue` and `disk_sec_per_transfer` (each physical disk as `instance=value;…`),
+    `process_pct` and `process_pid` (each process whose counter instance is testhost, dotnet, MsMpEng or PlayMap*, with its `#n`;
+    a process's percent is of one processor), `sample_ms` (how long the read took, about 1,000: much more is the sampler itself
+    held, and a gap in its rows a stop of the whole machine) and `note` (a read's error words). `Get-Counter`, not `typeperf`: each
+    call expands `\Process(*)` afresh, so a test host started after the sampler is read, where typeperf expands a wildcard once at
+    its start (recalled, not read or run here); and it is in the image's PowerShell with nothing installed. The counter
+    names are the image's English ones. A missing counter is handled before the first read: each counter set is listed
+    (`Get-Counter -ListSet`) and a path whose set or counter the runner does not list is left out with a `::warning::`, so one bad
+    path cannot make the whole call refuse; a read that still fails writes its words in the row's note and the loop goes on. The
+    sampler never fails the step and never holds it open: it is started only after the Defender reading, by process id, as a child
+    of the step's own script (never of a `dotnet test`, so no deadline's tree stop, which starts from a `dotnet test`'s id, takes
+    it); it is stopped by its own process (`Kill()` without a tree, since it starts none) after the last project, and it ends by
+    itself once its parent is gone or after 75 minutes; one that did not start, ended early, could not be stopped within 5 s or
+    wrote no row is a `::warning::` line. A counter set the runner lists with no counters in it is
+    left out with a `::warning::` too. The sampler's output and errors are pipes of its own, drained and dropped by the step's
+    script (it writes nothing on its normal path), never the step's own, so a sampler that outlived its stop cannot hold the step's
+    output open. The upload takes `tests/TestResults/*.sampler.csv` with the probe's files; the step's
+    `if-no-files-found: error` counts every path together, and the probe's files are there whenever the step ran, so a missing
+    sampler file fails nothing. The sampler's loop as first written named its loop variable `$sample`, which PowerShell's case-blind
+    names make the `[string] $Sample` parameter, so every row would have been a strict-mode error in its note: read before any run
+    and named `$point`, with a comment saying why.
+  - (4) NodeLog's failure says what it saw (`tests/PlayMap.Engine.Tests/Host/NodeLogTests.cs`). When the wait gives up, its words
+    now carry the provider's `Dropped` count and whether the live file and the `.1` file exist and their lengths (each read where it
+    stands; a read that throws says so). The assertion and its 10 s bound are as they were (the words are made only on the failure).
+    Shown on this bench with a temporary edit to the test alone (the wait's file name changed so it never matches, then put back
+    and the build redone): "line 0 was not moved aside: the log has dropped 0; the live file is not there; '.1' holds 197 bytes".
+    What the code does with a roll whose move fails (`src/PlayMap.Engine/Host/NodeLog.cs`, read, not edited): the writer thread
+    writes a line (127-128), flushes when the queue is empty (129-130), and when the file is past the roll size (131) closes it
+    (133) and calls `Roll()` (135); `Roll()` is `File.Move(Path, Path + ".1", overwrite: true)` (189), and an `IOException` or
+    `UnauthorizedAccessException` from it is swallowed and counted in `Dropped` (191-195), though no line was lost (the line is in
+    the live file, which stays where it is). The move is tried again only when the next line comes: `Open()` rolls a live file past
+    the roll size before appending (173-174), and if that move fails too it appends the new line to the old file (175), which is
+    rolled after that write (131-136). With no further line, as in this test, a failed move is never tried again. So
+    `Dropped == 1` with the live file holding the heading and line 1 at the give-up is a swallowed move; `Dropped == 0` with the
+    move done late, or not yet made, is a slow writer.
+  - (5) Small. `tools/ci-tests.ps1 -HangProof` names each dump once (blame writes it in a folder of its own and copies it beside the
+    results; the list is `Sort-Object Name -Unique`). `tools/probe-read.py`: the reader, standard-library Python, run as
+    `python3 tools/probe-read.py [--threshold MS] [--gap MS] FILE...` with probe files, a project's `.trx` and node host files in any
+    order; for each probe file it prints the facts line, the episodes where queued work waited or the probe's wake overshot by the
+    threshold or more (500 ms unless said; rows under 3 s apart joined), each with the second probe's columns summed or at their
+    most and the tests running in it when a `.trx` is given (a test's start is its `endTime` less its `duration`: the trx's
+    `startTime` is not reliable), the gaps where the probe's own thread wrote nothing (with the row after's columns), and a summary
+    line; for a node host file, the child's times as gaps from one another. Every `.trx` given is applied to every probe file given,
+    so a run names one project's files. It reads the first probe's six-column files and the second's; a torn last line is counted,
+    not read. It replaces the scratch reader the readings above were first made with, which skipped one line as the header and
+    would read the second probe's files (a facts line, then the header) wrongly. Its output for run 480's Windows Engine host (the probe file
+    `PlayMap.Engine.Tests-20261116T233134-7960.latency.csv` with the project's `.trx`), whole:
+
+    ```
+    == PlayMap.Engine.Tests-20261116T233134-7960.latency.csv
+    episodes (dispatch or wake overshoot >= 500 ms, rows under 3 s apart joined): 9
+
+    23:31:48-23:31:50 (2 s) max dispatch 1873 ms, max wake overshoot 59 ms, pool threads up to 5, queue up to 245
+       classes running: Audio.TempoVerbTests x2, Spine.PushTopicTests x1, Facade.StackVerbTests x1, Phone.SteadyProfileTests x1
+         long: Facade.StackVerbTests.AStacksLightAndWordsInStateAreItsContextRows Passed 10.1 s (23:31:47.899373-23:31:58.012625)
+         long: Phone.SteadyProfileTests.AHuntingCameraWithoutWhiteOrBlackDecodesNinetyPercentOfTheLockedPixelsAndHoldsThePose Passed 9.7 s (23:31:47.830106-23:31:57.559811)
+         long: Spine.PushTopicTests.AFakeTopicsLinesReachAWireSessionUntilItIsTurnedOff Passed 3.6 s (23:31:47.869787-23:31:51.430718)
+         long: Audio.TempoVerbTests.TheClockFollowsAnUndoneTempo Passed 2.7 s (23:31:47.920121-23:31:50.577818)
+         long: Audio.TempoVerbTests.ASetLandsOneLeadAheadAndTwoEnginesReadTheSameBeat Passed 1.6 s (23:31:50.609315-23:31:52.185606)
+
+    23:32:15-23:32:17 (2 s) max dispatch 2383 ms, max wake overshoot 39 ms, pool threads up to 7, queue up to 5
+       classes running: Phone.ScanPersistenceTests x1, Facade.StackVerbTests x1, Align.ColourMatchTests x1, Align.AlignTimingTests x1
+         long: Phone.ScanPersistenceTests.AScanTakesAViewAfterARestartAndHoldsWhatItHolds Passed 48.2 s (23:31:57.870229-23:32:46.077242)
+         long: Align.ColourMatchTests.ARunWithWhiteStagesTheGainsAndAnAutoExposingCameraRefusesColourWhileTheGeometryCompletes Passed 21.7 s (23:32:05.315834-23:32:26.986402)
+         long: Align.AlignTimingTests.FourFlatProjectorsAlignInUnderNinetySecondsOfPatterns Passed 20.8 s (23:32:12.477337-23:32:33.255954)
+         long: Facade.StackVerbTests.AMemberThatMovesSinceItWasAlignedUnalignsItsStackUntilItIsFittedAgain Passed 13.4 s (23:32:09.799265-23:32:23.193243)
+
+    23:32:30-23:32:34 (4 s) max dispatch 1131 ms, max wake overshoot 35 ms, pool threads up to 7, queue up to 8
+       classes running: Shaders.ShaderWorkerTests x4, Phone.ScanPersistenceTests x1, Facade.StackVerbTests x1, Align.ColourMatchTests x1, Align.AlignTimingTests x1
+         long: Phone.ScanPersistenceTests.AScanTakesAViewAfterARestartAndHoldsWhatItHolds Passed 48.2 s (23:31:57.870229-23:32:46.077242)
+         long: Align.AlignTimingTests.FourFlatProjectorsAlignInUnderNinetySecondsOfPatterns Passed 20.8 s (23:32:12.477337-23:32:33.255954)
+         long: Facade.StackVerbTests.AMembersLatticeFromAnotherStackIsNeverTakenAsThisStacksAlignment Passed 12.8 s (23:32:23.194162-23:32:35.960970)
+         long: Align.ColourMatchTests.AStackMatchesItsMembersWhites Passed 11.7 s (23:32:27.014208-23:32:38.722501)
+         long: Shaders.ShaderWorkerTests.AWorkerWhoseNativesDidNotLoadSaysSoInStateAndEachSourceFailsAtTheFirstStageThatNeedsOne Passed 1.0 s (23:32:33.258713-23:32:34.247860)
+
+    23:32:38-23:32:38 (0 s) max dispatch 793 ms, max wake overshoot 24 ms, pool threads up to 6, queue up to 5
+       classes running: Shaders.ShaderWorkerTests x3, Phone.ScanPersistenceTests x1, Align.ColourMatchTests x1, Sync.SyncContextTests x1, Facade.StackVerbTests x1
+         long: Phone.ScanPersistenceTests.AScanTakesAViewAfterARestartAndHoldsWhatItHolds Passed 48.2 s (23:31:57.870229-23:32:46.077242)
+         long: Align.ColourMatchTests.AStackMatchesItsMembersWhites Passed 11.7 s (23:32:27.014208-23:32:38.722501)
+         long: Facade.StackVerbTests.FromABlindDraftTheStackAndItsAlignmentAreStaged Passed 9.1 s (23:32:35.963576-23:32:45.066242)
+         long: Shaders.ShaderWorkerTests.ChecksTheirBoundEndsOnAnArmedNodeReadTheHostsWordsAndQuarantineNothing Passed 2.2 s (23:32:39.599539-23:32:41.835655)
+         long: Shaders.ShaderWorkerTests.AGoodSourceAnswersValidatedDxilAndItsLayout Passed 1.8 s (23:32:37.844674-23:32:39.598112)
+
+    23:34:15-23:34:17 (2 s) max dispatch 869 ms, max wake overshoot 17 ms, pool threads up to 8, queue up to 34
+       classes running: Align.AlignRunTests x3, Align.MeasuredWarpTests x2, Host.OpsHostTests x1, Spine.NodeHostTests x1, Fleet.SettingsWriterTests x1
+         long: Align.MeasuredWarpTests.AStackedPairConverges Passed 56.1 s (23:34:16.482541-23:35:12.605539)
+         long: Align.AlignRunTests.MissingFilesAreSaidInStateTheContextAndPreflight Passed 55.2 s (23:34:14.906556-23:35:10.076020)
+         long: Spine.NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing Passed 54.3 s (23:34:14.449559-23:35:08.749297)
+         long: Fleet.SettingsWriterTests.ASyncRoleAnEpochTheLinkAndANewTokenSurviveEachOther Failed 52.4 s (23:34:16.635348-23:35:09.013679)
+         long: Align.MeasuredWarpTests.ThreeSideBySideLandTheCanvasGridWithinHalfAPixel Passed 5.3 s (23:34:11.210720-23:34:16.470105)
+
+    23:34:25-23:34:54 (28 s) max dispatch 12659 ms, max wake overshoot 29 ms, pool threads up to 13, queue up to 39
+       classes running: Align.MeasuredWarpTests x1, Spine.NodeHostTests x1, Align.AlignRunTests x1, Fleet.SettingsWriterTests x1
+         long: Align.MeasuredWarpTests.AStackedPairConverges Passed 56.1 s (23:34:16.482541-23:35:12.605539)
+         long: Align.AlignRunTests.MissingFilesAreSaidInStateTheContextAndPreflight Passed 55.2 s (23:34:14.906556-23:35:10.076020)
+         long: Spine.NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing Passed 54.3 s (23:34:14.449559-23:35:08.749297)
+         long: Fleet.SettingsWriterTests.ASyncRoleAnEpochTheLinkAndANewTokenSurviveEachOther Failed 52.4 s (23:34:16.635348-23:35:09.013679)
+
+    23:35:01-23:35:08 (7 s) max dispatch 7120 ms, max wake overshoot 7261 ms, pool threads up to 16, queue up to 8
+       classes running: Spine.NodeHostTests x3, Fleet.SettingsWriterTests x2, Align.MeasuredWarpTests x1, Align.AlignRunTests x1
+         long: Align.MeasuredWarpTests.AStackedPairConverges Passed 56.1 s (23:34:16.482541-23:35:12.605539)
+         long: Align.AlignRunTests.MissingFilesAreSaidInStateTheContextAndPreflight Passed 55.2 s (23:34:14.906556-23:35:10.076020)
+         long: Spine.NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing Passed 54.3 s (23:34:14.449559-23:35:08.749297)
+         long: Fleet.SettingsWriterTests.ASyncRoleAnEpochTheLinkAndANewTokenSurviveEachOther Failed 52.4 s (23:34:16.635348-23:35:09.013679)
+         long: Fleet.SettingsWriterTests.AFollowSwitchTheFileCannotKeepIsSaidAfterTheRowOfTheLineThatSetIt Passed 0.9 s (23:35:09.005403-23:35:09.926024)
+
+    23:36:04-23:36:09 (5 s) max dispatch 930 ms, max wake overshoot 15 ms, pool threads up to 9, queue up to 13
+       classes running: Show.ShowModeTests x7, Optimise.OptimiseWorkerEndTests x6, Fleet.FleetPinFileTests x2, Align.AlignScoreTests x2, Rendering.FactsSignalTests x1, Align.AlignLedgerRoundTripTests x1, Fleet.RouteTests x1
+         long: Rendering.FactsSignalTests.RaisingFromTheRenderThreadAllocatesNothingAndEveryRaiseIsHeard Passed 16.0 s (23:35:54.815186-23:36:10.767175)
+         long: Fleet.RouteTests.RouteTestReadsTheInputAndFailoverSwitchesItObserved Passed 5.6 s (23:36:09.971610-23:36:15.593197)
+         long: Align.AlignScoreTests.AStackMemberThatDriftsTripsTheStackTerm Passed 3.9 s (23:36:05.753360-23:36:09.669837)
+         long: Align.AlignLedgerRoundTripTests.AcceptThenTheLedgersFallbackThenRecallComesBackExactly Passed 3.7 s (23:36:03.322428-23:36:07.041864)
+         long: Align.AlignScoreTests.ACleanRunCarriesNoPenaltyAndItsVerifyPassSeesTheSeams Passed 2.9 s (23:36:02.838097-23:36:05.751629)
+
+    23:37:15-23:37:18 (3 s) max dispatch 3056 ms, max wake overshoot 27 ms, pool threads up to 10, queue up to 3
+       classes running: Machine.RenderThreadClaimTests x2
+         long: Machine.RenderThreadClaimTests.ThePacersTimerIsMadeAndDisposedOnTheRenderThread Passed 6.4 s (23:37:11.728106-23:37:18.119356)
+         long: Machine.RenderThreadClaimTests.TheRenderThreadClaimsItsRoleThroughTheComposedPlatformAndStateShowsIt Passed 1.5 s (23:37:18.120308-23:37:19.622728)
+
+    gaps (rows more than 500 ms apart: the probe's own thread wrote nothing): 2
+      23:34:18.066715 for 7.75 s; the row after: wake overshoot 29 ms, dispatch 7909 ms
+      23:34:54.171883 for 7.27 s; the row after: wake overshoot 7261 ms, dispatch 7120 ms
+
+    PlayMap.Engine.Tests-20261116T233134-7960.latency.csv: rows 9433 over 583 s; wake overshoot p50 5.80 p99 32.64 max 7260.8 ms; dispatch p50 0.08 p99 6441.0 max 12658.7 ms; pool threads max 16, queue max 44042; episodes 9 (53 s); gaps 2; first probe's columns
+    ```
+
+- Tests: `SchedulingProbeTests` (Core) follow: on, the first line is the facts (the processor count, the pool's four bounds and the
+  process id each equal to this host's own), the second the columns, whose first six are the first probe's in order, eighteen in
+  all; every row has eighteen cells parsed invariantly; times rise; both overshoots finite and above minus the wait; the counts and
+  times since the row before never below 0; the gen2 count never falls; the working set above 0; the beat stamped between at least
+  one pair of rows. `NodeHostTests.TheNodesUpTimesReadTheStampsItsLogWrites` (Engine, new) holds the node host's times to the log's
+  own stamp (above). The validate, on the 10.0.404 SDK with the variables of `tools/setup-dev.sh start` (the display,
+  `PLAYMAP_FFMPEG_DIR`, `PLAYMAP_DXC_DIR`, the test audio), after the review's items: the build whole, no warning, no error (its
+  analysis reported nothing in any file; a first build made without `PLAYMAP_DXC_DIR` left `libdxcompiler.so` from beside the
+  worker, so twelve `Render.D3D12` tests failed saying so, and the build made again with it set, as the loop says, put it there).
+  With the probe off: Core whole, 1,671 passed, no file written. With it on: Core whole, 1,671 passed, its host's file 1,805 rows
+  over 89 s (overshoot p50 0.08 ms, p99 3.7 ms; dispatch p99 3.9 s, at most 4.6 s, in three episodes of Core's own busy pool; GC
+  paused 534 ms in all; the beat's longest gap 109 ms; the process reads at most 0.4 ms; no gap in the rows); the Engine classes
+  that fence allocations, threads or handles with `NodeHostTests` and `NodeLogTests` (`AirAudioTests`, `AlignHostTests`,
+  `ArtNetInTests`, `CursorTests`, `DeviceLockHostTests`, `FactsSignalTests`, `FxHostTests`, `HostNetworkTests`, `OmtLoopbackTests`,
+  `RenderHostLockTests`, `RenderHostTests`: 66 passed), whose node host row read: the process started 0.013 s before the test's own
+  stamp of the moment before it, its log began 0.121 s after, "is up" stamped 1.724 s after the process started, the file's last
+  write 0.002 s after the line's stamp, the test saw it 0.005 s after, 84 reads at most 28.4 ms apart, the longest 2.9 ms (the same
+  words in the test's output in the `.trx`); and, the file having changed shape, every other project whole once: App (259),
+  Assistant (102), Devices (112), Media (236, 4 skipped), Render (419, 1 skipped), Render.D3D12 (41, 1 skipped), Supervisor (95, 33
+  skipped), Vision (61) and Platform.Windows (88, 8 skipped), green; Net 330 passed, 1 skipped, and its three Chromium page tests
+  (`PageTests.InChromium…`) failed before any PlayMap code ran (`chromium.launch` at `tests/e2e/phonescan/page.mjs:12`), as
+  fix-desk-unconfirmed's entry records, not counted green. Every probe file those hosts wrote (14) was read by
+  `tools/probe-read.py`: each parsed whole at eighteen cells, no torn row, no gap; `process_read_ms` at most 1.2 ms in any. The
+  reader's output for run 480's Windows Engine host, run again after its change, is the block above line for line. No allocation
+  per row, read on the probe as committed: a scratch console outside the tree (the probe's file compiled into it, `dotnet run -c
+  Release`, removed) read `GC.GetTotalAllocatedBytes(precise: true)` at rows 20, 80 and 240: 76,704, 77,704 and 77,704 bytes, so
+  1,000 bytes once between rows 20 and 80 and none over the next 160 rows (the first batch read the same 1,000 bytes once). The workflow parsed as YAML
+  (python3), both upload steps' paths read back. There is no PowerShell and no actionlint on this bench: the `tools/ci-tests.ps1`
+  change was read line by line twice, not run (the reading found the `$sample` name above); the push's own CI run is its proof.
+- Files: `tests/Shared/SchedulingProbe.cs`; `tests/PlayMap.Core.Tests/Threading/SchedulingProbeTests.cs`;
+  `tests/PlayMap.Engine.Tests/Spine/NodeHostTests.cs` and `NodeExe.cs`; `tests/PlayMap.Engine.Tests/Host/NodeLogTests.cs`;
+  `tools/ci-tests.ps1`; `tools/probe-read.py` (new); `.github/workflows/build.yml` (the two probe uploads' paths, the Test step's
+  and the dump setting's comments); `README.md` (Build: the hang guard's proof read, what the probe, the node host test and the
+  sampler record, the reader, measurements never gates); `docs/ROADMAP.md` (the CI line: the dump setting proved and kept, the
+  measurements named); this entry. No file under `src/`, no csproj.
+- Open:
+  - The owner's calls, each recommended no until a reading names the cause, none taken here: a dump taken when a stall is seen
+    (when the probe's pending dispatch passes some seconds, one dump per host, read with `clrstack -all`: it would name each pool
+    worker's frame, and it pauses the host for seconds, so it can turn a near miss into a failure); any pool minimum
+    (`ThreadPoolMinThreads`, `DOTNET_ThreadPool_ForceMinWorkerThreads`, `SetMinThreads`) or parallelism cap (xUnit's
+    `maxParallelThreads`) in test hosts, which would stop CI finding pool blocking a 4-core show laptop would meet; the runner's
+    size (a billed larger Windows runner) or image; Defender's settings on the runner (an exclusion or any change: the reading
+    above changes nothing); and NodeLog's roll on Windows: a replace with POSIX semantics as `DurableFile` makes, a failed roll
+    tried again without waiting for a line, and whether a failed roll stays counted in `Dropped` (documented as lines refused)
+    or in a count of its own. These are product behaviour under `src/`, as are the three other plain replaces the check names:
+    `src/PlayMap.Supervisor/Status/SupervisorLog.cs` 20 (`File.Move(path, path + ".1", overwrite: true)`, the supervisor log's
+    roll), `src/PlayMap.Net/Media/MediaTransfer.cs` 488 (`File.Move(temp, mapPath, overwrite: true)`) and
+    `src/PlayMap.Net/Phone/PhoneKeys.cs` 128 (`File.Move(_path, _path + ".unreadable", overwrite: true)`).
+  - NodeLog's deterministic Windows test, not added (it cannot run on this bench, and what it asserts depends on the call above).
+    Its design: a `[Fact]` in the Windows category in `NodeLogTests`, a log with `rollBytes: 1`, the `.1` file made first and held
+    open by the test without `FileShare.Delete` (so `MoveFileEx` with replace fails with a sharing violation), one line logged, and
+    a wait until the writer has taken it (the live file holds the heading and the line); then, as the code is today: `Dropped == 1`,
+    the live file holds both lines, `.1` unchanged; the handle released and a second line logged: `.1` holds the heading and the
+    first line, the live file was rolled again after the second line's write, so `.1` ends holding the heading and the second line
+    and the first line's generation is gone (one generation kept). What the product decision changes: a retry without a line would
+    make the roll land with the handle's release; a count of its own would leave `Dropped` at 0.
+  - What the next Windows runs are read for, with `tools/probe-read.py` on the Engine host's file and `.trx`, the node host row and
+    the sampler's rows over the same seconds: whether the child's "is up" stamp is seconds after its process start (the host saw
+    it late: the stall is in the test host) or about a minute after (the child came up late: the machine or the child's cold
+    start); in the stall, flat `pool_completed` with spare processor time (blocked workers) or rising completions with the probe's
+    item stuck (busy local queues or parking); a `gc_pause_ms` as long as a gap (the collector); the beat's gap as long as the
+    probe's (the whole process stood still: paging, the disk or the host) or the beat stamping on (one thread held); and from the
+    sampler, pages input, the disks' queues and seconds per transfer, available memory and MsMpEng's processor time across the
+    window, and whether the sampler's own rows gap too (the whole machine stopped).
+  - The Linux job has no sampler (not asked: Linux has shown no episode); its suites' step still has no deadline per project
+    (fix-ci-windows-bounds' open line).
+  - The sampler's cost on the 4-vCPU runner is not measured (one `Get-Counter` call a second over every process instance);
+    `sample_ms` and the probe's columns in the same seconds will show it.
+  - What the probe's beat reads on Linux, where the runtime is not read to apply a thread's priority: a stamp at normal priority.
+  - The probe's Windows branch is not measured for allocation here: `Environment.WorkingSet` (Linux reads `/proc/self/statm`
+    instead) and `Environment.CpuUsage` on Windows are recalled to read the process's counters into structs, allocating nothing;
+    the allocation fences count the measuring thread's own bytes (fix-ci-windows-bounds' entry), so another thread's could not
+    reach them either way.

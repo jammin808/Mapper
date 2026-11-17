@@ -15,6 +15,25 @@ public sealed class NodeLogTests
         return text.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
     }
 
+    /// <summary>What a roll that did not happen left, read when the wait for it gives up: the log's dropped count (a move that threw
+    /// is counted there and leaves the line in the live file; a move not yet made counts nothing), and each file's length.</summary>
+    private static string Found(NodeLogProvider log, string path, string rolled) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"the log has dropped {log.Dropped}; the live file {Length(path)}; '.1' {Length(rolled)}");
+
+    private static string Length(string file)
+    {
+        try
+        {
+            var info = new FileInfo(file);
+            return info.Exists ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"holds {info.Length} bytes") : "is not there";
+        }
+        catch (IOException ex)
+        {
+            return "could not be read: " + ex.Message;
+        }
+    }
+
     private static bool IsHeading(string line) => line.EndsWith(" info PlayMap.Engine.Log: " + NodeLogProvider.Heading, StringComparison.Ordinal);
 
     [Fact]
@@ -45,7 +64,8 @@ public sealed class NodeLogTests
                 var pad = new string('x', i + 1);
                 logger.LogInformation("line {N} {Pad}", i, pad);
                 var seen = before;
-                Assert.True(await Eventually.TrueAsync(() => File.Exists(rolled) && new FileInfo(rolled).Length != seen), "line " + i + " was not moved aside");
+                var moved = await Eventually.TrueAsync(() => File.Exists(rolled) && new FileInfo(rolled).Length != seen);
+                Assert.True(moved, moved ? "" : $"line {i} was not moved aside: {Found(log, path, rolled)}");
                 before = new FileInfo(rolled).Length;
                 var lines = Lines(rolled);
                 Assert.Equal(2, lines.Length);
