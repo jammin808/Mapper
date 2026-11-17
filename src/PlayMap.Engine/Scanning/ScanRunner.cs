@@ -329,13 +329,21 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
     /// <summary>Publishes a scan's step; a run's ending (<paramref name="endOf"/>) only while that run is still the latest started —
     /// the end of a run another SCAN START followed (in the moment between the slot's release and the ending) is never shown over the
     /// newer scan.</summary>
-    private void Publish(ScanView view, Track? endOf = null)
+    private void Publish(ScanView view, Track? endOf = null, Track? from = null, long built = 0)
     {
         EngineCore? engine;
         lock (_gate)
         {
             if (endOf is not null && !ReferenceEquals(endOf, _latest))
                 return;
+            // A run's views are shown in the order they were made: a view made before one already shown (two threads publishing, the
+            // scan's and SCAN NEXT's) is never shown over it.
+            if (from is not null)
+            {
+                if (built <= from.Placed)
+                    return;
+                from.Placed = built;
+            }
             _view = view;
             _current = new ScanProgress(view.State, view.ProjectorId, view.Pattern, view.Patterns, Math.Round(view.Quality * 100, 1),
                 view.Message.Length > 0 ? view.Message : view.Stage);
@@ -424,10 +432,62 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             }
         }
 
+        /// <summary>The camera's words while it waits for a picture (shown as the stage "waiting" over the step the scan is at), null
+        /// when no wait is in force.</summary>
+        private string? _instruction;
+
+        /// <summary>How many views this run has made, and the last of them the runner has shown (under the runner's gate).</summary>
+        private long _built;
+
+        public long Placed { get; set; }
+
+        /// <summary>The camera's words for the picture it waits for, shown only while <paramref name="waiting"/> holds: a wait that
+        /// ended before its words came (its SCAN NEXT already taken) never has them shown.</summary>
+        public void Instruct(string words, Func<bool> waiting)
+        {
+            lock (_gate)
+            {
+                if (!waiting())
+                    return;
+                _instruction = words;
+            }
+            Publish("running");
+        }
+
+        /// <summary>SCAN NEXT for a camera released by hand: <paramref name="take"/> ends its wait, and the words that named the wait
+        /// go in the same step, so whoever is told the picture was taken reads no wait for it. False when the camera waited for none.</summary>
+        public bool Take(Func<bool> take)
+        {
+            lock (_gate)
+            {
+                if (!take())
+                    return false;
+                if (_instruction is null)
+                    return true;
+                _instruction = null;
+            }
+            Publish("running");
+            return true;
+        }
+
+        /// <summary>The camera's wait is over (its picture came, or the cue was given up): its words go and the step the scan is at
+        /// is shown again. Nothing is published when no words stood.</summary>
+        public void Waited()
+        {
+            lock (_gate)
+            {
+                if (_instruction is null)
+                    return;
+                _instruction = null;
+            }
+            Publish("running");
+        }
+
         public void Step(string state, string stage, string message, int? part = null, string? partState = null, double? overall = null)
         {
             lock (_gate)
             {
+                _instruction = null;
                 _stage = stage;
                 _message = message;
                 if (part is { } j)
@@ -451,6 +511,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
                 _states[part] = "scanning";
                 _progress[part] = (index + 1) / (double)setup.Parts[part].Plan.Count;
                 _overall = CaptureShare * _shown / Math.Max(1, _patterns);
+                _instruction = null;
                 _stage = "scanning";
                 _message = message;
             }
@@ -533,6 +594,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         {
             lock (_gate)
             {
+                _instruction = null;
                 _stage = state;
                 _message = message;
                 if (state == "done")
@@ -557,13 +619,16 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         private void Publish(string state, bool ending = false)
         {
             ScanView view;
+            long built;
             lock (_gate)
             {
-                view = new ScanView(setup.Id, state, _stage, _shown, _patterns, Math.Round(_overall, 3), Math.Round(_quality, 3), _qualityWords, _message,
+                view = new ScanView(setup.Id, state, _instruction is null ? _stage : "waiting", _shown, _patterns, Math.Round(_overall, 3),
+                    Math.Round(_quality, 3), _qualityWords, _instruction ?? _message,
                     [.. setup.Parts.Select((p, j) => new ScanProjectorState(p.Projector.Id, p.Projector.Name, Math.Round(_progress[j], 3), _states[j]))],
                     _regions, _projector) { Pairing = _pairing, ViewId = _viewId ?? setup.ViewId, Views = _views, Coverage = _coverage };
+                built = ++_built;
             }
-            runner.Publish(view, ending ? this : null);
+            runner.Publish(view, ending ? this : null, this, built);
         }
     }
 
@@ -823,8 +888,10 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
             if (!await camera.OpenAsync(ct).ConfigureAwait(false))
                 throw new InvalidOperationException($"{rig.Name} did not open: {camera.Problem}");
             await PrepareDevicesAsync(engine, setup, track, camera, notes, ct).ConfigureAwait(false);
+            // The camera's words stand only while it waits for the picture they ask for (CuedCapture.cs: TakeByHand, AskAsync).
             if (camera is FolderCamera folder)
-                folder.Say = words => track.Step("running", "waiting", words);
+                folder.Say = words => track.Instruct(words, () => folder.Waiting);
+            Volatile.Write(ref _cueTrack, track);
             Volatile.Write(ref _cuedCamera, camera as ICuedScanCamera);
             var captures = new List<ProjectorCapture>();
             var cuedScan = new CuedScan();
@@ -858,6 +925,7 @@ public sealed partial class ScanRunner : IScanBackend, IAsyncDisposable
         finally
         {
             Volatile.Write(ref _cuedCamera, null);
+            Volatile.Write(ref _cueTrack, null);
             display.Release();
             camera?.Dispose();
             ReleaseCamera(setup);

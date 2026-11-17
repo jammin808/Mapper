@@ -39,12 +39,21 @@ public sealed partial class ScanRunner
 
     /// <summary>The cued camera a scan drives now (null between scans).</summary>
     private ICuedScanCamera? _cuedCamera;
+
+    /// <summary>The steps of the scan the cued camera is in (null between scans): the camera's words for a picture stand there only
+    /// while it waits for that picture.</summary>
+    private Track? _cueTrack;
     private Func<Task>? _cueNext;
     private bool _nextAsked;
 
     /// <summary>SCAN NEXT for a camera a person releases by hand (a manual folder camera): it takes the picture of the pattern on the
-    /// glass now. False when the scan's camera is not one waiting so.</summary>
-    public bool TakeByHand() => Volatile.Read(ref _cuedCamera)?.TakeNow() == true;
+    /// glass now, and the words that asked for it go as it is taken. False when the scan's camera is not one waiting so.</summary>
+    public bool TakeByHand()
+    {
+        if (Volatile.Read(ref _cuedCamera) is not { } camera)
+            return false;
+        return Volatile.Read(ref _cueTrack) is { } track ? track.Take(camera.TakeNow) : camera.TakeNow();
+    }
 
     /// <summary>Whether the scan's camera is released by hand (SCAN NEXT takes its picture, never shows its pattern again).</summary>
     public bool CameraByHand => Volatile.Read(ref _cuedCamera)?.ByHand == true;
@@ -108,6 +117,8 @@ public sealed partial class ScanRunner
             {
                 lock (_cueGate)
                     _cueNext = null;
+                // The cue's wait is over, its picture come or the cue given up: the camera's words for it no longer stand.
+                Volatile.Read(ref _cueTrack)?.Waited();
             }
         }
     }

@@ -4504,3 +4504,136 @@ Round 2 W1 notes:
     instead) and `Environment.CpuUsage` on Windows are recalled to read the process's counters into structs, allocating nothing;
     the allocation fences count the measuring thread's own bytes (fix-ci-windows-bounds' entry), so another thread's could not
     reach them either way.
+
+## Integrator notes from the round-2 fix batch (fix-scan-cue-words)
+
+- Done: STATE's scan block names a camera's wait only while that wait is in force (the owner's second answer of 2026-11-16,
+  "PlayMap's Windows job and what it showed", item 4, in Stagewatch's `docs/ecosystem/owner-answers.md`: the batch
+  fix-scan-cue-words, a product line; the defect read in the check of CI run 479's re-run, its "productOrTest" and "cause"). No
+  word of an instruction changed, no stage added (`waiting` is the stage the camera's words always had), no verb, no STATE field.
+  - What the code showed at dd4d82f5, every point where a cue's wait ends:
+    - Only the Folder camera speaks into the view. `FolderCamera.Say` was wired to `track.Step("running", "waiting", words)`
+      (`ScanRunner.cs` 827), which overwrote the scan's step and stayed until the next Step or Pattern. A phone says nothing into
+      the view (its cue reaches the phone; `PhoneCamera` has no `Say`), so no other camera kind has a "then …" cue; the runner's
+      own steps (`preparing`, `locating`, `checking`, …) name work, not a wait.
+    - The cue's order (`FolderCamera.CueAsync`): `Cued` (190), then `_next` set under the camera's gate (198), then the words (200),
+      then the wait (201); SCAN NEXT (`TakeNow`) clears `_next` and ends the wait, after which the camera settles (202), lists the
+      folder and reads the picture (223).
+    - Stale points, each a view saying "…, then SCAN NEXT" while nothing waits for SCAN NEXT (a press then is refused "the folder
+      camera is not waiting for a picture yet …"):
+      1. after each locate frame's SCAN NEXT, through the settle and the read, until the next locate Step (`CuedCapture.cs` 204);
+      2. after the last locate frame: the tag decode (224, a `Compute` hop), the notes, `SetSitesAsync` (226), the first pattern
+         shown and cued (`AskAsync`), until `track.Pattern` after its picture (250) — the batch's point;
+      3. after each pattern's SCAN NEXT, through the settle and the read, until `track.Pattern`;
+      4. a re-shoot: "no new picture in … — shoot it, then SCAN NEXT" was said with `_next` already cleared, before the camera waited
+         again (an instruction shown before its wait); the refusals "… could not be read …: re-shoot …" and "photo N shows pattern
+         M: re-shoot" were said while nothing waited and were overwritten at once by the cue's own words;
+      5. the verify stage: after a re-asked pattern's picture (285) the words stood through `PictureOrNullAsync` (266), the tag
+         read and the next re-ask's show, whose cue says the same words before its camera waits;
+      6. the closing check (293): its words stood through the read and the move check, and `track.Pairing` (838) published them
+         again after the projector's capture had ended; they went only with the next projector's or the decode's Step;
+      7. a wait given up (`Patience`, `AskAsync` returning null and asking again): the words stood through the ask again's show,
+         and `_next` was never cleared, so a SCAN NEXT after the wait was given up answered "taken: the newest picture in the folder
+         is the pattern's on the glass" while it took nothing (an attempt reported as done);
+      8. a cancelled scan: the words stood (and `_next` stayed set, so SCAN NEXT answered "taken") until `track.Ended` (325), after
+         the runner let the outputs go (861);
+      9. a failed scan (a picture of the wrong size, a moved camera): the words stood until `track.Ended`.
+  - The mend:
+    - `ScanRunner.Track` keeps the camera's words apart from the step (`_instruction`): a view shows them, as stage `waiting`,
+      only while they stand, and the step the scan is at otherwise. `Instruct(words, waiting)` sets them only if the camera waits
+      at that moment (read under the track's gate); `Take(take)` ends a hand-released wait and clears the words in one step,
+      published before SCAN NEXT's reply; `Waited()` clears them as `AskAsync`'s wait ends (its `finally`, every exit: picture,
+      patience, SCAN CANCEL, a failure); every Step, Pattern and ending clears them too. The form chosen is the step put back, not
+      a new sentence: the tree's own words for the stage the scan is in ("Left: finding the tag places (14 of 14)", "Left:
+      checking each picture's tag", the last pattern seen), so no word is made and none of the wire's vocabulary moves.
+    - `TakeByHand` (`CuedCapture.cs`) goes through `Track.Take` while a scan's camera is cued; `_cueTrack` is set and cleared with
+      `_cuedCamera`.
+    - The runner shows a run's views in the order they were made (`Track` numbers each view under its gate; `ScanRunner.Publish`
+      drops one older than the last shown): SCAN NEXT's thread and the scan's now both publish, and a view made before the take
+      is never shown over the view the take made.
+    - `FolderCamera.Waiting` (internal): a manual camera waits from `_next` set to SCAN NEXT or the wait given up; a camera taking
+      each new file is waiting whenever it speaks (it speaks only inside a cue). A wait given up clears `_next`, so SCAN NEXT after
+      it is refused with the words it always had. A manual camera's refusal is said once it waits for the picture that answers it,
+      in place of the cue's own words (it no longer flashes and is overwritten); a new-file camera says it as before.
+    - Nothing is shown before its camera waits: `Cued` (the tethering tool's trigger) runs before `_next`, and the words pass
+      `Instruct`'s check only once `_next` is set; a SCAN NEXT that lands between `_next` and the words takes the picture and the
+      words are never shown.
+    - The words leave STATE before SCAN NEXT's reply, not atomically with the camera's take: `TakeNow` ends the wait under the
+      track's gate and the cleared view is placed in `_view` once that gate is released, so a STATE read between the two can see the
+      words for the length of one view build (and a second SCAN NEXT then is refused). No view is stale after the reply.
+  - Followed down the chains: STATE's scan block reads the runner's view (`stage`, `message`), no field added; no STATE fixture,
+    Companion fixture, context or MCP fixture carries a camera's words (searched: only `FolderCamera.cs`, its tests, this file and
+    `docs/wire/multiscan.md` hold "then SCAN NEXT"); the Companion module's scan colours read `state`, not `stage`, and the
+    INDEX "Next picture" key's `scan.waiting` feedback path is untouched; the desk draws the message as text and keys on no
+    camera word; the journal's rows are the SCAN NEXT replies, unchanged. Papers: `docs/WIRE.md` (the stage list as the code has
+    it, `waiting` only while a Folder camera waits), `docs/wire/multiscan.md` (SCAN NEXT's row), `docs/PHONESCAN.md` (the Folder
+    camera). `docs/MAPPING.md` quotes no scan message.
+- Tests: `tests/PlayMap.Engine.Tests/Phone/FolderCameraWordsTests.cs`, five tests on a manual Folder camera whose pictures are
+  the simulator's, read by the test's own reader (no FFmpeg), every view the runner publishes kept in the order its `Progressed`
+  handler ran, and the view read on the test's thread while the scan's thread is held at the point (in `Cued`, in the camera's
+  read, in the display's release), never by timing. The take's view is placed on SCAN NEXT's thread, not the held one, so each
+  held sample is read once every SCAN NEXT pressed so far has had its reply (the view comes before the reply), and a person at the
+  camera presses only once its cue's words are kept, so the take's view is kept after them; the tests compare no two views kept
+  in an order nothing else fixes. At each held point the view and STATE's scan block say the step, and SCAN NEXT is refused
+  "the folder camera is not waiting for a picture yet — SCAN NEXT once the pattern is up and shot":
+  - after a locate frame's picture (point 1), after the last locate frame with the first pattern cued (point 2), and every view
+    published between the last locate frame's words and the first pattern's says neither a wait nor the stage `waiting`;
+  - the check's re-ask of a photo with no tag and the closing check, each at its cue and at its read (points 3, 5, 6), and no view
+    after the closing check's words names a wait;
+  - a refusal's words stand while the camera waits for the picture that answers them: SCAN NEXT pressed in the very publication
+    that says "no new picture in … — shoot it, then SCAN NEXT" or "photo 17 shows pattern 16: re-shoot" is taken (point 4);
+  - a wait given up on the scan's clock (11 minutes on a manual clock) and then SCAN CANCEL: the step at the ask again, and the
+    step as the outputs are let go (points 7, 8);
+  - a scan that fails on a picture's size: the step as the outputs are let go (point 9). It proves the step at the release after
+    a taken picture (the take already cleared the words before the picture was read), not a failure while words stand: the
+    failure path's clearing is fenced by no test of its own (`Waited()` in `AskAsync`'s `finally` is, through the patience and
+    SCAN CANCEL legs above).
+  - At the check's re-ask cue the view says `checking` without the mend too (nothing has waited since that step); that test
+    fails without the mend through its read holds.
+  Without the mend (the three `src/` files put back, rebuilt) all five fail; with it, five runs of the class and
+  `FolderCameraTests` in a row, 11 passed each. `FolderCameraTests` (the fix-foldercamera-cue-words mend) passes unchanged on both
+  builds. With the samples ordered on the replies (the review's fold-in), the three `src/` files put back again and the Engine
+  tests rebuilt: all five fail, each with the stale words where the step was expected (or, the refusal test, "found no camera
+  waiting"). `PhoneScanKit.GlassDisplay` gains `Releasing` (called as the scan lets the outputs go).
+  - `PhoneScanKit.FakePhone` started its receive loop and its pinger with `Task.Run(…, _stop.Token)`: a task the pool had not
+    started when `DisposeAsync` cancelled `_stop` was cancelled without running its body, whose own catch ends it on the stop, and
+    the dispose's `await _pinger` threw `TaskCanceledException` (`PhoneVerbTests.IndexListsEachPhoneCameraWithTheKeysThatDriveIt`,
+    597 ms, failed once in the validate with exactly that at the dispose, on a machine another tree was building on). Both now
+    start with no token, so each body always runs and ends itself on the stop. Cause read from the code and the exception; not
+    reproduced on demand.
+  - Validated after the fold-in, on the 10.0.404 SDK: the build, no warning, no error; Core, 1671 passed; Engine in four parts
+    naming every test once (Phone, Facade, Wall, Align: 225 passed, 2 skipped, the browser `PhoneScanE2ETests`, after the
+    `FakePhone` mend above; Fleet, Spine, Host, Show, Sync, Rendering: 504 passed, 4 skipped, the Windows `SupervisorStopTests`;
+    the other folders: 485 passed; the root namespace: 141 passed on its rerun, its first run failing only
+    `StagewatchSinkTests.OnlyARefusalIsSaidAsNotTakenAndAnAnswerWithoutAnIdMayBeOnTheDesk`'s 403 case, `Actual: ""` at line 708,
+    the product defect fix-small-test-items' entry reads and puts to the owner, the test left as it is); Net, 330 passed and 1
+    skipped, its three Chromium page tests failing before any PlayMap code runs (`chromium` undefined at
+    `tests/e2e/phonescan/page.mjs:12`), as fix-desk-unconfirmed's entry records, not counted green. No desk file moved, so App
+    was not run.
+- Files: `src/PlayMap.Engine/Scanning/CuedCapture.cs`, `src/PlayMap.Engine/Scanning/FolderCamera.cs` (the camera's wait and where
+  its refusal is said), `src/PlayMap.Engine/Scanning/ScanRunner.cs` (where the words are published and the views' order),
+  `tests/PlayMap.Engine.Tests/Phone/FolderCameraWordsTests.cs`, `tests/PlayMap.Engine.Tests/Phone/PhoneScanKit.cs` (the display's
+  `Releasing`; `FakePhone`'s two tasks started with no token),
+  `docs/WIRE.md`, `docs/wire/multiscan.md`, `docs/PHONESCAN.md`, this entry.
+- Open:
+  - `FolderCameraTests.AManualFolderTakesTheNewestPictureOnScanNext`'s comment (its lines 165-167) still says the words of the cue
+    before stand while this cue's pattern goes up; the batch leaves that test unchanged, so the comment waits for the next batch
+    that touches the file. fix-foldercamera-cue-words' Open line on a retake carrying the cue before's words is answered by this
+    mend (the words go as each wait ends; a retake's person waits for words said once its camera waits).
+  - `ScanRunner.Publish` raises `FactsChanged` and `Progressed` outside the runner's gate, so two publishers' handlers can still run
+    in either order; `_view` and STATE are ordered, a `Progressed` handler is not. No reader in the tree depends on the order of
+    two handlers (the words tests order their samples on SCAN NEXT's replies instead); not measured.
+  - Not fenced: the runner's order of a run's views (`Track` numbering each view, `ScanRunner.Publish` dropping one made before
+    the last shown: removing the `built <= from.Placed` check leaves the five tests green) and `Instruct`'s waiting check (a SCAN
+    NEXT landing between `_next` set and the words said). The design for each: a deterministic interleave on the scan's thread —
+    hold the take's thread between the track's gate and `runner.Publish` (a hook in `Track.Take`) while the scan publishes a later
+    view, then let the take publish and assert `_view` is the later one; and hold in `Cued`, release, and press SCAN NEXT from the
+    first view after `_next` is set before the words are said (a hook between `_next` and `Say`). Each needs a seam in
+    `ScanRunner.Track` or `FolderCamera` the batch did not add.
+  - For the owner: a manual camera's refusal now stands as its words for the whole re-wait ("photo 17 shows pattern 16: re-shoot",
+    "<file> could not be read (…): re-shoot pattern N"), in place of the cue's own "<camera>: shoot pattern N, then SCAN NEXT",
+    where before it flashed and was overwritten at once. Two of the three refusals do not name SCAN NEXT; the stage `waiting` is
+    what marks a press as welcome (`docs/wire/multiscan.md`'s SCAN NEXT row says so). A reader keyed on "then SCAN NEXT" as the go
+    misses these waits. The other form, the smaller change to what an operator sees: in manual mode drop the refusal (`Instruct`
+    already drops words said while nothing waits) and let the cue's own words stand at the re-wait, the reason then said nowhere.
+    The owner picks.

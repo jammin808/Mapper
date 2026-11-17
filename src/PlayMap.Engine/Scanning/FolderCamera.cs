@@ -154,6 +154,18 @@ public sealed class FolderCamera : ICuedScanCamera
 
     public bool ByHand => _advance == FolderAdvance.Manual;
 
+    /// <summary>Whether a picture is waited for now, so that the camera's words may stand: a manual camera from the moment it waits for
+    /// SCAN NEXT until that SCAN NEXT takes the picture or the wait is given up; a camera taking each new file waits for one all the
+    /// while it says anything (it speaks only inside a cue).</summary>
+    internal bool Waiting
+    {
+        get
+        {
+            lock (_gate)
+                return _advance != FolderAdvance.Manual || _next is not null;
+        }
+    }
+
     public void Arm()
     {
         lock (_gate)
@@ -188,6 +200,15 @@ public sealed class FolderCamera : ICuedScanCamera
             _armed = false;
         }
         _options.Cued?.Invoke(cue);
+        // A manual camera's refusal is said once it waits for the picture that answers it, in place of the cue's own words.
+        string? refused = null;
+        void Refuse(string words)
+        {
+            if (_advance == FolderAdvance.Manual)
+                refused = words;
+            else
+                Say?.Invoke(words);
+        }
         while (true)
         {
             string path;
@@ -197,8 +218,21 @@ public sealed class FolderCamera : ICuedScanCamera
                 lock (_gate)
                     _next = next;
                 // Waiting before it says so: a SCAN NEXT answering these words always finds the camera waiting.
-                Say?.Invoke($"{_rig.Name}: shoot {Describe(cue)}, then SCAN NEXT");
-                await next.Task.WaitAsync(ct).ConfigureAwait(false);
+                Say?.Invoke(refused ?? $"{_rig.Name}: shoot {Describe(cue)}, then SCAN NEXT");
+                try
+                {
+                    await next.Task.WaitAsync(ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // A wait given up (its patience, SCAN CANCEL) has ended: a SCAN NEXT after it finds no camera waiting.
+                    lock (_gate)
+                    {
+                        if (ReferenceEquals(_next, next))
+                            _next = null;
+                    }
+                    throw;
+                }
                 await Task.Delay(_settle, ct).ConfigureAwait(false);
                 HashSet<string> before;
                 lock (_gate)
@@ -206,7 +240,7 @@ public sealed class FolderCamera : ICuedScanCamera
                 var fresh = Files().Where(f => !before.Contains(f)).Select(f => new FileInfo(f)).OrderByDescending(f => f.LastWriteTimeUtc).ThenByDescending(f => f.Name, StringComparer.Ordinal).FirstOrDefault();
                 if (fresh is null)
                 {
-                    Say?.Invoke($"{_rig.Name}: no new picture in {_folder} since {Describe(cue)} went up — shoot it, then SCAN NEXT");
+                    Refuse($"{_rig.Name}: no new picture in {_folder} since {Describe(cue)} went up — shoot it, then SCAN NEXT");
                     continue;
                 }
                 path = fresh.FullName;
@@ -224,7 +258,7 @@ public sealed class FolderCamera : ICuedScanCamera
             }
             catch (MediaOpenException ex)
             {
-                Say?.Invoke($"{Path.GetFileName(path)} could not be read ({ex.Message}): re-shoot {Describe(cue)}");
+                Refuse($"{Path.GetFileName(path)} could not be read ({ex.Message}): re-shoot {Describe(cue)}");
                 continue;
             }
             // The tags apply to photos too: a photo of another pattern is refused, never paired by its order.
@@ -233,7 +267,7 @@ public sealed class FolderCamera : ICuedScanCamera
                 var read = FrameTag.ReadFrame(still.Gray8, still.Width, still.Height, located.Chosen, located.MinSites);
                 if (read.Outcome == FrameTagOutcome.Read && read.Value != cue.Tag)
                 {
-                    Say?.Invoke(string.Create(CultureInfo.InvariantCulture, $"photo {cue.Index + 1} shows pattern {read.Value}: re-shoot"));
+                    Refuse(string.Create(CultureInfo.InvariantCulture, $"photo {cue.Index + 1} shows pattern {read.Value}: re-shoot"));
                     continue;
                 }
             }

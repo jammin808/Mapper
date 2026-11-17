@@ -94,7 +94,14 @@ internal sealed class GlassDisplay : IScanDisplay
         return Task.FromResult(MonoClock.Instance.NowNs);
     }
 
-    public void Release() => Interlocked.Increment(ref _released);
+    /// <summary>Called as the scan lets the outputs go (its camera's last wait is over by then), on the scan's thread.</summary>
+    public Action? Releasing { get; set; }
+
+    public void Release()
+    {
+        Releasing?.Invoke();
+        Interlocked.Increment(ref _released);
+    }
 }
 
 /// <summary>
@@ -250,8 +257,10 @@ internal sealed class FakePhone : IAsyncDisposable
         await SendAsync(new { t = "ping", t1 = PageMs });
         var pong = await ReceiveAsync() ?? throw new InvalidOperationException("no pong");
         await SendAsync(new { t = "ping", t1 = PageMs, prev = Exact(pong) });
-        _loop = Task.Run(LoopAsync, _stop.Token);
-        _pinger = Task.Run(PingAsync, _stop.Token);
+        // Each body runs whenever the pool starts it and ends itself on the stop: a task cancelled before it ran would throw at the
+        // end's await instead.
+        _loop = Task.Run(LoopAsync, CancellationToken.None);
+        _pinger = Task.Run(PingAsync, CancellationToken.None);
     }
 
     private object? _prev;

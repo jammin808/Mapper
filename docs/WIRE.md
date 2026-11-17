@@ -219,7 +219,8 @@ These are the keys every node writes; the packages' keys follow at the end of th
 
 - `scan` is the running or last scan (null before the first): its id from SCAN START's receipt on
   (`OK {"stage":"accepted","effect":"…","scan":"sc…"}`), `state` starting / running / done / failed / cancelled,
-  `stage` the step (preparing, latency, scanning, decoding, calibrating, finding surfaces), patterns shown of all,
+  `stage` the step (preparing, latency, locating, scanning, checking, decoding, calibrating, finding surfaces; `waiting`, with the
+  camera's own words as `message`, only while a Folder camera waits for the picture they ask for), patterns shown of all,
   `progress` and `quality` 0–1, each projector's progress, and once done the `regions` it suggests as surfaces:
   `{"id":"rg1","label":"floor","rect":[x,y,w,h],"confidence":0.98}` with the rectangle 0–1 across and down the
   first projector's smart scan. `pairing` is a phone camera's frame pairing (docs/wire/phonescan.md; null for any other camera);
