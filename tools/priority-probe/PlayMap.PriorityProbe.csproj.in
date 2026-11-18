@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The priority cost's probe (the prioritycost job, dispatched by hand): a burner that claims its class through the product's own
+       platform (WindowsMachinePlatform.ClaimProcess) and saturates the processors, beside a victim that does a desk's kind of work on a
+       period, in legs, each leg's rows in a folder of its own, and the reader that makes the table. This file is named .csproj.in so
+       that no *.csproj search of the tree meets it (no solution, no suite's tests/*/*.csproj, no fence that holds every project to
+       PlayMap.sln): tools/ci-tests.ps1 -PriorityCost copies it, beside the .cs files of its folder, to a folder outside the checkout as
+       PlayMap.PriorityProbe.csproj and builds that copy with PlayMapCheckout naming the checkout, whose Core and Platform.Windows it
+       references as they are. The tree's Directory.Build.props does not reach that folder, so this file names its own framework and
+       settings; the projects it references build under the tree's own props, analyzers and all. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The thread time reads are LibraryImport calls, whose generated code is unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>PlayMap.PriorityProbe</RootNamespace>
+    <AssemblyName>PlayMap.PriorityProbe</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(PlayMapCheckout)src/PlayMap.Core/PlayMap.Core.csproj" />
+    <ProjectReference Include="$(PlayMapCheckout)src/PlayMap.Platform.Windows/PlayMap.Platform.Windows.csproj" />
+  </ItemGroup>
+
+  <!-- The checkout is named, never guessed: a copy built without it would reference nothing and fail with less clear words. -->
+  <Target Name="PlayMapCheckoutNamed" BeforeTargets="CollectPackageReferences;ResolveProjectReferences">
+    <Error Condition="'$(PlayMapCheckout)' == '' or !Exists('$(PlayMapCheckout)src/PlayMap.Core/PlayMap.Core.csproj')"
+           Text="Build this copy with -p:PlayMapCheckout=&lt;the checkout's folder, ending in a separator&gt; (tools/ci-tests.ps1 -PriorityCost does): '$(PlayMapCheckout)' holds no src/PlayMap.Core." />
+  </Target>
+
+</Project>

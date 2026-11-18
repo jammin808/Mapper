@@ -1,0 +1,134 @@
+using System.Globalization;
+using System.Text;
+
+namespace PlayMap.PriorityProbe;
+
+/// <summary>The files' columns, one place: every writer and the reader name them from here, and a new column goes at a row's end.</summary>
+internal static class Rows
+{
+    public static readonly string[] VictimHeader =
+    [
+        "os", "pid", "processors", "class_mode", "class_at_start", "base_at_start", "class_read", "base_read", "class_as_told", "class_words",
+        "frame_timer", "tick_timer", "work_iterations", "ready_mono_ns", "window_start_mono_ns", "window_end_mono_ns", "anchor_mono_ns", "anchor_utc",
+        "frames", "frames_dropped", "ticks", "ticks_dropped", "pool_items", "pool_pending_at_end", "gen0_collections", "process_cpu_ms",
+    ];
+
+    public static readonly string[] FramesHeader = ["utc", "due_mono_ns", "start_mono_ns", "lateness_ms", "work_wall_ms", "work_cpu_ms", "missed_after"];
+
+    public static readonly string[] TicksHeader = ["utc", "due_mono_ns", "woke_mono_ns", "overshoot_ms", "pool_still_pending"];
+
+    public static readonly string[] PoolHeader = ["utc", "queued_mono_ns", "started_mono_ns", "dispatch_ms"];
+
+    public static readonly string[] BurnerHeader =
+    [
+        "os", "pid", "processors", "threads", "class_asked", "class_at_start", "base_at_start", "claim_applied", "claim_read_back",
+        "class_read", "base_read", "class_as_told", "claim_words", "ready_mono_ns", "ready_utc", "stop_mono_ns", "wall_ms", "cpu_ms",
+        "processors_used",
+    ];
+
+    public static readonly string[] LegHeader =
+    [
+        "leg", "label", "burner_threads", "burner_class", "victim_class", "seconds", "lead_seconds", "started_utc", "victim_ready_utc",
+        "burner_ready_utc", "ended_utc", "victim_exit", "burner_exit", "outcome", "words",
+    ];
+
+    public static readonly string[] CalibrationHeader = ["utc", "os", "processors", "iterations", "target_ms", "median_ms", "p10_ms", "p90_ms", "samples"];
+
+    public static string Ms(long ns) => (ns / 1e6).ToString("0.000", CultureInfo.InvariantCulture);
+}
+
+/// <summary>The probe's file writes: whole files, UTF-8 without a mark, invariant text; a cell never carries a comma or a line break.</summary>
+internal static class Files
+{
+    public static void WriteAllLines(string path, IEnumerable<string> lines) =>
+        File.WriteAllLines(path, lines, new UTF8Encoding(false));
+
+    public static void WriteCsv(string path, string[] header, IEnumerable<string[]> rows)
+    {
+        var lines = new List<string> { string.Join(',', header) };
+        foreach (var row in rows)
+        {
+            if (row.Length != header.Length)
+                throw new InvalidOperationException($"{Path.GetFileName(path)}: a row of {row.Length} cells under {header.Length} columns");
+            lines.Add(string.Join(',', row.Select(Clean)));
+        }
+        WriteAllLines(path, lines);
+    }
+
+    public static void AppendCsv(string path, string[] header, string[] row)
+    {
+        if (!File.Exists(path))
+            WriteAllLines(path, [string.Join(',', header)]);
+        File.AppendAllLines(path, [string.Join(',', row.Select(Clean))], new UTF8Encoding(false));
+    }
+
+    /// <summary>The rows of a file the probe wrote, by column name; empty when the file is not there or holds no row. A row whose cell
+    /// count is not the header's is left out (a torn line).</summary>
+    public static List<Dictionary<string, string>> ReadCsv(string path)
+    {
+        var rows = new List<Dictionary<string, string>>();
+        if (!File.Exists(path))
+            return rows;
+        var lines = File.ReadAllLines(path);
+        if (lines.Length == 0)
+            return rows;
+        var header = lines[0].Split(',');
+        foreach (var line in lines.Skip(1))
+        {
+            var cells = line.Split(',');
+            if (cells.Length != header.Length)
+                continue;
+            var row = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (var i = 0; i < header.Length; i++)
+                row[header[i]] = cells[i];
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    private static string Clean(string cell) => cell.Replace(',', ';').Replace('\r', ' ').Replace('\n', ' ');
+}
+
+/// <summary>A command line of --name value pairs after the mode: each read by name; a missing or malformed value is refused with
+/// words (exit 2), never defaulted.</summary>
+internal sealed class Args
+{
+    private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+
+    public Args(IEnumerable<string> args)
+    {
+        string? name = null;
+        foreach (var a in args)
+        {
+            if (name is null)
+            {
+                if (!a.StartsWith("--", StringComparison.Ordinal))
+                    throw new ArgumentException($"'{a}' is not an option (--name value)");
+                name = a[2..];
+            }
+            else
+            {
+                _values[name] = a;
+                name = null;
+            }
+        }
+        if (name is not null)
+            throw new ArgumentException($"--{name} has no value");
+    }
+
+    public bool Has(string name) => _values.ContainsKey(name);
+
+    public string Text(string name) =>
+        _values.TryGetValue(name, out var v) && v.Length > 0 ? v : throw new ArgumentException($"--{name} is required");
+
+    public double Number(string name) =>
+        double.TryParse(Text(name), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) && v >= 0
+            ? v : throw new ArgumentException($"--{name} takes a number of zero or more, not '{Text(name)}'");
+
+    public long Integer(string name) =>
+        long.TryParse(Text(name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v >= 0
+            ? v : throw new ArgumentException($"--{name} takes a whole number of zero or more, not '{Text(name)}'");
+
+    public string Word(string name, params string[] words) =>
+        words.Contains(Text(name), StringComparer.Ordinal) ? Text(name) : throw new ArgumentException($"--{name} takes {string.Join(" or ", words)}, not '{Text(name)}'");
+}

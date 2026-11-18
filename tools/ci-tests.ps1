@@ -20,6 +20,14 @@
 #                 kill, in the log and the summary. The readings are never a pass mark: it fails only
 #                 when a leg's test failed for another reason than a wait the starvation ran out, ran past its deadline, wrote no
 #                 files, or ran on another project than its leg's (STATE's first output enabled in A and B, not enabled in C).
+#   -PriorityCost the priority cost's measurement, run only when the workflow is dispatched with the prioritycost input: tools/priority-probe
+#                 built from a copy outside the checkout (as -HangProof builds its probe), its frame's work calibrated once on the
+#                 quiet runner, then six legs one after another, each a process of the probe's own with the machine sampler running and
+#                 its files in a folder of its own under tests/TestResults/prioritycost: a victim (a desk's kind of work at Normal, set by
+#                 its own hand) alone, then beside a burner whose class the product's own platform claims, HIGH or NORMAL, on every
+#                 processor and on cores less one, and last HIGH on every processor beside a victim left at the runner's own class; then
+#                 the probe's reader makes the table, in the log and the summary. A reading is never a pass mark: it fails only when a leg
+#                 wrote no files, a process did not start or did not read back the class it was told, or a leg ran past its deadline.
 #   -Sample <csv> -Parent <pid> -Counters <a|b>
 #                 the machine sampler -Suites starts as a process of its own (never run by hand): one row a second of the named
 #                 performance counters to <csv> until its parent is gone or 75 minutes have passed. A measurement, never a gate.
@@ -27,11 +35,13 @@
 # A process tree is printed by process id, parent id, name and start time, never by command line: the suites start node with a phone
 # page's join ticket among its arguments (tests/PlayMap.Net.Tests/Phone/PageTests.cs, tests/PlayMap.Engine.Tests/Phone/PhoneScanE2ETests.cs).
 # The suites run the Release build the job made. Dot-sourced, this script sets no variable its caller names but $Suites,
-# $HangProof, $NodeHostAB, $Sample, $Parent and $Counters (its own parameters), $TestConfiguration, $MachineCounters and the two deadline variables.
+# $HangProof, $NodeHostAB, $PriorityCost, $Sample, $Parent and $Counters (its own parameters), $TestConfiguration, $MachineCounters and
+# the two deadline variables.
 param(
     [switch] $Suites,
     [switch] $HangProof,
     [switch] $NodeHostAB,
+    [switch] $PriorityCost,
     [string] $Sample,
     [int] $Parent,
     [string] $Counters
@@ -114,10 +124,20 @@ function Invoke-DotnetTest {
         [Parameter(Mandatory)] [string[]] $Arguments,
         [Parameter(Mandatory)] [TimeSpan] $Deadline
     )
-    $dotnet = (Get-Command dotnet).Source
-    $info = [Diagnostics.ProcessStartInfo]::new($dotnet)
+    return Invoke-WithDeadline -Name $Name -FileName (Get-Command dotnet).Source -Arguments (@('test') + $Arguments) -Deadline $Deadline
+}
+
+# Runs <FileName> <Arguments> as a process the caller outlives, as Invoke-DotnetTest runs dotnet test: it ends inside $Deadline (Ended,
+# its ExitCode), or its process tree is printed and stopped (Ended false). Its start and end are printed either way.
+function Invoke-WithDeadline {
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $FileName,
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [Parameter(Mandatory)] [TimeSpan] $Deadline
+    )
+    $info = [Diagnostics.ProcessStartInfo]::new($FileName)
     $info.UseShellExecute = $false
-    $info.ArgumentList.Add('test')
     foreach ($a in $Arguments) { $info.ArgumentList.Add($a) }
     $minutes = $Deadline.TotalMinutes.ToString('0', [Globalization.CultureInfo]::InvariantCulture)
     Write-Host "$Name started at $(Get-UtcStamp) (deadline $minutes min)"
@@ -132,10 +152,10 @@ function Invoke-DotnetTest {
             Write-Host "$Name ended at $(Get-UtcStamp) after $seconds s (exit $code)"
             return [pscustomobject]@{ Ended = $true; ExitCode = $code; Seconds = $clock.Elapsed.TotalSeconds }
         }
-        Write-Host "::error::$Name ran past its deadline of $minutes min (at $(Get-UtcStamp)); the process tree under its dotnet test (pid $($process.Id)), then stopped:"
+        Write-Host "::error::$Name ran past its deadline of $minutes min (at $(Get-UtcStamp)); the process tree under it (pid $($process.Id)), then stopped:"
         $listed = @(Write-ProcessTree $Name $process.Id)
         try { $process.Kill($true) } catch { Write-Host "::warning::$Name's tree could not be stopped whole: $($_.Exception.Message)" }
-        if (-not $process.WaitForExit(30000)) { Write-Host "::warning::$Name's dotnet test (pid $($process.Id)) still runs 30 s after it was stopped" }
+        if (-not $process.WaitForExit(30000)) { Write-Host "::warning::$Name (pid $($process.Id)) still runs 30 s after it was stopped" }
         # A process of the printed tree still running (the same id and the same start, never a reused id) is stopped on its own.
         foreach ($item in $listed) {
             $left = Get-Process -Id $item.Id -ErrorAction SilentlyContinue
@@ -156,8 +176,8 @@ function Invoke-DotnetTest {
     }
 }
 
-if (@(@($Suites.IsPresent, $HangProof.IsPresent, $NodeHostAB.IsPresent, [bool]$Sample) | Where-Object { $_ }).Count -gt 1) {
-    throw 'say one of -Suites, -HangProof, -NodeHostAB or -Sample'
+if (@(@($Suites.IsPresent, $HangProof.IsPresent, $NodeHostAB.IsPresent, $PriorityCost.IsPresent, [bool]$Sample) | Where-Object { $_ }).Count -gt 1) {
+    throw 'say one of -Suites, -HangProof, -NodeHostAB, -PriorityCost or -Sample'
 }
 
 # The machine sampler's loop, in a process of its own: one row a second, each the counters one Get-Counter call read (it waits a
@@ -648,6 +668,71 @@ if ($NodeHostAB) {
         'sample far over 1,000 ms, is the starvation runs 487, 488 and 490 recorded; C quiet is the suite as it now runs ' +
         '(docs/round2/CARRYOVER.md, fix-ci-nodehost-measure and fix-ci-nodehost-mend).'), ''
     if ($env:GITHUB_STEP_SUMMARY) { $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM }
+    if ($broken.Count -gt 0) { Write-Host "::error::$($broken -join '; ')"; exit 1 }
+    exit 0
+}
+
+if ($PriorityCost) {
+    if ($env:D3D12_FILTER -or $env:HANGPROOF -eq 'true' -or $env:NODEHOSTAB -eq 'true') {
+        throw 'the run was dispatched with prioritycost and another input (d3d12, hangproof or nodehostab): say one'
+    }
+    Write-StepPriority
+    # The probe's project file is kept as PlayMap.PriorityProbe.csproj.in so no *.csproj search of the tree meets it; it is built from a
+    # copy outside the checkout, where the tree's Directory.Build.props does not reach, and references this checkout's Core and
+    # Platform.Windows by PlayMapCheckout (ending in a separator: '/', which MSBuild reads on Windows too and which no quoting of the
+    # argument can take for an escape), so the class the burner claims is the product's own claim.
+    $probeDir = Join-Path $env:RUNNER_TEMP 'priority-probe'
+    if (Test-Path $probeDir) { Remove-Item $probeDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $probeDir | Out-Null
+    Copy-Item tools/priority-probe/*.cs -Destination $probeDir
+    Copy-Item tools/priority-probe/PlayMap.PriorityProbe.csproj.in -Destination (Join-Path $probeDir 'PlayMap.PriorityProbe.csproj')
+    $project = (Resolve-Path (Join-Path $probeDir 'PlayMap.PriorityProbe.csproj')).Path
+    $checkout = (Get-Location).Path.TrimEnd('\', '/') + '/'
+    dotnet build $project -c $TestConfiguration "-p:PlayMapCheckout=$checkout"
+    if ($LASTEXITCODE -ne 0) { throw "the priority probe did not build ($LASTEXITCODE)" }
+    # Run as its own exe, so the machine sampler names its processes PlayMap.PriorityProbe (followed by pid, as every row is).
+    $exe = Join-Path $probeDir "bin/$TestConfiguration/net10.0/PlayMap.PriorityProbe.exe"
+    if (-not (Test-Path $exe)) { throw "the priority probe built no $exe" }
+
+    $root = Join-Path (Get-Location) 'tests/TestResults/prioritycost'
+    if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+    New-Item -ItemType Directory -Path $root | Out-Null
+    $broken = @()
+    # Each leg's window is 20 s after a 3 s lead; the probe bounds a leg at 60 s for each ready file and 90 s after the window, so a
+    # leg the runner holds longer than that is stopped and said; this deadline (5 min) is past all of it, for a probe that hangs.
+    $legDeadline = [TimeSpan]::FromMinutes(5)
+    $run = Invoke-WithDeadline -Name 'the calibration' -FileName $exe -Arguments @('calibrate', '--out', $root) -Deadline ([TimeSpan]::FromMinutes(2))
+    if (-not $run.Ended -or $run.ExitCode -ne 0) { $broken += "the calibration (exit $($run.ExitCode))" }
+    else {
+        foreach ($leg in 'baseline', 'high-n', 'normal-n', 'high-n1', 'normal-n1', 'high-n-runner') {
+            $csv = Join-Path $root "leg-$leg/machine.sampler.csv"
+            $sampler = Start-MachineSampler $csv
+            Write-Host "::group::leg $leg"
+            try {
+                $run = Invoke-WithDeadline -Name "leg $leg" -FileName $exe -Deadline $legDeadline -Arguments @(
+                    'leg', '--out', $root, '--name', $leg, '--seconds', '20', '--lead', '3')
+            }
+            finally {
+                Stop-MachineSampler $sampler $csv
+            }
+            Write-Host '::endgroup::'
+            # The leg's own row says why it is broken (no files, a process that did not start or did not read back its class, a
+            # deadline); exit 1 is that, any other end is the probe's own failure.
+            if (-not $run.Ended) { $broken += "leg $leg ran past its deadline" }
+            elseif ($run.ExitCode -ne 0) {
+                $legCsv = Join-Path $root "leg-$leg/leg.csv"
+                $row = if (Test-Path $legCsv) { @(Import-Csv $legCsv) | Select-Object -First 1 } else { $null }
+                $words = if ($row) { $row.words } else { "no leg row (exit $($run.ExitCode))" }
+                $broken += "leg $leg`: $words"
+            }
+        }
+    }
+    $read = Invoke-WithDeadline -Name 'the reader' -FileName $exe -Arguments @('read', '--out', $root) -Deadline ([TimeSpan]::FromMinutes(2))
+    if (-not $read.Ended -or $read.ExitCode -ne 0) { $broken += "the reader (exit $($read.ExitCode))" }
+    $summary = Join-Path $root 'summary.md'
+    if ($env:GITHUB_STEP_SUMMARY -and (Test-Path $summary)) {
+        Get-Content $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM
+    }
     if ($broken.Count -gt 0) { Write-Host "::error::$($broken -join '; ')"; exit 1 }
     exit 0
 }

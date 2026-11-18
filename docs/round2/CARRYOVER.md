@@ -5143,3 +5143,166 @@ Round 2 W1 notes:
   - Not proven until a Windows run reads it: the sampler's process names taken from the counter path (`dotnet#1`), which is how PDH
     names a second instance of one name (recalled, not run here); `Write-StepPriority`'s output; and the new `nodehostab` legs (a
     dispatch of its own, put to the owner's allowance for runs or asked).
+
+## Integrator notes from the round-2 fix batch (fix-ci-priority-measure)
+
+- Done: CI-only and tool-only, no file under `src/`, no test file, on the owner's answer 4 of 2026-11-18 ("PlayMap's Windows stall,
+  after run 490's three legs", in Stagewatch's `docs/ecosystem/owner-answers.md`): "No change; measure first". Nothing in the product
+  changes; a dispatched CI measurement of the hazard on its own subject is built (what a saturating HIGH process costs a
+  normal-priority process doing real work, at HIGH and at NORMAL); the owner reads it, then decides. It is the 487 check's mend 5 and
+  the 490 check's next step 6. Answer 2 (`PreflightMachineTests`' leak) is not in this chain: `PreflightMachineTests.cs` and
+  `PlatformCallsTests.cs` are untouched. The leave: `tools/priority-probe/` (new), `tools/ci-tests.ps1`, `.github/workflows/build.yml`,
+  README's Build section, this entry (a reader script beside `tools/probe-read.py` was not needed: the probe's own `read` mode is the
+  reader, and a test file was not needed: no fence moved). Nothing outside it was edited.
+  - (1) The probe, `tools/priority-probe/` (`PlayMap.PriorityProbe.csproj.in`, `Program.cs`, `Victim.cs`, `Burner.cs`, `Reader.cs`,
+    `Rows.cs`, `Os.cs`). Its project file is named `.csproj.in`, as `tools/hang-probe`'s is, so no `*.csproj` search of the tree
+    meets it and `ModuleRuleTests` (every project under `src`, `tests` and `tools` in `PlayMap.sln`; only the desk references
+    Avalonia) stays as it was; `tools/ci-tests.ps1 -PriorityCost` copies it with the `.cs` files to `$RUNNER_TEMP/priority-probe` and
+    builds the copy with `-p:PlayMapCheckout=<checkout>/`, through which it references the checkout's `PlayMap.Core` and
+    `PlayMap.Platform.Windows` as they are (they build under the tree's own props and analyzers; the copy names its own framework and
+    settings, and a build without the property fails with words). One console program, its modes: `calibrate` (the frame's fixed
+    work, `Work.Run`'s iterations, made about 10 ms of wall time on the machine as it is, once before the legs: six rounds of five,
+    then 31 samples, median and p10/p90 in `calibration.csv`), `leg --name <leg>` (one leg into `leg-<name>/`), `read` (the table, from
+    the files alone, to `summary.md` and `summary.csv`), `legs` (all of them, for a local run), and the two processes a leg starts.
+    - The victim (`Victim.cs`) stands for a desk or a supervisor: at its start it reads its class (`Process.PriorityClass` and base,
+      through a fresh process object, since one object caches the class it read first), sets Normal by its own hand on Windows
+      (`--class normal`) or keeps the class it was started at (`--class keep`, the runner's leg), reads back, then runs from its ready
+      to its window's end (3 s lead, 20 s window on CI): a frame loop on one thread (the calibrated work every 16.667 ms, waiting on
+      the timer `IMachinePlatform.CreateTimer` makes: on Windows `WindowsMachinePlatform`'s, the high-resolution waitable timer under
+      the default `TIMER HIGH`, through the public seam, no `src/` change; elsewhere Core's null platform, the runtime's own wait);
+      a light thread that waits 50 ms on `RuntimeDeadlineTimer` (the runtime's own wait, as a desk's UI timer is) and re-arms from its
+      wake; and one `IThreadPoolWorkItem` queued at each tick once the one before has run. Every loop writes into arrays made before
+      the first period: no allocation in a loop (each leg's `gen0_collections` in `victim.csv` reads 0 on this bench). Per frame:
+      its due and start (monotonic ns), lateness, the work's wall time and the thread's processor time over it (`GetThreadTimes` on
+      Windows, counted in clock ticks, 15.625 ms at the default resolution, so meaningful summed over a window only;
+      `CLOCK_THREAD_CPUTIME_ID` on Linux, exact), and the periods missed after it (a whole period whose slot passed with no frame
+      started; the loop never runs back to back to catch up). Per tick: due, wake, overshoot, and whether the item queued before was
+      still pending. Per pool item: queued, started, dispatch wait. `victim.csv` carries its pid, the classes, the timer kind
+      (`TimerMode`: high or default), the window's bounds and a monotonic/UTC anchor (each row's UTC is derived from it, to pair with
+      the sampler). Exit 3 when told Normal on Windows and another class reads back.
+    - The burner (`Burner.cs`) claims its class through the product's platform on Windows: `WindowsMachinePlatform.ClaimProcess`
+      with `MachineSettings.Default with { Process = "high" | "normal" }`, every other setting its default (so QoS high and the GPU
+      class normal are claimed too, as a node claims them), records every claim's asked, read back and applied, then reads the class
+      again through a fresh process object; exit 3 unless the priority claim applied and Windows reads back High or Normal as told.
+      Elsewhere it claims nothing and says so in its row ("the class claim is Windows only ... nothing is claimed"). It then starts N
+      busy threads at a new thread's priority (normal relative, as the Compute pool's threads are; HAP's workers claim the Decode role,
+      AboveNormal, which no leg emulates), writes its ready file once every thread runs, and stops itself at the instant the leg gave
+      it (one second after the victim's window, on the machine's monotonic clock), its control thread waiting at Highest so the stop
+      is on time; its row carries the processors it used from ready to stop. N is the processor count, or the processor count less
+      one, at least one: the width of the product's Compute pool (`src/PlayMap.Core/Threading/Compute.cs` 102) and HAP workers
+      (`src/PlayMap.Media/Hap/HapWorkers.cs` 92; the optimise worker's default is the same, `src/PlayMap.Engine/Optimise/OptimiseWorker.cs`
+      87).
+    - A leg (`Legs.RunAsync`): the victim is started first and waited for (its ready file, at most 60 s), then the burner into the
+      victim's window; nothing waits on the controller, whose class is the runner's and which a HIGH burner can hold. Both processes'
+      output goes to `victim.log` and `burner.log`. The leg is broken, with its words in `leg.csv` and exit 1, when the calibration is
+      missing, a process did not start or wrote no ready file in 60 s, the burner was ready only after the window ended, a process did
+      not read back the class it was told (exit 3) or ended otherwise than 0, a file is missing, or a process outlived the leg's bound
+      (60 s per ready file, the lead, the window and 90 s after it) and was stopped. A leg writes into a folder of its own and refuses
+      one that already holds a leg's files.
+    - The reader (`Reader.cs`): a leg's window is the victim's own cut to its burner's ready-to-stop span (both monotonic stamps), so
+      a late burner shortens the window and the quiet part is never counted; frames and ticks are in it by their due time, pool items
+      by their queue time; percentiles nearest-rank. The first table: per leg the burner's class asked and read back (off Windows,
+      "not claimed (Windows only)"), its threads and processors used, the victim's class at its start and as read (set Normal, kept,
+      or not set off Windows), the window, the frame loop's lateness p50, p99 and max, missed periods of those the window holds, the
+      frame work's wall over processor time with the frames and both sums it is made of (a frame's processor time is tick-counted on
+    Windows, so the ratio is a window's sums, never a frame's), the tick's overshoot p99 and max, the pool's dispatch wait p99 and max, and the ticks at
+      which the item was still pending. The second: the same as a ratio to the baseline leg (missed periods per thousand beside the
+      baseline's; a baseline of 0 says so, never divides). Then the machine (the calibration row's OS, processors and work) and how to
+      read the legs beside one another. A leg that is not ok carries its outcome and words beside its name in both tables, so a broken
+      leg's numbers are never read as a whole leg's. `summary.csv` holds the same numbers bare, the two work sums at its row's end.
+    - A leg lets go of its processes through `Child.Dispose`, which stops a process tree still running, so a controller that fails
+      after starting the burner (any read or write failure, caught in `Main` with its words, exit 1) never leaves it burning into the
+      next leg. The victim disposes what it owns (the tick's timer, the pool item's event once no item is pending).
+  - (2) `tools/ci-tests.ps1 -PriorityCost`: refuses a run dispatched with another input; prints the step's priority
+    (`Write-StepPriority`); builds the copy; runs the calibration, then the six legs in order (`baseline`, `high-n`, `normal-n`,
+    `high-n1`, `normal-n1`, `high-n-runner`), each with the machine sampler's CSV in the leg's folder and under a 5-minute deadline
+    (`Invoke-WithDeadline`, the deadline runner `Invoke-DotnetTest` now calls with `test` first: one text for both, its words "the
+    process tree under it" in place of "under its dotnet test"); then the reader, whose `summary.md` goes to the step summary. It
+    fails only on a broken leg, a leg past its deadline, the calibration or the reader failing; a reading never fails it. The probe
+    runs as its own exe, so the sampler (whose list takes `playmap*`) names its processes `PlayMap.PriorityProbe`,
+    `PlayMap.PriorityProbe#1`, ...: they pair by name within a row and, across rows and to a leg's victim and burner, by the pid
+    `victim.csv` and `burner.csv` carry.
+  - (3) `.github/workflows/build.yml`: the boolean input `prioritycost` (its description says the legs); the `prioritycost` job on
+    `windows-2025`, 30 minutes, which refuses another input in its first step, checks out, sets up the SDK and runs the step, then
+    uploads `tests/TestResults/prioritycost/**` as `prioritycost` (no file is an error); `test`, `windows` and `installer` are skipped
+    when it is given, and so are `hangproof` and `nodehostab` (their conditions say so; given together, this job refuses for all).
+    It needs no FFmpeg, Mesa or test build.
+  - What the job CAN tell the owner, and what it cannot. It runs on Windows Server 2025 on the runner's four virtual processors,
+    with synthetic busy threads, a victim of synthetic work and a controller at the runner's own class (run 490 recorded the test host
+    and `dotnet test` at Below Normal, base 6; `Write-StepPriority` prints this step's own class, and `victim.csv` the class the
+    victim was started at): not a show machine. It has no Windows 11 client quanta (Server's quanta are longer and fixed: recalled,
+    not measured here) and no foreground boost (no window, no desk in front; that Server gives none is recalled, not measured here),
+    no real adapter (nothing draws), no real decode, no MMCSS claim on the burner's threads and no CPU sets, one run of each leg in a
+    fixed order. It can tell, on that machine and n=1: how late a Normal thread doing 10 ms of work on a 60 Hz period starts, how often
+    it misses a period, how much its work's wall time stretches, how late a 50 ms tick wakes and how long a pool item waits, beside
+    work that keeps every processor busy (or all but one), when that work's class is the product's HIGH claim, and when it is the
+    product's NORMAL claim; and the same for a victim left Below Normal (the runner's condition that the node host stall met). It
+    cannot tell what a show machine's desk or supervisor feels, what a real node's work costs (its render loop on a GPU, decode, HAP),
+    or anything about more cores. While a burner holds the processors the machine sampler and the leg's controller, both at the
+    runner's class, are held as the 490 test host was, so the sampler's rows thin out or stop in the burned legs: for those windows
+    the burner's processors used and the victim's own rows are the readings. On Windows a frame's processor time
+    (`GetThreadTimes`) is counted in clock ticks, so a frame cannot be told late from slow on its own: lateness is read from its start
+    stamps, and the work's stretch only from a window's sums (the table prints the frames and both sums beside the ratio).
+  - What each outcome would mean for each of the owner's calls (none is taken here):
+    - The default class (round 3 §9 decision 12; `docs/PLATFORM.md` says a default changes only with L10's record). If `high-n` is far
+      worse than `normal-n` for the Normal victim (lateness p99 and max, missed periods, dispatch waits in seconds, as the node host
+      stall's were), HIGH is what starves a desk beside a saturating node: an argument for NORMAL by default or HIGH only under named
+      conditions. If the two are close (the victim shares the processors at either class), HIGH costs a desk little more than the
+      saturation itself does, and the class is not the lever: the saturation is (a processor floor, or the work's own size).
+    - A processor floor (process-default CPU sets, or caps on the pools under HIGH). If `high-n1` stays near `baseline` while `high-n`
+      does not, one free processor is enough for a Normal desk beside a HIGH node on this machine: an argument for a floor of one
+      processor, and evidence that the product's cores-minus-one pools leave it, as long as nothing else of the node runs beside them
+      (the render thread, decode, the GL driver's own threads). If `high-n1` is close to `high-n`, one processor is not enough at HIGH
+      (Windows' scheduling does not leave the free one to the Normal thread), and a floor would need a lower class or more room.
+    - Cores minus one. `normal-n1` against `high-n1` says whether the pools' width alone protects a desk at either class; against
+      `normal-n` and `high-n`, what the one processor buys. The legs keep the pools' threads at normal relative priority (Compute's);
+      HAP's AboveNormal workers would sit one level higher at either class and are not measured.
+    - `high-n-runner` against `high-n` says how much of the starvation the runner's Below Normal processes showed (runs 480 to 490)
+      came from their class rather than from HIGH: a reading about CI's own condition, not a desk's.
+- Tests: no test file was added or changed (no fence needed one: the probe is outside the solution and the module rules hold it out
+  by its `.csproj.in` name). Validated on this bench (Linux, four processors, SDK 10.0.404, another tree building beside; a reading,
+  not the runner's): the solution built whole (`dotnet build PlayMap.sln -c Debug -v q`, no warning) and `ModuleRuleTests` (6) green,
+  the solution unchanged; the probe built from a copy under a scratch folder with `-p:PlayMapCheckout=/home/user/Mapper/` (Release, no
+  warning; the same copy without the property fails with its words); `legs` run whole (8 s legs, 2 s lead) and the CI order run as
+  separate `calibrate`, six `leg` and one `read` invocations (3 s legs): every leg ok, every file written, every row's cells under
+  its header, `gen0_collections` 0 in every victim, both logs empty; the burner's row saying the claim is Windows only and the
+  victim's that Normal was not set, as they must off Windows; `read` run again over the same folder wrote the same `summary.md` byte
+  for byte; a folder that held a leg's files refused (exit 2); a leg run before the calibration broken with its words (exit 1); a
+  reader over a folder with a missing leg and a leg without its `burner.csv` said "(not run)" and "(no files: ...)". This bench's
+  reading (8 s legs; Linux's scheduler, no class claimed, so every leg's burner and victim at the same class: a proof of the rows and
+  the reader, not of the hazard): frame lateness p99 3.06 ms alone, 20.1 and 20.5 ms beside four busy threads, 2.2 ms beside three;
+  missed periods 0, 80 and 74 of 480, 0 beside three; dispatch p99 0.40 ms alone, 4.0 to 5.9 ms in every burned leg. The YAML parsed
+  with python3 (the four inputs, the six jobs' conditions, the new job's steps). There is no PowerShell and no actionlint on this
+  bench: `tools/ci-tests.ps1`'s new and changed lines were read line by line twice, not run.
+- Files: `tools/priority-probe/PlayMap.PriorityProbe.csproj.in`, `Program.cs`, `Victim.cs`, `Burner.cs`, `Reader.cs`, `Rows.cs`,
+  `Os.cs` (all new); `tools/ci-tests.ps1`; `.github/workflows/build.yml`; `README.md` (Build); this entry. No file under `src/`, no
+  csproj of the solution, no test file, `tools/probe-read.py` unchanged.
+- The review's items, folded in: the work cell prints the frames and both sums (and README says a frame's processor time is
+  tick-counted on Windows); `Child.Dispose` stops a live process tree and `Main` ends any read or write failure with its words, exit
+  1; a broken leg's outcome is beside its name in both tables; the sampler's thinning is said in README and here; the `hangproof`
+  and `nodehostab` inputs' descriptions say they stand down for `prioritycost`; the recalled scheduler facts are marked recalled and
+  the base 6 is said as run 490's record; the victim disposes what it owns. Validated again on this bench: the solution built whole,
+  `ModuleRuleTests` with `SettingsGateTests` (12), `HlslBuildTests` (6, `PLAYMAP_DXC_DIR` named before the build) and
+  `InstallerTermsTests` (5) green; the probe's copy built without warning; `legs` (4 s legs) every leg ok, logs empty,
+  `gen0_collections` 0; `read` again byte for byte the same; a leg's row marked broken read back as `high-n (broken: ...)` in both
+  tables, the two sums at `summary.csv`'s end; `read` into a path that is a file ended `failed: ...`, exit 1; and a scratch copy
+  made to fail after its burner was ready ended exit 1 with no victim or burner process left running.
+- Open:
+  - The probe is built only by the dispatched job: a change under `src/` to `MachineSettings`, `IMachinePlatform.ClaimProcess`,
+    `CreateTimer` or `TimerMode`, `RuntimeDeadlineTimer` or `NullMachinePlatform`'s constructor breaks it unseen until the next
+    `prioritycost` dispatch (as `tools/hang-probe` is exposed). A later batch could build the copy in the Linux test job, or a fence
+    could compile it.
+  - A frame's exact processor share on Windows: `QueryThreadCycleTime` per frame, with the calibration recording one frame's work in
+    cycles, would tell a late frame from a slow one frame by frame; not built here (the window's sums stand in).
+  - The dispatch itself: not run from this bench (a `workflow_dispatch` with `prioritycost` on the working branch, after the push;
+    put to the owner's allowance for runs or asked). Not proven until it runs: the PowerShell (the copy, the build with
+    `PlayMapCheckout` on Windows, `Invoke-WithDeadline`, the sampler per leg), the Windows class claim and read-back through
+    `WindowsMachinePlatform.ClaimProcess` in the burner, the victim's Normal set from Below Normal, `GetThreadTimes` through
+    `LibraryImport`, the high-resolution timer's kind (`TimerMode` reads `high` in `victim.csv`), and the sampler naming the probe's
+    processes `PlayMap.PriorityProbe#n`.
+  - The owner's calls, none taken: the node's default priority class; a processor floor under a HIGH process; cores minus one for
+    the pools (and HAP's AboveNormal workers); whether a headless node draws outputs nobody sees; whether an overrunning render loop
+    yields; the supervisor's and the desk's class. The job's table is read for them as above; one run is n=1 in a fixed order, so a
+    second dispatch (or the legs repeated in another order in one job) is what tells run-to-run spread, also the owner's to allow.
+  - Not measured by any leg: the GPU class claim's effect, MMCSS on the burner's threads, CPU sets, HAP's AboveNormal workers, a real
+    render loop or decode as the burner, a desk with a window in the foreground, and Windows 11's client scheduling.
