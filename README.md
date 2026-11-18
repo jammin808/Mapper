@@ -347,19 +347,22 @@ retail hash. Then:
   guard, since the shader worker starts only with a project's first effect source and the test's project has none, the native test
   doubles' compiler and the whole-solution build), then `tools/ci-tests.ps1 -NodeHostAB` runs `NodeHostTests`' PING test alone three times with the scheduling
   probe and the machine sampler, each leg's files apart under `tests/TestResults/nodehostab/leg-<A|B|C>` and uploaded as
-  `nodehostab`: A as the suite runs it, B with the child's home saved at process class `normal`, C with the child on a project whose
-  one output is not enabled; in every leg the test holds the child 5 s after it is seen up, before its PING. The legs are chosen by
-  `PLAYMAP_NODEHOST_HOLD_MS`, `PLAYMAP_NODEHOST_PROCESS` (`high` or `normal`) and `PLAYMAP_NODEHOST_OUTPUT` (`off`), which only
-  this job sets: unset, the test runs as it always has, and any other value fails the test with words. The summary gives per leg the
-  child's priority class, its renderer, whether STATE's first output was enabled (the leg's project), the processors it used over
-  the hold (its processor time's rise over the hold's length: near 4 is all four), the probe's largest gap and largest beat gap
-  inside the hold and over the whole window from the child's own up stamp to the kill, how long after it was up the test saw it,
-  and the sampler's longest sample. These are readings, never a pass mark: A starved and B not says the class is the amplifier; A
-  starved and C quiet says the drawn output is the demand; all three quiet (quiet from the child up to the kill, not only in the
-  hold) says the hold did not reproduce it, and the next step is a longer hold. The job fails only when a leg's test failed for
-  another reason than a wait running out, ran past its deadline, wrote no files, or ran on another project than its leg's (a set leg's
-  test also asserts it from STATE: the first output enabled in A and B, none enabled in C) (`docs/round2/CARRYOVER.md`,
-  fix-ci-nodehost-measure).
+  `nodehostab`: A with the child drawing the default project's 1920 × 1080 60 Hz output at the default class (HIGH), B the same with
+  the child's home saved at process class `normal`, C as the suite runs it (the output not enabled); in every leg the test holds the
+  child 5 s after it is seen up, before its PING. The legs are chosen by `PLAYMAP_NODEHOST_HOLD_MS`, `PLAYMAP_NODEHOST_PROCESS`
+  (`high` or `normal`) and `PLAYMAP_NODEHOST_OUTPUT` (`on`: the default project as it is, its output drawn; `off`: its output not
+  enabled), which only this job sets: unset, the test is the suite's own (no hold, the home's defaults, the output not enabled), and
+  any other value fails the test with words. Before its legs, and before the suites in the Windows job, the step prints its own
+  pwsh's and its parent's priority class and base (a reading; a failed read is a warning). The summary gives per leg the child's
+  priority class, its renderer, whether STATE's first output was enabled (the leg's project), the processors it used over the hold
+  (its processor time's rise over the hold's length: near 4 is all four), the probe's largest gap and largest beat gap inside the
+  hold and over the whole window from the child's own up stamp to the kill, how long after it was up the test saw it, the sampler's
+  longest sample, and the test host's own class as it started the child and before the kill. These are readings, never a pass mark:
+  A against C is what the drawn output demands; A against B is who loses at each class, never how much the child burns (run 490: 3.98
+  and 3.80 processors); a stall needs the test host below the child's class as well. The job fails only when a leg's test failed for
+  another reason than a wait running out, ran past its deadline, wrote no files, or ran on another project than its leg's (the test
+  asserts it from STATE in every run: the first output enabled in A and B, none enabled in C and in the suite)
+  (`docs/round2/CARRYOVER.md`, fix-ci-nodehost-measure and fix-ci-nodehost-mend).
 
 Both test jobs set `PLAYMAP_SCHEDULING_PROBE=1` on their suites' step: every test host then runs `tests/Shared/SchedulingProbe.cs`,
 which writes to `tests/<project>/TestResults/<assembly>-<start>-<pid>.latency.csv` a first line of the machine's facts (the
@@ -370,18 +373,30 @@ collector's pause and its gen2 count, the working set, the process's user and ke
 long the row before took to write and this row's pool reads took, the age and longest stop of a second thread at the highest
 priority that only stamps the time after each 5 ms wait (so a row tells one thread held from the whole process stood still), and
 how long this row's process reads took. A row
-allocates nothing. The node host test (`NodeHostTests`) writes beside it, as `<assembly>-<start>-<pid>.nodehost.csv` and in its
+allocates nothing. The node host test (`NodeHostTests`) starts its child engine with the home's default machine claims (HIGH
+priority class on Windows) on the default project with its one output not enabled, so the child claims and runs and paces its render
+loop but draws no 1920 × 1080 output: that draw, through a software rasteriser on a four-processor runner, held every processor and
+starved a test host below the child's class (runs 480 to 490); the dispatched `nodehostab` job keeps measuring it. The test asserts
+from STATE that no output is enabled and, on Windows, that the child's priority class read once it is up is the one its home claims
+(High). It writes beside the probe, as `<assembly>-<start>-<pid>.nodehost.csv` and in its
 output on every run, when it started the child engine, the child's own process start, the child log's stamps on its first line and
 on its "is up" line, the log's last write when the test saw that line, and when it saw it; and, at the row's end, what the child
 was, each read from the test host and never set: its priority class as the OS reports it once seen up (on Linux what the runtime
 maps its nice value to), the renderer its "is up" line names, its processor time and thread count when seen up, at a leg's hold's end
-and before the kill, the times of the connect, the PING's and STATE's answers, the kill and its exit, and the first output's `fps`
-and `frameMsP95` from that STATE. On Windows the suites' step also prints
+and before the kill, the times of the connect, the PING's and STATE's answers, the kill and its exit, the first output's `fps`
+and `frameMsP95` from that STATE (for an offscreen output the loop's present cadence, never the draw's cost), and, last, the test
+host's own priority class as it started the child and just before the kill. On Windows the suites' step also prints
 Defender's status once (`Get-MpComputerStatus`, `Get-MpPreference`: a reading, nothing is changed) and runs a machine sampler from
 before the first project to after the last (`tools/ci-tests.ps1`, `Get-Counter`): one row a second to
 `tests/TestResults/machine-<start>.sampler.csv` of memory available, pages input per second, each physical disk's queue length and
-seconds per transfer, total processor time, the processor time of the processes named testhost, dotnet, MsMpEng and PlayMap, and,
-at the row's end, their base priority (8 normal class, 13 high) and the system's processor queue length.
+seconds per transfer, total processor time, the processor time and process id of the processes named testhost, dotnet, MsMpEng,
+pwsh (the step's own and the sampler's) and PlayMap, and, at the row's end, their base priority (6 below normal class, 8 normal, 13
+high) and the system's processor queue length. Each process is named as its counter path names it (a second of one name carries
+the counter's index: `dotnet#1`), and a reader pairs the processor time, process id and base priority lists of one row by that name,
+never by position: the lists' orders can differ within a row (a sample that does not read is left out of its own list only), and
+a reading paired by position once put the Engine test host at base 8 when it was at 13. A name holds within one row only (the
+index is the counter's at that sample and moves when a process of the same name exits): across rows a process is followed by its
+pid.
 All of it is uploaded as `scheduling-probe-linux` and `scheduling-probe-windows` (a suites step that ran and left no probe file
 fails the upload; a sampler that did not start or wrote nothing is a warning, never a failure). Without the variable, as on every
 desk and in every local run, the probe starts nothing; any value but `1` is refused and the host does not load. `tools/probe-read.py`

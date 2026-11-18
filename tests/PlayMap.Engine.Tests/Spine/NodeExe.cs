@@ -248,9 +248,11 @@ internal sealed class NodeUpTimes
 }
 
 /// <summary>Which leg of the dispatched node host measurement (the CI workflow's <c>nodehostab</c> job) the node host test runs, read
-/// from three variables only that job sets. All three unset or empty is today's test exactly: no hold, the home's machine settings as
-/// <see cref="NodeSettings.CreateDefault"/> makes them, no project named. A value outside a variable's words is refused with words,
-/// never defaulted.</summary>
+/// from three variables only that job sets. All three unset or empty is the suite's own test: no hold, the home's machine settings as
+/// <see cref="NodeSettings.CreateDefault"/> makes them, and the default project with its one output not enabled, so the child claims
+/// the default machine claims and runs and paces its render loop without drawing a 1920 × 1080 output nobody sees. <c>on</c> starts
+/// the child on the default project as it is (its output enabled, no project named), the draw the dispatched job measures. A value
+/// outside a variable's words is refused with words, never defaulted.</summary>
 internal sealed record NodeHostLeg(int HoldMs, string? ProcessClass, string? Output)
 {
     /// <summary>How long, in whole milliseconds, the test holds the child after it is seen up and before its PING.</summary>
@@ -259,17 +261,23 @@ internal sealed record NodeHostLeg(int HoldMs, string? ProcessClass, string? Out
     /// <summary>The machine settings' process class the child's home is saved with: a word of MACHINE SET PROCESS.</summary>
     public const string ProcessVariable = "PLAYMAP_NODEHOST_PROCESS";
 
-    /// <summary><c>off</c>: the child is started on a project whose one output is not enabled.</summary>
+    /// <summary><c>on</c>: the child draws the default project's output; <c>off</c> or unset: its one output is not enabled.</summary>
     public const string OutputVariable = "PLAYMAP_NODEHOST_OUTPUT";
 
     /// <summary>The longest hold a leg may ask, so a mistyped hold cannot keep the test past its job's deadline.</summary>
     public const int MaxHoldMs = 60_000;
 
-    /// <summary>The one word <see cref="OutputVariable"/> takes.</summary>
+    /// <summary>The child on the default project with its one output not enabled: the suite's own, unset.</summary>
     public const string OutputOff = "off";
 
-    /// <summary>Today's test: no hold, the home's defaults, no project.</summary>
+    /// <summary>The child on the default project as it is, its one output enabled and drawn.</summary>
+    public const string OutputOn = "on";
+
+    /// <summary>The suite's own test: no hold, the home's defaults, the default project with its output not enabled.</summary>
     public static NodeHostLeg Today { get; } = new(0, null, null);
+
+    /// <summary>True only when the leg asks the child to draw its default project's enabled output.</summary>
+    public bool DrawsOutput => Output == OutputOn;
 
     /// <summary>The leg <paramref name="variable"/> names; an unknown value throws with the variable, the value and the words it takes.</summary>
     public static NodeHostLeg Read(Func<string, string?> variable)
@@ -293,8 +301,11 @@ internal sealed record NodeHostLeg(int HoldMs, string? ProcessClass, string? Out
         string? output = null;
         if (variable(OutputVariable) is { Length: > 0 } outputWord)
         {
-            if (outputWord != OutputOff)
-                throw new ArgumentException($"{OutputVariable} is '{outputWord}': {OutputOff} (the child started on a project whose output is not enabled), or unset");
+            if (outputWord is not (OutputOn or OutputOff))
+            {
+                throw new ArgumentException($"{OutputVariable} is '{outputWord}': {OutputOn} (the default project's output drawn) or {OutputOff} "
+                    + "(its output not enabled), or unset (as off)");
+            }
             output = outputWord;
         }
         return new NodeHostLeg(hold, process, output);
@@ -307,11 +318,11 @@ internal sealed record NodeHostLeg(int HoldMs, string? ProcessClass, string? Out
         return ProcessClass is null ? settings : settings with { Machine = settings.Machine with { Process = ProcessClass } };
     }
 
-    /// <summary>The project file the child is started on, written into <paramref name="folder"/> through the product's own serializer,
-    /// or null when the leg names none (today's child takes the default project).</summary>
+    /// <summary>The project file the child is started on, written into <paramref name="folder"/> through the product's own serializer
+    /// (<see cref="WithNoOutput"/>, the one maker), or null when the leg draws its output (the child then takes the default project).</summary>
     public string? WriteProject(string folder, string name)
     {
-        if (Output is null)
+        if (DrawsOutput)
             return null;
         var dir = Directory.CreateDirectory(Path.Combine(folder, "project"));
         var path = Path.Combine(dir.FullName, "show.playmap");
@@ -331,15 +342,16 @@ internal sealed record NodeHostLeg(int HoldMs, string? ProcessClass, string? Out
 /// as the OS reports it once the test has seen it up (on Linux, what the runtime maps the process's nice value to), the renderer its
 /// "is up" line names (letters, digits, dots, spaces and brackets only), its processor time and thread count when up was seen, at the
 /// end of a leg's hold and just before the kill, with the times of the connect, the PING's and STATE's answers, the kill and the
-/// child's exit, and the first output's figures from the STATE the test reads. A read of a process that is gone or will not say is an
-/// empty cell, never a throw into the test.</summary>
+/// child's exit, the first output's figures from the STATE the test reads, and, last, the test host's own priority class as it starts
+/// the child and just before the kill (a child stalls its host only when the host's class is below the child's). A read of a process
+/// that is gone or will not say is an empty cell, never a throw into the test.</summary>
 internal sealed class NodeChildReadings(NodeHostLeg leg)
 {
     /// <summary>The columns this adds at the end of the node host row.</summary>
     public const string Header = "child_priority_class,child_renderer,child_up_read_utc,child_cpu_up_ms,child_threads_up,hold_ms,"
         + "hold_end_utc,child_cpu_hold_end_ms,child_threads_hold_end,hold_processors,connect_utc,ping_utc,state_utc,state_output_id,"
         + "state_output_enabled,state_output_fps,state_output_frame_ms_p95,kill_asked_utc,child_cpu_kill_ms,child_threads_kill,"
-        + "child_exited_utc,leg_process,leg_output";
+        + "child_exited_utc,leg_process,leg_output,host_priority_class_start,host_priority_class_kill";
 
     /// <summary>The longest renderer name kept.</summary>
     public const int RendererMax = 120;
@@ -384,9 +396,26 @@ internal sealed class NodeChildReadings(NodeHostLeg leg)
 
     public DateTime? Exited { get; private set; }
 
+    /// <summary>The test host's own priority class as it started the child.</summary>
+    public string? HostClassStart { get; private set; }
+
+    /// <summary>The test host's own priority class just before the kill.</summary>
+    public string? HostClassKill { get; private set; }
+
     /// <summary>The child's processor time over the hold per second of it (about 4 is four processors), null without both reads.</summary>
     public double? HoldProcessors => UpRead is { } from && HoldEnd is { } to && CpuUpMs is { } a && CpuHoldEndMs is { } b
         && (to - from).TotalMilliseconds > 0 ? (b - a) / (to - from).TotalMilliseconds : null;
+
+    /// <summary>The priority class the child's own claim sets on Windows for <paramref name="machine"/>'s process class, as the
+    /// platform's process claim maps it: HIGH for <c>high</c>, NORMAL for any other word (realtime never).</summary>
+    public static string ClaimedClass(MachineSettings machine)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        return machine.Process == "high" ? nameof(ProcessPriorityClass.High) : nameof(ProcessPriorityClass.Normal);
+    }
+
+    /// <summary>The test host as it starts the child: its own priority class, which the child's is read against.</summary>
+    public void Starting() => HostClassStart = HostClass();
 
     /// <summary>The renderer the "is up" line found at <paramref name="at"/> in <paramref name="text"/> names, the first time.</summary>
     public void SawUp(string text, int at) => Renderer ??= RendererOf(text, at);
@@ -427,11 +456,12 @@ internal sealed class NodeChildReadings(NodeHostLeg leg)
         OutputFrameMsP95 = Number(first, "frameMsP95");
     }
 
-    /// <summary>The child just before the kill is asked.</summary>
+    /// <summary>The child just before the kill is asked, and the test host's own class then.</summary>
     public void BeforeKill(Process node)
     {
         ArgumentNullException.ThrowIfNull(node);
         (CpuKillMs, KillAsked, ThreadsKill) = Sample(node);
+        HostClassKill = HostClass();
     }
 
     /// <summary>The child's exit as the system stamped it.</summary>
@@ -446,7 +476,7 @@ internal sealed class NodeChildReadings(NodeHostLeg leg)
         _leg.HoldMs > 0 ? Count(_leg.HoldMs) : "", Time(HoldEnd), Ms(CpuHoldEndMs), Count(ThreadsHoldEnd), Cell(HoldProcessors, "F2"),
         Time(Connected), Time(Pinged), Time(Stated), OutputId ?? "", OutputEnabled is null ? "" : Flag(OutputEnabled),
         Cell(OutputFps, "F1"), Cell(OutputFrameMsP95, "F2"), Time(KillAsked), Ms(CpuKillMs), Count(ThreadsKill), Time(Exited),
-        _leg.ProcessClass ?? "", _leg.Output ?? "");
+        _leg.ProcessClass ?? "", _leg.Output ?? "", HostClassStart ?? "", HostClassKill ?? "");
 
     /// <summary>The readings in words, for the test's output.</summary>
     public string Words()
@@ -463,6 +493,8 @@ internal sealed class NodeChildReadings(NodeHostLeg leg)
         words.Append(Invariant($"; connected {Time(Connected)}, PING answered {Time(Pinged)}, STATE answered {Time(Stated)}"));
         words.Append(Invariant($"; the first output {OutputId ?? "(none)"} enabled {Flag(OutputEnabled)} at {Fixed(OutputFps, "F1")} fps, "));
         words.Append(Invariant($"frame p95 {Fixed(OutputFrameMsP95, "F2")} ms; exited {Time(Exited)}"));
+        words.Append(Invariant($"; the test host read as priority class {HostClassStart ?? "(not read)"} as it started the child and "));
+        words.Append(Invariant($"{HostClassKill ?? "(not read)"} before the kill"));
         if (_leg != NodeHostLeg.Today)
             words.Append(Invariant($"; the leg: process {_leg.ProcessClass ?? "(home default)"}, output {_leg.Output ?? "(default project)"}"));
         return words.ToString();
@@ -519,6 +551,13 @@ internal sealed class NodeChildReadings(NodeHostLeg leg)
         var cpu = Read(node, p => (double?)p.TotalProcessorTime.TotalMilliseconds);
         var at = DateTime.UtcNow;
         return (cpu, at, Read(node, p => (int?)p.Threads.Count));
+    }
+
+    /// <summary>The test host's own priority class, read afresh; null when the system will not say.</summary>
+    private static string? HostClass()
+    {
+        using var self = Process.GetCurrentProcess();
+        return Read(self, p => p.PriorityClass.ToString());
     }
 
     private static bool Refresh(Process node)

@@ -11,11 +11,13 @@
 #   -NodeHostAB   the node host measurement, run only when the workflow is dispatched with the nodehostab input: NodeHostTests' PING
 #                 test alone (on the Engine tests' Release build, with Mesa beside their host and dotnet.exe and the scheduling probe
 #                 on, as the nodehostab job prepares them), three times, each leg with the machine sampler running and its files in a folder of its own
-#                 under tests/TestResults/nodehostab: A as the suite runs it, B with the child's home at process class normal, C with
-#                 the child on a project whose output is not enabled; each held 5 s after it is seen up. Per leg, the child's priority
+#                 under tests/TestResults/nodehostab: A with the child drawing the default project's 1080p output at the default
+#                 class, B the same with the child's home at process class normal, C as the suite runs it (the output not enabled);
+#                 each held 5 s after it is seen up. Per leg, the child's priority
 #                 class, renderer, first output enabled (the leg's project, from STATE), processors used over the hold, the probe's
 #                 largest gap and beat gap in the hold and from the child's up stamp to the kill, the child's up to the test's seeing
-#                 it, and the sampler's longest sample, in the log and the summary. The readings are never a pass mark: it fails only
+#                 it, the sampler's longest sample, and the test host's own priority class as it started the child and before the
+#                 kill, in the log and the summary. The readings are never a pass mark: it fails only
 #                 when a leg's test failed for another reason than a wait the starvation ran out, ran past its deadline, wrote no
 #                 files, or ran on another project than its leg's (STATE's first output enabled in A and B, not enabled in C).
 #   -Sample <csv> -Parent <pid> -Counters <a|b>
@@ -161,9 +163,13 @@ if (@(@($Suites.IsPresent, $HangProof.IsPresent, $NodeHostAB.IsPresent, [bool]$S
 # The machine sampler's loop, in a process of its own: one row a second, each the counters one Get-Counter call read (it waits a
 # second between its two collections, so the rates are over that second), the varying instances as name=value lists: every
 # physical disk's queue length and seconds per transfer, and the processor time and process id of each process named testhost,
-# dotnet, MsMpEng or PlayMap* (a process's processor time is in one processor's percent, so up to 100 times the processor count);
-# after the note, at the row's end, the base priority of the same processes (8 for a normal class process's threads, 13 for a high
-# class's) and the system's processor queue length (threads ready and waiting for a processor).
+# dotnet, MsMpEng, pwsh (the step's own and this sampler's) or PlayMap* (a process's processor time is in one processor's percent,
+# so up to 100 times the processor count); after the note, at the row's end, the base priority of the same processes (6 below
+# normal class, 8 normal, 13 high) and the system's processor queue length (threads ready and waiting for a processor). A process
+# is named as its counter path names it, with the counter's own index for a second of one name (dotnet, dotnet#1, ...), so the
+# three process lists of one row pair by name; the lists' orders can differ (a sample that does not read is left out of its own
+# list only), so they never pair by position. A name holds within one row only: the index is the counter's at that sample and
+# moves when a process of the same name exits, so across rows a process is followed by its pid (the process_pid list).
 # Get-Counter, not typeperf: each call expands \Process(*) afresh, so a test host started after the sampler is read (typeperf
 # expands a wildcard once, at its start: recalled, not run here). A call that fails writes its words in the row's note and the
 # loop goes on; sample_ms is how long the call took (about 1000: much more is the sampler itself held). It ends when its parent is
@@ -171,7 +177,7 @@ if (@(@($Suites.IsPresent, $HangProof.IsPresent, $NodeHostAB.IsPresent, [bool]$S
 if ($Sample) {
     $ErrorActionPreference = 'Continue'
     $paths = @($Counters -split '\|' | Where-Object { $_ })
-    $named = '^(testhost|dotnet|msmpeng|playmap[^#]*)(#\d+)?$'
+    $named = '^(testhost|dotnet|msmpeng|pwsh|playmap[^#]*)(#\d+)?$'
     $invariant = [Globalization.CultureInfo]::InvariantCulture
     $end = [DateTime]::UtcNow.AddMinutes(75)
     $stream = [IO.FileStream]::new($Sample, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
@@ -196,6 +202,8 @@ if ($Sample) {
                     $path = "$($point.Path)".ToLowerInvariant()
                     $value = ([double]$point.CookedValue).ToString('G6', $invariant)
                     $instance = "$($point.InstanceName)"
+                    # A process's name from its path keeps the index that tells two of one name apart (InstanceName drops it).
+                    if ($path -match '\\process\(([^)]*)\)\\') { $instance = $Matches[1] }
                     if ($path.EndsWith('\memory\available mbytes')) { $available = $value }
                     elseif ($path.EndsWith('\memory\pages input/sec')) { $pages = $value }
                     elseif ($path.Contains('\processor(') -and $path.EndsWith('\% processor time')) { $processor = $value }
@@ -302,6 +310,28 @@ function Stop-MachineSampler($Sampler, [string] $Csv) {
     finally { $Sampler.Dispose() }
 }
 
+# The priority class of this step's own pwsh and of its parent, read once at the top of a run: a reading, nothing is set. A process
+# started with no class named takes its creator's when that is below normal (Windows' rule, recalled), and the stall a saturating
+# child makes needs its test host below the child's class, so where the runner's below-normal class comes from is read here. A read that fails is a warning, never a failure; the parent is named
+# only when it started before this pwsh (a reused process id is never taken for it).
+function Write-StepPriority {
+    try {
+        $self = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
+        $rows = @([pscustomobject]@{ Who = "this step's pwsh"; Row = $self })
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$self.ParentProcessId)" -ErrorAction SilentlyContinue
+        if ($parent -and $parent.CreationDate -le $self.CreationDate) { $rows += [pscustomobject]@{ Who = 'its parent'; Row = $parent } }
+        else { Write-Host "::warning::the parent of this step's pwsh (pid $($self.ParentProcessId)) is gone or not the one that started it" }
+        $words = @()
+        foreach ($at in $rows) {
+            $id = [int]$at.Row.ProcessId
+            $class = try { "$((Get-Process -Id $id -ErrorAction Stop).PriorityClass)" } catch { "(not read: $($_.Exception.Message))" }
+            $words += "$($at.Who) $($at.Row.Name) (pid $id) class $class, base $($at.Row.Priority)"
+        }
+        Write-Host "Priority as this runner reports it (a reading; nothing is set): $($words -join '; ')"
+    }
+    catch { Write-Host "::warning::this step's priority could not be read: $($_.Exception.Message)" }
+}
+
 # Defender as the runner reports it, read once before the suites: a reading, nothing is changed.
 function Write-DefenderReading {
     $words = @()
@@ -330,8 +360,9 @@ if ($Suites) {
     $failed = @()
     $projects = @(Get-ChildItem tests/*/*.csproj)
     if ($projects.Count -eq 0) { Write-Host "::error::no test project matches tests/*/*.csproj"; exit 1 }
-    # The machine beside the tests, measured, never a gate: Defender's reading once, and the sampler from before the first project to
-    # after the last, its rows uploaded with the probe's (tests/TestResults/*.sampler.csv).
+    # The machine beside the tests, measured, never a gate: the step's priority and Defender's reading once, and the sampler from
+    # before the first project to after the last, its rows uploaded with the probe's (tests/TestResults/*.sampler.csv).
+    Write-StepPriority
     try { Write-DefenderReading } catch { Write-Host "::warning::Defender's reading failed: $($_.Exception.Message)" }
     $samplerCsv = Join-Path (Get-Location) "tests/TestResults/machine-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmss', [Globalization.CultureInfo]::InvariantCulture)).sampler.csv"
     $sampler = Start-MachineSampler $samplerCsv
@@ -478,6 +509,7 @@ function Read-HoldWindow([string] $Latency, [DateTime] $From, [DateTime] $To) {
 if ($NodeHostAB) {
     if ($env:D3D12_FILTER -or $env:HANGPROOF -eq 'true') { throw 'the run was dispatched with nodehostab and another input (d3d12 or hangproof): say one' }
     if ($env:PLAYMAP_SCHEDULING_PROBE -ne '1') { throw 'the node host legs run with the scheduling probe on: PLAYMAP_SCHEDULING_PROBE=1' }
+    Write-StepPriority
     $invariant = [Globalization.CultureInfo]::InvariantCulture
     $project = (Resolve-Path tests/PlayMap.Engine.Tests/PlayMap.Engine.Tests.csproj).Path
     # The probe and the node host row are written to the project's own TestResults (tests/Shared/SchedulingProbe.cs), emptied before
@@ -488,15 +520,17 @@ if ($NodeHostAB) {
     if (Test-Path $root) { Remove-Item $root -Recurse -Force }
     $holdMs = '5000'
     $uri = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'
+    # A and B draw the default project's 1080p output (PLAYMAP_NODEHOST_OUTPUT=on), the saturating case the suite no longer runs;
+    # C is the suite's own test, nothing set but the hold.
     $legs = @(
-        [pscustomobject]@{ Name = 'A'; Label = 'as the suite runs it'; Process = ''; Output = ''; Enabled = 'true' },
-        [pscustomobject]@{ Name = 'B'; Label = "the home's process class normal"; Process = 'normal'; Output = ''; Enabled = 'true' },
-        [pscustomobject]@{ Name = 'C'; Label = 'the default class, its one output not enabled'; Process = ''; Output = 'off'; Enabled = 'false' })
+        [pscustomobject]@{ Name = 'A'; Label = 'its output drawn, the default class'; Process = ''; Output = 'on'; Enabled = 'true' },
+        [pscustomobject]@{ Name = 'B'; Label = "its output drawn, the home's process class normal"; Process = 'normal'; Output = 'on'; Enabled = 'true' },
+        [pscustomobject]@{ Name = 'C'; Label = 'as the suite runs it (its output not enabled)'; Process = ''; Output = ''; Enabled = 'false' })
     $summary = @('### The node host test held 5 s after its child is up, in three legs (a measurement, never a pass mark)', '',
         ('| Leg | Test | Priority class | Renderer | First output enabled | Processors over the hold | Probe''s largest gap in the hold | ' +
             'Largest beat gap in the hold | Probe''s largest gap, child up to kill | Largest beat gap, child up to kill | Child up to seen | ' +
-            'Sampler''s longest sample |'),
-        '|---|---|---|---|---|---|---|---|---|---|---|---|')
+            'Sampler''s longest sample | Test host''s class, child started / before the kill |'),
+        '|---|---|---|---|---|---|---|---|---|---|---|---|---|')
     $broken = @()
     foreach ($leg in $legs) {
         $dir = Join-Path $root "leg-$($leg.Name)"
@@ -556,12 +590,15 @@ if ($NodeHostAB) {
             $broken += "leg $($leg.Name) wrote no files: node host rows $($nodehost.Count), probe files $($latency.Count)"
         }
         $class = '-'; $renderer = '-'; $enabled = '-'; $processors = '-'; $gapWords = '-'; $beatWords = '-'; $sampleWords = '-'
-        $wholeGapWords = '-'; $wholeBeatWords = '-'; $seenWords = '-'
+        $wholeGapWords = '-'; $wholeBeatWords = '-'; $seenWords = '-'; $hostWords = '-'
         if ($nodehost.Count -gt 0) {
             $row = @(Import-Csv $nodehost[0].FullName) | Select-Object -First 1
             if ($row) {
                 $class = if ($row.child_priority_class) { $row.child_priority_class } else { '(not read)' }
                 $renderer = if ($row.child_renderer) { $row.child_renderer } else { '(not named)' }
+                # The test host's own class: the stall needs it below the child's (docs/round2/CARRYOVER.md, fix-ci-nodehost-mend).
+                $hostWords = "$(if ($row.host_priority_class_start) { $row.host_priority_class_start } else { '(not read)' }) / " +
+                    "$(if ($row.host_priority_class_kill) { $row.host_priority_class_kill } else { '(not read)' })"
                 # The project the leg ran on, from the STATE the test read: a cell that is not the leg's means the leg did not run as
                 # set (a project that would not open leaves the engine on its default, whose output is enabled), never a reading.
                 $enabled = if ($row.state_output_enabled) { $row.state_output_enabled } else { '(not read)' }
@@ -601,15 +638,15 @@ if ($NodeHostAB) {
             if ($longest.Count -gt 0) { $sampleWords = "$($longest.Maximum.ToString('0', $invariant)) ms" }
         }
         $line = ("| $($leg.Name), $($leg.Label) | $outcome | $class | $($renderer.Replace('|', '/')) | $enabled | $processors | $gapWords | " +
-            "$beatWords | $wholeGapWords | $wholeBeatWords | $seenWords | $sampleWords |")
+            "$beatWords | $wholeGapWords | $wholeBeatWords | $seenWords | $sampleWords | $hostWords |")
         Write-Host $line
         $summary += $line
     }
-    $summary += '', ('Read beside one another: A starved and B not, the class is the amplifier; A starved and C quiet, the drawn output is ' +
-        'the demand; all three quiet (quiet from the child up to the kill, not only in the hold), the hold did not reproduce it and ' +
-        'the next step is a longer hold. Processors over the hold near 4 ' +
-        'is all four of the runner''s; a probe gap or beat gap of a second or more, or a sample far over 1,000 ms, is the starvation ' +
-        'runs 487 and 488 recorded (docs/round2/CARRYOVER.md, fix-ci-nodehost-measure).'), ''
+    $summary += '', ('Read beside one another: A against C is what the drawn output demands (the processors over the hold); A against B ' +
+        'is who loses at each class, never how much the child burns; the stall needs the test host below the child''s class (the last ' +
+        'column). Processors over the hold near 4 is all four of the runner''s; a probe gap or beat gap of a second or more, or a ' +
+        'sample far over 1,000 ms, is the starvation runs 487, 488 and 490 recorded; C quiet is the suite as it now runs ' +
+        '(docs/round2/CARRYOVER.md, fix-ci-nodehost-measure and fix-ci-nodehost-mend).'), ''
     if ($env:GITHUB_STEP_SUMMARY) { $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8NoBOM }
     if ($broken.Count -gt 0) { Write-Host "::error::$($broken -join '; ')"; exit 1 }
     exit 0

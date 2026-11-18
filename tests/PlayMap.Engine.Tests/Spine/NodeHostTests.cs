@@ -13,7 +13,10 @@ namespace PlayMap.Engine.Tests.Spine;
 
 /// <summary>The node without the desk: "PlayMap.Node engine headless" runs the node through the same entry the desk's exe uses and
 /// answers PING on its wire; a command line that names no entry exits 2 and says what it reads. The node's start is said in the test's
-/// output, pass or fail (<see cref="NodeUpTimes"/>).</summary>
+/// output, pass or fail (<see cref="NodeUpTimes"/>). The child takes the home's default machine claims and runs and paces its render
+/// loop on the default project with its one output not enabled: a 1920 × 1080 output drawn through a software rasteriser in a HIGH
+/// class child holds every processor of a small machine and starves a test host below that class, so that draw is measured only by
+/// the dispatched job that asks for it (<see cref="NodeHostLeg"/>, <c>on</c>).</summary>
 public sealed partial class NodeHostTests(ITestOutputHelper output)
 {
     [GeneratedRegex(@"is up: wire (\d+)", RegexOptions.CultureInvariant)]
@@ -23,24 +26,26 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
     public async Task TheNodeHostRunsAnEngineThatAnswersPing()
     {
         // The dispatched measurement's leg (NodeHostLeg): with its three variables unset, as everywhere but that job, no hold, the
-        // home's defaults and no project, the test as it always ran.
+        // home's defaults and the default project with its output not enabled.
         var leg = NodeHostLeg.Read(Environment.GetEnvironmentVariable);
         var dir = Directory.CreateTempSubdirectory("playmap-node-");
         try
         {
             var home = new NodeHome(dir.FullName);
-            home.SaveSettings(leg.Home(NodeSettings.CreateDefault("Node host") with
+            var saved = leg.Home(NodeSettings.CreateDefault("Node host") with
             {
                 Bind = "127.0.0.1", HttpPort = 0, WirePort = 0, SyncPort = 0, Token = HostRig.Token, TrustLoopback = true, Announce = false,
-            }));
+            });
+            home.SaveSettings(saved);
             var id = home.LoadSettings("Node host").NodeId;
             string[] words = ["engine", "--headless", "--home", dir.FullName, "--no-recover"];
             if (leg.WriteProject(dir.FullName, "Node host") is { } project)
                 words = [.. words, "--project", project];
+            var child = new NodeChildReadings(leg);
+            child.Starting();
             var startedChild = DateTime.UtcNow;
             using var node = NodeExe.Start(words);
             var times = new NodeUpTimes(startedChild, node);
-            var child = new NodeChildReadings(leg);
             var said = new NodeOutput(node);
             try
             {
@@ -64,6 +69,20 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
                     return port > 0;
                 }, timeoutMs: 60_000), $"the node did not come up (exited: {node.HasExited}); {times.Words()}; its output ends:\n{said.Tail}");
                 child.Up(node);
+                if (OperatingSystem.IsWindows())
+                {
+                    // The default claim stays a field: once seen up, the child has made its claims, and its class is the one its home
+                    // asks (HIGH unless a leg names normal). An empty read of a child that has already exited is that exit, the first
+                    // fault, said as such; an empty read of a child that runs is a failure of its own, never taken as a class.
+                    var claimed = NodeChildReadings.ClaimedClass(saved.Machine);
+                    if (child.PriorityClass is null && node.HasExited)
+                    {
+                        Assert.Fail(string.Create(CultureInfo.InvariantCulture,
+                            $"the child exited (exit {node.ExitCode}) after it was seen up and before its priority class was read; {times.Words()}; its output ends:\n{said.Tail}"));
+                    }
+                    Assert.True(child.PriorityClass == claimed,
+                        $"the child runs and its priority class read {child.PriorityClass ?? "nothing (the system would not say)"}, not {claimed} as its home's process class '{saved.Machine.Process}' asks");
+                }
                 if (leg.HoldMs > 0)
                 {
                     // The leg's hold: the child runs unasked for a set time, so every leg measures the same exposure.
@@ -80,22 +99,19 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
                 // The answer is this node's: the id and the name its fresh folder's settings hold.
                 using var doc = JsonDocument.Parse(state!["OK @s ".Length..]);
                 child.State(doc.RootElement);
-                if (leg != NodeHostLeg.Today)
+                // The child ran on the project it was started on: drawing nothing (the suite's), every output STATE lists is not enabled
+                // (a project that would not open leaves the engine on its default, whose output is); asked to draw, the first is.
+                var listed = doc.RootElement.GetProperty("outputs");
+                var outputs = listed.EnumerateArray().ToList();
+                if (leg.DrawsOutput)
                 {
-                    // A leg is read only when it ran on the project it names: with no output, every output STATE lists is not enabled
-                    // (a project that would not open leaves the engine on its default, whose output is); otherwise the first is.
-                    var listed = doc.RootElement.GetProperty("outputs");
-                    var outputs = listed.EnumerateArray().ToList();
-                    if (leg.Output == NodeHostLeg.OutputOff)
-                    {
-                        Assert.True(outputs.TrueForAll(o => !o.GetProperty("enabled").GetBoolean()),
-                            $"the leg {leg} started its child on a project whose output is not enabled, and STATE's outputs say one is: {listed.GetRawText()}");
-                    }
-                    else
-                    {
-                        Assert.True(outputs.Count > 0 && outputs[0].GetProperty("enabled").GetBoolean(),
-                            $"the leg {leg} started its child on the default project, and STATE's first output is not enabled: {listed.GetRawText()}");
-                    }
+                    Assert.True(outputs.Count > 0 && outputs[0].GetProperty("enabled").GetBoolean(),
+                        $"the leg {leg} started its child on the default project, and STATE's first output is not enabled: {listed.GetRawText()}");
+                }
+                else
+                {
+                    Assert.True(outputs.TrueForAll(o => !o.GetProperty("enabled").GetBoolean()),
+                        $"the leg {leg} started its child on a project whose output is not enabled, and STATE's outputs say one is: {listed.GetRawText()}");
                 }
                 Assert.Equal(id, doc.RootElement.GetProperty("id").GetString());
                 Assert.Equal("Node host", doc.RootElement.GetProperty("name").GetString());
@@ -242,8 +258,9 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>The measurement's leg is today's test with its variables unset or empty; a value outside a variable's words is refused
-    /// with the variable and the words it takes, never defaulted; a leg that names no process class saves the home it was given.</summary>
+    /// <summary>The measurement's leg is the suite's own test with its variables unset or empty; a value outside a variable's words is
+    /// refused with the variable and the words it takes, never defaulted; a leg that names no process class saves the home it was given;
+    /// only <c>on</c> starts the child on the default project with its output drawn, and the class the child claims follows the home.</summary>
     [Fact]
     public void TheLegIsTodaysUnsetAndRefusesAWordItDoesNotTake()
     {
@@ -255,11 +272,16 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
         };
         Assert.Equal(new NodeHostLeg(5000, "normal", "off"), NodeHostLeg.Read(n => asked.GetValueOrDefault(n)));
         Assert.Equal("high", NodeHostLeg.Read(n => n == NodeHostLeg.ProcessVariable ? "high" : null).ProcessClass);
+        var on = NodeHostLeg.Read(n => n == NodeHostLeg.OutputVariable ? "on" : null);
+        Assert.Equal(new NodeHostLeg(0, null, NodeHostLeg.OutputOn), on);
+        Assert.True(on.DrawsOutput);
+        Assert.False(NodeHostLeg.Today.DrawsOutput);
+        Assert.False(new NodeHostLeg(0, null, NodeHostLeg.OutputOff).DrawsOutput);
         foreach (var (name, word) in new[]
                  {
                      (NodeHostLeg.HoldVariable, "5s"), (NodeHostLeg.HoldVariable, "-1"), (NodeHostLeg.HoldVariable, "60001"),
                      (NodeHostLeg.HoldVariable, " 5000"), (NodeHostLeg.ProcessVariable, "realtime"), (NodeHostLeg.ProcessVariable, "Normal"),
-                     (NodeHostLeg.OutputVariable, "on"), (NodeHostLeg.OutputVariable, "OFF"),
+                     (NodeHostLeg.OutputVariable, "ON"), (NodeHostLeg.OutputVariable, "OFF"), (NodeHostLeg.OutputVariable, "none"),
                  })
         {
             var refused = Assert.Throws<ArgumentException>(() => NodeHostLeg.Read(n => n == name ? word : null));
@@ -270,21 +292,37 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
         Assert.Same(settings, NodeHostLeg.Today.Home(settings));
         Assert.Equal("normal", new NodeHostLeg(0, "normal", null).Home(settings).Machine.Process);
         Assert.Equal(settings.Machine with { Process = "normal" }, new NodeHostLeg(0, "normal", null).Home(settings).Machine);
-        Assert.Null(NodeHostLeg.Today.WriteProject(Path.GetTempPath(), "Node host"));
+        var untouched = Directory.CreateTempSubdirectory("playmap-node-leg-on-");
+        try
+        {
+            Assert.Null(on.WriteProject(untouched.FullName, "Node host"));
+            Assert.Empty(untouched.EnumerateFileSystemInfos());
+        }
+        finally
+        {
+            untouched.Delete(recursive: true);
+        }
+
+        Assert.Equal("High", NodeChildReadings.ClaimedClass(settings.Machine));
+        Assert.Equal("Normal", NodeChildReadings.ClaimedClass(new NodeHostLeg(0, "normal", null).Home(settings).Machine));
     }
 
-    /// <summary>The project a leg without an output starts its child on is the default project with its one output not enabled, written
-    /// by the product's serializer and read back by it.</summary>
-    [Fact]
-    public void ALegWithoutAnOutputWritesTheDefaultProjectWithItsOutputNotEnabled()
+    /// <summary>The project the suite's child (and a leg's set <c>off</c>) starts on is the default project with its one output not
+    /// enabled, written by the product's serializer and read back by it.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(NodeHostLeg.OutputOff)]
+    public void ALegWithoutAnOutputWritesTheDefaultProjectWithItsOutputNotEnabled(string? output)
     {
         var dir = Directory.CreateTempSubdirectory("playmap-node-leg-");
         try
         {
-            var path = new NodeHostLeg(0, null, NodeHostLeg.OutputOff).WriteProject(dir.FullName, "Node host");
+            var path = new NodeHostLeg(0, null, output).WriteProject(dir.FullName, "Node host");
             Assert.NotNull(path);
             var read = PlayMap.Core.Model.ProjectJson.Read(File.ReadAllText(path)).Project;
             var made = PlayMap.Core.Model.Project.CreateDefault("Node host");
+            Assert.NotEmpty(made.Outputs);
+            Assert.Contains(made.Outputs, o => o.Enabled);
             Assert.Equal(made.Outputs.Select(o => o.Id), read.Outputs.Select(o => o.Id));
             Assert.All(read.Outputs, o => Assert.False(o.Enabled));
             Assert.Equal(made.Canvases.Select(c => c.Id), read.Canvases.Select(c => c.Id));
@@ -319,12 +357,20 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
         _ = await gone.StandardError.ReadToEndAsync();
         await gone.WaitForExitAsync();
         var readings = new NodeChildReadings(new NodeHostLeg(5000, "normal", "off"));
+        readings.Starting();
         readings.Up(gone);
         readings.Held(gone);
         readings.BeforeKill(gone);
         readings.Ended(gone);
         Assert.Equal(NodeChildReadings.Header.Split(',').Length, readings.Row().Split(',').Length);
         Assert.Contains("the leg: process normal, output off", readings.Words(), StringComparison.Ordinal);
+        // The test host's own class is read as it starts the child and before the kill, whatever became of the child. Each cell is a
+        // class's name, not compared with a second read: another test on this host may claim a class between the two reads.
+        Assert.NotNull(readings.HostClassStart);
+        Assert.NotNull(readings.HostClassKill);
+        Assert.True(Enum.TryParse<ProcessPriorityClass>(readings.HostClassStart, out _), readings.HostClassStart);
+        Assert.True(Enum.TryParse<ProcessPriorityClass>(readings.HostClassKill, out _), readings.HostClassKill);
+        Assert.EndsWith($",normal,off,{readings.HostClassStart},{readings.HostClassKill}", readings.Row(), StringComparison.Ordinal);
         // The kept file's two lines: the up times' columns then the child's, and a cell under each.
         var (header, row) = new NodeUpTimes(DateTime.UtcNow, gone).Lines(readings);
         Assert.Equal(NodeUpTimes.Header + "," + NodeChildReadings.Header, header);
@@ -340,7 +386,7 @@ public sealed partial class NodeHostTests(ITestOutputHelper output)
             mine.State(state.RootElement);
         Assert.Equal(("op_1", false, 59.9, 9.17), (mine.OutputId, mine.OutputEnabled, mine.OutputFps, mine.OutputFrameMsP95));
         Assert.Equal(NodeChildReadings.Header.Split(',').Length, mine.Row().Split(',').Length);
-        Assert.EndsWith(",op_1,false,59.9,9.17,,,,,,", mine.Row(), StringComparison.Ordinal);
+        Assert.EndsWith(",op_1,false,59.9,9.17,,,,,,,,", mine.Row(), StringComparison.Ordinal);
 
         var odd = new NodeChildReadings(NodeHostLeg.Today);
         using (var state = JsonDocument.Parse("{\"outputs\":[{\"id\":7,\"enabled\":\"yes\",\"fps\":\"60\"}]}"))

@@ -39,10 +39,15 @@ public abstract class FakeTcpServer : IAsyncDisposable
 
     protected abstract Task ServeAsync(Stream stream, CancellationToken ct);
 
+    /// <summary>Runs between the loop's look at the stop and its accept, each time round; nothing by default. The one seam a test
+    /// uses to put <see cref="DisposeAsync"/>'s stop exactly there.</summary>
+    protected virtual ValueTask BeforeAcceptAsync() => ValueTask.CompletedTask;
+
     private async Task AcceptLoopAsync()
     {
         while (!_stop.IsCancellationRequested)
         {
+            await BeforeAcceptAsync();
             TcpClient client;
             try
             {
@@ -58,6 +63,13 @@ public abstract class FakeTcpServer : IAsyncDisposable
             }
             catch (SocketException)
             {
+                return;
+            }
+            catch (InvalidOperationException) when (_stop.IsCancellationRequested)
+            {
+                // The accept met a listener DisposeAsync had already stopped (it asks the stop before it stops the listener, and
+                // nothing else stops it): the loop ends as the server does. The same exception while the server is meant to run
+                // is a fault and fails the test through DisposeAsync.
                 return;
             }
             Interlocked.Increment(ref _connections);

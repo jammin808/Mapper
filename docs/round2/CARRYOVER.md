@@ -4908,3 +4908,238 @@ Round 2 W1 notes:
   - Still unknown after this batch until a run reads it: why the probe's Normal thread ran every 60 ms while the Highest beat did not
     (the probe and beat threads' current priority as probe columns would say; not needed to choose a mend); whether runs 480 and 482
     had the same cause; the ~1.18 s release lattice.
+
+## Integrator notes from the round-2 fix batch (fix-ci-nodehost-mend)
+
+- Done: test-only and CI-only, no file under `src/`, on the owner's answers 1 and 3 of 2026-11-18 ("PlayMap's Windows stall, after
+  run 490's three legs", in Stagewatch's `docs/ecosystem/owner-answers.md`). The four answers, each the recommended one: (1)
+  `NodeHostTests`' child, "Mend it": the test starts its child with the default project's one output not enabled, asserts from STATE
+  that none is enabled and, on Windows, that the child reads High; the test host's own class is recorded each run; the papers say
+  what CI stops seeing; no second real-child test with a small output was asked for. (2) `PreflightMachineTests`' leak of HIGH into
+  the shared Engine test host, "Fix it after the mend": strictly after this mend has landed and run green, and not in this batch
+  (`PreflightMachineTests.cs` and `PlatformCallsTests.cs` are untouched). (3) `FakeTcpServer`'s accept race, "Mend it", test-only,
+  with a test that fails without the mend, in this batch. (4) The product questions, "No change; measure first": nothing in the
+  product changes; a dispatched measurement of the hazard on its own subject is built in a later batch, not here. The leave:
+  `tests/PlayMap.Engine.Tests/Spine/NodeHostTests.cs` and `NodeExe.cs`; `tests/PlayMap.Devices.Tests/Simulators/FakeTcpServer.cs`
+  and one Devices test file (`FakeTcpServerTests.cs`, new); `tools/ci-tests.ps1`; `.github/workflows/build.yml` where the
+  `nodehostab` leg words live (the input's description and the job's comment); `tools/probe-read.py` only if a node host column it
+  prints moved (none did: it reads by name, and the two new columns are at the row's end, so it was not edited); README's Build
+  section; this entry. Nothing outside it was edited.
+  - What runs 489 and 490 showed (kept here because the files they were read from do not last). Run 490, the dispatched `nodehostab`
+    job on eccb35a0 (windows-2025, four processors, each leg n=1, A first): A, the child on the default project (its 1080p output
+    enabled) at the default class: High (base 13) on `OpenGL 4.5 llvmpipe (LLVM 21.1.4 256 bits)`, 3.98 processors over a 5.9 s hold,
+    the test host's probe silent for 27.6, 30.4 and 32.0 s, its Highest-priority beat still for up to 50.4 s, the test 2 min 36 s;
+    STATE's first output 60.0 fps, p95 16.89 ms. B, the same at class normal (base 8): 3.80 processors over a 7.4 s hold, probe gaps
+    up to 9.6 s, the probe's pool item pending in 296 of 299 rows between them with waits up to 8.66 s, 14 pool items completed in the
+    38.1 s from up to the kill (A 29 in 145.9 s, C 97 in 5.1 s), the sampler writing no row for at least 33 s, the beat at most 50 ms
+    apart, the test 45.67 s; STATE's first output 55.2 fps, p95 19.88 ms. C, the default class with the one output not enabled: High,
+    0.40 processors over a 5.0 s hold (the tail of its start: per sampler second 1.03, 0.62, 0.61, 0.42, then 0.03), no probe gap over
+    64 ms, nothing held, the test 8.99 s. In every leg the test host and the `dotnet test` chain ran at base 6 (Below Normal), and the
+    child read 6 before its claim (a child started with no class named takes a below-normal creator's class: Windows' rule, recalled).
+    Run 489 (the push of eccb35a0): Windows red on ONE Devices test, `NecDriverTests.EveryCommandIsRefusedUntilTheLinkAllowsUnverifiedCommands`,
+    `System.InvalidOperationException: Not listening. You must call the Start() method before calling this method.` thrown from
+    `TcpListener.AcceptTcpClientAsync` in `FakeTcpServer.AcceptLoopAsync` and rethrown by `DisposeAsync` (item 4 below); no Engine test
+    failed. Its Engine host did not stall: `NodeHostTests`' PING test took 9.8 s, inside it the probe's largest gap 0.08 s, its largest
+    dispatch 151 ms and its beat 40 ms, though its child (High, llvmpipe, 60.0 fps, p95 17.03 ms) had used about 3.4 processors with
+    the processor queue at 150 before it was up; and its sampler shows the Engine test host going from base 6 to base 13 in the row
+    ending 15:32:39.969, as `PreflightMachineTests.OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly` ran (it ended
+    15:32:40.387), and staying at 13 in every row after, so `NodeHostTests` met a host level with its child.
+  - The adversarial check's findings on runs 489 and 490, in its standings (its word is the later one where a reader differed). What
+    stands: the enabled output's draw is the demand (the same High class takes about 0.03 processors steady with it not enabled, about
+    4 with it drawn: observed, n=1; that llvmpipe's rasteriser rather than the engine's own per-output work is the burner is read, not
+    shown); the class decides who loses, it does not change the demand (A 3.98 and B 3.80 processors over the hold; at Normal the
+    base-8 beat kept its cadence while base-6 pool work and a separate process were held for the child's whole life); and the SECOND
+    CONDITION: a stall needs the test host below the child's class. In the Engine trx files of runs 480 and 482 to 489, every run in
+    which `PreflightMachineTests.OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly` ended before `NodeHostTests` began (host at
+    13: runs 484, 485, 486, 489) did not stall (probe gaps at most 0.09 s), and of the runs where `NodeHostTests` came first (host at 6:
+    480, 482, 483, 487, 488) four stalled (probe gaps 7.8 to 12.9 s, `NodeHostTests` 17 to 56 s) and 483 escaped (2.7 s); one-sided
+    Fisher p about 0.04. The host's class for 480 to 488 is inferred from that order, the unchanged claiming code and 489's observed
+    transition; it was not recorded in those runs. Where the leaked HIGH comes from: `PreflightMachineTests.cs` 105 to 106 composes
+    `new MachineParts(null)` and calls `Configure`, which on Windows composes the real platform and claims
+    `MachineSettings.Default` (HIGH) for the shared Engine test host (`MachineParts.cs` 65 to 73, `WindowsMachinePlatform.cs` 76), and
+    nothing restores it; `PlatformCallsTests` leaves its own Platform.Windows host at HIGH the same way (`PlatformCallsTests.cs` 89 to
+    104 and later). xUnit runs collections in parallel, so which of the two tests comes first changes from run to run. Corrected by
+    the check: "most runs escape by exposure" (the 487 check's guess, and the reading's point 5) is wrong: the trx order explains 8 of
+    9 runs; STATE's `fps` and `frameMsP95` for a headless output are the loop's present cadence (`RenderHost.UpdateHealth`,
+    `FramePacer.FrameMsP95`: the 95th percentile present interval), never the draw's cost, and nothing in these legs measures a draw
+    time; the sampler's pct, pid and base lists pair by name within a row, never by position (a reading paired by position put 489's
+    Engine host at base 8 at 15:35:11; by name it read 13 in all 306 rows from 15:32:39.969); B was not "far less" than A for pool work
+    or a separate process, only for the probe thread's gaps and the beat; the 487 check's arithmetic assumed a Normal host (beat 10,
+    probe 8) where the host was at 6 (beat 8, probe and pool 6); C's 0.40 processors is the hold's average with the start-up tail in
+    it; `child_log_written` is not when the line reached the file; and run 489's "3.5 processors from up to kill" rests on CPU counted
+    in 15.625 ms ticks over a 95 ms window and is not a measurement. Unknown: the host's class at `NodeHostTests` in runs 480 to 488;
+    where base 6 comes from (the runner, its step shell or the `dotnet test` chain: this batch prints the step's own class and its
+    parent's to read it); the sampler pwsh's own class (this batch samples pwsh); why start to up is about 9.7 s in A, 485 and 489 and
+    1.9 to 3.8 s elsewhere; what released A's host at 30:04.61, 6 ms before the kill was asked; which threads inside the child burn;
+    why B's loop ran at 55.2 fps; and everything about a show machine (Windows 11 client scheduling, a real GPU, a Normal desk doing
+    real work, the supervisor's class, more cores).
+  - Corrections to fix-ci-nodehost-measure's entry above (that entry is left as it was written): its "Read from the code, NOT yet
+    recorded on the runner: the child claims HIGH" is now recorded (run 490, A and C: High, base 13); its reading key "A starved and B
+    not, the class is the amplifier" is replaced by the check's: the class decides who loses, never how much the child burns; its
+    unknown "why the probe's Normal thread ran every 60 ms while the Highest beat did not" rests on a Normal host, where the host was at
+    Below Normal; and its Open line that the check's mend 3 "leaves the product behaviour seen in CI untested" is corrected: with no
+    enabled output the child still claims the default machine claims before its loop and still runs and paces its render loop at the
+    project's rate (`MachineParts.Configure`, `HeadlessPacing.LoopRateHz`, `RenderHost.Pace`); only the 1080p draw (`RenderEngine` skips
+    a not-enabled output) and the keep-awake hold are left out.
+  - (1) The mend (`NodeExe.cs`, `NodeHostTests.cs`). `NodeHostLeg` with its variables unset is the suite's own test: no hold, the home's
+    default machine settings (`NodeSettings.CreateDefault`, so the child still claims HIGH on Windows and nothing on Linux), and the
+    child started with `--project` on the default project with its one output not enabled, written by `NodeHostLeg.WithNoOutput`
+    through `ProjectJson.Serialize` (the one maker leg C already used; never hand-written JSON). The test asserts, as fields, in every
+    run: from the STATE reply it already reads, no output is enabled (and, with the dispatched job's `on`, that the first is), and on
+    Windows (`OperatingSystem.IsWindows()`) that the child's priority class, read once it is seen up, is the class its home claims
+    (`NodeChildReadings.ClaimedClass`: High for `high`, Normal for any other word, as `WindowsMachinePlatform.ClaimProcess` maps it), so
+    the default claim stays asserted; on any other OS nothing about the class is asserted (the null platform claims nothing). An empty
+    read (the reading is guarded: a process gone or one that will not say is no throw): on a child that has exited, the test fails
+    there with words naming that exit (its exit code, the up times and the output's last lines), the first fault, so a fast exit after
+    up is never reported as a class, nor as a confusing later failure at the connect; on a child that still runs, it fails as a class
+    not read ("the system would not say"), never taken as High. Every other wait, bound, assertion and the kill are as they were.
+  - (2) The dispatched legs keep measuring the draw. `PLAYMAP_NODEHOST_OUTPUT` takes `on` (the default project as it is, its output
+    enabled, no `--project`) beside `off`; unset now means the suite's own (off); any other value (`ON`, `OFF`, `none`) still fails the
+    test with the variable, the value and the words it takes. `tools/ci-tests.ps1 -NodeHostAB`'s legs are now A, output on at the
+    default class; B, output on at class normal; C, as the suite runs it (nothing set but the 5 s hold). Each leg still asserts from
+    STATE that it ran on its project, and the script still counts a `state_output_enabled` cell that is not the leg's as broken. The
+    labels, the summary's reading key (A against C is what the draw demands; A against B is who loses at each class; a stall also needs
+    the host below the child's class), the input's description and the job's comment in `build.yml`, and README follow.
+  - (3) The condition is recorded every run. Two cells at the END of the node host row (`NodeChildReadings.Header`, now 34 columns with
+    the nine before): `host_priority_class_start` and `host_priority_class_kill`, the test host's own `Process.PriorityClass`, read just
+    before the child is started (what the child is started from) and again just before the kill, guarded like every other reading; the
+    test's words say them too, and the `nodehostab` summary has a column for them. `tools/ci-tests.ps1`: `Write-StepPriority` prints
+    once, at the top of a `-Suites` run and of a `-NodeHostAB` run, the step's own pwsh and its parent (`Win32_Process`, the parent named
+    only when it started before the pwsh, so a reused id is never taken for it) with each one's priority class (`Get-Process`) and base
+    (`Win32_Process.Priority`): a reading, nothing is set; a failed read is a `::warning::` or "(not read: ...)", never a failure. The
+    machine sampler's process list takes in pwsh (the step's own and the sampler's own), so a held sampler can be read against its own
+    class; and each process is now named as its counter path names it, with the counter's own index for a second of one name
+    (`dotnet#1`), where `InstanceName` gave every `dotnet` the same bare name: the pct, pid and base lists of one row pair by that name,
+    never by position (README says so where the columns are described). A name holds within one row only: the index is the counter's
+    at that sample and moves when a process of the same name exits, so across rows a process is followed by its pid (README and the
+    script's comment say so). The columns of the sampler's row are unchanged.
+  - (4) The fake server's race (`FakeTcpServer.cs`). Run 489's order: a test that ends at once has `DisposeAsync` ask the stop and stop
+    the listener while the accept loop stands between its look at the stop and its `AcceptTcpClientAsync`; that accept then throws
+    `InvalidOperationException` ("Not listening") before it reads its token, which is none of the three ends the loop caught, so the
+    loop's task faulted and `DisposeAsync` rethrew it into the test. The mend: `catch (InvalidOperationException) when
+    (_stop.IsCancellationRequested)` around that accept alone, which returns as the other three do. It cannot hide a real fault: the
+    try holds only the accept; `DisposeAsync` is the only place the listener is stopped and it asks the stop first, so a stopped
+    listener under this loop always has the stop asked; an `InvalidOperationException` while the server is meant to run (the stop not
+    asked) still escapes, faults the loop and fails the test through `DisposeAsync`; and one thrown anywhere else (a serving task, a
+    test's own code) is not under this catch. The seam for the fence, the smallest the type allowed (it starts its loop in its
+    constructor and offers no point between the look and the accept): `protected virtual ValueTask BeforeAcceptAsync()`, run between
+    them each time round, nothing by default. The fence, `FakeTcpServerTests.AnAcceptMadeAfterTheStopEndsTheLoopQuietly`, makes the
+    order instead of waiting for it: its server's seam, on its first round and once the test has it whole (the loop's task assigned),
+    calls `DisposeAsync` itself (which asks the stop, stops the listener and then waits on the loop it was called from), observes the
+    stop (a connect to the server's port is refused), and returns, so the loop's accept is made on the stopped listener; the test then
+    awaits that `DisposeAsync` and asserts the stop was observed before the accept. With the mend reverted in a scratch edit, the fence
+    failed with `System.InvalidOperationException : Not listening. You must call the Start() method before calling this method.`, the
+    runner's own words; restored, it passed. No sleep and no loop on luck.
+  - What CI stops seeing with this mend: a saturating 1920 × 1080 60 Hz draw through llvmpipe in a HIGH class child in the default
+    suite (on Windows, and on Linux at Normal); the stall it made whenever the Engine test host was below the child's class. The
+    dispatched `nodehostab` job keeps it measurable (legs A and B), and the owner's answer 4 keeps every product question open until a
+    measurement on its own subject is read. The default claims, the render loop's pacing and the claim of HIGH on Windows stay
+    exercised and asserted in every run.
+  - This bench's own reading of the three legs (Linux, four processors, Mesa llvmpipe under Xvfb, the child claiming nothing, so
+    `Normal` in every leg and the test host `Normal` at the start and at the kill; one run each, another tree building beside, a
+    reading, not the runner's): A 3.71 processors over the 5 s hold (the first output enabled, 36.1 fps), B 3.77 (enabled, 40.1 fps),
+    C 0.24 (not enabled, 0 fps); no probe gap over 500 ms and no episode in any; each row 34 cells under a 34-column header, read by
+    `tools/probe-read.py`.
+- Tests: `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing` (the child on the no-output project unset; STATE's outputs asserted in
+  every run; on Windows the child's class asserted High, or the leg's class, with an empty read said as the exit or as a refused read);
+  `TheLegIsTodaysUnsetAndRefusesAWordItDoesNotTake` (`on` read and drawn, unset and `off` not drawn, `ON`, `OFF` and `none` refused
+  with words, `on` writes no project file, `ClaimedClass` High for the default home and Normal for `normal`);
+  `ALegWithoutAnOutputWritesTheDefaultProjectWithItsOutputNotEnabled` (now a theory over unset and `off`, and the default project has an
+  enabled output for the mend to leave out); `TheChildsReadingsOfAProcessThatHasGoneAreCellsNeverAThrow` (the test host's class read at
+  the start and before the kill whatever became of the child, each cell a class's name, never compared with a second read, since
+  another test on the shared host may claim a class between the two; the row ending with them; the empty-row shape follows the two
+  columns); `FakeTcpServerTests.AnAcceptMadeAfterTheStopEndsTheLoopQuietly` (new, the fence: the loop's seam disposes the server before
+  its first accept and proves the stop by listening on the server's port again, which only a free port allows, so a stray result fails
+  and never passes; a connect was not used, since a connect to a free loopback port can rarely meet itself). Mutations: the fence failed without the
+  `FakeTcpServer` mend (the runner's words) and passed with it; a scratch edit that started the suite's child on the default project
+  again (no `--project` when the output variable is unset) failed the PING test on the new STATE assertion ("started its child on a
+  project whose output is not enabled, and STATE's outputs say one is"); both restored and rebuilt. Validated on this bench (SDK
+  10.0.404): the build whole, no warning; `NodeHostTests` (13) green with the variables unset; the PING test alone green in each leg's
+  variables with the probe on and a 5000 ms hold (A, B, C: readings above); the Devices suite whole three times, 113 green each; the
+  Engine classes that fence allocations, threads or handles (`EngineFenceTests`, `DeadlineThreadTests`, `RenderThreadClaimTests`,
+  `AirAudioTests`, `AlignHostTests`, `ArtNetInTests`, `CursorTests`, `DeviceLockHostTests`, `FactsSignalTests`, `FxHostTests`,
+  `HostNetworkTests`, `OmtLoopbackTests`, `RenderHostLockTests`, `RenderHostTests`: 65) green twice after a first run in which
+  `HostNetworkTests.ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt` failed once at its last wait (line 491,
+  the blackout's release after the desk's push, 10 s) with another tree building beside; the class passed alone three times (a file
+  this batch does not touch, said, not mended; its cause is not read); the whole Engine suite with the variables unset in six parts
+  that name its 1,372 tests once (Align to Facade, 309; Fleet to Hot, 171; Install to Presentation, 209 and 2 skipped; Rendering to
+  Spine, 324 and 4 skipped; Sync to Wall, 209; every other namespace, 144), green. The YAML parsed with python3 (the five jobs, the
+  `nodehostab` job's condition and steps, the input's description). There is no PowerShell and no actionlint on this bench:
+  `tools/ci-tests.ps1`'s new lines were read line by line twice, not run.
+
+  After the review's fold-in, the committing stage ran the validate once on this bench:
+  - The build: whole, no warning; rebuilt with `PLAYMAP_DXC_DIR` set before the Shaders part.
+  - `NodeHostTests` (13): green with the variables unset.
+  - The PING test alone in each leg (probe on, 5000 ms hold): A 3.75 processors over the hold (output enabled, 41.7 fps), B 3.78
+    (enabled, 55.1 fps), C 0.26 (not enabled). The child, the host at the start and the host at the kill all read Normal. Each row
+    had 34 cells and was read by `tools/probe-read.py`.
+  - The fence's mutation: with the mend's filter made false, the fence failed with "Not listening"; restored.
+  - The Devices suite three times: 113 green each.
+  - The 14 fence classes: 65 green.
+  - The Engine suite in six parts naming its 1,372 tests once:
+    - Align to Facade: 308 of 309 (the content host test above).
+    - Fleet to Hot: 171, green on its second run; its first run failed the blackout test above.
+    - Install to Presentation: 209, 2 skipped.
+    - Rendering to Spine: 324, 4 skipped.
+    - Sync to Wall: 209.
+    - The root namespace: 144.
+  - The YAML parsed with python3.
+- Files: `tests/PlayMap.Engine.Tests/Spine/NodeHostTests.cs`, `tests/PlayMap.Engine.Tests/Spine/NodeExe.cs`,
+  `tests/PlayMap.Devices.Tests/Simulators/FakeTcpServer.cs`, `tests/PlayMap.Devices.Tests/FakeTcpServerTests.cs` (new),
+  `tools/ci-tests.ps1`, `.github/workflows/build.yml` (the `nodehostab` input's description and the job's comment), `README.md`
+  (Build), this entry. No file under `src/`, no csproj, `tools/probe-read.py` unchanged.
+- Open:
+  - `PreflightMachineTests`' leak of HIGH into the shared Engine test host (and `PlatformCallsTests`' on its own host): the next batch,
+    strictly after this one has landed AND run green on CI's Windows job, never before and never in the same push (landed first, it
+    would put `NodeHostTests`' host at 6 in every run, and 4 of 5 such runs stalled; with this mend the child draws nothing, but other
+    timing-sensitive tests the leaked HIGH was hiding may surface, so the probe's episodes are watched over the Windows runs after it).
+    The design the check names: restore the class the test found in a `finally`, or compose the test so it does not claim on the
+    shared host.
+  - The product questions, none taken (the owner's answer 4, "No change; measure first"): a node's default priority class (round 3 §9
+    decision 12; `docs/PLATFORM.md` says a default changes only with L10's record); whether a headless node draws outputs nobody sees;
+    whether a render loop that overruns its period yields; a processor floor under a HIGH process; the supervisor's and the desk's
+    class. The dispatched measurement of the hazard on its own subject (what a saturating HIGH process costs a Normal-class process
+    doing real work, at HIGH and at NORMAL, with that process's class set explicitly) is a batch of its own, not built here; the owner
+    reads it, then decides.
+  - The other accept loops of the same shape in tests, read, not edited (outside this leave; each would want the same narrow catch and,
+    for a fence, the same seam): `FakePatternsDesk` in `tests/PlayMap.Engine.Tests/Host/HostRig.cs` (408 to 424, `Task.Run` loop,
+    `DisposeAsync` 483 to 489 cancels, stops, awaits) and `FakePatternsDesk` in `tests/PlayMap.Net.Tests/LinkTests.cs` (88 to 104,
+    `DisposeAsync` 179 to 185): both catch only `OperationCanceledException`, `ObjectDisposedException` and `SocketException`, so both
+    can throw the same uncaught exception on the same order, from their first round on. `SilentTlsFront` and `OneMessageStagewatch` in
+    `tests/PlayMap.Net.Tests/StagewatchLinkTests.cs` (277 to 291 and 376 to 390; disposed 332 to 336 and 469 to 473) and
+    `FakeMediaPeer` in `tests/Shared/FakeMediaPeer.cs` (93 to 107, `while (true)` with no look at the stop; disposed 249 to 253): each
+    starts its loop synchronously in its constructor, so its first accept is made before anything can stop it, but after an accepted
+    connection the loop's next accept runs on a pool thread and can meet a listener `DisposeAsync` has stopped: the same exception,
+    after a first connection only. `FakeEngine` in `tests/PlayMap.Supervisor.Tests/Install/FakeEngine.cs` (33 to 59; `DisposeAsync` 62
+    to 75 cancels, disposes the listener and catches only `SocketException` around its await): the same exception between its look and
+    its accept, after a served connection. `BackupPullTests` (77 to 80), `HostFetchStopTests` (72 to 75) and `HealthFeedsTests` (63 to
+    66) accept once, inline, awaited by the test itself before the listener's `using` ends: no loop runs beside a stop, so not on that
+    order.
+  - The catch's filter is argued, not fenced: `catch (InvalidOperationException) when (_stop.IsCancellationRequested)` in
+    `FakeTcpServer`'s accept loop. Removing the `when` would leave every test green. A fence wants a second test-only subclass whose
+    `BeforeAcceptAsync` stops the listener without asking the stop, and then asserts that `DisposeAsync` rethrows
+    `InvalidOperationException`; that needs a protected way to reach the listener, a wider seam inside `FakeTcpServer` than this batch
+    took. Named here for a later batch.
+  - `HostNetworkTests.ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt` failed once on this bench (above),
+    green alone and in its group after, and failed once more at the same line in the committing stage's Fleet-to-Hot part, green when
+    that part ran again. Outside this leave and not touched by it; its cause is read from the code, not observed. After the second
+    pairing the test waits only for live, paired and no hold, and not for the answer to the STATUS the link asks once it pairs (the
+    first pairing has that wait, through the clip). `FakePatternsDesk` (`tests/PlayMap.Engine.Tests/Host/HostRig.cs`, `ServeAsync`)
+    composes that answer from `State` on its serve task, while `PushAsync` sets `State` and writes its push on the test's thread
+    through the same writer. When the answer is composed before the push sets `State` but written after the push, the answer's
+    blackout true lands last, nothing pushes again, and the last wait (line 491, 10 s) runs out. The mend belongs to the test's owner
+    (HostRig.cs and HostNetworkTests.cs): wait for the second pairing's STATUS answer before the push, as the first pairing does, and
+    put the fake desk's writes through one lane.
+  - `ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame` failed, "no GPU time reached STATE" (30 s), in
+    every run of the Engine suite's Align-to-Facade part on this bench in the committing stage. That is three of three: two with this
+    batch, and one at eccb35a0 with this batch set aside (stashed, the tree rebuilt). So it does not come from this batch, which
+    touches no file it reads. fix-ci-nodehost-measure's entry recorded it once before. It was green alone (3 of 3), under six busy
+    loops on the four processors (3 of 3), with its own namespace (1), beside Audio, beside Companion, Control and Decode, beside
+    Align, beside Facade (1 each), and beside `SurveyImportPerfTests` (2). The Facade pairing failed the perf test instead (its
+    lane query 229 ms against 50 ms). Its cause is not named: it needs the whole part's company, and no pairing tried reproduces it.
+    The code path it waits on: a generator's GPU time lands only when a span's timestamps are read back within `GlTimers.Depth` (4)
+    frames, and only when the result is above 0 (`GeneratorHost`, `GpuSpanTimer.Collect`). Outside this leave; for the content
+    host's owner.
+  - Not proven until a Windows run reads it: the sampler's process names taken from the counter path (`dotnet#1`), which is how PDH
+    names a second instance of one name (recalled, not run here); `Write-StepPriority`'s output; and the new `nodehostab` legs (a
+    dispatch of its own, put to the owner's allowance for runs or asked).
