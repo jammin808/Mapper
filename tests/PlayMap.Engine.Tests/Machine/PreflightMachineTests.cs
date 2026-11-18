@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using PlayMap.Core.Bus;
 using PlayMap.Core.Machine;
@@ -11,7 +12,8 @@ namespace PlayMap.Engine.Tests.Machine;
 /// <summary>Preflight's machine section on the engine: the platform's facts become rows of section machine with their labels, lights and
 /// fix lines; a changed GPU driver against the lock is an amber row naming both versions fixed by MACHINE LOCK, gone once locked again;
 /// an enabled display output on the primary display is amber, gone once it moves; every fix line parses as a catalogue line; on a node
-/// that is not Windows, STATE and preflight say "the platform seam is Windows only".</summary>
+/// that is not Windows, STATE and preflight say "the platform seam is Windows only"; and the one test that composes the node's own
+/// platform leaves the shared test host's process as it found it.</summary>
 public sealed class PreflightMachineTests
 {
     private static async Task<IReadOnlyList<PreflightRow>> Rows(MachineRig rig) =>
@@ -102,45 +104,70 @@ public sealed class PreflightMachineTests
     [Fact]
     public async Task OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly()
     {
+        // This test composes the node's own platform on the shared test host. On Windows Configure claims the default process claims for
+        // the process it runs in (HIGH, HighQoS, the GPU class) and the product releases none of them, so what the host was is read
+        // first and put back in the finally, after the part has let go of what it holds: every test after this one runs as the host was.
+        var found = HostProcessState.Read();
+        HostProcessState? held = null;
+        HostProcessState after;
         var parts = new MachineParts(null);
-        var services = parts.Configure(EngineServices.ForTests());
-        await using var engine = new EngineCore(services, Project.CreateDefault("Null platform"));
-        // The render host starts before the extensions, so a thread claims its role before the machine part starts.
-        using var render = services.MachinePlatform.ClaimThread(ThreadRole.Render);
-        await parts.StartAsync(engine, CancellationToken.None);
-        using var decode = services.MachinePlatform.ClaimThread(ThreadRole.Decode);
-        var rows = await services.PreflightChecks.OfType<MachinePreflight>().Single()
-            .RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None);
-        engine.FactsChanged();
-        using var state = JsonDocument.Parse(engine.State().Json);
-        var platform = state.RootElement.GetProperty("machine").GetProperty("platform");
+        try
+        {
+            var services = parts.Configure(EngineServices.ForTests());
+            held = HostProcessState.Read();
+            await using var engine = new EngineCore(services, Project.CreateDefault("Null platform"));
+            // The render host starts before the extensions, so a thread claims its role before the machine part starts.
+            using var render = services.MachinePlatform.ClaimThread(ThreadRole.Render);
+            await parts.StartAsync(engine, CancellationToken.None);
+            using var decode = services.MachinePlatform.ClaimThread(ThreadRole.Decode);
+            var rows = await services.PreflightChecks.OfType<MachinePreflight>().Single()
+                .RunAsync(new PreflightContext(engine, PreflightDepth.Quick, false), CancellationToken.None);
+            engine.FactsChanged();
+            using var state = JsonDocument.Parse(engine.State().Json);
+            var platform = state.RootElement.GetProperty("machine").GetProperty("platform");
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Equal("windows", platform.GetProperty("name").GetString());
+                Assert.Contains(rows, r => r.Id == "machine.os.edition");
+            }
+            else
+            {
+                Assert.Equal(("none", MachineParts.NotWindowsWords, "grey"), (platform.GetProperty("name").GetString(), platform.GetProperty("words").GetString(),
+                    platform.GetProperty("light").GetString()));
+                // The section is the platform's grey row and the driver lock's, nothing amber.
+                var row = Assert.Single(rows, r => r.Id == "machine.platform");
+                Assert.Equal((Light.Grey, "none", "the platform seam is Windows only"), (row.Light, row.Value, row.Note));
+                Assert.Equal(["machine.platform", "machine.lock"], rows.Select(r => r.Id));
+                Assert.All(rows, r => Assert.Equal(Light.Grey, r.Light));
+                // Nothing was claimed, threads' claims included: the one process claim asked nothing and is grey.
+                Assert.Equal("", Assert.Single(render.Claims).Asked);
+                var claim = Assert.Single(platform.GetProperty("claims").EnumerateArray());
+                Assert.Equal(("process", "", false, "grey"), (claim.GetProperty("what").GetString(), claim.GetProperty("asked").GetString(),
+                    claim.GetProperty("applied").GetBoolean(), claim.GetProperty("light").GetString()));
+                // Nothing is held either: keep-awake is asked of a platform that holds nothing, and STATE says it is not held.
+                Assert.False(platform.GetProperty("awake").GetBoolean());
+                Assert.Equal(("", ""), (platform.GetProperty("powerPlan").GetProperty("name").GetString(), platform.GetProperty("powerPlan").GetProperty("kind").GetString()));
+                using var index = JsonDocument.Parse(engine.Companion.Index().Json);
+                var section = index.RootElement.GetProperty("sections").EnumerateArray().Single(s => s.GetProperty("section").GetString() == "machine");
+                Assert.DoesNotContain(section.GetProperty("rows").EnumerateArray(), r => r.GetProperty("light").GetString() == "amber");
+                Assert.DoesNotContain(engine.Journal.Recent(50), e => e.Text.Contains("was refused", StringComparison.Ordinal));
+            }
+        }
+        finally
+        {
+            try
+            {
+                await parts.DisposeAsync();
+            }
+            finally
+            {
+                after = found.PutBack();
+            }
+        }
+        // The fence: the host reads as it was found, every part read before. On Windows the claim moved the class (held above), so this
+        // proves the put back; off Windows the null platform claims nothing and this holds without proving the Windows path.
         if (OperatingSystem.IsWindows())
-        {
-            Assert.Equal("windows", platform.GetProperty("name").GetString());
-            Assert.Contains(rows, r => r.Id == "machine.os.edition");
-        }
-        else
-        {
-            Assert.Equal(("none", MachineParts.NotWindowsWords, "grey"), (platform.GetProperty("name").GetString(), platform.GetProperty("words").GetString(),
-                platform.GetProperty("light").GetString()));
-            // The section is the platform's grey row and the driver lock's, nothing amber.
-            var row = Assert.Single(rows, r => r.Id == "machine.platform");
-            Assert.Equal((Light.Grey, "none", "the platform seam is Windows only"), (row.Light, row.Value, row.Note));
-            Assert.Equal(["machine.platform", "machine.lock"], rows.Select(r => r.Id));
-            Assert.All(rows, r => Assert.Equal(Light.Grey, r.Light));
-            // Nothing was claimed, threads' claims included: the one process claim asked nothing and is grey.
-            Assert.Equal("", Assert.Single(render.Claims).Asked);
-            var claim = Assert.Single(platform.GetProperty("claims").EnumerateArray());
-            Assert.Equal(("process", "", false, "grey"), (claim.GetProperty("what").GetString(), claim.GetProperty("asked").GetString(),
-                claim.GetProperty("applied").GetBoolean(), claim.GetProperty("light").GetString()));
-            // Nothing is held either: keep-awake is asked of a platform that holds nothing, and STATE says it is not held.
-            Assert.False(platform.GetProperty("awake").GetBoolean());
-            Assert.Equal(("", ""), (platform.GetProperty("powerPlan").GetProperty("name").GetString(), platform.GetProperty("powerPlan").GetProperty("kind").GetString()));
-            using var index = JsonDocument.Parse(engine.Companion.Index().Json);
-            var section = index.RootElement.GetProperty("sections").EnumerateArray().Single(s => s.GetProperty("section").GetString() == "machine");
-            Assert.DoesNotContain(section.GetProperty("rows").EnumerateArray(), r => r.GetProperty("light").GetString() == "amber");
-            Assert.DoesNotContain(engine.Journal.Recent(50), e => e.Text.Contains("was refused", StringComparison.Ordinal));
-        }
-        await parts.DisposeAsync();
+            Assert.True(held?.Class == ProcessPriorityClass.High, $"the default claim moved this host to High: found {found.Words}, held {held?.Words ?? "(not read)"}");
+        Assert.True(after == found, $"the test host reads as it was found once the claiming test ends: found {found.Words}, after {after.Words}");
     }
 }

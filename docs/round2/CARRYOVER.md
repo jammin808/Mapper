@@ -5306,3 +5306,184 @@ Round 2 W1 notes:
     second dispatch (or the legs repeated in another order in one job) is what tells run-to-run spread, also the owner's to allow.
   - Not measured by any leg: the GPU class claim's effect, MMCSS on the burner's threads, CPU sets, HAP's AboveNormal workers, a real
     render loop or decode as the burner, a desk with a window in the foreground, and Windows 11's client scheduling.
+
+## Integrator notes from the round-2 fix batch (fix-preflight-priority-leak)
+
+- Done: test-only, no file under `src/`, on the owner's answer 2 of 2026-11-18 ("PlayMap's Windows stall, after run 490's three
+  legs", in Stagewatch's `docs/ecosystem/owner-answers.md`): `PreflightMachineTests`' leak of HIGH into the shared Engine test host,
+  "Fix it after the mend": test-only, strictly after the NodeHost mend has landed and run green, watched over the next Windows runs.
+  The condition is met: run 491 (the push of 7ffde5c6, fix-ci-nodehost-mend) ran the Windows job green, 1,369 Engine tests passed, in
+  the order that used to stall (`NodeHostTests`' PING test ended at 19:16:13, before
+  `PreflightMachineTests.OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly` ended at 19:17:02); its node host row recorded
+  the test host BelowNormal at the start and at the kill, the child High on llvmpipe with its output not enabled, NodeHost 4.2 s, no
+  probe gap; the step's pwsh and its parent `Runner.Worker.exe` both read BelowNormal, base 6 (where the test hosts' base 6 comes
+  from). The leave: `tests/PlayMap.Engine.Tests/Machine/PreflightMachineTests.cs`, one helper beside it
+  (`tests/PlayMap.Engine.Tests/Machine/HostProcessState.cs`, new), README's Build section only where it describes the host's class
+  (nothing there is made untrue: it says a stall needs the test host below the child's class and that the node host row records
+  the host's class, both still so; the line "put the Engine test host at base 8 when it was at 13" is about a past run's reading;
+  README is not edited), and this entry. `NodeHostTests.cs` and `NodeExe.cs` were not needed (the fence sits in the claiming test).
+  `PlatformCallsTests.cs` is read, not edited. Nothing outside the leave was edited.
+  - (1) Every Engine test that makes a real process-wide claim on the shared test host on Windows. Read: every `MachineParts`
+    construction, `ClaimProcess` call, `WindowsPlatformProject`/`WindowsMachinePlatform` use, `EngineParts.Standard()` use and
+    in-process `EngineEntry` run in `tests/PlayMap.Engine.Tests` and `tests/Shared`. ONE test does:
+    `PreflightMachineTests.OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly`, `new MachineParts(null)` then `Configure`,
+    which on Windows composes `WindowsPlatformProject.Create` and calls `ClaimProcess(MachineSettings.Default)` on the process it runs
+    in (`MachineParts.cs` 65 to 73). The others, each read: `DeadlineThreadTests` and `RenderThreadClaimTests` compose
+    `new MachineParts(node, FakePlatform)`; `MachineRig` (every other `PreflightMachineTests` test, `MachineVerbTests`, including its
+    `rig.Recorded.ClaimProcess` at 134) composes its fake platform; the `EngineParts.Standard()` users (`FenceStackGainsTests`,
+    `OpsHostTests`, `InstallPartsTests`, `DeadlineThreadTests`, `QuarantineRenderTests`, `ShadersExtensionTests`, and the
+    `Assert.Contains` readers) take other factories by reference and never `MachineParts.Factory`; `HostLifecycleTests` runs
+    `EngineEntry.RunAsync` in process on `EngineParts.Bare` (no machine part); `OptimiseWorker.Run` and `ShaderWorkerMain.Run`, the
+    only other writers of a process's class in `src/`, set their own class and run only in their child processes, never in the
+    test host; `NodeHostTests` reads the host's class and sets nothing. Process-wide but not a platform claim: `GcShowHook`
+    (`GCSettings.LatencyMode`) acts only on ARM and puts the mode back on disarm; this test never arms.
+  - (2) What the claiming test's `Configure` and `StartAsync` leave on the host on Windows (`WindowsMachinePlatform.ClaimProcess`,
+    `PriorityClass`, `Qos`, `GpuPriority`, `KeepAwake`, `ClaimThread`), and what is now put back:
+    - The priority class, HIGH (`SetPriorityClass`). The product has no release of a process claim: `IMachinePlatform` has only
+      `ClaimProcess`, and `WindowsMachinePlatform.Dispose` lets go of keep-awake alone. So the test reads the class before
+      (`Process.PriorityClass`, through a fresh process object each time, since one object keeps the class it read first) and sets
+      it back after with `Process.PriorityClass`. Put back.
+    - QoS, HighQoS with every timer request honoured (`SetProcessInformation(ProcessPowerThrottling)`, control mask
+      `ExecutionSpeed | IgnoreTimerResolution`, state 0). Read before with `GetProcessInformation` and set back to the state read
+      (on a host nothing claimed: control 0, "auto", Windows' own throttling) through the same call the platform makes. Put back
+      when the read before answered; where Windows does not answer that read the part is neither set nor compared, and STAYS as the
+      claim left it (named in Open).
+    - The GPU scheduling class, `normal` by default (`D3DKMTSetProcessSchedulingPriorityClass`, 2). Read before with
+      `D3DKMTGetProcessSchedulingPriorityClass` and set back only where it reads otherwise after (with the default settings it
+      normally reads the same). Put back where the read answers.
+    - Keep-awake (a power request, display and system required): the default project's one output is an enabled display output and
+      AWAKE is on by default, so on Windows `StartAsync` holds it. Released through the product's own door (`MachineParts.DisposeAsync`
+      lets go of its hold and disposes the platform), which the test called only at its end; it is now in a `finally`, so a failing
+      assertion no longer leaves the power request held for the rest of the host's life.
+    - The render and decode thread claims (thread priority, MMCSS, CPU sets, thread throttling) on the test's own threads: disposed
+      by their `using`, as before, inside the `try`. `WindowsThreadClaim`'s own comment says it reverts the priority, CPU sets and
+      throttling through the thread handle it duplicated, whichever thread disposes it; that is the product's word, not observed on
+      the runner, and Windows' answer to leaving the MMCSS task (`MmcssReverted`, internal to Platform.Windows) is not read by this
+      test (named in Open).
+    - Not claims, said so they are not mistaken for one: the identity and capability reads load system modules (DXGI, gdi32, NVAPI
+      where an NVIDIA adapter is) and leave them loaded, and make and dispose one high-resolution timer; `SeIncreaseBasePriority` is
+      enabled only for a `realtime` GPU class, never by the default settings. Nothing of these can or needs to be put back.
+    - So from this batch on EVERY Engine test on the Windows runner runs at the runner's own class (Below Normal, base 6, as run 491
+      recorded for the step's pwsh, its parent and the test host), with Windows' own throttling and the host's own GPU class,
+      except while the claiming test itself runs (below). Before it, every Engine test that ran after this one in its host ran at
+      HIGH with HighQoS, which depended on test order (runs 484, 485, 486 and 489 had it before `NodeHostTests`; 480, 482, 483,
+      487 and 488 after). A timing-sensitive test that only ever passed at HIGH may now fail.
+  - (3) The fence, in the claiming test itself (the smallest: no fixture, no collection, no order): it reads the host's state
+    (`HostProcessState.Read`) before `Configure`, wraps the test's whole body in `try`, and in the `finally` disposes the part and
+    then, in an inner `finally` so a throwing dispose cannot skip it, puts back the state it found (`HostProcessState.PutBack`, which
+    returns what reads after). After the `finally`: on Windows it asserts the default claim moved the host to High while the body
+    ran (read just after `Configure`), so the fence is never vacuous there; on every OS it asserts that what reads after equals what
+    was found, part by part, every part read before ("the test host reads as it was found once the claiming test ends: found ...,
+    after ..."). The test's own assertions are unchanged and in their order; it still claims through `MachineParts.Configure`; the
+    engine is now disposed at the end of the `try`, before the part (it was after), which reads nothing of the part. Why a later
+    test cannot see a half-restored host: the put back runs synchronously inside the test method's `finally`, before the test's task
+    completes, and xUnit starts no later test of this class until it has; the class is one `SetPriorityClass`, and the three parts
+    are set one after another in the same call. What the fence does NOT close: xUnit runs collections in parallel, so a test of
+    another class running at the same moment sees the host at High while this test's body runs (run 489: 0.77 s); that window was
+    there before and is not widened. If `NodeHostTests` overlaps it, its child is started from a High host (it starts at Normal,
+    base 8, and claims High itself, as run 489 recorded) and the host then drops back below it while the child lives; with
+    fix-ci-nodehost-mend's child drawing nothing (0.03 processors steady, run 490 leg C) that order is the one run 491 already ran.
+    Off Windows the null platform claims nothing, so the fence holds there without proving the Windows path (its comment says so).
+    Mutations on this bench (Linux, root, so the class can be raised by hand; each in a scratch edit, restored and rebuilt): M1, the
+    class set to High by hand right after `Configure` with the put back in place: green; M2, the same with `PutBack`'s class set
+    switched off: red, "the test host reads as it was found once the claiming test ends: found class Normal, QoS unread, GPU class
+    unread, after class High, QoS unread, GPU class unread"; M3, no change by hand with the class set still off: green, which is
+    the point: Linux cannot show the Windows claim. The Windows job, read after the push, is the proof of the Windows path (the
+    held-at-High assertion and the fence, and the QoS and GPU reads and sets, none of which run here).
+  - (4) `tests/PlayMap.Platform.Windows.Tests/PlatformCallsTests.cs`, read, not edited (outside the leave). Five `[WindowsFact]`
+    tests claim through a `WindowsMachinePlatform` of their own on that suite's test host, each disposed with `using` (which lets go
+    of keep-awake only): `EveryProcessClaimAnswersAndTheThrottlingStateReadsBackAsSet` (89 to 104: the default, then `normal` with
+    QoS `auto`, then the default again), `EachRolesThreadClaimAnswersAndItsDisposeRevertsThePriority` (136),
+    `ASecondClaimOnAClaimedThreadJoinsItAndTheLastHolderReverts` (195),
+    `EveryWordHandedToThePlatformReachesTheNextHoldTimerAndThreadClaimAndTheFacts` (224: the default with AWAKE off, so HIGH and
+    HighQoS still), `TheIdentityAndTheFactsAnswerOnThisMachine` (339). Each ends on the default claims, so once the first of them has
+    run, whichever xUnit orders first (xUnit 2 orders a class's tests by their case id, not their place in the file: recalled, not read), that host is
+    left at HIGH, HighQoS (execution speed and timer resolution controlled, none throttled) and GPU class normal for the rest of its
+    life. Under it run: the PlatformCallsTests tests ordered after that one, among them
+    `AThousandWaitsOfOneMillisecondOnEachWaitAreTimedAndRecordedWithNoCeiling` (297), whose two distributions go to the job's
+    evidence and are then taken at HIGH rather than at the runner's class, and the thread-claim tests' "priority put back as it
+    was" reads, made in a HIGH process; and every test of the suite's other classes that runs at the same time or after
+    (`CapabilityTests`, `CpuSetTests`, `DeliveryClaimTests`, `EditionRowTests`, `IdentityTests`, `LatenessTests`, `NetworkRowTests`,
+    `PlatformLayoutTests`, `PlatformPolicyTests`, `PlatformProjectTests`, `PreflightMachineRowTests`, `WindowsTextTests`), all of
+    them pure tests of tables, fakes and readings with no timing bound (`LatenessTests`' one Windows test probes a lock's first
+    wait, no time). No product behaviour is asserted under a borrowed class there, but the waits evidence is.
+- Tests: `PreflightMachineTests.OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly` (the body in a `try`; the part disposed
+  and the host's state put back in the `finally`; on Windows the claim seen at High; on every OS the host as found after);
+  `HostProcessState` (new, test-only: the class on every OS; on Windows the throttling state and the GPU class through
+  `LibraryImport` from the system directory, the same calls `WindowsMachinePlatform` makes, each null where Windows does not
+  answer; `PutBack` sets back only what reads otherwise, the class last, and never throws on a refused set: the read after says
+  so). Mutations M1 to M3 above. Validated on this bench (Linux, SDK 10.0.404, the variables `tools/setup-dev.sh start` prints, the
+  scheduling probe and the node host variables unset): the build whole (`dotnet build PlayMap.sln -c Debug -v q`, the first a
+  whole rebuild, no warning, nothing reported by 10.0.404's analysis); `PreflightMachineTests` (6) green; the Engine classes that
+  fence allocations, threads or handles (`EngineFenceTests`, `DeadlineThreadTests`, `RenderThreadClaimTests`, `AirAudioTests`,
+  `AlignHostTests`, `ArtNetInTests`, `CursorTests`, `DeviceLockHostTests`, `FactsSignalTests`, `FxHostTests`, `HostNetworkTests`,
+  `OmtLoopbackTests`, `RenderHostLockTests`, `RenderHostTests`) with `PreflightMachineTests`: 71 green; the whole Engine suite in
+  six parts naming its 1,372 tests once, green: Align to Facade (Align, Audio, Companion, Content, Control, Decode, Facade) 309;
+  Fleet to Hot (Fleet, Fx, Host, Hot) 171; Install to Presentation (Install, Led, Machine, Optimise, Phone, Presentation) 209 and 2
+  skipped; Rendering to Spine (Rendering, Shaders, Show, Spine) 324 and 4 skipped; Sync to Wall (Sync, Timecode, Undo, VideoIo,
+  Wall) 183; every other namespace 170. `ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame` and
+  `HostNetworkTests.ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt`, known to fail on this bench now and
+  then, passed in these runs.
+  - The review (three low items, all paper; no code changed in the fold-in): the watch items now say a High cell or a base-13 row
+    read inside the claiming test's own body is the parallel window and is read against its times in the `.trx` first; the
+    collection that would close that window is written under Open with its design and why it is not made here (the review offered
+    it as optional; it also moves the claiming test to the end of the host's run); (2) no longer states the thread claims' revert
+    as observed, and the render claim's crossing of an await, with the MMCSS answer unread, is a line under Open.
+  - The committing stage, once after the fold-in (Linux, SDK 10.0.404, the variables `tools/setup-dev.sh start` prints, the
+    scheduling probe and the node host variables unset): the build whole, no warning; `PreflightMachineTests` with the Engine fence
+    classes above, 71 green; M2 again (the class raised to High by hand after `Configure`, `PutBack`'s class set switched off): red
+    on the fence, "found class Normal, QoS unread, GPU class unread, after class High, QoS unread, GPU class unread"; M1 (the class
+    set back on, the raise kept): the class's 6 green; both files then restored byte for byte and the tree rebuilt. The whole
+    Engine suite in six parts naming its 1,372 tests once (the namespace is `Tc`, not `Timecode`, so it is counted in the fifth
+    part here): Align to Facade 309; Fleet to Hot 171; Install to Presentation 209 and 2 skipped; Rendering to Spine 324 and 4
+    skipped; Sync, Tc, Undo, VideoIo, Wall 209; the root namespace 144; all green but the first part, where
+    `ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame` failed "no GPU time reached STATE" (30 s, at
+    `ContentHostTests.cs` 44 from 64 and 71) in both runs with this batch, and in one of three runs with the batch stashed (the
+    tree rebuilt at the branch's head, 15499771) in the same words at the same lines; the other 308 green
+    each time. The part's filter names none of `Machine`, so no line of this batch runs in it; the failure is the one this file
+    has recorded since fix-ci-nodehost-measure (cause not named, it needs the whole part's company), outside this leave, not
+    touched. `HostNetworkTests`' known failure did not occur.
+- Files: `tests/PlayMap.Engine.Tests/Machine/PreflightMachineTests.cs`, `tests/PlayMap.Engine.Tests/Machine/HostProcessState.cs`
+  (new), this entry. No file under `src/`, no csproj, README unchanged.
+- What to watch in the next Windows runs (each one read; a failure is read, never retried or widened, and no bound is moved to
+  make it pass):
+  - The fence in the Windows job: `OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly` green says the host went to High and
+    came back to what it was found at, the class, the throttling state and the GPU class each; red names each part found and after.
+  - The node host row's `host_priority_class_start` and `host_priority_class_kill` cells: BelowNormal in every run whichever test
+    ran first, except a cell read while `OffWindowsStateAndPreflightSayThePlatformSeamIsWindowsOnly`'s own body runs (about 0.8 s,
+    the parallel window in Open), which may read High (before this batch they read High whenever the claiming test had run first in
+    that host).
+  - The machine sampler's base for the Engine test host: 6 in every row of the run, except a row sampled while that test's own body
+    runs, which may read 13 (before: 6 then 13 from the claiming test on, as run 489's sampler showed).
+  - A High cell or a base-13 row is read first against that test's start and end times in the Engine `.trx`: inside its body it is
+    the window, not the mend failing; outside it, it is a finding.
+  - The scheduling probe's episodes and gaps (`tools/probe-read.py` over the Engine probe file with its `.trx`): a test that now
+    runs at base 6 where it used to run at 13 may show waits it did not; any new red test, in the Engine suite or beside it, is
+    read against the probe and the sampler before anything is changed, and said.
+- Open:
+  - `PlatformCallsTests` leaves its own Platform.Windows test host at HIGH, HighQoS and GPU class normal from its first claiming
+    test on (4 above). Outside this leave; the same `HostProcessState` shape (a copy, since the two suites share no helper) with a
+    `finally` in each of the five tests, or one class-level fixture, would put it back. The owner's to allow.
+  - The product has no release of a process claim (`IMachinePlatform.ClaimProcess` has no inverse; `WindowsMachinePlatform.Dispose`
+    lets go of keep-awake only), so a test that claims puts the class back itself. Whether a node, or a platform that is disposed,
+    should hand back the class, QoS and GPU class it claimed is a product question, the owner's (with answer 4, "No change; measure
+    first"); nothing is changed here.
+  - The parallel window: while the claiming test's body runs (about 0.8 s), tests of other classes running at the same time see the
+    host at High. That window was there before and is not widened. The smallest close, inside this leave and the project's own
+    shape: `[Collection(Name)]` on `PreflightMachineTests` with `[CollectionDefinition(Name, DisableParallelization = true)]`, as
+    `GcShowTests.cs` 136 and five other Engine collections do (xUnit 2 runs such collections after the parallel ones, so no test of
+    another class would see the host at High; about four lines, no assertion changed, all six tests of the class serial). Not made
+    here: it also moves the claiming test to the end of the host's run, a change of order in the run whose orders are being watched,
+    and the review offered it as optional; the owner's or a later batch's to take. The other way, composing the test on a fake
+    platform, would stop it proving the real platform's STATE and preflight rows on Windows.
+  - The render claim crosses an await: it is made on an xUnit worker thread before `await parts.StartAsync(...)` and disposed after
+    the test's last await, possibly on another worker, so until then the first worker may run other tests' work with the render
+    claims (AboveNormal, MMCSS Games, the critical CPU set) on it. Behaviour from before this batch, not changed. Whether the MMCSS
+    task is left when the dispose runs on another thread (`WindowsThreadClaim.MmcssReverted`, internal) is unread on the runner.
+  - Where Windows does not answer `GetProcessInformation(ProcessPowerThrottling)` before the claim, the QoS part is not put back
+    (it cannot say what it was) and stays at HighQoS for the rest of the host's life; where `D3DKMTGetProcessSchedulingPriorityClass`
+    does not answer, the GPU class is left as claimed (`normal` by default). Whether either happens on the runner is not read here
+    (no run's record of those reads was read for this batch). Not proven until a Windows run: the three reads and sets through `LibraryImport`, and that the fence is
+    green there.
+  - The installer job's libvmx build (run 491: a newer runner image whose standard library refuses the image's LLVM 20): the
+    owner's, not touched here.
