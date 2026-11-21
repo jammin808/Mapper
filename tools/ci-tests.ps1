@@ -815,7 +815,9 @@ if ($PriorityCost) {
             if ($whole.Count -gt 0) { $total = [double]$whole[0].CookedValue }
             $top = (@($points | Where-Object { "$($_.Path)" -match '\\process\(([^)]*)\)\\' -and $Matches[1] -notin @('_total', 'idle') } |
                         Sort-Object CookedValue -Descending | Select-Object -First 3 | ForEach-Object {
-                            "$(if ("$($_.Path)" -match '\\process\(([^)]*)\)\\') { $Matches[1] })=$(([double]$_.CookedValue / $logical).ToString('0.0', $invariant))%"
+                            $name = if ("$($_.Path)" -match '\\process\(([^)]*)\)\\') { $Matches[1] } else { '' }
+                            $share = ([double]$_.CookedValue / $logical).ToString('0.0', $invariant)
+                            "$name=$share%"
                         }) -join '; ')
         }
         catch { $words = $_.Exception.Message }

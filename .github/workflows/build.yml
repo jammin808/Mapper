@@ -66,6 +66,10 @@ jobs:
       PLAYMAP_NATIVE_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v5
+      # The Windows jobs' PowerShell scripts, read with PowerShell's own parser before anything is built (the runner's pwsh): a script
+      # that does not parse fails every Windows step that calls it, so it fails here first, with its line.
+      - name: Every PowerShell script parses (a fence)
+        run: pwsh -NoProfile -NonInteractive -File tools/ps-parse.ps1 $(git ls-files '*.ps1')
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
