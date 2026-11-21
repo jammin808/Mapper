@@ -9,19 +9,26 @@ namespace PlayMap.PriorityProbe;
 /// defaults) and reads back the class the OS then reports, starts its busy threads at the thread priority a new thread has (as the
 /// Compute pool's threads do), writes its ready file once every thread runs, and stops itself at the instant it was given, on the
 /// machine's monotonic clock: its control thread waits at the highest thread priority, so its stop is on time and it uses no
-/// processor while it waits. Its row, written after the stop, carries the processor time it used from ready to stop.</summary>
+/// processor while it waits. On the way it stamps its process's processor time at the victim's window's start and end, each with the
+/// instant it read it (a burner ready after the window's start stamps at once, and its stamp says so). Its row, written after the stop,
+/// carries the processor time it used from ready to stop and those two stamps. On Windows a thread's processor time is counted in clock
+/// ticks, so the process's total moves by whole ticks per thread.</summary>
 internal static class Burner
 {
     private static int _stop;
 
-    /// <summary>burner --dir D --threads N --class high|normal --until MONO_NS: exit 0, or 3 when the class it was told is not the
-    /// class Windows reads back (its row is written either way).</summary>
+    /// <summary>burner --dir D --threads N --class high|normal --from MONO_NS --to MONO_NS --until MONO_NS: exit 0, or 3 when the class it
+    /// was told is not the class Windows reads back (its row is written either way). --from and --to are the victim's window.</summary>
     public static int Run(Args args)
     {
         var dir = args.Text("dir");
         var threads = (int)Math.Min(args.Integer("threads"), 1024);
         var cls = args.Word("class", "high", "normal");
+        var from = args.Integer("from");
+        var to = args.Integer("to");
         var until = args.Integer("until");
+        if (from > to || to > until)
+            throw new ArgumentException("--from, --to and --until are instants in that order");
         Directory.CreateDirectory(dir);
         Thread.CurrentThread.Priority = ThreadPriority.Highest;
 
@@ -70,8 +77,20 @@ internal static class Burner
         Files.WriteAllLines(Path.Combine(dir, "burner.ready"),
             [string.Create(CultureInfo.InvariantCulture, $"{readyNs},{(classOk ? "ok" : "class not read back as told")},{Environment.ProcessId}")]);
 
+        double cpuAtStart;
+        long stampStart;
+        double cpuAtEnd;
+        long stampEnd;
         using (var timer = new RuntimeDeadlineTimer())
+        {
+            timer.WaitUntil(from);
+            stampStart = MonoClock.Instance.NowNs;
+            cpuAtStart = Os.ProcessCpuMs();
+            timer.WaitUntil(to);
+            stampEnd = MonoClock.Instance.NowNs;
+            cpuAtEnd = Os.ProcessCpuMs();
             timer.WaitUntil(until);
+        }
         var cpu1 = Os.ProcessCpuMs();
         var stopNs = MonoClock.Instance.NowNs;
         Volatile.Write(ref _stop, 1);
@@ -88,6 +107,8 @@ internal static class Burner
             stopNs.ToString(CultureInfo.InvariantCulture), wallMs.ToString("0.0", CultureInfo.InvariantCulture),
             (cpu1 - cpu0).ToString("0.0", CultureInfo.InvariantCulture),
             wallMs > 0 ? ((cpu1 - cpu0) / wallMs).ToString("0.00", CultureInfo.InvariantCulture) : "",
+            cpuAtStart.ToString("0.0", CultureInfo.InvariantCulture), stampStart.ToString(CultureInfo.InvariantCulture),
+            cpuAtEnd.ToString("0.0", CultureInfo.InvariantCulture), stampEnd.ToString(CultureInfo.InvariantCulture),
         ]]);
         return classOk ? 0 : 3;
     }

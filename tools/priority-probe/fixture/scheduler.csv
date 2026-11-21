@@ -1,0 +1,2 @@
+utc,when,os,processors,win32_priority_separation,timer_minimum_100ns,timer_maximum_100ns,timer_current_100ns,logical_processors,cores,smt,words
+2026-11-21T12:00:00.0000000Z,the job's reading before any leg,Microsoft Windows 10.0.26100,4,38,156250,5000,156250,4,2,yes,

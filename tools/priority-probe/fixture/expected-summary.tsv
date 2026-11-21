@@ -1,0 +1,9 @@
+row	holds	why
+high-n	| 2 | 13, 0 (0 to 13) |	each repeat's missed slots in the runs' order, then the lowest and the highest: nothing is averaged
+high-n	| 292.0, 1.0 (1.0 to 292.0) | 150.0, 51.0 (51.0 to 150.0) |	each repeat's worst tick by wake, and beside it the longest with no tick woke, which says a tick frozen across the window
+high-n	| >= 1100.0, >= 1748.0 |	each repeat's longest pool wait keeps the >= of a lower bound: the one pending at the window's end and the one pending at its start
+normal-n	| 300.0 |	the longest completed wait stands over a shorter lower bound, unmarked
+high-n1	| >= 5196.6 |	an item that never ran is a lower bound in the spread
+#02 high-n	>= 1100.0 ms (it ran 5.000 ms after the burner stopped)	a pending item's wait is printed as at least, with when it ran
+#03 high-n	>= 1748.0 ms (queued 243.000 ms before the window's start; still waiting at the window's end; it ran 5.000 ms after the burner stopped)	the item pending at the window's start is in the window's table, its part before the window said
+#05 high-n1	>= 5196.6 ms (it never ran while the victim waited for it)	an item that never ran is pending, its wait bound to the victim's stamp

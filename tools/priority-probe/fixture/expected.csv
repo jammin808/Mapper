@@ -1,0 +1,51 @@
+folder,column,value,why
+leg-01-baseline,slots,15,the window's slots are every slot rebuilt from the frames' rows
+leg-01-baseline,missed_slots,0,a leg with nothing held misses no slot
+leg-01-baseline,lead_s,-,a leg with no burner has no burning lead
+leg-01-baseline,ticks_by_wake,5,ticks are counted by their wake
+leg-02-high-n,slots,30,frames and missed slots tile the window's 30 slots one for one
+leg-02-high-n,frame_slots,17,frames in the window are counted from every rebuilt slot
+leg-02-high-n,missed_slots,13,a stall that straddles the window's start counts its 12 slots inside the window (and a frame 30 ms late one more)
+leg-02-high-n,due_rule_frames,17,the due rule's frames are kept beside the rebuilt count
+leg-02-high-n,due_rule_missed,1,the due rule charges the straddling stall to its own due before the window: kept beside and labelled; never the window's count
+leg-02-high-n,frames_started,18,frames by start count the stalled frame that started inside the window
+leg-02-high-n,lateness_by_start_max_ms,400.300,the stalled frame's lateness is read by its start
+leg-02-high-n,longest_no_frame_done_ms,210.3,the longest stretch in the window with no frame finished runs from the window's start to the stalled frame's end
+leg-02-high-n,ticks_by_wake,7,a tick due before the window that woke inside it (a frozen tick) is counted by its wake
+leg-02-high-n,ticks_by_due,6,the due rule drops the frozen tick: kept beside and labelled
+leg-02-high-n,overshoot_by_wake_max_ms,292.000,the frozen tick's overshoot is read
+leg-02-high-n,longest_no_tick_ms,150.0,no tick woke in the window's first 150 ms
+leg-02-high-n,pool_queued,6,pool items are in the window by their queue time
+leg-02-high-n,pool_run,5,an item still waiting at the window's end is not counted as run
+leg-02-high-n,dispatch_max_ms,0.050,a pending item's wait is never among the completed waits
+leg-02-high-n,pool_pending_at_end,1,the item queued 0.4 s into the window ran only after the burner stopped: pending at the window's end
+leg-02-high-n,pool_pending_at_least_ms,1100.0,a pending item's wait is a lower bound (printed as at least)
+leg-02-high-n,lead_s,0.400,the burner was ready 0.4 s before the window: the burning lead is its own row
+leg-02-high-n,lead_frame_slots,13,the lead's slots are counted apart from the window's
+leg-02-high-n,lead_missed_slots,11,the straddling stall's slots before the window are the lead's and never the window's
+leg-02-high-n,lead_ticks_by_wake,5,the lead's ticks are counted by their wake apart from the window's
+leg-02-high-n,burner_processors_in_window,3.40,the burner's processors are read from its own stamps at the window's bounds (1700 ms over 500 ms) and never from its whole life
+leg-02-high-n,burner_processors_ready_to_stop,3.96,the burner's whole life from its ready to its stop (7524 ms over 1900 ms) is kept apart from the window's figure
+leg-02-high-n,victim_processors_in_window,0.04,the victim's processors are read from its own stamps (taken late: their span is the one used)
+leg-02-high-n,timer_at_window_end,15.625 ms,the timer's resolution the victim read at the window's end
+leg-02-high-n,pool_pending_at_start,0,no item queued before the window was still waiting at its start
+leg-02-high-n,pool_longest_wait,>= 1100.0,the window's longest pool wait is the pending item's lower bound and says so
+leg-03-high-n,missed_slots,0,a second high-n run with no stall misses no slot
+leg-03-high-n,lead_frame_slots,24,its lead's slots are its own
+leg-03-high-n,pool_queued,0,an item queued in the lead is never among the items queued in the window
+leg-03-high-n,pool_pending_at_end,0,the item queued in the lead is not counted as queued in the window and pending at its end
+leg-03-high-n,pool_pending_at_start,1,the item queued in the lead 243 ms before the window and run only after the burner stopped held the window from its start: it is the window's
+leg-03-high-n,pool_longest_wait,>= 1748.0,an item pending at the window's start and not run by its end is in the window's longest wait as a lower bound
+leg-03-high-n,burner_processors_in_window,3.90,each run's burner is read from its own stamps
+leg-04-normal-n,lead_s,-,a burner ready at the window's start has no lead
+leg-04-normal-n,pool_queued,5,the items queued in the window by their queue time
+leg-04-normal-n,pool_run,4,the item queued 39 ms before the window's end ran after it: not run in the window
+leg-04-normal-n,dispatch_max_ms,300.000,the longest completed wait
+leg-04-normal-n,pool_pending_at_end,1,the item still waiting at the window's end is pending
+leg-04-normal-n,pool_pending_at_least_ms,100.0,its wait is a lower bound
+leg-04-normal-n,pool_longest_wait,300.0,a lower bound shorter than a completed wait never hides it and the completed wait is not marked >=
+leg-05-high-n1,pool_queued,3,an item a tick queued that never ran is counted as queued
+leg-05-high-n1,pool_run,2,an item that never ran is not counted as run
+leg-05-high-n1,pool_pending_at_end,1,an item that never ran (no pool row) is pending at the window's end
+leg-05-high-n1,pool_pending_at_least_ms,5196.6,its wait runs to the victim's own stamp of the end of its wait for it (pool_wait_end_mono_ns) and is a lower bound
+leg-05-high-n1,pool_longest_wait,>= 5196.6,the never-run item's lower bound is the window's longest wait

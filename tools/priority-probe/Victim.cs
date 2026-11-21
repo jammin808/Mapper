@@ -10,8 +10,10 @@ namespace PlayMap.PriorityProbe;
 /// window's end, each stamping every period on the machine's monotonic clock into rows made before the first period (nothing is
 /// allocated in a loop): a frame loop on one thread (the fixed piece of work the calibration made about 10 ms on the quiet runner,
 /// every 16.667 ms, waiting on the timer the product's platform makes); a light thread that only waits 50 ms on the runtime's own wait
-/// and wakes (a UI tick); and one pool item, queued at each tick while the one before has run (dispatch latency). Its files are
-/// written once the window has ended.</summary>
+/// and wakes (a UI tick); and one pool item, queued at each tick while the one before has run (dispatch latency). A fourth thread, at
+/// the highest thread priority, only waits for the window's start and end and stamps the process's processor time and the timer's
+/// current resolution at each, with the instant it took them (a thread the load holds stamps late, and its stamp says how late). Its
+/// files are written once the window has ended.</summary>
 internal sealed class Victim : IDisposable
 {
     public const long FramePeriodNs = 16_666_667;
@@ -24,6 +26,7 @@ internal sealed class Victim : IDisposable
     private readonly long _endNs;
     private readonly IDeadlineTimer _frameTimer;
     private readonly RuntimeDeadlineTimer _tickTimer = new();
+    private readonly RuntimeDeadlineTimer _boundsTimer = new();
     private readonly PoolItem _pool;
 
     private readonly long[] _frameDue;
@@ -39,6 +42,13 @@ internal sealed class Victim : IDisposable
     private readonly bool[] _tickPending;
     private int _ticks;
     private int _ticksDropped;
+
+    private double _cpuAtStartMs = double.NaN;
+    private long _cpuStartStampNs;
+    private double _cpuAtEndMs = double.NaN;
+    private long _cpuEndStampNs;
+    private string _timerAtStart = "";
+    private string _timerAtEnd = "";
 
     private Victim(string dir, long work, double seconds, double lead, IDeadlineTimer frameTimer)
     {
@@ -94,17 +104,20 @@ internal sealed class Victim : IDisposable
 
         var frame = new Thread(victim.FrameLoop) { IsBackground = true, Name = "victim frame loop" };
         var tick = new Thread(victim.TickLoop) { IsBackground = true, Name = "victim tick" };
+        var bounds = new Thread(victim.BoundsStamps) { IsBackground = true, Name = "victim window bounds", Priority = ThreadPriority.Highest };
         frame.Start();
         tick.Start();
+        bounds.Start();
         // The ready file names the window the controller starts the burner into: [start, end) on the machine's monotonic clock.
         Files.WriteAllLines(Path.Combine(dir, "victim.ready"),
             [string.Create(CultureInfo.InvariantCulture, $"{victim._startNs},{victim._endNs},{Environment.ProcessId}")]);
         frame.Join();
         tick.Join();
+        bounds.Join();
         var pendingAtEnd = victim._pool.WaitIdle(TimeSpan.FromSeconds(5));
+        var poolWaitEnd = MonoClock.Instance.NowNs;
         var gc1 = GC.CollectionCount(0);
         var cpu1 = Os.ProcessCpuMs();
-
         victim.WriteRows(anchorMono, anchorUtc);
         Files.WriteCsv(Path.Combine(dir, "victim.csv"), Rows.VictimHeader,
         [[
@@ -118,8 +131,30 @@ internal sealed class Victim : IDisposable
             victim._ticks.ToString(CultureInfo.InvariantCulture), victim._ticksDropped.ToString(CultureInfo.InvariantCulture),
             victim._pool.Count.ToString(CultureInfo.InvariantCulture), pendingAtEnd ? "yes" : "no",
             (gc1 - gc0).ToString(CultureInfo.InvariantCulture), (cpu1 - cpu0).ToString("0.0", CultureInfo.InvariantCulture),
+            Ms(victim._cpuAtStartMs), victim._cpuStartStampNs.ToString(CultureInfo.InvariantCulture),
+            Ms(victim._cpuAtEndMs), victim._cpuEndStampNs.ToString(CultureInfo.InvariantCulture),
+            victim._timerAtStart, victim._timerAtEnd, poolWaitEnd.ToString(CultureInfo.InvariantCulture),
         ]]);
+        // After the victim's own rows, and never throwing: the scheduler's reading never costs the leg its rows or its exit code.
+        Scheduler.Write(Path.Combine(dir, Scheduler.File), "the victim's end");
         return classOk ? 0 : 3;
+    }
+
+    private static string Ms(double ms) => double.IsNaN(ms) ? "" : ms.ToString("0.0", CultureInfo.InvariantCulture);
+
+    /// <summary>The process's processor time (all its threads, the runtime's own among them) and the timer's current resolution at the
+    /// window's start and end, each with the instant it was read: the window's processor use is read from these, never from the whole
+    /// life. On Windows a thread's processor time is counted in clock ticks, so the process's total moves by whole ticks per thread.</summary>
+    private void BoundsStamps()
+    {
+        _boundsTimer.WaitUntil(_startNs);
+        _cpuStartStampNs = MonoClock.Instance.NowNs;
+        _cpuAtStartMs = Os.ProcessCpuMs();
+        _timerAtStart = Os.TimerCurrent();
+        _boundsTimer.WaitUntil(_endNs);
+        _cpuEndStampNs = MonoClock.Instance.NowNs;
+        _cpuAtEndMs = Os.ProcessCpuMs();
+        _timerAtEnd = Os.TimerCurrent();
     }
 
     private void FrameLoop()
@@ -133,7 +168,8 @@ internal sealed class Victim : IDisposable
             Work.Run(_work);
             var done = MonoClock.Instance.NowNs;
             var cpu1 = Os.ThreadCpuNs();
-            // A period whose whole slot passed with no frame started in it is missed: the loop never runs back to back to catch up.
+            // Each slot after this frame's own that ends at or before this frame's work ends is missed (the frame was still at work
+            // when it closed), so frames and missed slots tile the periods one for one; the loop never runs back to back to catch up.
             var next = due + FramePeriodNs;
             var missed = 0;
             while (next + FramePeriodNs <= done)
@@ -205,10 +241,12 @@ internal sealed class Victim : IDisposable
         Files.WriteCsv(Path.Combine(_dir, "pool.csv"), Rows.PoolHeader, pool);
     }
 
-    /// <summary>Lets go of what the victim owns: the tick's timer and the pool item's event (the frame timer is its caller's).</summary>
+    /// <summary>Lets go of what the victim owns: the tick's and the bounds' timers and the pool item's event (the frame timer is its
+    /// caller's).</summary>
     public void Dispose()
     {
         _tickTimer.Dispose();
+        _boundsTimer.Dispose();
         _pool.Dispose();
     }
 

@@ -5761,3 +5761,177 @@ Round 2 W1 notes:
     batch against 3 of 3 with it stashed is recorded, not explained: the batch's files do not reach it (it runs in the `render host`
     serial collection on `Rendering/HostRig.cs`, and no class of its part uses a changed file), and earlier entries record it failing
     with their batches stashed, so noise is plausible, but three runs against three do not show it.
+
+## Integrator notes from the round-2 fix batch (fix-priority-probe-reader)
+
+- Done: tools and CI only, no file under `src/`, no test project, on the owner's answer 2 of 2026-11-21 (Stagewatch's
+  `docs/ecosystem/owner-answers.md`, "After PlayMap's runs 491 to 494 and the priority measurement's check": "Continue with your
+  recommendations"): the priority probe's reader rebuilds every frame slot, reports the burning lead before each window, marks pool
+  waits still pending at the window's end as lower bounds, the victim and the burner stamp their processor time at the window's
+  bounds, the runner's scheduler settings are recorded, the papers say what the data supports, and the probe and its reader are built
+  and checked on every push; the dispatched job runs the legs repeated and in another order (the one more dispatch the answer names
+  follows once this is pushed: the owner's to start). The product's default priority class and the other product calls stay as they
+  are. The leave: `tools/priority-probe/` (the project file stays `.csproj.in`), `tools/ci-tests.ps1`, `.github/workflows/build.yml`,
+  README's Build section, this entry. Nothing outside it was edited.
+- The corrections, each against fix-ci-priority-measure's entry above (that entry is left as it was written; read it with these):
+  - (1) Missed slots. That entry said the reader puts a frame in the window "by its due time" and counts "the periods missed after it
+    (a whole period whose slot passed with no frame started)". Both are wrong for a stall that straddles the window's start: the due
+    rule charges a frame's `missed_after` to that frame's own due, so a frame due before the window whose work ran into it drops every
+    slot it held inside the window, and the last frame's slots run past the window's end. And `Victim.cs` (the frame loop, lines
+    137-143 at 15499771) counts a slot missed when the frame before it is still at work at the slot's end, even if that frame started
+    inside it. The reader now rebuilds every slot (each frame's due, then due + k x 16.667 ms for k up to its `missed_after`; the
+    slots are contiguous in every leg of run 493 and in every leg the reader has read, and a break would be said beside the count) and
+    counts frames and missed from the slots inside the window; the due rule's figures stand beside, labelled. It also gives the
+    longest stretch in the window with no frame finished (start + work wall), with the whole stretch it belongs to. The frame loop's
+    comment in `Victim.cs` now says the rule as the code keeps it (the code is unchanged).
+  - (2) Frames by start and ticks by wake. That entry put ticks in the window by their due; the tick due 48 ms after high-n's burner
+    came up woke 5,965 ms late inside the window and was dropped. Frames are now counted by their start (with their lateness by start
+    beside the lateness by due) and ticks by their wake (with the due rule's count and overshoot beside), and the longest stretch in
+    the window with no tick woke is given: run 493's high-n reads 286 ticks by wake (285 by due), none in the window's first
+    3,380.0 ms, one 5,965.5 ms late, as the check found.
+  - (3) The burning lead. That entry and README said each leg's window "is the victim's 20 s cut to the time its burner was burning";
+    the burner starts at the victim's ready (`Program.cs`, the leg), 2.63 to 2.76 s before the window in run 493, and those seconds
+    were never counted. The lead is now a table of its own per leg (its length, its slots, frames and missed slots by the same
+    rebuild, its longest stretch with no frame finished, its ticks by wake and longest stretch with none), and the papers say it is
+    never in the window's figures.
+  - (4) Pool waits. That entry printed the dispatch p99 and max of every item queued in the window, so high-n's one item, which ran
+    3.9 ms after the burner stopped, read as a 17,626.7 ms wait. An item still waiting at the window's end is now pending: counted
+    apart, its wait printed as `>= x ms` with when it ran (after the window's end, or after the burner stopped), and never among the
+    completed waits. An item a tick queued that no pool row records (the victim's 5 s wait for it ran out) is pending too, its lower
+    bound to the end of that wait (the new `pool_wait_end_mono_ns` in `victim.csv`; to the window's end where an older run has none).
+    An item queued before the window (in the lead) and not yet run at its start held the window from its start, so it is the
+    window's too: counted apart as pending at the window's start, with its whole wait and the part of it before the window, a lower
+    bound while it had still not run at the window's end (a tick that queued one in the lead and has no pool row likewise); before the
+    review it was in no table. The longest pool wait (the spread table, `pool_longest_wait`) is the larger of the longest completed
+    wait and the largest lower bound, `>=` only when the bound is the larger, so neither hides the other.
+  - (5) Processors at the window's bounds. That entry's "processors used" was the burner's ready to stop (23.6 to 23.8 s: about
+    2.7 s before the window and 1.0 s after it) and the victim's whole life. The victim now has a fourth thread, at the highest thread
+    priority, that only waits for the window's start and end and stamps the process's processor time and the timer's current
+    resolution at each, with the instant it took them; the burner's control thread (already at the highest thread priority) does the
+    same at the victim's window (`--from`, `--to`). The reader gives each process's processors over its own stamps' span, and says how
+    late a stamp was when it was more than 1 ms late (a victim held by a HIGH burner stamps late, and its span is the one used). The
+    ready-to-stop figure stays beside, labelled. On Windows a thread's processor time is counted in clock ticks (15.625 ms at the
+    default resolution), so a 20 s window's figure is good to about a tick per thread: the reader's notes and README say so where it
+    is read. The bounds thread adds two waits and two wakes to the victim: a victim of four threads, which the papers say.
+  - (6) The runner's scheduler. That entry said Server's quanta "are longer and fixed" (recalled, not measured); the check found
+    normal-n's starts no later than 29.3 ms, median 7.5 ms, which fits round-robin on a quantum of about two clock ticks, not twelve,
+    and the value was not read. `calibrate` now writes `scheduler.csv` once for the job (the job's reading before any leg) and each
+    victim once more into its leg's folder at its end: Win32PrioritySeparation
+    (`HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl`, read with the registry opened for reading), the timer's resolution as
+    `NtQueryTimerResolution` gives it to the process (minimum, maximum and current in 100 ns units, under the call's own names), and
+    the processors' layout (on Windows from `GetLogicalProcessorInformationEx`'s core records: their count, each one's `LTP_PC_SMT`
+    flag, the bits of their group masks; on Linux from `/sys/devices/system/cpu`). Each is a reading, guarded (a read that fails is an
+    empty cell and words), never set; `Scheduler.Write` never throws (a failure its readers do not name leaves the row's cells empty
+    with the failure in its words cell, and a row that cannot be written is said on the output), and the victim writes it after its
+    own rows, so the reading never costs a leg its rows or its exit code. The summary gives the job's reading and any leg whose own
+    differs; each victim also records the timer's current resolution at its window's start and end.
+  - (7) Legs in another order and repeated. That entry ran six legs once in a fixed order. `Legs.Order` in `Program.cs` is now the one
+    place the order is written: a baseline; `high-n1`, `normal-n1`, `normal-n1`, `high-n1`, `high-n1`, `normal-n1`; `normal-n`,
+    `high-n`, `high-n`, `normal-n`, `normal-n`, `high-n`; `high-n-runner`; a baseline: 15 legs, three of each burned kind, each pair
+    alternated (A B B A A B), the cores-less-one pairs before the every-processor pairs. `PlayMap.PriorityProbe order` prints it,
+    `leg --run K` runs its K-th leg into `leg-KK-<name>` (a repeat never meets the files of the one before; `leg --name` is gone), and
+    `tools/ci-tests.ps1 -PriorityCost` reads the order from the probe, never writing it again. A summary table gives, per leg kind,
+    each repeat's missed slots, longest stretch with no frame finished, worst tick by wake, longest stretch with no tick woke (a tick
+    frozen across the whole window has no wake, so the worst tick reads `-` there) and longest pool wait (`>=` a lower bound), with
+    the lowest and highest beside: nothing is averaged. The order's shape is written out only in `Legs.Order`'s own comment; the
+    input's description, the job's comment, `ci-tests.ps1`'s header and README point at it. The ratio-to-the-baseline table is gone: with two baselines there is no
+    one baseline to divide by, and a ratio hid a stall's count behind a factor; each baseline's figures stand beside the burned legs'.
+    Expected length: run 493's legs took about 24 s each, so 15 legs take about 6 minutes, and with the checkout, the SDK and the
+    probe's build (about 2 minutes on run 493) the job about 9; the step holds the legs to a budget of 22 minutes (each leg's deadline
+    4, down from 5; the probe's own bounds end a leg within about 3), starts a leg only while the budget still holds its deadline, and
+    says the legs it did not run (the run fails then), so the job stays inside its 30.
+  - (8) A fence on every push. That entry's Open said the probe "is built only by the dispatched job". The Linux test job now runs
+    `tools/priority-probe/selfcheck.sh "$RUNNER_TEMP/priority-probe"` after the Companion module's step (whatever the suites said):
+    the copy built outside the checkout as the dispatched job builds it, with the run's own `-p:PlayMapRun` and `-p:PlayMapCommit` so
+    the projects it references build as the solution's build left them (on this bench a Release build of `PlayMap.Platform.Windows`
+    stamped with a run number and commit, then the script with the same two, left `PlayMap.Core.dll` and
+    `PlayMap.Platform.Windows.dll` byte for byte and time for time as they were), then `selfcheck --fixture
+    tools/priority-probe/fixture`: the reader over a copy of five hand-made legs (32 kB: a baseline; a high-n with a frame stalled
+    in the lead whose 23 missed slots straddle the window's start, a frame 30 ms late inside the window, a tick frozen from the lead
+    into the window, a pool item queued inside the window that runs only after the burner stopped, a burning lead of 0.4 s, and both
+    processes' window stamps, the burner's whole life (7524 ms over 1900 ms, 3.96) apart from its window (3.40); a second high-n run
+    with no stall whose one pool item, queued in the lead 243 ms before the window, runs only after the burner stopped; a normal-n
+    with no lead whose 300 ms completed wait stands over a 100 ms lower bound; a high-n1 whose item never ran, with no pool row),
+    whose rows follow the victim's own loop rules, each of the 50 figures `fixture/expected.csv` names (folder, column of
+    `summary.csv`, value, why) held to its value as text, and each of the 8 lines `fixture/expected-summary.tsv` names (a row's
+    first cell, text the row must hold, why; tab-separated, the tables' cells carrying commas) looked for in `summary.md`: the high-n
+    spread row with both repeats' figures and their lowest and highest, the `>=` of each lower bound. `selfcheck.sh` builds in a
+    fresh folder it makes inside the one given (`mktemp -d`) and removes at its end, so it never deletes what it did not make. A
+    figure that differs fails the step with its words, e.g.
+    "selfcheck: leg-02-high-n missed_slots: expected 13, read 1: a stall that straddles the window's start counts its 12 slots inside
+    the window (and a frame 30 ms late one more)". The expected figures were counted from the generated rows by an independent count
+    (the check's method, in Python) before the reader was run over them; the generator and that count were scratch and are not
+    kept (the fixture is data, and each figure's why in `expected.csv` says what it holds). The step is what the default jobs gain: the copy's build
+    (27 s on this bench, the referenced projects already built) and a reader run under a second.
+- Run 493's table, read again by the new reader from the run's raw files (a copy), as the check rebuilt it (one Windows Server 2025
+  VM, 4 processors, n=1 per leg in a fixed order; the stamps (5) and the scheduler (6) not recorded in that run):
+  | Leg | Frames / missed of 1200 slots (rebuilt) | Due rule | Longest with no frame finished in the window | Ticks by wake (due rule); worst | Pool: run / queued; pending | Lead: frames / missed of its slots |
+  |---|---|---|---|---|---|---|
+  | baseline | 1200 / 0 | 1200 / 0 | 18.1 ms | 371 (371); 15.3 ms | 371 / 371; none | no burner |
+  | high-n | 2 / 1198 | 2 / 1055 | 16,600.8 ms (+3.399 s to the end; whole 17,615.8 ms) | 286 (285); 5,965.5 ms; none in the first 3,380.0 ms | 0 / 1; >= 17,626.7 ms, ran 3.9 ms after the burner stopped | 1 / 157 of 158 (2.633 s) |
+  | normal-n | 1096 / 104 | 1096 / 104 | 72.8 ms | 306 (307); 36.0 ms | 306 / 306; none | 147 / 16 of 163 (2.721 s) |
+  | high-n1 | 1157 / 43 | 1157 / 41 | 99.8 ms | 335 (334); 145.8 ms | 335 / 335; none | 152 / 12 of 164 (2.738 s) |
+  | normal-n1 | 1195 / 5 | 1195 / 5 | 42.5 ms | 356 (356); 32.8 ms | 356 / 356; none | 164 / 1 of 165 (2.760 s) |
+  | high-n-runner | 6 / 1194 | 6 / 1049 | 8,294.5 ms (+3.502 s to +11.797 s) | 281 (280); 6,210.4 ms; none in the first 3,477.6 ms | 1 / 2 (8,312.2 ms run); >= 9,283.2 ms, ran 81.5 ms after the burner stopped | 0 / 165 of 165 (2.760 s) |
+  Burner processors, ready to stop (the only figure that run has): 3.96, 3.36, 2.99, 2.95, 3.97. Lateness percentiles and the work
+  wall over processor ratio are not to be read in high-n and high-n-runner (they rest on 2 and 6 frames).
+- The check's standings for the owner, in short (each one run per leg, fixed order, one 4-processor Server VM; none is a pass mark
+  or a recommendation):
+  - The default class (HIGH today): a HIGH spinner on all 4 processors left a Normal process doing 10 ms every 16.7 ms 2 of 1200 slots,
+    every one of its threads frozen about 6 s from the spinner's start and a queued item not run after at least 17.6 s; the same at
+    NORMAL left it 1096 of 1200 (8.7 % missed), no start later than 29 ms, no gap over 73 ms; the HIGH spinner used 3.96 processors,
+    the NORMAL one 3.36; at either class the runner's Below Normal processes were held 11 to 20 s. Not said: what HIGH buys the node
+    (nothing measured the node's own timing beside other load), whether a node keeps every processor busy in a show, whether it
+    repeats, or how a Windows 11 client with a desk in front behaves.
+  - A processor floor: with one of 4 processors unburned the one-thread victim kept working at either class (HIGH 43 missed, worst
+    84 ms in the window and 125 ms at its edge; NORMAL 5, worst 26 ms; longest gaps 100 and 43 ms), though nothing imposed the floor
+    (the spinner ran 3 threads), its own threads queued behind each other on the free processor, and the Below Normal controller still
+    lagged about 4 s. Not said: whether one free processor is enough for a desk of several threads, a floor imposed by CPU sets, or
+    whether the HIGH-against-NORMAL difference at N-1 is the class's (one run each; a disturbance about every 550 ms of unknown source
+    carries most of the HIGH leg's misses).
+  - Cores less one: only indirectly. Read from code, not run: Compute (`Compute.cs` 102) and HAP (`HapWorkers.cs` 92) each take N-1
+    on their own; HAP's workers claim the Decode role at AboveNormal; software decode takes FFmpeg's own thread count per clip; the
+    render thread is AboveNormal with MMCSS; nothing caps their sum. The N-1 legs describe a node whose total stays at N-1.
+  - The supervisor's and the desk's class: beside HIGH on every processor a Normal and a Below Normal victim fared alike (2 and 6 of
+    1200 slots; both froze about 6 s). No victim ran above Normal.
+- The review's items, folded in (each in the corrections above where it belongs): an item pending at the window's start counted
+  as the window's (4); the fixture's burner whole life made consistent with itself and apart from its window stamps, with
+  `burner_processors_ready_to_stop` held beside (8); `summary.md` held by `expected-summary.tsv`, with a second high-n run so the
+  spread is read with repeats (8); the spread's longest with no tick woke and the longest pool wait as the larger of the completed and
+  the bound (4, 7); `selfcheck.sh` in a folder of its own making (8); the scheduler's reading after the victim's rows and never
+  throwing (6); the never-run path in the fixture (8); the order's words pointing at `Legs.Order` (7). None rejected.
+- Tests: no test project was touched; the fence is the Linux step above. Validated on this bench (Linux, four processors, SDK
+  10.0.404, another tree building beside; a reading, not the runner's): the probe's copy built outside the checkout (Release, no
+  warning) through `selfcheck.sh`; `selfcheck` green (28 of 28 before the review, 58 of 58 after it); the same copy changed in a
+  scratch folder so the reader counted missed slots by the due rule, ticks by due and a pending item as run failed with 6 of 28
+  figures and their words, and the window widened over the lead failed with 16 of 28; after the review, each of these changes
+  failed it with its words: the burner's window read from its whole life (2 of 58), the items pending at the window's start dropped
+  (4), the old longest wait (a pending bound whenever there is one: 2), the spread's repeats averaged (2), the spread's `>=`
+  dropped (2), the never-run items dropped (6), the spread's longest with no tick woke dropped (1); the reader over a copy of run 493's raw files reproduced the check's rebuilt counts
+  (above) and its lower bounds, the new columns said as not recorded; `order` printed the 15 legs; `legs` with 2 s legs and a 1 s
+  lead ran all 15 in 60 s, every leg ok, every log empty, `scheduler.csv` at the root and in every leg (Linux: Win32PrioritySeparation
+  and the timer said as not read, 4 logical processors on 4 cores, SMT no), both processes' window stamps read (stamped 0.2 to 4.5 ms
+  late on this bench), each kind's spread table with its three repeats; the YAML parsed with python3 (the six jobs, the Linux job's
+  new step after the Companion module's, the dispatched job's steps). There is no PowerShell and no actionlint on this bench:
+  `tools/ci-tests.ps1`'s new lines were read line by line twice, not run. The solution built whole (`dotnet build PlayMap.sln -c Debug
+  -v q`, no warning, nothing the solution picks up added: the probe's project file stays `.csproj.in` and the fixture is data) and
+  `ModuleRuleTests` (6) green.
+- Files: `tools/priority-probe/Program.cs`, `Victim.cs`, `Burner.cs`, `Reader.cs` (rewritten), `Rows.cs`, `Os.cs`; new
+  `tools/priority-probe/SelfCheck.cs`, `selfcheck.sh`, `fixture/` (`expected.csv`, `expected-summary.tsv`, `scheduler.csv`,
+  `leg-01-baseline/`, `leg-02-high-n/`, `leg-03-high-n/`, `leg-04-normal-n/` and `leg-05-high-n1/` with their `victim.csv`,
+  `burner.csv` (each burned leg), `leg.csv`, `frames.csv`, `ticks.csv`, `pool.csv`);
+  `tools/ci-tests.ps1` (`-PriorityCost` and its header); `.github/workflows/build.yml` (the Linux job's fence step, the
+  `prioritycost` input's description, the job's comment and step name); `README.md` (Build: the Linux bullet and the `prioritycost`
+  bullet); this entry. No file under `src/`, no csproj of the solution, no test file.
+- Open:
+  - The one more dispatch of `prioritycost` the owner's answer names, on this batch once pushed: not run from this bench. Not proven
+    until it runs: the Windows readings (Win32PrioritySeparation through `Microsoft.Win32.Registry`, `NtQueryTimerResolution` through
+    `LibraryImport`, `GetLogicalProcessorInformationEx`'s records as parsed here), the bounds thread's stamps on Windows, the
+    PowerShell (the order read from the probe, the budget, the per-place folders), and the job's length against the 9 minutes
+    expected.
+  - Not built (the check's further steps, each the owner's): the N-1 legs with the machine sampler off; an ETW context-switch trace
+    over one high-n and one high-n1 leg (the 6 s release and the 550 ms disturbance); a node-side leg measuring what HIGH buys; a
+    victim of several busy threads, victims at AboveNormal and HIGH, burner threads at AboveNormal, a floor imposed by CPU sets; a
+    real workload as the burner (render belongs to the lab).
+  - A frame's exact processor share on Windows (`QueryThreadCycleTime` per frame): still not built; the window's sums and the
+    processes' window stamps stand in.

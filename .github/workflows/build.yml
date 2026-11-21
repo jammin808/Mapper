@@ -38,8 +38,10 @@ on:
           Run only the priority cost's measurement on windows-2025 (tools/ci-tests.ps1 -PriorityCost): a victim doing a desk's kind of
           work at Normal (a 60 Hz frame of fixed work, a 50 ms tick, a pool item) alone, then beside a burner whose class the
           product's own platform claims, HIGH or NORMAL, on every processor and on cores less one, and HIGH beside a victim at the
-          runner's own class; 20 s a leg, each with the machine sampler, the table in the summary. A measurement, never a pass mark.
-          Every other job is skipped; given with d3d12, hangproof or nodehostab, it refuses to run.
+          runner's own class; legs of 20 s in the probe's order (Legs.Order, the one place it is written; the probe's order mode
+          prints it), each with the machine sampler, the runner's scheduler read once, the tables and each kind's spread across its
+          repeats in the summary; about 9 minutes. A measurement, never a pass mark. Every other job is skipped; given with d3d12,
+          hangproof or nodehostab, it refuses to run.
         required: false
         default: false
         type: boolean
@@ -195,6 +197,14 @@ jobs:
           npm ci
           npm test
           npm run check
+      # The priority probe (tools/priority-probe), which only the dispatched prioritycost job runs, built on every push from its copy
+      # outside the checkout as that job builds it (so a change under src/ to what it references fails here), and its reader run over
+      # the hand-made legs in tools/priority-probe/fixture, each figure there held to its value (fix-priority-probe-reader). The copy
+      # is built with this run's own -p:PlayMapRun and -p:PlayMapCommit, so the projects it references build as the solution's build
+      # left them; it runs after every suite, whatever they said.
+      - name: The priority probe built from its copy, and its reader over the fixture (a fence)
+        if: ${{ !cancelled() }}
+        run: bash tools/priority-probe/selfcheck.sh "$RUNNER_TEMP/priority-probe" -p:PlayMapRun=${{ github.run_number }} -p:PlayMapCommit=${{ github.sha }}
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
@@ -959,12 +969,16 @@ jobs:
   # work, at HIGH and at NORMAL, before a node's default class or anything else is decided (docs/round2/CARRYOVER.md,
   # fix-ci-priority-measure). tools/ci-tests.ps1 -PriorityCost builds tools/priority-probe from a copy outside the checkout (it
   # references this checkout's Core and Platform.Windows, so the burner's class is claimed by WindowsMachinePlatform.ClaimProcess),
-  # calibrates the victim's frame of work once on the quiet runner, then runs six legs of 20 s, each with the machine sampler and its
-  # files apart under tests/TestResults/prioritycost/leg-<name>, all uploaded: baseline (no burner); high-n and normal-n (the burner on
-  # every processor at HIGH, then NORMAL); high-n1 and normal-n1 (on cores less one, the Compute pool's and HAP workers' width);
-  # high-n-runner (HIGH on every processor beside a victim left at the runner's own class). It needs no FFmpeg, Mesa or test build.
-  # The readings are never a pass mark: the job fails only when a leg wrote no files, a process did not start or did not read back
-  # the class it was told, or a leg ran past its deadline.
+  # calibrates the victim's frame of work once on the quiet runner and reads the runner's scheduler (Win32PrioritySeparation, the
+  # timer's resolution, the processors' layout; never set), then runs the legs of the probe's order (Legs.Order, the one place it is
+  # written; the probe's order mode prints it), 20 s each, each with the machine sampler and its files apart under
+  # tests/TestResults/prioritycost/leg-<place>-<name>, all uploaded. The leg kinds: baseline (no burner); high-n1 and normal-n1 (on
+  # cores less one, each of the Compute pool's and HAP workers' own width); high-n and normal-n (the burner on every processor at
+  # HIGH, then NORMAL); high-n-runner (HIGH on every processor beside a victim left at the runner's own class)
+  # (docs/round2/CARRYOVER.md, fix-priority-probe-reader). About 9 minutes with the order as it is; the
+  # legs are held to a budget of 22 so the job keeps inside its 30. It needs no FFmpeg, Mesa or test build. The readings are never a
+  # pass mark: the job fails only when a leg wrote no files, a process did not start or did not read back the class it was told, a leg
+  # ran past its deadline, or the budget left a leg unrun.
   prioritycost:
     if: ${{ inputs.prioritycost }}
     runs-on: windows-2025
@@ -985,7 +999,7 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "10.0.x"
-      - name: The priority cost in six legs (a measurement, never a pass mark)
+      - name: The priority cost in the probe's order of legs (a measurement, never a pass mark)
         id: legs
         shell: pwsh
         run: ./tools/ci-tests.ps1 -PriorityCost

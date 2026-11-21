@@ -22,12 +22,16 @@
 #                 files, or ran on another project than its leg's (STATE's first output enabled in A and B, not enabled in C).
 #   -PriorityCost the priority cost's measurement, run only when the workflow is dispatched with the prioritycost input: tools/priority-probe
 #                 built from a copy outside the checkout (as -HangProof builds its probe), its frame's work calibrated once on the
-#                 quiet runner, then six legs one after another, each a process of the probe's own with the machine sampler running and
-#                 its files in a folder of its own under tests/TestResults/prioritycost: a victim (a desk's kind of work at Normal, set by
-#                 its own hand) alone, then beside a burner whose class the product's own platform claims, HIGH or NORMAL, on every
-#                 processor and on cores less one, and last HIGH on every processor beside a victim left at the runner's own class; then
-#                 the probe's reader makes the table, in the log and the summary. A reading is never a pass mark: it fails only when a leg
-#                 wrote no files, a process did not start or did not read back the class it was told, or a leg ran past its deadline.
+#                 quiet runner (and the runner's scheduler read: Win32PrioritySeparation, the timer's resolution, the processors' layout),
+#                 then the legs of the probe's own order (its `order` mode; Legs.Order is the one place it is written, and this script
+#                 never repeats it), one after another, each a process of the probe's own
+#                 with the machine sampler running and its files in a folder of its own, by its place, under tests/TestResults/prioritycost:
+#                 a victim (a desk's kind of work at Normal, set by its own hand) alone, beside a burner whose class the product's own
+#                 platform claims, HIGH or NORMAL, on every processor and on cores less one, and HIGH on every processor beside a victim left
+#                 at the runner's own class; then the probe's reader makes the tables, in the log and the summary. The legs run inside a
+#                 budget (22 minutes, each leg 4 at most), so the job stays inside its 30; a leg the budget cannot hold is not started and is
+#                 said. A reading is never a pass mark: it fails only when a leg wrote no files, a process did not start or did not read back
+#                 the class it was told, a leg ran past its deadline, or the budget left a leg unrun.
 #   -Sample <csv> -Parent <pid> -Counters <a|b>
 #                 the machine sampler -Suites starts as a process of its own (never run by hand): one row a second of the named
 #                 performance counters to <csv> until its parent is gone or 75 minutes have passed. A measurement, never a gate.
@@ -698,19 +702,37 @@ if ($PriorityCost) {
     if (Test-Path $root) { Remove-Item $root -Recurse -Force }
     New-Item -ItemType Directory -Path $root | Out-Null
     $broken = @()
-    # Each leg's window is 20 s after a 3 s lead; the probe bounds a leg at 60 s for each ready file and 90 s after the window, so a
-    # leg the runner holds longer than that is stopped and said; this deadline (5 min) is past all of it, for a probe that hangs.
-    $legDeadline = [TimeSpan]::FromMinutes(5)
+    # The legs' order is the probe's (one line each: its place and its leg), never written again here.
+    $order = @(& $exe order)
+    if ($LASTEXITCODE -ne 0 -or $order.Count -eq 0) { throw "the priority probe gave no order of legs ($LASTEXITCODE)" }
+    $legs = @(foreach ($line in $order) {
+        if ("$line" -notmatch '^(\d+) (\S+)$') { throw "the priority probe's order has a line that is not 'place leg': '$line'" }
+        [pscustomobject]@{ Place = [int]$Matches[1]; Name = $Matches[2]; Folder = ('leg-{0:00}-{1}' -f [int]$Matches[1], $Matches[2]) }
+    })
+    # Each leg's window is 20 s after a 3 s lead (about 24 s a leg on the runner, run 493); the probe bounds a leg at 60 s for each
+    # ready file and 90 s after the window, so a leg the runner holds longer than that is stopped and said; each leg's deadline (4 min)
+    # is past all of it, for a probe that hangs. The legs together are held to a budget of 22 minutes from the calibration, with the
+    # reader's 2 after it: with the checkout, the SDK and the probe's build (about 2 minutes on run 493) the job stays inside its 30.
+    # A leg is started only while the budget still holds its deadline; the legs it cannot hold are not run, and said.
+    $budget = [TimeSpan]::FromMinutes(22)
+    $legDeadline = [TimeSpan]::FromMinutes(4)
+    $spent = [Diagnostics.Stopwatch]::StartNew()
+    Write-Host "the legs: $($legs.Count) in the probe's order ($(($legs | ForEach-Object { $_.Name }) -join ', ')), about $([math]::Ceiling($legs.Count * 25 / 60)) minutes expected, $($budget.TotalMinutes) at most"
     $run = Invoke-WithDeadline -Name 'the calibration' -FileName $exe -Arguments @('calibrate', '--out', $root) -Deadline ([TimeSpan]::FromMinutes(2))
     if (-not $run.Ended -or $run.ExitCode -ne 0) { $broken += "the calibration (exit $($run.ExitCode))" }
     else {
-        foreach ($leg in 'baseline', 'high-n', 'normal-n', 'high-n1', 'normal-n1', 'high-n-runner') {
-            $csv = Join-Path $root "leg-$leg/machine.sampler.csv"
+        foreach ($leg in $legs) {
+            if ($budget - $spent.Elapsed -lt $legDeadline) {
+                $left = @($legs | Where-Object { $_.Place -ge $leg.Place } | ForEach-Object { "$($_.Place) $($_.Name)" })
+                $broken += "not run, the step's budget of $($budget.TotalMinutes) minutes spent after $($spent.Elapsed.TotalMinutes.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)): legs $($left -join ', ')"
+                break
+            }
+            $csv = Join-Path $root "$($leg.Folder)/machine.sampler.csv"
             $sampler = Start-MachineSampler $csv
-            Write-Host "::group::leg $leg"
+            Write-Host "::group::leg $($leg.Place) $($leg.Name)"
             try {
-                $run = Invoke-WithDeadline -Name "leg $leg" -FileName $exe -Deadline $legDeadline -Arguments @(
-                    'leg', '--out', $root, '--name', $leg, '--seconds', '20', '--lead', '3')
+                $run = Invoke-WithDeadline -Name "leg $($leg.Place) $($leg.Name)" -FileName $exe -Deadline $legDeadline -Arguments @(
+                    'leg', '--out', $root, '--run', "$($leg.Place)", '--seconds', '20', '--lead', '3')
             }
             finally {
                 Stop-MachineSampler $sampler $csv
@@ -718,12 +740,12 @@ if ($PriorityCost) {
             Write-Host '::endgroup::'
             # The leg's own row says why it is broken (no files, a process that did not start or did not read back its class, a
             # deadline); exit 1 is that, any other end is the probe's own failure.
-            if (-not $run.Ended) { $broken += "leg $leg ran past its deadline" }
+            if (-not $run.Ended) { $broken += "leg $($leg.Place) $($leg.Name) ran past its deadline" }
             elseif ($run.ExitCode -ne 0) {
-                $legCsv = Join-Path $root "leg-$leg/leg.csv"
+                $legCsv = Join-Path $root "$($leg.Folder)/leg.csv"
                 $row = if (Test-Path $legCsv) { @(Import-Csv $legCsv) | Select-Object -First 1 } else { $null }
                 $words = if ($row) { $row.words } else { "no leg row (exit $($run.ExitCode))" }
-                $broken += "leg $leg`: $words"
+                $broken += "leg $($leg.Place) $($leg.Name)`: $words"
             }
         }
     }

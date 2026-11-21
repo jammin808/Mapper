@@ -7,10 +7,15 @@ namespace PlayMap.PriorityProbe;
 /// <summary>What a saturating process costs a Normal-class process doing real work, at the burner's HIGH and at its NORMAL, in legs.
 /// A measurement for the owner to read, never a pass mark: a run fails only when a leg wrote no files, a process did not start or did
 /// not read back the class it was told, or a leg ran past its deadline.
-///   calibrate --out ROOT                   the frame's fixed work, about 10 ms of wall time on the quiet machine, to ROOT/calibration.csv
-///   leg --out ROOT --name NAME [--seconds S] [--lead L]   one leg (the names: <see cref="Legs.All"/>) into ROOT/leg-NAME
-///   read --out ROOT                        the table of every leg present, to ROOT/summary.md and ROOT/summary.csv, and printed
-///   legs --out ROOT [--seconds S] [--lead L]   calibrate, every leg in order, then read (a local run; CI runs the steps one by one)
+///   calibrate --out ROOT                   the frame's fixed work, about 10 ms of wall time on the quiet machine, to ROOT/calibration.csv,
+///                                          and the runner's scheduler as read then to ROOT/scheduler.csv
+///   order                                  the legs' order (<see cref="Legs.Order"/>), one line each: its place and its leg
+///   leg --out ROOT --run K [--seconds S] [--lead L]   the order's K-th leg into ROOT/leg-KK-NAME
+///   read --out ROOT                        the tables of every leg present, to ROOT/summary.md and ROOT/summary.csv, and printed
+///   legs --out ROOT [--seconds S] [--lead L]   calibrate, every leg of the order, then read (a local run; CI runs the steps one by one)
+///   selfcheck --fixture DIR                the reader over a copy of DIR's hand-made legs, each figure DIR/expected.csv names held to
+///                                          its value and each line DIR/expected-summary.tsv names looked for in summary.md (exit 1
+///                                          with the words of each one that is not)
 ///   burner ..., victim ...                 the two processes a leg starts (never run by hand)</summary>
 internal static class Program
 {
@@ -25,7 +30,7 @@ internal static class Program
     {
         if (argv.Length == 0)
         {
-            Say("say a mode: calibrate, leg, read or legs (docs: README, Build; docs/round2/CARRYOVER.md, fix-ci-priority-measure)");
+            Say("say a mode: calibrate, order, leg, read, legs or selfcheck (docs: README, Build; docs/round2/CARRYOVER.md, fix-ci-priority-measure and fix-priority-probe-reader)");
             return 2;
         }
         try
@@ -34,12 +39,14 @@ internal static class Program
             return argv[0] switch
             {
                 "calibrate" => Calibration.Run(args.Text("out")),
-                "leg" => await Legs.RunAsync(args.Text("out"), Legs.Find(args.Text("name")), Seconds(args), Lead(args)),
+                "order" => Legs.SayOrder(),
+                "leg" => await Legs.RunAsync(args.Text("out"), Legs.AtPlace(args.Integer("run")), Seconds(args), Lead(args)),
                 "read" => Reader.Run(args.Text("out")),
                 "legs" => await Legs.AllAsync(args.Text("out"), Seconds(args), Lead(args)),
+                "selfcheck" => SelfCheck.Run(args.Text("fixture")),
                 "burner" => Burner.Run(args),
                 "victim" => Victim.Run(args),
-                _ => throw new ArgumentException($"'{argv[0]}' is not a mode: calibrate, leg, read or legs"),
+                _ => throw new ArgumentException($"'{argv[0]}' is not a mode: calibrate, order, leg, read, legs or selfcheck"),
             };
         }
         catch (ArgumentException e)
@@ -88,6 +95,7 @@ internal static class Calibration
             samples.Length.ToString(CultureInfo.InvariantCulture),
         ]]);
         Program.Say($"calibration: {iterations} iterations, median {Fmt(samples[15])} ms (p10 {Fmt(samples[3])}, p90 {Fmt(samples[27])}) on {Environment.ProcessorCount} processors");
+        Scheduler.Write(Path.Combine(root, Scheduler.File), "the job's reading before any leg");
         return 0;
     }
 
@@ -120,9 +128,37 @@ internal sealed record LegSpec(string Name, string Label, int Threads, string Bu
 
 internal static class Legs
 {
-    /// <summary>The processor count less one, at least one: the width the product's Compute pool (src/PlayMap.Core/Threading/Compute.cs
-    /// 102) and its HAP workers (src/PlayMap.Media/Hap/HapWorkers.cs 92) take.</summary>
+    /// <summary>The processor count less one, at least one: the width each of the product's Compute pool (src/PlayMap.Core/Threading/Compute.cs
+    /// 102) and its HAP workers (src/PlayMap.Media/Hap/HapWorkers.cs 92) takes on its own. Nothing in the product caps their sum (with
+    /// decode's and the render thread's), so a leg on cores less one stands for a node whose whole demand stays there, which the code does
+    /// not hold it to.</summary>
     public static int CoresLessOne => Math.Max(1, Environment.ProcessorCount - 1);
+
+    /// <summary>The legs one job runs, in this order, the one place it is written: each burned pair alternated (A B B A A B) and three of
+    /// each, the cores-less-one pairs first and the every-processor pairs after (their stalls run longest), the runner's leg once, and a
+    /// baseline at each end. Each leg's folder is named by its place, so a repeat never meets the files of the one before.</summary>
+    public static readonly IReadOnlyList<string> Order =
+    [
+        "baseline",
+        "high-n1", "normal-n1", "normal-n1", "high-n1", "high-n1", "normal-n1",
+        "normal-n", "high-n", "high-n", "normal-n", "normal-n", "high-n",
+        "high-n-runner",
+        "baseline",
+    ];
+
+    /// <summary>The order's leg at place <paramref name="place"/> (from 1), refused with words outside it.</summary>
+    public static (int Place, LegSpec Spec) AtPlace(long place) =>
+        place >= 1 && place <= Order.Count ? ((int)place, Find(Order[(int)place - 1])) : throw new ArgumentException($"--run takes a place in the order, 1 to {Order.Count}, not {place}");
+
+    /// <summary>A leg's folder under the root: its place in two digits and its name.</summary>
+    public static string Folder(int place, LegSpec spec) => $"leg-{place.ToString("00", CultureInfo.InvariantCulture)}-{spec.Name}";
+
+    public static int SayOrder()
+    {
+        for (var i = 0; i < Order.Count; i++)
+            Program.Say($"{(i + 1).ToString(CultureInfo.InvariantCulture)} {Order[i]}");
+        return 0;
+    }
 
     public static IReadOnlyList<LegSpec> All =>
     [
@@ -145,19 +181,20 @@ internal static class Legs
         if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
             throw new ArgumentException($"{root} is not empty: the legs are written into a folder of their own");
         var broken = Calibration.Run(root) != 0;
-        foreach (var leg in All)
-            broken |= await RunAsync(root, leg, seconds, lead) != 0;
+        for (var place = 1; place <= Order.Count; place++)
+            broken |= await RunAsync(root, AtPlace(place), seconds, lead) != 0;
         Reader.Run(root);
         return broken ? 1 : 0;
     }
 
     /// <summary>Runs one leg: the victim started and ready, then the burner started into the victim's window and told to stop a second
     /// after it, both waited for under the leg's deadline. Writes the leg's row; 0, or 1 when the leg is broken (the words say why).</summary>
-    public static async Task<int> RunAsync(string root, LegSpec leg, double seconds, double lead)
+    public static async Task<int> RunAsync(string root, (int Place, LegSpec Spec) at, double seconds, double lead)
     {
         if (seconds <= 0)
             throw new ArgumentException("--seconds takes a number above zero");
-        var dir = Path.Combine(root, "leg-" + leg.Name);
+        var leg = at.Spec;
+        var dir = Path.Combine(root, Folder(at.Place, leg));
         Directory.CreateDirectory(dir);
         if (new[] { "victim.ready", "burner.ready", "victim.csv", "burner.csv", "leg.csv" }.Any(f => File.Exists(Path.Combine(dir, f))))
             throw new ArgumentException($"{dir} holds a leg's files already: a leg is written into a folder of its own");
@@ -167,7 +204,7 @@ internal static class Legs
         var burnerExit = "";
         var victimReadyUtc = "";
         var burnerReadyUtc = "";
-        Program.Say($"leg {leg.Name}: {leg.Label}, {seconds.ToString("0.#", CultureInfo.InvariantCulture)} s");
+        Program.Say($"leg {at.Place.ToString(CultureInfo.InvariantCulture)} {leg.Name}: {leg.Label}, {seconds.ToString("0.#", CultureInfo.InvariantCulture)} s");
 
         var work = Calibration.Read(root);
         if (work is null)
@@ -197,12 +234,14 @@ internal static class Legs
                     {
                         victimReadyUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
                         var cells = ready.Split(',');
+                        var start = long.Parse(cells[0], NumberStyles.Integer, CultureInfo.InvariantCulture);
                         var end = long.Parse(cells[1], NumberStyles.Integer, CultureInfo.InvariantCulture);
                         if (leg.Threads > 0)
                         {
                             // The burner stops itself a second after the victim's window, on the machine's monotonic clock: nothing waits on
                             // this controller, whose own class is the runner's and which a HIGH burner can hold.
-                            burner = Child.Start(dir, "burner", ["--dir", dir, "--threads", Num(leg.Threads), "--class", leg.BurnerClass, "--until", Num(end + 1_000_000_000L)]);
+                            burner = Child.Start(dir, "burner", ["--dir", dir, "--threads", Num(leg.Threads), "--class", leg.BurnerClass,
+                                "--from", Num(start), "--to", Num(end), "--until", Num(end + 1_000_000_000L)]);
                             if (burner is null)
                             {
                                 problems.Add("the burner did not start");
@@ -255,9 +294,9 @@ internal static class Legs
         [[
             leg.Name, leg.Label, Num(leg.Threads), leg.BurnerClass, leg.VictimClass, Num(seconds), Num(lead),
             started.ToString("o", CultureInfo.InvariantCulture), victimReadyUtc, burnerReadyUtc, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-            victimExit, burnerExit, outcome, string.Join("; ", problems),
+            victimExit, burnerExit, outcome, string.Join("; ", problems), at.Place.ToString(CultureInfo.InvariantCulture),
         ]]);
-        Program.Say($"leg {leg.Name}: {outcome}{(problems.Count > 0 ? ": " + string.Join("; ", problems) : "")}");
+        Program.Say($"leg {at.Place.ToString(CultureInfo.InvariantCulture)} {leg.Name}: {outcome}{(problems.Count > 0 ? ": " + string.Join("; ", problems) : "")}");
         return problems.Count == 0 ? 0 : 1;
     }
 

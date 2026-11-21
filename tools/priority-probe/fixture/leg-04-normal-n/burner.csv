@@ -1,0 +1,2 @@
+os,pid,processors,threads,class_asked,class_at_start,base_at_start,claim_applied,claim_read_back,class_read,base_read,class_as_told,claim_words,ready_mono_ns,ready_utc,stop_mono_ns,wall_ms,cpu_ms,processors_used,cpu_ms_at_window_start,cpu_stamp_start_mono_ns,cpu_ms_at_window_end,cpu_stamp_end_mono_ns
+Win32NT,6263,4,4,normal,BelowNormal,6,yes,normal,Normal,8,yes,process.priority asked normal read normal applied,1030100000000,2026-11-21T12:00:30.1000000Z,1031600000000,1500.0,6000.0,4.00,1000.0,1030100050000,3000.0,1030600050000

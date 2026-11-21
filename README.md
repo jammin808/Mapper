@@ -299,7 +299,15 @@ retail hash. Then:
 - **Linux** fetches, before its restore, FFmpeg 9.0.2's LGPL shared libraries (FFmpeg-Builds' `lgpl-shared`, the build the
   installer carries), which every decode test loads, with its GPL command-line build on the path only to encode test media, and DXC
   v1.9.2609's Linux release, each held to its SHA-256; of the release it keeps `libdxcompiler.so` alone, held to the worker's pin and cached by it, in the folder it names in
-  `PLAYMAP_DXC_DIR` for the build and the suites. It runs the Render suite again on ES 3.00, and the Companion module's tests.
+  `PLAYMAP_DXC_DIR` for the build and the suites. It runs the Render suite again on ES 3.00, and the Companion module's tests. Last,
+  it builds the priority probe (`tools/priority-probe`, below) from its copy outside the checkout, as the dispatched `prioritycost`
+  job builds it, and runs its reader over the hand-made legs in `tools/priority-probe/fixture` (a stall that straddles the window's
+  start, a frozen tick, a pool item still pending at the window's end, one queued in the burning lead and still pending at the
+  window's start, one that never ran, a lower bound shorter than a completed wait, a burning lead, a second run of one kind), each
+  figure the fixture's `expected.csv` names held to its value and each line its `expected-summary.tsv` names looked for in the
+  summary's tables (`tools/priority-probe/selfcheck.sh <folder outside the checkout>` does the same on any bench, in a fresh folder it
+  makes inside the one given and removes at its end): a change under `src/` to what the probe references, or a reader that
+  regresses, fails the step with the words of what it no longer counts.
 - **Windows** fetches, before its build, the same FFmpeg 9.0.2 LGPL shared libraries (its GPL command-line build on the path only
   to encode test media) and Mesa's llvmpipe at their pinned hashes, and SPIRV-Tools' library at its pinned hash for the shader worker (`PLAYMAP_SPIRV_TOOLS_DIR`); its restore downloads Microsoft.Direct3D.DXC
   1.9.2609.5 from NuGet, whose `dxcompiler.dll` alone the engine's build copies beside the engine. The Media suite's native test
@@ -370,42 +378,70 @@ retail hash. Then:
   asserts it from STATE in every run: the first output enabled in A and B, none enabled in C and in the suite)
   (`docs/round2/CARRYOVER.md`, fix-ci-nodehost-measure and fix-ci-nodehost-mend).
 - **A dispatched run** with the `prioritycost` input runs only the priority cost's measurement, a job of its own on `windows-2025`
-  in place of every other (given with `d3d12`, `hangproof` or `nodehostab`, it refuses), 30 minutes at most: what a process
-  saturating the processors costs a Normal-class process doing real work, with the saturating process at HIGH and at NORMAL (the
-  owner's answer 4 of 2026-11-18, "No change; measure first"; nothing in the product changes). `tools/ci-tests.ps1 -PriorityCost`
-  builds `tools/priority-probe` from a copy outside the checkout (its project file is kept as `PlayMap.PriorityProbe.csproj.in`, in
-  no solution and no suite, and the copy references this checkout's `PlayMap.Core` and `PlayMap.Platform.Windows` through
-  `-p:PlayMapCheckout=`), calibrates once on the quiet runner the frame's fixed work (about 10 ms of wall time), then runs six legs
-  of 20 s after a 3 s lead, each with the machine sampler, each leg's files apart under
-  `tests/TestResults/prioritycost/leg-<name>` and all uploaded as `prioritycost`. In each leg a **victim** stands for a desk or a
+  in place of every other (given with `d3d12`, `hangproof` or `nodehostab`, it refuses), 30 minutes at most and about 9 in a
+  normal run: what a process saturating the processors costs a Normal-class process doing real work, with the saturating process
+  at HIGH and at NORMAL (the owner's answer 4 of 2026-11-18, "No change; measure first"; nothing in the product changes).
+  `tools/ci-tests.ps1 -PriorityCost` builds `tools/priority-probe` from a copy outside the checkout (its project file is kept as
+  `PlayMap.PriorityProbe.csproj.in`, in no solution and no suite, and the copy references this checkout's `PlayMap.Core` and
+  `PlayMap.Platform.Windows` through `-p:PlayMapCheckout=`; the Linux job builds the same copy on every push, above), calibrates
+  once on the quiet runner the frame's fixed work (about 10 ms of wall time) and reads the runner's scheduler (Win32PrioritySeparation
+  under `HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl`, the timer's resolution as `NtQueryTimerResolution` gives it to the
+  process, minimum, maximum and current, and the processors' layout: logical processors, cores, SMT; each a reading, guarded, never
+  set), then runs the probe's own order of legs (`PlayMap.PriorityProbe order`; `Legs.Order` in `Program.cs` is the one place it is
+  written), 20 s each after a 3 s lead, each with the machine sampler and its files apart under
+  `tests/TestResults/prioritycost/leg-<place>-<name>`, all uploaded as `prioritycost`; the legs are held to a budget of 22 minutes
+  (each 4 at most), and a leg the budget cannot hold is not started and is said. In each leg a **victim** stands for a desk or a
   supervisor: its class set to Normal by its own hand at its start and read back (run 490 recorded the test host and `dotnet test`
   at Below Normal, base 6, and a victim left at the runner's class would measure the runner; `victim.csv` records the class it was
-  started at), it runs a frame loop on one thread (the fixed work every 16.667 ms,
-  waiting on the timer the product's platform makes, the high-resolution waitable timer), a light thread that only waits 50 ms on
-  the runtime's own wait and wakes (a UI tick), and one pool item queued at each tick once the one before has run; nothing is
-  allocated in its loops. A **burner** beside it starts busy threads at a new thread's priority, as the Compute pool's threads are,
-  after claiming its class through the product's own platform (`WindowsMachinePlatform.ClaimProcess` with `MachineSettings` whose
-  `Process` is `high` or `normal`, every other setting its default), and reads back the class Windows then reports. The legs:
-  `baseline` (no burner); `high-n` and `normal-n` (the burner on every processor, at HIGH, then NORMAL); `high-n1` and `normal-n1`
-  (on cores less one, the width the product's Compute pool and HAP workers take: `Compute.cs` 102, `HapWorkers.cs` 92); and
-  `high-n-runner` (HIGH on every processor beside a victim left at the runner's own class, the runner's condition, not a desk's).
-  Each leg's window is the victim's 20 s cut to the time its burner was burning (both stamp the machine's monotonic clock). The
-  summary's first table gives per leg the burner's class asked and read back with its threads and the processors it used, the
-  victim's class at its start and as read, the window, the frame loop's lateness (how late each frame started after its due
-  time) p50, p99 and max, its missed periods (a whole period with no frame started), the frame work's wall time over its processor
-  time with the frames and the two sums it is made of (on Windows a frame's `work_cpu_ms` is counted in clock ticks, 0 or 15.625 ms,
-  so only a window's sum is meaningful, and a starved leg of few frames says so by its count), the tick's wake overshoot p99 and max, the pool item's dispatch wait p99 and max, and the ticks at which the item queued
-  before had still not run; the second gives each leg's figures as a ratio to the baseline's (missed periods per thousand beside
-  the baseline's). A leg that is not ok carries its outcome and words beside its name in both tables. The machine sampler's rows
-  thin out or stop while a burner holds the processors, as the runner's own processes are held (the sampler and the leg's controller
-  run at the runner's class): for those windows the burner's processors used and the victim's rows are the readings. A leg's rows (`frames.csv`, `ticks.csv`, `pool.csv`, `victim.csv`, `burner.csv`, `leg.csv`) are read again with
-  `PlayMap.PriorityProbe read --out <folder>` on the copy built as above. The probe's processes run as its own exe, so the sampler
-  names them `PlayMap.PriorityProbe`, `PlayMap.PriorityProbe#1`, ... and its lists pair by that name within a row; across rows and to
-  a leg's victim and burner, by the pid `victim.csv` and `burner.csv` carry. These are readings on Windows Server 2025 with the
-  runner's virtual processors and synthetic busy threads, never a pass mark and never a show machine: the job fails only when a leg
-  wrote no files, a process did not start or did not read back the class it was told, or a leg ran past its deadline (the probe
-  bounds each ready file at 60 s and a leg at 90 s after its window; the step bounds a leg at 5 minutes)
-  (`docs/round2/CARRYOVER.md`, fix-ci-priority-measure).
+  started at), it runs a frame loop on one thread (the fixed work every 16.667 ms, waiting on the timer the product's platform
+  makes, the high-resolution waitable timer), a light thread that only waits 50 ms on the runtime's own wait and wakes (a UI tick),
+  and one pool item queued at each tick once the one before has run; nothing is allocated in its loops. A fourth thread, at the
+  highest thread priority, only stamps the process's processor time and the timer's current resolution at the window's start and
+  end, each with the instant it took them. A **burner** beside it starts busy threads at a new thread's priority, as the Compute
+  pool's threads are, after claiming its class through the product's own platform (`WindowsMachinePlatform.ClaimProcess` with
+  `MachineSettings` whose `Process` is `high` or `normal`, every other setting its default), reads back the class Windows then
+  reports, and stamps its own processor time at the victim's window's start and end. The leg kinds: `baseline` (no burner);
+  `high-n` and `normal-n` (the burner on every processor, at HIGH, then NORMAL); `high-n1` and `normal-n1` (on cores less one,
+  which is each of the product's Compute pool's and HAP workers' own width, `Compute.cs` 102 and `HapWorkers.cs` 92: nothing in
+  the product caps their sum, so these legs stand for a node whose whole demand stays at cores less one, which the code does not
+  hold it to); and `high-n-runner` (HIGH on every processor beside a victim left at the runner's own class, the runner's condition,
+  not a desk's). The order is `Legs.Order` in `tools/priority-probe/Program.cs`, the one place it is written
+  (`PlayMap.PriorityProbe order` prints it): each burned pair alternated and repeated, and a baseline at each end, so no stall is
+  read from one run in a fixed place.
+  A leg's **window** is the victim's 20 s cut to the time its burner was burning (both stamp the machine's monotonic clock). The
+  burner starts at the victim's ready, 3 s before the window opens, so it has burned for about 2.6 to 2.8 s (run 493) before the
+  window: that **lead** is a table of its own, its slots, frames and missed slots, its longest stretch with no frame finished and its
+  ticks, and it is never in the window's figures. In the window every frame slot is rebuilt from the frames' rows (each frame's due,
+  then due + k periods for each slot its work ran past): a slot is **missed** when the frame before it is still at work at the
+  slot's end (`Victim.cs`, the frame loop), even if that frame started inside it, so frames and missed slots tile the slots one for
+  one, and a stall that began before the window counts for the slots it held inside it. The due rule's figures (a frame and its
+  missed slots counted by the frame's own due, which drops such a stall) stand beside, labelled. The tables give per leg: the frames
+  and missed slots of the window's slots and per thousand, the longest stretch with no frame finished (in the window, and the whole
+  stretch it belongs to), the frames started in the window and their lateness (start minus due) by start and by due, the frame work's
+  wall time over its processor time with the two sums it is made of (on Windows a frame's `work_cpu_ms` is counted in clock ticks,
+  0 or 15.625 ms, so only a window's sum is meaningful); the ticks by their wake (a tick due before the window that woke in it is
+  counted, with its overshoot) and by the due rule, the longest stretch with no tick woke, the ticks at which the item queued before
+  had still not run; the pool items run and queued by their queue time, the dispatch wait of those run, and any still waiting at the
+  window's end, whose wait is a lower bound printed as `>=` and counted as pending, never as a completed wait, and any queued before
+  the window (in the lead) and not yet run at its start, which held the window from its start and so is the window's too, said
+  apart as pending at the window's start with the part of its wait before the window; the burner's and the
+  victim's processors used in the window from their own stamps (and the burner's from its ready to its stop); the timer's resolution
+  at the window's bounds; and, per leg kind, each repeat's missed slots, longest stretch, worst tick, longest with no tick woke (which
+  says a tick frozen across the window, where the worst tick has no wake to read) and longest pool wait (the larger of the longest
+  completed wait and the largest lower bound, `>=` only when the bound is the larger), with their lowest and highest (nothing is
+  averaged). On Windows a thread's processor time is counted in clock ticks, so a window's processor
+  figure is good to about a tick per thread. The tick waits on the runtime's own wait, so its overshoot hides a delay under the default
+  timer granularity. A leg that is not ok carries its outcome and words beside its name. The machine sampler's rows thin out or stop
+  while a burner holds the processors, as the runner's own processes are held (the sampler and the leg's controller run at the
+  runner's class). A leg's rows (`frames.csv`, `ticks.csv`, `pool.csv`, `victim.csv`, `burner.csv`, `leg.csv`, `scheduler.csv`) are
+  read again with `PlayMap.PriorityProbe read --out <folder>` on the copy built as above, and a folder an older probe wrote (run 493's)
+  reads too, its stamps said as not recorded. The probe's processes run as its own exe, so the sampler names them
+  `PlayMap.PriorityProbe`, `PlayMap.PriorityProbe#1`, ... and its lists pair by that name within a row; across rows and to a leg's
+  victim and burner, by the pid `victim.csv` and `burner.csv` carry. These are readings on Windows Server 2025 with the runner's
+  virtual processors and synthetic busy threads, never a pass mark and never a show machine: the job fails only when a leg wrote no
+  files, a process did not start or did not read back the class it was told, a leg ran past its deadline, or the budget left a leg
+  unrun (the probe bounds each ready file at 60 s and a leg at 90 s after its window; the step bounds a leg at 4 minutes)
+  (`docs/round2/CARRYOVER.md`, fix-ci-priority-measure and fix-priority-probe-reader).
 
 Both test jobs set `PLAYMAP_SCHEDULING_PROBE=1` on their suites' step: every test host then runs `tests/Shared/SchedulingProbe.cs`,
 which writes to `tests/<project>/TestResults/<assembly>-<start>-<pid>.latency.csv` a first line of the machine's facts (the
