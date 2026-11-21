@@ -6057,3 +6057,171 @@ Round 2 W1 notes:
     its next push; ordering by Patterns' `rev` would keep such an answer, and is the owner's call should a desk of that shape appear.
   - `FakePatternsDesk` now exists twice in one shape (the Net suite's and the Engine suite's); merging them into `tests/Shared` was not in
     this leave.
+
+## Integrator notes from the round-2 fix batch (fix-priority-probe-third)
+
+- Done: tools and CI only, no file under `src/`, no test project, on the owner's answer 3 after run 498 (Stagewatch's
+  `docs/ecosystem/owner-answers.md`, its last entry before "# Commit identity": "a warm-up before the first leg and the 'HIGH, all
+  but one' leg early and late; the build's servers stopped before the legs and the sampler listing every process with its base
+  priority; a deadline loop on the busy side, at HIGH and at NORMAL beside a competing Normal load (what HIGH buys); a leg keeping a
+  whole core free; the labels say logical processors where they count them"). It builds the third `prioritycost` dispatch, no more;
+  the dispatch itself is the owner's to start once this is green on its push. The node's default priority class, the pools, the
+  supervisor's and the desk's class are as they were, and nothing here recommends a product default. The leave as edited:
+  `tools/priority-probe/` (the project file stays `.csproj.in`), `tools/ci-tests.ps1`, `.github/workflows/build.yml` (the
+  `prioritycost` job's comment and its dispatch input's description, and the Linux self-check step's comment; no step of a default
+  job changed), README's Build section, this entry. The dispatch input's description is read as part of the `prioritycost` job:
+  only that job reads the input, and left alone it would still say "cores less one" and "about 9 minutes". The code comments state
+  what holds; the runs each number was chosen against are said here and in README, not in the comments.
+  - (1) The build's servers. Run 498's probe build left two MSBuild nodes and a VBCSCompiler alive through every leg (the runner
+    ended them at 20:08:28), and the sampler's name list did not hold them. The job now builds the probe with `-nodeReuse:false`
+    (MSBuild's worker nodes end with the build) and `-p:UseSharedCompilation=false` (the compiler runs inside the build, no
+    VBCSCompiler), with `DOTNET_CLI_USE_MSBUILD_SERVER=0` for the step (the MSBuild server is off by default; said so a runner that
+    turns it on does not); then names every `MSBuild*`, `VBCSCompiler` and `dotnet` process alive after the build, runs `dotnet
+    build-server shutdown` under a deadline of its own (1 minute, through `Invoke-WithDeadline`: one that waits on a dead server's
+    pipe is stopped and said in `servers.csv`'s words, and the legs go on), and names them again, by name and pid, in the log and in `servers.csv` at the root, which the reader puts
+    in the summary's "Before the legs" table (none is expected after either; a reading, never a failure).
+  - (2) A quiet start. Run 498's first baseline read one logical processor of steady unnamed load for 21 to 22 s after "Build
+    succeeded", ending about 10 s before the first burned leg froze. Before the calibration and the first leg the job now reads
+    `\Processor(_Total)\% Processor Time` (the sampler's own counter) once a second until it reads under half a logical processor
+    (50 % over the logical processors: 12.5 % on run 498's four) for 5 readings in a row, at most 90 s. Why those: half a logical
+    processor sits between that one-processor load (about 27 points on four) and the 0.4 to 4.2 unnamed points of runs 493's and
+    498's last baselines; 5 in a row is not one quiet second between two busy ones; 90 s is four times the load those runs read and
+    keeps the job inside its 30 minutes. Each reading, with the three busiest processes then (outside _Total and Idle, in machine
+    percent), goes to `quiet.csv`; the summary says the outcome, how long it waited, the highest reading and the busiest then, and
+    the last six; the bound reached is said and never fails the job, and Get-Counter missing is a row of words.
+  - (2) The warm-up. It is the first burned leg, at place 2, after the first baseline (which reads the quiet machine): a `high-n1`
+    (`leg-02-high-n1-warmup`, its `leg.csv` carrying `place_label` warmup), read
+    as every leg is and never counted with its kind: the spread across repeats gives it a row of its own (`warmup high-n1`). Why
+    `high-n1`: it is the kind run 498's first burned leg froze in, so if the job's first burned place freezes whatever runs there,
+    the warm-up takes it and the counted `high-n1` at place 3 does not; if the freeze belongs to HIGH with one logical processor
+    free, it can follow `high-n1` to its later places.
+  - (3) The order (`Legs.Order`, still the one place it is written; each place now a record of its kind, an optional label and a note
+    the summary prints beside it in a new "The places" table): 1 baseline; 2 the warm-up; 3 `high-n1` (the first counted burned
+    place), 4 `normal-n1`; 5 `buy-high`, 6 `buy-normal`, 7 `high-core1`, 8 `normal-core1`, 9 `normal-core1`, 10 `high-core1`,
+    11 `buy-normal`, 12 `normal-n1`, 13 `high-n1` (the middle), 14 `buy-high`; 15 `normal-n`, 16 `high-n`, 17 `high-n`, 18
+    `normal-n`, 19 `normal-n`, 20 `high-n`; 21 `high-n-runner`; 22 `normal-n1`, 23 `high-n1` (the last burned place); 24 baseline.
+    24 legs; run 498's took 24.3 s each, so about 10 minutes of legs, and with the checkout and SDK (about 15 s), the build (about 70 s
+    in run 498, a little more with no shared compiler) and the quiet start (at most 90 s) the job about 13 minutes. The legs keep
+    their budget of 22 minutes (each 4 at most) and the job its `timeout-minutes: 30`: the worst case, the quiet start's 90 s, the
+    whole budget and the reader's 2 minutes, is about 28 minutes. `order` now prints each place's folder too ("2 high-n1:warmup
+    leg-02-high-n1-warmup"), and `ci-tests.ps1` takes the folder from it.
+  - (4) What HIGH buys. New kinds `buy-high` and `buy-normal`: the victim's own loops (the frame, the tick and the pool item:
+    `Victim.cs`, unchanged) run in a process that claims HIGH or NORMAL through the product's own claim
+    (`WindowsPlatform.Claim` → `WindowsMachinePlatform.ClaimProcess`, as `Burner.cs` claims; `victim --class claim-high|claim-normal`),
+    records what it claimed and the class it reads back (`victim.csv`'s new `claim_applied` and `claim_read_back`, exit 3 when Windows
+    reads back another class), beside a burner NORMAL on every logical processor. The reader reads these files exactly as a victim's
+    (missed slots, the longest stretch with no frame finished, ticks by wake, pool waits) and labels the rows "(the busy side's own
+    deadline)"; summary.csv's `deadline_side` says yes. Both buy legs carry the claim's other process settings at their defaults
+    (`MachineSettings.Default`: QoS high, GPU priority normal and the rest `ClaimProcess` makes, each in `victim.csv`'s claim words),
+    so the pair differs only in class. A buy leg whose class was not claimed (off Windows, or a claim Windows refused: exit 3, the
+    leg broken but readable) is kept in a spread row of its own, "`<kind>`, not claimed (the busy side's own deadline)", never with
+    the claimed; the fixture holds no such leg (that rule is not fenced by the self-check), and the Linux short legs show it. A
+    synthetic deadline loop beside a synthetic competing load: not the node's
+    render loop, not a real desk.
+  - (5) A whole core free. New kinds `high-core1` and `normal-core1`: `Os.WholeCoreFree` reads each core's logical processors from
+    `GetLogicalProcessorInformationEx` (each core record's group and mask; on Linux from `/sys/devices/system/cpu`) and plans the
+    burner on the logical processors of every core but the last the OS lists, one thread pinned to each with `SetThreadAffinityMask`
+    (the probe's own P/Invoke, Windows only, guarded; each thread pins itself before it counts itself started, so the ready file means
+    every thread is where the plan put it); the victim is unpinned. Only the burner's busy threads are pinned: its stamping thread
+    (Highest, base 15 at HIGH) and the runtime's own threads (tiering, the GC, the finalizer) are not, and run briefly, so the core
+    is free of the burn, not of every thread of the burner's process. On run 498's VM (4 logical processors on 2 cores with SMT) that is
+    2 threads on one core and the other core free. `burner.csv`'s new `pin`, `pinned_processors`, `free_processors`, `pin_words`
+    record it; the process table says "pinned to 0;1, free 2;3 (...)", or "not pinned (the plan: ...): words". The plan is not made on
+    one core or more than one processor group (the burner then runs unpinned on the logical processors less one, and says so); on a
+    machine without SMT the words say it is the n1 legs' shape and the leg runs; off Windows nothing is pinned, the leg says so, and
+    the spread keeps it in a row of its own (`high-core1, not pinned`), never with the pinned.
+  - (6) The sampler for this job. `ci-tests.ps1 -Sample` takes `-EveryProcess <csv>` (passed only by `-PriorityCost`; the default
+    jobs' sampler and its `machine.sampler.csv` are as they were): the same `Get-Counter` call's `\Process(*)` points, already read,
+    are also written one row per process to `machine.processes.csv` beside the leg's sampler file: the row's time and `sample_ms`,
+    the counter's name and pid, its processor share in machine percent and in processors, its base priority, its priority class
+    where `Get-Process` reads it (once per pid and base, then kept; 'unread' otherwise), and a note naming the sampler and its parent
+    step. About 150 processes at about 90 bytes is some 14 kB a sample and some 0.35 MB a leg of 25 samples; at most 512 rows a
+    sample, and past 4 MB the file takes no more rows and says so. The reader joins it per leg ("Who else ran"): the three processes
+    outside the probe's own (any `playmap.priorityprobe*`) and Idle with the most processor time in the window and in its longest
+    stretch with no frame finished, each with its pid, its highest base priority read and the sampler's note (keyed by pid alone: a counter instance name such as
+    `pwsh#1` is renumbered as same-named processes start and end, so one pid read under two names stays one entry, said under
+    each name read), a sample counting its share times its overlap with the call's own span (its time less its `sample_ms`, to its time: a held sample spans long); a stretch
+    no sample overlaps says "no sample covers it"; a leg with no such file says "not recorded".
+  - The words: `Legs.CoresLessOne` is now `Legs.LogicalLessOne`, and the labels, doc comments, the reader's notes, `ci-tests.ps1`'s
+    header, the job's comment and input and README say "logical processors less one" where the code counts
+    `Environment.ProcessorCount` (`Compute.cs` 102 and `HapWorkers.cs` 92 were read, not edited). The timer resolution and the
+    scheduler stay readings (`NtQueryTimerResolution`; nothing calls `NtSetTimerResolution` or `timeBeginPeriod`).
+- Run 498's table, as the check rebuilt it and as this reader reads it again from a copy of the run's raw files (one Windows Server
+  2025 VM, 4 logical processors on 2 cores with SMT, 15 legs of 20 s; each figure a repeat in run order; the new columns, the build
+  servers, the quiet start, the places' notes and who else ran, said as not recorded for that run):
+  | Kind | Repeats | Missed of 1200 | Longest with no frame finished (ms) | Longest pool wait (ms) |
+  |---|---|---|---|---|
+  | baseline | #01, #15 | 0, 0 | 24.0, 17.8 | 0.4, 0.1 |
+  | high-n | #09, #10, #13 | 1194, 1193, 1194 | 14225.5, 13032.5, 13044.2 | 11875.7, 13062.3, 13062.6 (plus one each >= 4268.8 to 4810.8, ended by the burner's stop) |
+  | normal-n | #08, #11, #12 | 98, 96, 116 | 64.8, 68.1, 66.0 | 30.3, 33.8, 32.2 |
+  | high-n1 | #02, #05, #06 | 535, 43, 41 | 7840.2 (whole 8139.6), 72.4, 60.7 | 3050.6, 45.5, 77.0 |
+  | normal-n1 | #03, #04, #07 | 7, 5, 5 | 55.2, 44.0, 50.1 | 30.1, 19.9, 20.2 |
+  | high-n-runner | #14 | 1195 | 13055.5 | 10687.8 (plus >= 5396.3) |
+  Every figure the old reader wrote for those legs (summary.csv's old columns, the frames, ticks and process tables) is the same.
+- The check's standings this batch answers, and how (none is answered by this batch's own run: they wait for the dispatch):
+  - "Only 'the first burned leg of the job' stays open, at n = 1" (#02's 8.1 s freeze): the warm-up at the first burned place and
+    `high-n1` at the first counted, middle and last burned places (3, 13, 23) are built to separate it.
+  - "Orphan MSBuild (two) and VBCSCompiler ... alive through every leg; the sampler only names dotnet, MsMpEng, pwsh and PlayMap*":
+    the build makes no server, any left is shut down and named, and the every-process rows name whoever else runs.
+  - "The reading leaves out ... something outside the probe held the one free logical processor ... No file names the process": the
+    every-process rows and "Who else ran" name the processes in the window and in the longest stretch, with their base priority; a
+    sampler held through the stretch still leaves it uncovered, and the row says so.
+  - "No leg kept a whole core free": `high-core1` and `normal-core1`.
+  - "What HIGH buys the node is unmeasured (the burner has no deadline loop)": `buy-high` and `buy-normal`, as a synthetic deadline.
+  - "The probe's leg labels and README say 'cores less one' where the code takes logical processors less one": corrected.
+- Tests: no test project was touched; the fence is the Linux step's `selfcheck.sh` as before, its fixture extended. Validated on
+  this bench (Linux, 4 logical processors on 4 cores, no SMT, SDK 10.0.404, another tree building beside; a reading, not the
+  runner's): the solution built whole (`dotnet build PlayMap.sln -c Debug -v q`, no warning; the probe's project file stays
+  `.csproj.in`, the fixture is data) and `ModuleRuleTests` (6) green; `tools/priority-probe/selfcheck.sh` built the copy outside the
+  checkout (Release, no warning) and passed 92 of 92 (58 before this batch). The fixture gains four hand-made legs (a warm-up
+  `high-n1` with a 90 ms frame, a `buy-high` whose victim claimed HIGH with a 40 ms frame and every-process rows over two samples, a
+  pinned `high-core1` with a 55 ms frame whose longest stretch no sample covers, a `normal-core1` not pinned with no every-process
+  rows) and the root's `servers.csv` and `quiet.csv`, generated by the victim's own loop rules; their 16 figures in `expected.csv`
+  and 18 lines in `expected-summary.tsv` were counted by an independent count (in Python, from the rows alone: slots rebuilt,
+  missed 4, 1, 2, 0; longest stretches 96.7, 46.7, 61.7, 16.7 ms; the sampler's join 0.27, 0.06 and 0.01 processor-s in the
+  window, 0.04 and 0.01 in the stretch, and none over the pinned leg's stretch) before the reader was run over them; the generator
+  and that count were scratch and are not kept. Mutation-proved, each in a scratch copy, each failing the selfcheck with its words:
+  the warm-up counted with its kind (3 of 92), the deadline label dropped (5), the pinned and free processors dropped (1), a leg
+  not pinned counted as pinned (1), the probe's own processes named among the others (4), the no-sample words dropped (2), a
+  sample counted whole instead of by its overlap (3), the build servers' rows dropped (2), the quiet start's outcome read from its
+  first reading (1), the places' notes dropped (1), the deadline process's claim words dropped (1). The reader over a copy of run
+  498's raw files gave the check's rebuilt table (above). `legs --seconds 2 --lead 1` ran all 24 legs in 96 s, every leg ok and
+  every child log empty: on Linux the buy legs say their class not claimed (Windows only), the core1 legs say the plan (0;1;2 pinned,
+  3 free: no SMT, the n1 shape) and not pinned, every other leg as before; what runs only on Windows (the claims, the pinning, the
+  every-process sampler, the build servers, the quiet start) was not run here. The YAML parsed with python3 (the six jobs, the
+  `prioritycost` job's steps and its 30 minutes). There is no PowerShell and no actionlint on this bench: `tools/ci-tests.ps1`'s new
+  lines (the build switches, the servers, the quiet start, the order with folders, the sampler's every-process rows) were read line
+  by line twice, not run. After the review's fold-in (the warm-up's words, the shutdown's deadline, "Who else ran" keyed by pid, a buy leg not claimed
+  kept apart, the claims' and the pinning's words, the comments stating what holds) the whole was run again here: the solution
+  built whole with no warning, `ModuleRuleTests` 6 of 6, `selfcheck.sh` 92 of 92, the reader over run 498's copy gave the same
+  table, and the 24 short legs on Linux all ok, the buy legs read in rows "`buy-high`, not claimed (the busy side's own deadline)"
+  and "`buy-normal`, not claimed (...)". Two reader rules have no fixture leg of their own and so are not fenced by the self-check:
+  a buy leg not claimed kept apart (seen only in the Linux short legs) and one pid read under two names (the fixture's pids each
+  carry one name).
+- Files: `tools/priority-probe/Program.cs` (`Placed`, `Legs.Order` as places, `LogicalLessOne`, `CorePlan`, the new kinds, `order`
+  with folders, the leg row's place label and note, `--pin`), `Burner.cs` (the pin), `Victim.cs` (the claim modes), `Os.cs`
+  (`CoreSets`, `WholeCoreFree`, `PinCurrentThread`, `SetThreadAffinityMask`; `Topology` read from `CoreSets`), `Rows.cs` (the new
+  columns, each at its row's end), `Reader.cs` (Before the legs, The places, Who else ran, the pin column, the warm-up, the
+  deadline and the not-pinned spread rows, the new summary.csv columns at the end), `fixture/expected.csv`,
+  `fixture/expected-summary.tsv`, new `fixture/servers.csv`, `fixture/quiet.csv`, `fixture/leg-06-high-n1-warmup/`,
+  `fixture/leg-07-buy-high/`, `fixture/leg-08-high-core1/`, `fixture/leg-09-normal-core1/`; `tools/ci-tests.ps1` (`-PriorityCost`,
+  `-Sample`'s `-EveryProcess`, `Start-MachineSampler`'s second file, the header); `.github/workflows/build.yml` (the `prioritycost`
+  input's description and job comment, the Linux self-check step's comment); `README.md` (Build: the Linux bullet's fixture and the
+  `prioritycost` bullet); this entry. No file under `src/`, no csproj of the solution, no test file.
+- Open (what the next dispatch still cannot answer, each the owner's to take further or not):
+  - Not proven until it runs on the runner: the build switches leave no server alive; `dotnet build-server shutdown`'s answer; the
+    quiet start's counter and its threshold on the runner (it may reach its bound); `SetThreadAffinityMask` on the runner's VM and the
+    core records as parsed here; the deadline process's claim at HIGH; the every-process sampler's cost and its file sizes against
+    the 0.35 MB a leg expected; the PowerShell itself; the job's length against the 13 minutes expected.
+  - The sampler is held with every other Normal or Below Normal process while a HIGH burner holds the processors, so a freeze like
+    #02's may still have no sample over it; only a trace with thread priorities (ETW CSwitch and ReadyThread) would name what ran
+    there. Not built.
+  - One dispatch is one VM: a freeze in the warm-up or at one `high-n1` place is n = 1 for that place; mirrored orders over two
+    dispatches would say more.
+  - What a real node's load costs and what HIGH buys a real node (the render loop, decode, HAP's AboveNormal workers, the two pools
+    of logical processors less one at once, the GPU driver's threads); a floor imposed with CPU sets; victims at AboveNormal or HIGH
+    (the supervisor's and the desk's class); a desk-like victim of several busy threads; a Windows 11 client with a desk in the
+    foreground (quanta and the foreground boost differ there, recalled): none is measured by any kind here, and the last is a lab
+    line.
+  - The source of the ~551 ms disturbance in every one-free leg, of the burner-start hiccup about 1.5 s after its ready, and the
+    runner's quantum (read only through lateness): no leg here reads them directly.

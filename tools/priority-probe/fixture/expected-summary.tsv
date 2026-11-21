@@ -7,3 +7,21 @@ high-n1	| >= 5196.6 |	an item that never ran is a lower bound in the spread
 #02 high-n	>= 1100.0 ms (it ran 5.000 ms after the burner stopped)	a pending item's wait is printed as at least, with when it ran
 #03 high-n	>= 1748.0 ms (queued 243.000 ms before the window's start; still waiting at the window's end; it ran 5.000 ms after the burner stopped)	the item pending at the window's start is in the window's table, its part before the window said
 #05 high-n1	>= 5196.6 ms (it never ran while the victim waited for it)	an item that never ran is pending, its wait bound to the victim's stamp
+build servers after the build	| MSBuild (pid 8308); VBCSCompiler (pid 6600) |	every build server alive after the build is named with its pid
+build servers after the shutdown	| none (dotnet build-server shutdown answered 0) |	the reading after the shutdown names none and what the shutdown answered
+quiet start	| quiet after 7.2 s; 7 readings	the quiet start says its outcome, how long it waited and how many readings
+quiet start	the highest 27.4 % at 2026-11-21T11:59:02.0000000Z (the busiest then: msbuild=25.0%	the quiet start names its highest reading and the busiest processes then
+#06	| high-n1 (the warm-up) | the warm-up: the first burned leg (never counted with its kind) |	the summary names each place, the warm-up's said as the warm-up
+high-n1	| 1 | 0 |	the warm-up is never counted with its kind: high-n1's row holds the one counted run and its 0 missed slots
+warmup high-n1	| 1 | 4 |	the warm-up has a row of its own in the spread
+#06 high-n1 (the warm-up)	| 14 / 4 of 18 |	the warm-up's frames are read as every leg's
+buy-high (the busy side's own deadline)	| 1 | 1 | 46.7 |	the buy leg's spread row is labelled as the busy side's own deadline
+#07 buy-high (the busy side's own deadline)	| 17 / 1 of 18 |	the deadline process's frames row is labelled as the busy side's own deadline
+#07 buy-high (the busy side's own deadline)	High (base 13), claimed high through the product's platform (claim read high)	the deadline process's class is the one it claimed and read back
+#08 high-core1	| pinned to 0;1, free 2;3 (core 2 of 2 left free (its logical processors 2;3)) |	a whole-core-free leg says the logical processors its burner was pinned to and those left free
+#08 high-core1	| 1 | msmpeng (pid 4056, base 8) 0.04 processor-s (1 sample) | no sample covers it |	the sampler's join: the window's processes outside the probe and a stretch no sample covers
+#07 buy-high (the busy side's own deadline)	| 2 | msbuild (pid 8308, base 8) 0.27 processor-s; vbcscompiler (pid 6600, base 8) 0.06 processor-s; pwsh#1 (pid 2948, base 6, the sampler) 0.01 processor-s (2 samples) |	the sampler's join names the processes outside the probe's own with their base priority and the sampler's note
+high-core1	| 1 | 2 |	a pinned whole-core-free leg is counted with its kind
+normal-core1, not pinned	| 1 | 0 |	a whole-core-free leg not pinned has a row of its own, never counted as pinned
+#09 normal-core1	not pinned (the plan: 0;1, free 2;3)	a leg not pinned says so beside the plan's processors
+#09 normal-core1	| not recorded | not recorded (this run's sampler listed no process rows) |	a leg with no every-process rows says they were not recorded

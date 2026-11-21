@@ -21,26 +21,33 @@
 #                 when a leg's test failed for another reason than a wait the starvation ran out, ran past its deadline, wrote no
 #                 files, or ran on another project than its leg's (STATE's first output enabled in A and B, not enabled in C).
 #   -PriorityCost the priority cost's measurement, run only when the workflow is dispatched with the prioritycost input: tools/priority-probe
-#                 built from a copy outside the checkout (as -HangProof builds its probe), its frame's work calibrated once on the
-#                 quiet runner (and the runner's scheduler read: Win32PrioritySeparation, the timer's resolution, the processors' layout),
-#                 then the legs of the probe's own order (its `order` mode; Legs.Order is the one place it is written, and this script
-#                 never repeats it), one after another, each a process of the probe's own
-#                 with the machine sampler running and its files in a folder of its own, by its place, under tests/TestResults/prioritycost:
-#                 a victim (a desk's kind of work at Normal, set by its own hand) alone, beside a burner whose class the product's own
-#                 platform claims, HIGH or NORMAL, on every processor and on cores less one, and HIGH on every processor beside a victim left
-#                 at the runner's own class; then the probe's reader makes the tables, in the log and the summary. The legs run inside a
-#                 budget (22 minutes, each leg 4 at most), so the job stays inside its 30; a leg the budget cannot hold is not started and is
-#                 said. A reading is never a pass mark: it fails only when a leg wrote no files, a process did not start or did not read back
-#                 the class it was told, a leg ran past its deadline, or the budget left a leg unrun.
-#   -Sample <csv> -Parent <pid> -Counters <a|b>
+#                 built from a copy outside the checkout (as -HangProof builds its probe) with no build server (MSBuild's node reuse off,
+#                 the shared compiler off), then any build server left shut down and every MSBuild, VBCSCompiler and dotnet process still
+#                 alive recorded by name and pid; a quiet start (the machine's processor time under half a logical processor for 5 samples
+#                 in a row, from the sampler's own counter, waited for at most 90 s, the bound never a failure); its frame's work
+#                 calibrated once on the quiet runner (and the runner's scheduler read: Win32PrioritySeparation, the timer's resolution,
+#                 the processors' layout), then the legs of the probe's own order (its `order` mode gives each place, leg and folder;
+#                 Legs.Order is the one place it is written, and this script never repeats it), the warm-up first, one after another,
+#                 each a process of the probe's own with the machine sampler running (here listing every process each sample, not only
+#                 the named ones) and its files in a folder of its own, by its place, under tests/TestResults/prioritycost: a victim (a
+#                 desk's kind of work at Normal, set by its own hand) alone, beside a burner whose class the product's own platform
+#                 claims, HIGH or NORMAL, on every logical processor, on the logical processors less one and pinned to every core but one,
+#                 HIGH on every logical processor beside a victim left at the runner's own class, and the victim's own loops claiming
+#                 HIGH or NORMAL beside a NORMAL burner on every logical processor (what HIGH buys); then the probe's reader makes the
+#                 tables, in the log and the summary. The legs run inside a budget (22 minutes, each leg 4 at most), so the job stays
+#                 inside its 30; a leg the budget cannot hold is not started and is said. A reading is never a pass mark: it fails only
+#                 when a leg wrote no files, a process did not start or did not read back the class it was told, a leg ran past its
+#                 deadline, or the budget left a leg unrun.
+#   -Sample <csv> -Parent <pid> -Counters <a|b> [-EveryProcess <csv>]
 #                 the machine sampler -Suites starts as a process of its own (never run by hand): one row a second of the named
-#                 performance counters to <csv> until its parent is gone or 75 minutes have passed. A measurement, never a gate.
+#                 performance counters to <csv> until its parent is gone or 75 minutes have passed; with -EveryProcess (the
+#                 prioritycost job's alone) also one row per process per sample to that second file. A measurement, never a gate.
 # Dot-sourced with none of them (tools/ci-d3d12.ps1's leg), it only defines Invoke-DotnetTest and the deadlines.
 # A process tree is printed by process id, parent id, name and start time, never by command line: the suites start node with a phone
 # page's join ticket among its arguments (tests/PlayMap.Net.Tests/Phone/PageTests.cs, tests/PlayMap.Engine.Tests/Phone/PhoneScanE2ETests.cs).
 # The suites run the Release build the job made. Dot-sourced, this script sets no variable its caller names but $Suites,
-# $HangProof, $NodeHostAB, $PriorityCost, $Sample, $Parent and $Counters (its own parameters), $TestConfiguration, $MachineCounters and
-# the two deadline variables.
+# $HangProof, $NodeHostAB, $PriorityCost, $Sample, $Parent, $Counters and $EveryProcess (its own parameters), $TestConfiguration,
+# $MachineCounters and the two deadline variables.
 param(
     [switch] $Suites,
     [switch] $HangProof,
@@ -48,7 +55,8 @@ param(
     [switch] $PriorityCost,
     [string] $Sample,
     [int] $Parent,
-    [string] $Counters
+    [string] $Counters,
+    [string] $EveryProcess
 )
 $ErrorActionPreference = 'Stop'
 # A native command's exit code is read on its own line, never thrown, whatever the runner's PowerShell defaults to.
@@ -198,6 +206,12 @@ if (@(@($Suites.IsPresent, $HangProof.IsPresent, $NodeHostAB.IsPresent, $Priorit
 # expands a wildcard once, at its start: recalled, not run here). A call that fails writes its words in the row's note and the
 # loop goes on; sample_ms is how long the call took (about 1000: much more is the sampler itself held). It ends when its parent is
 # gone or after 75 minutes, whichever is first, and its parent stops it after the last project in any case.
+# With -EveryProcess (the prioritycost job's sampler alone; the default jobs' rows are as above), the same call's \Process(*) points
+# are also written one row per process to that file, every process but _Total: the row's time and sample_ms (as the row above), the
+# counter's name and pid, its processor share in the interval in machine percent (of every logical processor) and in processors, its
+# base priority, its priority class where Get-Process can read it (read once per pid and base, then kept), and a note naming this
+# sampler and its parent step. About 150 processes on the runner at about 90 bytes is some 14 kB a sample, some 0.35 MB for a leg
+# of 25 samples; at most 512 rows a sample, and past 4 MB the file takes no more rows and says so in a last row.
 if ($Sample) {
     $ErrorActionPreference = 'Continue'
     $paths = @($Counters -split '\|' | Where-Object { $_ })
@@ -208,6 +222,16 @@ if ($Sample) {
     $writer = [IO.StreamWriter]::new($stream, [Text.UTF8Encoding]::new($false))
     $writer.AutoFlush = $true
     $writer.WriteLine('utc,available_mb,pages_input_per_s,processor_pct,disk_queue,disk_sec_per_transfer,process_pct,process_pid,sample_ms,note,process_priority_base,processor_queue_length')
+    $everyWriter = $null
+    $everyFull = $false
+    $classes = @{}
+    $logical = [Environment]::ProcessorCount
+    if ($EveryProcess) {
+        $everyStream = [IO.FileStream]::new($EveryProcess, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        $everyWriter = [IO.StreamWriter]::new($everyStream, [Text.UTF8Encoding]::new($false))
+        $everyWriter.AutoFlush = $true
+        $everyWriter.WriteLine('utc,sample_ms,name,pid,machine_pct,processors,base_priority,priority_class,note')
+    }
     try {
         while ([DateTime]::UtcNow -lt $end -and (Get-Process -Id $Parent -ErrorAction SilentlyContinue)) {
             $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -215,6 +239,7 @@ if ($Sample) {
             $queue = [Collections.Generic.List[string]]::new(); $transfer = [Collections.Generic.List[string]]::new()
             $percent = [Collections.Generic.List[string]]::new(); $ids = [Collections.Generic.List[string]]::new()
             $bases = [Collections.Generic.List[string]]::new()
+            $every = @{}
             try {
                 $problems = $null
                 $read = Get-Counter -Counter $paths -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue -ErrorVariable problems
@@ -234,24 +259,60 @@ if ($Sample) {
                     elseif ($path.EndsWith('\current disk queue length')) { $queue.Add("$instance=$value") }
                     elseif ($path.EndsWith('\avg. disk sec/transfer')) { $transfer.Add("$instance=$value") }
                     elseif ($path.EndsWith('\system\processor queue length')) { $ready = $value }
-                    elseif ($path.Contains('\process(') -and $instance -match $named) {
-                        if ($path.EndsWith('\% processor time')) { $percent.Add("$instance=$value") }
-                        elseif ($path.EndsWith('\id process')) { $ids.Add("$instance=$value") }
-                        elseif ($path.EndsWith('\priority base')) { $bases.Add("$instance=$value") }
+                    elseif ($path.Contains('\process(')) {
+                        if ($everyWriter -and $instance -ne '_total') {
+                            if (-not $every.ContainsKey($instance)) { $every[$instance] = @{ Pct = $null; Pid = ''; Base = '' } }
+                            if ($path.EndsWith('\% processor time')) { $every[$instance].Pct = [double]$point.CookedValue }
+                            elseif ($path.EndsWith('\id process')) { $every[$instance].Pid = ([double]$point.CookedValue).ToString('0', $invariant) }
+                            elseif ($path.EndsWith('\priority base')) { $every[$instance].Base = ([double]$point.CookedValue).ToString('0', $invariant) }
+                        }
+                        if ($instance -match $named) {
+                            if ($path.EndsWith('\% processor time')) { $percent.Add("$instance=$value") }
+                            elseif ($path.EndsWith('\id process')) { $ids.Add("$instance=$value") }
+                            elseif ($path.EndsWith('\priority base')) { $bases.Add("$instance=$value") }
+                        }
                     }
                 }
             }
             catch { $note = $_.Exception.Message }
             $note = ($note -replace '[,\r\n]+', ' ').Trim()
             $took = $clock.Elapsed.TotalMilliseconds.ToString('0', $invariant)
-            $writer.WriteLine((@([DateTime]::UtcNow.ToString('o', $invariant), $available, $pages, $processor, ($queue -join ';'),
+            $utc = [DateTime]::UtcNow.ToString('o', $invariant)
+            $writer.WriteLine((@($utc, $available, $pages, $processor, ($queue -join ';'),
                         ($transfer -join ';'), ($percent -join ';'), ($ids -join ';'), $took, $note, ($bases -join ';'), $ready) -join ','))
+            if ($everyWriter -and -not $everyFull) {
+                $written = 0
+                foreach ($name in @($every.Keys | Sort-Object)) {
+                    if ($written -ge 512) { break }
+                    $one = $every[$name]
+                    if ($null -eq $one.Pct) { continue }
+                    # The class is read once per pid and base (a process's claim moves its base), so the sampler opens no handle a second
+                    # for a process it has read; a process Windows does not open to it reads 'unread'.
+                    $key = "$($one.Pid)/$($one.Base)"
+                    if (-not $classes.ContainsKey($key)) {
+                        if ($classes.Count -ge 4096) { $classes.Clear() }
+                        $classes[$key] = try {
+                            $classRead = "$((Get-Process -Id ([int]$one.Pid) -ErrorAction Stop).PriorityClass)"
+                            if ($classRead) { $classRead } else { 'unread' }
+                        } catch { 'unread' }
+                    }
+                    $whose = if ($one.Pid -eq "$PID") { 'the sampler' } elseif ($one.Pid -eq "$Parent") { 'the step' } else { '' }
+                    $everyWriter.WriteLine((@($utc, $took, ($name -replace '[,\r\n]+', ' '), $one.Pid, ($one.Pct / $logical).ToString('0.###', $invariant),
+                                ($one.Pct / 100).ToString('0.####', $invariant), $one.Base, $classes[$key], $whose) -join ','))
+                    $written++
+                }
+                if ($everyStream.Length -ge 4MB) {
+                    $everyWriter.WriteLine("$utc,$took,,,,,,,the file holds 4 MB: no more process rows are written")
+                    $everyFull = $true
+                }
+            }
             $left = 1000 - $clock.ElapsedMilliseconds
             if ($left -gt 0) { Start-Sleep -Milliseconds $left }
         }
     }
     finally {
         $writer.Dispose()
+        if ($everyWriter) { $everyWriter.Dispose() }
     }
     exit 0
 }
@@ -265,10 +326,11 @@ $MachineCounters = @(
     '\Process(*)\% Processor Time', '\Process(*)\ID Process',
     '\Process(*)\Priority Base', '\System\Processor Queue Length')
 
-# Starts the machine sampler as a process of its own beside the suites, writing to $Csv: its parent is this script, never a test's
-# dotnet test, so no deadline's tree stop (Get-ProcessTree from a dotnet test's id) takes it. It returns the process, or $null with a
-# warning when it could not start; nothing here fails the step or waits on the sampler.
-function Start-MachineSampler([string] $Csv) {
+# Starts the machine sampler as a process of its own beside the suites, writing to $Csv (and, given $Every, every process's rows to
+# that file too: the prioritycost job's alone): its parent is this script, never a test's dotnet test, so no deadline's tree stop
+# (Get-ProcessTree from a dotnet test's id) takes it. It returns the process, or $null with a warning when it could not start; nothing
+# here fails the step or waits on the sampler.
+function Start-MachineSampler([string] $Csv, [string] $Every = '') {
     try {
         if (-not (Get-Command Get-Counter -ErrorAction SilentlyContinue)) {
             Write-Host '::warning::the machine sampler did not start: Get-Counter is not on this runner (a measurement, never a gate)'
@@ -304,6 +366,7 @@ function Start-MachineSampler([string] $Csv) {
         foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $PSCommandPath, '-Sample', $Csv, '-Parent', "$PID", '-Counters', ($paths -join '|'))) {
             $info.ArgumentList.Add($a)
         }
+        if ($Every) { $info.ArgumentList.Add('-EveryProcess'); $info.ArgumentList.Add($Every) }
         $sampler = [Diagnostics.Process]::Start($info)
         $sampler.BeginOutputReadLine()
         $sampler.BeginErrorReadLine()
@@ -681,10 +744,16 @@ if ($PriorityCost) {
         throw 'the run was dispatched with prioritycost and another input (d3d12, hangproof or nodehostab): say one'
     }
     Write-StepPriority
+    $invariant = [Globalization.CultureInfo]::InvariantCulture
+    $root = Join-Path (Get-Location) 'tests/TestResults/prioritycost'
+    if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+    New-Item -ItemType Directory -Path $root | Out-Null
     # The probe's project file is kept as PlayMap.PriorityProbe.csproj.in so no *.csproj search of the tree meets it; it is built from a
     # copy outside the checkout, where the tree's Directory.Build.props does not reach, and references this checkout's Core and
     # Platform.Windows by PlayMapCheckout (ending in a separator: '/', which MSBuild reads on Windows too and which no quoting of the
-    # argument can take for an escape), so the class the burner claims is the product's own claim.
+    # argument can take for an escape), so the class the burner claims is the product's own claim. It is built with no server left to
+    # outlive it into the legs: -nodeReuse:false (MSBuild's worker nodes end with the build), -p:UseSharedCompilation=false (the
+    # compiler runs in the build, no VBCSCompiler), and the MSBuild server off for this step (DOTNET_CLI_USE_MSBUILD_SERVER=0; it is off by default, said here so a runner that turns it on does not).
     $probeDir = Join-Path $env:RUNNER_TEMP 'priority-probe'
     if (Test-Path $probeDir) { Remove-Item $probeDir -Recurse -Force }
     New-Item -ItemType Directory -Path $probeDir | Out-Null
@@ -692,32 +761,95 @@ if ($PriorityCost) {
     Copy-Item tools/priority-probe/PlayMap.PriorityProbe.csproj.in -Destination (Join-Path $probeDir 'PlayMap.PriorityProbe.csproj')
     $project = (Resolve-Path (Join-Path $probeDir 'PlayMap.PriorityProbe.csproj')).Path
     $checkout = (Get-Location).Path.TrimEnd('\', '/') + '/'
-    dotnet build $project -c $TestConfiguration "-p:PlayMapCheckout=$checkout"
+    $env:DOTNET_CLI_USE_MSBUILD_SERVER = '0'
+    dotnet build $project -c $TestConfiguration "-p:PlayMapCheckout=$checkout" -nodeReuse:false -p:UseSharedCompilation=false
     if ($LASTEXITCODE -ne 0) { throw "the priority probe did not build ($LASTEXITCODE)" }
     # Run as its own exe, so the machine sampler names its processes PlayMap.PriorityProbe (followed by pid, as every row is).
     $exe = Join-Path $probeDir "bin/$TestConfiguration/net10.0/PlayMap.PriorityProbe.exe"
     if (-not (Test-Path $exe)) { throw "the priority probe built no $exe" }
 
-    $root = Join-Path (Get-Location) 'tests/TestResults/prioritycost'
-    if (Test-Path $root) { Remove-Item $root -Recurse -Force }
-    New-Item -ItemType Directory -Path $root | Out-Null
+    # The build's servers: every MSBuild, VBCSCompiler and dotnet process alive after the build, then `dotnet build-server shutdown`
+    # (MSBuild's nodes, the compiler's server and Razor's), then every one still alive, by name and pid, in the log and in the
+    # summary (servers.csv, which the probe's reader reads); none is expected after either. A reading, never a failure.
+    $serversCsv = Join-Path $root 'servers.csv'
+    Set-Content -Path $serversCsv -Value 'utc,when,alive,words' -Encoding utf8NoBOM
+    function Write-BuildServers([string] $When, [string] $Words) {
+        $alive = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^(msbuild.*|vbcscompiler|dotnet)$' } |
+                Sort-Object Id | ForEach-Object { "$($_.ProcessName) (pid $($_.Id))" })
+        $said = if ($alive.Count -eq 0) { 'none' } else { $alive -join '; ' }
+        Write-Host "build servers $When`: $said$(if ($Words) { " ($Words)" })"
+        Add-Content -Path $serversCsv -Value ((@([DateTime]::UtcNow.ToString('o', $invariant), $When, $said, $Words) | ForEach-Object { "$_" -replace '[,\r\n]+', ' ' }) -join ',') -Encoding utf8NoBOM
+    }
+    Write-BuildServers 'after the build' ''
+    # The shutdown runs under a deadline of its own, so one that waits on a dead server's pipe ends in a row of words and the legs go on.
+    $shutdown = Invoke-WithDeadline -Name 'dotnet build-server shutdown' -FileName (Get-Command dotnet).Source -Arguments @('build-server', 'shutdown') -Deadline ([TimeSpan]::FromMinutes(1))
+    $shutdownWords = if ($shutdown.Ended) { "dotnet build-server shutdown answered $($shutdown.ExitCode)" } else { 'dotnet build-server shutdown ran past its deadline of 1 min and was stopped' }
+    Write-BuildServers 'after the shutdown' $shutdownWords
+
+    # The quiet start: before the calibration and the first leg, the machine's whole processor time (\Processor(_Total)\% Processor
+    # Time, the sampler's own counter, over one second a reading) is waited on until it reads under half a logical processor (50 %
+    # over the logical processors: 12.5 % on four) for 5 readings in a row, at most 90 s. Half a logical processor sits
+    # above a quiet machine's unnamed load and below one logical processor of steady load; 5 s in a row is no one quiet second
+    # between two busy ones; the job keeps inside its 30 minutes with the 90 s bound (docs/round2/CARRYOVER.md says what each was
+    # chosen against). Each reading, with the three busiest processes then (outside _Total and Idle), goes to quiet.csv, which the probe's reader reads; the
+    # bound reached is said and never fails the job. Get-Counter missing or failing is a row of words, and the legs go on.
+    $quietCsv = Join-Path $root 'quiet.csv'
+    $logical = [Environment]::ProcessorCount
+    $threshold = 50.0 / $logical
+    $needed = 5
+    $bound = 90
+    Set-Content -Path $quietCsv -Value 'utc,elapsed_s,processor_pct,threshold_pct,in_a_row,needed,bound_s,top_processes,outcome' -Encoding utf8NoBOM
+    $quietClock = [Diagnostics.Stopwatch]::StartNew()
+    $inARow = 0
+    $outcome = ''
+    while ($outcome -eq '') {
+        $total = ''
+        $top = ''
+        $words = ''
+        try {
+            $problems = $null
+            $read = Get-Counter -Counter @('\Processor(_Total)\% Processor Time', '\Process(*)\% Processor Time') -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue -ErrorVariable problems
+            if ($problems) { $words = "$($problems[0].Exception.Message)" }
+            $points = if ($read) { @($read.CounterSamples | Where-Object { $_.Status -eq 0 }) } else { @() }
+            $whole = @($points | Where-Object { "$($_.Path)".ToLowerInvariant().Contains('\processor(_total)\') })
+            if ($whole.Count -gt 0) { $total = [double]$whole[0].CookedValue }
+            $top = (@($points | Where-Object { "$($_.Path)" -match '\\process\(([^)]*)\)\\' -and $Matches[1] -notin @('_total', 'idle') } |
+                        Sort-Object CookedValue -Descending | Select-Object -First 3 | ForEach-Object {
+                            "$(if ("$($_.Path)" -match '\\process\(([^)]*)\)\\') { $Matches[1] })=$(([double]$_.CookedValue / $logical).ToString('0.0', $invariant))%"
+                        }) -join '; ')
+        }
+        catch { $words = $_.Exception.Message }
+        if ($total -is [double] -and $total -lt $threshold) { $inARow++ } else { $inARow = 0 }
+        $elapsed = $quietClock.Elapsed.TotalSeconds
+        if ($inARow -ge $needed) { $outcome = 'quiet' }
+        elseif ($elapsed -ge $bound) { $outcome = 'the bound reached, not quiet' }
+        elseif (-not (Get-Command Get-Counter -ErrorAction SilentlyContinue)) { $outcome = 'not read: Get-Counter is not on this runner' }
+        $pct = if ($total -is [double]) { $total.ToString('0.0', $invariant) } else { '' }
+        Add-Content -Path $quietCsv -Value ((@([DateTime]::UtcNow.ToString('o', $invariant), $elapsed.ToString('0.0', $invariant), $pct,
+                        $threshold.ToString('0.0', $invariant), "$inARow", "$needed", "$bound", $(if ($words) { "$top (words: $words)" } else { $top }), $outcome) |
+                    ForEach-Object { "$_" -replace '[,\r\n]+', ' ' }) -join ',') -Encoding utf8NoBOM
+        if ($outcome -eq '' -and $total -isnot [double]) { Start-Sleep -Milliseconds 1000 }
+    }
+    Write-Host "the quiet start: $outcome after $($quietClock.Elapsed.TotalSeconds.ToString('0.0', $invariant)) s (under $($threshold.ToString('0.0', $invariant)) % for $needed readings in a row, at most $bound s; each reading in $quietCsv)"
+
     $broken = @()
-    # The legs' order is the probe's (one line each: its place and its leg), never written again here.
+    # The legs' order is the probe's (one line each: its place, its leg and its folder), never written again here.
     $order = @(& $exe order)
     if ($LASTEXITCODE -ne 0 -or $order.Count -eq 0) { throw "the priority probe gave no order of legs ($LASTEXITCODE)" }
     $legs = @(foreach ($line in $order) {
-        if ("$line" -notmatch '^(\d+) (\S+)$') { throw "the priority probe's order has a line that is not 'place leg': '$line'" }
-        [pscustomobject]@{ Place = [int]$Matches[1]; Name = $Matches[2]; Folder = ('leg-{0:00}-{1}' -f [int]$Matches[1], $Matches[2]) }
+        if ("$line" -notmatch '^(\d+) (\S+) (leg-\S+)$') { throw "the priority probe's order has a line that is not 'place leg folder': '$line'" }
+        [pscustomobject]@{ Place = [int]$Matches[1]; Name = $Matches[2]; Folder = $Matches[3] }
     })
-    # Each leg's window is 20 s after a 3 s lead (about 24 s a leg on the runner, run 493); the probe bounds a leg at 60 s for each
+    # Each leg's window is 20 s after a 3 s lead (about 25 s a leg on the runner); the probe bounds a leg at 60 s for each
     # ready file and 90 s after the window, so a leg the runner holds longer than that is stopped and said; each leg's deadline (4 min)
     # is past all of it, for a probe that hangs. The legs together are held to a budget of 22 minutes from the calibration, with the
-    # reader's 2 after it: with the checkout, the SDK and the probe's build (about 2 minutes on run 493) the job stays inside its 30.
-    # A leg is started only while the budget still holds its deadline; the legs it cannot hold are not run, and said.
+    # reader's 2 after it: with the checkout and the SDK, the probe's build (with no shared compiler) and the quiet start (at most 90 s), the job stays inside its 30. The order's 24 legs take about 10
+    # minutes, so the job about 13 in a normal run. A leg is started only while the budget still holds its deadline; the legs it cannot
+    # hold are not run, and said.
     $budget = [TimeSpan]::FromMinutes(22)
     $legDeadline = [TimeSpan]::FromMinutes(4)
     $spent = [Diagnostics.Stopwatch]::StartNew()
-    Write-Host "the legs: $($legs.Count) in the probe's order ($(($legs | ForEach-Object { $_.Name }) -join ', ')), about $([math]::Ceiling($legs.Count * 25 / 60)) minutes expected, $($budget.TotalMinutes) at most"
+    Write-Host "the legs: $($legs.Count) in the probe's order ($(($legs | ForEach-Object { "$($_.Place) $($_.Name)" }) -join ', ')), about $([math]::Ceiling($legs.Count * 25 / 60)) minutes expected, $($budget.TotalMinutes) at most"
     $run = Invoke-WithDeadline -Name 'the calibration' -FileName $exe -Arguments @('calibrate', '--out', $root) -Deadline ([TimeSpan]::FromMinutes(2))
     if (-not $run.Ended -or $run.ExitCode -ne 0) { $broken += "the calibration (exit $($run.ExitCode))" }
     else {
@@ -728,7 +860,7 @@ if ($PriorityCost) {
                 break
             }
             $csv = Join-Path $root "$($leg.Folder)/machine.sampler.csv"
-            $sampler = Start-MachineSampler $csv
+            $sampler = Start-MachineSampler $csv (Join-Path $root "$($leg.Folder)/machine.processes.csv")
             Write-Host "::group::leg $($leg.Place) $($leg.Name)"
             try {
                 $run = Invoke-WithDeadline -Name "leg $($leg.Place) $($leg.Name)" -FileName $exe -Deadline $legDeadline -Arguments @(

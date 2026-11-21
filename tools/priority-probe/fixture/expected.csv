@@ -49,3 +49,19 @@ leg-05-high-n1,pool_run,2,an item that never ran is not counted as run
 leg-05-high-n1,pool_pending_at_end,1,an item that never ran (no pool row) is pending at the window's end
 leg-05-high-n1,pool_pending_at_least_ms,5196.6,its wait runs to the victim's own stamp of the end of its wait for it (pool_wait_end_mono_ns) and is a lower bound
 leg-05-high-n1,pool_longest_wait,>= 5196.6,the never-run item's lower bound is the window's longest wait
+leg-06-high-n1-warmup,place_label,warmup,the warm-up's row says so from its leg row's place label
+leg-06-high-n1-warmup,missed_slots,4,the warm-up's own stall (one frame of 90 ms) counts its four slots in its own row
+leg-07-buy-high,deadline_side,yes,a buy leg's victim is the busy side's own deadline
+leg-07-buy-high,missed_slots,1,the deadline process's missed slots are read as a victim's (one frame of 40 ms)
+leg-07-buy-high,longest_no_frame_done_ms,46.7,the deadline process's longest stretch with no frame finished is read as a victim's
+leg-07-buy-high,ticks_by_wake,6,the deadline process's ticks are counted by their wake as a victim's
+leg-07-buy-high,pool_longest_wait,0.1,the deadline process's pool waits are read as a victim's
+leg-07-buy-high,samples_in_window,2,two of the sampler's samples overlap the window (each spans its call: its time less its sample_ms)
+leg-07-buy-high,others_in_window,msbuild (pid 8308; base 8) 0.27 processor-s; vbcscompiler (pid 6600; base 8) 0.06 processor-s; pwsh#1 (pid 2948; base 6; the sampler) 0.01 processor-s (2 samples),the processes outside the probe's own (and Idle) with the most processor time in the window: each sample's share times its overlap; the probe's own and Idle are never named
+leg-07-buy-high,others_in_no_frame,msbuild (pid 8308; base 8) 0.04 processor-s; vbcscompiler (pid 6600; base 8) 0.01 processor-s (1 sample),the processes in the longest stretch with no frame finished from the one sample over it; a process of no time there (the sampler) is not named
+leg-08-high-core1,burner_pin,pinned,every burner thread pinned as the plan put it reads as pinned
+leg-08-high-core1,missed_slots,2,a whole-core-free leg's missed slots
+leg-08-high-core1,samples_in_window,1,one sample overlaps the window
+leg-08-high-core1,others_in_no_frame,no sample covers it,a stretch no sample overlaps says so and names no process
+leg-09-normal-core1,burner_pin,not pinned,a whole-core-free leg whose burner did not pin is never read as pinned
+leg-09-normal-core1,samples_in_window,not recorded,a leg with no every-process rows says they were not recorded

@@ -12,13 +12,17 @@ namespace PlayMap.PriorityProbe;
 /// processor while it waits. On the way it stamps its process's processor time at the victim's window's start and end, each with the
 /// instant it read it (a burner ready after the window's start stamps at once, and its stamp says so). Its row, written after the stop,
 /// carries the processor time it used from ready to stop and those two stamps. On Windows a thread's processor time is counted in clock
-/// ticks, so the process's total moves by whole ticks per thread.</summary>
+/// ticks, so the process's total moves by whole ticks per thread. Told --pin core1 (the whole-core-free legs), each busy thread pins itself
+/// to one logical processor of the plan <see cref="Os.WholeCoreFree"/> makes (every core but the last the OS lists) before it counts
+/// itself started, and the row says which logical processors were pinned and which left free; off Windows nothing is pinned and the row
+/// says so, never as pinned.</summary>
 internal static class Burner
 {
     private static int _stop;
 
-    /// <summary>burner --dir D --threads N --class high|normal --from MONO_NS --to MONO_NS --until MONO_NS: exit 0, or 3 when the class it
-    /// was told is not the class Windows reads back (its row is written either way). --from and --to are the victim's window.</summary>
+    /// <summary>burner --dir D --threads N --class high|normal --from MONO_NS --to MONO_NS --until MONO_NS [--pin none|core1]: exit 0, or 3
+    /// when the class it was told is not the class Windows reads back (its row is written either way). --from and --to are the victim's
+    /// window.</summary>
     public static int Run(Args args)
     {
         var dir = args.Text("dir");
@@ -29,6 +33,8 @@ internal static class Burner
         var until = args.Integer("until");
         if (from > to || to > until)
             throw new ArgumentException("--from, --to and --until are instants in that order");
+        var pin = args.Has("pin") ? args.Word("pin", "none", "core1") : "none";
+        var plan = pin == "core1" ? Os.WholeCoreFree() : null;
         Directory.CreateDirectory(dir);
         Thread.CurrentThread.Priority = ThreadPriority.Highest;
 
@@ -55,11 +61,18 @@ internal static class Burner
         var classOk = !told || (readClass == expected && claimApplied == "yes");
 
         var started = 0;
+        var pinWords = new string[threads];
+        var pinTo = new int[threads];
+        for (var i = 0; i < threads; i++)
+            pinTo[i] = plan is { Made: true } p && p.Pinned.Count > 0 ? p.Pinned[i % p.Pinned.Count] : -1;
         var workers = new Thread[threads];
         for (var i = 0; i < threads; i++)
         {
+            var at = i;
             workers[i] = new Thread(() =>
             {
+                // Pinned before it counts itself started, so the ready file is written only once every thread is where the plan put it.
+                pinWords[at] = pinTo[at] >= 0 ? Os.PinCurrentThread(pinTo[at]) : "";
                 Interlocked.Increment(ref started);
                 while (Volatile.Read(ref _stop) == 0)
                     Work.Run(20_000);
@@ -97,6 +110,7 @@ internal static class Burner
         foreach (var w in workers)
             w.Join();
 
+        var (pinOutcome, pinnedCell, freeCell, pinCell) = PinRow(pin, plan, pinTo, pinWords);
         var wallMs = (stopNs - readyNs) / 1e6;
         Files.WriteCsv(Path.Combine(dir, "burner.csv"), Rows.BurnerHeader,
         [[
@@ -109,7 +123,24 @@ internal static class Burner
             wallMs > 0 ? ((cpu1 - cpu0) / wallMs).ToString("0.00", CultureInfo.InvariantCulture) : "",
             cpuAtStart.ToString("0.0", CultureInfo.InvariantCulture), stampStart.ToString(CultureInfo.InvariantCulture),
             cpuAtEnd.ToString("0.0", CultureInfo.InvariantCulture), stampEnd.ToString(CultureInfo.InvariantCulture),
+            pinOutcome, pinnedCell, freeCell, pinCell,
         ]]);
         return classOk ? 0 : 3;
+    }
+
+    /// <summary>The row's pin cells: "none" (not asked), "pinned" (every thread pinned as the plan put it), or "not pinned" (off Windows, no
+    /// plan, or a thread Windows refused), with the logical processors pinned to and left free (as the plan named them: only "pinned" says
+    /// they were taken) and the words.</summary>
+    private static (string Outcome, string Pinned, string Free, string Words) PinRow(string pin, CorePlan? plan, int[] pinTo, string[] pinWords)
+    {
+        if (pin == "none" || plan is null)
+            return ("none", "", "", "");
+        if (!plan.Made)
+            return ("not pinned", "", "", plan.Words);
+        var refused = pinWords.Where(w => w.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        var pinned = Os.Join(pinTo.Where(p => p >= 0).Distinct().OrderBy(p => p));
+        return refused.Count == 0
+            ? ("pinned", pinned, Os.Join(plan.Free), plan.Words)
+            : ("not pinned", pinned, Os.Join(plan.Free), plan.Words + "; " + string.Join("; ", refused));
     }
 }

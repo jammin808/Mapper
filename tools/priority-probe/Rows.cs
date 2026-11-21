@@ -12,7 +12,7 @@ internal static class Rows
         "frame_timer", "tick_timer", "work_iterations", "ready_mono_ns", "window_start_mono_ns", "window_end_mono_ns", "anchor_mono_ns", "anchor_utc",
         "frames", "frames_dropped", "ticks", "ticks_dropped", "pool_items", "pool_pending_at_end", "gen0_collections", "process_cpu_ms",
         "cpu_ms_at_window_start", "cpu_stamp_start_mono_ns", "cpu_ms_at_window_end", "cpu_stamp_end_mono_ns",
-        "timer_current_100ns_at_window_start", "timer_current_100ns_at_window_end", "pool_wait_end_mono_ns",
+        "timer_current_100ns_at_window_start", "timer_current_100ns_at_window_end", "pool_wait_end_mono_ns", "claim_applied", "claim_read_back",
     ];
 
     public static readonly string[] FramesHeader = ["utc", "due_mono_ns", "start_mono_ns", "lateness_ms", "work_wall_ms", "work_cpu_ms", "missed_after"];
@@ -26,12 +26,13 @@ internal static class Rows
         "os", "pid", "processors", "threads", "class_asked", "class_at_start", "base_at_start", "claim_applied", "claim_read_back",
         "class_read", "base_read", "class_as_told", "claim_words", "ready_mono_ns", "ready_utc", "stop_mono_ns", "wall_ms", "cpu_ms",
         "processors_used", "cpu_ms_at_window_start", "cpu_stamp_start_mono_ns", "cpu_ms_at_window_end", "cpu_stamp_end_mono_ns",
+        "pin", "pinned_processors", "free_processors", "pin_words",
     ];
 
     public static readonly string[] LegHeader =
     [
         "leg", "label", "burner_threads", "burner_class", "victim_class", "seconds", "lead_seconds", "started_utc", "victim_ready_utc",
-        "burner_ready_utc", "ended_utc", "victim_exit", "burner_exit", "outcome", "words", "run",
+        "burner_ready_utc", "ended_utc", "victim_exit", "burner_exit", "outcome", "words", "run", "place_label", "place_note",
     ];
 
     /// <summary>One reading of the runner's scheduler (<see cref="Scheduler"/>): the timer's resolution in NtQueryTimerResolution's own

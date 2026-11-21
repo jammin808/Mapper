@@ -135,18 +135,23 @@ internal static partial class Os
     }
 
     /// <summary>The processors as the OS lays them out: logical processors, physical cores, and whether any core runs two threads (SMT).
-    /// On Windows from GetLogicalProcessorInformationEx's core records (their count, each one's flag LTP_PC_SMT, the bits of their group
-    /// masks); on Linux from /sys/devices/system/cpu (each logical processor's package and core id, and smt/active). Read, never set;
-    /// null with the words why where it is not read.</summary>
-    public static (int Logical, int Cores, bool Smt)? Topology(out string words)
+    /// Read from <see cref="CoreSets"/>; null with the words why where it is not read.</summary>
+    public static (int Logical, int Cores, bool Smt)? Topology(out string words) =>
+        CoreSets(out words) is { } layout ? (layout.Cores.Sum(c => c.Processors.Count), layout.Cores.Count, layout.Smt) : null;
+
+    /// <summary>Each physical core with its logical processors, in the OS's own order, and whether any core runs two threads (SMT). On
+    /// Windows from GetLogicalProcessorInformationEx's core records (each one's group and the bits of its group mask, the flag LTP_PC_SMT);
+    /// on Linux from /sys/devices/system/cpu (each logical processor's package and core id, and smt/active). Read, never set; null with
+    /// the words why where it is not read.</summary>
+    public static (IReadOnlyList<CoreSet> Cores, bool Smt)? CoreSets(out string words)
     {
         words = "";
         try
         {
             if (OperatingSystem.IsWindows())
-                return WindowsTopology(out words);
+                return WindowsCores(out words);
             if (OperatingSystem.IsLinux())
-                return LinuxTopology(out words);
+                return LinuxCores(out words);
             words = "topology not read on " + RuntimeInformation.OSDescription;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException or OutOfMemoryException)
@@ -159,7 +164,7 @@ internal static partial class Os
     private const int RelationProcessorCore = 0;
     private const int ErrorInsufficientBuffer = 122;
 
-    private static (int Logical, int Cores, bool Smt)? WindowsTopology(out string words)
+    private static (IReadOnlyList<CoreSet> Cores, bool Smt)? WindowsCores(out string words)
     {
         words = "";
         uint length = 0;
@@ -177,9 +182,9 @@ internal static partial class Os
                 return null;
             }
             // Each record: Relationship (4 bytes), Size (4), then PROCESSOR_RELATIONSHIP: Flags (1; LTP_PC_SMT is 1), EfficiencyClass (1),
-            // Reserved (20), GroupCount (2, at 30), and GroupCount GROUP_AFFINITY of 16 bytes from 32, each a KAFFINITY mask first.
-            var cores = 0;
-            var logical = 0;
+            // Reserved (20), GroupCount (2, at 30), and GroupCount GROUP_AFFINITY of 16 bytes from 32: a KAFFINITY mask (8), then the
+            // group's number (2) and its reserved words.
+            var cores = new List<CoreSet>();
             var smt = false;
             var offset = 0;
             while (offset + 32 <= length)
@@ -189,20 +194,32 @@ internal static partial class Os
                     break;
                 if (Marshal.ReadInt32(buffer, offset) == RelationProcessorCore)
                 {
-                    cores++;
                     smt |= (Marshal.ReadByte(buffer, offset + 8) & 1) != 0;
                     var groups = (ushort)Marshal.ReadInt16(buffer, offset + 30);
+                    var processors = new List<int>();
+                    var group = -1;
                     for (var g = 0; g < groups && offset + 32 + (g + 1) * 16 <= offset + size; g++)
-                        logical += System.Numerics.BitOperations.PopCount((ulong)Marshal.ReadInt64(buffer, offset + 32 + g * 16));
+                    {
+                        var mask = (ulong)Marshal.ReadInt64(buffer, offset + 32 + g * 16);
+                        var number = (ushort)Marshal.ReadInt16(buffer, offset + 32 + g * 16 + 8);
+                        // A core spans one group; a record naming two is kept under the first, its numbers counted as they are.
+                        group = group < 0 ? number : group;
+                        for (var bit = 0; bit < 64; bit++)
+                        {
+                            if ((mask & (1UL << bit)) != 0)
+                                processors.Add(bit);
+                        }
+                    }
+                    cores.Add(new CoreSet(Math.Max(0, group), processors));
                 }
                 offset += size;
             }
-            if (cores == 0)
+            if (cores.Count == 0)
             {
                 words = "topology not read: GetLogicalProcessorInformationEx returned no core";
                 return null;
             }
-            return (logical, cores, smt);
+            return (cores, smt);
         }
         finally
         {
@@ -210,23 +227,66 @@ internal static partial class Os
         }
     }
 
-    private static (int Logical, int Cores, bool Smt)? LinuxTopology(out string words)
+    private static (IReadOnlyList<CoreSet> Cores, bool Smt)? LinuxCores(out string words)
     {
         words = "";
         var cpus = Directory.GetDirectories("/sys/devices/system/cpu", "cpu*")
             .Where(d => Path.GetFileName(d).Length > 3 && Path.GetFileName(d)[3..].All(char.IsAsciiDigit))
             .Where(d => File.Exists(Path.Combine(d, "topology", "core_id")))
+            .Select(d => (Id: int.Parse(Path.GetFileName(d)[3..], NumberStyles.Integer, CultureInfo.InvariantCulture),
+                Core: File.ReadAllText(Path.Combine(d, "topology", "physical_package_id")).Trim() + "/" + File.ReadAllText(Path.Combine(d, "topology", "core_id")).Trim()))
+            .OrderBy(c => c.Id)
             .ToList();
         if (cpus.Count == 0)
         {
             words = "topology not read: /sys/devices/system/cpu names no processor with a topology";
             return null;
         }
-        var cores = cpus.Select(d => File.ReadAllText(Path.Combine(d, "topology", "physical_package_id")).Trim() + "/" +
-                                     File.ReadAllText(Path.Combine(d, "topology", "core_id")).Trim()).Distinct(StringComparer.Ordinal).Count();
+        // Cores in the order of their lowest logical processor, each with its logical processors in order.
+        var cores = cpus.GroupBy(c => c.Core, StringComparer.Ordinal).Select(g => new CoreSet(0, g.Select(c => c.Id).ToList())).ToList();
         var smtFile = "/sys/devices/system/cpu/smt/active";
-        var smt = File.Exists(smtFile) ? File.ReadAllText(smtFile).Trim() == "1" : cpus.Count > cores;
-        return (cpus.Count, cores, smt);
+        var smt = File.Exists(smtFile) ? File.ReadAllText(smtFile).Trim() == "1" : cores.Any(c => c.Processors.Count > 1);
+        return (cores, smt);
+    }
+
+    /// <summary>The plan of a whole-core-free leg (high-core1, normal-core1): the logical processors of every core but the last the OS
+    /// lists (its order, read from <see cref="CoreSets"/>) are the burner's, one thread to each, and the last core's are left free. Made
+    /// only on one processor group with two or more cores; otherwise not made, with the words why, and the leg runs the burner on the
+    /// logical processors less one, unpinned. On a machine without SMT every core but one is the n1 legs' shape, pinned, and the words
+    /// say so. A plan, never a pin: only the burner pins, on Windows (<see cref="PinCurrentThread"/>).</summary>
+    public static CorePlan WholeCoreFree()
+    {
+        var layout = CoreSets(out var words);
+        var lessOne = Math.Max(1, Environment.ProcessorCount - 1);
+        if (layout is not { } l)
+            return new CorePlan(false, lessOne, [], [], false, words + "; the burner runs unpinned on the logical processors less one");
+        if (l.Cores.Count < 2)
+            return new CorePlan(false, lessOne, [], [], l.Smt, "one core: no core can be left free; the burner runs unpinned on the logical processors less one");
+        if (l.Cores.Any(c => c.Group != 0))
+            return new CorePlan(false, lessOne, [], [], l.Smt, "more than one processor group: this probe pins within group 0 only; the burner runs unpinned on the logical processors less one");
+        var free = l.Cores[^1].Processors.OrderBy(p => p).ToList();
+        var pinned = l.Cores.Take(l.Cores.Count - 1).SelectMany(c => c.Processors).OrderBy(p => p).ToList();
+        // Words without commas: a cell's comma would be written as a semicolon.
+        var shape = l.Smt
+            ? $"core {l.Cores.Count.ToString(CultureInfo.InvariantCulture)} of {l.Cores.Count.ToString(CultureInfo.InvariantCulture)} left free (its logical processors {Join(free)})"
+            : "no SMT: every core but one is the n1 legs' shape (the logical processors less one) with one thread pinned to each where the burner pins";
+        return new CorePlan(true, pinned.Count, pinned, free, l.Smt, shape);
+    }
+
+    /// <summary>Logical processors as one cell: "0;1".</summary>
+    public static string Join(IEnumerable<int> processors) => string.Join(';', processors.Select(p => p.ToString(CultureInfo.InvariantCulture)));
+
+    /// <summary>Pins the calling thread to one logical processor of group 0 (SetThreadAffinityMask): "" when Windows took it, else the
+    /// words why. Windows only; elsewhere nothing is pinned and the words say so.</summary>
+    public static string PinCurrentThread(int processor)
+    {
+        if (!OperatingSystem.IsWindows())
+            return "not pinned: pinning is Windows' (SetThreadAffinityMask); nothing is pinned on " + RuntimeInformation.OSDescription;
+        if (processor is < 0 or > 63)
+            return "not pinned: logical processor " + processor.ToString(CultureInfo.InvariantCulture) + " is outside group 0's mask";
+        return SetThreadAffinityMask(GetCurrentThread(), (nuint)(1UL << processor)) != 0
+            ? ""
+            : "not pinned: SetThreadAffinityMask failed (error " + Marshal.GetLastPInvokeError().ToString(CultureInfo.InvariantCulture) + ")";
     }
 
     [LibraryImport("ntdll.dll")]
@@ -238,6 +298,9 @@ internal static partial class Os
 
     [LibraryImport("kernel32.dll")]
     private static partial IntPtr GetCurrentThread();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nuint SetThreadAffinityMask(IntPtr thread, nuint mask);
 
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -253,6 +316,13 @@ internal static partial class Os
         public long Nanoseconds;
     }
 }
+
+/// <summary>One physical core: its processor group and its logical processors' numbers within it.</summary>
+internal sealed record CoreSet(int Group, IReadOnlyList<int> Processors);
+
+/// <summary>A whole-core-free leg's plan (<see cref="Os.WholeCoreFree"/>): whether it was made, the burner's thread count, the logical
+/// processors it pins one thread to each and those it leaves free, whether the machine has SMT, and the words.</summary>
+internal sealed record CorePlan(bool Made, int Threads, IReadOnlyList<int> Pinned, IReadOnlyList<int> Free, bool Smt, string Words);
 
 /// <summary>The product's own Windows platform: the class the burner claims is claimed by <see cref="WindowsMachinePlatform.ClaimProcess"/>
 /// with <see cref="MachineSettings"/> whose Process is the leg's word and every other setting its default, so what is measured is the

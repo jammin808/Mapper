@@ -35,13 +35,15 @@ on:
         type: boolean
       prioritycost:
         description: >-
-          Run only the priority cost's measurement on windows-2025 (tools/ci-tests.ps1 -PriorityCost): a victim doing a desk's kind of
-          work at Normal (a 60 Hz frame of fixed work, a 50 ms tick, a pool item) alone, then beside a burner whose class the
-          product's own platform claims, HIGH or NORMAL, on every processor and on cores less one, and HIGH beside a victim at the
-          runner's own class; legs of 20 s in the probe's order (Legs.Order, the one place it is written; the probe's order mode
-          prints it), each with the machine sampler, the runner's scheduler read once, the tables and each kind's spread across its
-          repeats in the summary; about 9 minutes. A measurement, never a pass mark. Every other job is skipped; given with d3d12,
-          hangproof or nodehostab, it refuses to run.
+          Run only the priority cost's measurement on windows-2025 (tools/ci-tests.ps1 -PriorityCost): the probe built with no build
+          server and any left shut down, a quiet start, then a victim doing a desk's kind of work at Normal (a 60 Hz frame of fixed
+          work, a 50 ms tick, a pool item) alone, then beside a burner whose class the product's own platform claims, HIGH or NORMAL,
+          on every logical processor, on the logical processors less one and pinned to every core but one, HIGH beside a victim at
+          the runner's own class, and the victim's own loops claiming HIGH or NORMAL beside a NORMAL burner (what HIGH buys); legs of
+          20 s in the probe's order (Legs.Order, the one place it is written; the probe's order mode prints it), a warm-up the first burned leg,
+          each with the machine sampler listing every process, the runner's scheduler read once, the tables and each kind's spread
+          across its repeats in the summary; about 13 minutes. A measurement, never a pass mark. Every other job is skipped; given
+          with d3d12, hangproof or nodehostab, it refuses to run.
         required: false
         default: false
         type: boolean
@@ -199,7 +201,9 @@ jobs:
           npm run check
       # The priority probe (tools/priority-probe), which only the dispatched prioritycost job runs, built on every push from its copy
       # outside the checkout as that job builds it (so a change under src/ to what it references fails here), and its reader run over
-      # the hand-made legs in tools/priority-probe/fixture, each figure there held to its value (fix-priority-probe-reader). The copy
+      # the hand-made legs in tools/priority-probe/fixture (with the warm-up, a buy leg, the whole-core-free legs, the every-process
+      # sampler's rows and the job's readings before the legs), each figure there held to its value (fix-priority-probe-reader,
+      # fix-priority-probe-third). The copy
       # is built with this run's own -p:PlayMapRun and -p:PlayMapCommit, so the projects it references build as the solution's build
       # left them; it runs after every suite, whatever they said.
       - name: The priority probe built from its copy, and its reader over the fixture (a fence)
@@ -969,16 +973,20 @@ jobs:
   # work, at HIGH and at NORMAL, before a node's default class or anything else is decided (docs/round2/CARRYOVER.md,
   # fix-ci-priority-measure). tools/ci-tests.ps1 -PriorityCost builds tools/priority-probe from a copy outside the checkout (it
   # references this checkout's Core and Platform.Windows, so the burner's class is claimed by WindowsMachinePlatform.ClaimProcess),
-  # calibrates the victim's frame of work once on the quiet runner and reads the runner's scheduler (Win32PrioritySeparation, the
-  # timer's resolution, the processors' layout; never set), then runs the legs of the probe's order (Legs.Order, the one place it is
-  # written; the probe's order mode prints it), 20 s each, each with the machine sampler and its files apart under
-  # tests/TestResults/prioritycost/leg-<place>-<name>, all uploaded. The leg kinds: baseline (no burner); high-n1 and normal-n1 (on
-  # cores less one, each of the Compute pool's and HAP workers' own width); high-n and normal-n (the burner on every processor at
-  # HIGH, then NORMAL); high-n-runner (HIGH on every processor beside a victim left at the runner's own class)
-  # (docs/round2/CARRYOVER.md, fix-priority-probe-reader). About 9 minutes with the order as it is; the
-  # legs are held to a budget of 22 so the job keeps inside its 30. It needs no FFmpeg, Mesa or test build. The readings are never a
-  # pass mark: the job fails only when a leg wrote no files, a process did not start or did not read back the class it was told, a leg
-  # ran past its deadline, or the budget left a leg unrun.
+  # with no build server (node reuse and the shared compiler off), shuts down any left and records every MSBuild, VBCSCompiler and
+  # dotnet process still alive, waits for a quiet start (under half a logical processor for 5 s in a row, at most 90 s, never a
+  # failure), calibrates the victim's frame of work once on the quiet runner and reads the runner's scheduler (Win32PrioritySeparation,
+  # the timer's resolution, the processors' layout; never set), then runs the legs of the probe's order (Legs.Order, the one place it
+  # is written; the probe's order mode prints each place, leg and folder), 20 s each, a warm-up the first burned leg (place 2, after
+  # the first baseline), each with the machine sampler (here listing every process each sample) and its files apart under tests/TestResults/prioritycost/leg-<place>-<name>, all
+  # uploaded. The leg kinds: baseline (no burner); high-n1 and normal-n1 (on the logical processors less one, each of the Compute
+  # pool's and HAP workers' own width); high-core1 and normal-core1 (pinned to every core but one: a whole core free); high-n and
+  # normal-n (the burner on every logical processor at HIGH, then NORMAL); high-n-runner (HIGH on every logical processor beside a
+  # victim left at the runner's own class); buy-high and buy-normal (the victim's own loops claiming HIGH or NORMAL beside a NORMAL
+  # burner on every logical processor: what HIGH buys) (docs/round2/CARRYOVER.md, fix-priority-probe-reader and
+  # fix-priority-probe-third). About 13 minutes with the order as it is; the legs are held to a budget of 22 so the job keeps inside
+  # its 30. It needs no FFmpeg, Mesa or test build. The readings are never a pass mark: the job fails only when a leg wrote no files,
+  # a process did not start or did not read back the class it was told, a leg ran past its deadline, or the budget left a leg unrun.
   prioritycost:
     if: ${{ inputs.prioritycost }}
     runs-on: windows-2025

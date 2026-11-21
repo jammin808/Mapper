@@ -6,7 +6,9 @@ using PlayMap.Core.Time;
 namespace PlayMap.PriorityProbe;
 
 /// <summary>The victim: a process that stands for a desk or a supervisor on the same machine. Its class is set to Normal by its own
-/// hand at its start and read back (or, in the runner's leg, left as it was started), then three things run from its ready until its
+/// hand at its start and read back (or, in the runner's leg, left as it was started; or, in the legs that measure what HIGH buys, claimed
+/// HIGH or NORMAL through the product's own platform as the burner claims its class, read back the same way, so the same loops stand for
+/// the busy side's own deadline beside a competing load), then three things run from its ready until its
 /// window's end, each stamping every period on the machine's monotonic clock into rows made before the first period (nothing is
 /// allocated in a loop): a frame loop on one thread (the fixed piece of work the calibration made about 10 ms on the quiet runner,
 /// every 16.667 ms, waiting on the timer the product's platform makes); a light thread that only waits 50 ms on the runtime's own wait
@@ -72,28 +74,50 @@ internal sealed class Victim : IDisposable
         _endNs = _startNs + (long)(seconds * 1e9);
     }
 
-    /// <summary>victim --dir D --seconds S --lead L --work N --class normal|keep: exit 0, or 3 when told Normal and the OS reads back
-    /// another class on Windows (the rows are written either way).</summary>
+    /// <summary>victim --dir D --seconds S --lead L --work N --class normal|keep|claim-high|claim-normal: exit 0, or 3 when told a class
+    /// (set Normal, or claimed through the product's platform) and the OS reads back another on Windows (the rows are written either
+    /// way).</summary>
     public static int Run(Args args)
     {
         var dir = args.Text("dir");
         var seconds = args.Number("seconds");
         var lead = args.Number("lead");
         var work = args.Integer("work");
-        var mode = args.Word("class", "normal", "keep");
+        var mode = args.Word("class", "normal", "keep", "claim-high", "claim-normal");
         Directory.CreateDirectory(dir);
 
+        using var platform = Os.Platform();
         var (startClass, startBase) = Os.ReadClass();
         var setWords = "";
+        var claimApplied = "";
+        var claimRead = "";
+        var claim = mode is "claim-high" or "claim-normal";
         if (mode == "normal")
+        {
             (_, setWords) = Os.SetNormal();
+        }
+        else if (claim && OperatingSystem.IsWindows())
+        {
+            // The product's own claim, as the burner makes it: what is measured is the class a node claims, never a hand-set one.
+            var (priority, words) = WindowsPlatform.Claim(platform, mode == "claim-high" ? "high" : "normal");
+            setWords = words;
+            claimRead = priority?.ReadBack ?? "";
+            claimApplied = priority is { Applied: true } ? "yes" : "no";
+        }
+        else if (claim)
+        {
+            setWords = "the class claim is Windows only (WindowsMachinePlatform.ClaimProcess): nothing is claimed on " +
+                System.Runtime.InteropServices.RuntimeInformation.OSDescription + "; the loops run at the class the process was started at";
+        }
         else
+        {
             setWords = "kept as started: the runner's own condition";
+        }
         var (readClass, readBase) = Os.ReadClass();
-        var told = mode == "normal" && OperatingSystem.IsWindows();
-        var classOk = !told || readClass == "Normal";
+        var told = mode != "keep" && OperatingSystem.IsWindows();
+        var expected = mode == "claim-high" ? "High" : "Normal";
+        var classOk = !told || (readClass == expected && (!claim || claimApplied == "yes"));
 
-        using var platform = Os.Platform();
         using var frameTimer = platform.CreateTimer();
         var timerKind = platform.TimerMode(frameTimer);
         using var victim = new Victim(dir, work, seconds, lead, frameTimer);
@@ -133,7 +157,7 @@ internal sealed class Victim : IDisposable
             (gc1 - gc0).ToString(CultureInfo.InvariantCulture), (cpu1 - cpu0).ToString("0.0", CultureInfo.InvariantCulture),
             Ms(victim._cpuAtStartMs), victim._cpuStartStampNs.ToString(CultureInfo.InvariantCulture),
             Ms(victim._cpuAtEndMs), victim._cpuEndStampNs.ToString(CultureInfo.InvariantCulture),
-            victim._timerAtStart, victim._timerAtEnd, poolWaitEnd.ToString(CultureInfo.InvariantCulture),
+            victim._timerAtStart, victim._timerAtEnd, poolWaitEnd.ToString(CultureInfo.InvariantCulture), claimApplied, claimRead,
         ]]);
         // After the victim's own rows, and never throwing: the scheduler's reading never costs the leg its rows or its exit code.
         Scheduler.Write(Path.Combine(dir, Scheduler.File), "the victim's end");

@@ -4,12 +4,13 @@ using PlayMap.Core.Time;
 
 namespace PlayMap.PriorityProbe;
 
-/// <summary>What a saturating process costs a Normal-class process doing real work, at the burner's HIGH and at its NORMAL, in legs.
-/// A measurement for the owner to read, never a pass mark: a run fails only when a leg wrote no files, a process did not start or did
-/// not read back the class it was told, or a leg ran past its deadline.
+/// <summary>What a saturating process costs a Normal-class process doing real work, at the burner's HIGH and at its NORMAL, and what a
+/// deadline loop claiming HIGH or NORMAL keeps beside a competing NORMAL load, in legs. A measurement for the owner to read, never a pass
+/// mark: a run fails only when a leg wrote no files, a process did not start or did not read back the class it was told, or a leg ran
+/// past its deadline.
 ///   calibrate --out ROOT                   the frame's fixed work, about 10 ms of wall time on the quiet machine, to ROOT/calibration.csv,
 ///                                          and the runner's scheduler as read then to ROOT/scheduler.csv
-///   order                                  the legs' order (<see cref="Legs.Order"/>), one line each: its place and its leg
+///   order                                  the legs' order (<see cref="Legs.Order"/>), one line each: its place, its leg and its folder
 ///   leg --out ROOT --run K [--seconds S] [--lead L]   the order's K-th leg into ROOT/leg-KK-NAME
 ///   read --out ROOT                        the tables of every leg present, to ROOT/summary.md and ROOT/summary.csv, and printed
 ///   legs --out ROOT [--seconds S] [--lead L]   calibrate, every leg of the order, then read (a local run; CI runs the steps one by one)
@@ -94,7 +95,7 @@ internal static class Calibration
             TargetMs.ToString("0.0", CultureInfo.InvariantCulture), Fmt(samples[15]), Fmt(samples[3]), Fmt(samples[27]),
             samples.Length.ToString(CultureInfo.InvariantCulture),
         ]]);
-        Program.Say($"calibration: {iterations} iterations, median {Fmt(samples[15])} ms (p10 {Fmt(samples[3])}, p90 {Fmt(samples[27])}) on {Environment.ProcessorCount} processors");
+        Program.Say($"calibration: {iterations} iterations, median {Fmt(samples[15])} ms (p10 {Fmt(samples[3])}, p90 {Fmt(samples[27])}) on {Environment.ProcessorCount} logical processors");
         Scheduler.Write(Path.Combine(root, Scheduler.File), "the job's reading before any leg");
         return 0;
     }
@@ -122,53 +123,114 @@ internal static class Calibration
     private static string Fmt(double ms) => ms.ToString("0.000", CultureInfo.InvariantCulture);
 }
 
-/// <summary>One leg: what burns beside the victim (nothing in the baseline), how many threads, the class the burner claims, and the
-/// victim's class (Normal set by its own hand, or kept as the runner started it).</summary>
-internal sealed record LegSpec(string Name, string Label, int Threads, string BurnerClass, string VictimClass);
+/// <summary>One leg kind: what burns beside the victim (nothing in the baseline), how many threads, the class the burner claims, whether
+/// its threads are pinned (core1: every core but one), and the victim's class (Normal set by its own hand, kept as the runner started
+/// it, or claimed HIGH or NORMAL through the product's platform: then the victim's loops are the busy side's own deadline).</summary>
+internal sealed record LegSpec(string Name, string Label, int Threads, string BurnerClass, string VictimClass, string Pin = "none")
+{
+    /// <summary>The victim's loops stand for the busy side's own deadline (the buy legs), not for a desk beside it.</summary>
+    public bool Deadline => VictimClass.StartsWith("claim-", StringComparison.Ordinal);
+}
+
+/// <summary>A place in the order: the leg kind it runs, "warmup" for the leg run first and never counted with its kind, and why it is
+/// there (said in the summary beside the place).</summary>
+internal sealed record Placed(string Kind, string Label = "", string Note = "")
+{
+    public bool Warmup => Label == "warmup";
+}
 
 internal static class Legs
 {
-    /// <summary>The processor count less one, at least one: the width each of the product's Compute pool (src/PlayMap.Core/Threading/Compute.cs
-    /// 102) and its HAP workers (src/PlayMap.Media/Hap/HapWorkers.cs 92) takes on its own. Nothing in the product caps their sum (with
-    /// decode's and the render thread's), so a leg on cores less one stands for a node whose whole demand stays there, which the code does
-    /// not hold it to.</summary>
-    public static int CoresLessOne => Math.Max(1, Environment.ProcessorCount - 1);
+    /// <summary>The logical processors less one, at least one (<see cref="Environment.ProcessorCount"/> counts logical processors, so on
+    /// a machine with SMT this leaves one logical processor free, the SMT sibling of a busy one, never a whole core): the width each of
+    /// the product's Compute pool (src/PlayMap.Core/Threading/Compute.cs 102) and its HAP workers (src/PlayMap.Media/Hap/HapWorkers.cs 92)
+    /// takes on its own. Nothing in the product caps their sum (with decode's and the render thread's), so a leg on the logical processors
+    /// less one stands for a node whose whole demand stays there, which the code does not hold it to.</summary>
+    public static int LogicalLessOne => Math.Max(1, Environment.ProcessorCount - 1);
 
-    /// <summary>The legs one job runs, in this order, the one place it is written: each burned pair alternated (A B B A A B) and three of
-    /// each, the cores-less-one pairs first and the every-processor pairs after (their stalls run longest), the runner's leg once, and a
-    /// baseline at each end. Each leg's folder is named by its place, so a repeat never meets the files of the one before.</summary>
-    public static readonly IReadOnlyList<string> Order =
+    private static readonly Lazy<CorePlan> CorePlanOnce = new(Os.WholeCoreFree);
+
+    /// <summary>The whole-core-free legs' plan on this machine, read once (<see cref="Os.WholeCoreFree"/>).</summary>
+    public static CorePlan CorePlan => CorePlanOnce.Value;
+
+    /// <summary>The legs one job runs, in this order, the one place it is written. A baseline at each end, the first reading the quiet
+    /// machine. The warm-up is the first burned leg, at place 2, after that first baseline: a high-n1, never counted with its kind, so
+    /// whatever the job's first burned leg meets is met by it and not by a counted one. Then high-n1 at the first counted burned place, again in the middle and again at the
+    /// last burned place, each beside a normal-n1, so a freeze that follows high-n1 to its later places points to the class with one
+    /// logical processor free and one that stays at the job's start does not. Between them the new kinds, each twice and alternated
+    /// (A B B A): what HIGH buys (buy-high, buy-normal) and a whole core free (high-core1, normal-core1). The every-processor pairs after
+    /// the middle (A B B A A B, three of each: their stalls run longest), and the runner's leg once. Each leg's folder is named by its
+    /// place, so a repeat never meets the files of the one before.</summary>
+    public static readonly IReadOnlyList<Placed> Order =
     [
-        "baseline",
-        "high-n1", "normal-n1", "normal-n1", "high-n1", "high-n1", "normal-n1",
-        "normal-n", "high-n", "high-n", "normal-n", "normal-n", "high-n",
-        "high-n-runner",
-        "baseline",
+        new("baseline", Note: "the first baseline (after the quiet start)"),
+        new("high-n1", "warmup", "the warm-up: the first burned leg (never counted with its kind)"),
+        new("high-n1", Note: "high-n1 at the first counted burned place"),
+        new("normal-n1"),
+        new("buy-high"),
+        new("buy-normal"),
+        new("high-core1"),
+        new("normal-core1"),
+        new("normal-core1"),
+        new("high-core1"),
+        new("buy-normal"),
+        new("normal-n1"),
+        new("high-n1", Note: "high-n1 in the middle"),
+        new("buy-high"),
+        new("normal-n"),
+        new("high-n"),
+        new("high-n"),
+        new("normal-n"),
+        new("normal-n"),
+        new("high-n"),
+        new("high-n-runner"),
+        new("normal-n1"),
+        new("high-n1", Note: "high-n1 at the last burned place"),
+        new("baseline", Note: "the last baseline"),
     ];
 
     /// <summary>The order's leg at place <paramref name="place"/> (from 1), refused with words outside it.</summary>
-    public static (int Place, LegSpec Spec) AtPlace(long place) =>
-        place >= 1 && place <= Order.Count ? ((int)place, Find(Order[(int)place - 1])) : throw new ArgumentException($"--run takes a place in the order, 1 to {Order.Count}, not {place}");
+    public static (int Place, Placed At, LegSpec Spec) AtPlace(long place) =>
+        place >= 1 && place <= Order.Count
+            ? ((int)place, Order[(int)place - 1], Find(Order[(int)place - 1].Kind))
+            : throw new ArgumentException($"--run takes a place in the order, 1 to {Order.Count}, not {place}");
 
-    /// <summary>A leg's folder under the root: its place in two digits and its name.</summary>
-    public static string Folder(int place, LegSpec spec) => $"leg-{place.ToString("00", CultureInfo.InvariantCulture)}-{spec.Name}";
+    /// <summary>A leg's folder under the root: its place in two digits, its kind and, for the warm-up, its label.</summary>
+    public static string Folder(int place, Placed at) =>
+        $"leg-{place.ToString("00", CultureInfo.InvariantCulture)}-{at.Kind}{(at.Label.Length > 0 ? "-" + at.Label : "")}";
 
     public static int SayOrder()
     {
         for (var i = 0; i < Order.Count; i++)
-            Program.Say($"{(i + 1).ToString(CultureInfo.InvariantCulture)} {Order[i]}");
+            Program.Say($"{(i + 1).ToString(CultureInfo.InvariantCulture)} {Order[i].Kind}{(Order[i].Label.Length > 0 ? ":" + Order[i].Label : "")} {Folder(i + 1, Order[i])}");
         return 0;
     }
 
-    public static IReadOnlyList<LegSpec> All =>
-    [
-        new("baseline", "no burner; the victim at Normal", 0, "", "normal"),
-        new("high-n", $"the burner HIGH on every processor ({Environment.ProcessorCount} threads); the victim at Normal", Environment.ProcessorCount, "high", "normal"),
-        new("normal-n", $"the burner NORMAL on every processor ({Environment.ProcessorCount} threads); the victim at Normal", Environment.ProcessorCount, "normal", "normal"),
-        new("high-n1", $"the burner HIGH on cores less one ({CoresLessOne} threads); the victim at Normal", CoresLessOne, "high", "normal"),
-        new("normal-n1", $"the burner NORMAL on cores less one ({CoresLessOne} threads); the victim at Normal", CoresLessOne, "normal", "normal"),
-        new("high-n-runner", $"the burner HIGH on every processor ({Environment.ProcessorCount} threads); the victim at the runner's own class (the runner's condition, not a desk's)", Environment.ProcessorCount, "high", "keep"),
-    ];
+    public static IReadOnlyList<LegSpec> All
+    {
+        get
+        {
+            var n = Environment.ProcessorCount;
+            var lessOne = LogicalLessOne;
+            var plan = CorePlan;
+            var core = plan.Made
+                ? $"pinned one to each logical processor of every core but one ({plan.Threads} threads on {Os.Join(plan.Pinned)}; {plan.Words})"
+                : $"not pinned: {plan.Words}";
+            return
+            [
+                new("baseline", "no burner; the victim at Normal", 0, "", "normal"),
+                new("high-n", $"the burner HIGH on every logical processor ({n} threads); the victim at Normal", n, "high", "normal"),
+                new("normal-n", $"the burner NORMAL on every logical processor ({n} threads); the victim at Normal", n, "normal", "normal"),
+                new("high-n1", $"the burner HIGH on the logical processors less one ({lessOne} threads, unpinned); the victim at Normal", lessOne, "high", "normal"),
+                new("normal-n1", $"the burner NORMAL on the logical processors less one ({lessOne} threads, unpinned); the victim at Normal", lessOne, "normal", "normal"),
+                new("high-n-runner", $"the burner HIGH on every logical processor ({n} threads); the victim at the runner's own class (the runner's condition, not a desk's)", n, "high", "keep"),
+                new("buy-high", $"the busy side's own deadline: the victim's loops in a process claiming HIGH through the product's platform beside a burner NORMAL on every logical processor ({n} threads)", n, "normal", "claim-high"),
+                new("buy-normal", $"the busy side's own deadline: the victim's loops in a process claiming NORMAL through the product's platform beside a burner NORMAL on every logical processor ({n} threads)", n, "normal", "claim-normal"),
+                new("high-core1", $"the burner HIGH {core}; the victim at Normal and unpinned", plan.Threads, "high", "normal", "core1"),
+                new("normal-core1", $"the burner NORMAL {core}; the victim at Normal and unpinned", plan.Threads, "normal", "normal", "core1"),
+            ];
+        }
+    }
 
     public static LegSpec Find(string name) =>
         All.FirstOrDefault(l => l.Name == name) ?? throw new ArgumentException($"'{name}' is not a leg: {string.Join(", ", All.Select(l => l.Name))}");
@@ -189,12 +251,12 @@ internal static class Legs
 
     /// <summary>Runs one leg: the victim started and ready, then the burner started into the victim's window and told to stop a second
     /// after it, both waited for under the leg's deadline. Writes the leg's row; 0, or 1 when the leg is broken (the words say why).</summary>
-    public static async Task<int> RunAsync(string root, (int Place, LegSpec Spec) at, double seconds, double lead)
+    public static async Task<int> RunAsync(string root, (int Place, Placed At, LegSpec Spec) at, double seconds, double lead)
     {
         if (seconds <= 0)
             throw new ArgumentException("--seconds takes a number above zero");
         var leg = at.Spec;
-        var dir = Path.Combine(root, Folder(at.Place, leg));
+        var dir = Path.Combine(root, Folder(at.Place, at.At));
         Directory.CreateDirectory(dir);
         if (new[] { "victim.ready", "burner.ready", "victim.csv", "burner.csv", "leg.csv" }.Any(f => File.Exists(Path.Combine(dir, f))))
             throw new ArgumentException($"{dir} holds a leg's files already: a leg is written into a folder of its own");
@@ -204,7 +266,8 @@ internal static class Legs
         var burnerExit = "";
         var victimReadyUtc = "";
         var burnerReadyUtc = "";
-        Program.Say($"leg {at.Place.ToString(CultureInfo.InvariantCulture)} {leg.Name}: {leg.Label}, {seconds.ToString("0.#", CultureInfo.InvariantCulture)} s");
+        var name = leg.Name + (at.At.Warmup ? " (the warm-up)" : "");
+        Program.Say($"leg {at.Place.ToString(CultureInfo.InvariantCulture)} {name}: {leg.Label}, {seconds.ToString("0.#", CultureInfo.InvariantCulture)} s");
 
         var work = Calibration.Read(root);
         if (work is null)
@@ -241,7 +304,7 @@ internal static class Legs
                             // The burner stops itself a second after the victim's window, on the machine's monotonic clock: nothing waits on
                             // this controller, whose own class is the runner's and which a HIGH burner can hold.
                             burner = Child.Start(dir, "burner", ["--dir", dir, "--threads", Num(leg.Threads), "--class", leg.BurnerClass,
-                                "--from", Num(start), "--to", Num(end), "--until", Num(end + 1_000_000_000L)]);
+                                "--from", Num(start), "--to", Num(end), "--until", Num(end + 1_000_000_000L), "--pin", leg.Pin]);
                             if (burner is null)
                             {
                                 problems.Add("the burner did not start");
@@ -275,7 +338,7 @@ internal static class Legs
                 burner?.Dispose();
             }
             if (victimExit == "3")
-                problems.Add("the victim was told Normal and Windows reads back another class");
+                problems.Add($"the victim was told {(leg.Deadline ? "to claim " + leg.VictimClass["claim-".Length..] : "Normal")} and Windows reads back another class");
             else if (victimExit is not "" and not "0")
                 problems.Add($"the victim ended with exit {victimExit}");
             if (burnerExit == "3")
@@ -295,8 +358,9 @@ internal static class Legs
             leg.Name, leg.Label, Num(leg.Threads), leg.BurnerClass, leg.VictimClass, Num(seconds), Num(lead),
             started.ToString("o", CultureInfo.InvariantCulture), victimReadyUtc, burnerReadyUtc, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
             victimExit, burnerExit, outcome, string.Join("; ", problems), at.Place.ToString(CultureInfo.InvariantCulture),
+            at.At.Label, at.At.Note,
         ]]);
-        Program.Say($"leg {at.Place.ToString(CultureInfo.InvariantCulture)} {leg.Name}: {outcome}{(problems.Count > 0 ? ": " + string.Join("; ", problems) : "")}");
+        Program.Say($"leg {at.Place.ToString(CultureInfo.InvariantCulture)} {name}: {outcome}{(problems.Count > 0 ? ": " + string.Join("; ", problems) : "")}");
         return problems.Count == 0 ? 0 : 1;
     }
 

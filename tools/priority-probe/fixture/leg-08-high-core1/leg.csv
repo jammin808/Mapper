@@ -1,0 +1,2 @@
+leg,label,burner_threads,burner_class,victim_class,seconds,lead_seconds,started_utc,victim_ready_utc,burner_ready_utc,ended_utc,victim_exit,burner_exit,outcome,words,run,place_label,place_note
+high-core1,a hand-made leg,2,high,normal,0.3,0.1,2026-11-21T12:01:09.9000000Z,2026-11-21T12:01:10.0000000Z,2026-11-21T12:01:10.1000000Z,2026-11-21T12:01:12.4000000Z,0,0,ok,,8,,
