@@ -15,11 +15,14 @@ namespace PlayMap.Net.Tests;
 /// against the nonce and the HELLO name, plain AUTH checked against the token, PING answered with its stamps, STATUS answered with its
 /// STATE and CONTEXT answered, VIDEO verbs answered with their id — and a test can push a STATE, fall silent, or cut the connection.
 /// A desk older than proofs (or anything else at its address) sends no NONCE; a test can make the first NONCE any word, leave one verb
-/// unanswered, answer each PING with a t1 it never sent, or close each connection once it has greeted it.</summary>
+/// unanswered, answer each PING with a t1 it never sent, or close each connection once it has greeted it. Every line the desk says
+/// goes through one lane, an answer composed inside it, so its wire order is the order of its <see cref="State"/>: no answer says a
+/// STATE older than a push it follows.</summary>
 internal sealed class FakePatternsDesk : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly CancellationTokenSource _stop = new();
+    private readonly SemaphoreSlim _say = new(1, 1);
     private readonly ConcurrentBag<TcpClient> _clients = [];
     private readonly Task _accept;
     private volatile StreamWriter? _current;
@@ -43,6 +46,9 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
 
     public ConcurrentQueue<string> Heard { get; } = new();
 
+    /// <summary>Every line the desk said, in the order it said them.</summary>
+    public ConcurrentQueue<string> Said { get; } = new();
+
     public string State { get; set; } = StateWith(62000, 7, playing: true, blackout: false);
 
     /// <summary>The STATE said on connect, before the NONCE (null: <see cref="State"/>).</summary>
@@ -64,22 +70,61 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
     /// <summary>Each connection is closed once the desk has greeted it (its STATE and NONCE): a peer that answers and closes.</summary>
     public volatile bool CloseOnGreeting;
 
-    public static string StateWith(double positionMs, long seq, bool playing, bool blackout) => string.Create(CultureInfo.InvariantCulture,
-        $"{{\"blackout\":{(blackout ? "true" : "false")},\"video\":{{\"file\":\"sponsor.mp4\",\"tag\":\"VT\",\"position\":62,\"length\":210,\"playing\":{(playing ? "true" : "false")},\"ended\":false,\"loops\":false,\"positionMs\":{positionMs},\"lengthMs\":210000,\"remainingMs\":148000,\"paused\":false,\"rate\":1,\"seq\":{seq}}}}}");
+    /// <summary>A STATE with its blackout and its clip at <paramref name="positionMs"/>, seq <paramref name="seq"/>, tagged <paramref name="tag"/>.</summary>
+    public static string StateWith(double positionMs, long seq, bool playing, bool blackout, string tag = "VT") => string.Create(CultureInfo.InvariantCulture,
+        $"{{\"blackout\":{(blackout ? "true" : "false")},\"video\":{{\"file\":\"sponsor.mp4\",\"tag\":\"{tag}\",\"position\":62,\"length\":210,\"playing\":{(playing ? "true" : "false")},\"ended\":false,\"loops\":false,\"positionMs\":{positionMs},\"lengthMs\":210000,\"remainingMs\":148000,\"paused\":false,\"rate\":1,\"seq\":{seq}}}}}");
 
+    /// <summary>Sets <see cref="State"/> and says it on the connection up now, in the lane, so no answer composed before it is said
+    /// after it.</summary>
     public async Task PushAsync(string state)
     {
-        State = state;
-        if (_current is { } w)
-            await w.WriteLineAsync("STATE " + state);
+        await _say.WaitAsync(_stop.Token);
+        try
+        {
+            State = state;
+            if (_current is { } w)
+                await SayLockedAsync(w, "STATE " + state);
+        }
+        finally
+        {
+            _say.Release();
+        }
     }
 
     /// <summary>Asks the connection up now for a proof again, with a fresh 32-hex NONCE.</summary>
     public async Task SendNonceAsync()
     {
-        _nonce = Pairing.NewNonce();
-        if (_current is { } w)
-            await w.WriteLineAsync("NONCE " + _nonce);
+        await _say.WaitAsync(_stop.Token);
+        try
+        {
+            _nonce = Pairing.NewNonce();
+            if (_current is { } w)
+                await SayLockedAsync(w, "NONCE " + _nonce);
+        }
+        finally
+        {
+            _say.Release();
+        }
+    }
+
+    /// <summary>Says the line <paramref name="line"/> composes, composed and written in the lane.</summary>
+    private async Task SayAsync(StreamWriter writer, Func<string> line)
+    {
+        await _say.WaitAsync(_stop.Token);
+        try
+        {
+            await SayLockedAsync(writer, line());
+        }
+        finally
+        {
+            _say.Release();
+        }
+    }
+
+    private async Task SayLockedAsync(StreamWriter writer, string line)
+    {
+        Said.Enqueue(line);
+        await writer.WriteLineAsync(line);
     }
 
     /// <summary>Cuts the current connection (the link should redial).</summary>
@@ -109,9 +154,9 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             _currentClient = client;
             _nonce = FirstNonce ?? Pairing.NewNonce();
             var name = "";
-            await writer.WriteLineAsync("STATE " + (Greeting ?? State));
+            await SayAsync(writer, () => "STATE " + (Greeting ?? State));
             if (AsksProof)
-                await writer.WriteLineAsync("NONCE " + _nonce);
+                await SayAsync(writer, () => "NONCE " + _nonce);
             if (CloseOnGreeting)
             {
                 client.Client.Close(0);
@@ -131,42 +176,44 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
                 {
                     case "HELLO":
                         name = rest[6..];
-                        await writer.WriteLineAsync("OK" + tag);
+                        await SayAsync(writer, () => "OK" + tag);
                         break;
                     case "AUTH-PROOF":
                         var right = Pairing.Verify(Token, _nonce, name, words[1]);
                         _nonce = Pairing.NewNonce();
-                        await writer.WriteLineAsync(right ? "OK" + tag + " paired" : "ERR" + tag + " wrong token — the pairing token is on the desk's Remote page, TRUST");
+                        var next = _nonce;
+                        await SayAsync(writer, () => right ? "OK" + tag + " paired" : "ERR" + tag + " wrong token — the pairing token is on the desk's Remote page, TRUST");
                         if (!right)
-                            await writer.WriteLineAsync("NONCE " + _nonce);
+                            await SayAsync(writer, () => "NONCE " + next);
                         break;
                     case "AUTH":
                         var plain = Pairing.Normalise(rest[5..]) == Pairing.Normalise(Token);
-                        await writer.WriteLineAsync(plain ? "OK" + tag + " paired" : "ERR" + tag + " wrong token");
+                        await SayAsync(writer, () => plain ? "OK" + tag + " paired" : "ERR" + tag + " wrong token");
                         break;
                     case "STATUS":
-                        await writer.WriteLineAsync("OK" + tag + " " + State);
+                        // Composed in the lane: the STATE it says is the desk's as of the moment it is said.
+                        await SayAsync(writer, () => "OK" + tag + " " + State);
                         break;
                     case "PING":
                         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
                         var t1 = ForgedPongs ? (long.Parse(words[1], CultureInfo.InvariantCulture) - 1000).ToString(CultureInfo.InvariantCulture) : words[1];
-                        await writer.WriteLineAsync("OK" + tag + " PONG " + t1 + " " + now + " " + now);
+                        await SayAsync(writer, () => "OK" + tag + " PONG " + t1 + " " + now + " " + now);
                         break;
                     case "CONTEXT":
-                        await writer.WriteLineAsync("OK" + tag + " {\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"at\":1,\"light\":\"green\",\"headline\":\"Programme: VT1\",\"items\":[],\"links\":[],\"recent\":[],\"commands\":[],\"peers\":[]}");
+                        await SayAsync(writer, () => "OK" + tag + " {\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"at\":1,\"light\":\"green\",\"headline\":\"Programme: VT1\",\"items\":[],\"links\":[],\"recent\":[],\"commands\":[],\"peers\":[]}");
                         break;
                     case "VIDEO":
-                        await writer.WriteLineAsync("OK" + tag);
+                        await SayAsync(writer, () => "OK" + tag);
                         break;
                     default:
-                        await writer.WriteLineAsync("ERR" + tag + " unknown command");
+                        await SayAsync(writer, () => "ERR" + tag + " unknown command");
                         break;
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException or OperationCanceledException)
         {
-            // The link went away; the next connection is served afresh.
+            // The link went away, or the desk stopped while a line waited for the lane; the next connection is served afresh.
         }
     }
 
@@ -178,6 +225,7 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             c.Dispose();
         await _accept;
         _stop.Dispose();
+        _say.Dispose();
     }
 }
 

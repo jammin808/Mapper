@@ -5935,3 +5935,125 @@ Round 2 W1 notes:
     real workload as the burner (render belongs to the lab).
   - A frame's exact processor share on Windows (`QueryThreadCycleTime` per frame): still not built; the window's sums and the
     processes' window stamps stand in.
+
+## Integrator notes from the round-2 fix batch (fix-patterns-link-answer-order)
+
+- Done: a product line, on the owner's answer 2 after run 498 (Stagewatch's `docs/ecosystem/owner-answers.md`, its last entry before
+  "# Commit identity": "the link no longer takes its asked STATUS answer after a newer pushed STATE; the mend is in
+  `src/PlayMap.Net/Links/PatternsLink.cs`, fenced by a test that fails without it on every platform; the Net suite's fake desk says its
+  lines in one lane, as the Engine suite's already does"). The leave as edited: `src/PlayMap.Net/Links/PatternsLink.cs`;
+  `tests/PlayMap.Net.Tests/LinkTests.cs` (its fake desk); one new test file, `tests/PlayMap.Net.Tests/PatternsLinkAnswerOrderTests.cs`
+  (the fence reads better on its own: the seam, the hold and the two orders in one place); this entry. Nothing else under `src/`;
+  `WireClient.cs` was not needed. The node's default priority class, the pools and the supervisor's and desk's class are as they were.
+  - The defect, as fix-test-isolation-leftovers' Open list read it: `AskStateOncePairedAsync` sends STATUS once the desk pairs and took
+    the answer with `TakeState` as if it were a push. `WireClient` settles the answer on a `TaskCompletionSource` made with
+    `RunContinuationsAsynchronously`, so the take runs on a pool continuation, while the read loop goes straight on to the next line
+    and takes a pushed STATE synchronously in `OnLine`. A desk that pushes right after it answers could have its older answer taken
+    after its newer push, and the node followed the stale blackout (or clip) until the desk's next push. Read, and made to happen
+    through the fence's seam (below); not reproduced on the product path without the seam.
+  - The mend (the owner's words: "the link drops an answer that is older than a push it has already taken"): the link counts the
+    pushed STATEs it takes (`_pushesTaken`, under `_gate`); the ask reads the count under the gate just before it sends STATUS; the
+    answer is taken only if the count still reads so. `TakeState` keeps its parse outside the lock and now takes `pushesAtAsk` (null for
+    a push); the test of the count and the take (STATE, the clip anchor and the blackout) are one step under the gate, so no push is
+    taken between them, and a push's count moves in that same step. An answer set aside writes nothing and raises no event; the
+    blackout and the clip anchor move by the one rule, since both are written only in that step. The invariant the comment states: a
+    desk pushes STATE whenever it changes, so an answer set aside leaves the link on the desk's latest push, and whatever the answer said
+    that the push did not is a change the desk pushes next. Pairing, the greeting set aside, the context loop and `SendAsync` are as
+    they were. The class summary and the ask's summary (the two lines `git grep -n -i -E 'asked its STATE|taken as a push|answer is
+    taken' -- docs src` finds under `src/`: `PatternsLink.cs` lines 101 and 263, the class summary and the ask's summary; 246 before
+    the edit) say the new rule. That grep finds nothing else under `docs/` but this file's own records (4166, the sink's offer, another subject; 5679, fix-test-isolation-leftovers' item 4), which are history
+    and were not edited; no paper under `docs/` words how the link takes the desk's STATE after pairing.
+  - Ordering by the STATE itself, read in Patterns (read-only, at d7ef79a): its STATE does carry an ordering counter at its top, `rev`
+    (`src/Patterns.App/Services/CommandRouter.cs` 610 `rev = Rev?.Invoke() ?? 0`, wired at `ControlService.cs` 71 and bumped at 66 on
+    every snapshot published and runtime change, at 123 by the VT clock push, at 144 by the cue stack's changes; the node host's STATE
+    carries it too, `NodeHost.cs` 371), and Show Bus 1.3 §4 names it the frame counter that rises with every published frame. The push
+    count was chosen over it: (1) the race is between the link's own two delivery paths, and the count decides it inside the link's gate
+    with nothing asked of the desk; (2) `rev` is 0 where `Rev` is not wired and absent from a desk that predates it and from both suites'
+    fake desks, so a `rev` rule would still need this rule as its fallback, two rules where one does; (3) `rev` is read from its own
+    counter apart from the state the body is composed from, so an answer and a push can carry one `rev` with different bodies, which a
+    `rev` rule would need a tie rule for (read, not measured: on which thread each bump runs was not traced); (4) the contract gives
+    `rev` the job of telling a restart apart (§4: a receiver that sees a smaller one after a reconnect knows the sender restarted), not
+    of ordering an answer against a push. What the count costs: an answer composed after a push that the link took after the ask is
+    set aside although it is newer; the desk pushes every change (Patterns' trailing 200 ms push, `ControlService.cs` 52-63, which skips
+    only a word-for-word repeat), so that change reaches the link with the desk's next push. The clip's own `video.seq` orders the clip
+    only, not the blackout, so it cannot order the STATE.
+  - Counts: two, both `internal` and read only by the fence: `StatusAnswers` (the asked answers that reached the take, taken or set
+    aside; counted last, under the gate, so a reader that sees it has seen the decision's writes) and `StatusAnswersSetAside` (of those,
+    the ones a push overtook; counted before `StatusAnswers`). No STATE row, desk or context reads either, so neither is public.
+    `SetAsideBeforePairing` is public and, read again, still read only by tests (`LinkTests`, the new fence); it is as it was.
+  - The seam: `PatternsLink.BeforeStatusAnswerTaken` (`internal Func<CancellationToken, Task>?`, null in the product, set by a test
+    before `Start`), awaited between the answer's arrival (Ok and paired) and its take; pairing is read again after the hold, so a link
+    that lost its pairing while a test held the answer takes nothing, as the one check before the seam allowed. Why the fake desk alone cannot make the order
+    deterministic: the desk decides the wire's order (its answer, then its push, which the lane below guarantees), but whether the
+    answer's pool continuation runs before the read loop takes the next line is the link's scheduling, which no byte order from the desk
+    decides; a fence driven from the desk alone would pass or fail by the pool's timing.
+  - The Net suite's fake desk (`FakePatternsDesk` in `LinkTests.cs`) now says every line through one lane, the shape of the Engine
+    suite's (`tests/PlayMap.Engine.Tests/Host/HostRig.cs`, read and reused, not merged): a `SemaphoreSlim` taken by the serve task, by
+    `PushAsync` and by `SendNonceAsync`, each wait on the desk's stop; the STATUS answer composed inside the lane from `State`, so an
+    answer never says a STATE older than a push it follows on the wire; `Said` keeps every line it said in order; `StateWith` takes the
+    clip's tag (default `VT`, so every existing caller says the same bytes). Every existing behaviour (no NONCE, the first NONCE's word,
+    a verb left unanswered, forged pongs, close on greeting, silence) is as it was; its serve task now also ends quietly on the stop
+    (`OperationCanceledException`), and `DisposeAsync` disposes the lane last. No `HoldNextStatus` was added: the Net fence holds the
+    link, not the desk.
+  - `tests/PlayMap.Engine.Tests/Host/HostNetworkTests.cs`' `ENCORE` wait (`ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt`,
+    482-489) stays: it waits for what the test goes on to depend on (the node following the desk's answer before the test pushes), and a
+    wait for that is not the mend's dependency; with the mend an answer the push overtook would be set aside anyway.
+  - Read, not edited (outside the leave): `src/PlayMap.App/Link/FakeEngineLink.Assistant.cs` answers `ASSISTANT STATUS` inside the demo
+    link's own command handling, computed on the call with no push path beside it, so there is no answer to overtake: not the same
+    shape. `src/PlayMap.Net/Bus/HelloService.cs` names `EYE STATUS` only in the summary of the round-2 capabilities; it asks nothing and
+    takes no answer: not the same shape.
+- Tests: `PatternsLinkAnswerOrderTests` (Net, 2, new). `AnAnswerOvertakenByAPushTheLinkHasTakenIsSetAsideAndTheLinkFollowsThePush`: the
+  desk's STATE is blackout true on a clip tagged `ASKED` (seq 3); the seam holds the link's STATUS answer once it has arrived; the test
+  asserts nothing is taken yet, pushes blackout false on a clip tagged `PUSHED` (seq 4), waits until the link follows the push, asserts
+  from `Said` that the desk said its answer and then the push, releases the answer, waits until `StatusAnswers` is 1 and asserts the link
+  reads blackout false, clip `PUSHED` seq 4 and the push's STATE, then that the answer was set aside.
+  `AnAnswerWithNoPushSinceItsAskIsTheDesksStateAndIsTaken`: the same hold with no push; once released the answer is taken (blackout true,
+  clip `ASKED` seq 3, its STATE, none set aside, the greeting set aside before pairing), so the rule cannot pass by dropping every answer.
+  No sleep, no loop of runs, no reliance on the pool's timing (each wait is for a state the test made). Mutations, each a scratch edit
+  of `PatternsLink.cs`, the Net test project rebuilt, restored byte for byte (`cmp` against the saved copy) and the solution rebuilt:
+  - the test removed from the gate (the answer always taken, the take before the mend): the first fails, "Expected: Tuple (False,
+    "PUSHED", 4, ...) Actual: Tuple (True, "ASKED", 3, ...)"; the second passes;
+  - the rule inverted (taken only if a push came since): both fail, the first as above, the second "Expected: Tuple (True, "ASKED", 3,
+    ...) Actual: Tuple (null, null, null, null)";
+  - every answer set aside: the second fails as just said; the first passes;
+  - the count compared outside the lock (read with `Interlocked.Read` before the gate, the take inside it): both pass. The window
+    between such a test and the take lies inside `TakeState`, with no await, after the push has been taken; making it fail
+    deterministically would need a second seam between the test and the gate, on the path every push takes too. Not built; under Open.
+  Validated on this bench (Linux, SDK 10.0.404, the variables `tools/setup-dev.sh start` prints, the scheduling probe and the node
+  host variables unset):
+  - The build: `dotnet build PlayMap.sln -c Debug -v q` whole, no warning, no error (first without `PLAYMAP_DXC_DIR`, then again with it
+    once the Shaders tests asked for it, below).
+  - Net 339: 335 green, 1 skipped, and the three Chromium page tests that fail on this machine before any PlayMap code runs
+    (`PageTests.InChromiumThePageJoinsWithTheTicketOnlyInItsFirstMessageLocksExposureAndSaysItNeedsHttpsOverPlainHttp`,
+    `InChromiumTheNextProjectorsFirstLocateFrameIsSeenWhereThePictureChanges`, `InChromiumACameraWithoutExposureControlsRunsTheSteadyProfileWithWords`:
+    "TypeError: Cannot read properties of undefined (reading 'launch')" at `tests/e2e/phonescan/page.mjs:12`), not counted green.
+  - The Engine classes that start a Patterns link (`HostNetworkTests`, `ContextLinkTests`, `SettingsWriterTests`: every class using
+    `HostRig`'s `FakePatternsDesk`, by `git grep`): 41 green.
+  - The whole Engine suite in seven parts naming its 1,373 tests once (Align to Facade 309; Fleet, Fx, Host, Hot 172; Install to
+    Presentation 209, 2 skipped; Rendering, Shaders, Show, Spine 324, 4 skipped; Sync, Timecode's folder, Undo, VideoIo, Wall 183; `Tc`
+    26; the root namespace 144): 1,367 green, 6 skipped, none failed. The Rendering-to-Spine part first ran on the build made without
+    `PLAYMAP_DXC_DIR` and six Shaders tests failed "libdxcompiler.so is not beside the worker" (the bench's own setup: the DXC folder is
+    named before the build); rebuilt with it, the part was green.
+  - Core's `ComputeTests` (its pool-work table names `PatternsLink.cs` with one pool start; the mend adds none): 14 green.
+  - The App suite: no class reads `PatternsLink` (`git grep -l PatternsLink -- src tests`: `NetworkHost.cs`, the link, Core's
+    `ComputeTests` table, `HostNetworkTests`, `LinkTests`), so none was run.
+  - The review's fold-in: pairing is read again after the seam's hold (a test's held answer is not taken by a link that lost its
+    pairing meanwhile; with the seam null nothing is awaited and the product path is as before), and the line numbers above corrected.
+    Validated again after it, once: the build whole; Net 339 (335 green, 1 skipped, the three Chromium page tests above failing as
+    before, not counted green); the Engine suite in six parts naming its 1,373 tests once (Align to Facade 309; Fleet, Fx, Host, Hot
+    172; Install, Led, Machine, Optimise, Phone, Presentation 209, 2 skipped; Rendering, Shaders, Show, Spine 324, 4 skipped; Sync, Tc,
+    Undo, VideoIo, Wall 209; the root namespace 144): 1,367 green, 6 skipped, none failed; Core's `ComputeTests` 14 green.
+- Files: `src/PlayMap.Net/Links/PatternsLink.cs`, `tests/PlayMap.Net.Tests/LinkTests.cs`, `tests/PlayMap.Net.Tests/PatternsLinkAnswerOrderTests.cs`
+  (new), this entry.
+- Open:
+  - Read, not reproduced: the race on the product path without the seam (the fence makes its order through the seam); and whether a
+    real Patterns desk says a push right behind a STATUS answer often enough to be seen on a show (its push is a trailing 200 ms timer,
+    its answer is composed when the verb runs).
+  - The gate's half of the rule is read, not fenced: the count compared outside the lock passes both tests (above). A second internal
+    seam inside `TakeState`, between the count's test and the gate, held by a test while a push is taken, would fence it; it was not
+    built, since it sits on the path every push takes.
+  - The rule sets aside an answer that is newer than a push the link took after the ask, trusting the desk to push its next change
+    (Patterns does, read above). A desk that answered STATUS with a state it never pushes would leave the link one change behind until
+    its next push; ordering by Patterns' `rev` would keep such an answer, and is the owner's call should a desk of that shape appear.
+  - `FakePatternsDesk` now exists twice in one shape (the Net suite's and the Engine suite's); merging them into `tests/Shared` was not in
+    this leave.

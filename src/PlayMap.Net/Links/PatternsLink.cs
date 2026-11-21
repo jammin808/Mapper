@@ -98,7 +98,8 @@ public sealed record PatternsLinkOptions
 /// PlayMap, AUTH-PROOF with the desk's token, PING every 2 s (the desk's clock offset), CONTEXT every 5 s. Nothing the desk says
 /// is taken until it pairs (<see cref="Paired"/>): its greeting STATE, a STATE pushed before its "OK paired", its context and its
 /// clock are set aside, so an answer at the desk's address that cannot prove the token blacks nothing; once paired the desk is
-/// asked its STATE once, and nothing is sent to it before. The desk's
+/// asked its STATE once, and nothing is sent to it before; that answer is taken only while no pushed STATE has been taken since the
+/// ask (the push may have been said after it). The desk's
 /// clip clock (STATE.video) is held as an anchor and counted on locally at its rate — re-anchored when its seq moves
 /// (a seek, a pause, a new clip) or when a frame strays from the count — and the desk's blackout is followed. Stale
 /// after 6 s of silence, dropped and redialled after 12 s, counted on its options' clock; nothing is queued while the link is
@@ -122,6 +123,12 @@ public sealed class PatternsLink : IAsyncDisposable
     private Task? _contextLoop;
     private long _setAside;
     private long _contextTurns;
+
+    /// <summary>Pushed STATEs taken (under <see cref="_gate"/>): an asked answer is taken only while this still reads as it did at the ask.</summary>
+    private long _pushesTaken;
+
+    private long _answers;
+    private long _answersSetAside;
 
     public PatternsLink(PatternsLinkOptions options, ShowWallClock wall, IMonoClock? mono = null, ILogger? log = null)
     {
@@ -162,6 +169,16 @@ public sealed class PatternsLink : IAsyncDisposable
 
     /// <summary>Turns the context loop has taken, whether or not it asked the desk (it asks only a paired desk on a live link).</summary>
     internal long ContextTurns => Interlocked.Read(ref _contextTurns);
+
+    /// <summary>The desk's answers to the STATUS asked once it paired that reached the take, taken or set aside, since start.</summary>
+    internal long StatusAnswers => Interlocked.Read(ref _answers);
+
+    /// <summary>Of <see cref="StatusAnswers"/>, those set aside because a pushed STATE was taken after the ask.</summary>
+    internal long StatusAnswersSetAside => Interlocked.Read(ref _answersSetAside);
+
+    /// <summary>Awaited between the STATUS answer's arrival and its take; null in the product. A test holds the answer here so a push
+    /// can be taken first, the order a pool continuation can give it on its own; pairing is read again after it.</summary>
+    internal Func<CancellationToken, Task>? BeforeStatusAnswerTaken { get; set; }
 
     public PairState Pairing => _wire.Pairing;
 
@@ -243,7 +260,10 @@ public sealed class PatternsLink : IAsyncDisposable
     private string NotPairedWords => $"the Patterns desk at {Address} has not paired with this node — nothing is sent to it";
 
     /// <summary>A desk pushes STATE only when something changes, and its greeting came before it paired: once it pairs on a connection
-    /// it is asked its STATE, and the answer is taken as a push.</summary>
+    /// it is asked its STATE. The answer is settled on a pool continuation while the read loop goes on and takes the next push at once,
+    /// so a push the desk said after its answer can be taken before it: the answer is taken only if no push has been taken since the
+    /// ask. A desk pushes STATE whenever it changes, so an answer set aside leaves the link on the desk's latest push, and whatever
+    /// the answer said that the push did not is a change the desk pushes next.</summary>
     private async Task AskStateOncePairedAsync(CancellationToken ct)
     {
         var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -262,9 +282,19 @@ public sealed class PatternsLink : IAsyncDisposable
         {
             _wire.PairingChanged -= OnPairing;
         }
+        long pushesAtAsk;
+        lock (_gate)
+            pushesAtAsk = _pushesTaken;
         var reply = await _wire.SendAsync("STATUS", ct);
-        if (reply.Ok && Paired)
-            TakeState(reply.Text);
+        if (!reply.Ok || !Paired)
+            return;
+        if (BeforeStatusAnswerTaken is { } before)
+        {
+            await before(ct);
+            if (!Paired)
+                return;
+        }
+        TakeState(reply.Text, pushesAtAsk);
     }
 
     private void OnLine(string line)
@@ -280,7 +310,10 @@ public sealed class PatternsLink : IAsyncDisposable
         TakeState(line[6..]);
     }
 
-    private void TakeState(string json)
+    /// <summary>Takes one STATE: a push (<paramref name="pushesAtAsk"/> null), or the answer to a STATUS asked when
+    /// <paramref name="pushesAtAsk"/> pushes had been taken, set aside if any has been taken since. The test and the take are one step
+    /// under the gate, so no push is taken between them.</summary>
+    private void TakeState(string json, long? pushesAtAsk = null)
     {
         using var doc = JsonText.TryParse(json, 1024 * 1024);
         if (doc is null || doc.RootElement.ValueKind != JsonValueKind.Object)
@@ -294,6 +327,16 @@ public sealed class PatternsLink : IAsyncDisposable
         PatternsVideo? announced;
         lock (_gate)
         {
+            if (pushesAtAsk is { } asked && _pushesTaken != asked)
+            {
+                // A push taken since the ask may have been said after this answer, and the desk pushes every change: the answer is set
+                // aside (counted so before it is counted decided, so a reader that sees it decided sees why).
+                Interlocked.Increment(ref _answersSetAside);
+                Interlocked.Increment(ref _answers);
+                return;
+            }
+            if (pushesAtAsk is null)
+                _pushesTaken++;
             _state = json;
             _frameAtNs = now;
             videoMoved = Anchor(video, now);
@@ -301,6 +344,8 @@ public sealed class PatternsLink : IAsyncDisposable
             blackoutMoved = blackout is { } b && _blackout != b;
             if (blackout is not null)
                 _blackout = blackout;
+            if (pushesAtAsk is not null)
+                Interlocked.Increment(ref _answers);
         }
         if (videoMoved)
             VideoChanged?.Invoke(announced);
