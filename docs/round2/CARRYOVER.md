@@ -5487,3 +5487,97 @@ Round 2 W1 notes:
     green there.
   - The installer job's libvmx build (run 491: a newer runner image whose standard library refuses the image's LLVM 20): the
     owner's, not touched here.
+
+## Integrator notes from the round-2 fix batch (fix-ci-libvmx-clang)
+
+- Done: CI only, no file under `src/` or `tests/`, on the owner's answer 1 of 2026-11-21 (Stagewatch's
+  `docs/ecosystem/owner-answers.md`, its last entry: "libvmx's compiler on CI: prefer Visual Studio's own clang (the one its standard
+  library is built for), print its version, and fail with words if the component is absent; no fallback to the runner's LLVM on the
+  PATH"). The leave: `.github/workflows/build.yml`, the `tools/*.ps1` that choose a clang (none did; `tools/ci-clang.ps1` is new and
+  is the one that does now), README's Build section where it names the Windows compiler, and this entry. Nothing outside it was
+  edited (Open names what is left there).
+  - The defect, run 491 (the push of 7ffde5c6): the installer job RED at its step `libvmx (OMT's codec, beside the exe)`,
+    `error STL1000: Unexpected compiler version, expected Clang 22 or newer`, on runner image `windows-2025-vs2026` 20261116.315.1
+    (Visual Studio Enterprise 2026 18.12.12405.243 at `C:\Program Files\Microsoft Visual Studio\18\Enterprise`, MSVC 14.52.37025,
+    the image's own LLVM 20.1.8 at `C:\Program Files\LLVM\bin` first on the PATH; the image also lists Visual Studio's components
+    `Microsoft.VisualStudio.Component.VC.Llvm.Clang` and `VC.Llvm.ClangToolset` and the side-by-side toolset VC.14.44.17.14.x86.x64).
+    The same run's windows job drew the older image 20261103.298.1 and built its doubles with the PATH's `clang version 20.1.8`
+    (`InstalledDir: C:\Program Files\LLVM\bin`, its log's lines 461 to 464), green. Both Windows steps that chose a clang took the
+    first one on the PATH and fell back to Visual Studio's only when there was none, so on an image whose Visual Studio's standard
+    library is newer than the image's own LLVM, the PATH's clang is the one taken and the one the STL refuses; the installer job
+    ships the `libvmx.dll` that clang builds.
+  - Why Visual Studio's own clang is the one its STL accepts: the STL checks the compiler itself (`STL1000`, "expected Clang 22 or
+    newer" in the 14.52 toolset's words, as run 491 quoted it), and Visual Studio's C++ Clang component is the clang that Visual
+    Studio release installs beside that toolset, so the STL names the clang that Visual Studio ships. Read from the STL's own check
+    as the run quoted it and from what the component is; the STL's header is not on this bench, and the clang version Visual Studio
+    18.12 installs is not read here (the next run prints it, below).
+  - The mend, one text for both steps: `tools/ci-clang.ps1`, which the windows job's step (now `The native test doubles' compiler
+    (Visual Studio's own clang)`) and the installer job's `libvmx` step each call. A script and not a YAML anchor because the two
+    steps do different things with the compiler (one names it to the later steps through `PLAYMAP_CLANG`, `PLAYMAP_CLANGXX` and
+    `PLAYMAP_NATIVE_REQUIRED`, the other compiles libvmx with it), so an anchor would have split each into two steps, and the tree's
+    other CI helpers (`ci-stamp.ps1`, `ci-d3d12.ps1`, `ci-tests.ps1`) are scripts the steps call. The script: vswhere
+    (`-latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang`, `installationPath` and `installationVersion`);
+    `VC\Tools\Llvm\x64\bin\clang.exe` and `clang++.exe` there; prints `clang++ --version`; names the MSVC toolset the clang compiles
+    against (a toolset `VCToolsInstallDir` names, else a `cl.exe` on the PATH, else the instance's default,
+    `VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt`, else the newest folder under `VC\Tools\MSVC`, each said with its
+    source); writes one line to the job's step summary (`<label>: <clang version> (<path>), Visual Studio <version> (<path>), MSVC
+    <toolset> (<source>), runner image <ImageOS> <ImageVersion>`), so every run records which compiler built the doubles and which
+    built the shipped libvmx; and returns the two paths. Absent vswhere, the component, either binary or any MSVC toolset, it
+    throws words naming the component and the image; it never looks at the PATH for a clang. Nothing else in either step changed:
+    the same libvmx flags and output (`vmx/libvmx.dll`), the same three environment names, the same `$LASTEXITCODE` check.
+  - Every other compiler chooser on Windows, read (`git grep -i` for clang, gcc, cl.exe, cmake, cc, vswhere, msbuild and nmake over
+    `.github`, `tools`, `installer`, `bench`, `build`): none. The HLSL and Direct3D 12 steps compile with DXC from NuGet; Mesa,
+    FFmpeg and SPIRV-Tools are pinned prebuilt binaries; the hang probe and the priority probe are C#; `dotnet msbuild` is only read
+    for properties. The one remaining exposure is the tests' own fallback: `tests/PlayMap.Media.Tests/Video/NativeBuild.cs` takes
+    `clang` / `clang++` from the PATH on Windows when `PLAYMAP_CLANG` / `PLAYMAP_CLANGXX` are unset. On CI they are always set by the
+    windows job's step before its Test step and its Direct3D 12 leg (the step has no condition), and no other Windows job runs the
+    Media suite (`nodehostab` builds the Engine tests alone; `installer` runs the installer's and the licence tests); on a person's
+    Windows machine the fallback has the same exposure (outside this leave, Open). The Linux job's `cc` and `clang++` are untouched.
+- Tests: no test names the two steps' text; the ones that read `build.yml` or the tools' scripts, run on this bench (Linux, SDK
+  10.0.404, `PLAYMAP_DXC_DIR=/opt/dxc`, `PLAYMAP_FFMPEG_DIR=/opt/ffmpeg9/lib`): the build whole (`dotnet build PlayMap.sln -c Debug
+  -v q`, the first a whole rebuild, no warning, nothing reported by 10.0.404's analysis); `HlslBuildTests.TheWindowsJob*` (2, which
+  parse the windows job's steps) green; `ModuleRuleTests` with `DxcNativesTests` (22, the latter reading every `*.yml` and `*.ps1`
+  of the tree for DXC's validator library) green. The YAML parsed with python3 (`yaml.safe_load`): every job's condition as before
+  (test, windows, installer, hangproof, nodehostab, prioritycost), the two steps' text as written, `nodehostab`'s anchored steps
+  resolved; no other job's script names a clang. There is no PowerShell and no actionlint on this bench: `tools/ci-clang.ps1` and
+  the two steps were read line by line twice (the second read found `"$image:"`, which PowerShell reads as a drive-qualified
+  variable and refuses, now `${image}:`, and a version filter `[version]` could not parse, now one to four parts); the script has
+  never run, and the next push's two Windows jobs are its first run.
+- Files: `.github/workflows/build.yml` (the two steps), `tools/ci-clang.ps1` (new), `README.md` (Build: the Windows job's doubles'
+  compiler and the installer job's libvmx compiler), this entry.
+- What to watch on the next push (each read; a failure is read, never retried or widened):
+  - Both Windows jobs' summaries carry the line: the clang version, Visual Studio's version and the MSVC toolset, and the image. The
+    installer job's line is the record of which compiler built the shipped `libvmx.dll`. The line names the compiler chosen and is
+    written before libvmx is compiled; the step's green is what says the DLL was built by it. A summary that cannot be written is a
+    `::warning::` in the log, never a red step (the log carries the line either way).
+  - The installer job's libvmx step green on image 20261116.315.1 or later; red with `STL1000` from Visual Studio's own clang would
+    say the reading above is wrong (the component's clang older than the STL asks), and is put to the owner, not mended by a
+    fallback.
+  - The windows job's doubles are now built by Visual Studio's clang where run 491's image built them with the PATH's LLVM 20.1.8:
+    the Media suite's native-double tests (the fake NDI runtime, OMT through libvmx) are the ones to read if they change.
+- Open:
+  - Proven only on the image a job draws: the jobs print the version from the next push on, and the newer image is proven only once a
+    job draws it (run 491 shows the two jobs of one run can draw different images). The owner's to watch.
+  - The order in which the clang's MSVC driver picks a toolset (`VCToolsInstallDir`, a `cl.exe` on the PATH, the newest Visual Studio
+    instance's default) is recalled from LLVM's driver, not read here; `VCINSTALLDIR` is not looked at. Where an image holds two
+    Visual Studio instances, vswhere's `-latest` and the clang's own pick of an instance could differ; the `windows-2025-vs2026`
+    image's list was not read for a second instance. The summary line says what the script found, not what the clang chose; in its
+    `VCToolsInstallDir` and `cl.exe`-on-the-PATH branches the toolset it names can belong to another instance than the one vswhere
+    chose (no folder under that instance is checked there). Neither is set on a hosted runner, so CI does not take those branches.
+  - Outside this leave, now not quite true and not edited: `docs/ROADMAP.md` line 29 ("on Windows with the runner's LLVM clang") and
+    line 594 ("with the runner's clang"), `docs/VIDEO.md` line 104 ("on the Windows CI job, the runner's LLVM with the upstream
+    export list") and line 117 ("with the runner's clang on Windows"), the doc comment of
+    `tests/PlayMap.Media.Tests/Video/NativeBuild.cs` lines 6 to 10 ("the LLVM clang the runner carries"), the summary of
+    `tests/PlayMap.Media.Tests/Video/VmxBuild.cs` line 11 ("the Windows runner's LLVM") and the build line of
+    `tests/native/fake_ndi.c` line 7 ("(Windows, the runner's LLVM)"); each would say Visual Studio's own clang
+    (`tools/ci-clang.ps1` on CI). `NativeBuild.cs`'s fallback to the PATH's `clang` when the variables are unset (above) keeps
+    the exposure on a person's Windows machine; making it fail closed there, or find Visual Studio's clang itself, is a test
+    change for the owner or a later batch.
+  - No test fences the mend: `HlslBuildTests.TheWindowsJob*`, `ModuleRuleTests` and `DxcNativesTests` read `build.yml` and the
+    tools' scripts but not the clang steps, so they pass with the old PATH-first choosers too, and a later edit that put back a
+    `Get-Command clang` or a second chooser would stay green. The design, for a later batch whose leave holds a test (tests are
+    outside this one's): a workflow test in `HlslBuildTests`' style that parses `build.yml` and holds (1) the windows job's
+    doubles step and the installer job's `libvmx` step each call `./tools/ci-clang.ps1`, and no other step names a clang; (2) no
+    `*.yml` under `.github` and no `tools/*.ps1` names `Get-Command clang` (or `clang.exe` / `clang++.exe` outside
+    `ci-clang.ps1`); (3) `ci-clang.ps1` calls vswhere with `-requires Microsoft.VisualStudio.Component.VC.Llvm.Clang` and has no
+    `Get-Command clang`.

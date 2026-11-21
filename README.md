@@ -302,7 +302,9 @@ retail hash. Then:
   `PLAYMAP_DXC_DIR` for the build and the suites. It runs the Render suite again on ES 3.00, and the Companion module's tests.
 - **Windows** fetches, before its build, the same FFmpeg 9.0.2 LGPL shared libraries (its GPL command-line build on the path only
   to encode test media) and Mesa's llvmpipe at their pinned hashes, and SPIRV-Tools' library at its pinned hash for the shader worker (`PLAYMAP_SPIRV_TOOLS_DIR`); its restore downloads Microsoft.Direct3D.DXC
-  1.9.2609.5 from NuGet, whose `dxcompiler.dll` alone the engine's build copies beside the engine. It runs the Direct3D 12 tests
+  1.9.2609.5 from NuGet, whose `dxcompiler.dll` alone the engine's build copies beside the engine. The Media suite's native test
+  doubles (the fake NDI runtime, libvmx) are built with Visual Studio's own clang, found as the installer job finds the one that
+  builds the shipped libvmx (`tools/ci-clang.ps1`, below). It runs the Direct3D 12 tests
   (`Backend=D3D12`) as a leg of their own, on WARP and the Agility SDK, both from NuGet at pinned versions and hashes
   (`tools/ci-d3d12.ps1`), and lists their results apart in the job's summary. It asks the runner what it gives (`bench/r3-probe`:
   the Agility runtime in a .NET apphost, MMCSS, the throttling read-back, the GPU scheduling class, HDR10, the session calls) and
@@ -322,7 +324,11 @@ retail hash. Then:
   command line, which can carry a phone's join ticket), stopped and failed as `<name>(deadline)`, and the next project runs. Each
   project's start and end are in the log.
 - **The installer job** (`windows-2025`, elevated) publishes the exe with ReadyToRun and the supervisor, fetches the same pinned LGPL
-  FFmpeg, the Agility SDK's runtime and SPIRV-Tools, builds libvmx from its vendored source with its upstream Windows command, and
+  FFmpeg, the Agility SDK's runtime and SPIRV-Tools, builds libvmx from its vendored source with its upstream Windows command and
+  Visual Studio's own clang++ (`tools/ci-clang.ps1`, which both Windows jobs use: the clang of the newest Visual Studio with the
+  C++ Clang component, `Microsoft.VisualStudio.Component.VC.Llvm.Clang`, the one that Visual Studio's standard library accepts, never
+  an LLVM on the PATH; a runner without it fails with words naming the component and the image; the clang's version, Visual
+  Studio's and the MSVC toolset it compiles against are written as one line to the job's summary), and
   builds this build's installer and the one numbered before it with
   Inno Setup 7.1.0 (pinned by its hash, the release's digest and its publisher's signature checked). It checks the release order
   (`PlayMap.Supervisor.exe version-check`), runs `InstallerTests`, `UnsignedArtifactTests` and `LicenceTests` on the installer and its

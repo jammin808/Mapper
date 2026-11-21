@@ -348,25 +348,19 @@ jobs:
           name: hlsl-symbols
           path: src/PlayMap.Render.D3D12/obj/**/hlsl/**/*.pdb
           if-no-files-found: error
-      - name: The native test doubles' compiler (the runner's LLVM clang)
+      - name: The native test doubles' compiler (Visual Studio's own clang)
         shell: pwsh
         run: |
           # The Media suite builds the fake NDI runtime (tests/native/fake_ndi.c, as Processing.NDI.Lib.x64.dll) and libvmx
           # (src/ThirdParty/libvmx, its upstream Windows clang command) with clang, which links through Visual Studio's linker
-          # against the Windows SDK. A runner without clang fails here, and a double that does not build fails its tests (never a
-          # suite that ran with them skipped).
+          # against the Windows SDK. The clang is Visual Studio's own, found as the installer job finds the one that builds the
+          # shipped libvmx (tools/ci-clang.ps1: its version, Visual Studio's and the MSVC toolset in the log and the summary). A
+          # runner without it fails here, never on the PATH's LLVM, and a double that does not build fails its tests (never a suite
+          # that ran with them skipped).
           $ErrorActionPreference = 'Stop'
-          $clang = (Get-Command clang.exe -ErrorAction SilentlyContinue).Source
-          if (-not $clang) {
-            $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-            if ($vs) { $clang = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang.exe' }
-          }
-          if (-not $clang -or -not (Test-Path $clang)) { throw "no clang on the runner (LLVM, or Visual Studio's C++ Clang tools)" }
-          $clangxx = Join-Path (Split-Path $clang) 'clang++.exe'
-          if (-not (Test-Path $clangxx)) { throw "no clang++ beside $clang" }
-          & $clang --version
-          "PLAYMAP_CLANG=$clang" >> $env:GITHUB_ENV
-          "PLAYMAP_CLANGXX=$clangxx" >> $env:GITHUB_ENV
+          $clang = ./tools/ci-clang.ps1 -Label "The native test doubles' compiler (windows job)"
+          "PLAYMAP_CLANG=$($clang.C)" >> $env:GITHUB_ENV
+          "PLAYMAP_CLANGXX=$($clang.Cxx)" >> $env:GITHUB_ENV
           "PLAYMAP_NATIVE_REQUIRED=1" >> $env:GITHUB_ENV
       - name: OpenGL beside the test hosts
         shell: pwsh
@@ -660,13 +654,12 @@ jobs:
       - name: libvmx (OMT's codec, beside the exe)
         shell: pwsh
         run: |
-          # Built from the vendored source with its upstream Windows command (src/ThirdParty/libvmx/build/buildwinx64clang.cmd).
+          # Built from the vendored source with its upstream Windows command (src/ThirdParty/libvmx/build/buildwinx64clang.cmd), by
+          # Visual Studio's own clang++, the one its standard library accepts (tools/ci-clang.ps1, as the windows job finds its
+          # doubles' compiler): never the PATH's LLVM, and the summary names the clang, Visual Studio and the MSVC toolset that built
+          # the libvmx.dll the installer ships.
           $ErrorActionPreference = 'Stop'
-          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue).Source
-          if (-not $clang) {
-            $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-            $clang = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang++.exe'
-          }
+          $clang = (./tools/ci-clang.ps1 -Label 'libvmx, shipped in the installer (installer job)').Cxx
           New-Item -ItemType Directory -Force -Path vmx | Out-Null
           $src = 'src/ThirdParty/libvmx'
           & $clang -O3 -std=c++17 -fdeclspec -mlzcnt -mavx2 -mbmi -shared "-Wl,/DEF:$src/exports.def" "$src/src/vmxcodec_x86.cpp" "$src/src/vmxcodec_avx2.cpp" "$src/src/vmxcodec.cpp" -o vmx/libvmx.dll
