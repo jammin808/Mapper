@@ -14,7 +14,8 @@ namespace PlayMap.Core.Storage;
 /// it are read shared for reading only: on Windows a reader holding one open can make its replace fail, which then says so. Every file
 /// the node renames into
 /// place whose loss costs more than doing it again goes through <see cref="MoveIntoPlace"/>, every folder through
-/// <see cref="MoveFolderIntoPlace"/>. A rename that landed but whose folder could not be flushed after throws
+/// <see cref="MoveFolderIntoPlace"/>, and every other file it renames over another (a log's roll, a pull's chunk map, a record moved
+/// aside) through <see cref="Replace"/>, the same rename unflushed. A rename that landed but whose folder could not be flushed after throws
 /// <see cref="NotFlushedException"/>: the new file is in place, only its durability is in doubt.</summary>
 public static partial class DurableFile
 {
@@ -210,14 +211,37 @@ public static partial class DurableFile
         }
     }
 
+    /// <summary>Renames <paramref name="from"/> over <paramref name="to"/>, or onto it when nothing is there, and flushes nothing: for a
+    /// file whose loss costs no more than making it again (a log's roll, a pull's chunk map, a record moved aside), so it is never a
+    /// <see cref="MoveIntoPlace"/>. On Windows the POSIX-semantics rename <see cref="MoveIntoPlace"/> makes, which proceeds while
+    /// handles that share delete hold either file open (a reader of the target keeps the old file's bytes; the name is the new file's at
+    /// once); where the file system takes no POSIX rename, or the target is on another volume, the classic move, which copies across
+    /// volumes. Elsewhere a rename, which no open handle refuses. A handle on either file that shares no delete still makes it fail on
+    /// Windows: it throws as a move does (<see cref="IOException"/>, <see cref="UnauthorizedAccessException"/>), and nothing moved.</summary>
+    public static void Replace(string from, string to)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(from);
+        ArgumentException.ThrowIfNullOrEmpty(to);
+        if (OperatingSystem.IsWindows() && RenamePosix(from, to, flush: false))
+            return;
+        File.Move(from, to, overwrite: true);
+    }
+
     /// <summary>Renames <paramref name="from"/> over <paramref name="to"/> with POSIX semantics (Windows 10 1709 and later, on a file
     /// system that keeps them): the name is replaced while other handles that share delete hold the old file open. The rename is flushed
     /// through the same handle before the call returns. False when the file system does not take a POSIX rename (FAT, an older system)
     /// or the target is on another volume: the caller replaces it the classic way, which copies across volumes.</summary>
     [SupportedOSPlatform("windows")]
-    private static bool ReplaceThrough(string from, string to)
+    private static bool ReplaceThrough(string from, string to) => RenamePosix(from, to, flush: true);
+
+    /// <summary>The POSIX-semantics rename, flushed through its handle before it returns when <paramref name="flush"/> is set (the
+    /// handle then asks to write as well, since Windows flushes only through a handle that may write); unflushed, it asks for delete
+    /// alone. False where the classic move makes it good (<see cref="FallsBackToMove"/>).</summary>
+    [SupportedOSPlatform("windows")]
+    private static bool RenamePosix(string from, string to, bool flush)
     {
-        using var handle = CreateFile(LongPath(from), Delete | GenericWrite | Synchronize, ShareAll, 0, OpenExisting, FileAttributeNormal, 0);
+        using var handle = CreateFile(LongPath(from), Delete | Synchronize | (flush ? GenericWrite : 0), ShareAll, 0, OpenExisting,
+            FileAttributeNormal, 0);
         if (handle.IsInvalid)
             throw Refused(from, to, Marshal.GetLastPInvokeError());
         var name = LongPath(to);
@@ -241,7 +265,7 @@ public static partial class DurableFile
                 return false;
             throw Refused(from, to, error);
         }
-        if (!FlushFileBuffers(handle))
+        if (flush && !FlushFileBuffers(handle))
             throw new NotFlushedException(to, new IOException(Marshal.GetLastPInvokeErrorMessage()));
         return true;
     }

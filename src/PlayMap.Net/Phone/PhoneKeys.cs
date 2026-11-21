@@ -125,11 +125,12 @@ public sealed class PhoneKeys
             _phones.Clear();
             try
             {
-                File.Move(_path, _path + ".unreadable", overwrite: true);
+                DurableFile.Replace(_path, _path + ".unreadable");
             }
-            catch (IOException)
+            catch (Exception moved) when (moved is IOException or UnauthorizedAccessException)
             {
-                // Left where it is: the next save replaces it.
+                // Left where it is (a move refused: access denied, a handle that shares no delete, a folder in the way): the next save
+                // replaces it, and the node starts with no phones all the same.
             }
         }
     }

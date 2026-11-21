@@ -242,4 +242,91 @@ public sealed class DurableFileTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    /// <summary>The unflushed replace a log's roll, a pull's chunk map and a record moved aside take: onto a name that is not there and
+    /// over a file that is, nothing left at the old name, and nothing flushed (no <see cref="DurableFile.Flushed"/> for it). A reader
+    /// holding the target open as every reader of the node's state does (<see cref="DurableFile.OpenRead"/>) never makes it fail and
+    /// goes on reading the old bytes: on Windows this is the POSIX-semantics rename, elsewhere the classic rename, which no open handle
+    /// refuses. A source that is not there throws, as a move does.</summary>
+    [Fact]
+    public void AReplaceLandsOntoANameThatIsNotThereAndOverAFileThatIsAndFlushesNothing()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-durable-").FullName;
+        var flushed = new List<string>();
+        void Seen(string path)
+        {
+            if (path.StartsWith(dir, StringComparison.Ordinal))
+            {
+                lock (flushed)
+                    flushed.Add(path);
+            }
+        }
+        DurableFile.Flushed += Seen;
+        try
+        {
+            var from = Path.Combine(dir, "node.log");
+            var to = from + ".1";
+            File.WriteAllText(from, "first");
+            DurableFile.Replace(from, to);
+            Assert.Equal("first", DurableFile.ReadAllText(to));
+            Assert.False(File.Exists(from));
+
+            File.WriteAllText(from, "second");
+            using (var held = DurableFile.OpenRead(to))
+            {
+                Assert.Equal((byte)'f', held.ReadByte());
+                DurableFile.Replace(from, to);
+                Assert.Equal("second", DurableFile.ReadAllText(to));
+                Assert.False(File.Exists(from));
+                using var rest = new StreamReader(held);
+                Assert.Equal("irst", rest.ReadToEnd());
+            }
+
+            Assert.Throws<FileNotFoundException>(() => DurableFile.Replace(from, to));
+            Assert.Equal("second", DurableFile.ReadAllText(to));
+            lock (flushed)
+                Assert.Empty(flushed);
+        }
+        finally
+        {
+            DurableFile.Flushed -= Seen;
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>A target held open by a handle that shares no delete (a viewer, a scanner) makes the replace fail on Windows, aloud, with
+    /// both files as they were; elsewhere a rename lands over it all the same.</summary>
+    [Fact]
+    [Trait("Category", "Windows")]
+    public void AReplaceOverATargetHeldWithoutSharingDeleteFailsAloudOnWindowsAndLandsElsewhere()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-durable-").FullName;
+        try
+        {
+            var from = Path.Combine(dir, "node.log");
+            var to = from + ".1";
+            File.WriteAllText(from, "new");
+            File.WriteAllText(to, "old");
+            using (new FileStream(to, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    var refused = Record.Exception(() => DurableFile.Replace(from, to));
+                    Assert.True(refused is IOException or UnauthorizedAccessException, $"{refused}");
+                    Assert.Equal("new", DurableFile.ReadAllText(from));
+                    Assert.Equal("old", DurableFile.ReadAllText(to));
+                }
+                else
+                {
+                    DurableFile.Replace(from, to);
+                    Assert.False(File.Exists(from));
+                    Assert.Equal("new", DurableFile.ReadAllText(to));
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

@@ -456,7 +456,11 @@ reaches the disk, and is renamed into place with the rename flushed (`DurableFil
 be flushed after says so, `NotFlushedException`: the file is in place, only its durability in doubt); every reader of such a file
 opens it shared for write and delete (`DurableFile.OpenRead`) and Windows replaces it with a POSIX-semantics rename, so no reader
 makes a replace fail (a program that opens it sharing no delete still can, and the writer says so), while a record it only reports
-(the journal, preflight reports) and a file it makes again (the NDI runtime's config, a pull's chunk map) are not flushed;
+(the journal, preflight reports) and a file it makes again (the NDI runtime's config, a pull's chunk map) are not flushed; the
+logs' rolls (the engine's `playmap.engine.log` to `.1`, the supervisor's `supervisor.log` to `.1`), a pull's chunk map and an
+unreadable record moved aside are replaced by the same rename unflushed (`DurableFile.Replace`), and a roll that fails loses no line:
+the line stays in the live file and the roll is tried again (the engine's on a wait of its own, its failures counted apart from
+dropped lines; the supervisor's at its next line);
 CPU-bound loops (`Parallel.For`, every one under `src/` held to it by a source scan) and the solves, scan decodes and simulators
 of the scan, align, resolve, blend, mapping, site and stack work, the stage's automatic blend, thumbnails'
 conversion and encode, `MEDIA INSPECT`'s and the decode measure's HAP decodes, the scan views' pictures and ONNX inference with its

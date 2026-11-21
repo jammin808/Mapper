@@ -532,4 +532,48 @@ public sealed class PhoneInviteTests
         var session = node.Hub.Session(node.Hub.Phones()[0].Id)!;
         Assert.Equal(6_500_000_000, session.ToNodeNs(2500));
     }
+
+    /// <summary>A record that does not read is moved aside to ".unreadable" (over one an earlier start left) and the keys start with
+    /// no phones; the next save writes a fresh record.</summary>
+    [Fact]
+    public void AnUnreadableRecordIsMovedAsideOverTheOneBeforeAndTheKeysStartEmpty()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-phones-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "phones.json");
+            File.WriteAllText(path, "{ not json");
+            File.WriteAllText(path + ".unreadable", "an earlier start's record");
+            var keys = new PhoneKeys(path);
+            Assert.Empty(keys.All);
+            Assert.False(File.Exists(path));
+            Assert.Equal("{ not json", File.ReadAllText(path + ".unreadable"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>A move aside that is refused (a folder where ".unreadable" would go: an <see cref="IOException"/>, or an
+    /// <see cref="UnauthorizedAccessException"/> where the system answers access denied, as Windows' moves over a folder are read to)
+    /// never reaches the node's start: the record is left where it is and the keys start with no phones.</summary>
+    [Fact]
+    public void AMoveAsideThatIsRefusedLeavesTheRecordAndStartsEmpty()
+    {
+        var dir = Directory.CreateTempSubdirectory("playmap-phones-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "phones.json");
+            File.WriteAllText(path, "{ not json");
+            Directory.CreateDirectory(Path.Combine(path + ".unreadable", "in the way"));
+            var keys = new PhoneKeys(path);
+            Assert.Empty(keys.All);
+            Assert.Equal("{ not json", File.ReadAllText(path));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

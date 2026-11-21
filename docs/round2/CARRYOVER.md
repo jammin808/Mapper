@@ -6225,3 +6225,204 @@ Round 2 W1 notes:
     line.
   - The source of the ~551 ms disturbance in every one-free leg, of the burner-start hiccup about 1.5 s after its ready, and the
     runner's quantum (read only through lateness): no leg here reads them directly.
+
+## Integrator notes from the round-2 fix batch (fix-nodelog-roll)
+
+- Done: a product line, on the owner's answer after run 499 (Stagewatch's `docs/ecosystem/owner-answers.md`, its last entry before
+  "# Commit identity": "go with your recommendation"; NodeLog's roll on Windows replaces with POSIX semantics as `DurableFile` does, a
+  failed roll is tried again without waiting for the next line and is counted on its own, never as a dropped line, the Windows test
+  designed in this file is added, and the three replaces of the same shape are mended alongside). The leave as edited:
+  `src/PlayMap.Engine/Host/NodeLog.cs`; `src/PlayMap.Supervisor/Status/SupervisorLog.cs`; `src/PlayMap.Net/Media/MediaTransfer.cs`
+  (`SaveMap`'s replace only); `src/PlayMap.Net/Phone/PhoneKeys.cs` (the move aside of an unreadable record only);
+  `src/PlayMap.Core/Storage/DurableFile.cs` (one public replace, below); their tests; `docs/ARCHITECTURE.md` §8 (one sentence); this
+  entry. Nothing else under `src/`. `ShaderQuarantine.cs` 237 (`File.Move(path, aside)` to a fresh name) is not a replace and stays;
+  after the batch `git grep -n -E '[^.]File\.Move\(' -- src` finds it and `DurableFile.cs`' own two (71 and 227, its classic paths)
+  only.
+  - The defect, as runs 480 and 499 showed it: `NodeLogTests.EveryFileTheLogStartsBeginsWithTheBuild` failed on the Windows job, run 480
+    "line 1 was not moved aside" and run 499 (its log, the Engine group, 22:01:00) "line 3 was not moved aside: the log has dropped 1;
+    the live file holds 194 bytes; '.1' holds 193 bytes" after its 10 s wait. Read from the code as it was: past `rollBytes` the writer
+    closed the live file and called `Roll()`, `File.Move(Path, Path + ".1", overwrite: true)`, which .NET makes a classic `MoveFileEx`
+    with `MOVEFILE_REPLACE_EXISTING` (and `COPY_ALLOWED`); an `IOException` or `UnauthorizedAccessException` from it was swallowed and
+    counted in `Dropped` (documented as lines refused) though the line was in the live file; and the roll was tried again only from
+    `Open()` when the next line came. Run 499's words fit that path alone: `.1` held the heading and line 2 (193 bytes), the live file
+    the heading and line 3 (194 bytes, one more `x`), `Dropped` 1 (no other path counts while the line is in a file), and the test logs
+    no further line, so nothing tried the roll again. A quiet node kept an oversize live file the same way.
+  - What can hold either file on the Windows runner when the roll runs, read from the code and the test, not shown: the roll runs at
+    once after the writer closed the live file (its own handle, opened `FileShare.Read`, is disposed first, and `StreamWriter.Dispose`
+    closes the stream even when its flush throws), so the writer is not the holder; the test reads `.1` with `FileShare.ReadWrite |
+    FileShare.Delete` and only while the writer waits for the next line, and its `File.Exists` and `FileInfo.Length` keep no handle.
+    What is left is a process outside the test host that opens a file just closed or just renamed: on the image, Microsoft Defender's
+    real-time scan is the one such reader the CI's records name (fix-ci-stall-measure left "whether Defender's real-time or cloud
+    protection is on in the image" unknown, and it still is), or a search indexer if one runs there. Which of the two files it held,
+    and whether its handle shares delete, is not recorded in any run. The classic replace fails over a target that any handle holds
+    (the documented reason POSIX semantics exist, below), so a scanner's handle on `.1` that shares delete is enough to fail it; a
+    holder of the live file that shares no delete fails either replace.
+  - What a POSIX rename proceeds over and what still fails it, from Microsoft's documentation as `DurableFile`'s comments cite it and
+    from the runner, without more: `FILE_RENAME_INFORMATION`'s `FILE_RENAME_POSIX_SEMANTICS` ("if FILE_RENAME_REPLACE_IF_EXISTS is
+    also specified, allow replacing a file even if there are existing handles to it. Existing handles to the replaced file continue to
+    be valid for operations such as read and write. Any subsequent opens of the target name will open the renamed file, not the
+    replaced file"), set through `SetFileInformationByHandle(FileRenameInfoEx)` on a handle to the source opened for `DELETE`. So it
+    proceeds over a target held open; the documentation does not name the share mode those handles need, and the Windows job's
+    `DurableFileTests.AReaderThatSharesNoDeleteMakesTheReplaceFailAloudOnWindows` (green on every Windows run, run 499 among them)
+    shows a target held with `FileShare.Read` (no delete) makes it fail, while `AReaderHeldOpenAcrossAReplaceNeitherFailsItNorSeesItHalfDone`
+    shows one held with `FileShare.ReadWrite | FileShare.Delete` does not. For the source: the rename needs a handle opened for
+    `DELETE`, and `CreateFile`'s documentation of `FILE_SHARE_DELETE` says an existing handle opened without it makes a later open that
+    asks for delete access fail; so a source held by handles that share delete proceeds, and one held by a handle that does not fails
+    at the open, before any rename. Also still failing: a target that is a folder; a read-only target before Windows 10 1809 (the
+    flag that ignores it is retried without, as `DurableFile` already does); and, falling back to the classic move rather than
+    failing, a file system that takes no POSIX rename or a target on another volume (`FallsBackToMove`).
+  - The mend, part (1), one shared replace: `DurableFile.Replace(from, to)` (public, new) renames over a target or onto a missing name
+    and flushes nothing: on Windows the POSIX-semantics rename `MoveIntoPlace` already makes, through the same code (`ReplaceThrough`
+    is now `RenamePosix(from, to, flush: true)`; `Replace` calls `RenamePosix(from, to, flush: false)`, whose source handle asks for
+    `DELETE | SYNCHRONIZE` alone, with no `GENERIC_WRITE`, since only a flush needs a handle that may write), falling back to the classic
+    `File.Move(from, to, overwrite: true)` where `FallsBackToMove` says so; elsewhere `File.Move(from, to, overwrite: true)` (rename(2)),
+    with no folder flush. `MoveIntoPlace`, `WriteAllText`, `WriteAllBytes` and `MoveFolderIntoPlace` make the same calls with the same
+    access and flags as before (the diff: the flushed variant asks `DELETE | SYNCHRONIZE | GENERIC_WRITE`, as `ReplaceThrough` did, and
+    flushes as it did), so no existing caller changed. The class summary names `Replace` beside the two it had.
+  - Part (2), the retry without a line (`NodeLog.cs`): a failed move aside sets `RollOwed`, counts `RollsFailed`, and schedules the next
+    try (`Environment.TickCount64`, writer-thread fields `_retryAt` and `_retryAfter`). The writer loop takes lines with
+    `BlockingCollection.TryTake(out line, Wait())`: `Timeout.Infinite` while no roll is owed (as `GetConsumingEnumerable` waited
+    before), else the milliseconds until the owed roll's try, so with the queue empty it wakes on its own, closes the live file if it
+    holds it and tries the roll again; a line that comes first is appended to the live file as before and tries nothing (an owed roll
+    keeps its own wait: no roll on every line, no reopen per line), and when the try's time has come it is made before the next line.
+    The waits: 100 ms after the first failure (`FirstRetry`: a scanner that opens a file just closed lets go within it, as read, not
+    measured), doubling each failure, at most 5 s (`LongestRetry`: a holder that keeps the file for hours costs one failed open every
+    5 s, and the roll lands within 5 s of its letting go). The retry stops when the roll lands, when the live file is no longer there
+    (it owes no roll), or when the log is disposed (`CompleteAdding` wakes the wait, `TryTake` reads the queue empty and completed, the
+    loop ends). A retry only closes the writer's handle (flushing its lines) and renames; the file is opened `FileMode.Append` and never
+    truncated, so no retry loses or cuts the live file. No thread, timer or sleep was added: the log's own writer thread does the
+    waiting, on the queue it already waits on (a deadline thread is not this, and `Thread.Sleep` is banned). Pre-existing, mended in
+    the same file: `Open()`'s failure counted `Dropped` and its caller counted the same line again; `Open()` now counts nothing and the
+    caller counts the line once.
+  - Part (3), the counts: `RollsFailed` (moves aside that failed) and `RollOwed` (true from a failed move aside until one lands, set
+    before `RollsFailed` counts the failure) are public beside `Dropped`, which now counts only lines that did not reach a file (refused
+    with the writer 8192 lines behind or after the log closed, or lost to a disk that refused the open, the write or the flush), its
+    summary saying a failed roll is never counted there. `NodeLogProvider`'s counts are read by no reader outside tests today: `git grep
+    NodeLogProvider -- src` finds `EngineEntry.cs` 121 (`using var file = NodeLogProvider.For(home)`) and the class itself only. No
+    reader is added in this batch (Open, below).
+  - The seam: `NodeLogProvider`'s internal constructor takes `rolling` (`Action<string>?`, null in the product; the public constructor
+    and `For` pass none), called on the writer thread with the live path before each move aside; an `IOException` from it stands for the
+    move refused.
+  - The same shape, each mended with `DurableFile.Replace`:
+    - `SupervisorLog.Append`: the roll was inside the append's own `try`, so a failed move threw past the append and the line went to
+      `Trace` only. Now the roll has its own `try` (`Roll`), a failure is said to `Trace` and the line is appended to the file where it
+      is; the next `Append` past 1 MB tries the move again. A retry without a line is not built there: `SupervisorLog` is a static with
+      no state and no thread, `Append` is the log's only writer path (`SupervisorHost.Log`, `SupervisorHost.cs` 679), and a retry
+      between two lines would need a timer or a thread of its own; the file is past its 1 MB only by the lines appended while a move is
+      refused (one line per act). A test-only seam, `SupervisorLog.Rolling` (an internal static event raised with the log's path before
+      each move, an `IOException` from a handler standing for the refusal, the shape of `DurableFile.FlushingFolder`). The summary says
+      "past 1 MB" (the code's `> MaxBytes`) and the new rule.
+    - `MediaTransfer.SaveMap`: `File.Move(temp, mapPath, overwrite: true)` is now `DurableFile.Replace(temp, mapPath)`: still unflushed
+      by design (the map is a hint for the resume, its comment says why), and on Windows a reader of the old map that shares delete
+      (`LoadMap` reads it through `DurableFile.ReadAllBytes`) no longer makes the classic replace fail. Nothing else in the file moved.
+    - `PhoneKeys.Load`'s move aside of an unreadable record caught `IOException` only. Before: the move was `File.Move`, and
+      `UnauthorizedAccessException` could reach the caller on Unix only (EACCES or EPERM from rename(2), a folder whose permissions
+      refuse the rename); on Windows `File.Move` reports access denied as an `IOException` (as read from .NET's source, its "WinNT throws
+      IOException" branch; not run here), which the old catch took. Now the move is `DurableFile.Replace(_path, _path + ".unreadable")`,
+      whose `Refused` maps error 5 (a read-only or folder target on Windows) to `UnauthorizedAccessException`, so on Windows too it would
+      leave the `PhoneKeys` constructor, `PhoneHub`'s, and reach the phones extension's composition
+      (`src/PlayMap.Engine/Phone/PhoneParts.cs` 33; what the composition does with it was not traced). The catch now takes both: the
+      record is left where it is (the next save replaces it) and the keys start with no phones, as the summary says. Read, not run.
+- Tests:
+  - `NodeLogTests` (Engine). `AFailedRollIsTriedAgainWithoutAnotherLineAndIsNeverCountedAsADroppedLine` (new, every platform): the seam
+    refuses the first three moves; one line past the roll size (the heading's length plus 200 bytes) and no further line; the roll
+    lands on its own; `RollsFailed` equals the tries less one (3 off Windows; on Windows at least 3, since the real move after the seam
+    can be refused by a scanner too and is then counted and retried the same way), `Dropped` 0, `RollOwed` false; each try at least its
+    doubled wait after the one before (less 32 ms, two ticks of Windows' coarsest clock); `.1` holds the heading and the line; the next
+    line starts a new live file with its own heading and leaves `.1` as it was. The hook throws only the refusal it stands for (an
+    assertion thrown on the writer thread would end the writer, not the test) and the paths it saw are asserted after. Mutation-proved
+    on this bench, each against the test as committed, the source put back and rebuilt after: the retry removed (`Wait()` always
+    infinite) fails it after its 10 s ("the roll did not land: tried 1 times; owed True; the log has dropped 0; 1 rolls failed; the live
+    file holds 505 bytes; '.1' is not there"); the failure counted in `Dropped` again fails it at once (`Dropped` expected 0, actual 3).
+    `ARollRefusedByAHeldFileLandsOnceTheHandleIsLetGoWithoutAnotherLine` (new, `[WindowsFact]`): the design this file wrote down under
+    fix-ci-stall-measure's Open, asserting the new behaviour: `.1` made first and held open by the test with `FileShare.ReadWrite` (no
+    delete), a log at `rollBytes: 1`, one line; the test waits until a roll was tried (`RollsFailed` at least 1, or `.1` by name no
+    longer the test's bytes), reads `RollOwed`, the live file and `Dropped` before `.1` by name, and branches on `.1`: still the test's
+    bytes (the expected way, as the Durable test above shows on the runner) asserts the roll owed, `Dropped` 0, and the live file the
+    heading and the line; replaced (the POSIX rename landing over the held handle, which Microsoft's words do not rule out) writes so to
+    the test's output and asserts `.1` the heading and the line and the held handle still reading `held` (the documented "existing
+    handles ... continue to be valid"). Either way the handle is then let go and no further line is logged: within 15 s (three times the
+    longest wait) the roll lands, `.1` holds the heading and the line, the live file is gone, `Dropped` 0. The order of the reads makes
+    the first branch safe: a roll owed is cleared only when one lands, so `.1` still the test's after them means nothing landed before
+    them. Read line by line twice against the behaviour cited here; it cannot run on this bench (skipped here with the attribute's
+    words), and the next push's Windows job is its first run. `EveryFileTheLogStartsBeginsWithTheBuild` stays as it was, its 10 s wait
+    not widened (only its shared failure words, `Found`, now also name `RollsFailed`): the failure runs 480 and 499 showed was a move
+    refused once and never tried again; now a refused move is tried 0.1, 0.3, 0.7, 1.5, 3.1 and 6.3 s after it failed, so a holder that
+    lets go within about 6 s of the failure no longer fails it, and over a held `.1` that shares delete the POSIX rename does not fail at
+    all. A holder that keeps the file past that would still fail it, now with `RollsFailed` in its words rather than `Dropped`.
+    `ALineTheFolderCannotTakeIsCountedDroppedOnce` (new, every platform): a file where the log's folder would be, two lines, the log
+    disposed (the writer finishes what it was given): `Dropped` 2, `RollsFailed` 0, no roll owed; it holds the caller's single count of
+    a line `Open` could not take (the double count this batch removed would read 4: read, not run).
+  - `DurableFileTests` (Core, 2 new). `AReplaceLandsOntoANameThatIsNotThereAndOverAFileThatIsAndFlushesNothing`: onto a missing target,
+    then over an existing one held by `DurableFile.OpenRead` (the held reader goes on reading the old bytes), nothing left at the old
+    name, a missing source throws `FileNotFoundException`, and no `Flushed` event for any path of the test's folder (on Linux this is the
+    classic path, rename(2); on Windows the POSIX rename). `AReplaceOverATargetHeldWithoutSharingDeleteFailsAloudOnWindowsAndLandsElsewhere`
+    (`Category=Windows`): a target held with `FileShare.ReadWrite` makes `Replace` throw `IOException` or `UnauthorizedAccessException`
+    on Windows with both files as they were, and lands elsewhere; its Windows branch's first run is the next push.
+  - `SupervisorLogTests` (Supervisor, new file `tests/PlayMap.Supervisor.Tests/Status/SupervisorLogTests.cs`, 2):
+    `ALogPastItsSizeMovesAsideBeforeTheNextLine` (over an existing `.1`); `ARefusedMoveCostsNoLineAndTheNextAppendMovesIt` (the
+    `Rolling` seam refuses this folder's first move: the line is appended to the old file, `.1` not made; the next append moves the
+    file, with that line at its end, and starts a live file of the new line alone).
+  - `MediaTransferTests` (Net, 1 new). `AReaderOfTheChunkMapNeverMakesItsReplaceFailAndTheMapIsNeverFlushed`: a pull interrupted at four
+    chunks, the map held open through `DurableFile.OpenRead` across the resumed pull, which verifies; the held reader reads the old
+    map whole; `Flushed` names the finished file only, never the map.
+  - `PhoneInviteTests` (Net, 2 new). `AnUnreadableRecordIsMovedAsideOverTheOneBeforeAndTheKeysStartEmpty`;
+    `AMoveAsideThatIsRefusedLeavesTheRecordAndStartsEmpty` (a folder at `.unreadable`). On this bench the refused move throws
+    `IOException` ("Is a directory"), shown by narrowing the catch to `UnauthorizedAccessException` alone, which fails the test with
+    that exception; the access-denied path the mend adds is read, not run here (on Windows the same folder target is read to answer
+    access denied).
+  - Which new tests prove the mend where: `AReplaceLandsOntoANameThatIsNotThereAndOverAFileThatIsAndFlushesNothing`'s and
+    `AReplaceOverATargetHeldWithoutSharingDeleteFailsAloudOnWindowsAndLandsElsewhere`'s Linux branches,
+    `MediaTransferTests.AReaderOfTheChunkMapNeverMakesItsReplaceFailAndTheMapIsNeverFlushed` (rename(2) replaces over a held file, and
+    the old `File.Move` raised no `Flushed` either), both new `PhoneInviteTests` (on Linux the refused move throws `IOException`, which
+    the old catch already took) and `SupervisorLogTests.ALogPastItsSizeMovesAsideBeforeTheNextLine` (the old code rolled too) each
+    pass on Linux with or without the mend: they prove it only on the Windows job (there the old classic replace over a held map threw
+    out of `SaveMap`, which nothing in the worker catches, so the pull failed; and a refused `PhoneKeys` move would now raise
+    `UnauthorizedAccessException` through `Replace`), and the next push is their first Windows run. The tests that prove the mend on
+    every platform are `AFailedRollIsTriedAgainWithoutAnotherLineAndIsNeverCountedAsADroppedLine` and
+    `SupervisorLogTests.ARefusedMoveCostsNoLineAndTheNextAppendMovesIt`.
+  - The validate, on the 10.0.404 SDK with the variables of `tools/setup-dev.sh start`: the build whole, no warning, no error (its
+    analysis reported nothing in any file; a build first made without `PLAYMAP_DXC_DIR` left `libdxcompiler.so` out, so six `Shaders`
+    tests failed saying so, and the build made again with it set, as the loop says, put it there); Core's Storage classes 15 passed;
+    the Engine suite whole in three parts with `PLAYMAP_SCHEDULING_PROBE` and `PLAYMAP_WRITE_FIXTURES` unset (by namespace: Align to
+    Fx, 446; Host to Presentation, 347; the rest, by the two parts' filters negated, 582; 1,375 in all, 7 skipped, among them the new
+    `[WindowsFact]`, which reports skipped, not run): green but for `Facade.SurveyImportPerfTests.TwoMillionTrianglesInFifteenSecondsWithPingUnderFiftyMilliseconds`
+    in the first part (its ping 214.8 ms under the parallel load, beside another tree's build), green run alone (2 passed), no log or
+    rename on its path; the third part was run again after the DXC rebuild, green; `NodeLogTests` run three times more, green; the
+    Supervisor suite whole, 97 passed, 33 skipped; the Net suite whole, 338 passed, 1 skipped, and its three Chromium page tests
+    (`PageTests.InChromium…`) failed before any PlayMap code ran (`chromium.launch` at `tests/e2e/phonescan/page.mjs:12`), as
+    fix-desk-unconfirmed's entry records, not counted green. After the review's fold-in (the `PhoneKeys` reasoning and the Linux-only
+    tests above corrected in this entry, and `ALineTheFolderCannotTakeIsCountedDroppedOnce` added), the validate run once more: the
+    build whole, no warning, no error; Core's Storage classes 15 passed; the Engine suite in three parts by namespace (Align, Audio,
+    Companion, Content, Control, Decode, Facade, Fleet and Fx, 393 passed; Host, Hot, Install, Led, Machine, Optimise, Phone and
+    Presentation, 299 passed, 3 skipped; the rest by both parts' filters negated, 677 passed, 4 skipped: 1,376 in all, the new
+    `[WindowsFact]` among the 7 skipped, not run), green at the first run; the Supervisor suite 97 passed, 33 skipped; the Net suite
+    338 passed, 1 skipped, and the same three Chromium page tests failed at `chromium.launch`, not counted green.
+- Files: `src/PlayMap.Core/Storage/DurableFile.cs`; `src/PlayMap.Engine/Host/NodeLog.cs`; `src/PlayMap.Supervisor/Status/SupervisorLog.cs`;
+  `src/PlayMap.Net/Media/MediaTransfer.cs`; `src/PlayMap.Net/Phone/PhoneKeys.cs`; `tests/PlayMap.Core.Tests/Storage/DurableFileTests.cs`;
+  `tests/PlayMap.Engine.Tests/Host/NodeLogTests.cs`; `tests/PlayMap.Supervisor.Tests/Status/SupervisorLogTests.cs` (new);
+  `tests/PlayMap.Net.Tests/MediaTransferTests.cs`; `tests/PlayMap.Net.Tests/Phone/PhoneInviteTests.cs`; `docs/ARCHITECTURE.md` (§8, the
+  replace rule: the logs' rolls, the chunk map and a record moved aside replaced unflushed through `DurableFile.Replace`, a failed roll
+  losing no line and tried again); this entry. The doc grep `git grep -n -i -E 'supervisor.log.1|node.log.1|rolls|moved aside' -- docs
+  README.md` finds, outside this file, no line on these files' rolls or replaces: `docs/RESEARCH.md` 147 (an MSI rolls back),
+  `docs/ROADMAP.md` 217 and 648, `docs/SHOW.md` 140, `docs/TIMECODE.md` 106, `docs/round2/design/control.md` 228, `desk.md` 1008,
+  `present.md` 270, `timecode.md` 475, `docs/round2/research/timecode.md` 196, `docs/round3/research/windows11_home.md` 545,
+  `docs/wire/blind.md` 106 and `docs/wire/control.md` 111 (timecode rolling, scrolling, a window rolling), and `docs/wire/shaders.md` 70
+  (the quarantine's move aside to a fresh name, which stays); `docs/INSTALL.md` 115, 140, 156 and `docs/wire/install.md` 64 name
+  `supervisor.log` but not how it rolls. The one line that says how such files are replaced is `ARCHITECTURE.md` §8, edited.
+- Open:
+  - A reader for a stuck roll, the owner's call (not built): `RollsFailed` and `RollOwed` have no reader but the tests. A design: the
+    engine host keeps its `NodeLogProvider` (`EngineEntry.cs` 121) where HEALTH or preflight can read it, and a preflight row (the
+    machine section's) or a HEALTH field says amber "the engine's log could not move aside: owed since <time>, N tries", green once it
+    lands; the supervisor's log would need a count of its own first (it keeps none, a static with no state). Its words, its place and
+    whether a stuck roll is amber at all are the owner's.
+  - Read, not reproduced: which process held which file in runs 480 and 499, and whether its handle shared delete (no run records it);
+    the POSIX rename's treatment of a target held without share delete on the runner for `Replace`'s unflushed variant with
+    `FileShare.ReadWrite` (the existing Durable test holds `FileShare.Read` through the flushed variant; the new Windows tests' first
+    run is the next push); the access-denied path of `PhoneKeys`' move aside; `FirstRetry` and `LongestRetry` against a real scanner's
+    hold (no measurement: the numbers are read, and the next Windows runs of `EveryFileTheLogStartsBeginsWithTheBuild` are what would
+    say a 10 s wait is still short).
+  - Outside the leave, read, not edited: `PhoneKeys.Load`'s outer catch (`JsonException`, `KeyNotFoundException`,
+    `InvalidOperationException`, `FormatException`, `IOException`) does not take `UnauthorizedAccessException` either, so a record the
+    node may not read (`DurableFile.ReadAllBytes`) still escapes the constructor the same way the move aside did; a mend is one catch
+    clause in `src/PlayMap.Net/Phone/PhoneKeys.cs` `Load`, for a batch whose leave names it.

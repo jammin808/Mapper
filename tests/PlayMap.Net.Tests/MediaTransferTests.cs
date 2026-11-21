@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
+using PlayMap.Core.Storage;
 using PlayMap.Core.Time;
 using PlayMap.Net.Http;
 using PlayMap.Net.Media;
@@ -77,6 +78,62 @@ public sealed class MediaTransferTests : IDisposable
 
         var again = await second.PullAsync(peer, hash, bytes.Length, destination, CancellationToken.None);
         Assert.Equal(MediaPullOutcome.AlreadyHere, again.Outcome);
+    }
+
+    /// <summary>The chunk map is replaced as a durable file is, unflushed: a reader holding the old map open as the node's readers open
+    /// it (<see cref="DurableFile.OpenRead"/>) never makes the resumed pull's replaces fail (on Windows the POSIX-semantics rename), and
+    /// goes on reading the map it opened; no map is ever flushed, only the finished file.</summary>
+    [Fact]
+    public async Task AReaderOfTheChunkMapNeverMakesItsReplaceFailAndTheMapIsNeverFlushed()
+    {
+        var (source, bytes) = MakeFile("held.mov", 3 * 1024 * 1024 + 4321);
+        var store = new FakeMediaStore();
+        var hash = store.Add(source);
+        await using var host = await HttpHostTests.StartAsync(new FakeEndpoint(), TestSettings.Make(trustLoopback: false), new HttpHostOptions { Media = store });
+        var peer = new Uri("http://127.0.0.1:" + host.Port);
+        using var http = new HttpClient();
+        var options = new MediaTransferOptions { ChunkBytes = 256 * 1024, Parallelism = 2, Token = TestSettings.Token };
+        var destination = Path.Combine(_dir.FullName, "held", "held.mov");
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        var map = destination + ".part.map";
+        var flushed = new ConcurrentQueue<string>();
+        void Seen(string path)
+        {
+            if (path.StartsWith(_dir.FullName, StringComparison.Ordinal))
+                flushed.Enqueue(path);
+        }
+        DurableFile.Flushed += Seen;
+        try
+        {
+            var first = new MediaTransfer(http, new TokenBucket(0), options);
+            using var interrupt = new CancellationTokenSource();
+            first.Progress += p =>
+            {
+                if (p.ChunksDone >= 4)
+                    interrupt.Cancel();
+            };
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.PullAsync(peer, hash, bytes.Length, destination, interrupt.Token));
+            var before = DurableFile.ReadAllBytes(map);
+
+            MediaPullResult result;
+            await using (var held = DurableFile.OpenRead(map))
+            {
+                Assert.Equal(before[0], held.ReadByte());
+                result = await new MediaTransfer(http, new TokenBucket(0), options).PullAsync(peer, hash, bytes.Length, destination, CancellationToken.None);
+                using var rest = new MemoryStream();
+                await held.CopyToAsync(rest);
+                Assert.Equal(before[1..], rest.ToArray());
+            }
+            Assert.Equal(MediaPullOutcome.Verified, result.Outcome);
+            Assert.InRange(result.ChunksResumed, 4, 13);
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(destination));
+            Assert.False(File.Exists(map));
+            Assert.Equal([destination], flushed.Distinct());
+        }
+        finally
+        {
+            DurableFile.Flushed -= Seen;
+        }
     }
 
     [Fact]
