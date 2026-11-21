@@ -3,14 +3,16 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace PlayMap.Engine.Tests.Machine;
+namespace PlayMap.Tests;
 
 /// <summary>What the machine part's process claims change in the process that makes them, read from the outside: the priority class
 /// (read on every OS), and on Windows the power throttling state the QoS claim sets and the GPU scheduling class (each null where
-/// Windows does not answer its read). A test that composes the real platform on the shared test host reads this before its claim and
-/// puts it back after (<see cref="PutBack"/>). The product has no release of a process claim (<c>IMachinePlatform.ClaimProcess</c>
-/// makes them; <c>WindowsMachinePlatform.Dispose</c> lets go of keep-awake only), so each part is set back here through the call the
-/// platform claims it with. Off Windows the null platform claims nothing, so nothing moves and nothing is set back.</summary>
+/// Windows does not answer its read). A test that claims the real platform's process claims on its own test host (the Engine suite's
+/// preflight test, the Windows platform suite's claiming tests) reads this before its claim and puts it back after
+/// (<see cref="PutBack"/>), so every test after it runs as the host was found. The product has no release of a process claim
+/// (<c>IMachinePlatform.ClaimProcess</c> makes them; <c>WindowsMachinePlatform.Dispose</c> lets go of keep-awake only), so each part is
+/// set back here through the call the platform claims it with. Off Windows the null platform claims nothing, so nothing moves and
+/// nothing is set back.</summary>
 internal sealed partial record HostProcessState(ProcessPriorityClass Class, uint? QosControl, uint? QosState, int? GpuClass)
 {
     /// <summary>This process's state as it reads now; the class through a fresh process object, since one object keeps the class it

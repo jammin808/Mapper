@@ -92,18 +92,11 @@ internal sealed class FakeMediaPeer : IAsyncDisposable
 
     private async Task AcceptAsync()
     {
-        try
+        // Null once the peer's own stop has asked the token (DisposeAsync asks it before it stops the listener): no more connections.
+        while (await Accepts.NextAsync(_listener, _stop.Token) is { } client)
         {
-            while (true)
-            {
-                var client = await _listener.AcceptTcpClientAsync(_stop.Token);
-                lock (_gate)
-                    _connections.Add(ServeAsync(client));
-            }
-        }
-        catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
-        {
-            // The peer stopped: no more connections.
+            lock (_gate)
+                _connections.Add(ServeAsync(client));
         }
     }
 

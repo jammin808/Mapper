@@ -276,18 +276,11 @@ internal sealed class SilentTlsFront : IAsyncDisposable
 
     private async Task AcceptAsync()
     {
-        try
+        // Null once its own stop has asked the token (DisposeAsync asks it before it stops the listener): the front stops.
+        while (!_stop.IsCancellationRequested && await Accepts.NextAsync(_listener, _stop.Token) is { } client)
         {
-            while (!_stop.IsCancellationRequested)
-            {
-                var client = await _listener.AcceptTcpClientAsync(_stop.Token);
-                _clients.Enqueue(client);
-                _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
-            }
-        }
-        catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
-        {
-            // The front stops.
+            _clients.Enqueue(client);
+            _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
         }
     }
 
@@ -375,18 +368,11 @@ internal sealed class OneMessageStagewatch : IAsyncDisposable
 
     private async Task AcceptAsync()
     {
-        try
+        // Null once its own stop has asked the token (DisposeAsync asks it before it stops the listener): the Stagewatch stops.
+        while (!_stop.IsCancellationRequested && await Accepts.NextAsync(_listener, _stop.Token) is { } client)
         {
-            while (!_stop.IsCancellationRequested)
-            {
-                var client = await _listener.AcceptTcpClientAsync(_stop.Token);
-                _clients.Enqueue(client);
-                _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
-            }
-        }
-        catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
-        {
-            // The Stagewatch stops.
+            _clients.Enqueue(client);
+            _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
         }
     }
 

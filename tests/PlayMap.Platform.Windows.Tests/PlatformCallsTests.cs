@@ -1,9 +1,12 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.Versioning;
 using System.Text;
 using PlayMap.Core.Machine;
 using PlayMap.Core.Time;
 using PlayMap.Platform.Windows.Interop;
+using PlayMap.Tests;
 
 namespace PlayMap.Platform.Windows.Tests;
 
@@ -13,8 +16,11 @@ namespace PlayMap.Platform.Windows.Tests;
 /// service runs, the thread's priority put back as it was; 1 000 waits of 1 ms on today's wait and on the high-resolution timer are
 /// timed, both distributions recorded, no ceiling asserted (the runner is shared; the lab holds the pass mark). What Windows answered
 /// is written to the job's evidence (<c>platform-evidence.md</c> in the runner's temporary folder), which the workflow's wp3-platform
-/// step puts in the log and the summary.</summary>
+/// step puts in the log and the summary. Each test that claims the process's claims on this suite's test host puts the host back as it
+/// found it (its priority class, QoS and GPU class) and proves it did, so every test after it runs at the class the runner gave the
+/// host; the class runs in a collection of its own that runs alone, so no test of another class sees the host while it is claimed.</summary>
 [SupportedOSPlatform("windows")]
+[Collection(PlatformCallsCollection.Name)]
 public sealed class PlatformCallsTests
 {
     private static readonly Lock EvidenceGate = new();
@@ -62,6 +68,31 @@ public sealed class PlatformCallsTests
         Assert.True(words.Any(w => c.Words.StartsWith(w, StringComparison.Ordinal)), $"{c.What}: {c.Words}");
     }
 
+    /// <summary>Runs <paramref name="body"/> on a platform of its own that has claimed <paramref name="settings"/>' process claims for
+    /// this test host, then puts the host back as it found it. The platform is disposed first (it lets go of keep-awake), then the
+    /// host's class, QoS and GPU class are set back in a <c>finally</c>, so a failing body leaves no claim behind. After it: the claim
+    /// moved the host to High (every caller asks the default HIGH, so the fence is never vacuous), and the host reads as it was found,
+    /// part by part, every part read before.</summary>
+    private static void Claiming(MachineSettings settings, Action<WindowsMachinePlatform, ImmutableArray<Claim>> body)
+    {
+        var found = HostProcessState.Read();
+        HostProcessState? held = null;
+        HostProcessState after;
+        try
+        {
+            using var platform = new WindowsMachinePlatform();
+            var claims = platform.ClaimProcess(settings);
+            held = HostProcessState.Read();
+            body(platform, claims);
+        }
+        finally
+        {
+            after = found.PutBack();
+        }
+        Assert.True(held?.Class == ProcessPriorityClass.High, $"the claim moved this host to High: found {found.Words}, held {held?.Words ?? "(not read)"}");
+        Assert.True(after == found, $"the test host reads as it was found once the claiming test ends: found {found.Words}, after {after.Words}");
+    }
+
     /// <summary>Runs <paramref name="body"/> on a thread of its own, so a claim there is that thread's only one.</summary>
     private static void OnThread(Action body)
     {
@@ -83,10 +114,8 @@ public sealed class PlatformCallsTests
     }
 
     [WindowsFact]
-    public void EveryProcessClaimAnswersAndTheThrottlingStateReadsBackAsSet()
+    public void EveryProcessClaimAnswersAndTheThrottlingStateReadsBackAsSet() => Claiming(MachineSettings.Default, (platform, claims) =>
     {
-        using var platform = new WindowsMachinePlatform();
-        var claims = platform.ClaimProcess(MachineSettings.Default);
         Assert.Equal(["process.priority", "process.qos", "process.gpuPriority"], claims.Select(c => c.What));
         Assert.Equal(["high", "high", "normal"], claims.Select(c => c.Asked));
         Assert.All(claims, Answers);
@@ -127,13 +156,11 @@ public sealed class PlatformCallsTests
         Evidence("Process claims (default settings, then QOS AUTO with PROCESS NORMAL)",
             ["| claim | asked | answer | read back | words |", "|---|---|---|---|---|", .. claims.Select(Row), .. auto.Select(Row)]);
         Evidence("Capability probes", probes.Probes.Select(p => $"- {p.Feature}: {(p.Supported ? "yes" : "no")} {p.Words}"));
-    }
+    });
 
     [WindowsFact]
-    public void EachRolesThreadClaimAnswersAndItsDisposeRevertsThePriority()
+    public void EachRolesThreadClaimAnswersAndItsDisposeRevertsThePriority() => Claiming(MachineSettings.Default, (platform, _) =>
     {
-        using var platform = new WindowsMachinePlatform();
-        _ = platform.ClaimProcess(MachineSettings.Default);
         var rows = new List<string> { "| claim | asked | answer | read back | words |", "|---|---|---|---|---|" };
         foreach (var role in Enum.GetValues<ThreadRole>())
         {
@@ -186,13 +213,11 @@ public sealed class PlatformCallsTests
         }
         Assert.NotEmpty(platform.Claims);
         Evidence("Thread claims by role", rows.Distinct());
-    }
+    });
 
     [WindowsFact]
-    public void ASecondClaimOnAClaimedThreadJoinsItAndTheLastHolderReverts()
+    public void ASecondClaimOnAClaimedThreadJoinsItAndTheLastHolderReverts() => Claiming(MachineSettings.Default, (platform, _) =>
     {
-        using var platform = new WindowsMachinePlatform();
-        _ = platform.ClaimProcess(MachineSettings.Default);
         OnThread(() =>
         {
             var before = Native.GetThreadPriority(Native.GetCurrentThread());
@@ -215,14 +240,12 @@ public sealed class PlatformCallsTests
             using var third = platform.ClaimThread(ThreadRole.Timecode);
             Assert.NotSame(shared, Assert.IsType<WindowsMachinePlatform.ThreadHold>(third).Shared);
         });
-    }
+    });
 
     [WindowsFact]
-    public void EveryWordHandedToThePlatformReachesTheNextHoldTimerAndThreadClaimAndTheFacts()
+    public void EveryWordHandedToThePlatformReachesTheNextHoldTimerAndThreadClaimAndTheFacts() =>
+        Claiming(MachineSettings.Default with { Awake = "off" }, (platform, _) =>
     {
-        using var platform = new WindowsMachinePlatform();
-        _ = platform.ClaimProcess(MachineSettings.Default with { Awake = "off" });
-
         // AWAKE OFF holds nothing; handed ON, the next hold is a power request, and the facts follow the setting.
         using (platform.KeepAwake())
         {
@@ -292,7 +315,7 @@ public sealed class PlatformCallsTests
             var cpuSets = Assert.Single(claim.Claims, c => c.What == "thread.render.cpusets");
             Assert.DoesNotContain(CpuSetPlan.OffWords, cpuSets.Words, StringComparison.Ordinal);
         });
-    }
+    });
 
     [WindowsFact]
     public void AThousandWaitsOfOneMillisecondOnEachWaitAreTimedAndRecordedWithNoCeiling()
@@ -333,10 +356,8 @@ public sealed class PlatformCallsTests
     }
 
     [WindowsFact]
-    public void TheIdentityAndTheFactsAnswerOnThisMachine()
+    public void TheIdentityAndTheFactsAnswerOnThisMachine() => Claiming(MachineSettings.Default, (platform, _) =>
     {
-        using var platform = new WindowsMachinePlatform();
-        _ = platform.ClaimProcess(MachineSettings.Default);
         var identity = platform.Identity();
         Assert.True(identity.Os.Build >= 20348, identity.Os.Build.ToString(CultureInfo.InvariantCulture));
         Assert.NotEqual(EditionFamily.Unknown, identity.Os.Family);
@@ -358,7 +379,7 @@ public sealed class PlatformCallsTests
             .. identity.Adapters.Select(a => $"- GPU {a.LuidText}: {a.Name} ({a.VendorId:x4}:{a.DeviceId:x4}) driver {a.Driver}, {a.TierWord}, {a.SupportWord}, outputs {a.DrivesOutputs}"),
         ]);
         Evidence("Machine facts", facts.Select(f => $"- {f.Item}: {f.Light} {f.Value} — {f.Words}"));
-    }
+    });
 
     [WindowsFact]
     public void EachConnectedNetworkNamesTheAdaptersItsConnectionsGoThroughWithTheirAddresses()
@@ -379,4 +400,13 @@ public sealed class PlatformCallsTests
                 + string.Join("; ", n.Adapters.Select(a => $"{a.Name} ({string.Join(", ", a.Addresses)})")))
             : [$"- not read: {words}"]);
     }
+}
+
+/// <summary>The collection the platform's calls run in: xUnit runs it alone, after the collections that run in parallel, so the class,
+/// QoS and GPU class its claiming tests set on this suite's test host and put back are seen by no test of another class, and its timed
+/// waits run with no other test beside them.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class PlatformCallsCollection
+{
+    public const string Name = "the platform's calls on this host";
 }

@@ -89,15 +89,9 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
     {
         while (!_stop.IsCancellationRequested)
         {
-            TcpClient client;
-            try
-            {
-                client = await _listener.AcceptTcpClientAsync(_stop.Token);
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
-            {
+            // Null once the desk's own stop has asked the token: DisposeAsync asks it before it stops the listener.
+            if (await Accepts.NextAsync(_listener, _stop.Token) is not { } client)
                 return;
-            }
             _clients.Add(client);
             Interlocked.Increment(ref Accepted);
             _ = Task.Run(() => ServeAsync(client), CancellationToken.None);

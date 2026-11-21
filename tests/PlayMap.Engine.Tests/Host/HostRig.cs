@@ -365,11 +365,14 @@ internal sealed class FfmpegFactAttribute : FactAttribute
 
 /// <summary>A Patterns desk as the tests play it (the Net tests' fake): STATE then NONCE on connect, HELLO answered,
 /// AUTH-PROOF checked against the nonce and the HELLO name, PING, STATUS (its STATE, as Patterns answers it) and CONTEXT answered — and
-/// a test can push a STATE, have the desk fall silent (it reads every line and answers none), or cut the connection.</summary>
+/// a test can push a STATE, have the desk fall silent (it reads every line and answers none), hold its next STATUS answer, or cut the
+/// connection. Every line it says goes through one lane, a STATUS answer composed inside it: the order of its lines on the wire is the
+/// order of its <see cref="State"/>, so an answer never says a STATE older than a push it follows.</summary>
 internal sealed class FakePatternsDesk : IAsyncDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly CancellationTokenSource _stop = new();
+    private readonly SemaphoreSlim _say = new(1, 1);
     private readonly ConcurrentBag<TcpClient> _clients = [];
     private readonly Task _accept;
     private volatile StreamWriter? _current;
@@ -388,19 +391,56 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
 
     public ConcurrentQueue<string> Heard { get; } = new();
 
+    /// <summary>Every line the desk said, in the order it said them.</summary>
+    public ConcurrentQueue<string> Said { get; } = new();
+
     public string State { get; set; } = StateWith(blackout: false);
 
     /// <summary>The desk reads every line and answers none; a pushed STATE still goes.</summary>
     public volatile bool Silent;
 
-    public static string StateWith(bool blackout) => string.Create(CultureInfo.InvariantCulture,
-        $"{{\"blackout\":{(blackout ? "true" : "false")},\"video\":{{\"file\":\"sponsor.mp4\",\"tag\":\"VT\",\"position\":62,\"length\":210,\"playing\":true,\"ended\":false,\"loops\":false,\"positionMs\":62000,\"lengthMs\":210000,\"remainingMs\":148000,\"paused\":false,\"rate\":1,\"seq\":7}}}}");
+    /// <summary>When set, the next STATUS read is held before its answer is composed, until the hold is let go.</summary>
+    public StatusHold? HoldNextStatus { get; set; }
 
+    /// <summary>A STATE whose clip is tagged <paramref name="tag"/> (STATE's <c>links.patterns.clip</c> starts with it once taken).</summary>
+    public static string StateWith(bool blackout, string tag = "VT") => string.Create(CultureInfo.InvariantCulture,
+        $"{{\"blackout\":{(blackout ? "true" : "false")},\"video\":{{\"file\":\"sponsor.mp4\",\"tag\":\"{tag}\",\"position\":62,\"length\":210,\"playing\":true,\"ended\":false,\"loops\":false,\"positionMs\":62000,\"lengthMs\":210000,\"remainingMs\":148000,\"paused\":false,\"rate\":1,\"seq\":7}}}}");
+
+    /// <summary>Sets <see cref="State"/> and says it on the connection up now, in the lane, so no answer composed before it is said
+    /// after it.</summary>
     public async Task PushAsync(string state)
     {
-        State = state;
-        if (_current is { } w)
-            await w.WriteLineAsync("STATE " + state);
+        await _say.WaitAsync(_stop.Token);
+        try
+        {
+            State = state;
+            if (_current is { } w)
+                await SayLockedAsync(w, "STATE " + state);
+        }
+        finally
+        {
+            _say.Release();
+        }
+    }
+
+    /// <summary>Says the line <paramref name="line"/> composes, composed and written in the lane.</summary>
+    private async Task SayAsync(StreamWriter writer, Func<string> line)
+    {
+        await _say.WaitAsync(_stop.Token);
+        try
+        {
+            await SayLockedAsync(writer, line());
+        }
+        finally
+        {
+            _say.Release();
+        }
+    }
+
+    private async Task SayLockedAsync(StreamWriter writer, string line)
+    {
+        Said.Enqueue(line);
+        await writer.WriteLineAsync(line);
     }
 
     /// <summary>Cuts the connection up now (the link dials again).</summary>
@@ -410,15 +450,9 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
     {
         while (!_stop.IsCancellationRequested)
         {
-            TcpClient client;
-            try
-            {
-                client = await _listener.AcceptTcpClientAsync(_stop.Token);
-            }
-            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
-            {
+            // Null once the desk's own stop has asked the token: DisposeAsync asks it before it stops the listener.
+            if (await Accepts.NextAsync(_listener, _stop.Token) is not { } client)
                 return;
-            }
             _clients.Add(client);
             _ = Task.Run(() => ServeAsync(client), CancellationToken.None);
         }
@@ -435,8 +469,8 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             _currentClient = client;
             var nonce = Pairing.NewNonce();
             var name = "";
-            await writer.WriteLineAsync("STATE " + State);
-            await writer.WriteLineAsync("NONCE " + nonce);
+            await SayAsync(writer, () => "STATE " + State);
+            await SayAsync(writer, () => "NONCE " + nonce);
             while (await reader.ReadLineAsync() is { } line)
             {
                 Heard.Enqueue(line);
@@ -449,34 +483,42 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
                 {
                     case "HELLO":
                         name = rest[6..];
-                        await writer.WriteLineAsync("OK" + tag);
+                        await SayAsync(writer, () => "OK" + tag);
                         break;
                     case "AUTH-PROOF":
                         var right = Pairing.Verify(Token, nonce, name, words[1]);
                         nonce = Pairing.NewNonce();
-                        await writer.WriteLineAsync(right ? "OK" + tag + " paired" : "ERR" + tag + " wrong token");
+                        var next = nonce;
+                        await SayAsync(writer, () => right ? "OK" + tag + " paired" : "ERR" + tag + " wrong token");
                         if (!right)
-                            await writer.WriteLineAsync("NONCE " + nonce);
+                            await SayAsync(writer, () => "NONCE " + next);
                         break;
                     case "STATUS":
-                        await writer.WriteLineAsync("OK" + tag + " " + State);
+                        if (HoldNextStatus is { } hold)
+                        {
+                            HoldNextStatus = null;
+                            hold.Reached.TrySetResult();
+                            await hold.Released.Task.WaitAsync(_stop.Token);
+                        }
+                        // Composed in the lane: the STATE it says is the desk's as of the moment it is said.
+                        await SayAsync(writer, () => "OK" + tag + " " + State);
                         break;
                     case "PING":
                         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
-                        await writer.WriteLineAsync("OK" + tag + " PONG " + words[1] + " " + now + " " + now);
+                        await SayAsync(writer, () => "OK" + tag + " PONG " + words[1] + " " + now + " " + now);
                         break;
                     case "CONTEXT":
-                        await writer.WriteLineAsync("OK" + tag + " {\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"at\":1,\"light\":\"green\",\"headline\":\"Programme: VT1\",\"items\":[],\"links\":[],\"recent\":[],\"commands\":[],\"peers\":[]}");
+                        await SayAsync(writer, () => "OK" + tag + " {\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"at\":1,\"light\":\"green\",\"headline\":\"Programme: VT1\",\"items\":[],\"links\":[],\"recent\":[],\"commands\":[],\"peers\":[]}");
                         break;
                     default:
-                        await writer.WriteLineAsync("ERR" + tag + " unknown command");
+                        await SayAsync(writer, () => "ERR" + tag + " unknown command");
                         break;
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException or OperationCanceledException)
         {
-            // The link went away; the next connection is served afresh.
+            // The link went away, or the desk stopped with a STATUS held; the next connection is served afresh.
         }
     }
 
@@ -488,5 +530,17 @@ internal sealed class FakePatternsDesk : IAsyncDisposable
             c.Dispose();
         await _accept;
         _stop.Dispose();
+        _say.Dispose();
+    }
+
+    /// <summary>A STATUS held between its read and its answer: <see cref="Reached"/> once the desk has read it and waits,
+    /// <see cref="Release"/> lets the answer be composed and said.</summary>
+    public sealed class StatusHold
+    {
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Release() => Released.TrySetResult();
     }
 }

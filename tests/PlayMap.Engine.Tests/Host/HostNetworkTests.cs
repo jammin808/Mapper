@@ -478,17 +478,55 @@ public sealed class HostNetworkTests
         Assert.True(int.Parse(back.Groups[1].Value, CultureInfo.InvariantCulture) >= 2, Patterns().ToString());
         Assert.True(Blackout());
 
-        // The desk answers again on a new connection, its blackout still on: it pairs, its word stands, live, and is no hold.
+        // The desk answers again on a new connection, its blackout still on: it pairs, its word stands, live, and is no hold. Its clip
+        // is tagged ENCORE now, which only the answer to the STATUS the link asks once it pairs says (the greeting before the pairing is
+        // set aside), so the clip seen tagged so is that answer taken, and the push below can neither be overtaken by it on the wire nor
+        // be taken before it.
         desk.Silent = false;
-        desk.State = FakePatternsDesk.StateWith(blackout: true);
+        desk.State = FakePatternsDesk.StateWith(blackout: true, tag: "ENCORE");
         desk.Cut();
         Assert.True(await Eventually.TrueAsync(() => Patterns().GetProperty("state").GetString() == "live" && Patterns().GetProperty("paired").GetBoolean()
-            && !Patterns().GetProperty("detail").GetString()!.Contains("holding", StringComparison.Ordinal)), Patterns().ToString());
+            && Patterns().GetProperty("clip").GetString()!.StartsWith("ENCORE ", StringComparison.Ordinal)), Patterns().ToString());
+        Assert.DoesNotContain("holding", Patterns().GetProperty("detail").GetString()!, StringComparison.Ordinal);
         Assert.True(Blackout());
 
         // Only its word lets the blackout go.
         await desk.PushAsync(FakePatternsDesk.StateWith(blackout: false));
         Assert.True(await Eventually.TrueAsync(() => !Blackout()));
+    }
+
+    /// <summary>A push the desk says while the STATUS the link asked once it paired waits for its answer is followed by an answer that
+    /// says the push's STATE, never the one before it, and the node ends on that word: the desk says its lines in one lane and composes
+    /// its answer there. The order is made, not waited for: the desk holds that STATUS, read, until the push has been said.</summary>
+    [Fact]
+    public async Task APushSaidWhileTheStatusAnswerWaitsIsTheStateThatAnswerSays()
+    {
+        const string deskToken = "AAAA-BBBB-CCCC";
+        await using var desk = new FakePatternsDesk(deskToken) { State = FakePatternsDesk.StateWith(blackout: true) };
+        var hold = new FakePatternsDesk.StatusHold();
+        desk.HoldNextStatus = hold;
+        await using var rig = await HostRig.StartAsync();
+        await using var c = await rig.WireAsync();
+        Assert.StartsWith("OK @l", await c.AskAsync($"@l LINK PATTERNS 127.0.0.1:{desk.Port} {deskToken}"), StringComparison.Ordinal);
+        JsonElement Patterns() => rig.State().GetProperty("links").GetProperty("patterns");
+        bool Blackout() => rig.State().GetProperty("air").GetProperty("blackout").GetBoolean();
+
+        // The link has paired and asked; the desk has read the STATUS and holds it. Its blackout goes, said now; then the answer.
+        await hold.Reached.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await desk.PushAsync(FakePatternsDesk.StateWith(blackout: false, tag: "ENCORE"));
+        hold.Release();
+        static bool IsAnswer(string line) => line.StartsWith("OK @", StringComparison.Ordinal) && line.Contains("\"blackout\":", StringComparison.Ordinal);
+        Assert.True(await Eventually.TrueAsync(() => desk.Said.Any(IsAnswer)), string.Join(" | ", desk.Said));
+        var said = desk.Said.ToArray();
+        var push = Array.FindIndex(said, l => l.StartsWith("STATE ", StringComparison.Ordinal) && l.Contains("ENCORE", StringComparison.Ordinal));
+        var answer = Array.FindIndex(said, IsAnswer);
+        Assert.True(push >= 0 && answer > push, "the push is said before the held answer: " + string.Join(" | ", said));
+        Assert.True(said[answer].EndsWith(" " + FakePatternsDesk.StateWith(blackout: false, tag: "ENCORE"), StringComparison.Ordinal),
+            "the answer said after the push says the push's STATE: " + said[answer]);
+
+        // The node ends on the desk's last word: no blackout, the push's clip.
+        Assert.True(await Eventually.TrueAsync(() => !Blackout() && Patterns().GetProperty("clip").GetString()!.StartsWith("ENCORE ", StringComparison.Ordinal)),
+            Patterns().ToString());
     }
 
     /// <summary>Show Bus 1.3 §13.5.1 and §13.6.8: a token typed for the desk is kept only as letters and digits once its dashes and

@@ -41,4 +41,10 @@
     <Compile Include="..\Shared\SchedulingProbe.cs" Link="Shared\SchedulingProbe.cs" />
   </ItemGroup>
 
+  <!-- A fake's accept that ends quietly on a listener its own stop stopped, shared by the Engine, Net and Supervisor suites. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Accepts.cs" Link="Shared\Accepts.cs" />
+    <Using Include="PlayMap.Tests" />
+  </ItemGroup>
+
 </Project>

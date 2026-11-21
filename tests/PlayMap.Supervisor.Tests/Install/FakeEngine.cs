@@ -36,7 +36,10 @@ internal sealed class FakeEngine : IAsyncDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                using var client = await _listener.AcceptTcpClientAsync(ct);
+                // Null once the engine's own stop has asked the token (DisposeAsync asks it before it disposes the listener).
+                if (await Accepts.NextAsync(_listener, ct) is not { } accepted)
+                    return;
+                using var client = accepted;
                 var stream = client.GetStream();
                 await stream.WriteAsync(Encoding.UTF8.GetBytes("NONCE 0123456789abcdef0123456789abcdef\nSTATE {\"v\":1}\n"), ct);
                 using var reader = new StreamReader(stream, Encoding.UTF8, false, 1024, leaveOpen: true);
@@ -63,14 +66,7 @@ internal sealed class FakeEngine : IAsyncDisposable
     {
         await _stop.CancelAsync();
         _listener.Dispose();
-        try
-        {
-            await _serving;
-        }
-        catch (SocketException)
-        {
-            // The listener stopped under an accept.
-        }
+        await _serving;
         _stop.Dispose();
     }
 }

@@ -13,7 +13,9 @@ namespace PlayMap.Engine.Tests.Machine;
 /// fix lines; a changed GPU driver against the lock is an amber row naming both versions fixed by MACHINE LOCK, gone once locked again;
 /// an enabled display output on the primary display is amber, gone once it moves; every fix line parses as a catalogue line; on a node
 /// that is not Windows, STATE and preflight say "the platform seam is Windows only"; and the one test that composes the node's own
-/// platform leaves the shared test host's process as it found it.</summary>
+/// platform leaves the shared test host's process as it found it. The class runs in a collection of its own that runs alone, so no test
+/// of another class runs while that one test holds the host at the default claims.</summary>
+[Collection(PreflightMachineCollection.Name)]
 public sealed class PreflightMachineTests
 {
     private static async Task<IReadOnlyList<PreflightRow>> Rows(MachineRig rig) =>
@@ -170,4 +172,12 @@ public sealed class PreflightMachineTests
             Assert.True(held?.Class == ProcessPriorityClass.High, $"the default claim moved this host to High: found {found.Words}, held {held?.Words ?? "(not read)"}");
         Assert.True(after == found, $"the test host reads as it was found once the claiming test ends: found {found.Words}, after {after.Words}");
     }
+}
+
+/// <summary>The collection the claiming preflight test runs in: xUnit runs it alone, after the collections that run in parallel, so the
+/// host's class, QoS and GPU class it claims and puts back are seen by no test of another class.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class PreflightMachineCollection
+{
+    public const string Name = "the preflight test's process claims";
 }

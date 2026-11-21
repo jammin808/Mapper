@@ -5581,3 +5581,183 @@ Round 2 W1 notes:
     `*.yml` under `.github` and no `tools/*.ps1` names `Get-Command clang` (or `clang.exe` / `clang++.exe` outside
     `ci-clang.ps1`); (3) `ci-clang.ps1` calls vswhere with `-requires Microsoft.VisualStudio.Component.VC.Llvm.Clang` and has no
     `Get-Command clang`.
+
+## Integrator notes from the round-2 fix batch (fix-test-isolation-leftovers)
+
+- Done: test-only, no file under `src/`, on the owner's answer 3 of 2026-11-21 (Stagewatch's `docs/ecosystem/owner-answers.md`, its
+  last entry: "the six other test fakes with the same accept race; `PlatformCallsTests` putting its test host back as found;
+  `PreflightMachineTests` in a serial collection (the run order it changes no longer decides the host's class); and the race in
+  `HostNetworkTests`' fake desk if a deterministic reading confirms it"). The product's default priority class and every other product
+  call stay as they are. The leave as edited: `tests/PlayMap.Engine.Tests/Machine/PreflightMachineTests.cs`; `HostProcessState.cs`
+  moved (git rename) to `tests/Shared/HostProcessState.cs`, linked into the Engine and Platform.Windows suites, no second copy;
+  `tests/PlayMap.Platform.Windows.Tests/PlatformCallsTests.cs` and its csproj; the fake desk's file (below); `tests/PlayMap.Net.Tests/LinkTests.cs`;
+  `tests/PlayMap.Net.Tests/StagewatchLinkTests.cs`; `tests/Shared/FakeMediaPeer.cs`; `tests/PlayMap.Supervisor.Tests/Install/FakeEngine.cs`;
+  `tests/PlayMap.Engine.Tests/Host/HostNetworkTests.cs`; one shared helper (`tests/Shared/Accepts.cs`, new) with its one fence file
+  (`tests/PlayMap.Net.Tests/AcceptsTests.cs`, new); this entry. Two readings of the leave, said so the review can check them: the leave
+  names `tests/PlayMap.Engine.Tests/Rendering/HostRig.cs` for `FakePatternsDesk` "about 408-424", but that file (the render host's rig,
+  224 lines) holds no accept loop and no fake desk; `FakePatternsDesk` is in `tests/PlayMap.Engine.Tests/Host/HostRig.cs` at those
+  lines (as fix-ci-nodehost-mend's Open names it), and item 4's mend lives in the same class, so that file was edited and
+  `Rendering/HostRig.cs` was not. And a shared file in `tests/Shared` reaches a suite only through a `<Compile Include ... Link>` in its
+  csproj (the leave's own words for `HostProcessState`), so the Engine, Net and Supervisor test csproj files each gained one such
+  ItemGroup (Engine: `HostProcessState.cs` and `Accepts.cs`; Net: `Accepts.cs`, for `FakeMediaPeer` and the fakes; Supervisor:
+  `Accepts.cs` and `<Using Include="PlayMap.Tests" />`) and nothing else; the Platform.Windows csproj (in the leave) gained the
+  `HostProcessState.cs` link and `AllowUnsafeBlocks`, which the generated `LibraryImport` marshalling needs (every other test project
+  that compiles it sets it). Nothing else outside the leave was edited.
+  - (1) `PreflightMachineTests` in a serial collection. `[Collection(PreflightMachineCollection.Name)]` on the class and
+    `[CollectionDefinition(Name, DisableParallelization = true)]` beside it, as `GcShowTests.cs` 136 does; the claiming test's fence
+    and every assertion are as they were. What it does to the run's order: xUnit 2 runs the collections that may run in parallel
+    first and then each collection that disables parallelization, one at a time, alone (recalled from xUnit's assembly runner, not
+    read in its source), so the six preflight tests now run after every parallel Engine collection, `NodeHostTests` included, among
+    the other serial collections (`render host`, `GcShowCollection`, `SeamHostCollection`, the survey, anchor and stage-resource
+    collections), and no test of another class runs while the claiming test holds the host at the default claims (the 0.8 s window
+    fix-preflight-priority-leak left Open is closed). Why the new order no longer matters for the host's class: since d27c894c the
+    claiming test puts the class, QoS and GPU class back in a `finally` before its task completes and fences it (run 494: all three
+    jobs green, the node host row read the Engine test host BelowNormal at the start and at the kill, the sampler read it at base 6 in
+    all 759 rows), so whichever test comes first, every other one meets the host at the runner's class.
+  - (2) `PlatformCallsTests` puts its test host back. Read: five tests claim the process's claims through a `WindowsMachinePlatform`
+    of their own (`EveryProcessClaimAnswersAndTheThrottlingStateReadsBackAsSet`, the default, then `normal` with QoS `auto`, then the
+    default; `EachRolesThreadClaimAnswersAndItsDisposeRevertsThePriority`; `ASecondClaimOnAClaimedThreadJoinsItAndTheLastHolderReverts`;
+    `EveryWordHandedToThePlatformReachesTheNextHoldTimerAndThreadClaimAndTheFacts`, the default with AWAKE off; and
+    `TheIdentityAndTheFactsAnswerOnThisMachine`); `AThousandWaitsOfOneMillisecondOnEachWaitAreTimedAndRecordedWithNoCeiling` makes a
+    platform and a high-resolution timer and claims nothing process-wide; `EachConnectedNetworkNamesTheAdaptersItsConnectionsGoThroughWithTheirAddresses`
+    makes no platform; no other class of that suite makes a real platform. Each claiming test now runs its body through one helper,
+    `Claiming(settings, body)`: it reads the host (`HostProcessState.Read`), makes the platform and its first claim, reads the host
+    again, runs the body, disposes the platform (keep-awake let go) at the end of the `try`, and in the `finally` puts back what it
+    found (`HostProcessState.PutBack`, the same type and calls the preflight test uses); after it, on Windows, it asserts the claim moved
+    the host to High (every caller's first claim asks the default HIGH, so the fence is never vacuous), and that the host reads as
+    found, part by part, every part read before. The class is in `PlatformCallsCollection` (`DisableParallelization = true`), so its
+    seven tests run alone, after the suite's parallel classes. Their bodies and assertions are as they were, inside the lambda.
+    - Which later tests ran at HIGH before, read from the Platform.Windows `.trx` of runs 491, 492 and 494 (the same order in all
+      three; xUnit 2 orders a class's tests by their case id, which this batch does not change, recalled): `AThousandWaits...` ran
+      FIRST (14.0, 13.7 and 13.8 s), before any claim, at the runner's class (BelowNormal, base 6) with Windows' own throttling, and
+      overlapped only the last 0.05 s of the other classes; then `EachRolesThreadClaim...` (the first claim: from here the host was at
+      HIGH, HighQoS and GPU class normal), `ASecondClaim...`, `EachConnectedNetwork...`, `TheIdentityAndTheFacts...`,
+      `EveryProcessClaim...` and `EveryWordHandedToThePlatform...`; every other class of the suite had ended about 14 s before the
+      first claim. So the brief's "AThousandWaits ran at HIGH" did not happen in those runs (it would have only in another order). What
+      did run at HIGH: the thread-claim tests' "priority put back as it was" reads after the first (made in a HIGH process),
+      `EachConnectedNetwork...` (a reading, no timing), and the three later claiming tests, whose first claim then went from High to
+      High (their `high` read back held either way, so no run showed the claim move the class). From this batch every one of them
+      starts at the runner's class, and the waits evidence runs alone.
+    - What to watch in the next Windows runs: the seven `PlatformCallsTests` green, now after every other class of the suite in its
+      `.trx`; a red one with "the claim moved this host to High: found ..., held ..." (a runner that refuses or does not keep High)
+      or "the test host reads as it was found once the claiming test ends: found ..., after ..." (a part not put back, named); the
+      evidence's two wait distributions against runs 491 to 494 (they were already taken at the runner's class; a change is read
+      against the sampler before anything is moved); `EveryProcessClaim...`'s claims table now records a claim from BelowNormal.
+  - (3) The six accept loops. Each read: `FakePatternsDesk` in `tests/PlayMap.Engine.Tests/Host/HostRig.cs` and in
+    `tests/PlayMap.Net.Tests/LinkTests.cs` (a `Task.Run` loop that looks at the stop and then accepts: it can meet a listener its
+    `DisposeAsync` has stopped from its first round); `SilentTlsFront` and `OneMessageStagewatch` (`StagewatchLinkTests.cs`) and
+    `FakeMediaPeer` (`tests/Shared`, `while (true)` with no look at the stop), each started synchronously in its constructor, so from
+    their second accept on; `FakeEngine` (Supervisor, serving each connection inline) after a served connection. Every one of their
+    `DisposeAsync`s asks its token before it stops or disposes the listener, and nothing else stops it. All six now accept through one
+    helper, `Accepts.NextAsync(listener, stop)`: the accept itself, `null` for the ends every loop already took (the cancel, the disposed
+    listener, the socket's own end) and for `InvalidOperationException` ("Not listening") only when `stop` is asked, the rule
+    `FakeTcpServer` holds since 7ffde5c6; the same throw while `stop` is not asked escapes to the fake's owner, as the listener threw
+    it. Each loop ends on `null`; each loop's own catch of the three ends went (the helper holds them); `FakeEngine.DisposeAsync`'s
+    catch of `SocketException` around its await went too (the only `SocketException` under that await was the accept's, which the
+    helper ends), so a fault in it now fails the test. No fake's shape needed a mend in place. The fence, `AcceptsTests` (Net), makes
+    the order instead of waiting for it, as `FakeTcpServer`'s fence does with its seam (the helper is the accept call itself, so the
+    owner's stop is simply made before the call): the stop asked and the listener stopped, then the accept: `null`; the listener
+    stopped with the stop not asked: `InvalidOperationException` escapes (this fences the filter, which `FakeTcpServer`'s own fence
+    leaves unfenced); a connection is handed on and a waiting accept ends on the stop. Mutations, each in a scratch edit, rebuilt,
+    restored: the filter made never true, the first fails with the runner's own words "Not listening. You must call the Start() method
+    before calling this method."; the filter removed, the second fails ("Assert.Throws() Failure: No exception was thrown").
+    `BackupPullTests`, `HostFetchStopTests` and `HealthFeedsTests` were not touched (they accept once inline, awaited by the test).
+  - (4) `HostNetworkTests.ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt`. Read: after the last pairing the
+    link asks STATUS once it pairs (`PatternsLink.AskStateOncePairedAsync`) and takes the answer as a push; the test waited only for live,
+    paired and no hold, then pushed blackout false; `FakePatternsDesk` composed the STATUS answer from `State` on its serve task and
+    wrote it through the same `StreamWriter` the push wrote through on the test's thread, with nothing ordering the two. An answer
+    composed before the push set `State` and written after the push lands blackout true last, nothing pushes again, and the last wait
+    (10 s) runs out. Confirmed by a deterministic reproduction (a scratch copy of the test, removed): a seam on the fake that holds the
+    second pairing's STATUS, read, until the test has pushed, and the answer composed before the hold as the fake did: the node ended on
+    blackout true after the desk's last word, false, in 2 of 2 runs ("the held answer's blackout true landed and stands"); with the
+    mend below the same scratch passed. The mend, both halves: (a) the fake says every line through one lane (a `SemaphoreSlim`, taken
+    by the serve task and by `PushAsync`), the STATUS answer composed inside it, so its wire order is the order of its `State` and an
+    answer never says a STATE older than a push it follows; it keeps every line it said (`Said`), can hold its next STATUS between the
+    read and the answer (`HoldNextStatus`, a `StatusHold` the test lets go; a hold left at the desk's stop ends with it), and
+    `StateWith` takes the clip's tag; (b) the test, before the last cut, sets the desk's STATE with its clip tagged `ENCORE` and waits
+    for STATE's clip to start with `ENCORE ` (live and paired), which only the STATUS answer can say (the greeting before the pairing
+    is set aside, and nothing is pushed), so the answer is taken before the push: it can neither be overtaken on the wire nor be taken
+    after the push by the link. The fence, `HostNetworkTests.APushSaidWhileTheStatusAnswerWaitsIsTheStateThatAnswerSays`: the desk holds
+    the first STATUS, the test pushes blackout false tagged `ENCORE` while it is held, lets it go, and asserts from `Said` that the
+    answer was said after the push and says the push's STATE, then that the node ends with no blackout on the `ENCORE` clip. Mutation
+    (the answer composed before the hold, as before this batch): the fence fails, "the answer said after the push says the push's
+    STATE: OK @pm4-... {"blackout":true,...,"tag":"VT",...}"; restored, green. No sleep and no loop of runs in the fence.
+- Tests: `AcceptsTests` (3, new: `AnAcceptMadeAfterTheOwnersStopEndsTheLoopQuietly`, `AnAcceptOnAListenerStoppedWhileItsOwnerRunsIsAFaultThatEscapes`,
+  `AWaitingAcceptEndsOnTheStopAndAConnectionIsHandedOn`); `HostNetworkTests.APushSaidWhileTheStatusAnswerWaitsIsTheStateThatAnswerSays`
+  (new) and the mended `ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt`; `PreflightMachineTests` (6) in
+  its serial collection; `PlatformCallsTests` (7, Windows only) through `Claiming` in theirs. Validated on this bench (Linux, SDK
+  10.0.404, the variables `tools/setup-dev.sh start` prints, the scheduling probe and the node host variables unset):
+  - The build: `dotnet build PlayMap.sln -c Debug -v q` whole, no warning (the first a whole rebuild; 10.0.404's analysis asked one
+    change, S8949 on the fake desk's lane waits, made: they take the desk's stop).
+  - The mutations above (two on the helper, one on the fake desk), each failing as said and restored byte for byte.
+  - The Devices suite 113 green; Supervisor 95 green and 33 skipped (its Windows-only tests); Platform.Windows 96: 88 green and 8
+    skipped as Windows only (the seven `PlatformCallsTests` and `LatenessTests.TheLatenessWindowsLockIsMadeWithItsWaitEvent`), so
+    neither `Claiming` nor the Windows half of `HostProcessState` ran here: the Windows job is their proof; Net 337: 333 green, 1
+    skipped, and the three Chromium page tests that fail on this machine before any PlayMap code runs
+    (`PageTests.InChromiumThePageJoinsWithTheTicketOnlyInItsFirstMessageLocksExposureAndSaysItNeedsHttpsOverPlainHttp`,
+    `InChromiumTheNextProjectorsFirstLocateFrameIsSeenWhereThePictureChanges`, `InChromiumACameraWithoutExposureControlsRunsTheSteadyProfileWithWords`),
+    not counted green.
+  - The Engine classes that fence allocations, threads or handles (`EngineFenceTests`, `DeadlineThreadTests`, `RenderThreadClaimTests`,
+    `AirAudioTests`, `AlignHostTests`, `ArtNetInTests`, `CursorTests`, `DeviceLockHostTests`, `FactsSignalTests`, `FxHostTests`,
+    `HostNetworkTests`, `OmtLoopbackTests`, `RenderHostLockTests`, `RenderHostTests`) with `PreflightMachineTests`: 72 green.
+  - The whole Engine suite in six parts naming its 1,373 tests once: Align to Facade 309 (below); Fleet, Fx, Host, Hot 172; Install to
+    Presentation 209 and 2 skipped; Rendering, Shaders, Show, Spine 324 and 4 skipped; Sync, Tc, Undo, VideoIo, Wall 209; the root
+    namespace 144; green but the first part, where `ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame` failed
+    "no GPU time reached STATE" (30 s) in 2 of 3 runs with this batch and passed in 3 of 3 with it stashed (the tree rebuilt each way;
+    the other 308 green every time). That part's tests use none of the files this batch changed (the test runs on the render host's
+    rig, `Rendering/HostRig.cs`, untouched; no class in it uses `FakeMediaPeer`, `FakePatternsDesk`, `Accepts` or `HostProcessState`),
+    and the earlier entries recorded it failing with their batches stashed (fix-ci-nodehost-mend at eccb35a0, fix-preflight-priority-leak
+    at 15499771, 1 of 3). Not read by this batch; named under Open.
+  - The committing stage, after the review's fold-in (papers only: this entry's Open rows on item 4's fence, the fakes' stop order,
+    the put-back's exception and the `ContentHostTests` split), once on the tree as committed: the build whole, no warning; the three
+    mutations again, each failing as said (the filter never true: the first `AcceptsTests` test, "Not listening. You must call the
+    Start() method before calling this method."; the filter removed: the second, "No exception was thrown"; the answer composed before
+    the hold: the `HostNetworkTests` fence, the answer said after the push carrying blackout true, tag VT), each restored byte for byte
+    and the tree rebuilt; Devices 113 green; Supervisor 95 green, 33 skipped (Windows only); Platform.Windows 88 green, 8 skipped
+    (Windows only, the same eight); Net 333 green, 1 skipped, the same three Chromium page tests failing before any PlayMap code
+    runs, not counted green; the whole Engine suite in six parts naming its 1,373 tests once (Align to Facade 309; Fleet, Fx, Host,
+    Hot 172; Install to Presentation with the root `ModelCompatTests` 237, 2 skipped; Rendering, Shaders, Show, Spine 328, 4 skipped;
+    Sync, Tc, Undo, VideoIo, Wall 209; the rest of the root namespace 118): 1,367 green, 6 skipped, none failed,
+    `ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame` green in its part this time.
+- Files: `tests/Shared/Accepts.cs` (new), `tests/Shared/HostProcessState.cs` (moved from `tests/PlayMap.Engine.Tests/Machine/`, namespace
+  `PlayMap.Tests`, its summary naming both suites), `tests/Shared/FakeMediaPeer.cs`, `tests/PlayMap.Net.Tests/AcceptsTests.cs` (new),
+  `tests/PlayMap.Net.Tests/LinkTests.cs`, `tests/PlayMap.Net.Tests/StagewatchLinkTests.cs`, `tests/PlayMap.Supervisor.Tests/Install/FakeEngine.cs`,
+  `tests/PlayMap.Engine.Tests/Host/HostRig.cs`, `tests/PlayMap.Engine.Tests/Host/HostNetworkTests.cs`,
+  `tests/PlayMap.Engine.Tests/Machine/PreflightMachineTests.cs`, `tests/PlayMap.Platform.Windows.Tests/PlatformCallsTests.cs`, the
+  csproj files of the Engine, Net, Supervisor and Platform.Windows suites (the links above), this entry. No file under `src/`.
+- Open:
+  - `PatternsLink` (src, not in this leave; read, not reproduced): `AskStateOncePairedAsync` takes its STATUS answer on a pool
+    continuation (`WireClient`'s pending reply settles a `TaskCompletionSource` made with `RunContinuationsAsynchronously`), while the
+    read loop goes straight on to the next line and takes a pushed STATE synchronously (`OnLine`); so a desk that pushes right after it
+    answers can have its older answer taken after its newer push, and the node follows the stale blackout (or clip) until the desk's
+    next push. The test's `ENCORE` wait keeps the test clear of it; whether the link should order an asked STATE against pushes (take
+    the answer in the read loop, or drop an answer older than a push taken since it was asked) is the product's and the owner's.
+  - `FakePatternsDesk` in `tests/PlayMap.Net.Tests/LinkTests.cs` composes its STATUS answer the same unordered way and writes from two
+    threads through one `StreamWriter`; only its accept was in this leave. The same lane (and, where a test pushes right after a
+    pairing, the same wait for the answer) would close it there.
+  - `FakeTcpServer` (Devices, not in this leave) keeps its own copy of the accept rule; it could call `Accepts.NextAsync` (a link in the
+    Devices csproj) so the rule lives once, and its filter would then be fenced by `AcceptsTests`.
+  - Not proven until a Windows run: `PlatformCallsTests` through `Claiming` (the held-at-High assertion and the put back, each part);
+    `HostProcessState`'s `LibraryImport` calls compiled in the Platform.Windows suite; the order the serial collections give both
+    suites' `.trx`. No fence holds the two `[Collection]` attributes themselves (removing one leaves every test green); a reflection
+    test that each class carries a collection whose definition disables parallelization would.
+  - Item 4's fence holds the fake desk's half only. `APushSaidWhileTheStatusAnswerWaitsIsTheStateThatAnswerSays` fails if the answer is
+    composed before the hold, but the `ENCORE` wait in `ADesksBlackoutIsHeldWithItsAgeWhileItsLinkIsLostAndOnlyItsWordReleasesIt` has no
+    fence of its own: removed, every test stays green, and with the lane alone the link's own order (the STATUS answer taken on a pool
+    continuation, a pushed STATE at once; the first Open row) is left to the test's luck again. The reproduction that confirmed the race
+    (a scratch copy of the test on the old fake shape, failing 2 of 2) was not kept. The shape that would keep it: the fake's
+    `HoldNextStatus` seam plus an answer composed before the hold (a test-only switch on the fake), the test's own sequence driven
+    through it, asserting the node ends on the push's STATE.
+  - The six fakes' stop order is read, not fenced. `Accepts.NextAsync` swallows "Not listening" only once the token is asked, so each
+    fake's `DisposeAsync` must ask its token before it stops or disposes its listener (all six do, read); a fake whose `DisposeAsync` were
+    reordered would bring the race back with every test green. `AcceptsTests` fences the helper called directly, not any fake's own
+    `DisposeAsync` (`FakeTcpServer`'s fence drives the fake's real `DisposeAsync` through its `BeforeAcceptAsync` seam; these fakes have
+    no such seam). A per-fake seam, or a source check that each fake's `DisposeAsync` names its `Cancel` before its `Stop`/`Dispose`
+    of the listener, would hold it.
+  - Watch for the Windows runs, besides (2)'s list: in `PlatformCallsTests.Claiming` (as in `PreflightMachineTests`' put-back) a body
+    that throws and a put-back that also throws (a runner that refuses the class set) shows the put-back's exception, not the body's;
+    a red one whose words are the put-back's is read for the body's cause in the `.trx`'s output before anything is moved.
+  - `ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame`: not read by this batch (above). Its 2 of 3 with the
+    batch against 3 of 3 with it stashed is recorded, not explained: the batch's files do not reach it (it runs in the `render host`
+    serial collection on `Rendering/HostRig.cs`, and no class of its part uses a changed file), and earlier entries record it failing
+    with their batches stashed, so noise is plausible, but three runs against three do not show it.

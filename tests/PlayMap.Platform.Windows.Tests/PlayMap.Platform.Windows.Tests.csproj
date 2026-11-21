@@ -4,6 +4,7 @@
     <TargetFramework>$(PlayMapTfm)</TargetFramework>
     <IsPackable>false</IsPackable>
     <RootNamespace>PlayMap.Platform.Windows.Tests</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,6 +34,12 @@
        PLAYMAP_SCHEDULING_PROBE=1. -->
   <ItemGroup>
     <Compile Include="..\Shared\SchedulingProbe.cs" Link="Shared\SchedulingProbe.cs" />
+  </ItemGroup>
+
+  <!-- What a claiming test puts back on this suite's test host, shared with the Engine suite's preflight test; its marshalling is
+       generated, which takes unsafe code. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\HostProcessState.cs" Link="Shared\HostProcessState.cs" />
   </ItemGroup>
 
 </Project>
