@@ -6426,3 +6426,123 @@ Round 2 W1 notes:
     `InvalidOperationException`, `FormatException`, `IOException`) does not take `UnauthorizedAccessException` either, so a record the
     node may not read (`DurableFile.ReadAllBytes`) still escapes the constructor the same way the move aside did; a mend is one catch
     clause in `src/PlayMap.Net/Phone/PhoneKeys.cs` `Load`, for a batch whose leave names it.
+
+## Integrator notes from the round-2 fix batch (fix-phonekeys-load-access)
+
+- Done: a product line, on the owner's answer 3 after run 502 (Stagewatch's `docs/ecosystem/owner-answers.md`, its last entry before
+  "# Commit identity": "`PhoneKeys.Load`'s outer catch takes UnauthorizedAccessException (a product change, a leave of its own:
+  fix-phonekeys-load-access), with a test"). The leave as edited: `src/PlayMap.Net/Phone/PhoneKeys.cs` (`Load`'s catch, the read
+  seam it needs, and the one guard in `Save` the choice below needs, with the one test of a taken name aside both share); one new test
+  file beside `PhoneInviteTests`; this entry.
+  Nothing else under `src/`.
+  - The defect, as fix-nodelog-roll's entry left it (its Open, "Outside the leave"): `Load` read `phones.json` through
+    `DurableFile.ReadAllBytes` inside a catch of `JsonException`, `KeyNotFoundException`, `InvalidOperationException`,
+    `FormatException` and `IOException`; an `UnauthorizedAccessException` from the read (a record this account may not read: an ACL, a
+    file another account made; on Unix EACCES from open(2), on Windows access denied, which the runtime raises as that type) was not
+    caught and left the `PhoneKeys` constructor.
+  - Where it went, read from the code: `git grep -n 'new PhoneKeys' -- src` finds one caller, `PhoneHub`'s constructor
+    (`src/PlayMap.Net/Phone/PhoneHub.cs` 101, before `Module` is made); `git grep -n 'new PhoneHub' -- src` finds one,
+    `PhoneExtension`'s constructor (`src/PlayMap.Engine/Phone/PhoneParts.cs` 33, before `AddWebModule`), made by
+    `PhoneExtension.Factory` in `EngineHost`'s extension loop (`src/PlayMap.Engine/Host/EngineHost.cs` 164-174), which catches any
+    exception and says `Fault("extension", "an extension could not be made and the node runs without it: …")` (a fault row, a warning
+    log line and, once the engine runs, a journal row). So the engine started, but without its phones: no `/scan` page or socket on the
+    web port, `Services.Phones` null (`PHONE INVITE` answered "this node has no phone hub", `EngineCore.Phone.cs` 88; the other phone
+    verbs alike at 139 and 218), no phone or scan-data preflight rows, and a phone camera rig unable to scan (`ScanCameras.cs` 14). The
+    node did not fail to start; the whole phone part was lost for one unreadable file.
+  - The mend: the outer catch takes `UnauthorizedAccessException` too, and the keys start with no phones, as they do for a record that
+    does not parse.
+  - Decided, from the code: a record this account may not read is moved aside like one that does not parse (`DurableFile.Replace(path,
+    path + ".unreadable")`, the call already there). The brief's "a move of a file the node may not read is likely refused too" holds
+    on Windows only in part and on Unix not at all, as read (not run): on Unix rename(2) asks for write and search on the folder (and,
+    in a sticky folder, ownership of the file or folder), never read on the file, so a mode-000 file in the node's own folder moves; on
+    Windows the POSIX rename opens the source for `DELETE`, which an ACL that refuses this account everything refuses too, but a
+    folder that grants this account delete of its children (`FILE_DELETE_CHILD`) lets it move. A rename reads none of the file's bytes
+    and keeps its owner and permissions, so the record another account made is kept whole beside the path, and the node writes its own
+    `phones.json` at its next save without touching it; nothing is read that this account may not read.
+  - Never moved over an earlier one: a move aside with replace would destroy an earlier `phones.json.unreadable`, and where two
+    accounts take turns on one node folder that earlier file can be the other account's own record (B moves A's record aside; A starts
+    with none, pairs a phone and writes a new one; B moves that one over the first, and every phone of A's first record is gone without
+    a word). So a record this account may not read is moved aside only where `.unreadable` is free (no file or folder of that name):
+    where it is taken, the record stays where it is, the keys start empty and the save guard below holds. A record that does not parse
+    keeps the rule it had (it replaces an earlier `.unreadable`, fenced by
+    `PhoneInviteTests.AnUnreadableRecordIsMovedAsideOverTheOneBeforeAndTheKeysStartEmpty`): it holds nothing to keep, and the earlier
+    file it replaces is one this account moved there.
+  - What the next save did to a record left where it is, and the choice: `Save` writes `phones.json.tmp` and renames it over the path
+    (`DurableFile.MoveIntoPlace`, on Unix rename(2), on Windows the POSIX rename with replace). On Unix that replace needs the folder's
+    rights only, so where the move aside was refused for another reason than the folder (a folder at `.unreadable`, the case the tests
+    make), the first `Put` would have replaced a record this account could not read, and the paired phones another account's record
+    held would have been lost silently. (Where the move was refused by the folder's rights, or on Windows by the record's own refusal of
+    delete, the save's own replace is refused the same way and throws.) The behaviour chosen loses nothing silently: when the read was
+    refused by access and the record was not moved aside (the name aside taken, or the move refused), `PhoneKeys` remembers it
+    (`_unreadHere`), and the next save first moves the record aside; where the name aside is still taken it throws an `IOException`
+    naming both files, and where the move is still refused that refusal leaves the save, either way before anything is written (no
+    `.tmp`, nothing over the record or over the file aside).
+    The reason: an unparsable record holds nothing to keep, so the existing rule (the next save replaces it) stays for it; a record
+    this account cannot read may hold phones, and a save over it, or a move over an earlier one, is the act that would lose them. A save
+    that cannot land already throws out of this class (any `IOException` from `Save` leaves `Put`, `Touch` or `Remove`), so no new kind
+    of failure is made; what its caller does with it is Open, below.
+    With no phones loaded, only `Put` saves (a phone joining with a new ticket: `Touch` and `Remove` answer false before saving).
+  - The seam: `internal PhoneKeys(string path, Func<string, byte[]>? read)`, null in the product (the public constructor passes none:
+    `DurableFile.ReadAllBytes`). No path the runtime maps to `UnauthorizedAccessException` on every platform reaches the read: chmod is
+    no use as root on this bench (root reads any file), and a folder at `phones.json`, which open(2) and Windows both answer as access
+    denied, is passed over by `Load`'s `File.Exists` before any read.
+  - A reading of the load's outcome: `PhoneKeys` has none (no count, words or field says a record was moved aside or left), and none is
+    added (Open, below).
+- Tests: `tests/PlayMap.Net.Tests/Phone/PhoneKeysAccessTests.cs` (new, 4, every platform), the record a real one with another
+  account's phone and the read refused through the seam:
+  - `ARecordThisAccountMayNotReadIsMovedAsideWholeAndTheKeysStartEmpty`: nothing escapes the constructor, the read was asked once for
+    the path, no phones, `phones.json` gone and `.unreadable` holding the record's bytes; a `Put` then writes this node's record with
+    its one phone and leaves `.unreadable` as it was.
+  - `ARecordThisAccountMayNotReadWhoseMoveIsRefusedIsNeverSavedOver`: a folder at `.unreadable` (the name aside taken); no phones, the
+    record in place; a `Put` throws with the record's bytes unchanged and no `.tmp`; with the folder gone the next `Put` moves the
+    record aside whole and writes this node's record, which holds the new phone and not the other account's.
+  - `ARecordThisAccountMayNotReadIsNeverMovedOverAnEarlierOneAside`: an earlier `.unreadable` file holding other bytes; no phones, both
+    files' bytes unchanged at the start and after a `Put`, which throws `IOException`, and no `.tmp`.
+  - `ARecordThatDoesNotParseWhoseMoveIsRefusedIsReplacedByTheNextSave`: the other side of the rule, unchanged: an unparsable record whose
+    move is refused is replaced by the next `Put`. It passes without the mend (it fences the mend reaching too far, not the mend).
+  - Mutation-proved on this bench, each against the tests as written, the source put back and rebuilt after: the clause removed fails
+    the first two with the seam's `UnauthorizedAccessException` out of the constructor; the save's guard removed fails the second ("the
+    save was not refused"); the guard set for every refused move (`_unreadHere = true`) fails the third (`IOException`, "Is a
+    directory", out of the save); the taken-name test removed from `Load` fails the fourth (the record moved over the earlier file:
+    `phones.json` not found), and removed from `Save`'s guard fails the fourth (the `Put` not refused). The existing `PhoneInviteTests`
+    (24, the two move-aside tests of fix-nodelog-roll among them) pass unchanged.
+  - The validate, on the 10.0.404 SDK with the variables of `tools/setup-dev.sh start`, `PLAYMAP_SCHEDULING_PROBE` and
+    `PLAYMAP_WRITE_FIXTURES` unset: the build whole, no warning, no error (its analysis reported nothing in any file); `PhoneKeysAccessTests`
+    and `PhoneInviteTests` 28 passed; the Net suite whole, 342 passed, 1 skipped, and its three Chromium page tests
+    (`PageTests.InChromium…`) failed before any PlayMap code ran (`chromium.launch` at `tests/e2e/phonescan/page.mjs:12`), as
+    fix-desk-unconfirmed's entry records, not counted green; the Engine classes that compose the phone hub (`git grep -l -E
+    'PhoneExtension|PhoneHub|PhoneKeys' -- tests/PlayMap.Engine.Tests`: the `Phone` namespace, `LineWordTests`,
+    `Wall.ResolveCameraTests`) 81 passed, 2 skipped; the Engine suite whole in three parts by namespace (Align, Audio, Companion,
+    Content, Control, Decode, Facade, Fleet and Fx, 393 passed; Host, Hot, Install, Led, Machine, Optimise, Phone and Presentation, 299
+    passed, 3 skipped; the rest by both parts' filters negated, 677 passed, 4 skipped: 1,369 passed, 7 skipped), green at the first run;
+    run once more whole after the review's fold-in (the taken name aside and its fourth test), with the same counts.
+- Files: `src/PlayMap.Net/Phone/PhoneKeys.cs`; `tests/PlayMap.Net.Tests/Phone/PhoneKeysAccessTests.cs` (new); this entry. The papers
+  that name `phones.json` (`docs/PHONESCAN.md` 19, `docs/round2/design/phonescan.md` 58, 110, 210, 874) say what it holds and how it
+  is written, not what an unreadable one does; none is edited.
+- Open:
+  - A reader of the load's outcome, the owner's call (not built): nothing tells a person that `phones.json` was moved aside, or left in
+    place unread with every new phone's save refused. A design: `PhoneKeys` keeps the outcome (read, moved aside because it did not
+    parse, moved aside because this account may not read it, left unread) and `PhonePreflight` (`PhoneParts.cs`, section `scan`) shows
+    amber "phones.json could not be read by this account: moved aside to phones.json.unreadable; phones paired before must be invited
+    again", or, left unread, "phones.json could not be read by this account and could not be moved aside: no new phone can be saved";
+    its words, place and colour are the owner's.
+  - Outside the leave, read, not edited: a save refused in a join (`PhoneHub.HelloAsync`, `_keys.Put(phone)` at `PhoneHub.cs` 492,
+    under the hub's gate, after the `Join` callback made or updated the camera rig and after the session was made) leaves the ticket
+    spent (not given back), the session undisposed, and the phone's socket closed without words; `AcceptAsync`'s catch (292) takes an
+    `IOException` and logs it at debug as "A phone's socket ended before its hello", and an `UnauthorizedAccessException` not at all
+    (it reaches the web host). This is so for any save that fails (a disk that refuses the write) and the guard above adds one cause; a
+    mend is in `src/PlayMap.Net/Phone/PhoneHub.cs`, for a batch whose leave names it. Before this mend that state (read refused) meant
+    no phone part at all, with a fault row; now the hub runs and, while a record is held unread, every new phone's join fails with at
+    most a debug line. A refused `Put` also leaves the phone in memory but not on disk (it is added before `Save`): `FindByKey` answers it
+    until the process ends and a later `Touch` tries the save again; every failed save in this class does so already.
+  - Not fenced on this bench, read: the branch where the name aside is free but the move itself is refused by access (an ACL that
+    refuses delete, a handle that shares no delete) for a record this account may not read; as root on Linux no portable way makes that
+    refusal without a new seam, and the taken-name branch the tests make sets the same flag. The name aside is tested and then renamed
+    over in two steps, so a `.unreadable` made between the two by another process is replaced; a rename that refuses an existing target
+    (`overwrite: false` through a seam of `DurableFile.Replace`, in `src/PlayMap.Core/Storage`) would close it, for a batch whose leave
+    names that file.
+  - A record moved aside is kept under the one name `.unreadable`; with this mend a second record this account may not read waits in
+    place until that name is free (a person moves the first away). Keeping each under a name of its own (as `ShaderQuarantine`'s
+    `…unreadable-<unix ms>`), so that none waits, is the owner's call.
+  - Read, not run: the Windows paths of the move aside and of the save over a record whose ACL refuses this account (the seam stands
+    for the read on every platform; the refused move is made by a folder in the way, which Windows is read to answer as access denied).
