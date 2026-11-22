@@ -1,12 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using PlayMap.Core.Bus;
 using PlayMap.Core.Machine;
 using PlayMap.Core.Time;
 using PlayMap.Core.Wire;
@@ -31,23 +30,30 @@ internal sealed record NodeGiven(string Program, string Clips)
     }
 }
 
-/// <summary>PlayMap's own node as a leg's busy process. Its home is made in a folder of the machine's temporary files (its settings hold
-/// a pairing token and its keys folder the node's keys, so neither ever lands in the leg's uploaded folder; the home is deleted once the
-/// node has stopped, its engine log copied into the leg's folder first), its settings the defaults but for loopback, free ports, no
-/// announce, loopback trusted and the leg's process class (machine.process, the product's own setting, so the node claims its class
-/// itself; the probe never sets it). Started headless, it is brought to work over its own line wire: each clip imported (MEDIA
-/// IMPORT), the project reopened with one output per clip, 64 x 36 and enabled, showing it (a node decodes only what an enabled output
-/// draws: RenderEngine skips a disabled output and EngineSources opens a source only for a draw; the smallest output keeps the draw's
-/// own share as small as the node allows), and every clip's decoder seen open in STATE. Then its class is read back from the OS and
-/// from STATE's claim. A thread of this controller, which claims HIGH by its own hand first on Windows (the measurement's class, never
-/// the node's) and stamps at the highest thread priority, reads at the victim's window's start and end the node's processor time, its
-/// every thread's name and processor time, and STATE's decode, output and pacing figures. The rows are written once the node has been
-/// stopped. A reading, never a pass mark: the leg is broken only when the node did not come up, did not get to work, or read back
-/// another class than its home asked (Windows).</summary>
+/// <summary>PlayMap's own node as a leg's busy process, given its home and its class only through the product's own paths. Its home is a
+/// fresh folder of the machine's temporary files, which the node's first start fills with its own defaults (a new node id and pairing
+/// token, loopback trusted, the process class high; its keys folder the node's keys), so neither the token nor the keys ever land in
+/// the leg's uploaded folder: the home is deleted once the node has stopped, its engine log copied into the leg's folder first. Its
+/// command line is the documented one (EngineEntry.Usage): headless, the home, a name, no recovery, and the web and wire ports the
+/// machine handed this controller free just before (--http, --wire; a start refused one of them because another process took it in the
+/// gap is started once more on two new ports, said in the row); the rest is the node's defaults, one node at a time (it binds every
+/// interface and announces itself as a node on a show network does, its sync port the default). Started, it is brought to work over its
+/// own line wire: first its class, read from STATE (machine.platform.settings.process) and, where the leg asks another, set by MACHINE
+/// SET PROCESS, which the node keeps and claims at once (its answer "applies now" and, on Windows, its claim applied; anything else
+/// breaks the leg with the node's words), so the node claims its class itself and the probe never sets it; then each clip imported
+/// (MEDIA IMPORT), the project reopened with one output per clip, 64 x 36 and enabled, showing it (a node decodes only what an enabled
+/// output draws: RenderEngine skips a disabled output and EngineSources opens a source only for a draw; the smallest output keeps the
+/// draw's own share as small as the node allows), and every clip's decoder seen open in STATE. Then its class is read back from the OS and from STATE's claim. A thread of this
+/// controller, which claims HIGH by its own hand first on Windows (the measurement's class, never the node's) and stamps at the highest
+/// thread priority, reads at the victim's window's start and end the node's processor time, its every thread's name and processor time,
+/// and STATE's decode, output and pacing figures. The rows are written once the node has been stopped. A reading, never a pass mark: the
+/// leg is broken only when the node did not come up, did not take its class, did not get to work, or read back another class than the
+/// leg asked (Windows).</summary>
 internal sealed partial class NodeRun : IDisposable
 {
     public const string File = "node.csv";
     public const string ThreadsFile = "node.threads.csv";
+    public const string NodeName = "Priority probe node";
     public const int OutputWidth = 64;
     public const int OutputHeight = 36;
     public static readonly TimeSpan UpBound = TimeSpan.FromSeconds(90);
@@ -55,16 +61,10 @@ internal sealed partial class NodeRun : IDisposable
     public static readonly TimeSpan AskBound = TimeSpan.FromSeconds(20);
     public static readonly TimeSpan ExitBound = TimeSpan.FromSeconds(10);
 
-    /// <summary>The settings file's text as the node's home writes it (NodeHome's own options: indented, camelCase, enums as camelCase
-    /// words), so the node reads it as its own.</summary>
-    private static readonly JsonSerializerOptions SettingsJson = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-    };
+    /// <summary>The engine's exit code when neither its wire nor its web port could listen (EngineEntry.BindRefused).</summary>
+    private const int BindRefusedExit = 3;
 
-    [GeneratedRegex(@"is up: wire (\d+), web \d+, renderer ([^;\r\n]*);", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"is up: wire (\d+|closed), web (\d+|closed), renderer ([^;\r\n]*);", RegexOptions.CultureInvariant)]
     private static partial Regex UpLine();
 
     private readonly string _dir;
@@ -79,6 +79,7 @@ internal sealed partial class NodeRun : IDisposable
     private string _renderer = "";
     private string _controller = "";
     private long _upNs;
+    private long _logFrom;
     private long _atWorkNs;
     private long _stopNs;
     private (string Class, string Base) _classAtWork = ("", "");
@@ -101,8 +102,8 @@ internal sealed partial class NodeRun : IDisposable
     /// <summary>The node came up and is at work: every clip imported and its decoder open.</summary>
     public bool Working { get; private set; }
 
-    /// <summary>Starts the node on its home's class <paramref name="asked"/> and brings it to work; what went wrong goes to
-    /// <paramref name="problems"/> and leaves <see cref="Working"/> false.</summary>
+    /// <summary>Starts the node on a fresh home, gives it the class <paramref name="asked"/> by its own verb and brings it to work; what
+    /// went wrong goes to <paramref name="problems"/> and leaves <see cref="Working"/> false.</summary>
     public static async Task<NodeRun> StartAsync(string dir, NodeGiven given, string asked, List<string> problems)
     {
         var clips = Directory.GetFiles(given.Clips, "*.mov").Order(StringComparer.Ordinal).ToList();
@@ -111,22 +112,16 @@ internal sealed partial class NodeRun : IDisposable
         try
         {
             run._controller = RaiseController();
-            run.WriteSettings();
-            run._node = Child.StartProgram(dir, "node", given.Program, ["engine", "--headless", "--home", home, "--no-recover"]);
-            if (run._node is null)
-            {
-                problems.Add("the node did not start (node.log says why)");
-                return run;
-            }
-            run._pid = run._node.Id;
-            var port = await run.WaitUpAsync();
+            var port = await run.LaunchAsync(given.Program, problems);
             if (port is null)
-            {
-                problems.Add($"the node was not up within {UpBound.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)} s (node.log and node.engine.log say what it did)");
                 return run;
-            }
             run._upNs = MonoClock.Instance.NowNs;
             run._wire = LineClient.Connect(port.Value);
+            if (run.TakeClass() is { } unclaimed)
+            {
+                problems.Add("the node did not take its class: " + unclaimed);
+                return run;
+            }
             if (await run.BringToWorkAsync() is { } refused)
             {
                 problems.Add("the node did not get to work: " + refused);
@@ -142,7 +137,7 @@ internal sealed partial class NodeRun : IDisposable
             }
             var expected = asked == "high" ? "High" : "Normal";
             if (OperatingSystem.IsWindows() && run._classAtWork.Class != expected)
-                problems.Add($"the node's home asked process {asked} and Windows reads back {run._classAtWork.Class} (base {run._classAtWork.Base})");
+                problems.Add($"the leg asked the node for process {asked} and Windows reads back {run._classAtWork.Class} (base {run._classAtWork.Base})");
             run.Working = true;
         }
         catch (Exception e) when (e is IOException or SocketException or InvalidOperationException or JsonException or TimeoutException
@@ -159,20 +154,135 @@ internal sealed partial class NodeRun : IDisposable
         return run;
     }
 
-    /// <summary>The settings the node's home starts with: the defaults but for what a probe's node needs, and the leg's class.</summary>
-    private void WriteSettings()
+    /// <summary>The node started on two ports handed out free just before (<see cref="FreePorts"/>) and waited for until it is up; the
+    /// wire's port, or null with the reason in <paramref name="problems"/>. A port taken by another process between the handout and the
+    /// node's bind (the node binds only at the end of its start, seconds later) refuses that bind: the engine ends BindRefused, or comes
+    /// up with its wire or web closed. Such a start is stopped, its two logs kept in the leg's folder (node.refused.log and
+    /// node.engine.refused.log), and the node is started once more on the same home and two new free ports, said in the row's words; a
+    /// second refusal breaks the leg. Any other failure breaks it at once.</summary>
+    private async Task<int?> LaunchAsync(string program, List<string> problems)
     {
-        var made = NodeSettings.CreateDefault("Priority probe node");
-        var settings = made with
+        for (var attempt = 1; ; attempt++)
         {
-            Bind = "127.0.0.1", HttpPort = 0, WirePort = 0, SyncPort = 0, TrustLoopback = true, Announce = false,
-            Machine = made.Machine with { Process = _asked },
-        };
-        System.IO.File.WriteAllText(Path.Combine(_home, "playmap.node.json"), JsonSerializer.Serialize(settings, SettingsJson), new UTF8Encoding(false));
+            var (http, wire) = FreePorts();
+            _node = Child.StartProgram(_dir, "node", program,
+                ["engine", "--headless", "--home", _home, "--name", NodeName, "--http", I(http), "--wire", I(wire), "--no-recover"]);
+            if (_node is null)
+            {
+                problems.Add("the node did not start (node.log says why)");
+                return null;
+            }
+            _pid = _node.Id;
+            var (port, bindRefused) = await WaitUpAsync();
+            if (port is not null)
+                return port;
+            if (!bindRefused)
+            {
+                problems.Add($"the node was not up within {UpBound.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)} s (node.log and node.engine.log say what it did)");
+                return null;
+            }
+            if (attempt == 2)
+            {
+                problems.Add("the node's start was refused a port twice, each time on two ports handed out free just before (node.refused.log, node.engine.refused.log and node.engine.log say which)");
+                return null;
+            }
+            RetireRefusedStart();
+            _words.Add("retried: its first start was refused a port taken after it was handed out free (node.refused.log and node.engine.refused.log say which), so it was started once more on two other free ports");
+        }
     }
 
-    /// <summary>The wire's port from the node's "is up" line, read from its own log; null when it ended or the bound ran out first.</summary>
-    private async Task<int?> WaitUpAsync()
+    /// <summary>Stops a start whose bind was refused (bounded by <see cref="ExitBound"/>), keeps its node.log as node.refused.log and its
+    /// engine log as node.engine.refused.log, and marks where the next start's engine lines begin, so its up line is read from them alone.</summary>
+    private void RetireRefusedStart()
+    {
+        if (_node is not null && !_node.StopAndWait(ExitBound))
+            _words.Add($"the refused start had not ended {ExitBound.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)} s after it was stopped");
+        _node?.Dispose();
+        _node = null;
+        System.IO.File.Move(Path.Combine(_dir, "node.log"), Path.Combine(_dir, "node.refused.log"), overwrite: true);
+        var log = Path.Combine(_home, "playmap.engine.log");
+        if (System.IO.File.Exists(log))
+        {
+            System.IO.File.Copy(log, Path.Combine(_dir, "node.engine.refused.log"), overwrite: true);
+            _logFrom = new FileInfo(log).Length;
+        }
+    }
+
+    /// <summary>Two ports the machine hands out free now, for the node's web and wire (its --http and --wire): each listener is let go
+    /// before the node starts, so a port another process takes in between refuses the node's bind, which <see cref="LaunchAsync"/>
+    /// meets by one more start on two new ports.</summary>
+    private static (int Http, int Wire) FreePorts()
+    {
+        using var http = new TcpListener(IPAddress.Any, 0);
+        using var wire = new TcpListener(IPAddress.Any, 0);
+        http.Start();
+        wire.Start();
+        return (((IPEndPoint)http.LocalEndpoint).Port, ((IPEndPoint)wire.LocalEndpoint).Port);
+    }
+
+    /// <summary>The leg's class through the node's own verb: STATE's machine.platform.settings.process and the platform's name read first;
+    /// where the setting is the class the leg asks (high, the node's default), nothing is set; otherwise MACHINE SET PROCESS, which the
+    /// node keeps and claims at once (docs/wire/machine.md: PROCESS applies now, so the node is never restarted for it). On a platform
+    /// that claims (windows) the class is taken only when the answer's claim says applied: a claim refused or missing is the node's own
+    /// words breaking the leg, never "applied" in the row; on the platform none the class is kept and said not claimed. Null, or the
+    /// words of what was refused or answered otherwise.</summary>
+    private string? TakeClass()
+    {
+        string? has = null;
+        string? platformName = null;
+        using (var state = State())
+        {
+            if (state is not null && state.RootElement.TryGetProperty("machine", out var machine) && machine.TryGetProperty("platform", out var platform)
+                && platform.ValueKind == JsonValueKind.Object)
+            {
+                if (platform.TryGetProperty("settings", out var settings) && settings.TryGetProperty("process", out var process)
+                    && process.ValueKind == JsonValueKind.String)
+                    has = process.GetString();
+                if (platform.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
+                    platformName = name.GetString();
+            }
+        }
+        if (has is null)
+            return "STATE named no machine.platform.settings.process";
+        if (platformName is null)
+            return "STATE named no machine.platform.name";
+        if (has == _asked)
+        {
+            _words.Add($"process {_asked}: the node's own setting at its start, not set");
+            return null;
+        }
+        var reply = _wire!.Payload("c", "MACHINE SET PROCESS " + _asked.ToUpperInvariant(), out var refused);
+        if (refused is not null)
+            return "MACHINE SET PROCESS: " + refused;
+        var answer = Answer(reply);
+        var applies = (string?)answer?["applies"];
+        var said = (string?)answer?["words"] ?? "";
+        if (applies != "now")
+            return $"MACHINE SET PROCESS {_asked.ToUpperInvariant()} answered that it applies {applies ?? "(not said)"}, not now: {said}";
+        if (platformName == "none")
+        {
+            _words.Add($"process {has} to {_asked} by MACHINE SET PROCESS: kept, not claimed on this node ({said})");
+            return null;
+        }
+        var claim = answer?["claim"] as JsonObject;
+        var applied = claim?["applied"] is JsonValue a && a.TryGetValue<bool>(out var yes) && yes;
+        if (!applied)
+            return $"the node kept PROCESS {_asked.ToUpperInvariant()} and {platformName} did not apply it: {(string?)claim?["words"] ?? said}";
+        _words.Add($"process {has} to {_asked} by MACHINE SET PROCESS, applied now (read back {(string?)claim?["readBack"] ?? ""}): {said}");
+        return null;
+    }
+
+    /// <summary>An answer's JSON: the payload itself, or the payload an action result carries as text.</summary>
+    private static JsonNode? Answer(string reply)
+    {
+        var answer = JsonNode.Parse(reply);
+        return answer?["payload"] is JsonValue p && p.TryGetValue<string>(out var inner) ? JsonNode.Parse(inner) : answer;
+    }
+
+    /// <summary>The wire's port from the node's "is up" line, read from its own log past the lines of a refused start; null when it
+    /// ended or the bound ran out first, with BindRefused true where its start was refused a port (it ended BindRefused, or came up with
+    /// its wire or web closed).</summary>
+    private async Task<(int? Port, bool BindRefused)> WaitUpAsync()
     {
         var log = Path.Combine(_home, "playmap.engine.log");
         var clock = Stopwatch.StartNew();
@@ -183,12 +293,16 @@ internal sealed partial class NodeRun : IDisposable
                 try
                 {
                     using var stream = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    // A log shorter than the mark was started again by the engine: all of it is the new start's.
+                    stream.Seek(stream.Length >= _logFrom ? _logFrom : 0, SeekOrigin.Begin);
                     using var reader = new StreamReader(stream);
                     var m = UpLine().Match(await reader.ReadToEndAsync());
                     if (m.Success)
                     {
-                        _renderer = m.Groups[2].Value.Trim();
-                        return int.Parse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture);
+                        if (m.Groups[1].Value == "closed" || m.Groups[2].Value == "closed")
+                            return (null, true);
+                        _renderer = m.Groups[3].Value.Trim();
+                        return (int.Parse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture), false);
                     }
                 }
                 catch (IOException)
@@ -197,10 +311,10 @@ internal sealed partial class NodeRun : IDisposable
                 }
             }
             if (_node is null || _node.Exited)
-                return null;
+                return (null, _node?.ExitCode == BindRefusedExit);
             await Task.Delay(100);
         }
-        return null;
+        return (null, false);
     }
 
     /// <summary>Every clip imported, the project reopened with one enabled output per clip showing it, every decoder seen open; null, or

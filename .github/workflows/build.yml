@@ -40,12 +40,12 @@ on:
           work, a 50 ms tick, a pool item) alone, then beside a burner whose class the product's own platform claims, HIGH or NORMAL,
           on every logical processor, on the logical processors less one and pinned to every core but one, HIGH beside a victim at
           the runner's own class, the victim's own loops claiming HIGH or NORMAL beside a NORMAL burner (what HIGH buys), the burner
-          HIGH pinned to the logical processors less one, and PlayMap's own node playing four HAP clips the job makes, at its home's
-          class HIGH or NORMAL, beside the victim alone and beside a NORMAL burner; legs of 20 s in the probe's order (Legs.Order, the
-          one place it is written; the probe's order mode prints it), a warm-up the first burned leg, each with the machine sampler
-          (at High, joined by pid) listing every process, the runner's scheduler read once, the tables and each kind's spread across
-          its repeats in the summary; about 28 minutes. A measurement, never a pass mark. Every other job is skipped; given with
-          d3d12, hangproof or nodehostab, it refuses to run.
+          HIGH pinned to the logical processors less one, and PlayMap's own node playing four HAP clips the job makes, at its own
+          default class HIGH or at NORMAL by its own MACHINE SET PROCESS, beside the victim alone and beside a NORMAL burner; legs
+          of 20 s in the probe's order (Legs.Order, the one place it is written; the probe's order mode prints it), a warm-up the
+          first burned leg, each with the machine sampler (at High, joined by pid) listing every process, the runner's scheduler
+          read once, the tables and each kind's spread across its repeats in the summary; about 28 minutes. A measurement, never a
+          pass mark. Every other job is skipped; given with d3d12, hangproof or nodehostab, it refuses to run.
         required: false
         default: false
         type: boolean
@@ -993,8 +993,9 @@ jobs:
   # burner on every logical processor: what HIGH buys); high-n1-pinned (the burner HIGH pinned to the logical processors less one:
   # beside high-n1 it differs in the pinning alone, beside high-core1 in the free core and its one thread fewer); node-high, node-normal, node-high-load and node-normal-load
   # (PlayMap's own node, tools/PlayMap.Node built here, playing four 4K HAP Q clips the job makes with the pinned FFmpeg, one 64 x 36
-  # output each, at its home's process class HIGH or NORMAL, beside the victim alone and beside a NORMAL burner on every logical
-  # processor) (docs/round2/CARRYOVER.md, fix-priority-probe-reader, fix-priority-probe-third and fix-priority-probe-node). It takes
+  # output each, at its default process class HIGH or at NORMAL by its own MACHINE SET PROCESS over its line wire, on a home its
+  # first start fills with its own defaults, beside the victim alone and beside a NORMAL burner on every logical processor)
+  # (docs/round2/CARRYOVER.md, fix-priority-probe-reader, fix-priority-probe-third and fix-priority-probe-node). It takes
   # the windows job's FFmpeg and Mesa steps by their anchors (the clips' encoder, the node's media libraries and its renderer: no GPU
   # here, so every draw the node makes is Mesa's llvmpipe on the processors), and builds the node and the probe with no build server.
   # About 28 minutes with the order as it is (34 legs, eight of them a node's); the legs are held to a budget of 34 so the job keeps

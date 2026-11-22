@@ -128,14 +128,15 @@ internal static class Calibration
 /// <summary>One leg kind: what burns beside the victim (nothing in the baseline), how many threads, the class the burner claims, whether
 /// its threads are pinned (core1: every core but one; n1: the logical processors less one, one thread to each), the victim's class
 /// (Normal set by its own hand, kept as the runner started it, or claimed HIGH or NORMAL through the product's platform: then the
-/// victim's loops are the busy side's own deadline), and, for a node leg, the process class PlayMap's own node is started at through
-/// its home's settings (high or normal; <see cref="NodeRun"/>), beside the victim alone or beside the victim and a burner.</summary>
+/// victim's loops are the busy side's own deadline), and, for a node leg, the process class PlayMap's own node is brought to (high,
+/// its default, or normal, by its own MACHINE SET PROCESS; <see cref="NodeRun"/>), beside the victim alone or beside the victim and a
+/// burner.</summary>
 internal sealed record LegSpec(string Name, string Label, int Threads, string BurnerClass, string VictimClass, string Pin = "none", string Node = "")
 {
     /// <summary>The victim's loops stand for the busy side's own deadline (the buy legs), not for a desk beside it.</summary>
     public bool Deadline => VictimClass.StartsWith("claim-", StringComparison.Ordinal);
 
-    /// <summary>The busy process is the product's own node (its home's process class <see cref="Node"/>), not only the burner.</summary>
+    /// <summary>The busy process is the product's own node (at the process class <see cref="Node"/>), not only the burner.</summary>
     public bool IsNode => Node.Length > 0;
 }
 
@@ -259,10 +260,10 @@ internal static class Legs
                 new("high-core1", $"the burner HIGH {core}; the victim at Normal and unpinned", plan.Threads, "high", "normal", "core1"),
                 new("normal-core1", $"the burner NORMAL {core}; the victim at Normal and unpinned", plan.Threads, "normal", "normal", "core1"),
                 new("high-n1-pinned", $"the burner HIGH {pinnedOne}; the victim at Normal and unpinned", one.Threads, "high", "normal", "n1"),
-                new("node-high", $"{nodeWork}, its home's process class high (the default); the victim at Normal", 0, "", "normal", Node: "high"),
-                new("node-normal", $"{nodeWork}, its home's process class normal; the victim at Normal", 0, "", "normal", Node: "normal"),
-                new("node-high-load", $"{nodeWork}, its home's process class high (the default), beside a burner NORMAL on every logical processor ({n} threads); the victim at Normal", n, "normal", "normal", Node: "high"),
-                new("node-normal-load", $"{nodeWork}, its home's process class normal, beside a burner NORMAL on every logical processor ({n} threads); the victim at Normal", n, "normal", "normal", Node: "normal"),
+                new("node-high", $"{nodeWork}, its process class high (its default); the victim at Normal", 0, "", "normal", Node: "high"),
+                new("node-normal", $"{nodeWork}, its process class normal (MACHINE SET PROCESS NORMAL); the victim at Normal", 0, "", "normal", Node: "normal"),
+                new("node-high-load", $"{nodeWork}, its process class high (its default), beside a burner NORMAL on every logical processor ({n} threads); the victim at Normal", n, "normal", "normal", Node: "high"),
+                new("node-normal-load", $"{nodeWork}, its process class normal (MACHINE SET PROCESS NORMAL), beside a burner NORMAL on every logical processor ({n} threads); the victim at Normal", n, "normal", "normal", Node: "normal"),
             ];
         }
     }
@@ -284,7 +285,7 @@ internal static class Legs
         return broken ? 1 : 0;
     }
 
-    /// <summary>Runs one leg: for a node leg the node first, started on its home's class and brought to work (<see cref="NodeRun"/>); then
+    /// <summary>Runs one leg: for a node leg the node first, started, given its class and brought to work (<see cref="NodeRun"/>); then
     /// the victim started and ready, then the burner started into the victim's window and told to stop a second after it, both waited
     /// for under the leg's deadline; a node is stopped once the victim has ended. Writes the leg's row; 0, or 1 when the leg is broken
     /// (the words say why).</summary>
@@ -320,7 +321,7 @@ internal static class Legs
         {
             if (leg.IsNode)
             {
-                // The node first: started on its home's class and brought to work before the victim's window is made, so the window
+                // The node first: started, given its class and brought to work before the victim's window is made, so the window
                 // never holds the node's start; the controller stamps it from a process of the class the node cannot hold.
                 nodeRun = await NodeRun.StartAsync(dir, node!, leg.Node, problems);
             }
@@ -479,6 +480,9 @@ internal sealed class Child : IDisposable
     }
 
     public bool Exited => _process.HasExited;
+
+    /// <summary>The process's exit code once it has ended; null while it runs.</summary>
+    public int? ExitCode => _process.HasExited ? _process.ExitCode : null;
 
     public static Child? Start(string dir, string role, string[] args)
     {

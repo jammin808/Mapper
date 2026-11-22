@@ -6838,3 +6838,79 @@ Round 2 W1 notes:
     lost, and how often a real node holds a Normal-class service past 500 ms at the two readings, is a rig line (the check's: a
     priority-probe leg running the supervisor's real ask loop beside a stub engine that logs when it wrote each answer), the owner's
     call; the probe's tools were not touched here.
+
+## Integrator notes from the round-2 fix batch (fix-priority-probe-node, mended after run 505)
+
+- Done: amends the fix-priority-probe-node entry above; tools and CI only, nothing under `src/` or `tests/`. Run 505 (the push of
+  c11aa904) failed on the Linux and Windows jobs at `SettingsGateTests.NoCodeButTheNetworkHostWritesTheSettingsFile`: "tools/
+  priority-probe/Node.cs names the settings file". `NodeRun.WriteSettings` built `NodeSettings.CreateDefault` and wrote it into the
+  node's home itself, a second writer of a file whose one writer is the network host. The fence stands as it is; the probe now gives
+  its node a home and a class only through the product's own paths, and nothing in `tools/` names the file, saves or loads settings.
+  What each setting the probe had written is given by now:
+  - The home, its pairing token and its keys out of every uploaded folder: `--home` on a fresh folder of the machine's temporary
+    files, which the node's first start fills with its own defaults (`EngineHost.StartAsync` loading through `NodeHome`, a new node
+    id and token); deleted after the node stops, its engine log copied first, as before.
+  - Loopback trusted: the node's own default (`TrustLoopback` true), so the probe's line wire from 127.0.0.1 asks no pairing; the
+    token the node made stays in its home, unread.
+  - Ports 0: no product path takes 0 (`--http` and `--wire` take 1 to 65535, the sync port no option): the probe asks the machine for
+    two free ports just before the start (`NodeRun.FreePorts`, each listener let go first) and passes them as `--http` and `--wire`
+    (`EngineEntry.Usage`); the sync port (UDP) is the node's default, one node at a time (the legs run one after another, each node
+    waited for before the next). The node binds only at the end of its start, seconds after the handout, so another process can take
+    one of the two ports in that gap (ports 0 were atomic; these are not): the engine then ends `BindRefused` (exit 3, both
+    refused) or comes up with its wire or web closed (its up line says `closed`). `NodeRun.LaunchAsync` meets either by stopping
+    that start, keeping its logs as `node.refused.log` and `node.engine.refused.log`, and starting the node once more on the same
+    home and two new free ports, said first in the row's words ("retried: …"); the up line is then read only from the engine
+    log's lines past the first start's. A second refusal breaks the leg with its words; any other failure breaks it at once.
+  - Bind loopback and no announce: no product path (no option, no verb). The node binds every interface and announces itself (Show
+    Bus hello, mDNS) as a node on a show network does; on the runner its other listeners take only paired lines (the product's
+    pairing; loopback alone is trusted), and its hello carries no secret. What announcing costs the node's figures is not measured.
+  - `machine.process`: the node's own verb. STATE's `machine.platform.settings.process` is read once the wire is up; where it is the
+    leg's class (high, the node's default) nothing is set; otherwise `MACHINE SET PROCESS NORMAL`, which the node keeps (the settings'
+    one writer) and claims at once (`EngineCore.Machine.cs`: QOS, PROCESS and GPU-PRIORITY are claimed again when set;
+    `docs/wire/machine.md`: "claimed again at once"), so no restart is needed and none is made; an answer other than `applies:
+    "now"`, or a refusal, breaks the leg with its words (`the node did not take its class: …`). `applies:"now"` is answered even
+    when Windows refuses the class ("… is kept, and Windows refused it now"), so on a platform that claims (STATE's
+    `machine.platform.name` not `none`) the answer's `claim.applied` is read too: a claim missing or not applied breaks the leg
+    with the node's words ("the node kept PROCESS NORMAL and windows did not apply it: …"), and "applied now (read back …)" is
+    written only for an applied claim; on the platform `none` the words say "kept, not claimed on this node". The class is read
+    back from the OS once the node is at work and at the window's end, and STATE's `process.priority` claim beside it, as before;
+    the words of what was set go to the node row's words. A node leg at NORMAL runs its start at the node's default HIGH until the verb lands, before
+    any clip is imported or the victim starts, so the window never holds it.
+  - The name: `--name "Priority probe node"`.
+  The leg kinds' labels, the summary's node words, `ci-tests.ps1`'s and `build.yml`'s comments and README's Build section say the
+  class is the node's default or set by its own verb, no longer "its home's settings"; `expected.csv`'s why for `node_class_asked`
+  says the same (its value unchanged).
+  The review's items, answered: the class taken only on an applied claim (above); the free ports' gap met by one more start
+  (above); README's Build section and the reader's node heading and summary say the node binds every interface and announces
+  itself (the Show Bus hello, mDNS) as a node on a show network does, a cost in its figures not measured apart; the two rewrapped
+  paragraphs (README, `build.yml`'s `prioritycost` description) wrapped to their neighbours' width.
+- Tests: `dotnet build PlayMap.sln -c Debug` whole (with `PLAYMAP_DXC_DIR`), no warning, no error; the Engine suite's `Host`
+  namespace with `ModuleRuleTests`, 86 passed, 1 not run on Linux (`NodeLogTests.ARollRefusedByAHeldFileLandsOnceTheHandleIsLetGo…`,
+  a `[WindowsFact]`), `SettingsGateTests` among them with the fence unchanged; `DxcNativesTests` and `HlslBuildTests` (they read
+  `build.yml`) green; `tools/priority-probe/selfcheck.sh`, `selfcheck: ok, 114 figures and lines`; every `.ps1` parses with the
+  bench's PowerShell 7.4 (`tools/ps-parse.ps1`, 8 files); the workflow parses (`yaml.safe_load`). The node legs run short on this
+  bench (the probe built from its copy, Release; `tools/PlayMap.Node` Debug; two 4K HAP Q clips of one second, 16 chunks; 5 s
+  windows, 1 s leads; `DISPLAY=:99`, `PLAYMAP_FFMPEG_DIR=/opt/ffmpeg9/lib`): `node-high`, `node-normal`, `node-high-load` and
+  `node-normal-load` each `ok`; the engine logs read "Priority probe node (…) is up: wire <the free port>, web <the free port>";
+  the high legs' words "process high: the node's own setting at its start; not set", the normal legs' "process high to normal by
+  MACHINE SET PROCESS: kept; not claimed on this node (… the platform seam is Windows only)"; every home deleted, no node outlived
+  its leg; the reader read the four legs. The retry, on a scratch copy of the probe outside the tree whose first handout was forced
+  onto ports another process held: the wire's port taken (the node up with "wire closed") and both taken (the engine ending 3) each
+  retried once and ended `ok`, the row's words starting "retried: …", the refused start's two logs kept beside the leg's; every
+  handout taken (a copy forcing it each time) broke the leg with "the node's start was refused a port twice …", no node left
+  running. After the fold-in, the same checks again: the whole build, no warning, no error; the `Host` namespace with
+  `ModuleRuleTests`, 86 passed, 1 not run (the same `[WindowsFact]`); `SettingsGateTests` and `DxcNativesTests` 22 passed;
+  `HlslBuildTests` 6 passed; `selfcheck.sh` ok, 114; every `.ps1` parses; the workflow parses; the four node legs short, each `ok`.
+  Not run off Windows: the class read back from Windows after the verb and the claim's `applied` from a real platform, the
+  free-port handout on the runner, and the node bound to every interface under the runner's firewall.
+- Files: `tools/priority-probe/Node.cs`, `Program.cs`, `Reader.cs`, `fixture/expected.csv`; `tools/ci-tests.ps1` (a comment);
+  `.github/workflows/build.yml` (the `prioritycost` input's description and the job's comment); `README.md` (Build, the node legs);
+  this entry.
+- Open:
+  - A bind address and announce-off for a node that should be heard only on loopback (a bench or a probe) have no product path; if
+    the owner wants the probe's node quiet on the runner's network, the smallest seam is an engine option beside `--http`/`--wire`
+    (`--bind <address>`, read into the running settings as the ports are, never saved), for a batch whose leave names
+    `src/PlayMap.Engine/EngineOptions.cs` and `Host/EngineHost.cs`. Not needed for the legs to run.
+  - The Windows paths above are read, not run, until the next `prioritycost` dispatch; how often the runner's other processes take
+    a handed-out port before the node binds it is not measured (each retry is said in its row, so the next dispatch counts them).
+  - What binding every interface and announcing costs a node's figures is not measured apart from the rest of its work.

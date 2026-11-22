@@ -497,16 +497,22 @@ retail hash. Then:
   The **node legs** put PlayMap's own node in the burner's place: the job builds `tools/PlayMap.Node` (Release, no build server)
   with Mesa's `opengl32.dll` and llvmpipe beside its exe, makes four HAP Q clips of 3840 x 2160 at 60 fps (one second each, 16
   chunks a frame, the product's own recipe for that width) with the pinned FFmpeg's hap encoder before the legs (deterministic,
-  never downloaded, kept out of the uploaded folder), and each node leg starts the node headless on a home of its own (in the
-  machine's temporary files, deleted after, so its token and keys are never uploaded; its engine log copied into the leg's folder)
-  whose settings name the process class (`machine.process`, the product's own setting, so the node claims it itself; the class is
-  read back from the OS once the node is at work and at the window's end, and STATE's own claim beside it), imports the clips over
-  its line wire and reopens its project with one 64 x 36 output enabled per clip: `node-high` and `node-normal` beside the victim
-  alone (what a real node costs a Normal process), `node-high-load` and `node-normal-load` beside a NORMAL burner on every logical
-  processor (what HIGH buys a real node). The leg's controller claims High by its own hand and stamps, at the highest thread
-  priority (above the node's own priorities, not above a thread MMCSS raised: the node's row records STATE's MMCSS claims for its
-  render and present threads, so a reader knows whether its stamps could wait on them), the node's processor time and its every thread's (by group: Mesa's llvmpipe, the HAP workers, the HAP decode and read
-  threads, render, the Compute pool, the runtime's pool, the rest) and STATE's output, pacing and decode figures (fps, dropped,
+  never downloaded, kept out of the uploaded folder), and each node leg starts the node headless on a fresh home of its own (in
+  the machine's temporary files, deleted after, so the token and keys the node's first start makes there are never uploaded; its
+  engine log copied into the leg's folder) by its own command line only (`--home`, `--name`, `--no-recover`, and `--http` and
+  `--wire` on ports the machine handed out free just before, a start refused a port taken in that gap started once more on two
+  new ones and said; every other setting the node's own default, one node at a time: it binds every interface and announces
+  itself (the Show Bus hello, mDNS), as a node on a show network does, and that cost is in its figures, not measured apart),
+  gives it its class over its line wire (HIGH is the node's default and is not set; NORMAL by `MACHINE SET PROCESS NORMAL`,
+  which the node keeps and claims at once, the leg broken with the node's words where Windows does not apply it, so the node
+  claims its class itself; the class is read back from the OS once the node is at work and at the window's end, and STATE's own
+  claim beside it), imports the clips over its line wire and reopens its project with one 64 x 36 output enabled per clip:
+  `node-high` and `node-normal` beside the victim alone (what a real node costs a Normal process), `node-high-load` and
+  `node-normal-load` beside a NORMAL burner on every logical processor (what HIGH buys a real node). The leg's controller claims
+  High by its own hand and stamps, at the highest thread priority (above the node's own priorities, not above a thread MMCSS
+  raised: the node's row records STATE's MMCSS claims for its render and present threads, so a reader knows whether its stamps
+  could wait on them), the node's processor time and its every thread's (by group: Mesa's llvmpipe, the HAP workers, the HAP
+  decode and read threads, render, the Compute pool, the runtime's pool, the rest) and STATE's output, pacing and decode figures (fps, dropped,
   missed vblanks, frame p95; each decoder's dropped and late frames and decode p95, as STATE counts them, a figure STATE does not
   carry left empty, never a zero) at the window's bounds, and once the victim has ended stops the node and waits for it to have
   ended (at most 10 s) before its log is copied and its home deleted;

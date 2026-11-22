@@ -73,7 +73,7 @@ leg-11-node-high,samples_refused_in_window,1,a sample whose shares sum past the 
 leg-11-node-high,samples_refused_in_leg,2,the refused samples are counted over the leg too: one after the window summing 4.60 on 4 is refused (past the margin of 0.5) and one summing 4.40 is kept
 leg-11-node-high,others_in_window,svchost#57 / svchost#56 (pid 600; base 8) 0.04 processor-s; pwsh#1 (pid 2948; base 13; the sampler) 0.01 processor-s; svchost#57 (pid 601; base 8) 0.01 processor-s (2 samples),who else ran is joined by pid with its pid-joined share: pid 600 renamed #56 is one entry and pid 601 under its old name another; the node and the refused sample's process are never named
 leg-11-node-high,sampler_processor_s_in_window,0.01,the sampler's own processor time over the window from its own rows
-leg-11-node-high,node_class_asked,high,the class the node's home asked
+leg-11-node-high,node_class_asked,high,the class the leg asked of the node
 leg-11-node-high,node_class_at_work,High (base 13),the class the OS read back once the node was at work
 leg-11-node-high,node_class_at_end,Normal (base 8),the class the OS read back at the window's end: its own column; never the at-work one
 leg-11-node-high,node_processors_in_window,3.00,the node's processors over the window from the controller's stamps of its processor time

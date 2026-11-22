@@ -36,7 +36,8 @@
 #                 HIGH or NORMAL beside a NORMAL burner on every logical processor (what HIGH buys), the burner HIGH pinned to the
 #                 logical processors less one, and PlayMap's own node (tools/PlayMap.Node, built here with no build server, Mesa beside
 #                 its exe) playing the job's HAP clips (made here by the pinned FFmpeg's hap encoder before the legs, never downloaded)
-#                 at its home's process class HIGH or NORMAL, beside the victim alone and beside a NORMAL burner on every logical
+#                 at its process class HIGH (its default) or NORMAL (its own MACHINE SET PROCESS), on a home its first start fills
+#                 with its own defaults, beside the victim alone and beside a NORMAL burner on every logical
 #                 processor; then the probe's reader makes the tables, in the log and the summary. The legs run inside a budget (34
 #                 minutes, each leg 4 at most), so the job stays inside its 50; a leg the budget cannot hold is not started and is said.
 #                 Whether the system's own kernel trace tools (wpr, logman, xperf) are on the runner is read and said, never used. A

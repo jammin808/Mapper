@@ -87,7 +87,7 @@ internal static class Reader
         md.Add("");
         if (runs.Any(r => r.Readable && r.Node is not null))
         {
-            md.Add("#### The node (PlayMap's own node as the busy process; its class from its home's settings, read back from the OS; its figures STATE's at each bound, as STATE counts them; its processors include the draw of its enabled outputs, which on a machine with no GPU is Mesa's llvmpipe on the processors: its threads' groups say how much)");
+            md.Add("#### The node (PlayMap's own node as the busy process; its class its own default (high) or set by its own MACHINE SET PROCESS, read back from the OS; it binds every interface and announces itself (the Show Bus hello, mDNS) as a node on a show network does, a cost in its figures not measured apart; its figures STATE's at each bound, as STATE counts them; its processors include the draw of its enabled outputs, which on a machine with no GPU is Mesa's llvmpipe on the processors: its threads' groups say how much)");
             md.Add("");
             md.Add("| Leg | Class asked / read at work / read at the window's end (STATE's claim) | Clips, outputs, renderer | Node processors in the window (its stamps) | By the sampler (pid, samples kept) | Its threads by group (processors in the window) | Outputs at the window's start / end: fps; dropped; missed vblanks; frame p95 at the end | Decoders at the end: dropped start / end; late start / end; decode p95 at the end |");
             md.Add("|---|---|---|---|---|---|---|---|");
@@ -131,7 +131,9 @@ internal static class Reader
             "competing load, not the node's render loop and not a real desk. high-n-runner is the victim at the class the runner started it " +
             "at, not a desk's. high-n1-pinned is high-n1 with its threads pinned one to each of the logical processors less one (beside " +
             "high-n1 the pinning alone differs, beside high-core1 the free core and its one thread fewer). The node legs put PlayMap's own " +
-            "node in the burner's place, its class from its home's settings (node-high, node-normal beside the victim alone; node-high-load, " +
+            "node in the burner's place, its class its own default, high, or normal by its own MACHINE SET PROCESS, every other setting its own " +
+            "default (it binds every interface and announces itself, the Show Bus hello and mDNS, a cost in its figures not measured apart) " +
+            "(node-high, node-normal beside the victim alone; node-high-load, " +
             "node-normal-load beside a NORMAL burner on every logical processor): it decodes only what an enabled output draws, so each clip " +
             "has a 64 x 36 output, and on a machine with no GPU each draw is Mesa's on the processors, so its threads by group say how much " +
             "of it is Mesa's and how much the node's own decode, render and pools'. The warm-up is the job's first burned leg, read as every leg is and never counted with its kind. The machine " +
