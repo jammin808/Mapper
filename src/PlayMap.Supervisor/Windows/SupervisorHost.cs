@@ -38,20 +38,21 @@ public sealed record SupervisorPlaces(
         SessionLauncher.UserOf, SessionLauncher.Start);
 }
 
-/// <summary>The supervisor: every half second it reads the facts — the console session and its user, the engine's process (held by its
-/// handle), HEALTH over loopback — steps <see cref="SupervisorCore"/> and does what it answers: starts <c>PlayMap.exe engine
-/// --supervised --stop-event &lt;name&gt;</c> in the show user's session with a stop event made for it under a name drawn for that
-/// start, sets that event, ends the engine after the grace. An engine it did not start is adopted only when the pid record names the
-/// installed engine, run as the show user in the console session, its stop event the one its command line names when SYSTEM or
-/// administrators made it; any other record is said once and left where it is, for the next engine's own write to replace by the
-/// identity rule, and nothing is ever ended on a record's word alone. It reads the record and writes, renames or deletes nothing in the engine's folder, which the show user may
-/// change; it writes the status file at every change, and its log, in its own folder, and answers <c>status</c>, <c>resume</c> and
-/// <c>stop</c> on its pipe.</summary>
+/// <summary>The supervisor: every half second it reads the facts — the console session and its user, the engine's process (held by
+/// its handle), HEALTH over loopback, how late the step reached that ask and how long the ask took, on the clock the core steps on
+/// — steps <see cref="SupervisorCore"/> and does what it answers: starts <c>PlayMap.exe engine --supervised --stop-event
+/// &lt;name&gt;</c> in the show user's session with a stop event made for it under a name drawn for that start, sets that event,
+/// ends the engine after the grace. An engine it did not start is adopted only when the pid record names the installed engine, run
+/// as the show user in the console session, its stop event the one its command line names when SYSTEM or administrators made it;
+/// any other record is said once and left where it is, for the next engine's own write to replace by the identity rule, and nothing
+/// is ever ended on a record's word alone. It reads the record and writes, renames or deletes nothing in the engine's folder, which
+/// the show user may change; it writes the status file at every change, and its log, in its own folder, and answers <c>status</c>,
+/// <c>resume</c> and <c>stop</c> on its pipe.</summary>
 [SupportedOSPlatform("windows")]
 public sealed class SupervisorHost : IDisposable
 {
     private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan HealthTime = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan HealthTime = SupervisorCore.AskDeadline;
 
     /// <summary>The pipe's instances at most: three connections served at once and the one that listens.</summary>
     public const int MaxPipeInstances = 4;
@@ -79,6 +80,8 @@ public sealed class SupervisorHost : IDisposable
     private string _unmappedSaid = "";
     private string _lastStatus = "";
     private string _refusedRecord = "";
+    private long _lastStepStartNs = -1;
+    private bool _heldSaid;
 
     public SupervisorHost(SupervisorPlaces places)
     {
@@ -173,6 +176,10 @@ public sealed class SupervisorHost : IDisposable
     /// names it is written.</summary>
     public async Task StepAsync(CancellationToken ct)
     {
+        // A step is due one tick after the step before began (the loop's timer); the first is due as it begins.
+        var beganNs = NowNs();
+        var dueNs = _lastStepStartNs < 0 ? beganNs : _lastStepStartNs + Tick.Ticks * 100; // 100 ns a tick
+        _lastStepStartNs = beganNs;
         var showUser = _places.ShowUser();
         var session = _places.ConsoleSession();
         var sessionUser = session is { } s ? _places.UserOf(s) : "";
@@ -196,15 +203,28 @@ public sealed class SupervisorHost : IDisposable
             }
             engine = _engine;
         }
-        var health = engine is not null && record is { WirePort: > 0 } r && r.Pid == engine.Pid
-            ? await LoopbackWire.AskAsync(r.WirePort, "HEALTH", HealthTime, ct).ConfigureAwait(false)
-            : null;
-        var facts = Facts(sessionOk, engine is not null, health is { Ok: true } ? HealthJson.Parse(health.Payload) : null);
+        // How late the step reached its ask, and how long the ask took to return, both read on the clock the core steps on: the core
+        // tells a lost answer the supervisor was held through from the engine's silence by them. The core steps at the reading that
+        // ends the ask, so every moment from the step's due time to that reading is in one of the two, and a hold after it is the
+        // next step's lateness.
+        var askAtNs = NowNs();
+        var lateNs = Math.Max(0, askAtNs - dueNs);
+        var askNs = -1L;
+        LoopbackWire.Answer? health = null;
+        var askedNs = askAtNs;
+        if (engine is not null && record is { WirePort: > 0 } r && r.Pid == engine.Pid)
+        {
+            health = await LoopbackWire.AskAsync(r.WirePort, "HEALTH", HealthTime, ct).ConfigureAwait(false);
+            askedNs = NowNs();
+            askNs = askedNs - askAtNs;
+        }
+        var facts = Facts(sessionOk, engine is not null, health is { Ok: true } ? HealthJson.Parse(health.Payload) : null, lateNs, askNs);
 
         EngineProcess? started;
         lock (_gate)
         {
-            var action = _core.Step(NowNs(), facts);
+            var action = _core.Step(askedNs, facts);
+            SayHeld();
             started = Act(action, session, sessionUser);
         }
         // An engine is started suspended and runs once the status that names its pid (and the cause before it) is written — so the
@@ -270,11 +290,27 @@ public sealed class SupervisorHost : IDisposable
     private string SidOf(string showUser) =>
         showUser.Length == 0 ? "" : Sid(showUser)?.Value ?? new SecurityIdentifier(WellKnownSidType.NullSid, null).Value;
 
-    /// <summary>The facts from what was read: HEALTH's open outputs' shown frames (−1 when any is unknown) and its GPU record.</summary>
-    internal static SupervisorFacts Facts(bool sessionOk, bool alive, HealthRecord? health)
+    /// <summary>Says, once at the start of each run of them, a lost answer the core counted as the supervisor held while the freeze rule
+    /// watches (under the gate).</summary>
+    private void SayHeld()
+    {
+        if (!_core.LastStepHeld)
+        {
+            _heldSaid = false;
+            return;
+        }
+        if (_heldSaid || !_core.FreezeRuleActive)
+            return;
+        _heldSaid = true;
+        Log(_core.LastHeld);
+    }
+
+    /// <summary>The facts from what was read: HEALTH's open outputs' shown frames (−1 when any is unknown) and its GPU record, with how
+    /// late the step reached its ask and how long the ask took (−1 none made).</summary>
+    internal static SupervisorFacts Facts(bool sessionOk, bool alive, HealthRecord? health, long lateNs, long askNs)
     {
         if (health is null)
-            return new SupervisorFacts(sessionOk, alive, false, -1, false, GpuPhase.Unknown, 0, -1);
+            return new SupervisorFacts(sessionOk, alive, false, -1, false, GpuPhase.Unknown, 0, -1, lateNs, askNs);
         long frames = 0;
         var open = false;
         foreach (var o in health.Facts.Outputs)
@@ -292,7 +328,7 @@ public sealed class SupervisorHost : IDisposable
         var gpu = health.Facts.Gpu;
         var now = NowNs();
         var sinceNs = gpu.SinceUnixMs < 0 ? now : now - (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - gpu.SinceUnixMs) * 1_000_000;
-        return new SupervisorFacts(sessionOk, alive, true, frames, open, gpu.Phase, sinceNs, gpu.Epoch);
+        return new SupervisorFacts(sessionOk, alive, true, frames, open, gpu.Phase, sinceNs, gpu.Epoch, lateNs, askNs);
     }
 
     /// <summary>The monotonic clock in nanoseconds, exact at any timer frequency.</summary>

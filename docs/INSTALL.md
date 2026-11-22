@@ -116,8 +116,16 @@ status as it starts — or once that write has failed (a full disk, a locked fil
 never left suspended by a write that could not be made, restarts it after an exit with backoff (1 s doubling to 30 s), stops trying after five restarts in ten minutes
 and says so, and
 stops an engine whose open outputs' shown frames have stood still for the stale time (3 s, or four of the rebuild's first good
-frames) while HEALTH says the GPU runs — never while the engine reports no shown frames, never during a start or a device rebuild
-within its budget (30 s while the first good frame is unmeasured on a real node), never for a slow HEALTH while frames move. No
+frames) while HEALTH says the GPU runs, or whose HEALTH has gone unanswered for 10 s of steps the supervisor ran on time — never
+while the engine reports no shown frames, never during a start or a device rebuild within its budget (30 s while the first good
+frame is unmeasured on a real node), never for a HEALTH that answers at least once in every 10 s of on-time steps. Each step reads
+how late it reached its HEALTH ask against when it was due and how long the ask took, on the supervisor's own clock; a lost answer
+from a step more than 500 ms late, or whose ask returned more than 500 ms past its 400 ms deadline, is the supervisor held (a
+machine too busy to run it), not the engine silent, and counts toward no stop, so no hold of the supervisor past that margin,
+however long and however the holds add up, stops the engine through that rule. The cost: on a machine kept so busy that the supervisor is held at
+every step, a truly frozen engine is caught only once the supervisor has run on time for 10 s. An engine whose own load keeps it
+from answering HEALTH while its frames move is still stopped by it (the engine answers HEALTH on its pool threads, below its own
+decode and render threads; a thread of its own for that answer is the next change). No
 engine reports shown frames yet (HEALTH's `shownFrames` is −1 on every node until wp3-stability fills it, and no engine reports
 the GPU's phase), so on every node the rule waits — the status's `freezeRule` and preflight's `install:supervisor` row, a grey
 information row, say "the engine reports no shown frames: the freeze rule waits for them", or, on a node with no open output,

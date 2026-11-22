@@ -6716,3 +6716,125 @@ Round 2 W1 notes:
     sound, so a sample a renumbered instance spoiled is dropped whole (said in `Others`' doc comment); summing the pid-joined shares
     for the refusal where the column is there is a later choice. The fold-in did make the node's share divide only over the kept
     samples that carry one for it.
+
+## Integrator notes from the round-2 fix batch (fix-supervisor-held)
+
+- Done: a product line, on the owner's answer 2 after the read-only check of the supervisor (Stagewatch's
+  `docs/ecosystem/owner-answers.md`, its last entry before "# Commit identity": "The supervisor sees its own lateness
+  (fix-supervisor-held): each step records how late it ran and how long its ask took, and a lost ask from a late step is counted as
+  the supervisor held, not as the engine silent; tested on the supervisor's manual clock (the check's test design); the words that
+  promise a stop never comes while frames move corrected"), with its answers 1 and 4 in the papers. The leave as edited:
+  `src/PlayMap.Supervisor/Policy/SupervisorCore.cs` (`SupervisorFacts`, the silence rule, its words and the core's summary),
+  `src/PlayMap.Supervisor/Windows/SupervisorHost.cs` (the step's two clock readings, the ask's deadline taken from the core, one log
+  line); `tests/PlayMap.Supervisor.Tests/Policy/SupervisorTests.cs`; `docs/INSTALL.md`, `docs/round3/design/installer.md`, one
+  sentence in `docs/round3/PLAN.md` (wp3-stability item 3), one entry in `docs/ROADMAP.md`; this entry. `LoopbackWire.cs` is not
+  edited: the ask's elapsed time is read around its call in the host, which also takes in the time the ask's own continuation waited
+  to run, the part a held supervisor adds. Nothing else under `src/`. No verb, no STATE field and no status-file field is added (the
+  status file's `freezeRule` words are unchanged; the engine's preflight reads their prefixes).
+  - The finding, as the check read it (`wf2/supervisor-held-findings.md`): no risk at HEAD, since the engine fills neither HEALTH's
+    shown frames nor its GPU phase, so `FreezeRuleActive` stays false and no rule fires. Once wp3-stability's heartbeat fills them,
+    the "HEALTH silent" rule stopped the engine whenever 10 s passed on the supervisor's monotonic clock since its last answered
+    step, and `SupervisorFacts` carried nothing that told "I was held" from "the engine did not answer"; its words claimed "no shown
+    frames moving while the GPU ran", neither read during the silence.
+  - The mend (the check's option 2). Each step's facts carry two readings on the supervisor's own monotonic clock (`Stopwatch`,
+    `SupervisorHost.NowNs`): `LateNs`, how long after the step was due it reached its HEALTH ask (due one tick, 500 ms, after the step
+    before began; the first step is due as it begins), and `AskNs`, how long the ask took to return (−1 when no ask was made). The
+    core steps at the reading that ends the ask, so every moment from the step's due time to that reading falls in one of the two,
+    and a hold after it is the next step's lateness. `SupervisorCore.WasHeld`: a lost ask is the supervisor held when `LateNs` is
+    more than `HeldMargin` (500 ms) or `AskNs` more than `AskDeadline` (400 ms, the host's deadline, now the core's number) plus
+    `HeldMargin`. How that is told, and why: the ask's deadline is armed only when the step runs, so a step that reached its ask late
+    was not run when it was due, and whatever the engine did meanwhile was not asked; an ask cancelled at its deadline returns within
+    a few milliseconds of it on a supervisor that runs (the cancel and the ask's continuation run on the supervisor's own pool:
+    recalled of the runtime, not read), so one that returned more than the margin past it had its own continuation held, and the answer it missed may have come while it
+    was held. An ask that fails at once (no listener) or ends at its deadline is the engine's silence. The margin is one tick of the
+    loop, since a step more than a tick late missed a tick; for the ask the same number is a generous bound, since a cancelled ask
+    returns within about one timer period of its deadline on a supervisor that runs. Set equal to a tick, not measured on a real
+    node.
+  - The rule now: on a lost answer the time since the step before (on the core's clock) is added to the engine's silence only when
+    the step was not held; a held step's time is counted apart, as the supervisor's, and moves nothing toward a stop. An answered
+    step clears both. The engine is stopped when 10 s of silence are counted while the freeze rule watches and the last answer said
+    the GPU ran. The old second condition (`nowNs - _framesMovedNs >= 10 s`) is gone: frames are read only from answers, so it
+    followed from the first (the check's reading) and named nothing observed. Its words: "HEALTH silent for 10 s of on-time steps[,
+    beside N s the supervisor was held] (the last answer, M s before, said the GPU ran; no shown frames were read since)", which name
+    frames and the GPU only as what the last answer said; "steps", not "asks", since a step that made no ask (no record, a port of 0,
+    a pid that is not the engine's) and ran on time adds to the silence too. The core keeps `LastStepHeld`, `HeldAsks` and
+    `LastHeld` (the words of the last held lost ask), all three and `WasHeld` internal (read by the host and, through
+    `InternalsVisibleTo`, the tests); the host writes `LastHeld` to `supervisor.log` once at the start of each run of held lost
+    asks, and only while the freeze rule watches.
+  - The cost, said in the core's summary, INSTALL.md and the installer design: on a machine kept so busy that the supervisor is held
+    at every step, a truly frozen engine is caught only once the supervisor has run on time for 10 s. What still reaches the silence:
+    holds below the margin at both readings (each counted step's interval is at most about a tick plus the deadline plus the two
+    margins, about 1.9 s, so 10 s counted is at least 10 s of real time in which no single hold at a reading passed 500 ms); and an
+    engine whose own load keeps HEALTH unanswered while the supervisor runs on time (the check's engine-side path: the next batch's).
+  - The other rules, unchanged, and whether a hold could fire each (the check's paths):
+    - The stale frames (3 s): no. It runs only on an answered step and compares the answer's count with the last answered count,
+      each made by the engine when asked, after the one before; a count that moved sets the stale clock to the late step's time.
+      (It rests on the planned count moving with every present, docs/round3/PLAN.md wp3-stability item 3.)
+    - The phase budget (30 s while starting or rebuilding): yes, narrowly, and not mended here (the brief's "unchanged"). The phase's
+      age is the answer's `since` read against the wall clock when the step's facts are built, after the ask returns; an answer read
+      just before a long hold carries a phase that may have ended since, and its age grows by the hold (the check's example: read 24 s
+      into a 25 s rebuild, then an 8 s hold, reads 32 s). Open, below.
+    - Restarts, the backoff and the five-in-ten-minutes stop: no. They run on the engine's exit (the process handle), which a hold
+      only delays seeing; a delayed restart is later, never an extra one.
+    - The stop's grace (5 s): only after a stop already decided, and only for a hold between the step's clock reading and the stop
+      event's set; the engine, a process of its own, keeps its real grace for a hold after the set. That clock reading is now the
+      ask's end, before the answer is parsed and the facts built, so the window also takes in the parse and the facts.
+- Tests: `tests/PlayMap.Supervisor.Tests/Policy/SupervisorTests.cs`, on the existing manual clock (the check's test design), written
+  first and run against the core with the two fields and no rule (the finding): 14 failed. With the mend all 54 of the class pass
+  (53 before the review's added test, which was written after the mend and mutation-proved below).
+  - `ALostAskFromAHeldStepIsTheSupervisorHeldNeverTheEngineSilent` (Theory, H = 9 400, 9 500, 12 000, 20 000 ms, the hold before the
+    ask or inside it), after 10 s of answered moving frames: without the rule H = 9 500, 12 000 and 20 000 returned `RequestStop`
+    both ways (H = 9 400 stopped nothing and failed only on the held reading); with it none stops, the step is counted held once,
+    and answers after it are watched as before.
+  - `AHeldStepWhoseAskWasAnsweredWithMovingFramesStopsNothing` (Theory, the check's control): passes without the rule and with it.
+  - `HoldsThatAddUpAreNeverTheEngineSilentAndOnTimeSilenceAfterThemIsCountedFromThem`: two lost asks held 5 s each; without the
+    rule the second stopped; with it neither, and on-time silence after them stops the engine exactly 10 s later, its words naming the
+    10 s held beside it.
+  - `AHoldBetweenOnTimeSilentStepsNeitherAddsToTheSilenceNorClearsWhatWasCounted` (the review's): 6 s of on-time silence, one lost
+    ask held 5 s, then on-time silence: stopped exactly 4 s after the hold, "HEALTH silent for 10 s of on-time steps, beside 5 s the
+    supervisor was held (the last answer, 15 s before, ...)": a hold neither adds to the counted silence nor clears it.
+  - `ALostAskFromAHeldStepWithEveryOutputClosedStopsNothing`: without the rule a stop; with it none.
+  - `AnEngineSilentWhileTheSupervisorRunsOnTimeIsStoppedAfterTenSecondsOfItsSilence`: the readings of a supervisor that runs (20 ms
+    late, each lost ask 15 ms past its deadline): stopped at exactly 10 s, nothing counted held, in the new words.
+  - `TheMarginDividesTheSupervisorOnTimeFromTheSupervisorHeld` (Theory): at the margin, on time (stopped after 10 s); a nanosecond
+    past it, held (never stopped in 40 steps), for the lateness, the ask, and a step with no ask.
+  - `TheMarginAndTheDeadlineAreTheCoresOwn`: 500 ms and 400 ms.
+  - `HealthSilentTenSecondsWithNoFramesMovingWhileTheGpuRanStopsTheEngine` (the on-time silent steps) is unchanged and still a stop
+    at exactly 10 s; `ASlowHealthWhileFramesMoveNeverStopsTheEngine` unchanged and green.
+  - Mutation-proved on this bench, each built and the class run, the source put back after: `WasHeld` always false (the rule
+    removed) fails 13 (every held case and the three held margins); `HeldMargin` zero fails 6 (the on-time engine silence, the
+    adding-up test's on-time tail, the three on-time margins and the constant); the ask's half removed fails 6 (each hold inside the
+    ask, the adding-up test and the ask's margin); the lateness half removed fails 8 (each hold before the ask, closed outputs, the
+    adding-up test and the two lateness margins); the held branch clearing the counted silence (`_silentNs = 0`), which would let a
+    periodic hold keep a frozen engine from ever being stopped, fails 1
+    (`AHoldBetweenOnTimeSilentStepsNeitherAddsToTheSilenceNorClearsWhatWasCounted`; the other 53 pass under it, the review's
+    finding).
+  - The validate, on the 10.0.404 SDK, `PLAYMAP_SCHEDULING_PROBE` and `PLAYMAP_WRITE_FIXTURES` unset: the build whole, no warning, no
+    error (its analysis reported nothing in any file); the Supervisor suite whole, 119 passed and 33 not run on Linux (every one a
+    `[WindowsFact]` under `Windows/`: `EngineIdentityWindowsTests` 8, `MachineFoldersTests` 9, `SupervisorStopTests` 8,
+    `SupervisorPipeTests` 4, `RunningFromInstallTests` 2, `GrownRecordTests` 1, `SessionProbeTests` 1), not counted green; the Engine
+    classes that read the supervisor's status or load its assembly (`git grep -l 'SupervisorStatus\|PlayMap.Supervisor' --
+    tests/PlayMap.Engine.Tests`: the `Install` namespace, `PidRecordHostTests`, `ModuleRuleTests`, `WindowsPlatformTests`) 28
+    passed. No Engine class reads `SupervisorFacts`.
+- Files: `src/PlayMap.Supervisor/Policy/SupervisorCore.cs`; `src/PlayMap.Supervisor/Windows/SupervisorHost.cs`;
+  `tests/PlayMap.Supervisor.Tests/Policy/SupervisorTests.cs`; `docs/INSTALL.md`; `docs/round3/design/installer.md` (the freeze row,
+  a held-supervisor row, the never row, the heartbeat row's second path, the `SupervisorTests` row); `docs/round3/PLAN.md` (one
+  sentence); `docs/ROADMAP.md` (one entry); this entry.
+- Open:
+  - The engine-side path (the check's): the engine answers HEALTH on its pool threads below its own AboveNormal decode workers and
+    render thread, so a saturated engine can leave HEALTH unanswered while its frames move, and a supervisor that runs on time then
+    counts that as silence and stops it. fix-engine-health-thread (the owner's answer 3) answers HEALTH from a snapshot on a thread
+    of its own above the pools; the heartbeat (wp3-stability item 3) lands only after both, by the plan's added sentence.
+  - The heartbeat with no round trip, the better design at the root (the owner's answer 4): in docs/ROADMAP.md, not built.
+  - The phase budget's narrow path above: an answer read before a hold carries an old phase. A design, not built: the host passes
+    the step's `AskNs` with the phase's age and the core judges the phase's age at the earliest the answer could have been made
+    (the age less the ask's elapsed time) whenever the step was held; or the heartbeat with no round trip, whose record carries the
+    time it was written. The owner's call, since the rule was to stay unchanged.
+  - The host's part is read, not run: the two readings in `SupervisorHost.StepAsync` and the log line run only on Windows, and no
+    host test drives a held step. The check's host test (a `[WindowsFact]` with the clock and the ask through `SupervisorPlaces`, the
+    ask advancing fake time inside itself and returning null) needs those seams in `SupervisorPlaces`, which this batch did not add
+    since the core carries the rule; a batch that adds them can reuse `SupervisorStopTests`' place and fake engine.
+  - The margin (500 ms) is set equal to the loop's tick, not measured. Whether a held supervisor's ask is
+    lost, and how often a real node holds a Normal-class service past 500 ms at the two readings, is a rig line (the check's: a
+    priority-probe leg running the supervisor's real ask loop beside a stub engine that logs when it wrote each answer), the owner's
+    call; the probe's tools were not touched here.

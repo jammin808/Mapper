@@ -537,6 +537,15 @@ show user's session (docs/INSTALL.md, docs/wire/install.md); proven elevated on 
   notification policies, a manifest beside each dump, `DnsServiceRegister`, an SBOM; the rest of docs/round3/PLAN.md §5.6 item 4's
   `LicenceTests` (no NDI, Aftermath, WARP, AMD or capture-card binary, FFmpeg reporting no `--enable-gpl`, nothing of WiX, and every
   notice present: the notices of the libraries linked into the FFmpeg DLLs and of glslang inside shaderc), at the integration pass.
+- **Planned, the better design: a heartbeat with no round trip.** Today the supervisor asks the engine HEALTH over loopback every
+  half second and reads silence when no answer comes within 400 ms; since fix-supervisor-held a lost answer from a step the
+  supervisor itself ran late is counted as the supervisor held, and fix-engine-health-thread is to answer HEALTH on a thread of the
+  engine's own, but an ask can still be lost. The design at the root, the installer design's second path
+  (docs/round3/design/installer.md §5, "The heartbeat"): the engine writes its shown-frame count and GPU phase, with the time it
+  wrote them, where the supervisor reads them with no deadline — a shared section or the observer's status file — so no ask exists to
+  be lost, and a held supervisor reads, once it runs, a count whose age says whether the engine moved. The larger change: a
+  cross-session object made for each start with an access list like the stop event's (the show user writes, SYSTEM reads), its tests
+  on both jobs and its papers. Kept in the plans by the owner's answer of 2026-11-22; not built.
 - **Not proven.** L11 (the installed node on IoT Enterprise LTSC: auto-logon, M9 after a cold boot, Shell Launcher, an upgrade
   refused while armed), L18 (the unsigned installer on clean Home and Pro), L21 (ReadyToRun's first ten minutes) and L23's install
   part (the show account and the supervisor on a clean Home node) are not run; that the show account's right reaches the engine's

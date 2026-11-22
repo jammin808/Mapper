@@ -36,7 +36,10 @@ public enum SupervisorAction
 
 /// <summary>What the supervisor saw at one step. <see cref="ShownFrames"/> is the sum of the open outputs' shown-frame counts by
 /// HEALTH (−1 unknown: an engine that reports none, or a HEALTH not answered); <see cref="GpuPhaseSinceNs"/> is the phase's start on
-/// the supervisor's own clock.</summary>
+/// the supervisor's own clock. <see cref="LateNs"/> is how long after the step was due (one tick after the step before began) it
+/// reached its HEALTH ask, and <see cref="AskNs"/> how long that ask took to return (−1: no ask was made), both on the supervisor's own
+/// monotonic clock: the two readings by which the supervisor tells its own hold from the engine's silence
+/// (<see cref="SupervisorCore.WasHeld"/>).</summary>
 public readonly record struct SupervisorFacts(
     bool ShowSessionActive,
     bool EngineAlive,
@@ -45,12 +48,19 @@ public readonly record struct SupervisorFacts(
     bool OutputsOpen,
     GpuPhase GpuPhase,
     long GpuPhaseSinceNs,
-    long GpuEpoch);
+    long GpuEpoch,
+    long LateNs = 0,
+    long AskNs = -1);
 
 /// <summary>Pure: given the time on a monotonic clock (ns) and what it observed, what the supervisor does next. It restarts an engine
 /// that exits with backoff, stops trying after too many restarts in the window, and stops an engine whose open outputs' shown frames
-/// have stood still for the stale time while HEALTH says the GPU runs — never while the count is unknown, never during a start or a
-/// rebuild within its budget, never for a slow HEALTH while frames move. Every stop and restart keeps its cause in words.</summary>
+/// have stood still for the stale time while HEALTH says the GPU runs, or whose HEALTH went unanswered for <c>HealthSilent</c> (10 s)
+/// of steps the supervisor ran on time after an answer that said the GPU ran — never while the count is unknown, never during a start
+/// or a rebuild within its budget, never for a HEALTH that answers at least once in every 10 s of on-time steps. A lost answer from a
+/// step the supervisor ran late, or whose ask returned late, is the supervisor held (<see cref="WasHeld"/>): it is counted neither as
+/// the engine's silence nor toward a stop. The cost: on a machine kept so busy that the supervisor is held at every step, a truly
+/// frozen engine is caught only once the supervisor has run on time for 10 s. Every stop and restart keeps its cause in words, which
+/// name only what an answer said.</summary>
 public sealed class SupervisorCore
 {
     private const long NsPerTick = 100;
@@ -65,6 +75,9 @@ public sealed class SupervisorCore
     private long _framesMovedNs;
     private long _lastEpoch = long.MinValue;
     private long _lastAnswerNs = -1;
+    private long _lastStepNs;
+    private long _silentNs;
+    private long _heldNs;
     private GpuPhase _lastPhase = GpuPhase.Unknown;
     private SupervisorState _afterStop = SupervisorState.Backoff;
 
@@ -75,6 +88,32 @@ public sealed class SupervisorCore
     }
 
     public SupervisorState State { get; private set; } = SupervisorState.WaitingForSession;
+
+    /// <summary>How long the supervisor's HEALTH ask waits for its answer before it is silence (the host arms it at every ask).</summary>
+    public static readonly TimeSpan AskDeadline = TimeSpan.FromMilliseconds(400);
+
+    /// <summary>How long after its due time a step may reach its ask, and how long past <see cref="AskDeadline"/> a lost ask may
+    /// return, and still be a supervisor that ran on time: one tick of the step loop (500 ms), since a step more than a tick late
+    /// missed a tick; and, for the ask, the same number as a generous bound, since an ask cancelled at its deadline returns within about
+    /// one timer period of it on a supervisor that runs. Set equal to a tick, not measured on a real node.</summary>
+    public static readonly TimeSpan HeldMargin = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Whether the last step's lost ask was counted as the supervisor held.</summary>
+    internal bool LastStepHeld { get; private set; }
+
+    /// <summary>Lost asks counted as the supervisor held since this core was made.</summary>
+    internal long HeldAsks { get; private set; }
+
+    /// <summary>What the last lost ask counted as the supervisor held read ("" none yet).</summary>
+    internal string LastHeld { get; private set; } = "";
+
+    /// <summary>Pure: whether a lost ask's step was the supervisor held rather than the engine silent. Its ask was armed only when the
+    /// step ran, so a step that reached its ask more than <see cref="HeldMargin"/> after it was due was not run when due; and an ask
+    /// cancelled at <see cref="AskDeadline"/> returns within the margin of it on a supervisor that runs, so one that returned later had
+    /// its own continuation held past the deadline, and the answer it missed may have come while it was held. An ask that failed at
+    /// once (no listener) or ended at its deadline is the engine's, and a step that made no ask (−1) is judged by its lateness alone.</summary>
+    internal static bool WasHeld(in SupervisorFacts facts) =>
+        facts.LateNs > HeldMargin.Ticks * NsPerTick || facts.AskNs > (AskDeadline + HeldMargin).Ticks * NsPerTick;
 
     /// <summary>Restarts within the window now.</summary>
     public int Restarts => _restarts.Count;
@@ -174,6 +213,10 @@ public sealed class SupervisorCore
         _lastFrames = -1;
         _framesMovedNs = nowNs;
         _lastAnswerNs = nowNs;
+        _lastStepNs = nowNs;
+        _silentNs = 0;
+        _heldNs = 0;
+        LastStepHeld = false;
         _lastEpoch = long.MinValue;
         _lastPhase = GpuPhase.Unknown;
         FreezeRuleActive = false;
@@ -210,8 +253,15 @@ public sealed class SupervisorCore
 
     private SupervisorAction Watch(long nowNs, in SupervisorFacts facts)
     {
+        var sinceStep = nowNs - _lastStepNs;
+        _lastStepNs = nowNs;
+        LastStepHeld = false;
         if (facts.HealthAnswered)
+        {
             _lastAnswerNs = nowNs;
+            _silentNs = 0;
+            _heldNs = 0;
+        }
         if (facts.GpuEpoch != _lastEpoch && facts.HealthAnswered)
         {
             // A new device epoch starts the count again: frames of the old device say nothing of the new one.
@@ -223,11 +273,28 @@ public sealed class SupervisorCore
 
         if (!facts.HealthAnswered)
         {
-            var silent = nowNs - _lastAnswerNs;
-            if (FreezeRuleActive && _lastPhase == GpuPhase.Running && silent >= _policy.HealthSilent.Ticks * NsPerTick
-                && nowNs - _framesMovedNs >= _policy.HealthSilent.Ticks * NsPerTick)
+            // The time since the step before is the engine's silence only when this step ran on time; a held step's time is the
+            // supervisor's, so a hold of any length, or holds that add up, never stand for a silent engine.
+            if (WasHeld(facts))
+            {
+                _heldNs += sinceStep;
+                HeldAsks++;
+                LastStepHeld = true;
+                var ask = facts.AskNs < 0
+                    ? "no ask was made"
+                    : string.Create(CultureInfo.InvariantCulture, $"the ask took {facts.AskNs / 1_000_000_000.0:0.0#} s against its {AskDeadline.TotalMilliseconds:0} ms deadline");
+                LastHeld = string.Create(CultureInfo.InvariantCulture,
+                    $"the supervisor was held: the step reached its ask {facts.LateNs / 1_000_000_000.0:0.0#} s after it was due and {ask}: the lost HEALTH answer is not counted as the engine's silence");
+                return SupervisorAction.None;
+            }
+            _silentNs += sinceStep;
+            // Frames are read only from answers, so none were read during the silence: the words say what the last answer said.
+            if (FreezeRuleActive && _lastPhase == GpuPhase.Running && _silentNs >= _policy.HealthSilent.Ticks * NsPerTick)
+            {
+                var held = _heldNs > 0 ? string.Create(CultureInfo.InvariantCulture, $", beside {_heldNs / 1_000_000_000.0:0.#} s the supervisor was held") : "";
                 return Frozen(nowNs, string.Create(CultureInfo.InvariantCulture,
-                    $"HEALTH silent for {silent / 1_000_000_000.0:0.#} s with no shown frames moving while the GPU ran"));
+                    $"HEALTH silent for {_silentNs / 1_000_000_000.0:0.#} s of on-time steps{held} (the last answer, {(nowNs - _lastAnswerNs) / 1_000_000_000.0:0.#} s before, said the GPU ran; no shown frames were read since)"));
+            }
             return SupervisorAction.None;
         }
 

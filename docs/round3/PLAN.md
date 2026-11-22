@@ -1204,7 +1204,7 @@ GPU's are claimed.
    preflight row, HEALTH's outputs category. (8 h)
 3. The heartbeat: HEALTH's reserved `ShownFrames` (the present ledger's count, from display statistics where there are any, swap
    returns on GL) and `ObservedFrames` filled, −1 until known, and HEALTH's `gpu` phase kept `running`; the supervisor's rule reads
-   them. (2 h)
+   them. The heartbeat lands only after fix-supervisor-held and fix-engine-health-thread, by the owner's answer of 2026-11-22. (2 h)
 4. `LATENCY STEP`: a step in the watermark's region (or, through a camera in rehearsal, the whole output) at chosen leader
    instants, observed; glass-to-glass p50 and p95 per output; refused while armed (Heavy), refused with neither an observer nor a
    camera, naming both. wp3-present adds each stage's share. (5 h)
