@@ -65,3 +65,19 @@ leg-08-high-core1,samples_in_window,1,one sample overlaps the window
 leg-08-high-core1,others_in_no_frame,no sample covers it,a stretch no sample overlaps says so and names no process
 leg-09-normal-core1,burner_pin,not pinned,a whole-core-free leg whose burner did not pin is never read as pinned
 leg-09-normal-core1,samples_in_window,not recorded,a leg with no every-process rows says they were not recorded
+leg-10-high-n1-pinned,burner_pin,pinned,the pinned one-free leg's burner pinned as its plan put it reads as pinned
+leg-10-high-n1-pinned,missed_slots,2,the pinned one-free leg is read as every burned leg
+leg-11-node-high,lead_s,0.050,a node leg's lead runs from the victim's ready (the node was at work before it) to the window's start
+leg-11-node-high,samples_in_window,2,the samples kept over the window: the impossible one is not counted among them
+leg-11-node-high,samples_refused_in_window,1,a sample whose shares sum past the machine's logical processors by more than the margin is refused
+leg-11-node-high,samples_refused_in_leg,2,the refused samples are counted over the leg too: one after the window summing 4.60 on 4 is refused (past the margin of 0.5) and one summing 4.40 is kept
+leg-11-node-high,others_in_window,svchost#57 / svchost#56 (pid 600; base 8) 0.04 processor-s; pwsh#1 (pid 2948; base 13; the sampler) 0.01 processor-s; svchost#57 (pid 601; base 8) 0.01 processor-s (2 samples),who else ran is joined by pid with its pid-joined share: pid 600 renamed #56 is one entry and pid 601 under its old name another; the node and the refused sample's process are never named
+leg-11-node-high,sampler_processor_s_in_window,0.01,the sampler's own processor time over the window from its own rows
+leg-11-node-high,node_class_asked,high,the class the node's home asked
+leg-11-node-high,node_class_at_work,High (base 13),the class the OS read back once the node was at work
+leg-11-node-high,node_class_at_end,Normal (base 8),the class the OS read back at the window's end: its own column; never the at-work one
+leg-11-node-high,node_processors_in_window,3.00,the node's processors over the window from the controller's stamps of its processor time
+leg-11-node-high,node_processors_by_sampler,3.00 (pid 5000; 1 of 2 samples kept; over 0.1 s of the window),the node's processors by its pid in the sampler's kept samples that carry its share: a sample whose node row has no pid-joined share is in neither the sum nor the divisor
+leg-11-node-high,node_groups,mesa llvmpipe 1.20; hap workers 0.40; hap decode 0.20; compute pool 0.10; hap read 0.10; render 0.10 (1 thread gone by the end; not counted),the node's threads by group over its stamps: a thread born in the window counts from nothing and one gone by its end is counted apart
+leg-11-node-high,node_fps,12.5 / 11.0,the outputs' fps as STATE gave it at the window's start and end
+leg-11-node-high,node_decode,dropped 3 / 9; late 1 / 2; p95 12.000 ms,the decoders' figures as STATE gave them at both bounds

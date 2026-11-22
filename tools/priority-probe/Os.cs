@@ -289,6 +289,171 @@ internal static partial class Os
             : "not pinned: SetThreadAffinityMask failed (error " + Marshal.GetLastPInvokeError().ToString(CultureInfo.InvariantCulture) + ")";
     }
 
+    /// <summary>The plan of the pinned one-free leg (high-n1-pinned): the burner's threads pinned one to each of logical processors 0 to
+    /// n-2, logical processor n-1 left free, so the same one logical processor stays free that the unpinned n1 legs leave free on
+    /// average and only the pinning differs from them. Made on one processor group of two or more logical processors; the words say
+    /// whether the free one's core has another logical processor (on SMT the free one is the sibling of a busy one, never a whole
+    /// core), read from <see cref="CoreSets"/> where it reads. A plan, never a pin: only the burner pins, on Windows.</summary>
+    public static CorePlan LessOnePinned()
+    {
+        var n = Environment.ProcessorCount;
+        var lessOne = Math.Max(1, n - 1);
+        if (n < 2)
+            return new CorePlan(false, lessOne, [], [], false, "one logical processor: none can be left free; the burner runs unpinned");
+        if (n > 64)
+            return new CorePlan(false, lessOne, [], [], false, "more than 64 logical processors: this probe pins within group 0 only; the burner runs unpinned");
+        var pinned = Enumerable.Range(0, n - 1).ToList();
+        var free = n - 1;
+        var layout = CoreSets(out var words);
+        var shape = layout is { } l && l.Cores.FirstOrDefault(c => c.Processors.Contains(free)) is { } core
+            ? core.Processors.Count > 1
+                ? $"logical processor {free.ToString(CultureInfo.InvariantCulture)} left free: its core's other logical processors ({Join(core.Processors.Where(p => p != free))}) are pinned busy (SMT: no whole core is free)"
+                : $"logical processor {free.ToString(CultureInfo.InvariantCulture)} left free: a core of its own (no SMT sibling)"
+            : $"logical processor {free.ToString(CultureInfo.InvariantCulture)} left free; its core not read ({words})";
+        return new CorePlan(true, pinned.Count, pinned, [free], layout?.Smt ?? false, shape.Replace(',', ';'));
+    }
+
+    /// <summary>Another process's processor time so far in milliseconds, or NaN where it is gone or cannot be read.</summary>
+    public static double ProcessCpuMs(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return p.TotalProcessorTime.TotalMilliseconds;
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            return double.NaN;
+        }
+    }
+
+    /// <summary>Another process's class and base priority as the OS reports them now, read through a fresh process object; words in place
+    /// of a value where the read fails (on Linux the class is what the runtime maps the process's nice value to).</summary>
+    public static (string Class, string Base) ReadClassOf(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            string cls;
+            try
+            {
+                cls = p.PriorityClass.ToString();
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or PlatformNotSupportedException or NotSupportedException)
+            {
+                cls = "unread: " + e.Message;
+            }
+            return (cls, p.BasePriority.ToString(CultureInfo.InvariantCulture));
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            return ("unread: " + e.Message, "unread");
+        }
+    }
+
+    /// <summary>Every thread of a process with its name and its processor time in milliseconds, read now: on Windows each thread opened for
+    /// limited query (its description, which the runtime sets from a managed thread's name, and its times, counted in clock ticks); on
+    /// Linux /proc/PID/task (each thread's comm and its user and system time in clock ticks). A thread that ends between the list and
+    /// its read, or cannot be opened, is left out; a thread with no name reads "(no name)". Empty where the process cannot be read.</summary>
+    public static List<ThreadTime> Threads(int pid)
+    {
+        var list = new List<ThreadTime>();
+        try
+        {
+            if (OperatingSystem.IsWindows())
+                WindowsThreads(pid, list);
+            else if (OperatingSystem.IsLinux())
+                LinuxThreads(pid, list);
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException
+                                      or UnauthorizedAccessException or NotSupportedException)
+        {
+            // The process is gone or not readable: the threads read so far stand, the rest are not there to read.
+            list.Add(new ThreadTime(-1, "(not read: " + e.GetType().Name + ")", double.NaN));
+        }
+        return list;
+    }
+
+    private const uint ThreadQueryLimitedInformation = 0x0800;
+
+    private static void WindowsThreads(int pid, List<ThreadTime> list)
+    {
+        using var p = Process.GetProcessById(pid);
+        foreach (ProcessThread t in p.Threads)
+        {
+            var handle = OpenThread(ThreadQueryLimitedInformation, false, (uint)t.Id);
+            if (handle == IntPtr.Zero)
+                continue;
+            try
+            {
+                if (!GetThreadTimes(handle, out _, out _, out var kernel, out var user))
+                    continue;
+                var name = "(no name)";
+                if (GetThreadDescription(handle, out var text) >= 0 && text != IntPtr.Zero)
+                {
+                    var read = Marshal.PtrToStringUni(text);
+                    _ = LocalFree(text);
+                    if (!string.IsNullOrWhiteSpace(read))
+                        name = read;
+                }
+                list.Add(new ThreadTime(t.Id, Clean(name), (kernel + user) / 1e4));
+            }
+            finally
+            {
+                _ = CloseHandle(handle);
+            }
+        }
+    }
+
+    private static void LinuxThreads(int pid, List<ThreadTime> list)
+    {
+        var tick = sysconf(2);
+        var perTick = tick > 0 ? 1000.0 / tick : 10.0;
+        foreach (var dir in Directory.GetDirectories($"/proc/{pid.ToString(CultureInfo.InvariantCulture)}/task"))
+        {
+            string raw;
+            try
+            {
+                raw = File.ReadAllText(Path.Combine(dir, "stat"));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // The thread ended between the list and its read: it is not there to read.
+                continue;
+            }
+            var open = raw.IndexOf('(', StringComparison.Ordinal);
+            var close = raw.LastIndexOf(')');
+            if (open < 0 || close < open)
+                continue;
+            var fields = raw[(close + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length < 13 || !long.TryParse(fields[11], NumberStyles.Integer, CultureInfo.InvariantCulture, out var utime)
+                || !long.TryParse(fields[12], NumberStyles.Integer, CultureInfo.InvariantCulture, out var stime))
+                continue;
+            var name = raw[(open + 1)..close];
+            list.Add(new ThreadTime(int.Parse(Path.GetFileName(dir), NumberStyles.Integer, CultureInfo.InvariantCulture),
+                Clean(name.Length > 0 ? name : "(no name)"), (utime + stime) * perTick));
+        }
+    }
+
+    /// <summary>A name as one cell: no comma, no line break, no control character.</summary>
+    private static string Clean(string name) => new([.. name.Select(c => c is ',' ? ';' : char.IsControl(c) ? ' ' : c)]);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial IntPtr OpenThread(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint threadId);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial int GetThreadDescription(IntPtr thread, out IntPtr description);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial IntPtr LocalFree(IntPtr memory);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(IntPtr handle);
+
+    [LibraryImport("libc")]
+    private static partial long sysconf(int name);
+
     [LibraryImport("ntdll.dll")]
     private static partial int NtQueryTimerResolution(out uint minimum, out uint maximum, out uint current);
 
@@ -316,6 +481,9 @@ internal static partial class Os
         public long Nanoseconds;
     }
 }
+
+/// <summary>One thread of a process as <see cref="Os.Threads"/> read it: its id, its name and its processor time in milliseconds.</summary>
+internal readonly record struct ThreadTime(int Id, string Name, double CpuMs);
 
 /// <summary>One physical core: its processor group and its logical processors' numbers within it.</summary>
 internal sealed record CoreSet(int Group, IReadOnlyList<int> Processors);

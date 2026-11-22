@@ -6546,3 +6546,173 @@ Round 2 W1 notes:
     `…unreadable-<unix ms>`), so that none waits, is the owner's call.
   - Read, not run: the Windows paths of the move aside and of the save over a record whose ACL refuses this account (the seam stands
     for the read on every platform; the refused move is made by a folder in the way, which Windows is read to answer as access denied).
+
+## Integrator notes from the round-2 fix batch (fix-priority-probe-node)
+
+- Done: tools and CI only, no file under `src/`, no test project, on the owner's answer 1 after run 502 (Stagewatch's
+  `docs/ecosystem/owner-answers.md`, its last entry before "# Commit identity": "the real node's demand is measured next (tools and CI
+  only, a leave of its own: fix-priority-probe-node): the engine itself playing a HAP clip with its Compute and decode pools busy, at
+  HIGH and at NORMAL, recording its processor use and what a Normal process beside it loses; the sampler made one the busy process
+  cannot starve, and the reader refusing a sample whose processes sum past the machine and joining by pid"). It builds the next
+  `prioritycost` dispatch, no more; the dispatch is the orchestrator's once this is green on its push. The node's default class, the
+  pools, the CPU-sets rule, the supervisor's and the desk's class are as they were, and nothing here recommends a product default. The
+  leave as edited: `tools/priority-probe/` (new `Node.cs`; the project file stays `.csproj.in`), `tools/ci-tests.ps1` (the sampler's
+  every-process branch and `-PriorityCost`), `.github/workflows/build.yml` (the `prioritycost` job: its env, the windows job's FFmpeg
+  and Mesa steps by their anchors, `timeout-minutes`, its comment and its input's description; the Linux self-check step's comment;
+  no default job's step changed), README's Build section, this entry. `tools/PlayMap.Node` was read, not edited.
+  - Run 502's corrected table in short (the check's, `wf2/ci502-findings.md`; missed slots of 1200, each repeat in run order):
+    baseline 0, 0; the warm-up 44 (never counted with its kind); high-n1 42, 41, 41 (3.4-3.7 %; about 8-10 % in the burner's first
+    ~2.7 s); normal-n1 2, 3, 65 (#22 met load from outside the probe); buy-high 0, 0 and buy-normal 79, 100 (6.6 and 8.3 %: a light
+    synthetic loop in a process of its own, not the node's render loop); high-core1 7, 0 (6 of the 7 while Windows servicing ran) and
+    normal-core1 0, 0 (confounded: a free whole core, one burner thread fewer and hard pinning changed at once); normal-n 106, 281,
+    299 (#18 and #19 disturbed; the clean figure is #15 with runs 498's 96-116 and 493's 104); high-n 1199, 1194, 1196; high-n-runner
+    1193. The sampler (base 6) wrote no row in 11 of 24 legs; #02 and #13 held samples summing to 16.25 and 4.85 processors on four,
+    the counter having renumbered instances between its collections (svchost#57 became #56), and the fenced reader named their
+    svchost figures as load.
+  - The check's standings this batch answers: "it does not measure the real node" (the node legs, (1)); "give the sampler a source
+    the burner cannot starve, and measure its own cost beside it" ((2)); "the reader should refuse a sample whose processes sum to
+    more than the machine, and pair processes by pid, not by counter instance" ((3)); "core1 is confounded; a high-n1 leg with its 3
+    threads pinned would separate (a) from (b) and (c)" (`high-n1-pinned`, (4)). Not answered here: the 8.1 s freeze of run 498, the
+    ~551 ms rhythm's source and the intruder of #18, #19 and #22 (a kernel trace would name them; (2) reads whether one is on the
+    runner and uses none), a CPU-sets leg, and anything on a Windows 11 client.
+  - (1) The node as the busy process. What the code allows was read first and measured on this bench (4 logical processors, Mesa
+    llvmpipe under Xvfb, `tools/PlayMap.Node` Debug, a 4K HAP Q clip): a node decodes only what an enabled output draws
+    (`RenderEngine.cs` skips a disabled output at 400; `EngineSources.Acquire`, which opens and reads a source, is reached only from a
+    draw): with the clip routed to a disabled output the node used 0.08 processors and opened no decoder. So the brief's "outputs NOT
+    enabled" leaves nothing for the node's decode to do, and each node leg enables one output per clip, the smallest the bench showed
+    to draw (64 x 36). On a runner with no GPU every draw is Mesa's on the processors, and most of the node's demand is Mesa's: one 4K
+    clip on one 64 x 36 output, 3.65 processors (llvmpipe's threads 3.13, the HAP workers and decode thread 0.35); four, 3.1 (llvmpipe
+    about 2.2, the HAP workers and decode threads about 0.56) at 8 to 14 fps; with `LP_NUM_THREADS=0` Mesa's work moves onto the
+    render thread and the node falls to 1.37 processors at 3 to 5 fps (not used: it changes Mesa, not the node). The clips: four HAP
+    Q clips of 3840 x 2160 at 60 fps, one second, FFmpeg's `testsrc2` with the hue a quarter turn more for each (no two one file:
+    the library keeps one item per content hash), 16 chunks a frame (the product's recipe for that width, `Recipe.ChunksFor`; with
+    FFmpeg's default of one chunk the HAP workers stayed idle on the bench), made by the pinned FFmpeg's hap encoder in the job before
+    the legs (two encodings of one clip read the same SHA-256 on this bench's FFmpeg; the pinned Windows build's is not read) and kept
+    in `RUNNER_TEMP` (about 170 MB, never uploaded). The node (`Node.cs`, `NodeRun`) is started per leg headless on a home made in the
+    machine's temporary files (its settings hold a pairing token and its keys folder the node's keys: deleted after the node stops, its
+    engine log copied into the leg's folder first), the settings the defaults (`NodeSettings.CreateDefault`) but for loopback, ports 0,
+    no announce, loopback trusted and `machine.process` high or normal, written with `NodeHome`'s own JSON options, so the node claims
+    its class itself (the product's setting; the probe never sets the node's class); then, over its line wire, `MEDIA IMPORT` of each
+    clip, `PROJECT GET` until each is imported, `PROJECT OPEN` of that project with one output per clip (64 x 36, enabled, mode
+    source), and STATE until every decoder is open; then the class read back from the OS (Windows: a leg whose node reads another
+    class than its home asked is broken) and STATE's `process.priority` claim. Only then is the victim started; for the load kinds the
+    NORMAL burner on every logical processor follows as in every leg. The controller claims High by its own hand (a measurement's
+    class; children it starts after take Normal by Windows' rule, and the victim sets its own) and stamps, from a thread at the
+    highest thread priority at the victim's window's bounds, the node's processor time, its every thread's (`Os.Threads`: on Windows
+    each thread's description and times, on Linux `/proc/PID/task`) and STATE's figures; the node is stopped (its tree) once the victim
+    has ended. Kinds (`Legs.All`): `node-high`, `node-normal` (the victim alone beside it), `node-high-load`, `node-normal-load` (beside
+    a NORMAL burner on every logical processor), each twice, A B C D at places 10-13 and D C B A at 21-24. Rows: `node.csv` (class
+    asked, read at work and at the window's end, STATE's claim, clips, output size, renderer, instants, processor time at both bounds,
+    STATE's mean fps, dropped frames, missed vblanks and frame p95 of the enabled outputs, each decoder's dropped and late frames and
+    decode p95, at both bounds, as STATE counts them: the bench saw them both stand still and grow within one window, so the reader
+    prints start and end and never a difference; a figure STATE does not carry is an empty cell, never a zero: missed vblanks only
+    from an enabled output whose `present` is an object, since an output with no present view writes `present: null`; then, at the
+    row's end, STATE's `thread.render.mmcss` and `thread.present.mmcss` claims, read back and applied), `node.threads.csv` (each
+    thread's id, name, group and processor time at both bounds). The node is stopped (its tree) and waited for, at most 10 s
+    (`NodeRun.ExitBound`; on Windows a stop returns before the process's handles close, so a node not ended by then is said in its
+    words and breaks the leg), before its engine log is copied and its home deleted (tried five times 0.5 s apart while a file in it
+    is still held; one left behind is said in the row's words); the victim is started inside the try whose finally stops the node,
+    so a fault at its start never leaves a HIGH node at work through the later legs. A node leg's own bounds sum to about 9 minutes
+    (the up line 90 s, five asks at 20 s, 60 s for the imports and 60 s for the decoders, the ready file 60 s, lead and window 23 s,
+    90 s after it, 60 s for the stamps, 10 s for the exit), past the step's 4-minute leg deadline: a node leg that slow is stopped by
+    the step as having run past its deadline, its node with it (the probe's tree), not broken with the probe's own words.
+  - (2) The sampler. With `-EveryProcess` (the `prioritycost` job's alone) the sampler claims High by its own hand and sets its loop's
+    thread to the highest thread priority (15 in a High process, above a HIGH process's normal threads at 13 and its AboveNormal ones
+    at 14: High is the minimum beside a HIGH busy process, and below Realtime nothing is above 15 at a process's own priorities); it
+    is not above a thread MMCSS has raised into the realtime band for its share, and the node's render and present threads join
+    MMCSS by default (`MachineSettings.Mmcss` on; `PlatformPolicy.For`: render and present join "Games"), so the sampler, like the
+    controller's stamps, can still wait on a node's render thread (whether MMCSS runs on the Server 2025 image is not read; the
+    node's row records STATE's MMCSS claims so a reader can tell); the sampler is also now above the Normal victim in every leg of
+    this job, the synthetic ones too, where runs 493, 498 and 502 sampled from base 6, below it, so in high-n1 and normal-n1 the
+    free logical processor is shared by the victim and the sampler and the sampler wins: this dispatch's figures are read beside the
+    sampler's own share before they are set beside run 502's table above, never as like for like; its first row's note says what it
+    claimed and read back; its own rows (noted "the sampler") give its processor share per leg, which the reader prints beside who
+    else ran (run 502's sampler, at base 6, used 1.6 to 2.9 processor-seconds of each 20 s window it sampled: 0.08 to 0.15 of a
+    processor). Whether `wpr.exe`, `logman.exe`, `xperf.exe` and `tracelog.exe` are on the runner's path is read into `readings.csv`
+    and printed before the legs; none is used, and whether a kernel trace would be lighter is not measured. The default jobs' sampler
+    is as it was.
+  - (3) The reader. A sample of `machine.processes.csv` (its rows of one time and `sample_ms`) whose cooked shares, Idle among them,
+    sum past the machine's logical processors (`victim.csv`'s count) by more than half a logical processor (`Reader.ImpossibleMargin`)
+    is refused: counted over the window and over the leg, said beside who else ran, and read for nothing. The margin: run 502's
+    samples that kept their names summed to 3.71-4.04 on four; the renumbered ones 4.85-57.90. Processes are joined by pid (the reader
+    already keyed who else ran by pid; now the node's own pid is read apart and left out of it), and the sampler now writes, per row,
+    the process's raw processor time and the call's stamp and its share joined by pid across its own calls (`pid_processors`), which
+    the reader takes in place of the cooked share wherever the column is there (a pid's first row reads empty and counts nothing).
+    Over a copy of run 502's raw files the reader reproduces the check's missed counts (baseline 0, 0; warm-up 44; high-n1 42, 41, 41;
+    normal-n1 2, 3, 65; buy-high 0, 0; buy-normal 79, 100; high-core1 7, 0; normal-core1 0, 0; normal-n 106, 281, 299; high-n 1199,
+    1194, 1196; high-n-runner 1193) and refuses #02's two samples and #13's two (and one each in #04, #07, #08, #09, #10 and #23, at
+    leg ends where the probe's own processes exit: the check's list), so #02 and #13 now name pwsh (the sampler) and
+    WindowsTerminal, never svchost 2452, 3540 or 4964.
+  - (4) `high-n1-pinned`: high-n1's threads (the logical processors less one) pinned one to each of logical processors 0 to n-2, n-1
+    left free (`Os.LessOnePinned`; on SMT the free one is a busy core's sibling, said so), at HIGH beside the Normal victim, twice
+    (places 8 and 15, each beside a core1 leg). Beside high-n1 it differs in the pinning alone; beside high-core1 in the free core
+    with the one thread fewer that freeing a core of two logical processors takes. The reader keeps a pinned kind's leg not pinned in
+    a row of its own (any kind with a pin, not only core1's).
+  - The order is now 34 legs (`Legs.Order`): 1 baseline; 2 the warm-up; 3 high-n1; 4 normal-n1; 5 buy-high; 6 buy-normal; 7
+    high-core1; 8 high-n1-pinned; 9 normal-core1; 10-13 node-high, node-normal, node-high-load, node-normal-load; 14 normal-core1;
+    15 high-n1-pinned; 16 high-core1; 17 buy-normal; 18 normal-n1; 19 high-n1 (the middle); 20 buy-high; 21-24 node-normal-load,
+    node-high-load, node-normal, node-high; 25-30 the every-processor pairs as before; 31 high-n-runner; 32 normal-n1; 33 high-n1
+    (the last burned place); 34 baseline. No repeat of an existing kind was trimmed. The time: 26 synthetic legs at about 25 s and 8
+    node legs at about 50 s (the node's start, imports and first decoders before the victim) are about 18 minutes; with FFmpeg and
+    Mesa (the windows job's steps), the node's and the probe's builds with no build server, the clips (about 5 s on this bench), the
+    quiet start (at most 90 s) and the reader, about 28 minutes. The job's `timeout-minutes` is raised from 30 to 50 and the legs'
+    budget from 22 to 34 minutes (each leg still 4 at most): needed, since the node's build and the downloads alone take the minutes
+    the old 30 left, and the budget still says which legs it could not hold.
+- Tests: the fixture (`tools/priority-probe/fixture`) gains `leg-10-high-n1-pinned` (a pinned one-free leg: pinned to 0;1;2, free 3,
+  its spread row of its own kind) and `leg-11-node-high` (a node leg on the baseline's victim rows: `node.csv`, `node.threads.csv`
+  with a thread born in the window and one gone by its end, and `machine.processes.csv` with three samples: one with the names as
+  the counter gave them, one where pid 600 is renamed svchost#56 while pid 601 takes svchost#57 and pid 600's cooked share is wrong
+  but its pid-joined share right, and one impossible sample summing to 13 on 4; then, after the window, a sample summing 4.40 on 4,
+  kept, and one summing 4.60, refused, so the margin itself is fenced; the node's row in the second sample has no pid-joined share,
+  so it is in neither the node's sum nor its divisor; its class read at the window's end, Normal (base 8), differs from the one at
+  work; and STATE's MMCSS claims are in its row); 16 new figures in `expected.csv` and 6 lines in `expected-summary.tsv` (114 in all). `leg-07-buy-high`'s hand-made samples summed to 5.0 and 4.8 on four logical processors; its
+  probe rows' shares are lowered (2.5 and 2.8) so its samples are possible and are read as before (the probe's own rows are never
+  named, so its figures are unchanged). Mutation-proved, each against `selfcheck.sh`: the refusal removed fails 8 figures and lines;
+  who else ran keyed by name fails 6; the cooked share read in place of the pid-joined one fails 2; the node's rows not read fail 8;
+  a thread born in the window not counted fails 1; then, with the fold-in's fixture rows: the margin 0.5 made 5 fails 2 (the 4.60
+  sample kept), made 0.3 fails 2 (the 4.40 sample refused); the class at the window's end read from the class at work fails 2; the
+  node's share divided over every kept window sample, an empty share counted as zero, fails 2; the MMCSS words dropped fail 1; each
+  restored, `selfcheck: ok, 114 figures and lines`. Run on this bench: the probe
+  built from its copy (`selfcheck.sh`), the reader over a copy of run 502's raw files (above), and the node legs short (5 s windows,
+  1 s leads, `PLAYMAP_FFMPEG_DIR=/opt/ffmpeg9/lib`, `DISPLAY=:99`): `node-high`, `node-normal`, `node-high-load` and
+  `node-normal-load` and `high-n1-pinned` each ran `ok`; nothing is claimed off Windows (the node read Normal at both bounds, STATE
+  named no claim, the controller raised nothing, the burner pinned nothing, each said so); the node's home was deleted after each leg
+  and no node outlived its leg. Every `.ps1` parses with the bench's PowerShell 7.4 (`tools/ps-parse.ps1`); the workflow parses
+  (`python3` `yaml.safe_load`); `dotnet build PlayMap.sln -c Debug` whole (with `PLAYMAP_DXC_DIR`); `ModuleRuleTests`,
+  `DxcNativesTests` and `HlslBuildTests` (the two that read `build.yml`) green.
+- Files: `tools/priority-probe/Node.cs` (new), `Program.cs`, `Burner.cs`, `Os.cs`, `Reader.cs`, `Rows.cs`, `fixture/` (two new
+  legs, `leg-07-buy-high/machine.processes.csv`, `expected.csv`, `expected-summary.tsv`); `tools/ci-tests.ps1`;
+  `.github/workflows/build.yml`; `README.md`; this entry.
+- Open:
+  - For the owner, before the dispatch (the review's high item; nothing built for it in the fold-in): the brief said the node's
+    outputs are not enabled, so that its own decode (the HAP workers and the Compute pool) carries the load and Mesa is not what is
+    measured; the code does not allow it (`RenderEngine.cs` 400 skips a disabled output; `EngineSources.Acquire` is reached only from
+    a draw), so the node legs enable one 64 x 36 output per clip, and by this bench's figures they mostly measure Mesa's llvmpipe
+    (about 2.2 of the node's 3.1 processors, against about 0.56 for the HAP workers and decode threads): the opposite of the subject
+    the owner's answer after run 502 named. The call: dispatch with enabled 64 x 36 outputs (Mesa-dominated, the thread groups the
+    only split; the summary's node table says its processors include Mesa's draw), or wait for the product seam in the next item.
+    Read, not run: a lighter source set (more clips, smaller frames, or HAP rather than HAP Q) might shift the Mesa/decode split, and
+    the 4K HAP Q sources may be what makes Mesa's share so large (a per-source pass at the source's full resolution rather than at
+    the output's size would); that wants the GL texture path read first (`src/PlayMap.Render/Gl`, the HAP upload and its
+    per-source passes) before a source set is changed.
+  - Outside the leave, read, not built: the node's own decode without Mesa's draw needs a product seam: a consumer that opens and
+    reads a source with no enabled output (a decode-only lane in `src/PlayMap.Engine/Rendering/EngineSources.cs`, or a preview
+    reader that acquires without drawing in `src/PlayMap.Render/Engine/RenderEngine.cs`). Without it, on a runner with no GPU the node
+    legs measure the node with Mesa's llvmpipe inside it, and their thread groups are the only split.
+  - Read, not run: every Windows path of this batch: the sampler's High claim and its loop's thread, its raw-value and pid-joined
+    columns (`Timestamp100NSec` and `RawValue` of `\Process(*)\% Processor Time`, read from the counter's documentation, not run), the
+    node's class claims through its home, Mesa beside `PlayMap.Node.exe` (the windows job copies it beside test hosts and
+    `dotnet.exe`; an apphost's own folder is read to come first), the clip recipe on the pinned FFmpeg, the controller's High, and the
+    wire's behaviour under a HIGH node that holds the processors (each ask bounded at 20 s; a node that does not get to work breaks its
+    leg with words).
+  - Outside the leave, seen while building: a node home whose `playmap.node.json` lacks `patternsHost` (and the other link fields)
+    stops the engine at start with a `NullReferenceException` at `src/PlayMap.Engine/Host/NetworkHost.cs` 290 (`s.PatternsHost.Length`);
+    the node then logs "The engine stopped on a fault nothing else caught". This batch writes every field through
+    `NodeSettings.CreateDefault`, so its legs never meet it; a mend (the settings' reader filling a missing string with "") is for a
+    batch whose leave names `src/PlayMap.Engine/NodeHome.cs` or `NetworkHost.cs`.
+  - What the dispatch cannot say: a GPU's draw, a display's present, a Windows 11 client with the desk in the foreground, the real
+    desk and supervisor, or the source of run 498's freeze and the ~551 ms rhythm; the node legs are n = 2 per kind on one VM.
+  - Read, not built (the review's nit): a sample is refused by its cooked shares' sum even where its pid-joined shares are there and
+    sound, so a sample a renumbered instance spoiled is dropped whole (said in `Others`' doc comment); summing the pid-joined shares
+    for the refusal where the column is there is a later choice. The fold-in did make the node's share divide only over the kept
+    samples that carry one for it.

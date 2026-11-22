@@ -33,15 +33,20 @@
 #                 desk's kind of work at Normal, set by its own hand) alone, beside a burner whose class the product's own platform
 #                 claims, HIGH or NORMAL, on every logical processor, on the logical processors less one and pinned to every core but one,
 #                 HIGH on every logical processor beside a victim left at the runner's own class, and the victim's own loops claiming
-#                 HIGH or NORMAL beside a NORMAL burner on every logical processor (what HIGH buys); then the probe's reader makes the
-#                 tables, in the log and the summary. The legs run inside a budget (22 minutes, each leg 4 at most), so the job stays
-#                 inside its 30; a leg the budget cannot hold is not started and is said. A reading is never a pass mark: it fails only
-#                 when a leg wrote no files, a process did not start or did not read back the class it was told, a leg ran past its
-#                 deadline, or the budget left a leg unrun.
+#                 HIGH or NORMAL beside a NORMAL burner on every logical processor (what HIGH buys), the burner HIGH pinned to the
+#                 logical processors less one, and PlayMap's own node (tools/PlayMap.Node, built here with no build server, Mesa beside
+#                 its exe) playing the job's HAP clips (made here by the pinned FFmpeg's hap encoder before the legs, never downloaded)
+#                 at its home's process class HIGH or NORMAL, beside the victim alone and beside a NORMAL burner on every logical
+#                 processor; then the probe's reader makes the tables, in the log and the summary. The legs run inside a budget (34
+#                 minutes, each leg 4 at most), so the job stays inside its 50; a leg the budget cannot hold is not started and is said.
+#                 Whether the system's own kernel trace tools (wpr, logman, xperf) are on the runner is read and said, never used. A
+#                 reading is never a pass mark: it fails only when a leg wrote no files, a process did not start or did not read back
+#                 the class it was told, a node did not get to work, a leg ran past its deadline, or the budget left a leg unrun.
 #   -Sample <csv> -Parent <pid> -Counters <a|b> [-EveryProcess <csv>]
 #                 the machine sampler -Suites starts as a process of its own (never run by hand): one row a second of the named
 #                 performance counters to <csv> until its parent is gone or 75 minutes have passed; with -EveryProcess (the
-#                 prioritycost job's alone) also one row per process per sample to that second file. A measurement, never a gate.
+#                 prioritycost job's alone) also one row per process per sample to that second file, the sampler then claiming High by
+#                 its own hand and its loop's thread the highest thread priority. A measurement, never a gate.
 # Dot-sourced with none of them (tools/ci-d3d12.ps1's leg), it only defines Invoke-DotnetTest and the deadlines.
 # A process tree is printed by process id, parent id, name and start time, never by command line: the suites start node with a phone
 # page's join ticket among its arguments (tests/PlayMap.Net.Tests/Phone/PageTests.cs, tests/PlayMap.Engine.Tests/Phone/PhoneScanE2ETests.cs).
@@ -210,8 +215,19 @@ if (@(@($Suites.IsPresent, $HangProof.IsPresent, $NodeHostAB.IsPresent, $Priorit
 # are also written one row per process to that file, every process but _Total: the row's time and sample_ms (as the row above), the
 # counter's name and pid, its processor share in the interval in machine percent (of every logical processor) and in processors, its
 # base priority, its priority class where Get-Process can read it (read once per pid and base, then kept), and a note naming this
-# sampler and its parent step. About 150 processes on the runner at about 90 bytes is some 14 kB a sample, some 0.35 MB for a leg
-# of 25 samples; at most 512 rows a sample, and past 4 MB the file takes no more rows and says so in a last row.
+# sampler and its parent step; then, at the row's end, the process's processor time as the counter's raw value at that call
+# (cpu_100ns, 100 ns units), the call's own time stamp (stamp_100ns) and its share joined by pid across this sampler's own calls
+# (pid_processors: the processor time it gained since this pid's row in the call before, over the time between their stamps; empty
+# for a pid's first row or where its time went back, a reused pid), so a process is never paired with another under one instance
+# name, as the cooked share can be when the counter renumbers same-named instances between its two collections. With -EveryProcess
+# the sampler claims High by its own hand (the minimum beside a HIGH busy process: a Normal or Below Normal sampler wrote no row in 11
+# of run 502's 24 legs) and runs its loop at the highest thread priority (15 in a High process, above a HIGH process's normal (13) and
+# AboveNormal (14) threads, but not above a thread MMCSS has raised into the realtime band for its share: a node's render and present
+# threads join MMCSS by default, and the node's row records STATE's MMCSS claims); it is then above the Normal victim in every leg of
+# the job, the synthetic ones too, where runs 493, 498 and 502 sampled from below it (base 6), so a leg's figures are read beside the
+# sampler's own share before they are set beside those runs'; its own rows carry its share and base, so its cost is read beside every
+# leg, and its first row's note says what it claimed and read back. About 150 processes on the runner at about 110 bytes is some 17 kB a sample, some 0.45 MB for a
+# leg of 25 samples; at most 512 rows a sample, and past 4 MB the file takes no more rows and says so in a last row.
 if ($Sample) {
     $ErrorActionPreference = 'Continue'
     $paths = @($Counters -split '\|' | Where-Object { $_ })
@@ -226,11 +242,23 @@ if ($Sample) {
     $everyFull = $false
     $classes = @{}
     $logical = [Environment]::ProcessorCount
+    $firstNote = ''
+    $cpuBefore = @{}
     if ($EveryProcess) {
         $everyStream = [IO.FileStream]::new($EveryProcess, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
         $everyWriter = [IO.StreamWriter]::new($everyStream, [Text.UTF8Encoding]::new($false))
         $everyWriter.AutoFlush = $true
-        $everyWriter.WriteLine('utc,sample_ms,name,pid,machine_pct,processors,base_priority,priority_class,note')
+        $everyWriter.WriteLine('utc,sample_ms,name,pid,machine_pct,processors,base_priority,priority_class,note,cpu_100ns,stamp_100ns,pid_processors')
+        # A class the busy process cannot starve, claimed by the sampler's own hand (a measurement's class), and its loop's thread
+        # above every thread of a HIGH process but one MMCSS has raised; what it read back is said in its first row's note.
+        $firstNote = try {
+            $self = Get-Process -Id $PID
+            $self.PriorityClass = [Diagnostics.ProcessPriorityClass]::High
+            "the sampler claimed High; read $((Get-Process -Id $PID).PriorityClass)"
+        }
+        catch { "the sampler's High refused: $($_.Exception.Message)" }
+        try { [Threading.Thread]::CurrentThread.Priority = [Threading.ThreadPriority]::Highest; $firstNote += '; its loop thread Highest' }
+        catch { $firstNote += "; its loop thread's Highest refused: $($_.Exception.Message)" }
     }
     try {
         while ([DateTime]::UtcNow -lt $end -and (Get-Process -Id $Parent -ErrorAction SilentlyContinue)) {
@@ -261,8 +289,12 @@ if ($Sample) {
                     elseif ($path.EndsWith('\system\processor queue length')) { $ready = $value }
                     elseif ($path.Contains('\process(')) {
                         if ($everyWriter -and $instance -ne '_total') {
-                            if (-not $every.ContainsKey($instance)) { $every[$instance] = @{ Pct = $null; Pid = ''; Base = '' } }
-                            if ($path.EndsWith('\% processor time')) { $every[$instance].Pct = [double]$point.CookedValue }
+                            if (-not $every.ContainsKey($instance)) { $every[$instance] = @{ Pct = $null; Pid = ''; Base = ''; Raw = $null; Stamp = $null } }
+                            if ($path.EndsWith('\% processor time')) {
+                                $every[$instance].Pct = [double]$point.CookedValue
+                                $every[$instance].Raw = [long]$point.RawValue
+                                $every[$instance].Stamp = [long]$point.Timestamp100NSec
+                            }
                             elseif ($path.EndsWith('\id process')) { $every[$instance].Pid = ([double]$point.CookedValue).ToString('0', $invariant) }
                             elseif ($path.EndsWith('\priority base')) { $every[$instance].Base = ([double]$point.CookedValue).ToString('0', $invariant) }
                         }
@@ -275,6 +307,7 @@ if ($Sample) {
                 }
             }
             catch { $note = $_.Exception.Message }
+            if ($firstNote) { $note = ("$firstNote $note").Trim(); $firstNote = '' }
             $note = ($note -replace '[,\r\n]+', ' ').Trim()
             $took = $clock.Elapsed.TotalMilliseconds.ToString('0', $invariant)
             $utc = [DateTime]::UtcNow.ToString('o', $invariant)
@@ -297,12 +330,24 @@ if ($Sample) {
                         } catch { 'unread' }
                     }
                     $whose = if ($one.Pid -eq "$PID") { 'the sampler' } elseif ($one.Pid -eq "$Parent") { 'the step' } else { '' }
+                    # Joined by pid, never by the instance name: the time this pid gained since its row in the call before, over the
+                    # time between the two calls' stamps.
+                    $joined = ''
+                    if ($null -ne $one.Raw -and $one.Pid) {
+                        $was = $cpuBefore[$one.Pid]
+                        if ($was -and $one.Stamp -gt $was.Stamp -and $one.Raw -ge $was.Raw) {
+                            $joined = (($one.Raw - $was.Raw) / ($one.Stamp - $was.Stamp)).ToString('0.####', $invariant)
+                        }
+                        $cpuBefore[$one.Pid] = @{ Raw = $one.Raw; Stamp = $one.Stamp }
+                    }
                     $everyWriter.WriteLine((@($utc, $took, ($name -replace '[,\r\n]+', ' '), $one.Pid, ($one.Pct / $logical).ToString('0.###', $invariant),
-                                ($one.Pct / 100).ToString('0.####', $invariant), $one.Base, $classes[$key], $whose) -join ','))
+                                ($one.Pct / 100).ToString('0.####', $invariant), $one.Base, $classes[$key], $whose,
+                                $(if ($null -ne $one.Raw) { "$($one.Raw)" } else { '' }), $(if ($null -ne $one.Stamp) { "$($one.Stamp)" } else { '' }), $joined) -join ','))
                     $written++
                 }
+                if ($cpuBefore.Count -ge 8192) { $cpuBefore.Clear() }
                 if ($everyStream.Length -ge 4MB) {
-                    $everyWriter.WriteLine("$utc,$took,,,,,,,the file holds 4 MB: no more process rows are written")
+                    $everyWriter.WriteLine("$utc,$took,,,,,,,the file holds 4 MB: no more process rows are written,,,")
                     $everyFull = $true
                 }
             }
@@ -768,6 +813,52 @@ if ($PriorityCost) {
     $exe = Join-Path $probeDir "bin/$TestConfiguration/net10.0/PlayMap.PriorityProbe.exe"
     if (-not (Test-Path $exe)) { throw "the priority probe built no $exe" }
 
+    # The node legs' node: tools/PlayMap.Node built from this checkout as the windows job builds it, with no build server (as the probe),
+    # run as its own exe (the sampler names it PlayMap.Node, followed by pid as every row is), with Mesa's opengl32.dll and llvmpipe
+    # beside the exe (the job's Mesa step unpacked them into mesa/): the runner has no GPU, so every draw the node makes is Mesa's on
+    # the processors. FFmpeg's LGPL libraries are the node's media backend (PLAYMAP_FFMPEG_DIR, the job's env).
+    $nodeProject = (Resolve-Path tools/PlayMap.Node/PlayMap.Node.csproj).Path
+    dotnet build $nodeProject -c $TestConfiguration -nodeReuse:false -p:UseSharedCompilation=false
+    if ($LASTEXITCODE -ne 0) { throw "the node did not build ($LASTEXITCODE)" }
+    $nodeExe = Join-Path (Split-Path $nodeProject) "bin/$TestConfiguration/net10.0/PlayMap.Node.exe"
+    if (-not (Test-Path $nodeExe)) { throw "the node's build made no $nodeExe" }
+    foreach ($dll in 'opengl32.dll', 'libgallium_wgl.dll') {
+        if (-not (Test-Path "mesa/$dll")) { throw "mesa/$dll is not there: the job's Mesa step unpacks it before this one" }
+        Copy-Item "mesa/$dll" (Split-Path $nodeExe)
+    }
+
+    # The node legs' clips, made before the legs by the pinned FFmpeg's hap encoder as the suites make HAP media (the GPL ffmpeg.exe
+    # of the job's FFmpeg step, .ffmpeg/bin; never a downloaded clip): four HAP Q clips of 3840 x 2160 at 60 fps, one second each
+    # (each a loop of 60 frames), FFmpeg's testsrc2 with its hue turned by a quarter turn more for each, so no two are one file (the
+    # node's library keeps one item per content hash), each frame in 16 chunks, the product's own recipe for a frame that wide
+    # (Recipe.ChunksFor), so the node's HAP workers share each frame's second stage (FFmpeg's default of one chunk leaves them idle).
+    # Four 4K sources, one 64 x 36 output each, is the heaviest set this job runs. Read on this tree's 4-processor Linux bench (Mesa
+    # llvmpipe under Xvfb, no class claimed, 5 s windows): the node used about 3.1 processors, Mesa's llvmpipe threads about 2.2 of
+    # them, the HAP workers and decode threads about 0.56, at 8 to 14 frames a second; one clip alone about 3.7 processors, llvmpipe
+    # about 3.1 of them. So on a runner with no GPU the node's demand is mostly Mesa's draw, and the papers read the node's threads
+    # by group from its own rows.
+    $clips = Join-Path $env:RUNNER_TEMP 'priority-clips'
+    if (Test-Path $clips) { Remove-Item $clips -Recurse -Force }
+    New-Item -ItemType Directory -Path $clips | Out-Null
+    $ffmpeg = (Resolve-Path '.ffmpeg/bin/ffmpeg.exe').Path
+    for ($k = 0; $k -lt 4; $k++) {
+        $hue = ($k * 90).ToString($invariant)
+        & $ffmpeg -hide_banner -loglevel error -y -f lavfi -i 'testsrc2=s=3840x2160:r=60:d=1' -vf "hue=h=$hue" -c:v hap -format hap_q -chunks 16 (Join-Path $clips "clip$k.mov")
+        if ($LASTEXITCODE -ne 0) { throw "ffmpeg did not make clip $k ($LASTEXITCODE)" }
+    }
+    Get-ChildItem $clips | ForEach-Object { Write-Host "clip $($_.Name): $($_.Length) bytes" }
+
+    # The system's own kernel trace tools, read and said (a lighter sampler than this one would be a trace of the scheduler's context
+    # switches): whether each is on the runner and where. None is used by this dispatch (readings.csv, which the probe's reader reads).
+    $readingsCsv = Join-Path $root 'readings.csv'
+    Set-Content -Path $readingsCsv -Value 'utc,what,read' -Encoding utf8NoBOM
+    foreach ($tool in 'wpr.exe', 'logman.exe', 'xperf.exe', 'tracelog.exe') {
+        $found = Get-Command $tool -ErrorAction SilentlyContinue
+        $read = if ($found) { "on the runner at $($found.Source); not used by this dispatch" } else { 'not on the runner''s path' }
+        Write-Host "kernel trace tool $tool`: $read"
+        Add-Content -Path $readingsCsv -Value ((@([DateTime]::UtcNow.ToString('o', $invariant), "kernel trace tool $tool", $read) | ForEach-Object { "$_" -replace '[,\r\n]+', ' ' }) -join ',') -Encoding utf8NoBOM
+    }
+
     # The build's servers: every MSBuild, VBCSCompiler and dotnet process alive after the build, then `dotnet build-server shutdown`
     # (MSBuild's nodes, the compiler's server and Razor's), then every one still alive, by name and pid, in the log and in the
     # summary (servers.csv, which the probe's reader reads); none is expected after either. A reading, never a failure.
@@ -842,16 +933,22 @@ if ($PriorityCost) {
         if ("$line" -notmatch '^(\d+) (\S+) (leg-\S+)$') { throw "the priority probe's order has a line that is not 'place leg folder': '$line'" }
         [pscustomobject]@{ Place = [int]$Matches[1]; Name = $Matches[2]; Folder = $Matches[3] }
     })
-    # Each leg's window is 20 s after a 3 s lead (about 25 s a leg on the runner); the probe bounds a leg at 60 s for each
-    # ready file and 90 s after the window, so a leg the runner holds longer than that is stopped and said; each leg's deadline (4 min)
-    # is past all of it, for a probe that hangs. The legs together are held to a budget of 22 minutes from the calibration, with the
-    # reader's 2 after it: with the checkout and the SDK, the probe's build (with no shared compiler) and the quiet start (at most 90 s), the job stays inside its 30. The order's 24 legs take about 10
-    # minutes, so the job about 13 in a normal run. A leg is started only while the budget still holds its deadline; the legs it cannot
-    # hold are not run, and said.
-    $budget = [TimeSpan]::FromMinutes(22)
+    # Each leg's window is 20 s after a 3 s lead (about 25 s a leg on the runner; a node leg about 50, its node's start, imports and
+    # first decoders before the victim); the probe bounds a leg at 60 s for each ready file, 90 s for the node's up line and 60 s for
+    # each of its steps to work, and 90 s after the window, so a leg the runner holds longer than that is stopped and said; each leg's
+    # deadline (4 min) is past a synthetic leg's bounds, for a probe that hangs, but not past a node leg's (summed, about 9 minutes:
+    # the up line 90 s, four imports and an open at 20 s an ask, 60 s for the imports and 60 s for the decoders, the ready file 60 s,
+    # the lead and window 23 s, 90 s after it, 60 s for the stamps and 10 s for the node's exit): a node leg that slow is stopped here
+    # as having run past its deadline, its node with it (the probe's tree), rather than broken with the probe's own words. The legs together are held to a budget of 34 minutes from the
+    # calibration, with the reader's 2 after it: with the checkout and the SDK, FFmpeg and Mesa, the node's and the probe's builds
+    # (with no shared compiler), the clips and the quiet start (at most 90 s), the job stays inside its 50. The order's 34 legs take
+    # about 18 minutes, so the job about 28 in a normal run. A leg is started only while the budget still holds its deadline; the legs it
+    # cannot hold are not run, and said.
+    $budget = [TimeSpan]::FromMinutes(34)
     $legDeadline = [TimeSpan]::FromMinutes(4)
     $spent = [Diagnostics.Stopwatch]::StartNew()
-    Write-Host "the legs: $($legs.Count) in the probe's order ($(($legs | ForEach-Object { "$($_.Place) $($_.Name)" }) -join ', ')), about $([math]::Ceiling($legs.Count * 25 / 60)) minutes expected, $($budget.TotalMinutes) at most"
+    $nodeLegs = @($legs | Where-Object { $_.Name -like 'node-*' }).Count
+    Write-Host "the legs: $($legs.Count) in the probe's order ($(($legs | ForEach-Object { "$($_.Place) $($_.Name)" }) -join ', ')), about $([math]::Ceiling((($legs.Count - $nodeLegs) * 25 + $nodeLegs * 50) / 60)) minutes expected, $($budget.TotalMinutes) at most"
     $run = Invoke-WithDeadline -Name 'the calibration' -FileName $exe -Arguments @('calibrate', '--out', $root) -Deadline ([TimeSpan]::FromMinutes(2))
     if (-not $run.Ended -or $run.ExitCode -ne 0) { $broken += "the calibration (exit $($run.ExitCode))" }
     else {
@@ -865,8 +962,9 @@ if ($PriorityCost) {
             $sampler = Start-MachineSampler $csv (Join-Path $root "$($leg.Folder)/machine.processes.csv")
             Write-Host "::group::leg $($leg.Place) $($leg.Name)"
             try {
+                # Every leg is given the node and its clips; only a node leg starts it.
                 $run = Invoke-WithDeadline -Name "leg $($leg.Place) $($leg.Name)" -FileName $exe -Deadline $legDeadline -Arguments @(
-                    'leg', '--out', $root, '--run', "$($leg.Place)", '--seconds', '20', '--lead', '3')
+                    'leg', '--out', $root, '--run', "$($leg.Place)", '--seconds', '20', '--lead', '3', '--node', $nodeExe, '--clips', $clips)
             }
             finally {
                 Stop-MachineSampler $sampler $csv

@@ -11,9 +11,11 @@ namespace PlayMap.PriorityProbe;
 ///   calibrate --out ROOT                   the frame's fixed work, about 10 ms of wall time on the quiet machine, to ROOT/calibration.csv,
 ///                                          and the runner's scheduler as read then to ROOT/scheduler.csv
 ///   order                                  the legs' order (<see cref="Legs.Order"/>), one line each: its place, its leg and its folder
-///   leg --out ROOT --run K [--seconds S] [--lead L]   the order's K-th leg into ROOT/leg-KK-NAME
+///   leg --out ROOT --run K [--seconds S] [--lead L] [--node EXE --clips DIR]   the order's K-th leg into ROOT/leg-KK-NAME (a node
+///                                          leg needs the node, its exe or dll, and the folder of HAP clips it plays: <see cref="NodeRun"/>)
 ///   read --out ROOT                        the tables of every leg present, to ROOT/summary.md and ROOT/summary.csv, and printed
-///   legs --out ROOT [--seconds S] [--lead L]   calibrate, every leg of the order, then read (a local run; CI runs the steps one by one)
+///   legs --out ROOT [--seconds S] [--lead L] [--node EXE --clips DIR]   calibrate, every leg of the order, then read (a local run; CI
+///                                          runs the steps one by one)
 ///   selfcheck --fixture DIR                the reader over a copy of DIR's hand-made legs, each figure DIR/expected.csv names held to
 ///                                          its value and each line DIR/expected-summary.tsv names looked for in summary.md (exit 1
 ///                                          with the words of each one that is not)
@@ -41,9 +43,9 @@ internal static class Program
             {
                 "calibrate" => Calibration.Run(args.Text("out")),
                 "order" => Legs.SayOrder(),
-                "leg" => await Legs.RunAsync(args.Text("out"), Legs.AtPlace(args.Integer("run")), Seconds(args), Lead(args)),
+                "leg" => await Legs.RunAsync(args.Text("out"), Legs.AtPlace(args.Integer("run")), Seconds(args), Lead(args), NodeGiven.Of(args)),
                 "read" => Reader.Run(args.Text("out")),
-                "legs" => await Legs.AllAsync(args.Text("out"), Seconds(args), Lead(args)),
+                "legs" => await Legs.AllAsync(args.Text("out"), Seconds(args), Lead(args), NodeGiven.Of(args)),
                 "selfcheck" => SelfCheck.Run(args.Text("fixture")),
                 "burner" => Burner.Run(args),
                 "victim" => Victim.Run(args),
@@ -124,12 +126,17 @@ internal static class Calibration
 }
 
 /// <summary>One leg kind: what burns beside the victim (nothing in the baseline), how many threads, the class the burner claims, whether
-/// its threads are pinned (core1: every core but one), and the victim's class (Normal set by its own hand, kept as the runner started
-/// it, or claimed HIGH or NORMAL through the product's platform: then the victim's loops are the busy side's own deadline).</summary>
-internal sealed record LegSpec(string Name, string Label, int Threads, string BurnerClass, string VictimClass, string Pin = "none")
+/// its threads are pinned (core1: every core but one; n1: the logical processors less one, one thread to each), the victim's class
+/// (Normal set by its own hand, kept as the runner started it, or claimed HIGH or NORMAL through the product's platform: then the
+/// victim's loops are the busy side's own deadline), and, for a node leg, the process class PlayMap's own node is started at through
+/// its home's settings (high or normal; <see cref="NodeRun"/>), beside the victim alone or beside the victim and a burner.</summary>
+internal sealed record LegSpec(string Name, string Label, int Threads, string BurnerClass, string VictimClass, string Pin = "none", string Node = "")
 {
     /// <summary>The victim's loops stand for the busy side's own deadline (the buy legs), not for a desk beside it.</summary>
     public bool Deadline => VictimClass.StartsWith("claim-", StringComparison.Ordinal);
+
+    /// <summary>The busy process is the product's own node (its home's process class <see cref="Node"/>), not only the burner.</summary>
+    public bool IsNode => Node.Length > 0;
 }
 
 /// <summary>A place in the order: the leg kind it runs, "warmup" for the leg run first and never counted with its kind, and why it is
@@ -153,14 +160,22 @@ internal static class Legs
     /// <summary>The whole-core-free legs' plan on this machine, read once (<see cref="Os.WholeCoreFree"/>).</summary>
     public static CorePlan CorePlan => CorePlanOnce.Value;
 
+    private static readonly Lazy<CorePlan> LessOnePlanOnce = new(Os.LessOnePinned);
+
+    /// <summary>The pinned one-free leg's plan on this machine, read once (<see cref="Os.LessOnePinned"/>).</summary>
+    public static CorePlan LessOnePlan => LessOnePlanOnce.Value;
+
     /// <summary>The legs one job runs, in this order, the one place it is written. A baseline at each end, the first reading the quiet
     /// machine. The warm-up is the first burned leg, at place 2, after that first baseline: a high-n1, never counted with its kind, so
-    /// whatever the job's first burned leg meets is met by it and not by a counted one. Then high-n1 at the first counted burned place, again in the middle and again at the
-    /// last burned place, each beside a normal-n1, so a freeze that follows high-n1 to its later places points to the class with one
-    /// logical processor free and one that stays at the job's start does not. Between them the new kinds, each twice and alternated
-    /// (A B B A): what HIGH buys (buy-high, buy-normal) and a whole core free (high-core1, normal-core1). The every-processor pairs after
-    /// the middle (A B B A A B, three of each: their stalls run longest), and the runner's leg once. Each leg's folder is named by its
-    /// place, so a repeat never meets the files of the one before.</summary>
+    /// whatever the job's first burned leg meets is met by it and not by a counted one. Then high-n1 at the first counted burned place,
+    /// again in the middle and again at the last burned place, each beside a normal-n1, so a freeze that follows high-n1 to its later
+    /// places points to the class with one logical processor free and one that stays at the job's start does not. Between them the
+    /// other kinds, each twice and alternated (A B B A): what HIGH buys (buy-high, buy-normal), a whole core free (high-core1,
+    /// normal-core1) with the pinned one-free leg beside it (high-n1-pinned: high-n1's threads and its one free logical processor,
+    /// pinned, so beside high-n1 it differs in the pinning alone, and beside high-core1 in the free core with the one thread fewer
+    /// that freeing a core of two logical processors takes), and the real node's four (node-high, node-normal, node-high-load, node-normal-load: A B C D,
+    /// then D C B A). The every-processor pairs after the middle (A B B A A B, three of each: their stalls run longest), and the runner's
+    /// leg once. Each leg's folder is named by its place, so a repeat never meets the files of the one before.</summary>
     public static readonly IReadOnlyList<Placed> Order =
     [
         new("baseline", Note: "the first baseline (after the quiet start)"),
@@ -170,13 +185,23 @@ internal static class Legs
         new("buy-high"),
         new("buy-normal"),
         new("high-core1"),
+        new("high-n1-pinned"),
         new("normal-core1"),
+        new("node-high"),
+        new("node-normal"),
+        new("node-high-load"),
+        new("node-normal-load"),
         new("normal-core1"),
+        new("high-n1-pinned"),
         new("high-core1"),
         new("buy-normal"),
         new("normal-n1"),
         new("high-n1", Note: "high-n1 in the middle"),
         new("buy-high"),
+        new("node-normal-load"),
+        new("node-high-load"),
+        new("node-normal"),
+        new("node-high"),
         new("normal-n"),
         new("high-n"),
         new("high-n"),
@@ -216,6 +241,11 @@ internal static class Legs
             var core = plan.Made
                 ? $"pinned one to each logical processor of every core but one ({plan.Threads} threads on {Os.Join(plan.Pinned)}; {plan.Words})"
                 : $"not pinned: {plan.Words}";
+            var one = LessOnePlan;
+            var pinnedOne = one.Made
+                ? $"pinned one to each of the logical processors less one ({one.Threads} threads on {Os.Join(one.Pinned)}; {one.Words})"
+                : $"not pinned: {one.Words}";
+            const string nodeWork = "PlayMap's own node playing the job's HAP clips in a loop, one 64 x 36 output enabled per clip (a node decodes only what an enabled output draws)";
             return
             [
                 new("baseline", "no burner; the victim at Normal", 0, "", "normal"),
@@ -228,6 +258,11 @@ internal static class Legs
                 new("buy-normal", $"the busy side's own deadline: the victim's loops in a process claiming NORMAL through the product's platform beside a burner NORMAL on every logical processor ({n} threads)", n, "normal", "claim-normal"),
                 new("high-core1", $"the burner HIGH {core}; the victim at Normal and unpinned", plan.Threads, "high", "normal", "core1"),
                 new("normal-core1", $"the burner NORMAL {core}; the victim at Normal and unpinned", plan.Threads, "normal", "normal", "core1"),
+                new("high-n1-pinned", $"the burner HIGH {pinnedOne}; the victim at Normal and unpinned", one.Threads, "high", "normal", "n1"),
+                new("node-high", $"{nodeWork}, its home's process class high (the default); the victim at Normal", 0, "", "normal", Node: "high"),
+                new("node-normal", $"{nodeWork}, its home's process class normal; the victim at Normal", 0, "", "normal", Node: "normal"),
+                new("node-high-load", $"{nodeWork}, its home's process class high (the default), beside a burner NORMAL on every logical processor ({n} threads); the victim at Normal", n, "normal", "normal", Node: "high"),
+                new("node-normal-load", $"{nodeWork}, its home's process class normal, beside a burner NORMAL on every logical processor ({n} threads); the victim at Normal", n, "normal", "normal", Node: "normal"),
             ];
         }
     }
@@ -238,27 +273,29 @@ internal static class Legs
     public const double ReadyBoundSeconds = 60;
     public const double AfterWindowBoundSeconds = 90;
 
-    public static async Task<int> AllAsync(string root, double seconds, double lead)
+    public static async Task<int> AllAsync(string root, double seconds, double lead, NodeGiven? node)
     {
         if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
             throw new ArgumentException($"{root} is not empty: the legs are written into a folder of their own");
         var broken = Calibration.Run(root) != 0;
         for (var place = 1; place <= Order.Count; place++)
-            broken |= await RunAsync(root, AtPlace(place), seconds, lead) != 0;
+            broken |= await RunAsync(root, AtPlace(place), seconds, lead, node) != 0;
         Reader.Run(root);
         return broken ? 1 : 0;
     }
 
-    /// <summary>Runs one leg: the victim started and ready, then the burner started into the victim's window and told to stop a second
-    /// after it, both waited for under the leg's deadline. Writes the leg's row; 0, or 1 when the leg is broken (the words say why).</summary>
-    public static async Task<int> RunAsync(string root, (int Place, Placed At, LegSpec Spec) at, double seconds, double lead)
+    /// <summary>Runs one leg: for a node leg the node first, started on its home's class and brought to work (<see cref="NodeRun"/>); then
+    /// the victim started and ready, then the burner started into the victim's window and told to stop a second after it, both waited
+    /// for under the leg's deadline; a node is stopped once the victim has ended. Writes the leg's row; 0, or 1 when the leg is broken
+    /// (the words say why).</summary>
+    public static async Task<int> RunAsync(string root, (int Place, Placed At, LegSpec Spec) at, double seconds, double lead, NodeGiven? node = null)
     {
         if (seconds <= 0)
             throw new ArgumentException("--seconds takes a number above zero");
         var leg = at.Spec;
         var dir = Path.Combine(root, Folder(at.Place, at.At));
         Directory.CreateDirectory(dir);
-        if (new[] { "victim.ready", "burner.ready", "victim.csv", "burner.csv", "leg.csv" }.Any(f => File.Exists(Path.Combine(dir, f))))
+        if (new[] { "victim.ready", "burner.ready", "victim.csv", "burner.csv", "leg.csv", NodeRun.File }.Any(f => File.Exists(Path.Combine(dir, f))))
             throw new ArgumentException($"{dir} holds a leg's files already: a leg is written into a folder of its own");
         var started = DateTime.UtcNow;
         var problems = new List<string>();
@@ -270,19 +307,38 @@ internal static class Legs
         Program.Say($"leg {at.Place.ToString(CultureInfo.InvariantCulture)} {name}: {leg.Label}, {seconds.ToString("0.#", CultureInfo.InvariantCulture)} s");
 
         var work = Calibration.Read(root);
+        NodeRun? nodeRun = null;
         if (work is null)
         {
             problems.Add("no calibration: run calibrate first");
         }
+        else if (leg.IsNode && node is null)
+        {
+            problems.Add("a node leg and no node given: run it with --node (the node's exe or dll) and --clips (the folder of its HAP clips)");
+        }
         else
         {
+            if (leg.IsNode)
+            {
+                // The node first: started on its home's class and brought to work before the victim's window is made, so the window
+                // never holds the node's start; the controller stamps it from a process of the class the node cannot hold.
+                nodeRun = await NodeRun.StartAsync(dir, node!, leg.Node, problems);
+            }
             var deadline = Stopwatch.StartNew();
             var bound = TimeSpan.FromSeconds(ReadyBoundSeconds + lead + seconds + AfterWindowBoundSeconds);
-            using var victim = Child.Start(dir, "victim", ["--dir", dir, "--seconds", Num(seconds), "--lead", Num(lead), "--work", Num(work.Value), "--class", leg.VictimClass]);
+            Child? victim = null;
             Child? burner = null;
             try
             {
-                if (victim is null)
+                // The victim is started inside the try whose finally stops the node, so a fault at its start never leaves a node at
+                // work through the later legs.
+                victim = nodeRun is { Working: false } ? null
+                    : Child.Start(dir, "victim", ["--dir", dir, "--seconds", Num(seconds), "--lead", Num(lead), "--work", Num(work.Value), "--class", leg.VictimClass]);
+                if (nodeRun is { Working: false })
+                {
+                    // Said by the node's own words; no victim is started beside a node that is not at work.
+                }
+                else if (victim is null)
                 {
                     problems.Add("the victim did not start");
                 }
@@ -299,6 +355,7 @@ internal static class Legs
                         var cells = ready.Split(',');
                         var start = long.Parse(cells[0], NumberStyles.Integer, CultureInfo.InvariantCulture);
                         var end = long.Parse(cells[1], NumberStyles.Integer, CultureInfo.InvariantCulture);
+                        nodeRun?.StampAt(start, end);
                         if (leg.Threads > 0)
                         {
                             // The burner stops itself a second after the victim's window, on the machine's monotonic clock: nothing waits on
@@ -335,7 +392,12 @@ internal static class Legs
             }
             finally
             {
+                victim?.Dispose();
                 burner?.Dispose();
+                // The node is stopped once the victim's window has ended and its files are written (or the leg let go), then its row
+                // and its threads' rows are written: a node never outlives its leg.
+                nodeRun?.Stop(problems);
+                nodeRun?.Dispose();
             }
             if (victimExit == "3")
                 problems.Add($"the victim was told {(leg.Deadline ? "to claim " + leg.VictimClass["claim-".Length..] : "Normal")} and Windows reads back another class");
@@ -345,7 +407,12 @@ internal static class Legs
                 problems.Add("the burner was told its class and Windows reads back another");
             else if (burnerExit is not "" and not "0")
                 problems.Add($"the burner ended with exit {burnerExit}");
-            foreach (var file in leg.Threads > 0 ? new[] { "victim.csv", "frames.csv", "ticks.csv", "pool.csv", "burner.csv" } : ["victim.csv", "frames.csv", "ticks.csv", "pool.csv"])
+            var files = new List<string> { "victim.csv", "frames.csv", "ticks.csv", "pool.csv" };
+            if (leg.Threads > 0)
+                files.Add("burner.csv");
+            if (leg.IsNode)
+                files.Add(NodeRun.File);
+            foreach (var file in files)
             {
                 if (!File.Exists(Path.Combine(dir, file)))
                     problems.Add($"no {file}");
@@ -423,6 +490,34 @@ internal sealed class Child : IDisposable
         info.ArgumentList.Add(role);
         foreach (var a in args)
             info.ArgumentList.Add(a);
+        return Launch(info, dir, role);
+    }
+
+    /// <summary>Another program as a process of the leg (the node): an exe run as itself, a dll run by the dotnet that runs this probe
+    /// (or the dotnet on the path when the probe runs as its own exe), its output and errors kept in the leg's folder as role.log.</summary>
+    public static Child? StartProgram(string dir, string role, string program, string[] args)
+    {
+        ProcessStartInfo info;
+        if (program.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+        {
+            var self = Environment.ProcessPath ?? "";
+            var dotnet = string.Equals(Path.GetFileNameWithoutExtension(self), "dotnet", StringComparison.OrdinalIgnoreCase) ? self : "dotnet";
+            info = new ProcessStartInfo(dotnet) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            info.ArgumentList.Add(program);
+        }
+        else
+        {
+            info = new ProcessStartInfo(program) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        }
+        foreach (var a in args)
+            info.ArgumentList.Add(a);
+        return Launch(info, dir, role);
+    }
+
+    public int Id => _process.Id;
+
+    private static Child? Launch(ProcessStartInfo info, string dir, string role)
+    {
         var log = new StreamWriter(Path.Combine(dir, role + ".log")) { AutoFlush = true };
         try
         {
@@ -482,6 +577,32 @@ internal sealed class Child : IDisposable
             // A line that arrives after the leg let the process go is dropped, never written to a closed log.
             if (!_closed)
                 _log.WriteLine(line);
+        }
+    }
+
+    /// <summary>Stops the process's tree when it is still running and waits, within <paramref name="bound"/>, for the process to have
+    /// ended (on Windows a stop returns before the process's handles close, so its files can still be in use); true once it has ended.
+    /// Its log stays open until <see cref="Dispose"/>.</summary>
+    public bool StopAndWait(TimeSpan bound)
+    {
+        try
+        {
+            if (!_process.HasExited)
+                _process.Kill(entireProcessTree: true);
+            return _process.WaitForExit(bound);
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            // It ended between the look and the stop, or cannot be read: said in its log, and read as ended only if it says so.
+            Log("stop and wait: " + e.Message);
+            try
+            {
+                return _process.HasExited;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
     }
 

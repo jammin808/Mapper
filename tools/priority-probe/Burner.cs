@@ -14,13 +14,14 @@ namespace PlayMap.PriorityProbe;
 /// carries the processor time it used from ready to stop and those two stamps. On Windows a thread's processor time is counted in clock
 /// ticks, so the process's total moves by whole ticks per thread. Told --pin core1 (the whole-core-free legs), each busy thread pins itself
 /// to one logical processor of the plan <see cref="Os.WholeCoreFree"/> makes (every core but the last the OS lists) before it counts
-/// itself started, and the row says which logical processors were pinned and which left free; off Windows nothing is pinned and the row
-/// says so, never as pinned.</summary>
+/// itself started; told --pin n1 (the pinned one-free leg), to one of the logical processors less one, the last left free
+/// (<see cref="Os.LessOnePinned"/>); the row says which logical processors were pinned and which left free; off Windows nothing is
+/// pinned and the row says so, never as pinned.</summary>
 internal static class Burner
 {
     private static int _stop;
 
-    /// <summary>burner --dir D --threads N --class high|normal --from MONO_NS --to MONO_NS --until MONO_NS [--pin none|core1]: exit 0, or 3
+    /// <summary>burner --dir D --threads N --class high|normal --from MONO_NS --to MONO_NS --until MONO_NS [--pin none|core1|n1]: exit 0, or 3
     /// when the class it was told is not the class Windows reads back (its row is written either way). --from and --to are the victim's
     /// window.</summary>
     public static int Run(Args args)
@@ -33,8 +34,8 @@ internal static class Burner
         var until = args.Integer("until");
         if (from > to || to > until)
             throw new ArgumentException("--from, --to and --until are instants in that order");
-        var pin = args.Has("pin") ? args.Word("pin", "none", "core1") : "none";
-        var plan = pin == "core1" ? Os.WholeCoreFree() : null;
+        var pin = args.Has("pin") ? args.Word("pin", "none", "core1", "n1") : "none";
+        var plan = pin switch { "core1" => Os.WholeCoreFree(), "n1" => Os.LessOnePinned(), _ => null };
         Directory.CreateDirectory(dir);
         Thread.CurrentThread.Priority = ThreadPriority.Highest;
 

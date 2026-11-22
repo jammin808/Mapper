@@ -25,3 +25,9 @@ high-core1	| 1 | 2 |	a pinned whole-core-free leg is counted with its kind
 normal-core1, not pinned	| 1 | 0 |	a whole-core-free leg not pinned has a row of its own, never counted as pinned
 #09 normal-core1	not pinned (the plan: 0;1, free 2;3)	a leg not pinned says so beside the plan's processors
 #09 normal-core1	| not recorded | not recorded (this run's sampler listed no process rows) |	a leg with no every-process rows says they were not recorded
+high-n1-pinned	| 1 | 2 |	the pinned one-free leg has a spread row of its own kind
+#10 high-n1-pinned	pinned to 0;1;2, free 3	the pinned one-free leg says the logical processors pinned and the one left free
+#11 node-high	| 2 | svchost#57 / svchost#56 (pid 600, base 8) 0.04 processor-s	who else ran joins a renamed instance by its pid
+#11 node-high	| 1 / 2 | 0.01 processor-s (0.040 of a processor over the window), base 13 |	the refused samples and the sampler's own share are said beside who else ran
+#11 node-high	| high / High (base 13) / Normal (base 8) (STATE's claim high, applied yes; MMCSS render read back Games; applied yes, present not in STATE) |	a node leg's row says the class asked and read back at work and at the window's end
+#11 node-high	| 3.00 | 3.00 (pid 5000, 1 of 2 samples kept, over 0.1 s of the window) | mesa llvmpipe 1.20;	the node's processors by its stamps, by the sampler's pid and by its threads' groups

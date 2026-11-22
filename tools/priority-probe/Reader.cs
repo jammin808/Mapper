@@ -14,13 +14,22 @@ namespace PlayMap.PriorityProbe;
 /// apart as pending at the window's start (its wait a lower bound while it had still not run at the window's end). The warm-up is read
 /// as every leg is and never counted with its kind; in the buy legs the victim's files are the busy side's own deadline and are read
 /// exactly as a victim's; the whole-core-free legs say the logical processors their burner was pinned to and left free, and count as
-/// pinned only where every thread was; the machine sampler's every-process rows (the prioritycost job's) are joined per leg: the
-/// processes outside the probe's own with the most processor time in the window and in its longest stretch with no frame finished.
+/// pinned only where every thread was; a node leg's window is cut to the node's time at work as well (from its at-work stamp to its stop)
+/// and its node read from its own rows (its class, its processor time and its threads' at the window's bounds, STATE's figures); the
+/// machine sampler's every-process rows (the prioritycost job's) are joined per leg by pid, never by the counter's instance name: a
+/// sample whose processes' shares sum past the machine's logical processors by more than <see cref="ImpossibleMargin"/> is refused,
+/// counted and said, and only the samples kept name who else ran (the processes outside the probe's own and the node, with the most
+/// processor time in the window and in its longest stretch with no frame finished), the sampler's own share and the node's.
 /// Percentiles are nearest-rank. Every number is a reading, never a pass mark.</summary>
 internal static class Reader
 {
     public const string SummaryMd = "summary.md";
     public const string SummaryCsv = "summary.csv";
+
+    /// <summary>How far past the machine's logical processors a sample's processes' shares (Idle among them) may sum before the sample
+    /// is refused: half a logical processor. The sums of run 502's samples that kept their names read 3.71 to 4.04 on four logical
+    /// processors; the ones whose instances were renumbered between the counter's two collections read 4.85 to 57.90.</summary>
+    public const double ImpossibleMargin = 0.5;
 
     public static int Run(string root, bool say = true)
     {
@@ -69,13 +78,23 @@ internal static class Reader
         foreach (var r in runs.Where(r => r.Readable))
             md.Add(r.LeadRow());
         md.Add("");
-        md.Add("#### Who else ran (the machine sampler's every-process rows, outside the probe's own processes and Idle; processor-seconds are each sample's share times its overlap)");
+        md.Add($"#### Who else ran (the machine sampler's every-process rows, outside the probe's own processes, the node and Idle, joined by pid; processor-seconds are each sample's share times its overlap; a sample whose shares sum past the logical processors by more than {ImpossibleMargin.ToString("0.0#", CultureInfo.InvariantCulture)} is refused and names no one)");
         md.Add("");
-        md.Add("| Leg | Samples over the window | Most processor time in the window (base priority) | In the longest stretch with no frame finished (base priority) |");
-        md.Add("|---|---|---|---|");
+        md.Add("| Leg | Samples over the window | Most processor time in the window (base priority) | In the longest stretch with no frame finished (base priority) | Samples refused (over the window / in the leg) | The sampler itself in the window |");
+        md.Add("|---|---|---|---|---|---|");
         foreach (var r in runs.Where(r => r.Readable))
-            md.Add($"| {r.Label} | {r.SamplesInWindow} | {r.OthersInWindow} | {r.OthersInNoFrame} |");
+            md.Add($"| {r.Label} | {r.SamplesInWindow} | {r.OthersInWindow} | {r.OthersInNoFrame} | {r.SamplesRefused} | {r.SamplerShare} |");
         md.Add("");
+        if (runs.Any(r => r.Readable && r.Node is not null))
+        {
+            md.Add("#### The node (PlayMap's own node as the busy process; its class from its home's settings, read back from the OS; its figures STATE's at each bound, as STATE counts them; its processors include the draw of its enabled outputs, which on a machine with no GPU is Mesa's llvmpipe on the processors: its threads' groups say how much)");
+            md.Add("");
+            md.Add("| Leg | Class asked / read at work / read at the window's end (STATE's claim) | Clips, outputs, renderer | Node processors in the window (its stamps) | By the sampler (pid, samples kept) | Its threads by group (processors in the window) | Outputs at the window's start / end: fps; dropped; missed vblanks; frame p95 at the end | Decoders at the end: dropped start / end; late start / end; decode p95 at the end |");
+            md.Add("|---|---|---|---|---|---|---|---|");
+            foreach (var r in runs.Where(r => r.Readable && r.Node is not null))
+                md.Add(r.NodeRow());
+            md.Add("");
+        }
         md.Add("#### Each leg kind across its repeats (each run's figure in the run's order, then the lowest and the highest; nothing is averaged; the warm-up and a whole-core-free leg not pinned each in a row of their own, never with their kind)");
         md.Add("");
         md.Add("| Leg kind | Runs | Missed slots | Longest with no frame finished (ms, in the window) | Worst tick by wake (ms) | Longest with no tick woke (ms, in the window) | Longest pool wait (ms; >= a lower bound) |");
@@ -110,12 +129,17 @@ internal static class Reader
             "buy-normal is what HIGH buys: the victim's own loops, in a process that claims the class through the product's platform, are the " +
             "busy side's own deadline beside a burner NORMAL on every logical processor; a synthetic deadline loop beside a synthetic " +
             "competing load, not the node's render loop and not a real desk. high-n-runner is the victim at the class the runner started it " +
-            "at, not a desk's. The warm-up is the job's first burned leg, read as every leg is and never counted with its kind. The machine " +
+            "at, not a desk's. high-n1-pinned is high-n1 with its threads pinned one to each of the logical processors less one (beside " +
+            "high-n1 the pinning alone differs, beside high-core1 the free core and its one thread fewer). The node legs put PlayMap's own " +
+            "node in the burner's place, its class from its home's settings (node-high, node-normal beside the victim alone; node-high-load, " +
+            "node-normal-load beside a NORMAL burner on every logical processor): it decodes only what an enabled output draws, so each clip " +
+            "has a 64 x 36 output, and on a machine with no GPU each draw is Mesa's on the processors, so its threads by group say how much " +
+            "of it is Mesa's and how much the node's own decode, render and pools'. The warm-up is the job's first burned leg, read as every leg is and never counted with its kind. The machine " +
             "sampler's rows thin out or stop while a burner holds the processors, as the runner's own processes are held; who else ran is " +
             "read from its every-process rows, each sample's span the call's own (its row's time less its sample_ms, to its time), so a " +
             "held sample spans long and its share is spread over it. Synthetic busy threads on the machine named above, not a show machine " +
             "and not a Windows 11 client with a desk in the foreground (docs/round2/CARRYOVER.md, fix-ci-priority-measure, " +
-            "fix-priority-probe-reader and fix-priority-probe-third).");
+            "fix-priority-probe-reader, fix-priority-probe-third and fix-priority-probe-node).");
         md.Add("");
         File.WriteAllLines(Path.Combine(root, SummaryMd), md, new UTF8Encoding(false));
         Files.WriteCsv(Path.Combine(root, SummaryCsv), LegRead.CsvHeader, runs.Select(r => r.Csv()));
@@ -164,6 +188,7 @@ internal static class Reader
 
     public const string ServersFile = "servers.csv";
     public const string QuietFile = "quiet.csv";
+    public const string ReadingsFile = "readings.csv";
 
     /// <summary>What the job read before the legs (tools/ci-tests.ps1 -PriorityCost writes both files at the root): the build's servers
     /// still alive after the build and after their shutdown, and the quiet start's wait; each "not recorded" where the run wrote none.</summary>
@@ -186,6 +211,9 @@ internal static class Reader
             foreach (var row in rows)
                 yield return $"| build servers {Cell(row, "when") ?? "(no when)"} | {Cell(row, "alive") ?? "none"}{(Cell(row, "words") is { } w ? " (" + w + ")" : "")} |";
         }
+        // Whatever else the job read before the legs (the kernel trace tools on the runner, each read and never used): one row each.
+        foreach (var row in Files.ReadCsv(Path.Combine(root, ReadingsFile)))
+            yield return $"| {Cell(row, "what") ?? "(no what)"} | {Cell(row, "read") ?? "(not read)"} |";
         var quiet = Path.Combine(root, QuietFile);
         if (!File.Exists(quiet))
         {
@@ -247,7 +275,8 @@ internal static class Reader
         }
         var victim = Files.ReadCsv(Path.Combine(dir, "victim.csv")).FirstOrDefault();
         var burner = Files.ReadCsv(Path.Combine(dir, "burner.csv")).FirstOrDefault();
-        if (victim is null || (r.Spec.Threads > 0 && burner is null))
+        var node = Files.ReadCsv(Path.Combine(dir, NodeRun.File)).FirstOrDefault();
+        if (victim is null || (r.Spec.Threads > 0 && burner is null) || (r.Spec.IsNode && node is null))
         {
             r.Missing = "(no files: " + r.Outcome + ")";
             return r;
@@ -272,6 +301,21 @@ internal static class Reader
             r.BurnerLife = burner["processors_used"];
             r.BurnerWindow = WindowUse(burner, windowStart, windowEnd);
             (r.Pin, r.PinWords) = PinOf(burner);
+        }
+        long? nodeStop = null;
+        if (node is not null)
+        {
+            // The node was at work before the victim's window was made: the window is cut to its time at work, and its lead (burning
+            // beside the victim's frames before the window) is from the victim's ready, or from the burner's where one burns too.
+            var atWork = Long(node["at_work_mono_ns"]);
+            nodeStop = Long(node["stop_mono_ns"]);
+            if (atWork > 0)
+                from = Math.Max(from, atWork);
+            if (nodeStop > 0)
+                to = Math.Min(to, nodeStop.Value);
+            if (burner is null)
+                r.LeadFrom = Long(victim["ready_mono_ns"]);
+            r.Node = NodeRead.Of(dir, node, windowStart, windowEnd);
         }
         var mode = victim["class_mode"];
         var how = mode == "keep" ? ", kept as started"
@@ -349,9 +393,11 @@ internal static class Reader
         r.Dispatch = Stats.Of(ran.Select(p => p.Wait).ToList());
         r.PoolRun = ran.Count;
         r.PoolQueued = queuedIn.Count;
-        string RanAfter(long started) => burnerStop is { } stop && started >= stop
-            ? $"it ran {Rows.Ms(started - stop)} ms after the burner stopped"
-            : $"it ran {Rows.Ms(started - to)} ms after the window's end" + (burnerStop is null ? "" : ", the burner still burning");
+        var busyStop = burnerStop ?? nodeStop;
+        var busy = burnerStop is not null ? "the burner" : "the node";
+        string RanAfter(long started) => busyStop is { } stop && started >= stop
+            ? $"it ran {Rows.Ms(started - stop)} ms after {busy} stopped"
+            : $"it ran {Rows.Ms(started - to)} ms after the window's end" + (busyStop is null ? "" : $", {busy} still burning");
         foreach (var p in queuedIn.Where(p => p.Started >= to))
             r.Pending.Add((p.Wait, RanAfter(p.Started)));
         // A tick that queued an item (the item was not pending at it) whose run no pool row records: the item never ran while the victim
@@ -379,9 +425,10 @@ internal static class Reader
         foreach (var t in ticks.Where(t => t.Woke < from && !t.Pending && !queuedRuns.Contains(t.Woke)))
             r.PendingAtStart.Add(new PoolWait(((waitEnd ?? to) - t.Woke) / 1e6, true, $"queued {Rows.Ms(from - t.Woke)} ms before the window's start; {NeverRan()}"));
 
-        r.Others(Files.ReadCsv(Path.Combine(dir, ProcessesFile)), File.Exists(Path.Combine(dir, ProcessesFile)), victim, from, to);
+        r.Others(Files.ReadCsv(Path.Combine(dir, ProcessesFile)), File.Exists(Path.Combine(dir, ProcessesFile)), victim, from, to,
+            node is not null && Cell(node, "pid") is { } nodePid ? nodePid : null);
 
-        if (burner is not null && r.LeadFrom < from)
+        if ((burner is not null || node is not null) && r.LeadFrom < from)
         {
             r.LeadS = (from - r.LeadFrom) / 1e9;
             (r.LeadFrameSlots, r.LeadMissed) = SlotsIn(slots, r.LeadFrom, from);
@@ -389,15 +436,16 @@ internal static class Reader
             r.LeadTicks = wakes.Count(w => w >= r.LeadFrom && w < from);
             r.LeadNoTick = Longest(r.LeadFrom, from, wakes);
         }
-        else if (burner is not null)
+        else if (burner is not null || node is not null)
         {
-            r.LeadWords = $"none: the burner was ready {((r.LeadFrom - windowStart) / 1e9).ToString("0.000", CultureInfo.InvariantCulture)} s into the victim's window, where the window starts";
+            r.LeadWords = $"none: {(burner is not null ? "the burner" : "the node's victim")} was ready {((r.LeadFrom - windowStart) / 1e9).ToString("0.000", CultureInfo.InvariantCulture)} s into the victim's window, where the window starts";
         }
         r.Readable = true;
         return r;
     }
 
     public const string ProcessesFile = "machine.processes.csv";
+    public const string NodeThreads = NodeRun.ThreadsFile;
 
     /// <summary>The burner's pin as its row gives it: "unpinned" (not asked), "pinned" with the logical processors pinned to and left
     /// free, "not pinned" with the words why (and the plan's processors, never said as taken), or "not recorded" for an older probe's row.</summary>
@@ -538,6 +586,8 @@ internal sealed class LegRead(string dir, string folder, string kind, LegSpec? s
         "burner_processors_ready_to_stop", "burner_processors_in_window", "victim_processors_in_window", "victim_cpu_ms_life",
         "timer_at_window_start", "timer_at_window_end", "pool_pending_at_start", "pool_longest_wait",
         "place_label", "deadline_side", "burner_pin", "burner_pin_words", "samples_in_window", "others_in_window", "others_in_no_frame",
+        "samples_refused_in_window", "samples_refused_in_leg", "sampler_processor_s_in_window", "node_class_asked", "node_class_at_work",
+        "node_class_at_end", "node_processors_in_window", "node_processors_by_sampler", "node_groups", "node_fps", "node_decode",
     ];
 
     public string Dir { get; } = dir;
@@ -556,6 +606,15 @@ internal sealed class LegRead(string dir, string folder, string kind, LegSpec? s
     public string SamplesInWindow { get; set; } = "-";
     public string OthersInWindow { get; set; } = "-";
     public string OthersInNoFrame { get; set; } = "-";
+    public int RefusedInWindow { get; set; }
+    public int RefusedInLeg { get; set; }
+    public string SamplesRefused { get; set; } = "-";
+    public string SamplerShare { get; set; } = "-";
+    public string SamplerSeconds { get; set; } = "";
+    public string NodeBySampler { get; set; } = "-";
+
+    /// <summary>The node of a node leg as its rows read, or null for every other leg.</summary>
+    public NodeRead? Node { get; set; }
 
     /// <summary>The victim's loops are the busy side's own deadline (a buy leg).</summary>
     public bool Deadline => Spec?.Deadline == true;
@@ -568,7 +627,7 @@ internal sealed class LegRead(string dir, string folder, string kind, LegSpec? s
     /// side's own deadline.</summary>
     public string SpreadKey =>
         Warmup ? "warmup " + Kind
-        : Spec?.Pin == "core1" && Pin != "pinned" ? Kind + ", not pinned"
+        : Spec is { Pin: not "none" } && Pin != "pinned" ? Kind + ", not pinned"
         : Deadline && !Claimed ? Kind + ", not claimed (the busy side's own deadline)"
         : Deadline ? Kind + " (the busy side's own deadline)"
         : Kind;
@@ -692,49 +751,76 @@ internal sealed class LegRead(string dir, string folder, string kind, LegSpec? s
         BurnerLife, F(BurnerWindow.Processors, "0.00"), F(VictimWindow.Processors, "0.00"), VictimLife, TimerAtStart, TimerAtEnd,
         I(PendingAtStart.Count), LongestPoolWaitWords,
         Warmup ? "warmup" : "", Deadline ? "yes" : "no", Pin, PinWords, SamplesInWindow, OthersInWindow, OthersInNoFrame,
+        I(RefusedInWindow), I(RefusedInLeg), SamplerSeconds, Node?.Asked ?? "", Node?.AtWork ?? "", Node?.AtEnd ?? "",
+        Node is null ? "" : F(Node.Window.Processors, "0.00"), NodeBySampler is "-" ? "" : NodeBySampler, Node?.Groups ?? "", Node?.Fps ?? "", Node?.Decode ?? "",
     ];
 
-    /// <summary>Joins the machine sampler's every-process rows to the window and to its longest stretch with no frame finished: the
-    /// processes outside the probe's own (and Idle) with the most processor time in each, at most three, each with its pid, the highest
-    /// base priority read and the sampler's note on it. A sample spans its call (its row's time less its sample_ms, to its time) and
-    /// counts its share times its overlap; a stretch no sample overlaps says so. "not recorded" where the leg holds no such file.</summary>
-    public void Others(List<Dictionary<string, string>> rows, bool recorded, Dictionary<string, string> victim, long from, long to)
+    public string NodeRow() =>
+        Node is not { } n ? $"| {Label} | | | | | | | |"
+        : $"| {Label} | {n.ClassWords} | {n.Work} | {n.Window.Words} | {NodeBySampler} | {n.Groups} | {n.Outputs} | {n.Decoders} |";
+
+    /// <summary>Joins the machine sampler's every-process rows to the window and to its longest stretch with no frame finished, by pid
+    /// (a counter's instance name is renumbered as same-named processes start and end, so one pid can be read under more than one name
+    /// in a leg and one name can stand for two pids; its time stays one entry, said under every name read). A sample spans its call (its
+    /// row's time less its sample_ms, to its time) and counts its share times its overlap: the share the sampler joined by pid across
+    /// its own samples where its rows carry one (pid_processors), else the counter's cooked share. A sample whose rows' cooked shares sum
+    /// past the machine's logical processors by more than <see cref="Reader.ImpossibleMargin"/> is refused (the counter paired two
+    /// processes under one instance name between its collections), counted over the window and over the leg, and never read again. The
+    /// refusal is by the cooked shares even where the pid-joined ones are there and sound, so a sample a renumbered instance spoiled is
+    /// dropped whole, its pid-joined rows with it: the rule is the same for a run whose sampler wrote no pid-joined share.
+    /// From the samples kept: the processes outside the probe's own, the node and Idle with the most processor time in each, at most
+    /// three, each with its pid, the highest base priority read and the sampler's note on it; the sampler's own processor-seconds and
+    /// share of the window; the node's processors over the window by its pid. A stretch no kept sample overlaps says so. "not
+    /// recorded" where the leg holds no such file.</summary>
+    public void Others(List<Dictionary<string, string>> rows, bool recorded, Dictionary<string, string> victim, long from, long to, string? nodePid = null)
     {
         if (!recorded)
         {
             SamplesInWindow = "not recorded";
             OthersInWindow = OthersInNoFrame = "not recorded (this run's sampler listed no process rows)";
+            SamplesRefused = SamplerShare = "not recorded";
+            NodeBySampler = nodePid is null ? "-" : "not recorded";
             return;
         }
         var anchorMono = Reader.Long(victim["anchor_mono_ns"]);
         var anchorUtc = DateTime.Parse(victim["anchor_utc"], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
+        var logical = Reader.Cell(victim, "processors") is { } lp ? Reader.Dbl(lp) : Environment.ProcessorCount;
         double Mono(DateTime utc) => anchorMono + (utc - anchorUtc).Ticks * 100.0;
-        var samples = rows.Where(r => Reader.Cell(r, "utc") is not null && Reader.Cell(r, "sample_ms") is not null)
+        var joined = rows.Count > 0 && rows[0].ContainsKey("pid_processors");
+        var all = rows.Where(r => Reader.Cell(r, "utc") is not null && Reader.Cell(r, "sample_ms") is not null)
             .GroupBy(r => r["utc"] + "|" + r["sample_ms"], StringComparer.Ordinal)
             .Select(g =>
             {
                 var end = Mono(DateTime.Parse(g.First()["utc"], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime());
-                return (Start: end - Reader.Dbl(g.First()["sample_ms"]) * 1e6, End: end, Rows: g.ToList());
+                var sum = g.Sum(r => Reader.Cell(r, "processors") is { } p ? Reader.Dbl(p) : 0);
+                return (Start: end - Reader.Dbl(g.First()["sample_ms"]) * 1e6, End: end, Rows: g.ToList(), Impossible: sum > logical + Reader.ImpossibleMargin);
             })
             .ToList();
+        var samples = all.Where(x => !x.Impossible).ToList();
+        RefusedInLeg = all.Count(x => x.Impossible);
+        RefusedInWindow = all.Count(x => x.Impossible && x.End > from && x.Start < to);
+        SamplesRefused = $"{I(RefusedInWindow)} / {I(RefusedInLeg)}";
         static bool Probe(string name) => name.StartsWith("playmap.priorityprobe", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("idle", StringComparison.OrdinalIgnoreCase) || name.Equals("_total", StringComparison.OrdinalIgnoreCase);
+        string? Share(Dictionary<string, string> r) => joined ? Reader.Cell(r, "pid_processors") : Reader.Cell(r, "processors");
+        double Overlap(double a, double b, (double Start, double End, List<Dictionary<string, string>> Rows, bool Impossible) x) =>
+            (Math.Min(b, x.End) - Math.Max(a, x.Start)) / 1e9;
         string Top(double a, double b)
         {
             var over = samples.Where(x => x.End > a && x.Start < b).ToList();
             if (over.Count == 0)
                 return "no sample covers it";
-            // Keyed by pid alone: a process's counter instance name (pwsh, pwsh#1) is renumbered as same-named processes start and
-            // end, so one pid can be read under more than one name in a leg; its time stays one entry, said under every name read.
             var by = new Dictionary<string, (double Seconds, string Name, int Base, string Note)>(StringComparer.Ordinal);
             foreach (var x in over)
             {
-                var overlap = (Math.Min(b, x.End) - Math.Max(a, x.Start)) / 1e9;
+                var overlap = Overlap(a, b, x);
                 foreach (var r in x.Rows)
                 {
-                    if (Reader.Cell(r, "name") is not { } name || Probe(name) || Reader.Cell(r, "processors") is not { } p)
+                    if (Reader.Cell(r, "name") is not { } name || Probe(name) || Share(r) is not { } p)
                         continue;
                     var key = Reader.Cell(r, "pid") ?? "?";
+                    if (key == nodePid)
+                        continue;
                     var seconds = Reader.Dbl(p) * overlap;
                     var bas = Reader.Cell(r, "base_priority") is { } v ? (int)Reader.Dbl(v) : -1;
                     by[key] = by.TryGetValue(key, out var had)
@@ -751,12 +837,152 @@ internal sealed class LegRead(string dir, string folder, string kind, LegSpec? s
                     $"{(e.Value.Base < 0 ? "not read" : e.Value.Base.ToString(CultureInfo.InvariantCulture))}{(e.Value.Note.Length > 0 ? ", " + e.Value.Note : "")}) " +
                     $"{e.Value.Seconds.ToString("0.00", CultureInfo.InvariantCulture)} processor-s")) + $" ({span})";
         }
-        SamplesInWindow = samples.Count(x => x.End > from && x.Start < to).ToString(CultureInfo.InvariantCulture);
+        var window = samples.Where(x => x.End > from && x.Start < to).ToList();
+        SamplesInWindow = window.Count.ToString(CultureInfo.InvariantCulture);
         OthersInWindow = Top(from, to);
         OthersInNoFrame = double.IsNaN(NoFrame.Ms) ? "-" : Top(NoFrame.Start, NoFrame.End);
+        // The sampler's own processor time over the window, from its own rows (its note), with the highest base it read for itself.
+        var seconds = 0.0;
+        var covered = 0.0;
+        var samplerBase = -1;
+        var sampled = false;
+        foreach (var x in window)
+        {
+            var overlap = Overlap(from, to, x);
+            covered += overlap;
+            foreach (var r in x.Rows.Where(r => Reader.Cell(r, "note") == "the sampler"))
+            {
+                sampled = true;
+                if (Share(r) is { } p)
+                    seconds += Reader.Dbl(p) * overlap;
+                if (Reader.Cell(r, "base_priority") is { } b)
+                    samplerBase = Math.Max(samplerBase, (int)Reader.Dbl(b));
+            }
+        }
+        var windowS = (to - from) / 1e9;
+        SamplerSeconds = sampled ? seconds.ToString("0.00", CultureInfo.InvariantCulture) : "";
+        SamplerShare = window.Count == 0 ? "no sample covers it"
+            : !sampled ? "not in its own rows"
+            : $"{seconds.ToString("0.00", CultureInfo.InvariantCulture)} processor-s ({(windowS > 0 ? seconds / windowS : double.NaN).ToString("0.000", CultureInfo.InvariantCulture)} of a processor over the window), base {(samplerBase < 0 ? "not read" : samplerBase.ToString(CultureInfo.InvariantCulture))}";
+        if (nodePid is not null)
+        {
+            // The node's share over the samples that carry one for it alone: a pid's row with an empty share (its first row in the
+            // sampler's calls, or a time that went back) is seen but read for nothing, and its overlap is not in the divisor.
+            var nodeSeconds = 0.0;
+            var nodeCovered = 0.0;
+            var seen = 0;
+            var shared = 0;
+            foreach (var x in window)
+            {
+                var overlap = Overlap(from, to, x);
+                foreach (var r in x.Rows.Where(r => Reader.Cell(r, "pid") == nodePid))
+                {
+                    seen++;
+                    if (Share(r) is { } p)
+                    {
+                        shared++;
+                        nodeSeconds += Reader.Dbl(p) * overlap;
+                        nodeCovered += overlap;
+                    }
+                }
+            }
+            NodeBySampler = window.Count == 0 ? "no sample covers it"
+                : seen == 0 ? $"pid {nodePid} in no sample kept ({I(window.Count)})"
+                : shared == 0 ? $"pid {nodePid} in {I(seen)} of {I(window.Count)} samples kept, none with a share"
+                : $"{(nodeCovered > 0 ? nodeSeconds / nodeCovered : double.NaN).ToString("0.00", CultureInfo.InvariantCulture)} (pid {nodePid}, {I(shared)} of {I(window.Count)} samples kept, over {nodeCovered.ToString("0.0", CultureInfo.InvariantCulture)} s of the window)";
+        }
     }
 
     private static string I(int v) => v.ToString(CultureInfo.InvariantCulture);
 
     private static string F(double v, string format = "0.000") => double.IsNaN(v) ? "-" : v.ToString(format, CultureInfo.InvariantCulture);
+}
+
+/// <summary>A node leg's node as its rows read it (node.csv, node.threads.csv): its class asked and read back, its work, its processors
+/// over the window from its stamps, its threads by group over the same stamps (a thread there only at the end was started in the
+/// window and counts from nothing; one gone by the end is left out and counted), and STATE's output and decode figures at both bounds,
+/// as STATE counts them.</summary>
+internal sealed class NodeRead
+{
+    public string Asked { get; private init; } = "";
+    public string AtWork { get; private init; } = "";
+    public string AtEnd { get; private init; } = "";
+    public string ClassWords { get; private init; } = "";
+    public string Work { get; private init; } = "";
+    public WindowUse Window { get; private init; } = new(double.NaN, "-");
+    public string Groups { get; private init; } = "";
+    public string Fps { get; private init; } = "";
+    public string Outputs { get; private init; } = "";
+    public string Decode { get; private init; } = "";
+    public string Decoders { get; private init; } = "";
+
+    public static NodeRead Of(string dir, Dictionary<string, string> node, long windowStart, long windowEnd)
+    {
+        string C(string column) => Reader.Cell(node, column) ?? "-";
+        var window = ReaderWindow(node, windowStart, windowEnd);
+        var groups = "not recorded (no node.threads.csv)";
+        var threads = Files.ReadCsv(Path.Combine(dir, NodeRun.ThreadsFile));
+        if (threads.Count > 0 && Reader.Cell(node, "cpu_stamp_start_mono_ns") is { } t0 && Reader.Cell(node, "cpu_stamp_end_mono_ns") is { } t1)
+        {
+            var span = (Reader.Long(t1) - Reader.Long(t0)) / 1e6;
+            var by = new SortedDictionary<string, double>(StringComparer.Ordinal);
+            var gone = 0;
+            foreach (var t in threads)
+            {
+                if (Reader.Cell(t, "cpu_ms_at_window_end") is not { } end)
+                {
+                    gone++;
+                    continue;
+                }
+                var start = Reader.Cell(t, "cpu_ms_at_window_start") is { } s ? Reader.Dbl(s) : 0;
+                var g = Reader.Cell(t, "group") ?? "other";
+                by[g] = by.GetValueOrDefault(g) + (Reader.Dbl(end) - start);
+            }
+            groups = span <= 0 ? "its stamps span no time"
+                : string.Join("; ", by.Where(e => e.Value > 0).OrderByDescending(e => e.Value).ThenBy(e => e.Key, StringComparer.Ordinal)
+                      .Select(e => $"{e.Key} {(e.Value / span).ToString("0.00", CultureInfo.InvariantCulture)}"))
+                  + (gone > 0 ? $" ({gone.ToString(CultureInfo.InvariantCulture)} thread{(gone == 1 ? "" : "s")} gone by the end, not counted)" : "");
+        }
+        var claim = Reader.Cell(node, "state_claim_read_back") is { } rb ? $"STATE's claim {rb}{(Reader.Cell(node, "state_claim_applied") is { } a ? ", applied " + a : "")}" : "STATE's claim not read";
+        // MMCSS raises a thread into the realtime band for its share, above the controller's stamps and the sampler: said where recorded.
+        if (Reader.Cell(node, "state_render_mmcss") is { } rm)
+            claim += $"; MMCSS render {rm}, present {Reader.Cell(node, "state_present_mmcss") ?? "-"}";
+        var atWork = $"{C("class_at_work")} (base {C("base_at_work")})";
+        var atEnd = $"{C("class_at_end")} (base {C("base_at_end")})";
+        return new NodeRead
+        {
+            Asked = C("class_asked"),
+            AtWork = atWork,
+            AtEnd = atEnd,
+            ClassWords = $"{C("class_asked")} / {atWork} / {atEnd} ({claim})",
+            Work = $"{C("clips")} clips ({C("clip_files")}), one {C("output_size")} output each; {C("renderer")}" +
+                (Reader.Cell(node, "words") is { } w ? $"; {w}" : "") + (Reader.Cell(node, "controller") is { } c ? $"; {c}" : ""),
+            Window = window,
+            Groups = groups,
+            Fps = $"{C("fps_at_start")} / {C("fps_at_end")}",
+            Outputs = $"{C("fps_at_start")} / {C("fps_at_end")} fps; dropped {C("output_dropped_at_start")} / {C("output_dropped_at_end")}; " +
+                $"missed vblanks {C("missed_vblanks_at_start")} / {C("missed_vblanks_at_end")}; frame p95 {C("frame_ms_p95_at_end")} ms",
+            Decode = $"dropped {C("decode_dropped_at_start")} / {C("decode_dropped_at_end")}; late {C("decode_late_at_start")} / {C("decode_late_at_end")}; p95 {C("decode_ms_p95_at_end")} ms",
+            Decoders = $"{C("decoders_at_end")} open: dropped {C("decode_dropped_at_start")} / {C("decode_dropped_at_end")}; late {C("decode_late_at_start")} / {C("decode_late_at_end")}; decode p95 {C("decode_ms_p95_at_end")} ms",
+        };
+    }
+
+    /// <summary>The node's processors between its stamps at the window's bounds (the controller's, at the highest thread priority), with
+    /// how late each stamp was when more than a millisecond.</summary>
+    private static WindowUse ReaderWindow(Dictionary<string, string> node, long windowStart, long windowEnd)
+    {
+        if (Reader.Cell(node, "cpu_ms_at_window_start") is not { } c0 || Reader.Cell(node, "cpu_ms_at_window_end") is not { } c1 ||
+            Reader.Cell(node, "cpu_stamp_start_mono_ns") is not { } t0 || Reader.Cell(node, "cpu_stamp_end_mono_ns") is not { } t1)
+            return new WindowUse(double.NaN, "not stamped");
+        var span = (Reader.Long(t1) - Reader.Long(t0)) / 1e6;
+        if (span <= 0)
+            return new WindowUse(double.NaN, "its stamps span no time");
+        var used = (Reader.Dbl(c1) - Reader.Dbl(c0)) / span;
+        var lateStart = (Reader.Long(t0) - windowStart) / 1e6;
+        var lateEnd = (Reader.Long(t1) - windowEnd) / 1e6;
+        var words = lateStart > 1 || lateEnd > 1
+            ? $" (stamped {lateStart.ToString("0.0", CultureInfo.InvariantCulture)} ms and {lateEnd.ToString("0.0", CultureInfo.InvariantCulture)} ms after the window's bounds)"
+            : "";
+        return new WindowUse(used, used.ToString("0.00", CultureInfo.InvariantCulture) + words);
+    }
 }

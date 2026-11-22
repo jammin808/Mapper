@@ -1,0 +1,10 @@
+tid,name,group,cpu_ms_at_window_start,cpu_ms_at_window_end
+5001,llvmpipe-0,mesa llvmpipe,100.0,250.0
+5002,llvmpipe-1,mesa llvmpipe,100.0,250.0
+5003,hap worker 1,hap workers,50.0,150.0
+5004,hap decode clip0.mov,hap decode,10.0,60.0
+5005,render,render,20.0,45.0
+5006,PlayMap compute,compute pool,0.0,25.0
+5007,hap read clip0.mov,hap read,,25.0
+5008,hap read clip9.mov,hap read,40.0,
+5009,.NET TP Worker,thread pool,5.0,5.0

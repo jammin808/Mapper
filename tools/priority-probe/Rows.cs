@@ -29,6 +29,26 @@ internal static class Rows
         "pin", "pinned_processors", "free_processors", "pin_words",
     ];
 
+    /// <summary>The node a node leg ran (<see cref="NodeRun"/>): its class asked and read back at work and at the window's end, STATE's
+    /// claim, its clips and outputs, its renderer, its instants, its processor time stamped at the window's bounds, and STATE's decode,
+    /// output and pacing figures at both bounds (each a count since its decoder or output opened; an empty cell is a figure STATE did
+    /// not carry, never a zero), and STATE's MMCSS claims for its render and present threads (a thread MMCSS raises runs above the
+    /// controller's stamps and the sampler for its share, so a reader needs to know whether one was).</summary>
+    public static readonly string[] NodeHeader =
+    [
+        "os", "pid", "processors", "class_asked", "class_at_work", "base_at_work", "class_at_end", "base_at_end", "state_claim_read_back",
+        "state_claim_applied", "at_work", "clips", "clip_files", "output_size", "renderer", "up_mono_ns", "at_work_mono_ns", "stop_mono_ns",
+        "cpu_ms_at_window_start", "cpu_stamp_start_mono_ns", "cpu_ms_at_window_end", "cpu_stamp_end_mono_ns",
+        "fps_at_start", "fps_at_end", "output_dropped_at_start", "output_dropped_at_end", "frame_ms_p95_at_end",
+        "missed_vblanks_at_start", "missed_vblanks_at_end", "decode_dropped_at_start", "decode_dropped_at_end",
+        "decode_late_at_start", "decode_late_at_end", "decode_ms_p95_at_end", "decoders_at_end",
+        "state_read_start_mono_ns", "state_read_end_mono_ns", "controller", "words", "state_render_mmcss", "state_present_mmcss",
+    ];
+
+    /// <summary>The node's threads at the window's bounds: each one's id, name, group (<see cref="NodeRun.Group"/>) and processor time
+    /// at the window's start and end (empty where it was not there).</summary>
+    public static readonly string[] NodeThreadsHeader = ["tid", "name", "group", "cpu_ms_at_window_start", "cpu_ms_at_window_end"];
+
     public static readonly string[] LegHeader =
     [
         "leg", "label", "burner_threads", "burner_class", "victim_class", "seconds", "lead_seconds", "started_utc", "victim_ready_utc",
