@@ -122,7 +122,13 @@ public sealed class EngineHost : IAsyncDisposable
         var startedUnixMs = wall.UnixMs;
 
         // The node's own: its settings (this run's name and ports over the stored ones), its certificate, its pins.
-        var stored = _home.LoadSettings(_options.Name ?? Environment.MachineName);
+        var stored = _home.LoadSettings(_options.Name ?? Environment.MachineName, out var missing);
+        if (!missing.IsEmpty)
+        {
+            // Named once, at the load that found them, by name only: the token and the keys ride in no line.
+            _log.LogWarning("The node's settings file lacked {Fields}, which read as their defaults{Token}; the next settings change writes every field.",
+                string.Join(", ", missing), missing.Contains(NodeHome.TokenKey) ? " (the pairing token was made afresh, so every paired peer pairs again, and the file is kept beside it as .damaged)" : "");
+        }
         var running = stored with
         {
             Name = _options.Name ?? stored.Name,

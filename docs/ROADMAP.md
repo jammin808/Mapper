@@ -43,7 +43,13 @@ The lab checks still to do:
   Windows 11 node with Memory Integrity on (Windows then runs as Hyper-V's root partition), under the machine platform's timer
   claims (L22; until it passes, a Windows thread time is its clock ticks, and the survey slice's budget there is proven by the
   stopwatch and shown, not proven, by the ticks, docs/FACADE.md); the machine platform's claims against frame time on NVIDIA, AMD
-  and Intel nodes, a hybrid Intel CPU and a dual-CCD CPU (L10), and its edition rows and claims on a clean Home node (L23).
+  and Intel nodes, a hybrid Intel CPU and a dual-CCD CPU (L10), and its edition rows and claims on a clean Home node (L23); the show
+  machine's node figure: the priority probe's node legs (`tools/priority-probe`, kind `node`: PlayMap's own node playing HAP clips at
+  its process class HIGH and at NORMAL, alone and beside a Normal burner on every logical processor) on the show laptop with its own
+  GPU and the desk in the foreground, which a CI runner (no GPU, Mesa's llvmpipe drawing inside the node) cannot stand for; its pass
+  mark is the probe's own, which sets none on a figure (every number it writes is a reading, never a pass mark: a leg is whole when
+  the node came up, took the class asked, got to work and, on Windows, read that class back), so the line is its legs run whole
+  and their readings kept for the owner's call on the node's class.
 - The installed node: on IoT Enterprise LTSC 2024, auto-logon, the supervisor starting the engine in the show user's session after
   a cold boot (M9), Shell Launcher and an upgrade refused while armed (L11); the unsigned installer on clean Home and Pro as a
   person meets it — SmartScreen, UAC and Smart App Control (L18); ReadyToRun's first ten minutes (L21); the local show account,

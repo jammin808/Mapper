@@ -51,11 +51,16 @@ public sealed class NodeHome
     /// damaged one kept beside it): a load that may write the file, so only the node's start and the settings file's one writer (the
     /// network host, inside its own lock from the read to the write) load it. Every other reader reads it as it is
     /// (<see cref="ReadSettings"/>).</summary>
-    public NodeSettings LoadSettings(string defaultName)
+    public NodeSettings LoadSettings(string defaultName) => LoadSettings(defaultName, out _);
+
+    /// <summary><see cref="LoadSettings(string)"/>, saying which fields of the settings' own record the file lacked (by name, as the
+    /// file spells them; never a value), each read by its rule (<see cref="FillMissing"/>). Empty for a file with every field, a first
+    /// run and a file that does not read.</summary>
+    internal NodeSettings LoadSettings(string defaultName, out ImmutableArray<string> missing)
     {
         NodeSettings read;
         lock (SettingsGate)
-            read = LoadSettingsLocked(defaultName);
+            read = LoadSettingsLocked(defaultName, out missing);
         SettingsRead?.Invoke();
         return read;
     }
@@ -80,7 +85,8 @@ public sealed class NodeHome
                 return null;
             }
         }
-        return Parse(text);
+        // A file without its pairing token reads as no settings here: only the load makes the token that replaces it.
+        return Parse(text, Environment.MachineName) is { TokenMissing: false } parsed ? parsed.Settings : null;
     }
 
     /// <summary>Raised on the reader's thread after each read of the settings file, outside the file's own lock (a test holds an edit
@@ -89,8 +95,9 @@ public sealed class NodeHome
 
     private Lock SettingsGate => SettingsGates.GetOrAdd(SettingsPath, _ => new Lock());
 
-    private NodeSettings LoadSettingsLocked(string defaultName)
+    private NodeSettings LoadSettingsLocked(string defaultName, out ImmutableArray<string> missing)
     {
+        missing = [];
         if (!File.Exists(SettingsPath))
         {
             var first = NodeSettings.CreateDefault(defaultName);
@@ -98,8 +105,17 @@ public sealed class NodeHome
             return first;
         }
         var text = ReadText();
-        if (Parse(text) is { } loaded)
-            return loaded;
+        if (Parse(text, defaultName) is { } parsed)
+        {
+            missing = parsed.Missing;
+            if (!parsed.TokenMissing)
+                return parsed.Settings;
+            // A file that lacks the pairing token is put right as a damaged one is (kept beside, the new one written), but it keeps
+            // every field it does hold: only the token is made afresh, so the node never runs open for want of one.
+            File.Copy(SettingsPath, SettingsPath + ".damaged", overwrite: true);
+            SaveSettings(parsed.Settings);
+            return parsed.Settings;
+        }
         // A file that does not read is kept beside the new one so nothing is lost silently, and the new one keeps the
         // node's id, name and pairing token whenever the old one still says them: a typo never unpairs the show.
         File.Copy(SettingsPath, SettingsPath + ".damaged", overwrite: true);
@@ -113,20 +129,61 @@ public sealed class NodeHome
     /// pairing-token read) never makes the writer's replace fail.</remarks>
     private string ReadText() => DurableFile.ReadAllText(SettingsPath);
 
-    /// <summary>The settings a file's text holds, or null when it does not read as the node's settings (not JSON, or no valid node id).</summary>
-    private static NodeSettings? Parse(string text)
+    /// <summary>The settings a file's text holds, with the fields it lacked filled by their rule and named, or null when it does not
+    /// read as the node's settings (not JSON, or no valid node id).</summary>
+    private static ParsedSettings? Parse(string text, string defaultName)
     {
         try
         {
             // A key written as null (a hand edit) reads as a missing one does: a package's settings its defaults, a list empty.
-            var loaded = WithoutNulls(text)?.Deserialize<NodeSettings>(Json);
-            return loaded is not null && Ids.IsValid(loaded.NodeId) ? ProjectJson.Sanitize(loaded) : null;
+            var root = WithoutNulls(text);
+            var missing = root is System.Text.Json.Nodes.JsonObject obj ? FillMissing(obj, defaultName) : [];
+            var loaded = root?.Deserialize<NodeSettings>(Json);
+            return loaded is not null && Ids.IsValid(loaded.NodeId) ? new ParsedSettings(ProjectJson.Sanitize(loaded), missing) : null;
         }
         catch (JsonException)
         {
             // Not the node's settings as they stand: the caller decides (a load puts it right, a read takes none).
             return null;
         }
+    }
+
+    /// <summary>A settings file's settings as read, and the fields of the settings' own record its text lacked (by name).</summary>
+    private sealed record ParsedSettings(NodeSettings Settings, ImmutableArray<string> Missing)
+    {
+        public bool TokenMissing => Missing.Contains(TokenKey);
+    }
+
+    private static readonly string NodeIdKey = JsonNamingPolicy.CamelCase.ConvertName(nameof(NodeSettings.NodeId));
+    internal static readonly string TokenKey = JsonNamingPolicy.CamelCase.ConvertName(nameof(NodeSettings.Token));
+
+    /// <summary>The keys of the settings' own record (its primary constructor's parameters, as the file spells them): a key the file
+    /// lacks would otherwise read as its type's default, a null string or a default list.</summary>
+    private static readonly ImmutableArray<string> PrimaryKeys =
+    [
+        .. typeof(NodeSettings).GetConstructors().Single().GetParameters().Select(p => JsonNamingPolicy.CamelCase.ConvertName(p.Name!)),
+    ];
+
+    /// <summary>Fills each key of the settings' own record that <paramref name="root"/> lacks, and returns their names in the record's
+    /// order. A string, the trusted list and a port read as a fresh node's; the name as <paramref name="defaultName"/> (as a first run
+    /// and a damaged file name it); TrustLoopback, Announce and RequireHttps as the value that widens no access (no loopback trusted,
+    /// no hello, plain HTTP refused off loopback); the pairing token afresh, never "" (open), and its caller keeps the file beside as a
+    /// damaged one; the node id stays missing, so the file takes the damaged path. Package settings are left to
+    /// their records' own defaults. The file is not written for a filled field: the next save by the one writer writes every field.</summary>
+    private static ImmutableArray<string> FillMissing(System.Text.Json.Nodes.JsonObject root, string defaultName)
+    {
+        var missing = PrimaryKeys.Where(k => !root.ContainsKey(k)).ToImmutableArray();
+        if (missing.IsEmpty)
+            return missing;
+        var rule = JsonSerializer.SerializeToNode(NodeSettings.CreateDefault(defaultName) with
+        {
+            TrustLoopback = false,
+            Announce = false,
+            RequireHttps = true,
+        }, Json)!.AsObject();
+        foreach (var key in missing.Where(k => k != NodeIdKey))
+            root[key] = rule[key]!.DeepClone();
+        return missing;
     }
 
     private static readonly JsonDocumentOptions Lenient = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };

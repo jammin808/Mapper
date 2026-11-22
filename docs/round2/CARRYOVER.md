@@ -6914,3 +6914,117 @@ Round 2 W1 notes:
   - The Windows paths above are read, not run, until the next `prioritycost` dispatch; how often the runner's other processes take
     a handed-out port before the node binds it is not measured (each retry is said in its row, so the next dispatch counts them).
   - What binding every interface and announcing costs a node's figures is not measured apart from the rest of its work.
+
+## Integrator notes from the round-2 fix batch (fix-node-settings-missing-fields)
+
+- Done: a product line, on the owner's answer 2 after fix-priority-probe-node (Stagewatch's `docs/ecosystem/owner-answers.md`, its
+  last entry before "# Commit identity": "The engine's start-up fault on a node home whose settings lack the link fields
+  (`NetworkHost.cs` 290, a NullReferenceException on `s.PatternsHost.Length`) is mended …: a missing field reads as its default, the
+  node says so once in its log, a test fences it"), and its answer 1 for one line of `docs/ROADMAP.md`'s lab list. The leave as
+  edited: `src/PlayMap.Engine/NodeHome.cs` (the reader); `src/PlayMap.Engine/Host/EngineHost.cs` (the one log line); one new test
+  file under `tests/PlayMap.Engine.Tests/Host`; `docs/ROADMAP.md` (one lab-list line); this entry. Not edited: `Pairing.cs` (the
+  record: the defaults are the reader's, `CreateDefault` already names a fresh node's), `ProjectJson.cs` (its `Sanitize` is
+  generic over every model graph and holds no node-settings rule), `NetworkHost.cs` (the reader carries it). Nothing else under
+  `src/`.
+  - The cause, confirmed by reading and by the tests at HEAD: `NodeSettings` (`src/PlayMap.Core/Bus/Pairing.cs` 139-175) is a
+    positional record; System.Text.Json fills a constructor parameter the file lacks with `default(T)` (NodeHome's options set no
+    `RespectRequiredConstructorParameters`): null for a string, a default `ImmutableArray` for `TrustedAddresses`, 0 for a port,
+    false for a bool. `NodeHome.Parse` (`WithoutNulls`, `Deserialize`, `Ids.IsValid` on the node id only, `ProjectJson.Sanitize`)
+    passed it on; `Sanitize` mends the default list (to empty) and nothing else of the record (a `System` type, a string, keeps its
+    null). A key written as null already read as missing (`WithoutNulls`). At HEAD the new start test failed exactly as the fault:
+    `NullReferenceException` at `NetworkHost.StartAsync` (`NetworkHost.cs` 290), the node never up.
+  - The packages' own settings (`NodeSettings.<Word>.cs`), read: every package's member on the record is an init property with an
+    initializer (`… { get; init; } = <X>Settings.Default`), and every member of every package record is an init property with an
+    initializer, so a package or a member the file lacks (or writes as null) reads its default: Align, Audio, Companion, Content,
+    Control, Decode, Fleet, Fx, Led, Machine, Optimise, Output (`Present`), Phone, Show, Sync, VideoIo, Wall, Web; Capture, Gpu and
+    Observe hold nothing yet. The one exception, read, not edited (outside the leave): `MachineSettings.Locked` is a
+    `LockedDriverSet?` (`src/PlayMap.Core/Machine/MachineSettings.cs` 45), itself positional, as is its `LockedAdapter` (100): a
+    `locked` object present in the file but lacking one of its strings reads that string null (a missing `locked` reads null, which
+    the type allows). Open, below.
+  - The rule, per field of the primary record, applied at the reader (`NodeHome.FillMissing`, before `Deserialize`: each key of the
+    primary constructor the file's object lacks is filled from one template, `CreateDefault(<the load's default name>)` with
+    TrustLoopback false, Announce false and RequireHttps true; the keys are taken from the constructor by reflection, so a field
+    added later is filled from `CreateDefault` without a new rule, and the test below covers it):
+
+    | field | a missing one reads as | why | today (HEAD) |
+    |---|---|---|---|
+    | `nodeId` | not filled: the damaged path (the file kept as `.damaged`, a fresh id, name and token kept by `KeepIdentity`) | today's path, as asked | the same |
+    | `name` | the load's default name (`--name`, else the machine's name; a read-only read: the machine's name) | the name a first run and the damaged path give a file without one; today's path is a null `Name` (`Parse` checks only the node id, `Sanitize` leaves a string null), which the batch's goal of never null rules out, so a missing name takes the name a first run and the damaged path give | null |
+    | `bind` | `""` (every interface) | `CreateDefault`'s; reachability, not authority: a fresh node's own bind; the listeners that parse it through `NetAddress.ParseBind` (the hello, the announcer) read a null bind so, while `NetworkHost` (about 207, `Bind.Trim()`) and `ControlService` (368, `Bind.Length`) fault on it; the token below gates what reaches it | null (the readers that call `Trim()` on it fault) |
+    | `httpPort`, `wirePort`, `syncPort` | 9940, 9941, 9942 (`ShowBusConstants`) | `CreateDefault`'s | 0 (an ephemeral port nobody knows) |
+    | `token` | never `""` (open): a fresh token (`Pairing.NewToken`), the file kept beside as `.damaged`, every other field kept as the file holds it, the file written; a read-only read takes no settings (null), as for a file that does not read | fail closed: `""` asks for no token. The damaged path's other fields would be reset (`KeepIdentity` keeps three); this keeps them all, since they read. Written because a fresh token not written would be another one at every load, and the desk's read would never match | null |
+    | `trustLoopback` | false (no loopback trusted without a proof) | the value that does not widen access | false (the same) |
+    | `trustedAddresses` | `[]` | `CreateDefault`'s, and the narrowest | `[]` (already, by `Sanitize`) |
+    | `requireHttps` | true (plain HTTP refused off loopback) | the value that does not widen access; `CreateDefault` has false | false (wider) |
+    | `announce` | false (no hello) | the value that does not widen access; `CreateDefault` has true | false (the same) |
+    | `patternsHost`, `patternsToken`, `stagewatchHost`, `stagewatchKey` | `""` (no Patterns to follow, no token for it, the first Stagewatch heard, the key in the credential store) | `CreateDefault`'s; none widens access (`stagewatchHost` is only read while `stagewatchEnabled`) | null (`patternsHost`: the fault) |
+    | `stagewatchEnabled` | false | `CreateDefault`'s; following nothing widens nothing | false (the same) |
+
+  - Written back: no, for every field but the token. A load that filled fields writes nothing; the next save by the one writer (the
+    network host's `PersistSettings`) writes every field. The fence (`SettingsGateTests.NoCodeButTheNetworkHostWritesTheSettingsFile`)
+    holds unchanged: the token's write is NodeHome's own damaged path (its `SaveSettings` call has no receiver, as the first-run and
+    damaged ones).
+  - The one log line: at the node's start, the one load that may find them (`EngineHost.StartAsync`, after `LoadSettings`, where the
+    engine's log is first made), a warning on `PlayMap.Engine.Host`: "The node's settings file lacked patternsHost, stagewatchHost,
+    trustedAddresses, which read as their defaults; the next settings change writes every field." (the token among them adds that a
+    fresh one was made, every paired peer pairs again, and the file is kept beside as `.damaged`). Names only, as the file spells
+    them, never a value. `NodeHome.LoadSettings(string, out ImmutableArray<string> missing)` (internal) carries the names; the public
+    `LoadSettings(string)` and `ReadSettings()` say nothing (the desk's read and the network host's later loads among them).
+- Tests: `tests/PlayMap.Engine.Tests/Host/SettingsMissingFieldsTests.cs` (new, 21), written first and run at HEAD (the token's start test added at the review's fold-in):
+  - `AFieldMissingFromTheFileReadsItsRule`, a Theory over every primary-constructor parameter of `NodeSettings` by reflection (16
+    rows): a file whose every field differs from a fresh node's, that one key removed, read through `ReadSettings` and loaded through
+    `LoadSettings`: no string null and no default list; the rule's value (above); every other field as the file held it; the read the
+    same as the load but the name; nothing written and nothing beside, but for the node id (the damaged path) and the token (never
+    `""`, not the file's, `.damaged` holding the file's bytes, the written file read back with that token by the read and the next
+    load, every other field kept; the read-only read null). At HEAD 11 rows failed (name, bind, the three ports, the token,
+    requireHttps and the four link fields) and 5 passed, as they should (nodeId, trustLoopback, trustedAddresses, announce,
+    stagewatchEnabled already read their rule). Its default branch refuses a `bool` field it does not name ("decide what a missing
+    <field> reads as"), so a security-relevant bool added later is not filled from `CreateDefault`'s possibly wide value without its
+    author deciding its rule (`stagewatchEnabled` is named: false).
+  - `ANodeWhoseFileLacksTheLinkFieldsStarts`: a real node (`HostRig`) on a home whose file lacks `patternsHost`, `patternsToken`,
+    `stagewatchHost` and `stagewatchKey` starts, its network host's settings `""` for the four, STATE read, its wire taken. At HEAD:
+    the fault, `NullReferenceException` at `NetworkHost.cs` 290.
+  - `TheStartNamesTheMissingFieldsOnceAndNoValue`: a file lacking `patternsHost`, `stagewatchHost` and `trustedAddresses` with a
+    recognisable token, Patterns token and Stagewatch key in it: once stopped, exactly one line of the node's log names the three
+    (and not `bind`), and no line of the log nor the journal carries any of the three values. At HEAD: the fault.
+  - `AWholeFileReadsAsItWasByteForByteThroughASave`: a file with every field: the load writes nothing (bytes and time), reads every
+    field as written, and a save of what it read writes the same bytes. Passes at HEAD (it fences the mend reaching too far).
+  - `TheDesksReadOfAFileThatLacksFieldsWritesNothing`: `ReadSettings` of a file lacking the four link fields reads them `""` and the
+    file's token, the file unchanged (bytes and time); of a file lacking its token, null, unchanged, nothing beside. At HEAD: the four
+    read null.
+  - `TheStartOnAFileWithoutItsTokenMakesOneAndSaysSoWithNoValue`: a real node on a home whose file lacks `token` and `patternsHost`
+    starts with a fresh token (not `""`, not the rig's), `.damaged` holding the file's bytes, the file read back with that token; one
+    log line names `token, patternsHost` and says `.damaged`; neither the new token nor the Patterns token nor the Stagewatch key is in
+    any log line or the journal.
+  - Mutation-proved, each against the tests as written, the source put back and rebuilt after: the fill removed (the template's
+    values not put in) fails 14 (the 11 rows, the start and the log tests with the fault, the desk's read); the token's rule set to
+    `""` (with the token path off) fails the token row and the desk's read (a read-only read not null); the log line carrying the
+    token and the Patterns token fails the log test (a line holds a value); the log line never written fails the log test.
+  - The validate, on the 10.0.404 SDK, `PLAYMAP_SCHEDULING_PROBE` and `PLAYMAP_WRITE_FIXTURES` unset: the build whole, no warning, no
+    error (its analysis reported nothing in any file); the Engine suite's `Host` namespace whole (`SettingsGateTests`,
+    `SettingsReaderTests`, `NodeCredentialStoreTests` and the new tests among it), 100 passed, 1 skipped (a `[WindowsFact]`), and its
+    `Spine` namespace whole (`NodeSettingsTests` among it), 121 passed, 4 skipped, both with the variables unset; the other classes
+    that read a node home (`Fleet`, `Machine`, `MediaImportRefusalTests`, `SourceReleaseTests`), 130 passed with the variables of
+    `tools/setup-dev.sh start` (four of them need the display: without it they fail before any settings are read, "no render host:
+    no display"). Core and Net unchanged, not run.
+  - The committing validate, after the review's fold-in (the token's start test, the Theory's refusal of an unnamed bool, words):
+    the build whole on 10.0.404, no warning, no error; the Engine suite whole in three parts that name every test once: `Host`
+    101 passed, 1 skipped, and `Spine` 121 passed, 4 skipped, with the variables unset; the rest 1,168 passed, 2 skipped with the
+    variables of `tools/setup-dev.sh start` (its first run, on a build made without `PLAYMAP_DXC_DIR`, failed the six DXC tests of
+    `Shaders` with "libdxcompiler.so is not beside the worker": the folder is read by the build, as the loop says; rebuilt with it
+    set, `Shaders` 40 passed). Core and Net unchanged, not run.
+- Files: `src/PlayMap.Engine/NodeHome.cs`; `src/PlayMap.Engine/Host/EngineHost.cs`;
+  `tests/PlayMap.Engine.Tests/Host/SettingsMissingFieldsTests.cs` (new); `docs/ROADMAP.md` (the lab list: the show machine's node
+  figure, the priority probe's node legs at HIGH and NORMAL on the show laptop with its GPU and the desk in the foreground; the probe
+  sets no pass mark on a figure, so its mark is its own leg rule, and the line is reported not run); this entry.
+- Open:
+  - Outside the leave, read, not edited: a `locked` driver set present but lacking a string (`LockedDriverSet`, `LockedAdapter`,
+    `src/PlayMap.Core/Machine/MachineSettings.cs` 45 and 100, positional) reads that string null; `DriftTo` would then compare a null.
+    The mend is the same rule one level down (a missing string reads `""`), for a batch whose leave names that file or a fill of
+    nested positional records in `NodeHome`.
+  - Only the start says the names. A file edited while the node runs to lack fields is filled silently at the network host's next
+    load (`NetworkHost.Fresh`, before a settings change) and then written whole; one edited to lack its token gets a fresh token
+    there with no line (the node's token changes under its paired peers, as any hand edit of the token does). A line from that load
+    is the owner's call.
+  - Not run off Linux: the Windows paths are the same code (no platform branch); `File.Copy` over an earlier `.damaged` and the
+    durable write are the damaged path's, already run by the Windows job.
