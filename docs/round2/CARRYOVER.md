@@ -7028,3 +7028,17 @@ Round 2 W1 notes:
     is the owner's call.
   - Not run off Linux: the Windows paths are the same code (no platform branch); `File.Copy` over an earlier `.damaged` and the
     durable write are the damaged path's, already run by the Windows job.
+
+## Integrator notes from a CI mend (the 413 test's port, after run 506)
+
+- Done: tests only, nothing under `src/`. Run 506 (the push of 8e41259a) failed, beside the settings fence a54c3473 mended, at
+  `StagewatchLinkTests.AStagewatchThatAnswers413SaysItsWordsAndHoldsNothing` on the Linux job: "Assert.DoesNotContain() Failure:
+  Sub-string found … String: "following Stagewatch at 127.0.0.1:41307" Found: "413"". The test's last check asked that no "413"
+  be left in the link's words once Stagewatch takes the context; the words it read were right (the refusal gone), but they name
+  the fake Stagewatch's port, which the machine chooses, and port 41307 carries the three digits. The check now asks that the
+  refusal's own words (read before Stagewatch's bound is raised) and "(413)" are gone, which no port can carry; what the test
+  proves is unchanged. The other digit checks under `tests/` (`git grep -n -E 'DoesNotContain\("[^"]*[0-9]'`) were read: each
+  reads words built from fixed inputs, none a port or an address the machine chooses.
+- Tests: the class `StagewatchLinkTests` whole, run three times.
+- Files: `tests/PlayMap.Net.Tests/StagewatchLinkTests.cs`; this entry.
+- Open: none.

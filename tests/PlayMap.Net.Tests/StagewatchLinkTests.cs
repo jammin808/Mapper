@@ -1104,11 +1104,14 @@ public class StagewatchLinkTests
         Assert.Equal((TimeSpan.Zero, TimeSpan.Zero, ""), (link.RefusedFor, link.BusyFor, link.Refusal));
         Assert.Equal(LinkStatus.Live, link.Status);
 
-        // Taken again once Stagewatch takes it: the words go.
+        // Taken again once Stagewatch takes it: the words go. The refusal is matched by its own words and its "(413)", never a bare
+        // "413": the link's other words name the fake's port, which the machine chooses and which can carry those three digits.
+        var refused = link.ContextWords;
         sw.MaxContextBytes = ContextFit.MaxBytes;
         Assert.True(await Eventually.TrueAsync(() => !sw.Contexts.IsEmpty && link.ContextWords.Length == 0), link.Words);
         Assert.Equal(built, Body(sw.Contexts.First()));
-        Assert.DoesNotContain("413", link.Words, StringComparison.Ordinal);
+        Assert.DoesNotContain(refused, link.Words, StringComparison.Ordinal);
+        Assert.DoesNotContain("(413)", link.Words, StringComparison.Ordinal);
     }
 
     [Fact]
